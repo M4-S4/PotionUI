@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StudioSheet from '../../../routes/generate/components/studio/StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import UserPanel from './UserPanel.svelte';
 
 	export let onClose: () => void;

@@ -53,10 +53,3 @@ def up():
             seeded.append(key)
 
     print(f"Migration 023_backup_settings: seeded {len(seeded)} setting(s)")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for key, _, _, _ in _SETTINGS:
-            cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
-    print("Migration 023_backup_settings: removed the backup settings")

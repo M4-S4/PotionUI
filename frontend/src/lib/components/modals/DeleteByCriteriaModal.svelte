@@ -1,14 +1,8 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Alert, Switch } from '$lib/components/ui';
-	import {
-		createConfirmSettlementGate,
-		getConfirmKeyboardAction,
-		settleIfEligible
-	} from './confirmKeyboard';
 	import {
 		buildDeleteByCriteriaRequest,
 		hasCriteria,
@@ -49,7 +43,6 @@
 	let deleting = false;
 	let countDebounceHandle: ReturnType<typeof setTimeout> | undefined;
 
-	const settlementGate = createConfirmSettlementGate();
 	$: criteriaSelected = hasCriteria(state, criteria);
 	$: canConfirm = criteriaSelected && matchCount > 0 && !deleting && !counting;
 
@@ -80,16 +73,17 @@
 	}
 
 	async function handleDelete() {
-		if (!hasCriteria(state, criteria)) return;
+		if (!hasCriteria(state, criteria)) return false;
 		deleting = true;
 		try {
 			await remove(buildDeleteByCriteriaRequest(state, criteria));
 			state = initialDeleteByCriteriaState();
 			matchCount = 0;
 			onClose();
+			return true;
 		} catch (e) {
 			logger.error('Failed to delete by criteria:', e);
-			settlementGate.reset();
+			return false;
 		} finally {
 			deleting = false;
 		}
@@ -120,38 +114,23 @@
 		if (!color) return 'background-color: rgb(var(--surface-3)); color: rgb(var(--fg)); border-color: rgb(var(--line-hover));';
 		return `background-color: ${color}20; color: ${color}; border-color: ${color}60;`;
 	}
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, canConfirm, handleDelete);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (deleting) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	isOpen={true}
 	{title}
 	sizeClass="md:max-w-lg md:w-full"
-	closeable={!deleting}
+	busy={deleting}
 	dialogRole="alertdialog"
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	confirmLabel="Confirm"
+	confirmVariant="danger"
+	confirmDisabled={!canConfirm}
+	onConfirm={handleDelete}
+	onCancel={onClose}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<Icon name="warning" className="w-5 h-5 text-danger" />
-	</svelte:fragment>
+	{/snippet}
 	<div class="p-6 space-y-5">
 		<p class="text-sm text-fg-muted">
 			{itemLabelPlural[0].toUpperCase()}{itemLabelPlural.slice(1)} matching every criterion below will be permanently deleted.
@@ -340,14 +319,4 @@
 			</Alert>
 		{/if}
 	</div>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Confirm"
-			confirmVariant="danger"
-			confirmDisabled={!canConfirm}
-			busy={deleting}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

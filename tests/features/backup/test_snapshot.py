@@ -41,6 +41,19 @@ def test_snapshot_matches_source_row_counts(tmp_path):
     assert table_row_counts(destination)["notes"] == 500
 
 
+def test_row_counts_leave_out_the_planner_statistics_table(tmp_path):
+    source = tmp_path / "db.sqlite"
+    conn = _uncheckpointed_database(source)
+    try:
+        conn.execute("CREATE INDEX idx_notes_body ON notes (body)")
+        conn.execute("ANALYZE")
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert table_row_counts(source) == {"notes": 500}
+
+
 def test_snapshot_passes_integrity_check(tmp_path):
     source = tmp_path / "db.sqlite"
     conn = _uncheckpointed_database(source)

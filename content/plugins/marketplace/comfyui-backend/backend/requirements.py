@@ -42,6 +42,7 @@ from src.plugin_api.presets import (
     RequirementResult,
 )
 
+from .comfyui_client import ComfyUiClient
 from .preset_import.node_catalog import GGUF_FOLDER_ALIAS
 
 # `GGUF_FOLDER_ALIAS` (physical folder -> ComfyUI-GGUF alias) reversed, so a
@@ -183,11 +184,8 @@ def _resolve_comfyui_backend(ctx: RequirementContext) -> Union[Tuple[str, str], 
 
 
 async def _get_object_info(base_url: str) -> Dict[str, Any]:
-    timeout = aiohttp.ClientTimeout(total=_REQUEST_TIMEOUT_SECONDS)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(f"{base_url}/object_info") as resp:
-            resp.raise_for_status()
-            return await resp.json()
+    async with ComfyUiClient(base_url, _REQUEST_TIMEOUT_SECONDS) as client:
+        return await client.object_info()
 
 
 async def _fetch_object_info(backend_id: str, base_url: str) -> Dict[str, Any]:
@@ -206,11 +204,8 @@ async def _fetch_object_info(backend_id: str, base_url: str) -> Dict[str, Any]:
 
 
 async def _get_model_names(base_url: str, folder: str) -> List[str]:
-    timeout = aiohttp.ClientTimeout(total=_REQUEST_TIMEOUT_SECONDS)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(f"{base_url}/models/{folder}") as resp:
-            resp.raise_for_status()
-            return await resp.json()
+    async with ComfyUiClient(base_url, _REQUEST_TIMEOUT_SECONDS) as client:
+        return await client.model_names(folder)
 
 
 async def _fetch_model_names(backend_id: str, base_url: str, folder: str) -> List[str]:

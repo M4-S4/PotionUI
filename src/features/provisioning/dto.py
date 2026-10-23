@@ -33,11 +33,6 @@ class ProviderFieldsRequest(BaseModel):
     values: Dict[str, Any] = Field(default_factory=dict)
 
 
-class ProviderResponse(BaseModel):
-    provider_id: str
-    label: str
-
-
 class ProvisionedComputeResponse(BaseModel):
     id: str
     provider_id: str
@@ -54,7 +49,3 @@ class ProvisionedComputeResponse(BaseModel):
     progress: List[ProvisionProgressEntry]
     created_at: Optional[str]
     updated_at: Optional[str]
-
-
-class ProvisionedComputeListResponse(BaseModel):
-    items: List[ProvisionedComputeResponse]

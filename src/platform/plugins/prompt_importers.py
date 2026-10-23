@@ -14,10 +14,12 @@ disabled.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
 
 
-class DuplicatePromptImporterError(ValueError):
+class DuplicatePromptImporterError(DuplicateRegistrationError):
     """Raised when registering an importer id that is already registered."""
 
 
@@ -34,34 +36,12 @@ class PromptImporterDefinition:
     source: str = "core"
 
 
-class PromptImporterRegistry:
+class PromptImporterRegistry(SourcedRegistry[PromptImporterDefinition]):
     """Registry mapping importer id -> `PromptImporterDefinition`."""
 
-    def __init__(self):
-        self._by_id: Dict[str, PromptImporterDefinition] = {}
-
-    def register(self, definition: PromptImporterDefinition) -> None:
-        """Register a prompt importer. Raises `DuplicatePromptImporterError` on id collision."""
-        if definition.importer_id in self._by_id:
-            raise DuplicatePromptImporterError(
-                f"Prompt importer already registered: '{definition.importer_id}'"
-            )
-        self._by_id[definition.importer_id] = definition
-
-    def unregister_source(self, source: str) -> None:
-        """Remove every importer registered by `source` (e.g. a plugin id)."""
-        for importer_id in [
-            importer_id for importer_id, defn in self._by_id.items() if defn.source == source
-        ]:
-            del self._by_id[importer_id]
-
-    def get(self, importer_id: str) -> Optional[PromptImporterDefinition]:
-        """Look up an importer by id, or None if it isn't registered."""
-        return self._by_id.get(importer_id)
-
-    def all(self) -> List[PromptImporterDefinition]:
-        """Return every registered importer definition."""
-        return list(self._by_id.values())
+    key_attr = "importer_id"
+    label = "Prompt importer"
+    duplicate_error = DuplicatePromptImporterError
 
     def frontend_manifest(self) -> List[Dict[str, Any]]:
         """Serialize the registry for the `GET /api/prompts/importers` endpoint."""

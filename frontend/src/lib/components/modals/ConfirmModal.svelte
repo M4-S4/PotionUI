@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { createConfirmSettlementGate, resolveConfirmKeydown } from './confirmKeyboard';
 
 	export let isOpen: boolean = false;
 	export let title: string = 'Confirm';
@@ -16,8 +14,6 @@
 	export let busy: boolean = false;
 
 	const dispatch = createEventDispatcher<{ confirm: void; cancel: void }>();
-	const settlementGate = createConfirmSettlementGate();
-	$: if (isOpen) settlementGate.reset();
 
 	const titleId = `confirm-title-${Math.random().toString(36).slice(2, 9)}`;
 
@@ -49,44 +45,21 @@
 	};
 
 	$: style = variantStyles[variant];
-
-	function confirmAction() {
-		dispatch('confirm');
-	}
-
-	function cancelAction() {
-		dispatch('cancel');
-	}
-
-	function handleConfirm() {
-		settlementGate.settle(confirmAction);
-	}
-
-	function handleCancel() {
-		settlementGate.settle(cancelAction);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		const suppress = resolveConfirmKeydown(e, isOpen && !busy, settlementGate, {
-			confirm: confirmAction,
-			cancel: cancelAction
-		});
-		if (suppress) e.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	{isOpen}
-	title=""
 	size="md"
+	compact
 	hideCloseButton
-	closeable={!busy}
-	handleEscapeKey={false}
+	{busy}
 	dialogRole="alertdialog"
 	labelledBy={titleId}
-	on:close={handleCancel}
+	{confirmLabel}
+	{cancelLabel}
+	confirmVariant={style.confirmVariant}
+	onConfirm={() => dispatch('confirm')}
+	onCancel={() => dispatch('cancel')}
 >
 	<div class="p-7">
 		<div class="flex items-start gap-4">
@@ -99,14 +72,4 @@
 			</div>
 		</div>
 	</div>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			{cancelLabel}
-			{confirmLabel}
-			confirmVariant={style.confirmVariant}
-			{busy}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

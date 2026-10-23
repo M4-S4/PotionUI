@@ -82,9 +82,9 @@ The preset manifest: its id/name and the `vars:` bag (preset-wide constants). Th
 
 - `{{ preset.vars.default_cfg }}` → The preset's default CFG constant
 
-**`runtime`** — `runtime.settings.<allowlisted_key>`
+**`runtime`** — `runtime.settings.<allowlisted_key> | runtime.user.is_admin`
 
-A pre-resolved snapshot of allowlisted settings (resolved once per build with the authenticated user), NOT a live settings-manager call. The main allowlisted key is file_storage_directory.
+A pre-resolved snapshot of allowlisted settings (resolved once per build with the authenticated user), NOT a live settings-manager call. The main allowlisted key is file_storage_directory. `runtime.user.is_admin` is true only when the authenticated user is an administrator; it is resolved by the server, never from form data, so a pipe can trust it to gate admin-only work.
 
 - `{{ runtime.settings.file_storage_directory }}` → The configured storage directory
 
@@ -156,6 +156,9 @@ Shared option-file vocabulary referenced from any preset via `{{ paths._shared }
 | `content/presets/_shared/resolutions/flux.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '1140x1472', 'ratio': [5, 6], 'description': 'Portrait', 'tier': 'Full'}; {'value': '1472x1140', 'ratio': [6, 5], 'description': 'Landscape', 'tier': 'Full'} |
 | `content/presets/_shared/resolutions/flux3.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '1152x896', 'ratio': [9, 7], 'description': 'Landscape', 'tier': 'Full'}; {'value': '896x1152', 'ratio': [7, 9], 'description': 'Portrait', 'tier': 'Full'} |
 | `content/presets/_shared/resolutions/flux_2k.yml` | {'value': '2048x2048', 'ratio': [1, 1], 'description': 'Square 2K'}; {'value': '2560x1440', 'ratio': [16, 9], 'description': 'Widescreen 2K'}; {'value': '1440x2560', 'ratio': [9, 16], 'description': 'Vertical 2K'} |
+| `content/presets/_shared/resolutions/minimax_h3_canvas.yml` | {'value': '1344x768', 'ratio': [16, 9], 'description': 'Widescreen (the released canvas)'}; {'value': '768x1344', 'ratio': [9, 16], 'description': 'Vertical'}; {'value': '1536x672', 'ratio': [16, 7], 'description': 'Ultrawide'} |
+| `content/presets/_shared/resolutions/minimax_h3_fast.yml` | {'value': '960x544', 'ratio': [30, 17], 'description': 'Widescreen, ~2.3x faster than 1344x768'}; {'value': '544x960', 'ratio': [17, 30], 'description': 'Vertical, faster'}; {'value': '832x480', 'ratio': [26, 15], 'description': 'Widescreen, ~0.4 MP'} |
+| `content/presets/_shared/resolutions/moss_image.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '1152x896', 'ratio': [9, 7], 'description': 'Landscape', 'tier': 'Full'}; {'value': '896x1152', 'ratio': [7, 9], 'description': 'Portrait', 'tier': 'Full'} |
 | `content/presets/_shared/resolutions/qwen_image21.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square (Compact)', 'tier': 'Compact'}; {'value': '1328x1328', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '2048x2048', 'ratio': [1, 1], 'description': 'Square (Large)', 'tier': 'Large'} |
 | `content/presets/_shared/resolutions/sdxl.yml` | {'value': '1024x1024', 'ratio': [1, 1], 'description': 'Square', 'tier': 'Full'}; {'value': '1152x896', 'ratio': [9, 7], 'description': 'Landscape', 'tier': 'Full'}; {'value': '896x1152', 'ratio': [7, 9], 'description': 'Portrait', 'tier': 'Full'} |
 | `content/presets/_shared/resolutions/social_media.yml` | {'value': '1920x1080', 'ratio': [16, 9], 'description': 'YouTube / Twitter'}; {'value': '1080x1080', 'ratio': [1, 1], 'description': 'Instagram Square'}; {'value': '1080x1350', 'ratio': [4, 5], 'description': 'Instagram Portrait'} |

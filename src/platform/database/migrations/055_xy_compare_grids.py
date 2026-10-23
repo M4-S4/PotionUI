@@ -68,16 +68,3 @@ def up():
             cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
         _seed_setting(cursor, now)
     print(f"Migration {_NAME}: compare grids installed")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for name, _target in _INDEXES:
-            cursor.execute(f"DROP INDEX IF EXISTS {name}")
-        existing = _column_names(cursor, "generations")
-        for name, _type in _GENERATION_COLUMNS:
-            if name in existing:
-                cursor.execute(f"ALTER TABLE generations DROP COLUMN {name}")
-        cursor.execute("DROP TABLE IF EXISTS generation_grids")
-        cursor.execute("DELETE FROM settings WHERE key = ?", (_CONFIRM_ABOVE_KEY,))
-    print(f"Migration {_NAME}: compare grids removed")

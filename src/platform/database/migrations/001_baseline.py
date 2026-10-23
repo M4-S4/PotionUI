@@ -108,7 +108,6 @@ def _settings_id() -> str:
     return f"{timestamp:013d}{randomness}"
 
 
-
 from datetime import datetime, timezone
 
 
@@ -480,8 +479,3 @@ def up():
             f"seeded {len(SETTINGS_ROWS)} settings, {len(KEYBINDING_ROWS)} "
             f"keybinding defaults, {len(USER_GROUP_ROWS)} user groups"
         )
-
-
-def down():
-    print("Migration 001_baseline: no-op (the baseline is not revertible)")
-

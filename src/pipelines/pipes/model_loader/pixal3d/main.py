@@ -51,15 +51,6 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
     )
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            **super().get_default_config(),
-            "camera_estimator": None,
-            "resolution_tier": DEFAULT_TIER,
-            "bundle_mode": SINGLE_VIEW,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         specs = [spec for spec in super().configuration() if spec.name not in ("diffusion_model", "image_encoder", "resolution_tier")]
         return [

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import soft_guarded
 from src.platform.security.current_user import get_current_active_user
 from src.features.collections.dto import (
     CollectionScope,
@@ -43,39 +44,30 @@ class CollectionController(BaseController):
 
     # ========== List Methods ==========
 
+    @soft_guarded("list_collections_failed", "Failed to list collections", admin="user")
     async def list_collections(self, scope: CollectionScope, user: User, include_descendants: bool = True) -> APIResponse:
         """List all of the user's collections within scope, with generation counts. Pure DB read."""
-        try:
-            collections = self.repository.list(user.id, scope, include_descendants=include_descendants)
-            return self.success_response(data={
-                "collections": [c.to_dict() for c in collections],
-                "total": len(collections),
-                "smart_counts": self.repository.smart_counts(user.id, scope),
-            })
-        except ValueError as e:
-            return self.error_api_response(error="list_collections_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error listing collections: {e}")
-            return self.error_api_response(error="list_collections_failed", message=str(e))
+        collections = self.repository.list(user.id, scope, include_descendants=include_descendants)
+        return self.success_response(data={
+            "collections": [c.to_dict() for c in collections],
+            "total": len(collections),
+            "smart_counts": self.repository.smart_counts(user.id, scope),
+        })
 
     # ========== CRUD Methods ==========
 
+    @soft_guarded("create_collection_failed", "Failed to create collection", admin="user")
     async def create_collection(self, request: CreateCollectionRequest, user: User) -> APIResponse:
         """Create a new collection."""
-        try:
-            collection = operations.create_collection(
-                self.repository, request.name, user.id, request.scope, request.parent_id
-            )
-            return self.success_response(data={
-                "message": f"Collection '{collection.name}' created successfully",
-                "collection": collection.to_dict()
-            })
-        except ValueError as e:
-            return self.error_api_response(error="create_collection_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error creating collection: {e}")
-            return self.error_api_response(error="create_collection_failed", message=str(e))
+        collection = operations.create_collection(
+            self.repository, request.name, user.id, request.scope, request.parent_id
+        )
+        return self.success_response(data={
+            "message": f"Collection '{collection.name}' created successfully",
+            "collection": collection.to_dict()
+        })
 
+    @soft_guarded("update_collection_failed", "Failed to update collection", admin="user")
     async def rename_collection(
         self,
         collection_id: str,
@@ -83,18 +75,13 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Rename a collection."""
-        try:
-            collection = operations.rename_collection(self.repository, collection_id, request.name, user.id, request.scope)
-            return self.success_response(data={
-                "message": "Collection updated successfully",
-                "collection": collection.to_dict()
-            })
-        except ValueError as e:
-            return self.error_api_response(error="update_collection_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error updating collection: {e}")
-            return self.error_api_response(error="update_collection_failed", message=str(e))
+        collection = operations.rename_collection(self.repository, collection_id, request.name, user.id, request.scope)
+        return self.success_response(data={
+            "message": "Collection updated successfully",
+            "collection": collection.to_dict()
+        })
 
+    @soft_guarded("move_collection_failed", "Failed to move collection", admin="user")
     async def move_collection(
         self,
         collection_id: str,
@@ -102,50 +89,37 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Reparent a collection in the folder tree (parent_id None = root)."""
-        try:
-            collection = operations.move_collection(
-                self.repository, collection_id, request.parent_id, user.id, request.scope
-            )
-            return self.success_response(data={
-                "message": "Collection moved successfully",
-                "collection": collection.to_dict()
-            })
-        except ValueError as e:
-            return self.error_api_response(error="move_collection_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error moving collection: {e}")
-            return self.error_api_response(error="move_collection_failed", message=str(e))
+        collection = operations.move_collection(
+            self.repository, collection_id, request.parent_id, user.id, request.scope
+        )
+        return self.success_response(data={
+            "message": "Collection moved successfully",
+            "collection": collection.to_dict()
+        })
 
+    @soft_guarded("bulk_move_collections_failed", "Failed to bulk move collections", admin="user")
     async def bulk_move_collections(
         self,
         request: BulkMoveCollectionsRequest,
         user: User
     ) -> APIResponse:
         """Reparent several collections at once. Per-item failures don't block the rest."""
-        try:
-            result = operations.bulk_move_collections(
-                self.repository, request.collection_ids, request.parent_id, user.id, request.scope
-            )
-            return self.success_response(data=result)
-        except Exception as e:
-            self.logger.error(f"Error bulk moving collections: {e}")
-            return self.error_api_response(error="bulk_move_collections_failed", message=str(e))
+        result = operations.bulk_move_collections(
+            self.repository, request.collection_ids, request.parent_id, user.id, request.scope
+        )
+        return self.success_response(data=result)
 
+    @soft_guarded("delete_collection_failed", "Failed to delete collection", admin="user")
     async def delete_collection(self, collection_id: str, scope: CollectionScope, user: User) -> APIResponse:
         """Delete a collection (cascade removes all memberships)."""
-        try:
-            operations.delete_collection(self.repository, collection_id, user.id, scope)
-            return self.success_response(data={
-                "message": "Collection deleted successfully"
-            })
-        except ValueError as e:
-            return self.error_api_response(error="delete_collection_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error deleting collection: {e}")
-            return self.error_api_response(error="delete_collection_failed", message=str(e))
+        operations.delete_collection(self.repository, collection_id, user.id, scope)
+        return self.success_response(data={
+            "message": "Collection deleted successfully"
+        })
 
     # ========== Membership Methods ==========
 
+    @soft_guarded("add_members_failed", "Failed to add members", admin="user")
     async def add_members(
         self,
         collection_id: str,
@@ -153,18 +127,13 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Add generations to a collection."""
-        try:
-            added = operations.add_members(self.repository, collection_id, request.generation_ids, user.id, request.scope)
-            return self.success_response(data={
-                "message": f"Added {added} generation(s) to collection",
-                "added": added
-            })
-        except ValueError as e:
-            return self.error_api_response(error="add_members_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error adding collection members: {e}")
-            return self.error_api_response(error="add_members_failed", message=str(e))
+        added = operations.add_members(self.repository, collection_id, request.generation_ids, user.id, request.scope)
+        return self.success_response(data={
+            "message": f"Added {added} generation(s) to collection",
+            "added": added
+        })
 
+    @soft_guarded("remove_members_failed", "Failed to remove members", admin="user")
     async def remove_members(
         self,
         collection_id: str,
@@ -172,18 +141,13 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Remove generations from a collection."""
-        try:
-            removed = operations.remove_members(self.repository, collection_id, request.generation_ids, user.id, request.scope)
-            return self.success_response(data={
-                "message": f"Removed {removed} generation(s) from collection",
-                "removed": removed
-            })
-        except ValueError as e:
-            return self.error_api_response(error="remove_members_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error removing collection members: {e}")
-            return self.error_api_response(error="remove_members_failed", message=str(e))
+        removed = operations.remove_members(self.repository, collection_id, request.generation_ids, user.id, request.scope)
+        return self.success_response(data={
+            "message": f"Removed {removed} generation(s) from collection",
+            "removed": removed
+        })
 
+    @soft_guarded("add_members_failed", "Failed to add members", admin="user")
     async def add_upload_members(
         self,
         collection_id: str,
@@ -191,18 +155,13 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Add library uploads to a collection."""
-        try:
-            added = operations.add_upload_members(self.repository, collection_id, request.upload_ids, user.id, request.scope)
-            return self.success_response(data={
-                "message": f"Added {added} item(s) to collection",
-                "added": added
-            })
-        except ValueError as e:
-            return self.error_api_response(error="add_members_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error adding collection upload members: {e}")
-            return self.error_api_response(error="add_members_failed", message=str(e))
+        added = operations.add_upload_members(self.repository, collection_id, request.upload_ids, user.id, request.scope)
+        return self.success_response(data={
+            "message": f"Added {added} item(s) to collection",
+            "added": added
+        })
 
+    @soft_guarded("remove_members_failed", "Failed to remove members", admin="user")
     async def remove_upload_members(
         self,
         collection_id: str,
@@ -210,18 +169,13 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Remove library uploads from a collection."""
-        try:
-            removed = operations.remove_upload_members(self.repository, collection_id, request.upload_ids, user.id, request.scope)
-            return self.success_response(data={
-                "message": f"Removed {removed} item(s) from collection",
-                "removed": removed
-            })
-        except ValueError as e:
-            return self.error_api_response(error="remove_members_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error removing collection upload members: {e}")
-            return self.error_api_response(error="remove_members_failed", message=str(e))
+        removed = operations.remove_upload_members(self.repository, collection_id, request.upload_ids, user.id, request.scope)
+        return self.success_response(data={
+            "message": f"Removed {removed} item(s) from collection",
+            "removed": removed
+        })
 
+    @soft_guarded("add_members_failed", "Failed to add members", admin="user")
     async def add_prompt_members(
         self,
         collection_id: str,
@@ -229,18 +183,13 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Add saved prompts to a collection."""
-        try:
-            added = operations.add_prompt_members(self.repository, collection_id, request.prompt_ids, user.id, request.scope)
-            return self.success_response(data={
-                "message": f"Added {added} prompt(s) to collection",
-                "added": added
-            })
-        except ValueError as e:
-            return self.error_api_response(error="add_members_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error adding collection prompt members: {e}")
-            return self.error_api_response(error="add_members_failed", message=str(e))
+        added = operations.add_prompt_members(self.repository, collection_id, request.prompt_ids, user.id, request.scope)
+        return self.success_response(data={
+            "message": f"Added {added} prompt(s) to collection",
+            "added": added
+        })
 
+    @soft_guarded("remove_members_failed", "Failed to remove members", admin="user")
     async def remove_prompt_members(
         self,
         collection_id: str,
@@ -248,17 +197,11 @@ class CollectionController(BaseController):
         user: User
     ) -> APIResponse:
         """Remove saved prompts from a collection."""
-        try:
-            removed = operations.remove_prompt_members(self.repository, collection_id, request.prompt_ids, user.id, request.scope)
-            return self.success_response(data={
-                "message": f"Removed {removed} prompt(s) from collection",
-                "removed": removed
-            })
-        except ValueError as e:
-            return self.error_api_response(error="remove_members_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error removing collection prompt members: {e}")
-            return self.error_api_response(error="remove_members_failed", message=str(e))
+        removed = operations.remove_prompt_members(self.repository, collection_id, request.prompt_ids, user.id, request.scope)
+        return self.success_response(data={
+            "message": f"Removed {removed} prompt(s) from collection",
+            "removed": removed
+        })
 
 
 # ========== Route Handlers ==========

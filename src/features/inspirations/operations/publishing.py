@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from src.platform.http.errors import InvalidInputError, NotFoundError
 from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.records import Inspiration
 from src.features.inspirations.storage import inspiration_media_key
@@ -71,23 +72,23 @@ def publish(
     """
     title = (title or "").strip()
     if not title:
-        raise ValueError("Title is required")
+        raise InvalidInputError("invalid_request", "Title is required")
     if len(title) > MAX_TITLE_LENGTH:
-        raise ValueError(f"Title must be {MAX_TITLE_LENGTH} characters or fewer")
+        raise InvalidInputError("invalid_request", f"Title must be {MAX_TITLE_LENGTH} characters or fewer")
 
     filenames = [f for f in (filenames or []) if f]
     if not filenames:
-        raise ValueError("At least one filename is required")
+        raise InvalidInputError("invalid_request", "At least one filename is required")
 
     generation = collaborators.generation_repository.get_by_id(generation_id, user_id=user_id)
     if not generation:
-        raise ValueError("Generation not found")
+        raise NotFoundError("not_found", "Generation not found")
 
     files = collaborators.generation_repository.get_files(generation_id, is_final=True)
     files_by_name = {Path(f.file_path).name: f for f in files}
     missing = [fn for fn in filenames if fn not in files_by_name]
     if missing:
-        raise ValueError(f"File(s) not found in generation output: {', '.join(missing)}")
+        raise NotFoundError("not_found", f"File(s) not found in generation output: {', '.join(missing)}")
 
     inspiration_id = generate_ulid()
     storage_root = Path(collaborators.file_store.base_storage_dir)
@@ -96,14 +97,14 @@ def publish(
         file_record = files_by_name[filename]
         media_type = _FILE_TYPE_TO_MEDIA_TYPE.get((file_record.file_type or "").upper())
         if not media_type:
-            raise ValueError(f"Cannot publish a {file_record.file_type} file")
+            raise InvalidInputError("invalid_request", f"Cannot publish a {file_record.file_type} file")
 
         source = Path(collaborators.file_store.get_full_path(file_record.file_path))
         if not collaborators.file_resolver.validate_path_security(source, storage_root):
             logger.warning(f"Refused inspiration publish of out-of-tree file path: {file_record.file_path}")
-            raise ValueError("File not found")
+            raise NotFoundError("not_found", "File not found")
         if not source.exists():
-            raise ValueError("File not found")
+            raise NotFoundError("not_found", "File not found")
 
         written = collaborators.storage_driver.put_file(inspiration_media_key(inspiration_id, filename), source)
         media_entries.append({
@@ -231,9 +232,9 @@ def delete(collaborators: InspirationCollaborators, inspiration_id: str, user_id
     """
     insp = collaborators.repository.get_by_id(inspiration_id)
     if not insp:
-        raise ValueError("Inspiration not found")
+        raise NotFoundError("not_found", "Inspiration not found")
     if insp.user_id != user_id and not is_admin:
-        raise ValueError("Inspiration not found")
+        raise NotFoundError("not_found", "Inspiration not found")
 
     for entry in insp.media:
         try:

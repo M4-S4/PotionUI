@@ -19,6 +19,7 @@ EMITTABLE = [
     "GenerationOutput",
     "ImageGenerationOutput",
     "MeshGenerationOutput",
+    "ModelFileGenerationOutput",
     "ProgressGenerationOutput",
     "SplatGenerationOutput",
     "TextArtifactAction",

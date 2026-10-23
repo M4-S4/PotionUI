@@ -28,7 +28,7 @@ test('workspace save + pick round-trip restores tabs', async ({ page }) => {
 	await screenshot(page, JOURNEY, 'two-tabs-before-save');
 
 	// Open the workspace menu and save the current layout.
-	await page.getByTitle('Workspaces').click();
+	await page.locator('button[aria-label="Workspaces"]').click();
 	await page.getByRole('button', { name: 'Save current layout as new' }).click();
 
 	const wsName = `E2E WS ${Date.now()}`;
@@ -61,7 +61,7 @@ test('workspace save + pick round-trip restores tabs', async ({ page }) => {
 
 	// Reopen the workspace menu - this refetches the list, exercising
 	// getWorkspaces() a second time.
-	await page.getByTitle('Workspaces').click();
+	await page.locator('button[aria-label="Workspaces"]').click();
 	const wsEntry = page.getByRole('button', { name: wsName, exact: true });
 	await expect(wsEntry).toBeVisible({ timeout: 5000 });
 
@@ -123,7 +123,7 @@ test('loading a workspace with legacy/foreign tab data does not break the page',
 	await page.reload();
 	await expect(page.getByText('Generation 1', { exact: true })).toBeVisible();
 
-	await page.getByTitle('Workspaces').click();
+	await page.locator('button[aria-label="Workspaces"]').click();
 	const entry = page.getByRole('button', { name: legacyName, exact: true });
 	await expect(entry).toBeVisible({ timeout: 5000 });
 	await entry.click();

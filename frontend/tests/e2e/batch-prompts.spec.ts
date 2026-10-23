@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { installAndSelectImagePreset, presetOption } from './presetPreamble';
+import { makeModelFieldsOptional } from './generationMocks';
 
 const JOURNEY = 'batch-prompts';
 
@@ -24,23 +25,6 @@ async function setBatchCapability(page: Page, supported: boolean) {
 }
 
 let presetName = '';
-
-async function makeModelFieldsOptional(page: Page) {
-	const relax = (node: unknown): void => {
-		if (Array.isArray(node)) return node.forEach(relax);
-		if (node && typeof node === 'object') {
-			const record = node as Record<string, unknown>;
-			if (record.type === 'model' && 'required' in record) record.required = false;
-			Object.values(record).forEach(relax);
-		}
-	};
-	await page.route(/\/api\/presets\/[^/]+\/form(\?.*)?$/, async (route) => {
-		const response = await route.fetch();
-		const body = await response.json();
-		relax(body);
-		await route.fulfill({ response, json: body });
-	});
-}
 
 async function openGeneratePage(page: Page): Promise<boolean> {
 	await loginAsOwner(page);
@@ -204,17 +188,17 @@ test('a saved session brings back every prompt and the current one', async ({ pa
 		modal.getByPlaceholder('Enter session name').press('Enter')
 	]);
 	await expect(modal).toBeHidden({ timeout: 10000 });
-	await expect(page.locator('button[aria-label="Session"]')).toContainText(name, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(name, { timeout: 10000 });
 
 	await page.locator('button[aria-label="Add new tab"]').click();
 	await expect(page.locator('.book-tab')).toHaveCount(2, { timeout: 10000 });
 	await page.locator('button[aria-haspopup="dialog"]', { hasText: 'Choose a preset' }).click();
-	await page.locator('[role="listbox"][aria-label="Presets"]').getByText(presetName, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, presetName).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await expect(positiveList(page)).toBeVisible({ timeout: 20000 });
 	await expect(picker(page)).toContainText('1 prompt');
 
-	await page.locator('button[aria-label="Session"]').first().click();
+	await page.getByTestId('session-trigger').first().click();
 	const drawer = page.getByRole('dialog', { name: 'Sessions' });
 	await drawer.locator('[data-session-row]', { hasText: name }).first().click();
 

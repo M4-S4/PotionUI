@@ -3,22 +3,19 @@
 // Drives the REAL compiled comfyui-backend plugin dist for the "Imported
 // presets" admin tab (see manifest.yml admin_tabs, backend/api.py's GET
 // /presets/imported) - same stage/load approach as importWorkflowTab.test.ts.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { mount, unmount, flushSync } from 'svelte';
+import { describe, expect, it, vi, beforeAll, afterAll, afterEach } from 'vitest';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
+import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportedPresetsTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, basename(DIST_PATH));
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 
@@ -40,12 +37,15 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
 let ImportedPresetsTab: any;
 
 beforeAll(async () => {
+	await installPluginHost();
 	if (!existsSync(resolve(REPO_ROOT, DIST_PATH))) {
 		throw new Error(`${DIST_PATH} is missing - run \`node scripts/build-plugins.mjs comfyui-backend\` first.`);
 	}
 	const raw = await loadDist();
 	ImportedPresetsTab = _wrapPluginDistComponent(raw);
 });
+
+afterAll(removePluginHost);
 
 afterEach(() => {
 	vi.unstubAllGlobals();

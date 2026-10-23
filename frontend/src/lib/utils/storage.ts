@@ -3,15 +3,23 @@ import { browser } from '$app/environment';
 export const storage = {
 	get(key: string, fallback?: string): string | null {
 		if (!browser) return fallback ?? null;
-		return localStorage.getItem(key) ?? fallback ?? null;
+		try {
+			return localStorage.getItem(key) ?? fallback ?? null;
+		} catch {
+			return fallback ?? null;
+		}
 	},
 	set(key: string, value: string): void {
 		if (!browser) return;
-		localStorage.setItem(key, value);
+		try {
+			localStorage.setItem(key, value);
+		} catch {}
 	},
 	remove(key: string): void {
 		if (!browser) return;
-		localStorage.removeItem(key);
+		try {
+			localStorage.removeItem(key);
+		} catch {}
 	},
 	getJSON<T>(key: string, fallback?: T): T | null {
 		if (!browser) return fallback ?? null;
@@ -24,6 +32,8 @@ export const storage = {
 	},
 	setJSON(key: string, value: unknown): void {
 		if (!browser) return;
-		localStorage.setItem(key, JSON.stringify(value));
+		try {
+			localStorage.setItem(key, JSON.stringify(value));
+		} catch {}
 	},
 };

@@ -29,6 +29,7 @@ from src.features.prompt_database.dto import PromptRequest
 from src.features.prompt_database.repository import PromptRepository
 from tests.conftest import TestDatabase
 from src.features.prompt_database.records import Prompt
+from tests.fixtures.seed import seed_user
 
 
 @pytest.fixture
@@ -172,7 +173,6 @@ def test_save_tools_tell_the_model_to_keep_the_users_text_verbatim():
     for tool in (AddPromptTool(), EditPromptTool()):
         assert "VERBATIM" in tool.description
         assert "only when the user asks" in tool.description
-    assert "verbatim" in AddPromptTool().hint
 
 
 @pytest.mark.asyncio
@@ -398,12 +398,8 @@ async def test_delete_preview_is_legacy_action_target_and_summary(mock_operation
 @pytest.fixture
 def library():
     test_database = TestDatabase.from_template()
-    with test_database.get_cursor() as cursor:
-        for user_id in ("user-1", "user-2"):
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-                (user_id, user_id, f"{user_id}@example.com", "x"),
-            )
+    for user_id in ("user-1", "user-2"):
+        seed_user(test_database, user_id)
     with patch("src.platform.database.database.db", test_database):
         yield SimpleNamespace(repository=PromptRepository())
     test_database.close()

@@ -26,6 +26,7 @@ const { default: VideoDirectorEditor } = await import(
 const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector');
 
 import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
+import { settleFlush } from './helpers/settle';
 
 function baseDoc(): VideoDirectorValue {
 	return {
@@ -99,11 +100,6 @@ const MIXED_MEDIA_PROMPT_RESOURCES: PromptResourceSpec[] = [
 	{ field: 'references', kind: 'audio', label: 'Audio', token: '<Audio @>' }
 ];
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 function typeAtSignInto(editorEl: HTMLElement) {
 	editorEl.focus();
 	const range = document.createRange();
@@ -164,10 +160,10 @@ describe('VideoDirectorEditor: prompt-resource `@` picker reaches the shot promp
 		});
 		cleanup = () => instance.$destroy();
 
-		await settle();
+		await settleFlush();
 
 		expect(target.querySelector('.beat-b')).toBeNull();
-		await settle();
+		await settleFlush();
 
 		const editorEl = target.querySelector('.stage-beat .inline-chip-editor') as HTMLElement | null;
 		expect(editorEl).not.toBeNull();

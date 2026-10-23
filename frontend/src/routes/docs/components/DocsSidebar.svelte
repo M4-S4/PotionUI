@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { iconPaths } from '$lib/utils/IconLibrary';
 	import { Button, Input, Spinner } from '$lib/components/ui';
 	import { buildDocNavigation } from '$lib/stores/docs';
@@ -174,13 +175,13 @@
 														{#if showsStatusDot(item.status)}
 															<span
 																class="w-1.5 h-1.5 rounded-full {statusDotClass(item)}"
-																title="Status: {item.status}"
+																use:tooltip={`Status: ${item.status}`}
 															></span>
 														{/if}
 														{#if item.source === 'plugin'}
 															<span
 																class="w-1.5 h-1.5 rounded-full bg-fg-subtle"
-																title="Provided by a plugin"
+																use:tooltip={'Provided by a plugin'}
 															></span>
 														{/if}
 													</span>
@@ -211,13 +212,13 @@
 											{#if showsStatusDot(entry.item.status)}
 												<span
 													class="w-1.5 h-1.5 rounded-full {statusDotClass(entry.item)}"
-													title="Status: {entry.item.status}"
+													use:tooltip={`Status: ${entry.item.status}`}
 												></span>
 											{/if}
 											{#if entry.item.source === 'plugin'}
 												<span
 													class="w-1.5 h-1.5 rounded-full bg-fg-subtle"
-													title="Provided by a plugin"
+													use:tooltip={'Provided by a plugin'}
 												></span>
 											{/if}
 										</span>

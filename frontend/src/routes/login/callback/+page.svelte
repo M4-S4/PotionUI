@@ -10,6 +10,7 @@
 	import { ADD_ACCOUNT_BLOCKED_MESSAGE } from '$lib/stores/accountActions';
 	import { toasts } from '$lib/stores/toast';
 	import { storage } from '$lib/utils/storage';
+	import { consumeReturnPath } from '$lib/utils/returnPath';
 
 	let status: 'loading' | 'error' = 'loading';
 	let errorMessage = '';
@@ -61,7 +62,7 @@
 				errorMessage = session.error;
 				return;
 			}
-			authStore.finishSignIn('/');
+			authStore.finishSignIn(consumeReturnPath());
 		} catch {
 			status = 'error';
 			errorMessage = 'This sign-in link is invalid or has expired.';

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import DrawerShell from '$lib/components/drawer/DrawerShell.svelte';
 	import DrawerHeader from '$lib/components/drawer/DrawerHeader.svelte';
 	import DrawerSearch from '$lib/components/drawer/DrawerSearch.svelte';
 	import DrawerGroupHead from '$lib/components/drawer/DrawerGroupHead.svelte';
 	import DrawerRow from '$lib/components/drawer/DrawerRow.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Spinner } from '$lib/components/ui';
-	import FormulaRowMenu from './FormulaRowMenu.svelte';
+	import { Button, Menu, Spinner } from '$lib/components/ui';
 	import FormulaSaveView from './FormulaSaveView.svelte';
 	import FormulaApplyView from './FormulaApplyView.svelte';
 	import FormulaAppliedBar from './FormulaAppliedBar.svelte';
@@ -244,7 +244,11 @@
 
 	let planKey = '';
 	let planStale = $state(false);
-	let planTimer: ReturnType<typeof setTimeout> | undefined;
+	let planFormula: Formula | null = null;
+	const schedulePlan = debounce(() => {
+		const formula = planFormula;
+		if (formula && view === 'apply' && applying?.id === formula.id) void fetchPlan(formula);
+	}, 300);
 
 	$effect(() => {
 		const key = view === 'apply' && applying ? JSON.stringify(tab.formData ?? {}) : '';
@@ -257,14 +261,11 @@
 		}
 		if (!hadPlan) return;
 		planStale = true;
-		const formula = applying;
-		clearTimeout(planTimer);
-		planTimer = setTimeout(() => {
-			if (formula && view === 'apply' && applying?.id === formula.id) void fetchPlan(formula);
-		}, 300);
+		planFormula = applying;
+		schedulePlan();
 	});
 
-	onDestroy(() => clearTimeout(planTimer));
+	onDestroy(schedulePlan.cancel);
 
 	function changeLoraMode(mode: LoraMode) {
 		if (mode === loraMode || !applying) return;
@@ -299,6 +300,13 @@
 		onClose();
 		onApplied?.();
 	}
+
+	const FORMULA_MENU_ITEMS = [
+		{ id: 'rename', label: 'Rename', icon: 'edit' },
+		{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },
+		{ id: 'update', label: 'Update from current form', icon: 'refresh' },
+		{ id: 'delete', label: 'Delete', icon: 'trash', danger: true }
+	];
 
 	async function handleMenu(formula: Formula, action: MenuAction) {
 		if (action === 'rename') {
@@ -479,7 +487,13 @@
 										<Tooltip text={fullDateTime(formula.updated_at)} position="bottom" delay={300}>
 											<span class="flex-shrink-0 px-1 font-mono text-xs tabular-nums text-fg-subtle">{savedDate(formula)}</span>
 										</Tooltip>
-										<FormulaRowMenu name={formula.name} onAction={(action) => handleMenu(formula, action)} />
+										<Menu
+											label={`More actions for ${formula.name}`}
+											menuLabel={`Actions for ${formula.name}`}
+											tooltip="More actions"
+											items={FORMULA_MENU_ITEMS}
+											onselect={(id) => handleMenu(formula, id as MenuAction)}
+										/>
 									{/snippet}
 								</DrawerRow>
 							{/if}

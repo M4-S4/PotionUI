@@ -21,10 +21,12 @@ using a plugin kind validates, while an unregistered kind stays an error.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
 
 
-class DuplicateRecipeStepKindError(ValueError):
+class DuplicateRecipeStepKindError(DuplicateRegistrationError):
     """Raised when registering a step kind that is already registered."""
 
 
@@ -39,32 +41,13 @@ class RecipeStepKindRegistration:
     source: str = "core"
 
 
-class RecipeStepKindRegistry:
+class RecipeStepKindRegistry(SourcedRegistry[RecipeStepKindRegistration]):
     """Registry mapping a recipe step `kind:` -> `RecipeStepKindRegistration`."""
 
-    def __init__(self):
-        self._by_kind: Dict[str, RecipeStepKindRegistration] = {}
+    key_attr = "kind"
+    label = "Recipe step kind"
+    duplicate_error = DuplicateRecipeStepKindError
 
-    def register(self, registration: RecipeStepKindRegistration) -> None:
-        """Register a step kind. Raises `DuplicateRecipeStepKindError` on collision."""
-        if registration.kind in self._by_kind:
-            raise DuplicateRecipeStepKindError(
-                f"Recipe step kind already registered: '{registration.kind}'"
-            )
-        self._by_kind[registration.kind] = registration
-
-    def unregister_source(self, source: str) -> None:
-        """Remove every kind registered by `source` (e.g. a plugin id)."""
-        for kind in [k for k, reg in self._by_kind.items() if reg.source == source]:
-            del self._by_kind[kind]
-
-    def get(self, kind: str) -> Optional[RecipeStepKindRegistration]:
-        """Look up a registration by step kind, or `None`."""
-        return self._by_kind.get(kind)
-
-    def all(self) -> List[RecipeStepKindRegistration]:
-        """Every registered step kind."""
-        return list(self._by_kind.values())
 
 
 # Module-level singleton shared by the plugin enable/disable path and the

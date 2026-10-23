@@ -1,9 +1,11 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	clearSchemaCache,
 	createLatestRequestGuard,
 	getCachedSchema,
-	invalidateCachedSchema
+	invalidateCachedSchema,
+	schemaCacheKey
 } from './schemaCache';
 
 describe('schema cache', () => {
@@ -52,5 +54,17 @@ describe('latest request guard', () => {
 		expect(guard.isCurrent(second)).toBe(true);
 		guard.invalidate();
 		expect(guard.isCurrent(second)).toBe(false);
+	});
+});
+
+describe('schemaCacheKey', () => {
+	it('separates preset, mode and form name with NUL', () => {
+		expect(schemaCacheKey('p', 'm', 'f')).toBe('p\u0000m\u0000f');
+		expect(schemaCacheKey('p', 'm')).toBe('p\u0000m\u0000');
+	});
+
+	it('keeps the source file free of raw NUL bytes', () => {
+		const source = readFileSync(new URL('./schemaCache.ts', import.meta.url));
+		expect(source.includes(0)).toBe(false);
 	});
 });

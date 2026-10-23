@@ -79,24 +79,6 @@ def sample_preset_template(sample_mode_template):
     )
 
 
-class TestPipelineBuilderInitialization:
-    """Test cases for PipelineBuilder initialization."""
-
-    def test_initialization_with_dependencies(
-        self,
-        mock_preset_template_loader,
-        mock_preset_processor
-    ):
-        """Test proper initialization with dependencies."""
-        builder = PipelineBuilder(
-            preset_template_loader=mock_preset_template_loader,
-            preset_processor=mock_preset_processor
-        )
-
-        assert builder.preset_template_loader == mock_preset_template_loader
-        assert builder.preset_processor == mock_preset_processor
-
-
 class TestBasicPipelineBuilding:
     """Test cases for basic pipeline building."""
 
@@ -299,28 +281,6 @@ class TestFormDataHandling:
 
 class TestPromptHandling:
     """Test cases for prompt and negative prompt handling."""
-
-    def test_build_pipeline_with_prompts(
-        self,
-        pipeline_builder,
-        mock_preset_template_loader,
-        mock_preset_processor,
-        sample_preset_template
-    ):
-        """Test pipeline building with prompts."""
-        mock_preset_template_loader.load_preset_by_id.return_value = sample_preset_template
-
-        pipeline_builder.build_pipeline(
-            preset_id='test_preset',
-            form_data={},
-            prompt='beautiful landscape with mountains',
-            negative_prompt='ugly, blurry, low quality'
-        )
-
-        call_args = mock_preset_processor.process.call_args[0]
-        generation_data = call_args[1]
-        assert generation_data['prompt'] == 'beautiful landscape with mountains'
-        assert generation_data['negative_prompt'] == 'ugly, blurry, low quality'
 
     def test_build_pipeline_with_prompts_array(
         self,

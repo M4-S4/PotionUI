@@ -74,18 +74,3 @@ def load_op_impl(plugin_dir: Path, reference: str) -> Optional[Any]:
         logger.warning("Filter op '%s' must subclass ColourOp or SpatialOp", reference)
         return None
     return instance
-
-
-def load_op_impls(manifests: Iterable[Any], needed: Iterable[str]) -> Dict[str, Any]:
-    wanted = set(needed)
-    impls: Dict[str, Any] = {}
-    for manifest in manifests:
-        plugin_dir = getattr(manifest, "plugin_dir", None)
-        if not plugin_dir:
-            continue
-        for entry in getattr(manifest, "filter_ops", None) or []:
-            if entry.get("id") in wanted and entry.get("python"):
-                impl = load_op_impl(Path(plugin_dir), entry["python"])
-                if impl is not None:
-                    impls[entry["id"]] = impl
-    return impls

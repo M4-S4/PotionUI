@@ -7,6 +7,7 @@
 // message through `dispatchGenerationMessage`, and assert the plugin's own
 // component reaches the DOM for that tab and that run only.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/plugin-api/componentResolver', () => ({
 	resolvePluginComponent: vi.fn()
@@ -73,10 +74,6 @@ function completeLoad(asset: string, resolved: unknown) {
 	entry.resolve(resolved);
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let originalRO: unknown;
 let target: HTMLElement;
 let component: { $destroy: () => void; $set: (props: Record<string, unknown>) => void } | undefined;
@@ -112,6 +109,7 @@ function mountPane(tabId: string) {
 		target,
 		props: {
 			tab,
+			emptyLayout: 'pane',
 			onWorkbenchPrevious: () => {},
 			onWorkbenchNext: () => {},
 			onWorkbenchHeightChange: () => {},
@@ -171,7 +169,7 @@ describe('plugin generation.output rendering in the workspace', () => {
 		showTab(tabId);
 
 		completeLoad(ASSET, StubOutput);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual(['first']);
 	});
@@ -189,11 +187,11 @@ describe('plugin generation.output rendering in the workspace', () => {
 		mountPane(tabA);
 		showTab(tabA);
 		completeLoad(ASSET, StubOutput);
-		await settle();
+		await settle(10);
 		expect(renderedOutputs()).toEqual(['from-a']);
 
 		showTab(tabB);
-		await settle();
+		await settle(10);
 		expect(renderedOutputs()).toEqual(['from-b']);
 	});
 
@@ -204,12 +202,12 @@ describe('plugin generation.output rendering in the workspace', () => {
 		mountPane(tabId);
 		showTab(tabId);
 		completeLoad(ASSET, StubOutput);
-		await settle();
+		await settle(10);
 		expect(renderedOutputs()).toEqual(['old']);
 
 		startRun(tabId, 'gen-2');
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual([]);
 	});
@@ -220,14 +218,14 @@ describe('plugin generation.output rendering in the workspace', () => {
 		sendOutput('gen-1', 'in-flight');
 		mountPane(tabId);
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		unregisterPluginOutputHandler(MESSAGE_TYPE, PLUGIN_ID);
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		completeLoad(ASSET, StubOutput);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual([]);
 		expect(tabAt(0).generation.pluginOutputs?.[MESSAGE_TYPE]).toBeUndefined();
@@ -239,20 +237,20 @@ describe('plugin generation.output rendering in the workspace', () => {
 		sendOutput('gen-1', 'reloaded');
 		mountPane(tabId);
 		showTab(tabId);
-		await settle();
+		await settle(10);
 		expect(pending.has(ASSET)).toBe(true);
 
 		registerPluginOutputHandler(MESSAGE_TYPE, PLUGIN_ID, RELOADED_ASSET);
 		sendOutput('gen-1', 'reloaded');
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		completeLoad(RELOADED_ASSET, StubOutput);
-		await settle();
+		await settle(10);
 		expect(renderedOutputs()).toEqual(['reloaded']);
 
 		completeLoad(ASSET, StaleStub);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual(['reloaded']);
 		expect(target.querySelectorAll('.stub-plugin-component')).toHaveLength(0);
@@ -266,7 +264,7 @@ describe('plugin generation.output rendering in the workspace', () => {
 		showTab(tabId);
 
 		completeLoad(ASSET, null);
-		await settle();
+		await settle(10);
 
 		const fallback = target.querySelector(`[data-plugin-output-unavailable="${PLUGIN_ID}"]`);
 		expect(fallback).not.toBeNull();

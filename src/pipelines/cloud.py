@@ -92,16 +92,6 @@ class CloudRunOutcome:
 ProgressCallback = Callable[[CloudRunProgress], Union[Awaitable[None], None]]
 
 
-class CloudRunner(Protocol):
-    async def run(
-        self,
-        request: CloudRunRequest,
-        *,
-        on_progress: Optional[ProgressCallback] = None,
-        is_cancelled: Optional[Callable[[], bool]] = None,
-    ) -> CloudRunOutcome: ...
-
-
 class BlockingCloudRunner(Protocol):
     def run_blocking(
         self,

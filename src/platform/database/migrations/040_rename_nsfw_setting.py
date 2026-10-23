@@ -15,11 +15,3 @@ def up():
                 (_DESCRIPTION,),
             )
     print(f"Migration {_NAME}: renamed settings key nsfw_filter to nsfw")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("SELECT 1 FROM settings WHERE key = 'nsfw_filter'")
-        if cursor.fetchone() is None:
-            cursor.execute("UPDATE settings SET key = 'nsfw_filter' WHERE key = 'nsfw'")
-    print(f"Migration {_NAME}: renamed settings key nsfw back to nsfw_filter")

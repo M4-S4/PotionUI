@@ -15,12 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.plugin_api import (
-    PluginRepository,
+    plugin_settings,
     get_container,
     get_current_admin_user,
     lint_preset_dir,
 )
-from src.plugin_api.presets import RequirementContext
+from src.plugin_api.presets import RequirementBackendInfo, RequirementContext
 
 from .preset_import.defaults import build_default_form, build_default_history
 from .preset_import.emit import (
@@ -36,6 +36,7 @@ from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workf
 from .preset_import.schema import ImportForm, parse_form, parse_history
 from .preset_import.suggest import AnalyzeResult, classification_fingerprint, suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker, _fetch_object_info
+from .comfyui_client import ComfyUiClient
 from .comfyui_config import resolve_comfyui_endpoint
 
 logger = logging.getLogger(__name__)
@@ -49,25 +50,8 @@ _MARKETPLACE_PRESETS_ROOT = Path("content/presets/marketplace")
 
 
 def _read_comfyui_default_connection() -> Tuple[str, int, bool]:
-    repo = PluginRepository()
-    settings = repo.get_plugin_settings("comfyui-backend")
-
-    host = "127.0.0.1"
-    port = 8188
-    secure = False
-
-    for s in settings:
-        if s.setting_key == "default_host" and s.setting_value:
-            host = s.setting_value
-        elif s.setting_key == "default_port" and s.setting_value:
-            try:
-                port = int(s.setting_value)
-            except ValueError:
-                pass
-        elif s.setting_key == "default_secure" and s.setting_value is not None:
-            secure = str(s.setting_value).strip().lower() in ("1", "true", "yes", "on")
-
-    return host, port, secure
+    values = plugin_settings("comfyui-backend")
+    return values["default_host"], values["default_port"], values["default_secure"]
 
 
 def _get_comfyui_base_url() -> str:
@@ -152,18 +136,6 @@ class _ConfiguredBackendConfig:
         return self.base_url
 
 
-@dataclass
-class _ConfiguredBackend:
-    """Duck-types `RequirementBackendInfo` (`src.features.presets.requirements
-    .contracts` - not re-exported through `src.plugin_api.presets`, so this
-    plugin defines its own minimal shape rather than reach past the plugin
-    API surface)."""
-
-    id: str
-    engine: str
-    config: _ConfiguredBackendConfig
-
-
 # How long the Requirements-preview step budgets for ALL of a workflow's
 # inferred requirements together (they run concurrently) before any still
 # pending resolve to "unknown" - matches `backend.requirements`'s own
@@ -175,11 +147,6 @@ _REQUIREMENT_PREVIEW_CHECKERS = {
     "comfyui_model": ComfyUIModelChecker(),
 }
 
-# `backend.requirements`'s checkers key their single-flight `/object_info`
-# cache by resolved backend id; there is no real `Backend` at analyze/source
-# time (see `_ConfiguredBackend`), so this plugin's own settings stand in
-# under a fixed id - shared with `preview_workflow_requirements` below so the
-# two steps never fetch the same multi-MB listing twice.
 _CONFIGURED_BACKEND_ID = "comfyui-backend:configured"
 
 # Best-effort budget for analyze/source's enrichment fetch - short enough
@@ -269,11 +236,11 @@ async def clear_vram(current_user=Depends(get_current_admin_user)):
     base_url = _get_comfyui_base_url()
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{base_url}/free",
+        async with ComfyUiClient(base_url) as client:
+            async with client.post(
+                "/free",
+                request_timeout=10,
                 json={"unload_models": True, "free_memory": True},
-                timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status == 200:
                     return {"success": True, "message": "VRAM cleared successfully"}
@@ -406,9 +373,10 @@ async def preview_workflow_requirements(
         models=None,
         gpu_available=False,
         gpu_total_vram_gb=None,
-        backend=_ConfiguredBackend(
+        backend=RequirementBackendInfo(
             id=_CONFIGURED_BACKEND_ID,
             engine="comfyui",
+            driver="comfyui",
             config=_ConfiguredBackendConfig(base_url=_get_comfyui_base_url()),
         ),
         platform=sys.platform,

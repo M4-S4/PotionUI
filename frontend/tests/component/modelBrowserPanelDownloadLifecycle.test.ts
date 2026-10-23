@@ -55,10 +55,6 @@ function mountPanel(props: Record<string, unknown> = {}) {
 	return { target, component, destroy: () => component.$destroy() };
 }
 
-function flush(ms = 0) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 let mounted: ReturnType<typeof mountPanel> | undefined;
 
 beforeEach(() => {

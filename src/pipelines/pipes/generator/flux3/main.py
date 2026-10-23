@@ -22,6 +22,7 @@ from src.pipelines.pipes.generator.flux3.references import (
     prepare_reference,
 )
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec, seed_config_spec
 
 _SIZE = re.compile(r"^\s*(\d+)\s*x\s*(\d+)\s*$")
 
@@ -32,30 +33,6 @@ class GeneratorFlux3Pipe(FlowMatchGeneratorPipe):
     family_tag = "GENERATOR FLUX 3"
 
     MAX_REFERENCES = 10
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "txt2img",
-            "steps": 50,
-            "guidance": 3.5,
-            "shift": None,
-            "sampler": "euler",
-            "resolution": "1024x1024",
-            "output_size": "",
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "preview": True,
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-            "step_cache": {},
-            "guidance_options": {},
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -74,8 +51,8 @@ class GeneratorFlux3Pipe(FlowMatchGeneratorPipe):
             PipeConfigSpec("output_size", str, "", "Edit output size (WxH); blank matches the first reference",
                            required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            seed_config_spec(),
+            device_config_spec(),
             PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling",
                            required=False),
             *schedule_settings_config_specs(),

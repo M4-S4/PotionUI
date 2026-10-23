@@ -1,13 +1,15 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { isAxiosError } from 'axios';
-	import { goto } from '$app/navigation';
+	import dismiss from '$lib/actions/dismiss';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { page } from '$app/stores';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { getEnabledBackends, getModelAssignmentSummary, type AssignmentSummary } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import { formatTagUsageError } from '$lib/utils/tagUsage';
 	import { formatBytes } from '$lib/utils/format';
 	import { isAvailabilityKnown } from '$lib/utils/modelAvailability';
@@ -42,6 +44,7 @@
 	import BulkTagModal from './models/BulkTagModal.svelte';
 	import { DetailHeader, DetailBody, DetailLayout } from '$lib/components/detail';
 	import ModelRootsPanel from '$lib/model-roots/ModelRootsPanel.svelte';
+	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
 	import ModelTypeBadge from '$lib/components/ModelTypeBadge.svelte';
 	import {
 		MODEL_LIBRARY_SECTIONS,
@@ -58,28 +61,24 @@
 	import {
 		ATTRIBUTES_SORT_OPTIONS,
 		applyAttributesFilters,
-		attributesFiltersFromSearchParams,
-		attributesFiltersToSearchParams,
 		type AttributesFilters,
-		type AttributesSortBy
+		type AttributesSortBy,
+		attributesFilters
 	} from './attributesFilters';
 	import AttributeDefinitionForm from './AttributeDefinitionForm.svelte';
 	import {
 		DEFAULT_MODELS_FILTERS,
 		MODELS_SORT_OPTIONS,
-		clearAllModelsFilters,
-		clearModelsFilterChip,
-		modelsFilterActiveCount,
 		modelsFilterChips,
 		modelsFiltersFromSearchParams,
-		modelsFiltersToSearchParams,
 		modelsHasActiveFilters,
 		modelsQueryParams,
 		modelsSortParams,
 		withModelsUsage,
 		type ModelsFilters,
 		type ModelsSortBy,
-		type ModelsUsage
+		type ModelsUsage,
+		modelsFilters
 	} from './modelsFilters';
 
 	interface ModelListItem {
@@ -170,6 +169,10 @@
 		}
 	}
 
+	const notIndexedYet = $derived(indexingStatusStore.status?.digests?.pending_total ?? 0);
+
+	$effect(() => untrack(() => indexingStatusStore.subscribe()));
+
 	const section = $derived($page.url.searchParams.get('view') || 'all');
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const isAttributesSection = $derived(section === MODELS_ATTRIBUTES_SECTION);
@@ -183,12 +186,12 @@
 	const sectionCounts = $derived(modelLibrarySectionCounts(modelTypes, definitions.length));
 
 	const filters = $derived(modelsFiltersFromSearchParams($page.url.searchParams));
-	const attrFilters = $derived(attributesFiltersFromSearchParams($page.url.searchParams));
+	const attrFilters = $derived(attributesFilters.fromSearchParams($page.url.searchParams));
 
 	const filteredAttributeDefinitions = $derived(applyAttributesFilters(definitions, attrFilters));
 	const attrIsFiltered = $derived(!!attrFilters.q.trim());
 
-	const activeFilterCount = $derived(modelsFilterActiveCount(filters));
+	const activeFilterCount = $derived(modelsFilters.activeCount(filters));
 	const filterChips = $derived(modelsFilterChips(filters, availableTags));
 	const hasActiveFilters = $derived(modelsHasActiveFilters(filters));
 
@@ -196,12 +199,15 @@
 		availableTags.filter((tag) => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()))
 	);
 
-	const selectedModel = $derived(viewId && !isAttributesSection ? (models.find((m) => m.id === viewId) ?? null) : null);
+	let mergedOwner = $state<ModelListItem | null>(null);
+	const selectedModel = $derived(
+		viewId && !isAttributesSection
+			? (models.find((m) => m.id === viewId) ?? (mergedOwner?.id === viewId ? mergedOwner : null))
+			: null
+	);
 	const selectedDefinition = $derived(
 		viewId && isAttributesSection ? (definitions.find((d) => d.id === viewId) ?? null) : null
 	);
-
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
 
 	function buildUrl(
 		overrides: { section?: string; id?: string | null; modelFilters?: ModelsFilters; attrFilters?: AttributesFilters } = {}
@@ -211,48 +217,44 @@
 		params.set('tab', 'models');
 		if (nextSection !== 'all') params.set('view', nextSection);
 		if (nextSection === MODELS_ATTRIBUTES_SECTION) {
-			for (const [key, value] of attributesFiltersToSearchParams(overrides.attrFilters ?? attrFilters)) params.set(key, value);
+			for (const [key, value] of attributesFilters.toSearchParams(overrides.attrFilters ?? attrFilters)) params.set(key, value);
 		} else if (nextSection !== MODELS_FOLDERS_SECTION) {
-			for (const [key, value] of modelsFiltersToSearchParams(overrides.modelFilters ?? filters)) params.set(key, value);
+			for (const [key, value] of modelsFilters.toSearchParams(overrides.modelFilters ?? filters)) params.set(key, value);
 		}
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		if (id) params.set('id', id);
-		const query = params.toString();
-		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+		return hrefWithQuery($page.url.pathname, params);
 	}
 
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
+
 	function updateFilters(next: ModelsFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ modelFilters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ modelFilters: next });
 	}
 
 	function updateAttrFilters(next: AttributesFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ attrFilters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ attrFilters: next });
 	}
 
 	function selectSection(id: string) {
 		selectedModelIds = new Set();
 		selectedAttributeIds = new Set();
-		void goto(buildUrl({ section: id, id: null }));
+		void urlState.go({ section: id, id: null });
 	}
 
 	function openModelId(id: string) {
-		void goto(buildUrl({ id }));
+		void urlState.go({ id });
 	}
 
 	function openAttributeId(id: string) {
-		void goto(buildUrl({ id }));
+		void urlState.go({ id });
 	}
 
 	let typeChangedInDetail = false;
 
 	function backToList() {
-		void goto(buildUrl({ id: null }));
+		void urlState.go({ id: null });
 		if (typeChangedInDetail) {
 			typeChangedInDetail = false;
 			void Promise.all([loadModels(), loadModelTypes()]);
@@ -260,12 +262,6 @@
 	}
 
 	onMount(() => {
-		const handleClickOutside = (event: MouseEvent) => {
-			if (tagDropdownRef && !tagDropdownRef.contains(event.target as Node)) {
-				isTagDropdownOpen = false;
-			}
-		};
-
 		Promise.all([loadModels(), loadModelTypes(), loadAvailableTags(), loadBackendNames(), loadAssignmentSummary(), loadUnindexedCount()])
 			.catch((error) => logger.error('Error loading models data:', error))
 			.finally(() => {
@@ -274,9 +270,6 @@
 		Promise.all([loadDefinitions(), loadModelTypesDictionaryForAttributes()]).finally(() => {
 			attrLoading = false;
 		});
-
-		document.addEventListener('mousedown', handleClickOutside);
-		return () => document.removeEventListener('mousedown', handleClickOutside);
 	});
 
 	$effect(() => {
@@ -408,8 +401,7 @@
 
 	async function loadAvailableTags() {
 		try {
-			const response = await api.getTags('MODEL');
-			if (response.success) availableTags = response.data?.tags || [];
+			availableTags = await tagCatalog.get<ModelTag>('MODEL', { fresh: true });
 		} catch (error) {
 			logger.error('Error loading available tags:', error);
 		}
@@ -458,6 +450,18 @@
 				logger.error('Error deleting model:', error);
 			}
 		}
+	}
+
+	async function handleModelMerged(ownerId: string) {
+		try {
+			const response = await api.getModelById(ownerId, true);
+			const owner = response.success ? response.data?.model : null;
+			if (owner) mergedOwner = { id: owner.id, filename: owner.filename };
+		} catch (error) {
+			logger.error('Error loading the model this one was merged into:', error);
+		}
+		void urlState.replace({ id: ownerId });
+		void Promise.all([loadModels(), loadModelTypes(), loadUnindexedCount()]);
 	}
 
 	function handleModelDeleted() {
@@ -520,7 +524,7 @@
 			return;
 		deletingTagId = tag.id;
 		try {
-			const response = await api.deleteTag(tag.id);
+			const response = await tagCatalog.remove(tag.id, 'MODEL');
 			if (!response.success) throw new Error(response.message || 'Could not delete tag');
 			availableTags = availableTags.filter((t) => t.id !== tag.id);
 			if (filters.tags.includes(tag.id)) updateFilters({ ...filters, tags: filters.tags.filter((id) => id !== tag.id) });
@@ -729,8 +733,8 @@
 	count={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	{detailOpen}
 	filterChips={isAttributesSection ? [] : filterChips}
-	onRemoveChip={(key) => updateFilters(clearModelsFilterChip(filters, key))}
-	onClearFilters={() => updateFilters(clearAllModelsFilters(filters))}
+	onRemoveChip={(key) => updateFilters(modelsFilters.clearChip(filters, key))}
+	onClearFilters={() => updateFilters(modelsFilters.clearAll(filters))}
 	loadedCount={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	total={isAttributesSection ? definitions.length : totalCount}
 >
@@ -792,7 +796,7 @@
 					</Tooltip>
 				{/snippet}
 				{#snippet popover(close: () => void)}
-					<FilterPopoverFrame label="Model filters" onClearAll={() => updateFilters(clearAllModelsFilters(filters))} onClose={close}>
+					<FilterPopoverFrame label="Model filters" onClearAll={() => updateFilters(modelsFilters.clearAll(filters))} onClose={close}>
 						<div class="col-span-2 flex flex-col gap-1.5">
 							<span class="text-xs font-medium text-fg-muted">Tags</span>
 							<div bind:this={tagDropdownRef} class="relative">
@@ -804,7 +808,7 @@
 									class="input"
 								/>
 								{#if isTagDropdownOpen}
-									<div class="absolute top-full left-0 right-0 z-50 mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-auto">
+									<div use:dismiss={{ onDismiss: () => (isTagDropdownOpen = false), ignore: [tagDropdownRef], escape: false }} class="absolute top-full left-0 right-0 z-50 mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-auto">
 										{#if filteredTags.length === 0}
 											<div class="p-2 text-sm text-fg-subtle text-center">No tags found</div>
 										{:else}
@@ -961,6 +965,17 @@
 
 	{#snippet overflow(close)}
 		{#if !isAttributesSection}
+			{#if notIndexedYet > 0}
+				<a
+					href="/admin?tab=models&view=folders"
+					role="menuitem"
+					class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-surface-2"
+					onclick={close}
+				>
+					<Icon name="list-checks" className="w-3.5 h-3.5" />
+					{notIndexedYet} not indexed yet
+				</a>
+			{/if}
 			{#if unindexedCount && unindexedCount.total > 0}
 				<a
 					href="/admin?tab=backends"
@@ -1036,6 +1051,7 @@
 				onDeleted={handleModelDeleted}
 				onAssignChanged={(change) => handleModelAssignChanged(selectedModel.id, change)}
 				onTypeChanged={() => (typeChangedInDetail = true)}
+				onMerged={handleModelMerged}
 			/>
 		{/if}
 	{:else if isAttributesSection}

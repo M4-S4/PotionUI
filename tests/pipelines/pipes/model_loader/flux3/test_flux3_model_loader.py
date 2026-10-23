@@ -5,8 +5,7 @@ from unittest.mock import patch
 
 import torch
 
-from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.model_loader.flux3.bundle import Flux3ModelBundle
+from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.model_loader.flux3.flux3_clip import Flux3ClipTextEncoder
 from src.pipelines.pipes.model_loader.flux3.main import ModelLoaderFlux3Pipe
 from src.platform.runtime.native.text_encoders import prompt_embed_key
@@ -40,31 +39,10 @@ def _run(pipe):
     return models, out
 
 
-def test_name_and_outputs():
-    assert ModelLoaderFlux3Pipe.name == "model_loader"
-    out_names = {o.name: o.io_type for o in ModelLoaderFlux3Pipe.outputs()}
-    assert out_names["model"] == IOType.MODEL
-    assert out_names["text_encoder"] == IOType.TEXT_ENCODER
-
-
 def test_config_has_no_vision_or_control_knobs():
     names = {s.name for s in ModelLoaderFlux3Pipe.configuration()}
     assert {"diffusion_model", "text_encoder", "vae", "loras", "dtype", "device"} <= names
     assert not {"vision", "control_model", "clip_l"} & names
-
-
-def test_text_encoder_is_acquired_lazily_under_the_flux3_key():
-    models, out = _run(ModelLoaderFlux3Pipe(config=_config()))
-    assert [k for k, _ in models.calls] == ["native/vae//m/vae.safetensors", "native/dit//m/dit.safetensors"]
-    _ = out.output["text_encoder"].encoder
-    assert models.calls[-1][0] == "native/te//m/te.safetensors|flux3"
-
-
-def test_bundle_remembers_the_text_encoder_key():
-    _models, out = _run(ModelLoaderFlux3Pipe(config=_config()))
-    bundle = out.output["model"]
-    assert isinstance(bundle, Flux3ModelBundle)
-    assert bundle.te_cache_key == "native/te//m/te.safetensors|flux3"
 
 
 def test_text_encoder_loads_with_the_flux3_variant():
@@ -78,16 +56,11 @@ def test_text_encoder_loads_with_the_flux3_variant():
             calls.append((path, kind, kwargs))
             return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
 
-    with patch("src.pipelines.pipes.model_loader.flux3.main.NativeEngineLoader", _Loader):
+    with patch("src.pipelines.pipes._shared.generation.three_component_loader.NativeEngineLoader", _Loader):
         models, out = _run(ModelLoaderFlux3Pipe(config=_config()))
         _ = out.output["text_encoder"].encoder
         models.loaders["native/te//m/te.safetensors|flux3"]()
     assert ("/m/te.safetensors", "text_encoder", {"te_variant": "flux3"}) in calls
-
-
-def test_output_is_a_flux3_clip():
-    _models, out = _run(ModelLoaderFlux3Pipe(config=_config()))
-    assert isinstance(out.output["text_encoder"], Flux3ClipTextEncoder)
 
 
 class _RecordingEncoder:

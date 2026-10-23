@@ -104,36 +104,8 @@ class TestBackendRegistrationHookHandler(unittest.TestCase):
 
     def test_backend_hook_handler_registers_types(self):
         """Test that the backend hook handler correctly registers types"""
-        import sys
-        import importlib.util
-        import os
-
-        # Direct import of backend and config modules from plugin
-        plugin_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))),
-            'content/plugins/marketplace/comfyui-backend'
-        )
-
-        # Load comfyui_config module
-        config_spec = importlib.util.spec_from_file_location(
-            "comfyui_config",
-            f"{plugin_dir}/backend/comfyui_config.py"
-        )
-        comfyui_config_module = importlib.util.module_from_spec(config_spec)
-        sys.modules['comfyui_config'] = comfyui_config_module
-        config_spec.loader.exec_module(comfyui_config_module)
-
-        # Load comfyui_backend module
-        backend_spec = importlib.util.spec_from_file_location(
-            "comfyui_backend",
-            f"{plugin_dir}/backend/comfyui_backend.py"
-        )
-        comfyui_backend_module = importlib.util.module_from_spec(backend_spec)
-        sys.modules['comfyui_backend'] = comfyui_backend_module
-        backend_spec.loader.exec_module(comfyui_backend_module)
-
-        ComfyUIBackend = comfyui_backend_module.ComfyUIBackend
-        ComfyUIBackendConfig = comfyui_config_module.ComfyUIBackendConfig
+        from backend.comfyui_backend import ComfyUIBackend
+        from backend.comfyui_config import ComfyUIBackendConfig
 
         # Manually simulate what the hook handler would do
         context = HookContext(

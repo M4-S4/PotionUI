@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import List
 
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
@@ -15,14 +15,6 @@ from src.pipelines.pipes.sag.sdxl.hook import SAGHook
 class SAGPipe(BasePipe):
     name = "sag"
     description = "Self-Attention Guidance for SDXL (enhanced detail, ~15-20% overhead)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "scale": 0.75,
-            "sigma": 2.0,
-            "sag_threshold": 1.0,
-        }
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         model = pipe_input.input["model"]

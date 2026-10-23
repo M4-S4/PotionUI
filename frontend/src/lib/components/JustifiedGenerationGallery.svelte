@@ -13,7 +13,8 @@
 	// heights) — the same treatment as the history page, reusable on any page
 	// that lists generations (e.g. model detail).
 	export let generations: GenerationHistoryItem[] = [];
-	export let onOpen: (generation: GenerationHistoryItem, fileIndex: number) => void;
+	export let onOpen: (generation: GenerationHistoryItem, fileIndex: number) => void = () => {};
+	export let itemKey: (generation: GenerationHistoryItem) => string = (generation) => generation.id;
 	export let showActions: boolean = false;
 	export let onReuse: ((generation: GenerationHistoryItem) => void) | null = null;
 
@@ -65,15 +66,17 @@
 		<div class="space-y-3">
 			{#each rows as row}
 				<div class="flex" style="gap: {GAP}px">
-					{#each row as box (box.item.id)}
-						<GenerationCard
-							generation={box.item}
-							tile={{ width: box.width, height: box.height }}
-							{showActions}
-							{entryMenu}
-							on:imageClick={handleImageClick}
-							on:viewClick={handleViewClick}
-						/>
+					{#each row as box (itemKey(box.item))}
+						<slot name="card" generation={box.item} tile={{ width: box.width, height: box.height }}>
+							<GenerationCard
+								generation={box.item}
+								tile={{ width: box.width, height: box.height }}
+								{showActions}
+								{entryMenu}
+								on:imageClick={handleImageClick}
+								on:viewClick={handleViewClick}
+							/>
+						</slot>
 					{/each}
 				</div>
 			{/each}

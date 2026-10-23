@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { Button, Badge, Spinner } from '$lib/components/ui';
 	import { DetailSection, KVGrid, KVItem, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
@@ -44,7 +45,7 @@
 	let jobResult: { active_backend: string } | null = null;
 	let jobError: string | null = null;
 	let cancelling = false;
-	let pollHandle: ReturnType<typeof setInterval> | null = null;
+	const jobPoll = createVisiblePoll(pollJob, 1000);
 	let logEl: HTMLPreElement | null = null;
 
 	// Restart
@@ -174,23 +175,11 @@
 				return;
 			}
 			jobStatus = 'running';
-			startPolling();
+			jobPoll.start();
+			void pollJob();
 		} catch (e: unknown) {
 			toasts.error(getApiErrorMessage(e, `Failed to start install for "${opt.name}"`));
 			modalOpt = null;
-		}
-	}
-
-	function startPolling() {
-		stopPolling();
-		pollHandle = setInterval(pollJob, 1000);
-		pollJob();
-	}
-
-	function stopPolling() {
-		if (pollHandle !== null) {
-			clearInterval(pollHandle);
-			pollHandle = null;
 		}
 	}
 
@@ -214,7 +203,7 @@
 			}
 			jobStatus = job.status ?? jobStatus;
 			if (job.status && job.status !== 'running') {
-				stopPolling();
+				jobPoll.stop();
 				jobResult = job.result ?? null;
 				jobError = job.error ?? null;
 				if (job.status === 'success') {
@@ -242,7 +231,7 @@
 	}
 
 	function closeInstallModal() {
-		stopPolling();
+		jobPoll.stop();
 		modalOpt = null;
 	}
 
@@ -281,7 +270,7 @@
 	}
 
 	onDestroy(() => {
-		stopPolling();
+		jobPoll.stop();
 	});
 </script>
 

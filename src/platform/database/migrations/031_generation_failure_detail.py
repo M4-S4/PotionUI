@@ -22,7 +22,3 @@ def up():
             added.append(column)
 
     print(f"Migration 031_generation_failure_detail: added {len(added)} column(s): {', '.join(added) or 'none'}")
-
-
-def down():
-    print("Migration 031_generation_failure_detail: no-op (SQLite keeps the added columns)")

@@ -9,16 +9,16 @@
 // pre-populated, add an unmapped input, merge a resolution pair) ->
 // Continue -> History step (toggle a row on) -> Continue -> Requirements
 // (mocked) -> Continue (create, mocked) -> Done step lint result.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 const ANALYZE_RESULT = {
 	mode: 'text2img',
@@ -62,10 +62,7 @@ const IMPORT_RESULT = {
 };
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, `import-workflow-tab-${Math.random().toString(36).slice(2)}.mjs`);
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 
@@ -97,6 +94,12 @@ beforeAll(async () => {
 	const raw = await loadDist();
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
+
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -138,7 +141,7 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		// Step 2: Form - default_form pre-populates the "steps" field card.
@@ -148,18 +151,18 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		// Left pane: seed is locked, cfg is an unmapped Add candidate.
 		const seedRow = el.querySelector('[data-input-key="3:seed"]')!;
 		expect(seedRow.textContent).toContain('always wired');
-		expect(seedRow.querySelector('[data-action="add-input"]')).toBeNull();
+		expect(seedRow.querySelector('[data-action="add-input"] button')).toBeNull();
 
 		const cfgRow = el.querySelector('[data-input-key="3:cfg"]')!;
-		cfgRow.querySelector<HTMLButtonElement>('[data-action="add-input"]')!.click();
+		cfgRow.querySelector<HTMLButtonElement>('[data-action="add-input"] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-field-name="cfg"]')).toBeTruthy();
 		expect(el.querySelector('[data-input-key="3:cfg"]')?.className).toContain('mapped');
 
 		// Resolution: two candidates sharing suggested_field_name merge into one field.
-		el.querySelector<HTMLButtonElement>('[data-input-key="5:width"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="5:width"] [data-action="add-input"] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('[data-input-key="5:height"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="5:height"] [data-action="add-input"] button')!.click();
 		await settle();
 		const resolutionCard = el.querySelector('[data-field-name="resolution"]')!;
 		expect(resolutionCard).toBeTruthy();
@@ -175,7 +178,7 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
 
 		// Step 3: History - "steps" arrives pre-enabled from default_history; the
@@ -188,7 +191,7 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		expect(el.querySelector('[data-history-preview]')?.textContent).toContain('Steps');
 		expect(el.querySelector('[data-history-preview]')?.textContent).not.toContain('CFG Scale');
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 
 		// Step 4: Requirements (fetched automatically on entering the step).
@@ -196,7 +199,7 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		const reqRows = el.querySelectorAll('[data-import-requirements] .req-row');
 		expect(reqRows).toHaveLength(2);
 
-		const createBtn = el.querySelector<HTMLButtonElement>('button[data-import-create]')!;
+		const createBtn = el.querySelector<HTMLButtonElement>('[data-import-create] button')!;
 		expect(createBtn.disabled).toBe(false);
 		createBtn.click();
 		await settle();
@@ -236,11 +239,11 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		const error = el.querySelector('[data-import-analyze-error]');
-		expect(error?.textContent).toBe(
+		expect(error?.textContent?.trim()).toBe(
 			'This is the ComfyUI UI export. Enable Dev mode options in ComfyUI settings and use Workflow → Export (API), then import that file.'
 		);
 		expect(el.querySelector('[data-import-form-inputs]')).toBeNull();
@@ -266,7 +269,7 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		expect(el.querySelector('[data-import-form-inputs]')).toBeTruthy();

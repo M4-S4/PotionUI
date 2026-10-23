@@ -19,9 +19,10 @@ Rendering/evaluation failures raise ``TemplateEvaluationError`` - there is
 no catch-log-return-None left in this module.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from functools import lru_cache
+from typing import Any, Dict, Optional, Tuple
 
-from jinja2 import BaseLoader, StrictUndefined, Undefined
+from jinja2 import BaseLoader, StrictUndefined, Template, Undefined
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from src.platform.observability.logger import logger
@@ -35,6 +36,34 @@ from src.platform.templating.dict_utils import (
     get_speed_profile_value,
     _NO_DEFAULT as _NO_SPEED_PROFILE_DEFAULT,
 )
+
+
+_COMPILE_CACHE_SIZE = 2048
+
+_ENV = ImmutableSandboxedEnvironment(
+    loader=BaseLoader(),
+    undefined=StrictUndefined,
+    variable_start_string='{{',
+    variable_end_string='}}',
+    block_start_string='{%',
+    block_end_string='%}',
+    trim_blocks=True,
+    lstrip_blocks=True,
+    keep_trailing_newline=True,
+)
+_ENV.filters['active_loras'] = active_loras
+_ENV.filters['strip_model_dir'] = strip_model_dir
+_ENV.filters['media_of_kind'] = items_of_kind
+
+
+@lru_cache(maxsize=_COMPILE_CACHE_SIZE)
+def _compile_expression(source: str):
+    return _ENV.compile_expression(source, undefined_to_none=False)
+
+
+@lru_cache(maxsize=_COMPILE_CACHE_SIZE)
+def _compile_template(source: str) -> Template:
+    return _ENV.from_string(source)
 
 
 def _extract_exact_expression(value: str) -> Optional[str]:
@@ -76,39 +105,7 @@ class TemplateProcessor:
         """
         self.settings = settings
 
-        # Sandboxed + strict: unsafe attribute access, mutating methods (list.append,
-        # dict.update, ...), and missing variables all raise instead of silently
-        # producing a blank/garbage result.
-        self.env = ImmutableSandboxedEnvironment(
-            loader=BaseLoader(),
-            undefined=StrictUndefined,
-            variable_start_string='{{',
-            variable_end_string='}}',
-            block_start_string='{%',
-            block_end_string='%}',
-            trim_blocks=True,
-            lstrip_blocks=True,
-            # Jinja defaults to eating one trailing newline from the source;
-            # multiline pipeline.yml/config templates must preserve it verbatim.
-            keep_trailing_newline=True,
-        )
-
-        self._register_filters()
-        # The only allowed global is `get_speed_profile` - other render globals
-        # (`get_form`, `value`/`get`, `contains`/`get_is_in`, `dict`, `setting`/
-        # `config`, `path`/`get_path_for`, `icon`/`get_icon`) are intentionally
-        # absent: `form.x`, `preset.vars.x`, `runtime.settings.x` native
-        # attribute access replaces the first group, and neither `path`/`icon`
-        # ever had a real preset consumer. `get_speed_profile` needs the
-        # per-call context (the internal `_speed_profiles` key), so it's bound
-        # per-render in process_template/evaluate_expression rather than
-        # registered as a context-free global here.
-
-    def _register_filters(self) -> None:
-        """Register custom filters in Jinja environment."""
-        self.env.filters['active_loras'] = self.active_loras
-        self.env.filters['strip_model_dir'] = self.strip_model_dir
-        self.env.filters['media_of_kind'] = self.media_of_kind
+        self.env = _ENV
 
     def _get_plugin_registry(self):
         """Get plugin registry for hook execution (lazy load to avoid import cycles)."""
@@ -242,7 +239,7 @@ class TemplateProcessor:
     def _evaluate(self, expr_source: str, context: Dict[str, Any]) -> Any:
         """Compile and evaluate an exact expression, raising TemplateEvaluationError on failure."""
         try:
-            compiled = self.env.compile_expression(expr_source, undefined_to_none=False)
+            compiled = _compile_expression(expr_source)
             result = compiled(**self._call_context(context))
             if isinstance(result, Undefined):
                 result._fail_with_undefined_error()
@@ -255,40 +252,12 @@ class TemplateProcessor:
     def _render(self, template: str, context: Dict[str, Any]) -> str:
         """Render a string template, raising TemplateEvaluationError on failure."""
         try:
-            template_obj = self.env.from_string(template)
+            template_obj = _compile_template(template)
             return template_obj.render(self._call_context(context))
         except TemplateEvaluationError:
             raise
         except Exception as e:
             raise TemplateEvaluationError(template, e) from e
-
-    def active_loras(self, value: Any) -> Any:
-        """
-        Drop LoRA entries whose strength is zero (see `dict_utils.active_loras`).
-
-        Args:
-            value: The LoRA list.
-
-        Returns:
-            The filtered list.
-        """
-        return active_loras(value)
-
-    def strip_model_dir(self, value: Any) -> str:
-        """
-        Strip a model picker value's `models/<type>/` prefix (see
-        `dict_utils.strip_model_dir`).
-
-        Args:
-            value: The picker value.
-
-        Returns:
-            The value with its depot type directory removed, or unchanged.
-        """
-        return strip_model_dir(value)
-
-    def media_of_kind(self, value: Any, kind: str) -> List[Any]:
-        return items_of_kind(value, kind)
 
     def get_speed_profile(
         self,

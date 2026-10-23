@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import List
 
 from src.pipelines.outputs import CompareImagesGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
@@ -15,15 +15,6 @@ from src.pipelines.contracts import (
 class ArtifactPipe(BasePipe):
     name = "artifact"
     description = "This pipe will generate artifacts"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "compare",
-            "left": "original_image",
-            "right": "final_image",
-            "output": "right"
-        }
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         if self.config['mode'] == "compare":

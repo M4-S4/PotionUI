@@ -70,11 +70,7 @@ def test_color_mode_without_key_color_raises():
 
 # -- array contract: process EVERY image, never just the first --------------
 
-def test_two_image_list_returns_two_images_bite_check():
-    """Feed a two-image list (two different flat backgrounds); both must
-    come back keyed independently, in order. Bite-check: reverting to
-    unwrapping `image[0]` and returning a bare
-    `PipeOutput(output={"image": result})` makes this go red."""
+def test_two_image_list_returns_two_images():
     green = Image.fromarray(np.full((10, 10, 3), (0, 255, 0), dtype=np.uint8), mode="RGB")
     red_subject = Image.fromarray(np.full((10, 10, 3), (200, 30, 30), dtype=np.uint8), mode="RGB")
 
@@ -113,7 +109,7 @@ def test_soft_alpha_ramp_is_monotonic_and_bounded():
     assert alpha_list[-1] == 255
 
 
-def test_soft_alpha_bite_check_ramp_produces_intermediate_values():
+def test_soft_alpha_ramp_produces_intermediate_values():
     """A binary-cut implementation (no ramp) would fail this: within the
     ramp band there must be alpha values strictly between 0 and 255."""
     distance = np.linspace(40.0, 80.0, 20)

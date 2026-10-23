@@ -5,25 +5,10 @@ Request/Response models for model index management operations.
 """
 
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 # ============ Request DTOs ============
-
-class ListModelsQuery(BaseModel):
-    """Query parameters for listing models"""
-    model_type: Optional[str] = None
-    tag_ids: Optional[str] = None  # Comma-separated
-    search: Optional[str] = None
-    sort_by: str = "indexed_at"
-    sort_order: str = "desc"
-    limit: Optional[int] = 20
-    offset: int = 0
-    include_tags: bool = True
-    all_models: bool = False
-    assignment_filter: Optional[str] = None
-    assigned_user_id: Optional[str] = None
-    assigned_group_id: Optional[str] = None
 
 
 class ModelInfoFetchRequest(BaseModel):
@@ -41,6 +26,25 @@ class UpdateDescriptionRequest(BaseModel):
 
 class SetModelTypeRequest(BaseModel):
     model_type: str
+
+
+class IndexingSettingsRequest(BaseModel):
+    level: Optional[Literal["low", "normal", "max"]] = None
+    policy: Optional[Literal["unset", "background", "on_demand"]] = None
+
+
+class IndexingDigestsRequest(BaseModel):
+    mode: Literal["all", "selected", "matching"]
+    model_ids: Optional[List[str]] = None
+    query: Optional[str] = None
+    model_type: Optional[str] = None
+    exclude_model_ids: Optional[List[str]] = None
+
+    @model_validator(mode="after")
+    def _selected_needs_model_ids(self) -> "IndexingDigestsRequest":
+        if self.mode == "selected" and self.model_ids is None:
+            raise ValueError("mode 'selected' needs model_ids")
+        return self
 
 
 class UpdatePromptingGuidanceRequest(BaseModel):
@@ -155,11 +159,6 @@ class UserModelAssignmentRequest(BaseModel):
     """Request to assign/unassign a model to a user"""
     user_id: str
     model_id: str
-
-
-class GenerateThumbnailsRequest(BaseModel):
-    """Request to generate thumbnails for models"""
-    model_ids: Optional[List[str]] = None
 
 
 class ModelFavoriteRequest(BaseModel):

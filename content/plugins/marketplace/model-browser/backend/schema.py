@@ -86,6 +86,7 @@ class SearchItem(BaseModel):
     stats: Stats = Field(default_factory=Stats)
     source_url: str
     primary_sha256: Optional[str] = None
+    primary_size_bytes: Optional[int] = None
     installed: Optional[bool] = None
 
 

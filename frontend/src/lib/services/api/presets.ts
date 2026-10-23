@@ -3,6 +3,7 @@ import type {
 	APIResponse,
 	PresetInfo,
 	PresetModeInfo,
+	PresetPickerState,
 	PresetConfigurationResponse,
 	PresetFormOverridePatch,
 	PresetFormOverridesResponse,
@@ -23,6 +24,26 @@ export function createPresetsApi(client: AxiosInstance) {
 			presetId: string
 		): Promise<APIResponse<PresetInfo & { vars: Record<string, any> }>> {
 			const response = await client.get(`/api/presets/${presetId}`);
+			return response.data;
+		},
+
+		async getPresetPickerState(): Promise<APIResponse<PresetPickerState>> {
+			const response = await client.get('/api/presets/picker-state');
+			return response.data;
+		},
+
+		async pinPreset(presetId: string): Promise<APIResponse<PresetPickerState>> {
+			const response = await client.put(`/api/presets/picker-state/pinned/${encodeURIComponent(presetId)}`);
+			return response.data;
+		},
+
+		async unpinPreset(presetId: string): Promise<APIResponse<PresetPickerState>> {
+			const response = await client.delete(`/api/presets/picker-state/pinned/${encodeURIComponent(presetId)}`);
+			return response.data;
+		},
+
+		async pushRecentPreset(presetId: string): Promise<APIResponse<PresetPickerState>> {
+			const response = await client.post(`/api/presets/picker-state/recent/${encodeURIComponent(presetId)}`);
 			return response.data;
 		},
 

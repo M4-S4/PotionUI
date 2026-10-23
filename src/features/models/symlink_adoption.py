@@ -231,6 +231,6 @@ def adopt_symlinked_model_roots(
                 changed = True
 
     if changed:
-        indexing_coordinator.cancel_and_restart(trigger="roots_change")
+        indexing_coordinator.rescan(trigger="roots_change")
 
     return changed

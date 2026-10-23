@@ -35,54 +35,22 @@ _TAG_PLACEHOLDER = "\x00REPLY_CONTRACT_TAG{}\x00"
 _TAG_PLACEHOLDER_RE = re.compile(r"\x00REPLY_CONTRACT_TAG(\d+)\x00")
 
 REPLY_CONTRACT_PROMPT_BLOCK = (
-    "\n## Reply structure — hard rules\n\n"
-    "1. After any tool calls, do NOT describe or recap what you did in prose. "
-    "A narrative paragraph is a contract violation — and so is restating the "
-    "same information twice, once as prose and again as `## improved` "
-    "bullets; say it once, as bullets.\n"
-    "2. The only allowed reply body is: at most one short lead line, then "
-    "`## improved` — terse bullets, only what actually changed — plus, "
-    "whenever a tool's own instructions taught you a `<tool_action>` version "
-    "tag for the change you are describing, that tag with the COMPLETE "
-    "proposed text (anywhere in the reply — before or after `## improved`, "
-    "it is delivered either way). Nothing else states a change.\n"
-    "3. A `<tool_action>` tag may be written ONLY when a tool's own "
-    "instructions in this mode explicitly taught you that exact tag name and "
-    "its attributes. If no tool taught you one, you have no tag to write — "
-    "do NOT invent a tag name or placeholder of your own. In that case a "
-    "change is delivered exclusively by calling the tool for it (a mutating "
-    "tool shows a preview and waits for the user's approval); writing any "
-    "`<tool_action>`-shaped markup instead of calling the tool is a contract "
-    "violation, not a substitute for the call.\n"
-    "4. Bullets summarize a change; they never deliver it. If a bullet says "
-    "a prompt, segment, or shot changed and the matching `<tool_action>` tag "
-    "with the full text is not in this same reply, nothing was delivered — a "
-    "bare 'Done' plus bullets and no tag is a contract violation, not a "
-    "finished turn. This only applies when a tool taught you a tag (rule 3); "
-    "otherwise the tool call itself is what delivered the change.\n"
-    "5. Add `## questions` only when an answer would sharpen the next "
-    "response — up to 3 numbered, bracketed choices when natural. Omit it "
-    "otherwise.\n"
-    "6. Resuming: if the user's message quotes one of your questions back "
-    "(`> question text`), that is the answer — continue the task immediately "
-    "using it, calling tools as needed. Never reply with a bare acknowledgment "
-    "and stop.\n"
-    "7. Never end a turn announcing an action you have not yet performed — if "
-    "the task isn't finished, call the tool now, in this same response.\n\n"
-    "Headers are case-insensitive with an optional trailing colon.\n\n"
-    "Example (no content proposed):\n"
-    "Done.\n"
-    "## improved\n"
-    "- negative pruned: 6 redundant terms removed\n"
-    "## questions\n"
-    "1. keep the rain ambience or push golden hour? [rain | golden hour]\n\n"
-    "Example (proposing new text — the tag is what delivers it, the bullet "
-    "only describes it; the exact tag name and attributes come from whatever "
-    "tool taught you one, not this example):\n"
+    "\n## Reply format\n\n"
+    "1. After tool calls, write at most one short lead line, then `## improved`: terse "
+    "bullets of what actually changed. No prose recap; say each thing once.\n"
+    "2. A bullet only describes a change. New prompt text is delivered by the "
+    "`<tool_action>` tag these instructions define, with the complete text, in this "
+    "reply; any other change is delivered by calling its tool. Never invent a tag.\n"
+    "3. Add `## questions` only when an answer would sharpen your next reply: up to 3 "
+    "numbered questions, with [a | b] choices when natural.\n"
+    "4. A quoted question (`> question`) in the user's message is their answer: "
+    "continue the task immediately. Never end a turn announcing an action you have not taken.\n\n"
+    "Example:\n"
     "Done.\n"
     "## improved\n"
     "- subject anchored: \"lone hiker\" is now \"a lone hiker in a red parka\"\n"
-    '<tool_action type="...">a lone hiker in a red parka, ...</tool_action>\n'
+    "## questions\n"
+    "1. keep the rain or push golden hour? [rain | golden hour]\n"
 )
 
 # Per-send reminder injected right before the last user message (see
@@ -91,12 +59,9 @@ REPLY_CONTRACT_PROMPT_BLOCK = (
 # no-prose-recap rule next to the turn it governs. Owned here so one file
 # defines the contract's full wording.
 REPLY_CONTRACT_REMINDER = (
-    "Reply format reminder: tool calls, then `## improved` bullets — no "
-    "prose recap. If a tool taught you a `<tool_action>` tag for the change "
-    "you're describing, include it now with the full text — bullets alone "
-    "never deliver a change, and saying you changed something without the "
-    "tag is wrong. If no tool taught you a tag, never invent one — call the "
-    "tool itself to deliver the change. `## questions` only if needed."
+    "Reply format reminder: tool calls, then `## improved` bullets, no prose recap. "
+    "New prompt text goes in its `<tool_action>` tag with the full text; other changes "
+    "go through their tool. `## questions` only if needed."
 )
 
 # Injected by ToolExecutor as the trailing message of every LLM call after the
@@ -107,25 +72,26 @@ REPLY_CONTRACT_REMINDER = (
 TOOL_LOOP_CONTINUATION_NUDGE = (
     "If the task is not finished, call the next tool NOW, in this same "
     "response. Never end a reply announcing an action you have not "
-    "performed. When the task IS finished, reply per the reply-structure "
+    "performed. When the task IS finished, reply in the reply format "
     "rules — and if that means proposing new prompt/segment/shot text, the "
     "`<tool_action>` tag with the full text belongs in this same reply, not "
     "just a bullet describing it."
 )
 
 
-APPROVAL_CONTINUATION_NOTE = (
-    "The user just resolved the pending tool call (approved or declined); "
-    "its outcome is the last tool result in the conversation above. Reply with "
-    "one short sentence saying what was done, naming the item or change exactly "
-    "as that last tool result states it (never a name from an earlier search or "
-    "tool result), or that nothing was applied. Never answer with only an "
-    "acknowledgment such as \"OK\"."
+APPROVAL_CONTINUATION_TEMPLATE = (
+    "The user just resolved the pending `{tool_name}` tool call (id {tool_call_id}); "
+    "its outcome is that call's tool result in the conversation above, even when "
+    "other tool results follow it. Reply with one short sentence saying what was "
+    "done, naming the item or change exactly as that result states it (never a "
+    "name from an earlier search or another tool result), or that it was declined "
+    "or failed. Never answer with only an acknowledgment such as \"OK\"."
 )
 
 
-def approval_continuation_message() -> Dict[str, str]:
-    return {"role": "user", "content": f"<context>\n{APPROVAL_CONTINUATION_NOTE}\n</context>"}
+def approval_continuation_message(tool_name: str, tool_call_id: str) -> Dict[str, str]:
+    note = APPROVAL_CONTINUATION_TEMPLATE.format(tool_name=tool_name, tool_call_id=tool_call_id)
+    return {"role": "user", "content": f"<context>\n{note}\n</context>"}
 
 
 def parse_reply_contract(content: str) -> Tuple[str, Optional[Dict[str, Any]]]:

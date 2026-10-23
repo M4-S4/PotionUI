@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
+from src.features.models.digests import DigestMatch
 from src.features.models.exceptions import ModelAlreadyAssignedException, ModelAssignmentException, ModelNotFoundException
 from src.features.models.records import Model
 from src.plugin_api.models import (
@@ -62,6 +63,44 @@ def test_model_for_sha256_answers_none_for_an_unknown_hash():
 
     with patch("src.plugin_api.models.get_container", return_value=container):
         assert model_for_sha256("b" * 64) is None
+
+
+def _digests(match):
+    return Mock(find_by_digest=Mock(return_value=match))
+
+
+def test_model_for_sha256_with_a_size_asks_the_digest_service_so_an_unhashed_copy_can_match():
+    digests = _digests(DigestMatch(_model(), 1))
+    container = SimpleNamespace(
+        model_repository=Mock(), model_index_manager=SimpleNamespace(digests=digests)
+    )
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        result = model_for_sha256(" " + "A" * 64, size=123)
+
+    assert result["id"] == "m1"
+    digests.find_by_digest.assert_called_once_with("a" * 64, 123, "background")
+    container.model_repository.get_by_sha256.assert_not_called()
+
+
+def test_model_for_sha256_passes_the_callers_mode_and_answers_none_for_a_miss():
+    digests = _digests(DigestMatch(None, 3))
+    container = SimpleNamespace(
+        model_repository=Mock(), model_index_manager=SimpleNamespace(digests=digests)
+    )
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        assert model_for_sha256("a" * 64, size=123, hash_candidates="inline") is None
+
+    digests.find_by_digest.assert_called_once_with("a" * 64, 123, "inline")
+
+
+def test_model_for_sha256_without_a_size_never_reaches_the_digest_service():
+    repository = Mock(get_by_sha256=Mock(return_value=None))
+    container = SimpleNamespace(model_repository=repository, model_index_manager=None)
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        assert model_for_sha256("a" * 64) is None
 
 
 def test_visible_model_ids_reads_the_users_assignments():

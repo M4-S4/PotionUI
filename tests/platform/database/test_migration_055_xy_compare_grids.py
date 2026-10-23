@@ -1,46 +1,8 @@
-import importlib.util
-import sys
-import tempfile
-import unittest
-from pathlib import Path
-
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration055XyCompareGrids(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        with self.db.get_connection() as conn:
-            conn.execute(
-                "CREATE TABLE applied_migrations ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, migration_name TEXT UNIQUE NOT NULL, "
-                "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
-            )
-            conn.commit()
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("055_xy_compare_grids", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration055XyCompareGrids(MigrationCase):
+    MIGRATION = "055_xy_compare_grids"
 
     def _columns(self, table):
         with self.db.get_connection() as conn:
@@ -116,14 +78,3 @@ class TestMigration055XyCompareGrids(unittest.TestCase):
         with self.db.get_connection() as conn:
             row = conn.execute("SELECT grid_id, grid_x, grid_y, axis_values FROM generations WHERE id = 'g'").fetchone()
         self.assertEqual(tuple(row), (None, None, None, None))
-
-    def test_down_removes_everything_it_added(self):
-        self.migration.up()
-        self.migration.down()
-
-        self.assertNotIn("grid_id", self._columns("generations"))
-        self.assertFalse(self._object_exists("table", "generation_grids"))
-        self.assertFalse(self._object_exists("index", "idx_generations_grid"))
-        with self.db.get_connection() as conn:
-            row = conn.execute("SELECT 1 FROM settings WHERE key = 'compare_confirm_above'").fetchone()
-        self.assertIsNone(row)

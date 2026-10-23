@@ -1,11 +1,18 @@
 <script lang="ts">
+	import { get } from 'svelte/store';
 	import { logger } from '$lib/utils/logger';
 	import { historyStore } from '$lib/stores/history';
+	import { bulkDeleteMessage, planBulkDelete } from '$lib/utils/historyDeleteCopy';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 
 	export let onClose: () => void;
 
 	$: currentState = $historyStore;
+
+	const initial = get(historyStore);
+	const message = bulkDeleteMessage(
+		planBulkDelete(initial.selectedGenerationIds, initial.generations)
+	);
 
 	let bulkDeleting = false;
 	// Remounts ConfirmModal (fresh settlement gate) after a failed attempt so
@@ -30,8 +37,9 @@
 	<ConfirmModal
 		isOpen={true}
 		title="Delete Multiple Generations"
-		message={`Are you sure you want to delete ${currentState.selectedGenerationIds.length} generation(s) and all their files? This action cannot be undone.\n\nThis will permanently delete all selected generations and their files from your disk.`}
+		{message}
 		variant="danger"
+		confirmLabel="Delete"
 		busy={bulkDeleting}
 		on:confirm={confirmBulkDelete}
 		on:cancel={onClose}

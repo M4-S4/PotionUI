@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, List
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.builtin.utils import parse_page
 from src.features.llm.tools.errors import unexpected
 from src.features.presets import operations as preset_operations
 from src.features.presets.form_overrides import mode_field_inventory
@@ -34,25 +35,11 @@ def _stand_in_user(context: ToolContext) -> User:
 class ListPresetsTool(BaseTool):
     modes = ["generation"]
     icon = "layout-grid"
+    context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "list_presets"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Lists the presets you can generate with."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Call to find a preset id: before get_preset_info or start_generation when no "
-            "preset is open, or when the user names a model family or asks what they can make."
-        )
+    name = "list_presets"
+    group = "Models & presets"
+    user_description = "Lists the presets you can generate with."
 
     @property
     def description(self) -> str:
@@ -61,7 +48,8 @@ class ListPresetsTool(BaseTool):
             "access. Each entry has id, name, engine, modes and a short description. Pass an id "
             "to get_preset_info for its form fields. Optional 'query' matches id, name, tags and "
             "description; 'engine' filters by engine (e.g. 'native', 'comfyui'). Paged with "
-            f"'offset'/'limit' (default {DEFAULT_PRESET_LIMIT}, max {MAX_PRESET_LIMIT})."
+            f"'offset'/'limit' (default {DEFAULT_PRESET_LIMIT}, max {MAX_PRESET_LIMIT}). "
+            "Use it to find a preset id when no preset is open or the user names a model family."
         )
 
     @property
@@ -103,17 +91,10 @@ class ListPresetsTool(BaseTool):
         query = (kwargs.get("query") or "").strip().lower()
         engine = (kwargs.get("engine") or "").strip().lower()
         try:
-            offset = max(0, int(kwargs.get("offset") or 0))
-            raw_limit = kwargs.get("limit")
-            limit = DEFAULT_PRESET_LIMIT if raw_limit in (None, "") else int(raw_limit)
-        except (TypeError, ValueError):
-            return ToolResult(success=False, data="", error="'offset' and 'limit' must be integers.")
-        limit = min(max(1, limit), MAX_PRESET_LIMIT)
-        try:
-            presets = preset_operations.list_presets(context.preset_collaborators, _stand_in_user(context))
-        except Exception as e:
-            logger.error("list_presets failed: %s", e)
-            return ToolResult(success=False, data="", error=unexpected("list_presets", "list", e, context.is_admin))
+            offset, limit = parse_page(kwargs, DEFAULT_PRESET_LIMIT, MAX_PRESET_LIMIT)
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
+        presets = preset_operations.list_presets(context.preset_collaborators, _stand_in_user(context))
         matching = sorted(
             (p for p in presets if self._matches(p, query, engine)),
             key=lambda p: (str(p.get("name") or "").lower(), str(p.get("id"))),
@@ -151,26 +132,11 @@ class GetPresetInfoTool(BaseTool):
 
     modes = ["generation"]
     icon = "settings-2"
+    context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "get_preset_info"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the settings and options of the preset you are using."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Call when you need to understand what the user's preset supports — "
-            "available modes, pipeline steps, or form fields. Useful early in "
-            "conversations and before suggesting workflow changes."
-        )
+    name = "get_preset_info"
+    group = "Models & presets"
+    user_description = "Reads the settings and options of the preset you are using."
 
     @property
     def description(self) -> str:

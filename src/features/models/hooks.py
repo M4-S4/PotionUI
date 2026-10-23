@@ -4,7 +4,7 @@ from src.platform.plugins.hooks import hooks_registry
 
 MODEL_INDEX_HOOKS = hooks_registry.declare(
     "model_index", "backend",
-    "before_index", "after_index",
+    "before_index", "after_index", "after_digests",
     "before_delete", "after_delete",
     "before_download", "after_download",
     "before_assign", "after_assign",
@@ -27,6 +27,13 @@ MODEL_INDEX_HOOKS = hooks_registry.declare(
                 "result": {"type": "Any", "description": "Return value of ModelScanner.index_models(), shape depends on the indexer implementation"},
             },
             "use_when": ["Log or report indexing results"],
+        },
+        "after_digests": {
+            "description": "Fired after model files have been read for their content digest (SHA256). Batched: at most once every 5 seconds, carrying every model that finished in the window.",
+            "payload": {
+                "model_ids": {"type": "List[str]", "description": "IDs of the models whose digest just became known"},
+            },
+            "use_when": ["Look a model up by its hash once it is known", "Refresh anything that waits for a model's digest"],
         },
         "before_delete": {
             "description": "Fired before a model is removed from the index (file on disk is untouched); can block the deletion.",

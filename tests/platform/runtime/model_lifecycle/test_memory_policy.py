@@ -43,46 +43,27 @@ class TestVaeTiers:
         assert MemoryPolicy(24.0).should_enable_vae_tiling() is False
 
 
-class TestMemoryStrategyTiers:
-    def test_conservative_under_12gb(self):
-        assert MemoryPolicy(4.0).get_memory_strategy() == "conservative"
-        assert MemoryPolicy(11.99).get_memory_strategy() == "conservative"
+class TestBoundaryBudgets:
+    def test_2gb_is_the_most_aggressive_tier(self):
+        p = MemoryPolicy(2.0)
+        assert p.get_offload_strategy() == "sequential"
+        assert p.get_attention_slicing() == "max"
+        assert p.should_enable_vae_slicing() is True
+        assert p.should_enable_vae_tiling() is True
 
-    def test_balanced_12_to_24gb(self):
-        assert MemoryPolicy(12.0).get_memory_strategy() == "balanced"
-        assert MemoryPolicy(23.99).get_memory_strategy() == "balanced"
+    def test_48gb_is_fully_resident(self):
+        p = MemoryPolicy(48.0)
+        assert p.get_offload_strategy() == "none"
+        assert p.get_attention_slicing() == "none"
+        assert p.should_enable_vae_slicing() is False
+        assert p.should_enable_vae_tiling() is False
 
-    def test_full_vram_at_24gb_and_above(self):
-        assert MemoryPolicy(24.0).get_memory_strategy() == "full_vram"
-        assert MemoryPolicy(48.0).get_memory_strategy() == "full_vram"
-
-
-class TestShouldUseCpuOffload:
-    def test_conservative_always_offloads(self):
-        assert MemoryPolicy(4.0).should_use_cpu_offload("sdxl") is True
-
-    def test_full_vram_never_offloads(self):
-        assert MemoryPolicy(24.0).should_use_cpu_offload("sdxl") is False
-
-    def test_balanced_offloads_when_model_uses_majority_of_budget(self):
-        # flux base cost 24.0GB; at 12GB budget that's > 50% -> offload
-        assert MemoryPolicy(12.0).should_use_cpu_offload("flux") is True
-
-    def test_balanced_does_not_offload_when_model_fits_comfortably(self):
-        # sdxl base cost 4.0GB; at 20GB budget that's well under 50% -> no offload
-        assert MemoryPolicy(20.0).should_use_cpu_offload("sdxl") is False
-
-    def test_flux_family_sizes_share_gb_unit_with_krea2_and_ltx2(self):
-        # flux2/flux_klein are 9B-parameter DiTs; bf16 GB (~18) must be in the
-        # same unit as krea2/ltx2's already-GB entries (~26/27), not the raw
-        # params-in-billions figure (9) that undercounts by ~2x.
-        assert MemoryPolicy(20.0).should_use_cpu_offload("flux2") is True
-        assert MemoryPolicy(20.0).should_use_cpu_offload("flux_klein") is True
-
-    def test_flux3_is_sized_as_an_11_5_gb_dit(self):
-        assert MemoryPolicy(16.0).should_use_cpu_offload("flux3") is True
-        assert MemoryPolicy(24.0).should_use_cpu_offload("flux3") is False
-        assert MemoryPolicy(23.0).should_use_cpu_offload("flux3") is False
+    def test_15_9gb_still_slices_vae_but_does_not_tile(self):
+        p = MemoryPolicy(15.9)
+        assert p.get_offload_strategy() == "none"
+        assert p.get_attention_slicing() == "none"
+        assert p.should_enable_vae_slicing() is True
+        assert p.should_enable_vae_tiling() is False
 
 
 class TestTierSnapshots:
@@ -115,4 +96,3 @@ class TestTierSnapshots:
         assert p.get_attention_slicing() == "none"
         assert p.should_enable_vae_slicing() is False
         assert p.should_enable_vae_tiling() is False
-        assert p.get_memory_strategy() == "full_vram"

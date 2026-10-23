@@ -19,7 +19,6 @@ that method for the duck-typed call.
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Set
@@ -97,6 +96,7 @@ class RemoteNativeBackend(BaseBackend):
         self._pipe_catalog = None
         self._plugin_registry = None
         self._model_locator = None
+        self._model_digests = None
         self._fingerprints: Dict[str, str] = {}
         self._owner = f"native-remote-backend:{backend_config.id}:{os.getpid()}"
         # Test-only seam: an httpx.AsyncBaseTransport (e.g. httpx.ASGITransport
@@ -109,6 +109,9 @@ class RemoteNativeBackend(BaseBackend):
 
     def bind_model_locator(self, *, locator) -> None:
         self._model_locator = locator
+
+    def bind_model_digests(self, *, digests) -> None:
+        self._model_digests = digests
 
     def bind_remote_context(self, *, pipe_catalog, plugin_registry) -> None:
         """Give this backend the `PipeCatalog`/`PluginRegistry` it needs to
@@ -354,6 +357,7 @@ class RemoteNativeBackend(BaseBackend):
         try:
             model_bundle = await asyncio.to_thread(
                 build_model_bundle, processed.pipes, model_locator=self._model_locator,
+                digests=self._model_digests,
             )
         except ModelBundleResolutionError as exc:
             # Fails before any row is created or the worker is ever

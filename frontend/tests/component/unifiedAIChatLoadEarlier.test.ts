@@ -5,6 +5,7 @@
 // page (`api.getChatMessagesBefore`) and prepends it in front of what was
 // already loaded, without disturbing the messages already on screen.
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -51,10 +52,6 @@ const { chatSession } = await import('$lib/stores/chatSession');
 const { default: UnifiedAIChat } = await import('$lib/components/UnifiedAIChat.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let originalIO: unknown;
 let originalRO: unknown;
 let target: HTMLElement;
@@ -88,7 +85,7 @@ describe('UnifiedAIChat "Load earlier messages"', () => {
 			{ messageCount: 5, hasEarlier: true }
 		);
 		component = createClassComponent({ component: UnifiedAIChat as never, target, props: {} });
-		await settle();
+		await settle(10);
 
 		const button = Array.from(target.querySelectorAll('button')).find((b) =>
 			b.textContent?.includes('Load earlier messages')
@@ -104,7 +101,7 @@ describe('UnifiedAIChat "Load earlier messages"', () => {
 			{ messageCount: 1, hasEarlier: false }
 		);
 		component = createClassComponent({ component: UnifiedAIChat as never, target, props: {} });
-		await settle();
+		await settle(10);
 
 		const button = Array.from(target.querySelectorAll('button')).find((b) =>
 			b.textContent?.includes('Load earlier messages')
@@ -130,14 +127,14 @@ describe('UnifiedAIChat "Load earlier messages"', () => {
 			{ messageCount: 3, hasEarlier: true }
 		);
 		component = createClassComponent({ component: UnifiedAIChat as never, target, props: {} });
-		await settle();
+		await settle(10);
 
 		const button = Array.from(target.querySelectorAll('button')).find((b) =>
 			b.textContent?.includes('Load earlier messages')
 		);
 		expect(button).toBeTruthy();
 		button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		expect(api.getChatMessagesBefore).toHaveBeenCalledWith('sess-1', 'm3', 60);
 
@@ -166,20 +163,20 @@ describe('UnifiedAIChat "Load earlier messages"', () => {
 			{ messageCount: 3, hasEarlier: true }
 		);
 		component = createClassComponent({ component: UnifiedAIChat as never, target, props: {} });
-		await settle();
+		await settle(10);
 
 		const button = () =>
 			Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.includes('Load earlier messages'));
 
 		button()!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		await settle();
+		await settle(10);
 		button()?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		expect(api.getChatMessagesBefore).toHaveBeenCalledTimes(1);
 
 		resolveFetch({ success: true, data: { messages: [], has_earlier: false } });
-		await settle();
+		await settle(10);
 	});
 
 	it('a backend envelope failure (e.g. message_not_found) leaves the loaded window untouched, clears loadingEarlier, and shows no error banner', async () => {
@@ -194,13 +191,13 @@ describe('UnifiedAIChat "Load earlier messages"', () => {
 			{ messageCount: 3, hasEarlier: true }
 		);
 		component = createClassComponent({ component: UnifiedAIChat as never, target, props: {} });
-		await settle();
+		await settle(10);
 
 		const button = Array.from(target.querySelectorAll('button')).find((b) =>
 			b.textContent?.includes('Load earlier messages')
 		);
 		button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		const { get } = await import('svelte/store');
 		const state = get(chatSession);

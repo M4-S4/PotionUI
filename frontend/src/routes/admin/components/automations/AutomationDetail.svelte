@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { SvelteFlowProvider } from '@xyflow/svelte';
 	import { Button, IconButton, Spinner, Switch } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -51,16 +52,6 @@
 
 	function closeOverflow() {
 		overflowOpen = false;
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		const target = event.target as Element | null;
-		if (target?.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]')) return;
-		if (overflowOpen && overflowEl && !overflowEl.contains(event.target as Node)) overflowOpen = false;
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') overflowOpen = false;
 	}
 
 	let editorState = $derived($automationEditor);
@@ -183,8 +174,6 @@
 	}
 </script>
 
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
-
 <div class="flex h-full flex-col">
 	{#if !editorState.loaded}
 		<div class="flex flex-1 items-center justify-center">
@@ -238,6 +227,7 @@
 						<div
 							class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[180px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
 							role="menu"
+							use:dismiss={{ onDismiss: closeOverflow, ignore: [overflowEl] }}
 						>
 							<button
 								type="button"

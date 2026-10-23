@@ -19,13 +19,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend.preset_import.defaults import _audio_item, _image_item, _lora_item, _model_item, _video_item
+from backend.preset_import.defaults import _audio_item, _image_item, _model_item, _video_item
 from backend.preset_import.emit import EmittedPreset, PresetEmitError, emit_preset
 from backend.preset_import.parser import parse_api_workflow
 from backend.preset_import.schema import FormTab, ImportForm, LoraChainSelection, parse_form
 from backend.preset_import.suggest import suggest_fields
 
-from ._form_helpers import form_from_roles
+from ._form_helpers import _lora_item, form_from_roles
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[5]

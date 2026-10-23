@@ -40,7 +40,6 @@ _ORIGIN_SUFFIX = "__origin"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _MAX_SLUG_LENGTH = 64
-_READ_CHUNK_BYTES = 1 << 20
 
 
 def collect_input_assets(
@@ -139,13 +138,9 @@ class _Collector:
 
 
 def _digest_file(path: Path) -> Tuple[str, int]:
-    hasher = hashlib.sha256()
-    size = 0
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(_READ_CHUNK_BYTES), b""):
-            hasher.update(chunk)
-            size += len(chunk)
-    return hasher.hexdigest(), size
+        digest = hashlib.file_digest(handle, "sha256").hexdigest()
+        return digest, handle.tell()
 
 
 def _slugify(name: str) -> str:

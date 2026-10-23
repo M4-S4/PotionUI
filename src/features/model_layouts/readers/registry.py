@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Union
 
 from src.features.model_layouts.readers import (
     comfyui,
@@ -23,10 +23,6 @@ READERS: Dict[str, ConfigReader] = {
     "sdnext_config_json": sdnext.read,
     "a1111_commandline_args": webui_args.read,
 }
-
-
-def reader_kinds() -> Tuple[str, ...]:
-    return tuple(sorted(READERS))
 
 
 def run_reader(

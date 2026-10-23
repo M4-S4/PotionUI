@@ -1,4 +1,5 @@
 import type { LimitKindDescriptor, Plan, PlanBody } from './types';
+import { jsonEqual } from '$lib/utils/equal';
 
 export type ByteUnit = 'MB' | 'GB' | 'TB';
 
@@ -111,5 +112,5 @@ export function isDraftValid(draft: PlanDraft, kinds: readonly LimitKindDescript
 }
 
 export function isDraftDirty(draft: PlanDraft, snapshot: PlanDraft): boolean {
-	return JSON.stringify(draft) !== JSON.stringify(snapshot);
+	return !jsonEqual(draft, snapshot);
 }

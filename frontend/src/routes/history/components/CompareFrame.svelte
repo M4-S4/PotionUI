@@ -235,7 +235,7 @@
 		color: white;
 	}
 
-	.wipe-handle:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .wipe-handle:focus-visible {
 		outline: 2px solid rgb(var(--signal));
 		outline-offset: 2px;
 	}

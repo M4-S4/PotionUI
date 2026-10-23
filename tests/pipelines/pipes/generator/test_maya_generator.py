@@ -28,91 +28,6 @@ from src.pipelines.outputs import (
 class TestGeneratorMayaPipe:
     """Tests for Maya text-to-speech generator pipe."""
 
-    def test_pipe_metadata(self):
-        """Test pipe has correct metadata."""
-        assert GeneratorMayaPipe.name == "generator"
-        assert "Maya" in GeneratorMayaPipe.description
-        assert "text-to-speech" in GeneratorMayaPipe.description
-
-    def test_default_config(self):
-        """Test default configuration."""
-        config = GeneratorMayaPipe.get_default_config()
-
-        assert config["text"] == "Hello, how are you today?"
-        assert config["voice_description"] == ""
-        assert config["voice_age"] == "30s"
-        assert config["voice_gender"] == "male"
-        assert config["voice_pitch"] == "medium"
-        assert config["voice_accent"] == "american"
-        assert config["voice_warmth"] == 0.5
-        assert config["temperature"] == 0.4
-        assert config["top_p"] == 0.9
-        assert config["repetition_penalty"] == 1.1
-        assert config["max_new_tokens"] == 2048
-        assert config["min_new_tokens"] == 28
-        assert config["seed"] == -1
-        assert config["sample_rate"] == 24000
-
-    def test_configuration_specs(self):
-        """Test configuration specifications."""
-        specs = GeneratorMayaPipe.configuration()
-
-        spec_names = [spec.name for spec in specs]
-        assert "text" in spec_names
-        assert "voice_description" in spec_names
-        assert "voice_age" in spec_names
-        assert "voice_gender" in spec_names
-        assert "voice_pitch" in spec_names
-        assert "voice_accent" in spec_names
-        assert "voice_warmth" in spec_names
-        assert "temperature" in spec_names
-        assert "top_p" in spec_names
-        assert "repetition_penalty" in spec_names
-        assert "max_new_tokens" in spec_names
-        assert "seed" in spec_names
-        assert "sample_rate" in spec_names
-
-        # Check temperature constraints
-        temp_spec = next(s for s in specs if s.name == "temperature")
-        assert temp_spec.min_value == 0.1
-        assert temp_spec.max_value == 1.0
-
-        # Check top_p constraints
-        top_p_spec = next(s for s in specs if s.name == "top_p")
-        assert top_p_spec.min_value == 0.5
-        assert top_p_spec.max_value == 1.0
-
-        # Check voice_warmth constraints
-        warmth_spec = next(s for s in specs if s.name == "voice_warmth")
-        assert warmth_spec.min_value == 0.0
-        assert warmth_spec.max_value == 1.0
-
-        # Check gender choices
-        gender_spec = next(s for s in specs if s.name == "voice_gender")
-        assert gender_spec.choices == ["male", "female"]
-
-    def test_inputs_specs(self):
-        """Test input specifications."""
-        inputs = GeneratorMayaPipe.inputs()
-
-        input_names = [inp.name for inp in inputs]
-        assert "model" in input_names
-
-        model_input = next(inp for inp in inputs if inp.name == "model")
-        assert model_input.io_type == IOType.MODEL
-        assert model_input.required is True
-        assert model_input.is_array is False
-
-    def test_outputs_specs(self):
-        """Test output specifications."""
-        outputs = GeneratorMayaPipe.outputs()
-
-        output_names = [out.name for out in outputs]
-        assert "audio" in output_names
-
-        audio_output = next(out for out in outputs if out.name == "audio")
-        assert audio_output.io_type == IOType.AUDIO
-        assert audio_output.is_array is True
 
     def test_build_voice_description_custom(self):
         """Test building voice description with custom input."""
@@ -520,3 +435,11 @@ class TestGeneratorMayaPipe:
         for pitch, expected_desc in zip(pitches, expected):
             desc = pipe._build_voice_description("", "30s", "male", pitch, "neutral", 0.5)
             assert expected_desc in desc
+
+    def test_sampling_bounds_and_gender_choices(self):
+        specs = {spec.name: spec for spec in GeneratorMayaPipe.configuration()}
+
+        assert (specs["temperature"].min_value, specs["temperature"].max_value) == (0.1, 1.0)
+        assert (specs["top_p"].min_value, specs["top_p"].max_value) == (0.5, 1.0)
+        assert (specs["voice_warmth"].min_value, specs["voice_warmth"].max_value) == (0.0, 1.0)
+        assert specs["voice_gender"].choices == ["male", "female"]

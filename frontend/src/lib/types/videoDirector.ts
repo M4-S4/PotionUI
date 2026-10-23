@@ -535,17 +535,3 @@ export interface DirectorOpSetContinuation {
 	op: 'set_continuation';
 	continuation: { overlap_frames?: number; stitch?: boolean };
 }
-
-export type DirectorOperation =
-	| DirectorOpSetMode
-	| DirectorOpSetSettings
-	| DirectorOpSetPrompt
-	| DirectorOpSetNegativePrompt
-	| DirectorOpUpsertSegment
-	| DirectorOpRemoveSegment
-	| DirectorOpReorderSegments
-	| DirectorOpUpsertMedia
-	| DirectorOpRemoveMedia
-	| DirectorOpUpsertAudio
-	| DirectorOpRemoveAudio
-	| DirectorOpSetContinuation;

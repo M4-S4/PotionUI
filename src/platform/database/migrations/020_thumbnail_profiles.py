@@ -88,7 +88,3 @@ def up():
         f"Migration 020_thumbnail_profiles: added {added or 'no'} column(s), "
         f"seeded {len(seeded)} setting(s)"
     )
-
-
-def down():
-    print("Migration 020_thumbnail_profiles: no-op (SQLite keeps the added columns)")

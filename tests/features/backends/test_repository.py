@@ -42,6 +42,7 @@ class TestBackendRepository(unittest.TestCase):
     def tearDown(self):
         for p in self._patchers:
             p.stop()
+        Database.close_pool()
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
         Path(self.temp_dir).rmdir()
@@ -116,15 +117,6 @@ class TestBackendRepository(unittest.TestCase):
     def test_set_default_returns_false_for_unknown_backend(self):
         result = self.repo.set_default("does-not-exist", "comfyui")
         self.assertFalse(result)
-
-    def test_get_by_engine_filters_correctly(self):
-        self.repo.create(self._make_backend("comfy-1", "Comfy1", "comfyui"))
-        self.repo.create(self._make_backend("comfy-2", "Comfy2", "comfyui"))
-        self.repo.create(self._make_backend("native-1", "Native", "native"))
-
-        comfy_backends = self.repo.get_by_engine("comfyui")
-
-        self.assertEqual({b.id for b in comfy_backends}, {"comfy-1", "comfy-2"})
 
 
 if __name__ == "__main__":

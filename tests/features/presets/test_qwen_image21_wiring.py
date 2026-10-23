@@ -10,6 +10,8 @@ from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 
+from ._bound_form import bound_form_data
+
 PRESET_DIR = Path("content/presets/marketplace/QwenImage-2.1")
 
 
@@ -17,9 +19,9 @@ PRESET_DIR = Path("content/presets/marketplace/QwenImage-2.1")
 def qwen_image21_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/QwenImage-2.1" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/QwenImage-2.1" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("marketplace/QwenImage-2.1 preset not present")
+        pytest.fail("marketplace/QwenImage-2.1 preset not present")
     return template
 
 
@@ -42,11 +44,8 @@ def _process(qwen_image21_template, form_over: dict | None = None, mode: str = "
         form_data["source_image"] = "/uploads/room.png"
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        qwen_image21_template, mode, form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": mode, "form_data": dict(bound.values)}
+    form_data = bound_form_data(qwen_image21_template, mode, form_data)
+    generation_data = {"prompts": [], "mode": mode, "form_data": form_data}
     return processor.process(qwen_image21_template, generation_data)
 
 
@@ -347,7 +346,7 @@ def test_a_rendered_control_pipeline_loads_the_patched_dit(qwen_image21_template
     from types import SimpleNamespace
 
     from src.pipelines.contracts import PipeInput
-    import src.pipelines.pipes.model_loader.qwen_image21.main as loader_module
+    import src.pipelines.pipes._shared.generation.three_component_loader as loader_module
     from src.pipelines.pipes.model_loader.qwen_image21.main import ModelLoaderQwenImage21Pipe
 
     loads = []

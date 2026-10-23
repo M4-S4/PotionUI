@@ -137,17 +137,33 @@ class TestDeepUpdate:
 
 
 class TestValidatePipeConfiguration:
-    def test_valid_configuration(self):
-        config = {
-            "param1": "test_value",
-            "param2": 75,
-            "param3": "option2"
-        }
-        result = validate_pipe_configuration(MockPipe, config)
+    VALID_BASE = {"param1": "test_value", "param2": 50, "param3": "option1"}
 
-        assert result["param1"] == "test_value"
-        assert result["param2"] == 75
-        assert result["param3"] == "option2"
+    @pytest.mark.parametrize("override,expected", [
+        pytest.param(
+            {"param2": 75, "param3": "option2"},
+            {"param1": "test_value", "param2": 75, "param3": "option2"},
+            id="valid_configuration",
+        ),
+        pytest.param({"param2": "80"}, {"param2": 80}, id="type_conversion"),
+        pytest.param({"param3": "option2"}, {"param3": "option2"}, id="choices_validation_valid"),
+        pytest.param({"param2": 75}, {"param2": 75}, id="range_validation_valid"),
+    ])
+    def test_valid_configuration_is_coerced(self, override, expected):
+        result = validate_pipe_configuration(MockPipe, {**self.VALID_BASE, **override})
+        for key, value in expected.items():
+            assert result[key] == value
+            assert type(result[key]) is type(value)
+
+    @pytest.mark.parametrize("override,match", [
+        pytest.param({"param2": "not_a_number"}, "must be of type int", id="invalid_type_conversion"),
+        pytest.param({"param3": "invalid_option"}, "must be one of", id="choices_validation_invalid"),
+        pytest.param({"param2": 0}, "must be >= 1", id="range_validation_too_low"),
+        pytest.param({"param2": 150}, "must be <= 100", id="range_validation_too_high"),
+    ])
+    def test_invalid_configuration_is_rejected(self, override, match):
+        with pytest.raises(ValueError, match=match):
+            validate_pipe_configuration(MockPipe, {**self.VALID_BASE, **override})
 
     def test_blank_string_for_optional_numeric_uses_default(self):
         class OptionalIntPipe(MockPipe):
@@ -206,106 +222,26 @@ class TestValidatePipeConfiguration:
         with pytest.raises(ValueError, match="Required parameter 'required_param' is missing"):
             validate_pipe_configuration(StrictPipe, config)
 
-    def test_type_conversion(self):
-        config = {
-            "param1": "test_value",
-            "param2": "80",  # String that should convert to int
-            "param3": "option1"
-        }
-        result = validate_pipe_configuration(MockPipe, config)
-
-        assert result["param2"] == 80
-        assert isinstance(result["param2"], int)
-
-    def test_boolean_conversion(self):
+    @pytest.mark.parametrize("raw,expected", [
+        pytest.param("true", True, id="true"),
+        pytest.param("True", True, id="True"),
+        pytest.param("1", True, id="1"),
+        pytest.param("yes", True, id="yes"),
+        pytest.param("on", True, id="on"),
+        pytest.param("false", False, id="false"),
+        pytest.param("False", False, id="False"),
+        pytest.param("0", False, id="0"),
+        pytest.param("no", False, id="no"),
+        pytest.param("off", False, id="off"),
+    ])
+    def test_boolean_conversion(self, raw, expected):
         class BooleanPipe(MockPipe):
             @classmethod
             def configuration(cls):
-                return [
-                    PipeConfigSpec(
-                        name="bool_param",
-                        param_type=bool,
-                        required=False,
-                        default=False
-                    )
-                ]
+                return [PipeConfigSpec(name="bool_param", param_type=bool, required=False, default=False)]
 
-        # Test string boolean conversion
-        test_cases = [
-            ("true", True),
-            ("True", True),
-            ("1", True),
-            ("yes", True),
-            ("on", True),
-            ("false", False),
-            ("False", False),
-            ("0", False),
-            ("no", False),
-            ("off", False)
-        ]
-
-        for string_val, expected in test_cases:
-            config = {"bool_param": string_val}
-            result = validate_pipe_configuration(BooleanPipe, config)
-            assert result["bool_param"] == expected
-
-    def test_invalid_type_conversion(self):
-        config = {
-            "param1": "test_value",
-            "param2": "not_a_number",  # Cannot convert to int
-            "param3": "option1"
-        }
-
-        with pytest.raises(ValueError, match="must be of type int"):
-            validate_pipe_configuration(MockPipe, config)
-
-    def test_choices_validation_valid(self):
-        config = {
-            "param1": "test_value",
-            "param2": 50,
-            "param3": "option2"  # Valid choice
-        }
-        result = validate_pipe_configuration(MockPipe, config)
-        assert result["param3"] == "option2"
-
-    def test_choices_validation_invalid(self):
-        config = {
-            "param1": "test_value",
-            "param2": 50,
-            "param3": "invalid_option"  # Invalid choice
-        }
-
-        with pytest.raises(ValueError, match="must be one of"):
-            validate_pipe_configuration(MockPipe, config)
-
-    def test_range_validation_valid(self):
-        config = {
-            "param1": "test_value",
-            "param2": 75,  # Within range 1-100
-            "param3": "option1"
-        }
-        result = validate_pipe_configuration(MockPipe, config)
-        assert result["param2"] == 75
-
-    def test_range_validation_too_low(self):
-        config = {
-            "param1": "test_value",
-            "param2": 0,  # Below minimum of 1
-            "param3": "option1"
-        }
-
-        with pytest.raises(ValueError, match="must be >= 1"):
-            validate_pipe_configuration(MockPipe, config)
-
-    def test_range_validation_too_high(self):
-        config = {
-            "param1": "test_value",
-            "param2": 150,  # Above maximum of 100
-            "param3": "option1"
-        }
-
-        with pytest.raises(ValueError, match="must be <= 100"):
-            validate_pipe_configuration(MockPipe, config)
+        result = validate_pipe_configuration(BooleanPipe, {"bool_param": raw})
+        assert result["bool_param"] is expected
 
     def test_unknown_parameters_preserved(self):
         """Unknown parameters (like backend_config injected by backends) should be preserved."""

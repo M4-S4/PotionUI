@@ -92,7 +92,6 @@
 import type {
 	VideoDirectorValue,
 	DirectorCapabilities,
-	DirectorModeCapability,
 	DirectorMediaValue,
 	ChainSegment,
 	DirectorTimelineShot

@@ -109,6 +109,18 @@ class TestMediaViewer:
         assert viewer is a_user
 
     @pytest.mark.asyncio
+    async def test_the_partitioned_cookie_alone_identifies_an_iframe_img_request(self, mock_auth_manager, a_user, no_fallback):
+        from src.platform.security.media_session import partitioned_media_cookie_name
+
+        mock_auth_manager.get_user_from_token.side_effect = {"frame.jwt": a_user}.get
+
+        viewer = await current_user.get_media_viewer(
+            self._request(cookies={partitioned_media_cookie_name(): "frame.jwt"})
+        )
+
+        assert viewer is a_user
+
+    @pytest.mark.asyncio
     async def test_a_non_jwt_bearer_falls_back_to_the_registered_resolver(self, mock_auth_manager, a_user, no_fallback):
         mock_auth_manager.get_user_from_token.return_value = None
         current_user.set_media_bearer_fallback({"pui_mcp_x": a_user}.get)

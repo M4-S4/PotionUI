@@ -132,10 +132,6 @@ type: full-stack
 # ========== PluginHook label/require_role ==========
 
 class TestPluginHookLabelAndRole:
-    def test_defaults_none(self):
-        hook = PluginHook(id=1, plugin_id="p", hook_name="admin.plugin.tabs", hook_type="frontend")
-        assert hook.label is None
-        assert hook.require_role is None
 
     def test_from_row_reads_label_and_role(self):
         row = {

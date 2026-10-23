@@ -11,7 +11,7 @@ export const PRESET_CATEGORIES: readonly PresetCategoryMeta[] = [
 	{ id: 'video', label: 'Video', icon: 'film' },
 	{ id: 'audio', label: 'Audio', icon: 'audio' },
 	{ id: '3d', label: '3D', icon: 'cube' },
-	{ id: 'utility', label: 'Utility', icon: 'wand' }
+	{ id: 'utility', label: 'Tools', icon: 'wand' }
 ];
 
 const categoryById = new Map(PRESET_CATEGORIES.map((category) => [category.id, category]));

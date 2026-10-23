@@ -63,18 +63,3 @@ class SessionVersion(BaseModel):
     data: Dict[str, Any]
     summary: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
-
-
-class SessionVersionSummaryResponse(BaseModel):
-    """List-endpoint entry — no payload, cheap to return in bulk."""
-    version_number: int
-    created_at: str
-    summary: Optional[str] = None
-
-
-class SessionVersionDetailResponse(BaseModel):
-    """Single-version-endpoint response — includes the full payload."""
-    version_number: int
-    created_at: str
-    summary: Optional[str] = None
-    data: Dict[str, Any]

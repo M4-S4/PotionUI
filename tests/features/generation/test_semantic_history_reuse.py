@@ -33,9 +33,9 @@ class CountingRepository:
         self.rows_materialized += len(rows)
         return rows
 
-    def matching_generation_ids(self, generation_ids, **filters):
+    def matching_generation_ids(self, generation_ids, *args, **filters):
         self.id_filter_batches.append(list(generation_ids))
-        return self._inner.matching_generation_ids(generation_ids, **filters)
+        return self._inner.matching_generation_ids(generation_ids, *args, **filters)
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
@@ -72,7 +72,7 @@ class TestEmbeddingIsReusedAcrossWideningPasses(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         result = query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -84,7 +84,7 @@ class TestEmbeddingIsReusedAcrossWideningPasses(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -98,7 +98,7 @@ class TestWideningFiltersOnlyWhatItAdded(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
         page_batches = self.counting_repo.id_filter_batches[:-1]
@@ -112,7 +112,7 @@ class TestWideningFiltersOnlyWhatItAdded(SemanticCostTestBase):
         )
 
         result = query.get_history(
-            self.user_id, limit=10, include_tags=False,
+            user_id=self.user_id, limit=10, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -129,7 +129,7 @@ class TestWideningFiltersOnlyWhatItAdded(SemanticCostTestBase):
         ])
 
         result = query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -164,7 +164,7 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
         )
 
         result = query.get_history(
-            self.user_id, limit=4, include_tags=False,
+            user_id=self.user_id, limit=4, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -184,7 +184,7 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
         )
 
         result = query.get_history(
-            self.user_id, limit=5, include_tags=False,
+            user_id=self.user_id, limit=5, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -208,7 +208,7 @@ class TestWideningTrustsOnlyTheRankingInHand(SemanticCostTestBase):
         )
 
         query.get_history(
-            self.user_id, limit=4, include_tags=False,
+            user_id=self.user_id, limit=4, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -221,7 +221,7 @@ class TestTotalDoesNotMaterializeTheGallery(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(10))
 
         result = query.get_history(
-            self.user_id, limit=2, include_tags=False,
+            user_id=self.user_id, limit=2, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -233,7 +233,7 @@ class TestTotalDoesNotMaterializeTheGallery(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(10))
 
         result = query.get_history(
-            self.user_id, limit=2, offset=8, include_tags=False,
+            user_id=self.user_id, limit=2, offset=8, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -247,7 +247,7 @@ class TestTotalDoesNotMaterializeTheGallery(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(10, completed_indexes=set()))
 
         result = query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -258,7 +258,7 @@ class TestTotalDoesNotMaterializeTheGallery(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(10))
 
         query.get_history(
-            self.user_id, limit=2, include_tags=False,
+            user_id=self.user_id, limit=2, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -279,7 +279,7 @@ class TestTotalMatchesGroundTruth(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(12, completed_indexes=completed))
 
         result = query.get_history(
-            self.user_id, limit=2, include_tags=False,
+            user_id=self.user_id, limit=2, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -291,7 +291,7 @@ class TestTotalMatchesGroundTruth(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(12))
 
         result = query.get_history(
-            self.user_id, limit=5, include_tags=False, semantic_query="castle",
+            user_id=self.user_id, limit=5, include_tags=False, semantic_query="castle",
         )
 
         assert result["total"] == self._brute_force_total(user_id=self.user_id)
@@ -302,7 +302,7 @@ class TestIndexMutationBetweenRequests(SemanticCostTestBase):
     def test_a_newly_indexed_generation_shows_up_on_the_next_request(self):
         query = self._counting_query(hits=self._gallery(3))
 
-        first = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        first = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
         assert [g["id"] for g in first["generations"]] == ["gen0", "gen1", "gen2"]
         assert first["total"] == 3
 
@@ -310,7 +310,7 @@ class TestIndexMutationBetweenRequests(SemanticCostTestBase):
         self.search_manager.hits.insert(1, self._hit("f-new", "gen-new", 0.9995))
         self.search_manager.collection_size_value += 1
 
-        second = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        second = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert [g["id"] for g in second["generations"]] == [
             "gen0", "gen-new", "gen1", "gen2"
@@ -321,7 +321,7 @@ class TestIndexMutationBetweenRequests(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(3))
 
         assert query.get_history(
-            self.user_id, include_tags=False, semantic_query="castle"
+            user_id=self.user_id, include_tags=False, semantic_query="castle"
         )["total"] == 3
 
         self.generation_repo.delete("gen1")
@@ -330,7 +330,7 @@ class TestIndexMutationBetweenRequests(SemanticCostTestBase):
         ]
         self.search_manager.collection_size_value -= 1
 
-        second = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        second = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert [g["id"] for g in second["generations"]] == ["gen0", "gen2"]
         assert second["total"] == 2
@@ -341,7 +341,7 @@ class TestExhaustedAndEmptyCollections(SemanticCostTestBase):
         query = self._counting_query(hits=self._gallery(3, completed_indexes=set()))
 
         result = query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -353,7 +353,7 @@ class TestExhaustedAndEmptyCollections(SemanticCostTestBase):
     def test_an_empty_collection_embeds_once_and_searches_once(self):
         query = self._counting_query(hits=[], collection_size=0)
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert result["generations"] == []
         assert result["total"] == 0

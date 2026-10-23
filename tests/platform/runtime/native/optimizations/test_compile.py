@@ -10,7 +10,7 @@ import pytest
 from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.depth_decoder import DepthDecoderModule
-from vendor.gpl.comfyui.ops import disable_weight_init, Fp8ScaledLinear
+from vendor.gpl.comfyui.ops import _build_convrot_hadamard, disable_weight_init, fp8_ops, Fp8ScaledLinear
 from src.platform.runtime.native.optimizations import compile as tc
 from src.platform.settings import runtime_flags
 
@@ -63,6 +63,91 @@ class _MockNM:
 
 def _enable(monkeypatch):
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
+    monkeypatch.setattr(tc, "_triton_available", lambda: True)
+
+
+def _fp8_linear(dim: int = 16) -> Fp8ScaledLinear:
+    layer = Fp8ScaledLinear(dim, dim)
+    layer.weight = nn.Parameter(torch.randn(dim, dim).to(torch.float8_e4m3fn), requires_grad=False)
+    layer.weight_scale = torch.tensor(0.5)
+    layer.bias = nn.Parameter(torch.randn(dim), requires_grad=False)
+    return layer
+
+
+def _fp8_pre_scaled_linear(dim: int = 16) -> Fp8ScaledLinear:
+    layer = _fp8_linear(dim)
+    layer.pre_quant_scale = torch.rand(dim) + 0.5
+    return layer
+
+
+def _int8_convrot_linear(dim: int = 16) -> Fp8ScaledLinear:
+    layer = _fp8_linear(dim)
+    layer.weight = nn.Parameter(torch.randint(-5, 5, (dim, dim), dtype=torch.int8), requires_grad=False)
+    layer.convrot_hadamard = _build_convrot_hadamard(dim, device="cpu", dtype=torch.float32).clone()
+    layer.convrot_groupsize = dim
+    return layer
+
+
+class _QuantBlock(nn.Module):
+    def __init__(self, make_linear=_fp8_linear) -> None:
+        super().__init__()
+        self.a = make_linear()
+        self.b = make_linear()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.b(torch.nn.functional.gelu(self.a(x)))
+
+
+class _QuantDit(nn.Module):
+    def __init__(self, make_linear=_fp8_linear, n: int = 2) -> None:
+        super().__init__()
+        self.blocks = nn.ModuleList(_QuantBlock(make_linear) for _ in range(n))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for block in self.blocks:
+            x = block(x)
+        return x
+
+
+class _StreamedBlock(nn.Module):
+    def __init__(self, dim: int = 16) -> None:
+        super().__init__()
+        self.a = disable_weight_init.Linear(dim, dim)
+        self.b = disable_weight_init.Linear(dim, dim)
+        for p in self.parameters():
+            nn.init.normal_(p)
+        for leaf in (self.a, self.b):
+            leaf.comfy_cast_weights = True
+            leaf.stream_non_blocking = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.b(torch.nn.functional.gelu(self.a(x)))
+
+
+class _StreamedDit(nn.Module):
+    def __init__(self, n: int = 2) -> None:
+        super().__init__()
+        self.blocks = nn.ModuleList(_StreamedBlock() for _ in range(n))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for block in self.blocks:
+            x = block(x)
+        return x
+
+
+def _streaming_nm(module: nn.Module, active: bool = True) -> _MockNM:
+    nm = _MockNM(module)
+    nm.is_streaming = active
+    return nm
+
+
+def _eager_backend_compile(monkeypatch):
+    real_compile = torch.compile
+
+    def eager_compile(target, **kwargs):
+        return real_compile(target, backend="eager", dynamic=kwargs["dynamic"])
+
+    monkeypatch.setattr(torch, "compile", eager_compile)
 
 
 def _record_compile_calls(monkeypatch):
@@ -110,70 +195,138 @@ def test_find_block_lists_ignores_singletons_and_heterogeneous():
     assert tc.find_block_lists(_Mixed()) == []
 
 
-# --- gate logic (mock, fast) --------------------------------------------------
+def _case_disabled(mp):
+    mp.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
+    return _MockNM(_Blocks()), True, True
 
 
-def test_gate_disabled_by_default(monkeypatch):
-    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
-    ok, reason = tc.compile_gate(_MockNM(_Blocks()), resident=True, is_cuda=True)
-    assert (ok, reason) == (False, "disabled")
+def _case_cpu(mp):
+    return _MockNM(_Blocks()), True, False
 
 
-def test_gate_rejects_cpu(monkeypatch):
-    _enable(monkeypatch)
-    ok, reason = tc.compile_gate(_MockNM(_Blocks()), resident=True, is_cuda=False)
-    assert (ok, reason) == (False, "cpu")
+def _case_not_resident(mp):
+    return _MockNM(_Blocks()), False, True
 
 
-def test_gate_rejects_streaming(monkeypatch):
-    _enable(monkeypatch)
-    ok, reason = tc.compile_gate(_MockNM(_Blocks()), resident=False, is_cuda=True)
-    assert (ok, reason) == (False, "streaming")
+def _case_streamer_inactive(mp):
+    return _streaming_nm(_Blocks(), active=False), False, True
 
 
-def test_gate_rejects_quantized_by_format(monkeypatch):
-    _enable(monkeypatch)
-    ok, reason = tc.compile_gate(_MockNM(_Blocks(), quant_format="fp8_scaled"), resident=True, is_cuda=True)
-    assert (ok, reason) == (False, "quantized")
+def _case_streamed_ok(mp):
+    return _streaming_nm(_StreamedDit()), False, True
 
 
-def test_gate_rejects_quantized_linear(monkeypatch):
-    _enable(monkeypatch)
-
-    class _WithFp8(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.blocks = nn.ModuleList(disable_weight_init.Linear(4, 4) for _ in range(2))
-            self.q = Fp8ScaledLinear(4, 4)
-
-    ok, reason = tc.compile_gate(_MockNM(_WithFp8()), resident=True, is_cuda=True)
-    assert (ok, reason) == (False, "quantized-linear")
+def _case_streamed_leaf_hooks(mp):
+    dit = _StreamedDit()
+    dit.blocks[0].a.register_forward_pre_hook(lambda m, a: None)
+    return _streaming_nm(dit), False, True
 
 
-def test_gate_rejects_runtime_lora(monkeypatch):
-    _enable(monkeypatch)
-    m = _Blocks(n=2)
-    m.blocks[0].lora_deltas = [object()]   # non-empty runtime delta -> graph-break risk
-    ok, reason = tc.compile_gate(_MockNM(m), resident=True, is_cuda=True)
-    assert (ok, reason) == (False, "runtime-lora")
+def _case_streamed_block_hook(mp):
+    dit = _StreamedDit()
+    dit.blocks[0].register_forward_hook(lambda m, a, o: None)
+    return _streaming_nm(dit), False, True
 
 
-def test_gate_rejects_no_block_lists(monkeypatch):
-    _enable(monkeypatch)
+def _case_resident_leaf_hooks(mp):
+    dit = _StreamedDit()
+    dit.blocks[0].a.register_forward_pre_hook(lambda m, a: None)
+    return _MockNM(dit), True, True
 
+
+def _case_no_triton(mp):
+    mp.setattr(tc, "_triton_available", lambda: False)
+    return _MockNM(_Blocks()), True, True
+
+
+def _case_unknown_quant(mp):
+    return _MockNM(_Blocks(), quant_format="gguf_q4"), True, True
+
+
+def _case_fp8(make_linear):
+    return lambda mp: (_MockNM(_QuantDit(make_linear), quant_format="fp8_scaled"), True, True)
+
+
+def _case_fp8_streamed(mp):
+    nm = _streaming_nm(_QuantDit())
+    nm.quant_format = "fp8_scaled"
+    return nm, False, True
+
+
+def _case_nvfp4(mp):
+    dit = _QuantDit()
+    nvfp4 = fp8_ops.Linear(16, 16)
+    nvfp4._is_nvfp4 = True
+    dit.blocks[1].a = nvfp4
+    return _MockNM(dit, quant_format="fp8_scaled"), True, True
+
+
+def _case_scaled_mm_fp8(mp):
+    mp.setattr(tc, "_fp8_matmul_enabled", lambda: True)
+    return _MockNM(_QuantDit()), True, True
+
+
+def _case_scaled_mm_int8(mp):
+    mp.setattr(tc, "_fp8_matmul_enabled", lambda: True)
+    return _MockNM(_QuantDit(_int8_convrot_linear)), True, True
+
+
+def _case_fp8_lora(mp):
+    dit = _QuantDit()
+    dit.blocks[0].a.lora_deltas = [object()]
+    return _MockNM(dit, quant_format="fp8_scaled"), True, True
+
+
+def _case_float_lora(mp):
+    dit = _Blocks(n=2)
+    dit.blocks[0].lora_deltas = [object()]
+    return _MockNM(dit), True, True
+
+
+def _case_no_blocks(mp):
     class _Flat(nn.Module):
         def __init__(self):
             super().__init__()
             self.lin = disable_weight_init.Linear(4, 4)
 
-    ok, reason = tc.compile_gate(_MockNM(_Flat()), resident=True, is_cuda=True)
-    assert (ok, reason) == (False, "no-block-lists")
+    return _MockNM(_Flat()), True, True
 
 
-def test_gate_passes_for_float_resident_dit(monkeypatch):
+def _case_float_ok(mp):
+    return _MockNM(_Blocks(n=3)), True, True
+
+
+@pytest.mark.parametrize(
+    "build, expected",
+    [
+        (_case_disabled, (False, "disabled")),
+        (_case_cpu, (False, "cpu")),
+        (_case_not_resident, (False, "not-resident")),
+        (_case_streamer_inactive, (False, "not-resident")),
+        (_case_streamed_ok, (True, "ok")),
+        (_case_streamed_leaf_hooks, (False, "streaming-hooks")),
+        (_case_streamed_block_hook, (True, "ok")),
+        (_case_resident_leaf_hooks, (True, "ok")),
+        (_case_no_triton, (False, "no-triton")),
+        (_case_unknown_quant, (False, "quantized")),
+        (_case_fp8(_fp8_linear), (True, "ok")),
+        (_case_fp8(_fp8_pre_scaled_linear), (True, "ok")),
+        (_case_fp8(_int8_convrot_linear), (True, "ok")),
+        (_case_fp8_streamed, (True, "ok")),
+        (_case_nvfp4, (False, "nvfp4")),
+        (_case_scaled_mm_fp8, (False, "fp8-scaled-mm")),
+        (_case_scaled_mm_int8, (True, "ok")),
+        (_case_fp8_lora, (False, "runtime-lora")),
+        (_case_float_lora, (False, "runtime-lora")),
+        (_case_no_blocks, (False, "no-block-lists")),
+        (_case_float_ok, (True, "ok")),
+    ],
+    ids=lambda v: getattr(v, "__name__", None) if callable(v) else None,
+)
+def test_compile_gate_matrix(monkeypatch, build, expected):
     _enable(monkeypatch)
-    ok, reason = tc.compile_gate(_MockNM(_Blocks(n=3)), resident=True, is_cuda=True)
-    assert (ok, reason) == (True, "ok")
+    nm, resident, is_cuda = build(monkeypatch)
+    assert tc.compile_gate(nm, resident=resident, is_cuda=is_cuda) == expected
 
 
 # --- maybe_compile_dit gating (no real compile) -------------------------------
@@ -182,7 +335,7 @@ def test_gate_passes_for_float_resident_dit(monkeypatch):
 def test_maybe_compile_noop_when_gate_fails(monkeypatch):
     _enable(monkeypatch)
     nm = _MockNM(_Blocks())
-    tc.maybe_compile_dit(nm, resident=False, is_cuda=True)   # streaming -> skip
+    tc.maybe_compile_dit(nm, resident=False, is_cuda=True)
     assert nm._compiled is None
     for blk in nm.module.blocks:
         assert not tc.is_compiled(blk)
@@ -215,6 +368,11 @@ def test_real_eager_backend_compile_executes_and_restores(monkeypatch):
     assert all(tc.is_compiled(blk) for blk in m.blocks)
     assert torch.allclose(reference, m(x), atol=1e-5)
 
+    handle = nm._compiled
+    tc.maybe_compile_dit(nm, resident=True, is_cuda=True)
+    assert nm._compiled is handle
+    assert len(seen) == 3
+
     tc.restore_compiled(nm)
     assert nm._compiled is None
     assert list(m.blocks) == originals
@@ -224,39 +382,141 @@ def test_real_eager_backend_compile_executes_and_restores(monkeypatch):
     torch._dynamo.reset()
 
 
-def test_compile_executes_matches_and_restores(monkeypatch):
-    _enable(monkeypatch)
-    calls = _record_compile_calls(monkeypatch)
+@pytest.mark.skipif(sys.platform == "win32", reason="torch.compile is unsupported on native Windows")
+@pytest.mark.parametrize(
+    "make_block",
+    [
+        lambda: _QuantBlock(_fp8_linear),
+        lambda: _QuantBlock(_fp8_pre_scaled_linear),
+        lambda: _QuantBlock(_int8_convrot_linear),
+        _StreamedBlock,
+    ],
+    ids=["fp8", "fp8-pre-scaled", "int8-convrot", "streamed"],
+)
+def test_block_traces_with_zero_graph_breaks(make_block):
+    torch._dynamo.reset()
     torch.manual_seed(0)
-    m = _Blocks(n=3, dim=8)
-    x = torch.randn(2, 5, 8)
-    reference = m(x)
-    originals = list(m.blocks)
+    explanation = torch._dynamo.explain(make_block())(torch.randn(2, 5, 16))
+    assert explanation.graph_break_count == 0
+    torch._dynamo.reset()
 
-    nm = _MockNM(m)
+
+@pytest.mark.skipif(sys.platform == "win32", reason="torch.compile is unsupported on native Windows")
+def test_streamed_to_resident_flip_restores_forward_wraps_then_compiles_whole_blocks(monkeypatch):
+    torch._dynamo.reset()
+    _enable(monkeypatch)
+    _eager_backend_compile(monkeypatch)
+    torch.manual_seed(0)
+    dit = _StreamedDit(n=2)
+    x = torch.randn(2, 5, 16)
+    reference = dit(x)
+    originals = list(dit.blocks)
+    nm = _streaming_nm(dit)
+
+    tc.maybe_compile_dit(nm, resident=False, is_cuda=True)
+    assert all("forward" in vars(block) for block in dit.blocks)
+
+    tc.restore_compiled(nm)
+    assert all("forward" not in vars(block) for block in dit.blocks)
+    assert torch.equal(reference, dit(x))
+
+    nm.is_streaming = False
+    tc.maybe_compile_dit(nm, resident=True, is_cuda=True)
+    assert nm._compiled.active and nm._compiled.forwards == []
+    assert all(tc.is_compiled(block) for block in dit.blocks)
+    assert [block._orig_mod for block in dit.blocks] == originals
+    assert all("forward" not in vars(block._orig_mod) for block in dit.blocks)
+    assert torch.allclose(reference, dit(x), atol=1e-5)
+
+    tc.restore_compiled(nm)
+    assert list(dit.blocks) == originals
+    assert torch.equal(reference, dit(x))
+    torch._dynamo.reset()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="torch.compile is unsupported on native Windows")
+def test_fp8_resident_compile_matches_eager_and_restores(monkeypatch):
+    torch._dynamo.reset()
+    _enable(monkeypatch)
+    _eager_backend_compile(monkeypatch)
+    torch.manual_seed(0)
+    dit = _QuantDit()
+    x = torch.randn(2, 5, 16)
+    reference = dit(x)
+    originals = list(dit.blocks)
+
+    nm = _MockNM(dit, quant_format="fp8_scaled")
     tc.maybe_compile_dit(nm, resident=True, is_cuda=True)
 
-    # Blocks are now compiled wrappers, and a real forward matches eager numerics.
     assert nm._compiled is not None and nm._compiled.active
-    assert all(tc.is_compiled(blk) for blk in m.blocks)
-    compiled_out = m(x)
-    assert torch.allclose(reference, compiled_out, atol=1e-5)
+    assert all(tc.is_compiled(block) for block in dit.blocks)
+    assert torch.allclose(reference, dit(x), atol=1e-4, rtol=1e-4)
 
-    # Idempotent: a second call does not re-wrap (no double compilation).
-    handle_entries = len(nm._compiled.entries)
-    tc.maybe_compile_dit(nm, resident=True, is_cuda=True)
-    assert len(nm._compiled.entries) == handle_entries
-    assert all(not tc.is_compiled(blk._orig_mod) for blk in m.blocks)
-
-    # Restore puts the exact original block objects back (identity check) and
-    # numerics still match.
     tc.restore_compiled(nm)
     assert nm._compiled is None
-    assert list(m.blocks) == originals
-    assert all(not tc.is_compiled(blk) for blk in m.blocks)
-    assert torch.allclose(reference, m(x), atol=1e-5)
-    assert len(calls) == 3
-    assert all(call == {"mode": "default", "dynamic": True} for call in calls)
+    assert list(dit.blocks) == originals
+    assert all(not tc.is_compiled(block) for block in dit.blocks)
+    assert torch.equal(reference, dit(x))
+    torch._dynamo.reset()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="torch.compile is unsupported on native Windows")
+def test_streamed_compile_keeps_block_hooks_eager_and_restores(monkeypatch):
+    torch._dynamo.reset()
+    _enable(monkeypatch)
+    _eager_backend_compile(monkeypatch)
+    torch.manual_seed(0)
+    dit = _StreamedDit(n=2)
+    calls = {"pre": 0, "post": 0}
+    for block in dit.blocks:
+        block.register_forward_pre_hook(lambda m, a: calls.__setitem__("pre", calls["pre"] + 1))
+        block.register_forward_hook(lambda m, a, o: calls.__setitem__("post", calls["post"] + 1))
+    x = torch.randn(2, 5, 16)
+    reference = dit(x)
+    originals = list(dit.blocks)
+    calls.update(pre=0, post=0)
+
+    nm = _streaming_nm(dit)
+    tc.maybe_compile_dit(nm, resident=False, is_cuda=True)
+
+    assert nm._compiled is not None and nm._compiled.active
+    assert list(dit.blocks) == originals
+    assert all("forward" in vars(block) for block in dit.blocks)
+    assert all(not tc.is_compiled(block) for block in dit.blocks)
+    for _ in range(3):
+        out = dit(x)
+    assert torch.allclose(reference, out, atol=1e-5)
+    assert calls == {"pre": 6, "post": 6}
+
+    entries = len(nm._compiled.forwards)
+    tc.maybe_compile_dit(nm, resident=False, is_cuda=True)
+    assert len(nm._compiled.forwards) == entries
+
+    tc.restore_compiled(nm)
+    assert nm._compiled is None
+    assert list(dit.blocks) == originals
+    assert all("forward" not in vars(block) for block in dit.blocks)
+    calls.update(pre=0, post=0)
+    assert torch.equal(reference, dit(x))
+    assert calls == {"pre": 2, "post": 2}
+    torch._dynamo.reset()
+
+
+def test_streamed_compile_wraps_forward_not_the_module(monkeypatch):
+    _enable(monkeypatch)
+    seen = []
+
+    def fake_compile(target, **kwargs):
+        seen.append((target, kwargs))
+        return target
+
+    monkeypatch.setattr(torch, "compile", fake_compile)
+    dit = _StreamedDit(n=3)
+    nm = _streaming_nm(dit)
+    tc.maybe_compile_dit(nm, resident=False, is_cuda=True)
+    assert [kw for _t, kw in seen] == [{"mode": "default", "dynamic": True}] * 3
+    assert all(getattr(t, "__self__", None) is block for (t, _kw), block in zip(seen, dit.blocks))
+    assert len(nm._compiled.forwards) == 3 and nm._compiled.entries == []
 
 
 # --- Codex E9-E11: compile robustness ---------------------------------------
@@ -273,26 +533,40 @@ class _FakeCompiled(nn.Module):
         return self._orig_mod(*a, **k)
 
 
-def test_compile_blocks_restores_partial_wraps_on_failure(monkeypatch):
-    # E11: a failure partway through wrapping must leave NO untracked compiled
-    # wrappers installed (else offload/unload could never restore them).
-    _enable(monkeypatch)
-    m = _Blocks(n=3)
-    originals = list(m.blocks)
+@pytest.mark.parametrize("streaming", [False, True], ids=["resident", "streamed"])
+def test_compile_blocks_skips_blocks_already_compiled(monkeypatch, streaming):
+    wrapped = []
+
+    def record(target, **kw):
+        wrapped.append(target)
+        return target if streaming else _FakeCompiled(target)
+
+    monkeypatch.setattr(tc.torch, "compile", record)
+    dit = _StreamedDit(n=3)
+    first = tc.compile_blocks(dit, streaming=streaming)
+    second = tc.compile_blocks(dit, streaming=streaming)
+    assert first.active and not second.active
+    assert len(wrapped) == 3
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["resident", "streamed"])
+def test_compile_blocks_failure_leaves_nothing_wrapped(monkeypatch, streaming):
+    dit = _StreamedDit(n=3)
+    originals = list(dit.blocks)
     calls = {"n": 0}
 
-    def _flaky(block, **kw):
+    def flaky(target, **kw):
         calls["n"] += 1
         if calls["n"] >= 2:
             raise RuntimeError("inductor blew up")
-        return _FakeCompiled(block)
+        return target if streaming else _FakeCompiled(target)
 
-    monkeypatch.setattr(tc.torch, "compile", _flaky)
+    monkeypatch.setattr(tc.torch, "compile", flaky)
     with pytest.raises(RuntimeError):
-        tc.compile_blocks(m)
-    # every block back to its original object — nothing left wrapped.
-    assert list(m.blocks) == originals
-    assert all(not tc.is_compiled(b) for b in m.blocks)
+        tc.compile_blocks(dit, streaming=streaming)
+    assert calls["n"] == 2
+    assert list(dit.blocks) == originals
+    assert all(not tc.is_compiled(b) and "forward" not in vars(b) for b in dit.blocks)
 
 
 def test_maybe_compile_dit_clears_handle_on_failure(monkeypatch):
@@ -321,23 +595,24 @@ def test_maybe_compile_dit_enables_dynamo_suppress_errors(monkeypatch):
     assert torch._dynamo.config.suppress_errors is True
 
 
-def test_stream_to_restores_compiled_blocks(monkeypatch):
-    # E9: switching a compiled resident DiT to partial-residency streaming must
-    # un-compile first (streaming swaps leaf weights per forward — incompatible
-    # with a compiled graph). NativeModel.stream_to restores before applying.
+@pytest.mark.parametrize("streaming", [False, True], ids=["resident", "streamed"])
+def test_stream_to_uncompiles_blocks_before_restreaming(monkeypatch, streaming):
     from src.platform.runtime.native.engine import NativeModel
 
-    m = _Blocks(n=3)
-    monkeypatch.setattr(tc.torch, "compile", lambda block, **kw: _FakeCompiled(block))
-    handle = tc.compile_blocks(m)
-    assert handle.active and all(tc.is_compiled(b) for b in m.blocks)
+    wrap = (lambda target, **kw: target) if streaming else (lambda target, **kw: _FakeCompiled(target))
+    monkeypatch.setattr(tc.torch, "compile", wrap)
+    dit = _StreamedDit(n=2)
+    originals = list(dit.blocks)
+    handle = tc.compile_blocks(dit, streaming=streaming)
+    assert handle.active
 
-    nm = NativeModel("diffusion_model", m)
+    nm = NativeModel("diffusion_model", dit)
     nm._compiled = handle
-    nm.stream_to("cpu", 0.0)   # non-cuda -> falls to move_to, but must restore first
+    nm.stream_to("cpu", 0.0)
 
     assert nm._compiled is None
-    assert all(not tc.is_compiled(b) for b in m.blocks)
+    assert list(dit.blocks) == originals
+    assert all(not tc.is_compiled(b) and "forward" not in vars(b) for b in dit.blocks)
 
 
 # --- MiniMax-Music3 AR core: whole-module reduce-overhead compile ------------

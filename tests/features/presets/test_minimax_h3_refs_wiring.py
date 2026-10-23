@@ -18,7 +18,6 @@ import pytest
 import yaml
 
 from src.features.forms.binding import bind_form
-from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.features.video_director import normalize_video_director
 from src.features.video_director.normalize import apply_preset_mode_overlay
@@ -37,26 +36,6 @@ _REFERENCE_AUDIOS = [
     {"path": "/media/ref-voice.wav", "name": "ref-voice.wav", "type": "audio", "label": "her voice"},
 ]
 _MIXED_REFERENCES = [_REFERENCE_AUDIOS[0], _REFERENCES[0], _REFERENCE_VIDEOS[0], _REFERENCES[1]]
-
-
-# Matched by id, not by a path substring: `MiniMax-H3-VDN` also contains
-# "MiniMax-H3", and PresetTemplateLoader walks `rglob("preset.yml")` in
-# filesystem order, so a substring match picks an arbitrary member of the
-# family. Asserted rather than skipped -- these files were silently skipping
-# every test in them for weeks after the content/ restructure.
-_H3_PRESET_ID = "01KX47H3MINIMAX000000000VA"
-
-
-@pytest.fixture(scope="module")
-def h3_template():
-    loader = PresetTemplateLoader(["content/presets"])
-    loader.load_presets()
-    template = next((p for p in loader.presets if p.id == _H3_PRESET_ID), None)
-    assert template is not None, (
-        f"MiniMax-H3 preset {_H3_PRESET_ID} not loaded from content/presets "
-        f"(loaded: {sorted(p.id for p in loader.presets)})"
-    )
-    return template
 
 
 def _process(h3_template, form_over: dict | None = None):

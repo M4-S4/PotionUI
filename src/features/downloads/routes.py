@@ -210,61 +210,26 @@ def build_router(container: "AppContainer") -> APIRouter:
         except DownloadNotFoundException as e:
             raise HTTPException(status_code=404, detail=str(e))
 
-    @router.post("/{download_id}/pause", summary="Pause Download")
-    async def pause_download(
-        download_id: str,
-        current_user: User = Depends(get_current_admin_user),
-    ):
-        """Pause an active download. Admin only."""
-        try:
-            download = await download_queue.pause_download(download_id)
-            return {"success": True, "data": download.to_dict(), "message": "Download paused"}
-        except DownloadNotFoundException as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except DownloadOperationException as e:
-            raise HTTPException(status_code=400, detail=str(e))
+    def _control_route(path: str, summary: str, action: str, message: str):
+        @router.post(path, summary=summary, name=action)
+        async def control(
+            download_id: str,
+            current_user: User = Depends(get_current_admin_user),
+        ):
+            try:
+                download = await getattr(download_queue, action)(download_id)
+                return {"success": True, "data": download.to_dict(), "message": message}
+            except DownloadNotFoundException as e:
+                raise HTTPException(status_code=404, detail=str(e))
+            except DownloadOperationException as e:
+                raise HTTPException(status_code=400, detail=str(e))
 
-    @router.post("/{download_id}/resume", summary="Resume Download")
-    async def resume_download(
-        download_id: str,
-        current_user: User = Depends(get_current_admin_user),
-    ):
-        """Resume a paused download. Admin only."""
-        try:
-            download = await download_queue.resume_download(download_id)
-            return {"success": True, "data": download.to_dict(), "message": "Download resumed"}
-        except DownloadNotFoundException as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except DownloadOperationException as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        return control
 
-    @router.post("/{download_id}/cancel", summary="Cancel Download")
-    async def cancel_download(
-        download_id: str,
-        current_user: User = Depends(get_current_admin_user),
-    ):
-        """Cancel an active or pending download. Admin only."""
-        try:
-            download = await download_queue.cancel_download(download_id)
-            return {"success": True, "data": download.to_dict(), "message": "Download cancelled"}
-        except DownloadNotFoundException as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except DownloadOperationException as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @router.post("/{download_id}/retry", summary="Retry Download")
-    async def retry_download(
-        download_id: str,
-        current_user: User = Depends(get_current_admin_user),
-    ):
-        """Retry a failed download. Admin only."""
-        try:
-            download = await download_queue.retry_download(download_id)
-            return {"success": True, "data": download.to_dict(), "message": "Download queued for retry"}
-        except DownloadNotFoundException as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except DownloadOperationException as e:
-            raise HTTPException(status_code=400, detail=str(e))
+    _control_route("/{download_id}/pause", "Pause Download", "pause_download", "Download paused")
+    _control_route("/{download_id}/resume", "Resume Download", "resume_download", "Download resumed")
+    _control_route("/{download_id}/cancel", "Cancel Download", "cancel_download", "Download cancelled")
+    _control_route("/{download_id}/retry", "Retry Download", "retry_download", "Download queued for retry")
 
     @router.delete("/{download_id}", summary="Delete Download")
     async def delete_download(

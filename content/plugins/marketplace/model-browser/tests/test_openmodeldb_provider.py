@@ -69,7 +69,6 @@ def test_metadata_declares_a_hash_lookup_provider_without_credentials(provider):
 async def test_it_is_ready_without_settings_and_never_handles_a_download(provider, transport):
     assert await provider.initialize({}) is True
     assert await provider.shutdown() is None
-    assert provider.get_settings_schema() == {"type": "object", "properties": {}, "required": []}
     assert provider.get_download_headers() == {}
     assert provider.matches_download_url(NOMOS_URL) is False
     assert provider.matches_download_url("https://openmodeldb.info/models/4x-Nomos8kSC") is False

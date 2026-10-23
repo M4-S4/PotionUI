@@ -432,20 +432,6 @@ class TestOrchestratorHookIntegration:
         assert context.metadata["notification_timestamp"] == "2024-01-01T00:00:00"
         assert success is True
 
-    @pytest.mark.asyncio
-    async def test_orchestrator_handles_none_plugin_registry(self):
-        """Test that orchestrator works when plugin_registry is None"""
-        # When plugin_registry is None, orchestrator should skip hook execution
-        plugin_registry = None
-
-        # Simulate orchestrator logic
-        if plugin_registry:
-            # This branch should not execute
-            pytest.fail("Should not execute hooks when plugin_registry is None")
-
-        # Verify we can continue without errors
-        assert True  # No exception raised
-
     def test_hook_definition_enum_values(self):
         """Test that hook definitions have correct enum values"""
         assert GENERATION_HOOKS.before_start == "generation.before_start"

@@ -11,9 +11,9 @@ import torch
 
 from src.platform.runtime.native.arch.trellis2.config import SSFlowConfig
 from src.platform.runtime.native.arch.trellis2.ss_flow import SSFlowDiT
-from vendor.gpl.comfyui.ops import pick_operations
 
 from ._vendor import import_vendor_models
+from ..._native_ops import fp32_ops
 
 TINY = SSFlowConfig(
     resolution=2,
@@ -31,12 +31,8 @@ TINY = SSFlowConfig(
 )
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build(config: SSFlowConfig = TINY) -> SSFlowDiT:
-    m = SSFlowDiT(config, _fp32_ops())
+    m = SSFlowDiT(config, fp32_ops())
     m.post_load()
     m.eval()
     return m
@@ -139,7 +135,7 @@ def test_numeric_parity_forward():
             p.normal_(0.0, 0.02)
     vendor.eval()
 
-    native = SSFlowDiT(TINY, _fp32_ops())
+    native = SSFlowDiT(TINY, fp32_ops())
     missing, unexpected = native.load_state_dict(vendor.state_dict(), strict=False)
     assert not missing and not unexpected
     native.post_load()

@@ -5,7 +5,10 @@
 	import { Badge, Button, IconButton, Input } from '$lib/components/ui';
 	import type { ChipData, SavedSegment, SegmentCategory } from '$lib/types/segments';
 	import { PRESET_COLORS } from '$lib/types/segments';
+	import { libraryVariableScope, type LibraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import { segmentUsageNumbers } from '$lib/utils/variableUsageNumbering';
+	import LibraryVariablesSection from './LibraryVariablesSection.svelte';
 
 	const NAME_FIELD_ID = 'segment-detail-name-field';
 
@@ -29,7 +32,8 @@
 		onDiscard,
 		onDelete,
 		onDuplicate,
-		onInsert
+		onInsert,
+		tabVariables
 	}: {
 		mode: 'create' | 'edit';
 		segment: SavedSegment | null;
@@ -51,13 +55,18 @@
 		onDelete: () => void;
 		onDuplicate: () => void;
 		onInsert: () => void;
+		tabVariables: LibraryTabVariables;
 	} = $props();
+
+	let variablesOpen = $state(false);
 
 	const title = $derived(mode === 'create' ? 'New segment' : name.trim() || segment?.name || 'Untitled');
 	const category = $derived(categories.find((entry) => entry.id === categoryId) ?? null);
 	const effectiveColor = $derived(color || category?.color || '#3B82F6');
 	const canSave = $derived(!!name.trim() && !!categoryId);
 	const canInsert = $derived(!!content.trim());
+	const scope = $derived(libraryVariableScope(tabVariables, [content]));
+	const usageNumbers = $derived(segmentUsageNumbers([{ id: 'segment-content', content, chips }])[0] ?? []);
 </script>
 
 <div class="flex h-full flex-col">
@@ -158,15 +167,25 @@
 				</DetailSection>
 
 				<DetailSection label="Content">
-					<InlineChipEditor
-						value={content}
-						{chips}
-						borderless={true}
-						on:change={(event) => {
-							content = event.detail.value;
-							chips = event.detail.chips;
-						}}
-					/>
+					<div class="segment-composer">
+						<div class="segment-content">
+							<InlineChipEditor
+								value={content}
+								{chips}
+								borderless={true}
+								variant="segment-composer"
+								variables={tabVariables.variables}
+								conditionReaders={scope.readers}
+								variableUsageNumbers={usageNumbers}
+								onVariableDefChange={tabVariables.setDef}
+								onOpenVariableManager={() => (variablesOpen = true)}
+								on:change={(event) => {
+									content = event.detail.value;
+									chips = event.detail.chips;
+								}}
+							/>
+						</div>
+					</div>
 				</DetailSection>
 			{/snippet}
 
@@ -187,6 +206,8 @@
 						<p class="text-xs text-fg-subtle">Pick a category to see its details.</p>
 					{/if}
 				</DetailSection>
+
+				<LibraryVariablesSection source={tabVariables} {scope} bind:open={variablesOpen} />
 			{/snippet}
 		</DetailLayout>
 	</DetailBody>

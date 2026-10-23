@@ -29,7 +29,7 @@ def test_text_output_is_registered_as_a_pipe_artifact():
     spec = output_type_registry.spec_for(_output())
     assert spec.key == "text"
     assert spec.resolve_message_type(_output()) == "pipe_artifact"
-    assert spec.handler_cls is artifact_handlers.TextGenerationOutputHandler
+    assert spec.handler_cls is None
 
 
 def test_serialized_message_survives_a_json_round_trip_with_the_exact_text():

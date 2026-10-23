@@ -25,11 +25,3 @@ def up():
             cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} {columns}")
 
     print("Migration 051_collection_favorites_and_indexes: applied")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for name, _table, _columns_sql in _INDEXES:
-            cursor.execute(f"DROP INDEX IF EXISTS {name}")
-
-    print("Migration 051_collection_favorites_and_indexes: dropped indexes, kept columns")

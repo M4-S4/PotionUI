@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import type { User } from '$lib/stores/auth';
 import type { APIResponse } from '$lib/types/api';
 import { storage } from '$lib/utils/storage';

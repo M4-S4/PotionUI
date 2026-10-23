@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
 
-const { mount, unmount, flushSync } = await import('svelte');
+const { mount, unmount } = await import('svelte');
 const { default: StageBeat } = await import('$lib/components/video-director/console/StageBeat.svelte');
 const { deriveStageModel } = await import('$lib/components/video-director/stage-rail/stageModel');
 
 import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
 import type { StageShotModel } from '$lib/components/video-director/stage-rail/stageModel';
+import { settleFlush } from './helpers/settle';
 
 function chainSegment(id: string, prompt: string, duration: number): ChainSegment {
 	return {
@@ -84,11 +85,6 @@ function wanCaps(): DirectorCapabilities {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
@@ -121,7 +117,7 @@ function mountStageBeat(doc: VideoDirectorValue) {
 describe('StageBeat -- resolved prompt preview', () => {
 	it('renders the shared ResolvedPromptPreview instead of the editor-built-in resolved panel', async () => {
 		const target = mountStageBeat(docWith('a sweeping vista', 'a lighthouse at dusk', 'blurry, warped hands'));
-		await settle();
+		await settleFlush();
 
 		expect(target.textContent).not.toContain('What the model receives');
 
@@ -132,7 +128,7 @@ describe('StageBeat -- resolved prompt preview', () => {
 		expect(resolvedButton!.textContent).toContain('a lighthouse at dusk');
 
 		resolvedButton!.click();
-		await settle();
+		await settleFlush();
 
 		expect(target.textContent).toContain('a sweeping vista');
 
@@ -141,7 +137,7 @@ describe('StageBeat -- resolved prompt preview', () => {
 		) as HTMLButtonElement | undefined;
 		expect(negativeTab).not.toBeUndefined();
 		negativeTab!.click();
-		await settle();
+		await settleFlush();
 
 		expect(target.textContent).toContain('blurry, warped hands');
 	});

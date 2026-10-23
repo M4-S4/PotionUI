@@ -37,10 +37,3 @@ def up():
             )
             seeded.append(key)
     print(f"Migration {_NAME}: seeded {len(seeded)} setting(s)")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for key, _, _, _ in _SETTINGS:
-            cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
-    print(f"Migration {_NAME}: removed the admin failure alert settings")

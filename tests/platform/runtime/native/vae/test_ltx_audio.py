@@ -119,21 +119,6 @@ class TestDetectLtxVocoderConfig:
 
 
 class TestLtxAudioAutoencoderTiny:
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = LTXAudioAutoencoder.from_config(_TINY_AUDIO_VAE_CONFIG, disable_weight_init)
-        _randomize(module)
-        sd = module.state_dict()
-
-        module2 = LTXAudioAutoencoder.from_config(_TINY_AUDIO_VAE_CONFIG, disable_weight_init)
-        from src.platform.runtime.native.vae.loader import _VaeSpec
-        from src.platform.runtime.native.base import load_into_module
-
-        load_into_module(module2, sd, _VaeSpec(family="vae", variant="ltx_audio"))
-
-    def test_post_load_is_safe_noop(self):
-        module = LTXAudioAutoencoder.from_config(_TINY_AUDIO_VAE_CONFIG, disable_weight_init)
-        module.post_load()
-
     def test_encoder_forward_raises_unsupported(self):
         """Decode-only scope: the encoder submodule exists for key-parity only."""
         module = LTXAudioAutoencoder.from_config(_TINY_AUDIO_VAE_CONFIG, disable_weight_init)
@@ -166,17 +151,6 @@ class TestLtxAudioAutoencoderTiny:
 
 
 class TestLtxVocoderTiny:
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = LTXVocoder.from_config(_TINY_VOCODER_CONFIG, disable_weight_init)
-        _randomize(module)
-        sd = module.state_dict()
-
-        module2 = LTXVocoder.from_config(_TINY_VOCODER_CONFIG, disable_weight_init)
-        from src.platform.runtime.native.vae.loader import _VaeSpec
-        from src.platform.runtime.native.base import load_into_module
-
-        load_into_module(module2, sd, _VaeSpec(family="vae", variant="ltx_vocoder"))
-
     def test_rejects_non_hifigan_resblock_type(self):
         bad_config = {**_TINY_VOCODER_CONFIG, "resblock": "AMP1"}
         with pytest.raises(NativeEngineUnsupportedError):
@@ -231,21 +205,6 @@ _TINY_AMP_NESTED_CONFIG = {"vocoder": _TINY_AMP_MAIN_CONFIG, "bwe": _TINY_AMP_BW
 
 
 class TestLtxVocoderAMPTiny:
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = LTXVocoderAMP.from_config(_TINY_AMP_NESTED_CONFIG, disable_weight_init)
-        _randomize(module)
-        sd = module.state_dict()
-
-        module2 = LTXVocoderAMP.from_config(_TINY_AMP_NESTED_CONFIG, disable_weight_init)
-        from src.platform.runtime.native.vae.loader import _VaeSpec
-        from src.platform.runtime.native.base import load_into_module
-
-        load_into_module(module2, sd, _VaeSpec(family="vae", variant="ltx_vocoder_amp"))
-
-    def test_post_load_is_safe_noop(self):
-        module = LTXVocoderAMP.from_config(_TINY_AMP_NESTED_CONFIG, disable_weight_init)
-        module.post_load()
-
     def test_rejects_flat_config(self):
         with pytest.raises(NativeEngineUnsupportedError):
             LTXVocoderAMP.from_config(_TINY_VOCODER_CONFIG, disable_weight_init)

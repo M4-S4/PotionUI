@@ -161,6 +161,16 @@ class AssistantDelta:
 
 
 @dataclass(frozen=True)
+class AssistantThinking:
+    content: str
+
+
+@dataclass(frozen=True)
+class AssistantThinkingEnded:
+    pass
+
+
+@dataclass(frozen=True)
 class ToolStarted:
     data: Dict[str, Any]
 
@@ -204,6 +214,7 @@ class TurnRequest:
     image_data: Optional[str]
     # True for the tool-free wrap-up call made once the budget is exhausted.
     final: bool = False
+    tools: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -278,10 +289,12 @@ class ToolWorkflow:
         iteration_nudge: Optional[str] = None,
         wrap_up_on_limit: bool = True,
         applied_calls: Optional[set] = None,
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> None:
         self._executor = executor
         self.tool_context = tool_context
-        self.allowed_tools = allowed_tools
+        self.allowed_tools = list(allowed_tools) if allowed_tools is not None else None
+        self.deferred_tools = {group: list(names) for group, names in (deferred_tools or {}).items()}
         self.max_iterations = max_iterations
         self.forced_tool_call = forced_tool_call
         self.iteration_nudge = iteration_nudge
@@ -421,7 +434,11 @@ class ToolWorkflow:
             messages = list(self.working_messages)
             context_budget.attach_context_block(messages, self.iteration_nudge)
         self._inline_assistant_msg = None
-        return TurnRequest(messages=messages, image_data=image_data)
+        return TurnRequest(
+            messages=messages,
+            image_data=image_data,
+            tools=self._executor.turn_tool_schemas(self.allowed_tools, self.deferred_tools),
+        )
 
     def _final_request(self) -> TurnRequest:
         messages = self.working_messages
@@ -456,7 +473,7 @@ class ToolWorkflow:
         # No parsed call — the content may still be a near-miss invocation
         # (wrong tag / fence / bare JSON) that must not reach the user raw.
         repaired, ambiguous, problems, records, cleaned = self._executor._rescue_final_content(
-            content or "", self.allowed_tools
+            content or "", self.allowed_tools, self.deferred_tools
         )
         if repaired:
             self._rescue_records.extend(records)
@@ -486,9 +503,9 @@ class ToolWorkflow:
         })
         execution = await self._executor._execute_forced_tool(
             self.forced_tool_call, self.tool_context, self.working_messages,
-            self.tool_executions, self.allowed_tools,
+            self.tool_executions, self.allowed_tools, self.deferred_tools,
         )
-        yield ToolFinished(self._executor._tool_end_event_data(execution))
+        yield ToolFinished(self._executor._tool_end_payload(execution))
         if execution.result.image_data:
             self._tool_image_data = execution.result.image_data
         self._any_tool_round_completed = True
@@ -538,7 +555,7 @@ class ToolWorkflow:
         a bare bool: whether the run stopped on an approval-gated tool."""
         async for event in self._executor._run_tool_calls_stream(
             calls, self.tool_context, self.working_messages,
-            self.tool_executions, self.allowed_tools, self.guard,
+            self.tool_executions, self.allowed_tools, self.guard, self.deferred_tools,
         ):
             if event["type"] == "_control":
                 if event["tool_image_data"]:

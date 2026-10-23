@@ -88,29 +88,3 @@ def up(environ=None):
         for key, _ in _RETIRED_SETTINGS:
             cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
     print(f"Migration {_NAME}: seeded {seeded} native backend(s) and the profiling settings")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        now = now_iso()
-        for flag in APP_FLAGS:
-            cursor.execute("DELETE FROM settings WHERE key = ?", (flag.key,))
-        for key, description in _RETIRED_SETTINGS:
-            cursor.execute("SELECT 1 FROM settings WHERE key = ?", (key,))
-            if cursor.fetchone() is None:
-                cursor.execute(
-                    """
-                    INSERT INTO settings (id, key, value, value_type, description, type, created_at, updated_at)
-                    VALUES (?, ?, '', 'string', ?, 'SYSTEM', ?, ?)
-                    """,
-                    (generate_ulid(), key, description, now, now),
-                )
-        cursor.execute("SELECT id, config FROM backends WHERE engine = ?", (_NATIVE_ENGINE,))
-        for row in cursor.fetchall():
-            try:
-                config = json.loads(row["config"]) if row["config"] else {}
-            except ValueError:
-                continue
-            if isinstance(config, dict) and config.pop(_ENGINE_FLAGS_FIELD, None) is not None:
-                cursor.execute("UPDATE backends SET config = ? WHERE id = ?", (json.dumps(config), row["id"]))
-    print(f"Migration {_NAME}: removed the profiling settings and the native backends' engine settings")

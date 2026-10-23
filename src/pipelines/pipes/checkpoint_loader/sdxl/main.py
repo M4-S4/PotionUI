@@ -10,6 +10,7 @@ from src.pipelines.contracts import PipeInput, IOType, PipeInputSpec, PipeOutput
 from src.pipelines.models import BaseModel
 from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPipe
 from src.pipelines.pipes.checkpoint_loader.sdxl.sdxl_model import SDXLModel, resolve_lora_stack
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 class _SdxlResidencyHandle:
@@ -75,25 +76,11 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
     description = "Specialized pipe for loading SDXL models with optimized settings"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "loras": [],
-            "mode": "txt2img",
-            "device": "cuda",
-            "dtype": "float16",
-            "nsfw": False,
-            "clip_skip": 2,
-            "vram_limit_gb": None,  # GPU VRAM limit in GB (None = auto-detect)
-            "extras": {}
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [
             PipeConfigSpec("model", dict, None, "Model template configuration", required=True),
-            PipeConfigSpec("loras", list, [], "List of LoRA configurations", required=False),
+            loras_config_spec("List of LoRA configurations"),
             PipeConfigSpec("mode", str, "txt2img", "Generation mode (txt2img, img2img, etc.)", required=False,
                           choices=["txt2img", "img2img"]),
             PipeConfigSpec("device", str, "cuda", "Device to load model on", required=False,
@@ -101,7 +88,7 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
             PipeConfigSpec("dtype", str, "float16", "Data type for model weights", required=False,
                           choices=["float16", "float32", "bfloat16"]),
             PipeConfigSpec("nsfw", bool, False, "Enable NSFW content filtering", required=False),
-            PipeConfigSpec("clip_skip", int, None, "Number of CLIP layers to skip (None for default SDXL behavior)", required=False,
+            PipeConfigSpec("clip_skip", int, 2, "Number of CLIP layers to skip", required=False,
                           min_value=0, max_value=12),
             PipeConfigSpec("vram_limit_gb", float, None, "GPU VRAM limit in GB (None = auto-detect based on hardware)",
                           required=False, min_value=4.0, max_value=128.0),
@@ -163,7 +150,6 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
 
     def _resolve_vram_limit_gb(self, pipe_input: PipeInput) -> float:
         gpu_monitor = pipe_input.input.get("GPU", None)
-        memory_advisor = pipe_input.input.get("MEMORY", None)
 
         vram_limit_gb = self.config.get("vram_limit_gb", None)
         if gpu_monitor:
@@ -178,14 +164,6 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
             # No service and no config - use conservative default
             vram_limit_gb = 8.0
             logger.info(f"[CHECKPOINT LOADER SDXL] No VRAM limit specified, using default: {vram_limit_gb}GB")
-
-        # Log memory recommendation if available
-        if memory_advisor:
-            memory_advisor.log_memory_recommendation(
-                image_size=(1024, 1024),  # Default SDXL resolution for estimation
-                model_type="sdxl",
-                context="checkpoint_loader"
-            )
 
         return vram_limit_gb
 

@@ -20,11 +20,11 @@ fields:
         configuration:
           icon: "lora"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/edit/tabs/lora.yml"
+        children: "{{ paths._shared }}/tabs/lora.yml"
       - type: "tab"
         label: "Advanced"
         audience: "advanced"
         configuration:
           icon: "settings"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/edit/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"

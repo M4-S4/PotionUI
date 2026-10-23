@@ -14,10 +14,12 @@ lives with the chat, in `src.features.chat.modes.registry`.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError
 
 
-class DuplicateChatModeError(Exception):
+class DuplicateChatModeError(DuplicateRegistrationError):
     """A mode with the same id is already registered."""
     pass
 
@@ -73,6 +75,7 @@ class ChatMode:
     structured_reply: bool = True
     source: str = "builtin"
     admin_only: bool = False
+    core_groups: Tuple[str, ...] = ("core",)
 
     def resolve_prompt_template(self) -> str:
         """Return the prompt template, invoking it when it is a callable."""

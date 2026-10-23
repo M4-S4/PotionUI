@@ -19,9 +19,9 @@ MOGE = "/models/moge_2_vitl_normal_fp16.safetensors"
 def pixal3d_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/Pixal3D" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/Pixal3D" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("marketplace/Pixal3D preset not present")
+        pytest.fail("marketplace/Pixal3D preset not present")
     return template
 
 

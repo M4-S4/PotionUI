@@ -2,13 +2,10 @@
 bind a preset's form without any real user input: `pipeline.render` (a dry
 run - no GPU) and `generation.smoke` (a real generation, on tiny/fast values).
 
-Mirrors `scripts/preset_render.py`'s developer harness (walk the mode's
-default form fields, inject harmless placeholders for model/lora_picker/
-required-media fields that can't have a real fixture value yet, then run the
-real `bind_form`) - trimmed to what a single preset+mode needs, without that
-harness's golden-snapshot determinism concerns. `generation.smoke` overrides
-a caller-supplied subset of fields (the recipe's `smoke:` section) on top of
-these defaults before binding.
+The field walk and placeholder injection live in
+`src/features/presets/fixture_form.py`, shared with `scripts/preset_render.py`.
+`generation.smoke` overrides a caller-supplied subset of fields (the recipe's
+`smoke:` section) on top of these defaults before binding.
 
 A `/SETUP-CHECK` model placeholder is a fine dry-run value for
 `pipeline.render` (nothing ever loads it - templates just render the string),
@@ -24,29 +21,19 @@ failure rules.
 
 from __future__ import annotations
 
-from src.features.models.form_refs import make_model_ref
-from src.features.recipes.executors._artifact_lookup import find_slot_model
-
 from typing import Any, Dict, List, Optional
 
 from src.features.forms.binding import bind_form
-from src.features.presets.form_serializer import PresetFormSerializer
-from src.features.presets.templates import default_form_name
-from src.features.video_director import apply_preset_mode_overlay
-from src.features.video_director.normalize import allowed_durations
-from src.platform.templating import TemplateProcessor
+from src.features.models.form_refs import make_model_ref
+from src.features.presets.fixture_form import (
+    MODEL_FIELD_TYPES,
+    build_default_form_data,
+    fixture_video_director_document,
+    leave_reactive_defaults_to_binding,
+)
+from src.features.recipes.executors._artifact_lookup import find_slot_model
 
-# These field types can never carry a real fixture value (models aren't known
-# until download time; a required media field has no real file to point at), so
-# a placeholder is injected instead of letting `bind_form`'s `required: true`
-# check reject the whole render.
-MODEL_FIELD_TYPES = frozenset({"model", "models"})
-LORA_PICKER_FIELD_TYPE = "lora_picker"
-MEDIA_FIELD_TYPES = frozenset({"image", "video", "audio", "media", "file"})
-MEDIA_EXTENSIONS = {"image": "png", "video": "mp4", "audio": "wav", "media": "png", "file": "bin"}
-TEXT_FIELD_TYPES = frozenset({"string", "textbox"})
-TEXT_FIELD_PLACEHOLDER = "SETUP-CHECK placeholder text"
-VIDEO_DIRECTOR_FIXTURE_PROMPT = "a calm lake at sunrise, gentle ripples, soft morning light"
+FIXTURE_TAG = "SETUP-CHECK"
 
 
 class RequiredModelMissing(Exception):
@@ -66,69 +53,7 @@ class RequiredModelMissing(Exception):
 
 
 def _model_sentinel(name: str) -> str:
-    return f"/SETUP-CHECK/models/{name}.safetensors"
-
-
-def _field_get(field_obj: Any, attr: str) -> Any:
-    """Read an attribute off a field that may be a `FieldTemplate` or a raw
-    dict (external-children files resolve to dicts - see
-    `PresetFormSerializer._resolve_external_children`)."""
-    if isinstance(field_obj, dict):
-        return field_obj.get(attr)
-    return getattr(field_obj, attr, None)
-
-
-def _collect_named_fields(
-    fields: List[Any], form_data: Dict[str, Any], reactive_defaults: Optional[Dict[str, Any]] = None
-) -> None:
-    for field_obj in fields:
-        name = _field_get(field_obj, "name")
-        if name:
-            value = _field_get(field_obj, "value")
-            default = _field_get(field_obj, "default")
-            if value is not None:
-                form_data[name] = value
-            elif default is not None:
-                form_data[name] = default
-                if reactive_defaults is not None and _field_get(field_obj, "reactions"):
-                    reactive_defaults[name] = default
-        children = _field_get(field_obj, "children")
-        if children and isinstance(children, list):
-            _collect_named_fields(children, form_data, reactive_defaults)
-
-
-def _leave_reactive_defaults_to_binding(
-    form_data: Dict[str, Any], reactive_defaults: Dict[str, Any], overrides: Dict[str, Any]
-) -> None:
-    for name, default in reactive_defaults.items():
-        if name not in overrides and form_data.get(name) == default:
-            form_data.pop(name, None)
-
-
-def _inject_unresolvable_defaults(fields: List[Any], form_data: Dict[str, Any]) -> None:
-    for field_obj in fields:
-        name = _field_get(field_obj, "name")
-        field_type = _field_get(field_obj, "type")
-        if name and name not in form_data:
-            if field_type in MODEL_FIELD_TYPES:
-                form_data[name] = _model_sentinel(name)
-            elif field_type == LORA_PICKER_FIELD_TYPE:
-                form_data[name] = []
-            elif field_type in MEDIA_FIELD_TYPES and _field_get(field_obj, "required"):
-                ext = MEDIA_EXTENSIONS.get(field_type, "bin")
-                placeholder = f"/SETUP-CHECK/media/{name}.{ext}"
-                # A `configuration.multi` media field carries a LIST, and its
-                # own validator rejects a scalar outright, so a placeholder of
-                # the wrong shape fails the dry run on a field that is fine in
-                # production.
-                configuration = _field_get(field_obj, "configuration") or {}
-                multi = bool(configuration.get("multi")) if isinstance(configuration, dict) else False
-                form_data[name] = [placeholder] if multi else placeholder
-            elif (field_type in TEXT_FIELD_TYPES or field_type == "tags") and _field_get(field_obj, "required"):
-                form_data[name] = TEXT_FIELD_PLACEHOLDER
-        children = _field_get(field_obj, "children")
-        if children and isinstance(children, list):
-            _inject_unresolvable_defaults(children, form_data)
+    return f"/{FIXTURE_TAG}/models/{name}.safetensors"
 
 
 def _collect_model_field_specs(fields: List[Any]) -> List[Dict[str, Any]]:
@@ -137,16 +62,11 @@ def _collect_model_field_specs(fields: List[Any]) -> List[Dict[str, Any]]:
     handled separately (always `[]`, never a fixture path) and excluded."""
     specs: List[Dict[str, Any]] = []
     for field_obj in fields:
-        name = _field_get(field_obj, "name")
-        field_type = _field_get(field_obj, "type")
-        if name and field_type in MODEL_FIELD_TYPES:
-            configuration = _field_get(field_obj, "configuration") or {}
-            model_type = (
-                configuration.get("model_type", "checkpoint")
-                if isinstance(configuration, dict)
-                else "checkpoint"
-            )
-            recommendations = configuration.get("recommendations") if isinstance(configuration, dict) else None
+        name = field_obj.name
+        if name and field_obj.type in MODEL_FIELD_TYPES:
+            configuration = field_obj.configuration or {}
+            model_type = configuration.get("model_type", "checkpoint")
+            recommendations = configuration.get("recommendations")
             recommended = set()
             for entry in recommendations or []:
                 if isinstance(entry, dict):
@@ -154,9 +74,8 @@ def _collect_model_field_specs(fields: List[Any]) -> List[Dict[str, Any]]:
                         if entry.get(key):
                             recommended.add(str(entry[key]).lower())
             specs.append({"name": name, "model_type": model_type, "recommended": recommended})
-        children = _field_get(field_obj, "children")
-        if children and isinstance(children, list):
-            specs.extend(_collect_model_field_specs(children))
+        if isinstance(field_obj.children, list):
+            specs.extend(_collect_model_field_specs(field_obj.children))
     return specs
 
 
@@ -244,51 +163,10 @@ def _resolve_model_fields(
         form_data[name] = make_model_ref(model.id)
 
 
-def fixture_video_director_capabilities(preset_template, mode: str) -> Optional[Dict[str, Any]]:
-    """The Video Director capabilities a fixture document for `mode` is built
-    from, or `None` when the mode shows no Director with a `t2v` sub-mode.
-    When a document is built, its `settings.duration` is what the preset's
-    pipeline reads for the clip length, so a `frames`/`duration` field in a
-    recipe's `smoke.form` is never read (`test_shipped_recipes_lint.py`)."""
-    capabilities = (getattr(preset_template, "vars", None) or {}).get("video_director") or {}
-    if mode not in (capabilities.get("preset_modes") or []):
-        return None
-    capabilities = apply_preset_mode_overlay(capabilities, mode)
-    if "t2v" not in (capabilities.get("modes") or {}):
-        return None
-    return capabilities
-
-
-def _fixture_video_director(
-    preset_template, mode: str, form_data: Dict[str, Any], prompt: Optional[str]
-) -> Optional[Dict[str, Any]]:
-    capabilities = fixture_video_director_capabilities(preset_template, mode)
-    if capabilities is None:
-        return None
-    limits = capabilities.get("limits") or {}
-    durations = allowed_durations(limits)
-    seed = form_data.get("seed")
-    text = prompt or VIDEO_DIRECTOR_FIXTURE_PROMPT
-    return {
-        "schema_version": 1,
-        "mode": "t2v",
-        "settings": {
-            "fps": form_data.get("fps") or limits.get("default_fps", 24),
-            "duration": min(durations) if durations else 1,
-            "resolution": form_data.get("resolution") or "",
-            "seed": seed if isinstance(seed, int) and not isinstance(seed, bool) else -1,
-        },
-        "segments": [{"id": "setup-check", "prompt": text, "negative_prompt": ""}],
-        "media": [],
-    }
-
-
 def build_fixture_form_data(
     preset_template,
     mode: str,
     *,
-    preset_template_loader,
-    template_processor: TemplateProcessor,
     overrides: Optional[Dict[str, Any]] = None,
     recipe: Optional[Any] = None,
     model_repository: Optional[Any] = None,
@@ -306,29 +184,8 @@ def build_fixture_form_data(
     passes `recipe`, so it always renders against the sentinel - a dry run
     that never loads anything for real.
     """
-    form_serializer = PresetFormSerializer(
-        preset_loader=preset_template_loader,
-        template_processor=template_processor,
-    )
-    mode_data = preset_template.modes[mode]
-    form_name = default_form_name(mode_data)
-    form_data: Dict[str, Any] = {}
     reactive_defaults: Dict[str, Any] = {}
-    resolved_fields: List[Any] = []
-
-    if form_name is not None:
-        form_template = next(f for f in mode_data.forms if f.name == form_name)
-        context_dict = {
-            "paths": {
-                "preset": preset_template.path,
-                "_shared": str(preset_template_loader.shared_path),
-            }
-        }
-        # Reach into the "private" `_resolve_external_children` to resolve
-        # @loop / external tab files exactly like the real form-schema endpoint.
-        resolved_fields = form_serializer._resolve_external_children(form_template.fields, context_dict)
-        _collect_named_fields(resolved_fields, form_data, reactive_defaults)
-        _inject_unresolvable_defaults(resolved_fields, form_data)
+    form_data, fields = build_default_form_data(preset_template, mode, FIXTURE_TAG, reactive_defaults)
 
     form_data.setdefault("quantity", 1)
     form_data.setdefault("seed", 42)
@@ -338,18 +195,18 @@ def build_fixture_form_data(
         if repo is None:
             from src.features.models.repository import model_repo as repo
         _resolve_model_fields(
-            resolved_fields, form_data, recipe=recipe, model_repository=repo, selections=selections
+            fields, form_data, recipe=recipe, model_repository=repo, selections=selections
         )
 
     if overrides:
         form_data.update(overrides)
 
     if not isinstance(form_data.get("video_director"), dict):
-        document = _fixture_video_director(preset_template, mode, form_data, prompt)
+        document = fixture_video_director_document(preset_template, mode, form_data, prompt)
         if document is not None:
             form_data["video_director"] = document
 
-    _leave_reactive_defaults_to_binding(form_data, reactive_defaults, overrides or {})
+    leave_reactive_defaults_to_binding(form_data, reactive_defaults, overrides or {})
 
     bound = bind_form(
         preset_template, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=None

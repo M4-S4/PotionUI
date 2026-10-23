@@ -7,7 +7,6 @@ from src.features.generation.grids.repository import grid_repo
 from src.features.generation.grids.service import GridError, GridService
 from src.features.generation.policy import GenerationPolicy
 from src.features.generation.repository import generation_repo
-from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import APIResponse
 from src.platform.security.current_user import get_current_active_user
 
@@ -58,8 +57,6 @@ def build_router(container: "AppContainer") -> APIRouter:
             return APIResponse(success=True, data=await call())
         except GridError as error:
             raise _grid_error(error)
-        except LimitExceeded as error:
-            raise error.http()
 
     @router.get("/settings", response_model=APIResponse, summary="Get Compare Grid Settings")
     async def get_settings(current_user=Depends(get_current_active_user)):

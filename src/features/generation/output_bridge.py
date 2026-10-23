@@ -82,6 +82,8 @@ class OutputBridge:
             # No coalescable item queued (all media/artifacts) - fall
             # through and enqueue so the update isn't lost entirely.
 
+        if getattr(output, 'temporary', False):
+            logger.debug("[OUTPUT_BRIDGE] temporary output queued, depth=%d", len(self._deque))
         self._deque.append(output)
         self._not_empty.set()
 

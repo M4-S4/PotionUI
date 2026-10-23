@@ -16,7 +16,7 @@ from src.features.user_groups.mappers import group_to_dto, group_to_counts_dto
 from src.features.user_groups.operations.guards import require_admin, require_group_exists
 from src.features.user_groups.repository import UserGroupRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.security.user import User
 
 logger = logging.getLogger(__name__)
@@ -70,16 +70,12 @@ def create_group(
         raise ValueError("A group with this name already exists")
 
     # Execute before_create hook
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugins,
         USER_GROUP_HOOKS.before_create,
         {"name": request.name, "description": request.description, "user_id": user.id},
+        "Group creation blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Group creation blocked")
-        logger.warning(f"Group creation blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     # Allow hooks to modify data
     name = hook_data.get("name", request.name)
@@ -137,7 +133,7 @@ def update_group(
             raise ValueError("A group with this name already exists")
 
     # Execute before_update hook
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugins,
         USER_GROUP_HOOKS.before_update,
         {
@@ -148,12 +144,8 @@ def update_group(
             "new_description": request.description,
             "user_id": user.id,
         },
+        "Group update blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Group update blocked")
-        logger.warning(f"Group update blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     # Allow hooks to modify data
     name = hook_data.get("new_name", request.name)
@@ -205,14 +197,10 @@ def delete_group(
         raise SystemGroupProtectedError(group.name)
 
     # Execute before_delete hook
-    hook_data, blocked = execute_hook(
-        plugins, USER_GROUP_HOOKS.before_delete, {"group_id": group_id, "name": group.name, "user_id": user.id}
+    run_veto_hook(
+        plugins, USER_GROUP_HOOKS.before_delete, {"group_id": group_id, "name": group.name, "user_id": user.id},
+        "Group deletion blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Group deletion blocked")
-        logger.warning(f"Group deletion blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     # Delete the group
     success = repository.delete_group(group_id)

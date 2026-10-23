@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Trim in / out — video on a rail under the clip, audio on its waveform.
 	 *
@@ -351,7 +352,7 @@
 			<button
 				type="button"
 				aria-label="Trim in point"
-				title="Drag, or use the arrow keys"
+				use:tooltip={'Drag, or use the arrow keys'}
 				class="absolute inset-y-0 w-3 -ml-1.5 rounded-[3px] bg-signal cursor-ew-resize"
 				style="left: {startFraction * 100}%;"
 				on:pointerdown={(event) => dragHandle(event, 'in')}
@@ -362,7 +363,7 @@
 			<button
 				type="button"
 				aria-label="Trim out point"
-				title="Drag, or use the arrow keys"
+				use:tooltip={'Drag, or use the arrow keys'}
 				class="absolute inset-y-0 w-3 -ml-1.5 rounded-[3px] bg-signal cursor-ew-resize"
 				style="left: {endFraction * 100}%;"
 				on:pointerdown={(event) => dragHandle(event, 'out')}

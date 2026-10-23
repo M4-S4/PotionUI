@@ -6,7 +6,7 @@
 // still in flight, the coalescing queue in extensionRefresh.ts (see its own
 // tests) scheduled a full second six-catalogue round on every boot. Sidebar
 // must render purely from the stores the layout's refresh already fills.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync } from 'svelte';
 import { writable } from 'svelte/store';
 

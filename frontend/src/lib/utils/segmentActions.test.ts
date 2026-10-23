@@ -19,7 +19,22 @@ describe('segmentMenuActions', () => {
 			(a) => a.id
 		);
 		expect(ids).toEqual(
-			expect.arrayContaining(['insertPhrasebook', 'insertVariable', 'insertChoice'])
+			expect.arrayContaining(['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertCondition'])
+		);
+	});
+
+	it('drops the condition insert when conditions are unavailable and keeps the other inserts', () => {
+		const ids = segmentMenuActions(segment(), {
+			index: 0,
+			total: 2,
+			segmentDisabled: false,
+			hasConditions: false,
+			hasPromptSyntax: true,
+			hasPromptResources: true
+		}).map((a) => a.id);
+		expect(ids).not.toContain('insertCondition');
+		expect(ids).toEqual(
+			expect.arrayContaining(['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertResource', 'insertSyntax'])
 		);
 	});
 
@@ -114,5 +129,28 @@ describe('segmentMenuActions', () => {
 	it('disables insertResource when the segment is disabled', () => {
 		const actions = segmentMenuActions(segment(), { index: 0, total: 2, segmentDisabled: true, hasPromptResources: true });
 		expect(actions.find((a) => a.id === 'insertResource')?.disabled).toBe(true);
+	});
+});
+
+describe('segment menu labels', () => {
+	it('end in an ellipsis exactly when the item opens a dialog or picker', () => {
+		const labels = Object.fromEntries(
+			segmentMenuActions(segment(), { index: 0, total: 2, segmentDisabled: false, hasPromptResources: true, hasPromptSyntax: true }).map(
+				(a) => [a.id, a.label]
+			)
+		);
+		expect(labels).toMatchObject({
+			editDetails: 'Details…',
+			saveAsSegment: 'Save as Segment…',
+			replaceFromSaved: 'Replace from saved…',
+			insertPhrasebook: 'Insert a phrasebook value…',
+			insertVariable: 'Insert a variable…',
+			insertCondition: 'Insert a condition…',
+			insertResource: 'Insert a reference…',
+			insertSyntax: 'Insert syntax…',
+			insertChoice: 'Insert a choice group',
+			duplicate: 'Duplicate',
+			moveUp: 'Move up'
+		});
 	});
 });

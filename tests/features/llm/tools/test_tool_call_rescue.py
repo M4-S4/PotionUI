@@ -41,6 +41,18 @@ class TestFindNearMiss:
         )
         assert rescue.find_near_miss_invocations(content, REGISTERED) == []
 
+    def test_add_and_delete_segment_tags_are_not_a_near_miss(self):
+        content = (
+            '<tool_action type="add_segment" segment_index="0" segment_id="seg-1" '
+            'list="negative">blurry</tool_action>\n'
+            "```xml\n"
+            '<tool_action type="delete_segment" segment_index="1" segment_id="seg-2"></tool_action>\n'
+            "```\n"
+            "<tool_action type='add_segment' segment_id='seg-3'>quoted differently</tool_action>"
+            '<tool_action type=\u201cdelete_segment\u201d segment_id=\u201cseg-4\u201d></tool_action>'
+        )
+        assert rescue.find_near_miss_invocations(content, REGISTERED) == []
+
     def test_tool_action_tag_with_json_object_body_is_rescued(self):
         # A model that writes the payload as the tag's inner text rather than
         # an attribute: <tool_action> with no argument-carrying attributes

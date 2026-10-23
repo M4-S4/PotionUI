@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING, Tuple
 from urllib.parse import urlparse
 
 from src.features.models.exceptions import ModelDownloadException
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.indexer import ModelScanner
 from src.features.models.repository import ModelRepository
@@ -134,7 +134,7 @@ class ModelJobs:
         Fires model_index.before_download (can block). Raises ModelDownloadException
         if a plugin blocks; the caller schedules `run_download_and_index` on success.
         """
-        hook_data, blocked = execute_hook(
+        run_veto_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_download,
             {
@@ -143,12 +143,9 @@ class ModelJobs:
                 "size": size,
                 "sha256": sha256,
                 "model_type": model_type
-            }
+            },
+            "Download blocked by plugin", error=ModelDownloadException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Download blocked by plugin")
-            raise ModelDownloadException(reason)
 
         logger.info(f"Starting download and indexing for model: {name}")
         return {

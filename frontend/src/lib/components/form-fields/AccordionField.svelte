@@ -20,11 +20,11 @@
 	let isExpanded = !isCollapsed;
 </script>
 
-<div class="border-l-2 border-line-strong pl-3">
+<div class="rounded-lg border-l-2 border-line-strong bg-surface-2 p-3 [.form-section_&]:bg-surface-3">
 	<button
 		type="button"
 		on:click={() => isCollapsible && (isExpanded = !isExpanded)}
-		class="w-full py-1 text-left flex items-center justify-between hover:bg-surface-2 rounded transition-colors"
+		class="w-full py-1 text-left flex items-center justify-between hover:bg-surface-3 [.form-section_&]:hover:bg-surface-2 rounded transition-colors"
 		disabled={!isCollapsible}
 	>
 		<div class="flex items-center gap-2">

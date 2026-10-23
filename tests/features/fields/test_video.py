@@ -21,11 +21,6 @@ class TestVideoField(unittest.TestCase):
             'size': 16
         }
 
-    def test_can_handle(self):
-        self.assertTrue(self.video_field.can_handle('video'))
-        self.assertFalse(self.video_field.can_handle('audio'))
-        self.assertFalse(self.video_field.can_handle('image'))
-
     def test_input_single_video(self):
         result = self.video_field.input('test_video', self.sample_video_data)
 

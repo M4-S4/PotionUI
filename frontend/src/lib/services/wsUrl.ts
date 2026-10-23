@@ -17,19 +17,3 @@ export function getWsUrl(path: string, token?: string | null): string {
 	}
 	return url;
 }
-
-/**
- * Convert an absolute API URL (e.g. http://localhost:7680/api/...) to a
- * relative path so it routes through the Vite proxy or same-origin server.
- */
-export function toRelativeApiUrl(url: string): string | null {
-	try {
-		const parsed = new URL(url);
-		if (parsed.pathname.startsWith('/api/')) {
-			return parsed.pathname + parsed.search;
-		}
-	} catch {
-		// not a valid absolute URL
-	}
-	return null;
-}

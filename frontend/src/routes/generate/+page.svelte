@@ -7,6 +7,8 @@
 	import { authStore } from '$lib/stores/auth';
 	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
+	import { tabDraftSync } from '$lib/stores/tabDraftSync';
+	import { decideSessionVariables, finishDeferredSessionVariables } from '$lib/session/sessionVariablesRestore';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import {
 		cancelGrid,
@@ -26,6 +28,7 @@
 	import { api, type GenerationRequest, type PresetStyle } from '$lib/services/api';
 	import type { GenerationQueueSnapshot } from '$lib/types/api';
 	import { buildVariablesPayload } from '$lib/utils/generationOrchestrator';
+	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { applyIndependentUsages, mergeVariableRolls } from '$lib/utils/variableDefs';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
 	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
@@ -43,9 +46,10 @@
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import TabBar from './components/TabBar.svelte';
 	import GenerationPanels from './components/GenerationPanels.svelte';
-	import PresetControls from './components/PresetControls.svelte';
+	import DesktopWorkspace from './components/DesktopWorkspace.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
@@ -54,6 +58,7 @@
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
 	import { pressFloatingForm, pressFloatingWorkbench } from '$lib/generation/floatingOverlays';
+	import { contextToolsAvailable } from '$lib/generation/contextTools';
 	let generationPanelRef: GenerationPanel | undefined;
 	import { normalizeFileType } from '$lib/utils/fileType';
 	import { galleryTotal } from '$lib/components/workbench/workbenchGallery';
@@ -116,6 +121,7 @@
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { EmptyState, Button } from '$lib/components/ui';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	let ws: WebSocketService | null = null;
 	let isConnected = false;
@@ -282,10 +288,9 @@
 			toasts.error(reason);
 			return { ok: false, reason };
 		}
-		const independent = applyIndependentUsages(
-			resolvedDoc.segments.map((s) => ({ positive: s.prompt ?? '', negative: s.negative_prompt ?? '' })),
-			tab.variables
-		);
+		const shotPrompts = resolvedDoc.segments.map((s) => ({ positive: s.prompt ?? '', negative: s.negative_prompt ?? '' }));
+		const readers = conditionReadersFor(shotPrompts.flatMap((p) => [p.positive, p.negative]));
+		const independent = applyIndependentUsages(shotPrompts, tab.variables, readers);
 		const sentDoc = {
 			...resolvedDoc,
 			segments: resolvedDoc.segments.map((s, i) => ({
@@ -296,7 +301,7 @@
 		};
 		const positive = sentDoc.segments[0]?.prompt ?? '';
 		const negative = sentDoc.segments[0]?.negative_prompt ?? '';
-		const variablesResult = buildVariablesPayload(tab, { usageCounts: independent.usageCounts });
+		const variablesResult = buildVariablesPayload(tab, { usageCounts: independent.usageCounts, readers });
 		const request: GenerationRequest = buildGenerationRequest(tab, {
 			tabId: tab.id,
 			prompts: [{ positive, negative }],
@@ -649,16 +654,6 @@
 	// Reactive subscriptions
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
-	// The generation bar's session cluster needs the same mode/variant shape
-	// PresetHeader gets per-tab below.
-	$: activeTabModes = (modesPerTab[activeTabId] || []).map((m) => ({
-		id: m.name,
-		label: m.label,
-		variants: m.variants,
-		sourcePlugin: m.source_plugin,
-		description: modeDescription(m),
-		icon: m.icon
-	}));
 	$: currentTab = $activeTab;
 	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
 
@@ -667,10 +662,19 @@
 		const updates = tabMergedMarkerUpdates(tab, aliases);
 		if (updates) tabsStore.updateTab(tab.id, updates);
 	}
-	// The generation bar's session cluster needs the same version-drift check
-	// PresetHeader/SessionPill get per-tab below.
-	$: currentTabPresetVersion = presets.find((p: any) => p.id === currentTab.selectedPreset)?.version;
 	$: generatingTabName = $generatingTab?.name;
+	$: panelPresetInfo = presets.find((preset: any) => preset.id === currentTab.selectedPreset);
+	$: panelPreset = panelPresetInfo
+		? {
+				id: panelPresetInfo.id,
+				name: panelPresetInfo.name,
+				cover: panelPresetInfo.media?.cover ?? null,
+				category: panelPresetInfo.category ?? null
+			}
+		: null;
+	$: panelModeLabel = currentTab.selectedMode
+		? modeLabel(currentTab.selectedMode, (modesPerTab[currentTab.id] || []).find((mode: any) => mode.id === currentTab.selectedMode)?.label)
+		: '';
 	$: generation = currentTab.generation;
 	$: isGenerating = generation.isGenerating;
 
@@ -915,6 +919,7 @@
 			requestCloseTab(activeTabId);
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
+			if (!contextToolsAvailable(currentTab)) return;
 			const patch = toggleFormPane(activeTabId, !!currentTab.leftPanelCollapsed);
 			if (patch) tabsStore.updateTab(activeTabId, patch);
 		});
@@ -925,9 +930,11 @@
 			generationPanelRef?.toggleDrawer('lastGenerations');
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
+			if (!contextToolsAvailable(currentTab)) return;
 			tabsStore.updateTab(activeTabId, pressFloatingForm(currentTab));
 		});
 		keybindingsStore.registerHandler('toggle_floating_workbench', () => {
+			if (!contextToolsAvailable(currentTab)) return;
 			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
 
@@ -990,6 +997,11 @@
 						const restoredPatch = buildSessionRestoreTabPatch(modeData, {
 							promptPanelWidth: tab.promptPanelWidth
 						});
+						const draftReady = await tabDraftSync.settled(4000);
+						const currentVariables = () => get(tabsStore).tabs.find((t) => t.id === tab.id)?.variables;
+						const variablesDecision = decideSessionVariables(draftReady, currentVariables());
+						const { variables: sessionVariables, ...patchWithoutVariables } = restoredPatch;
+						const appliedPatch = variablesDecision === 'replace' ? restoredPatch : patchWithoutVariables;
 						const restoredTab = {
 							...tab,
 							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
@@ -1003,7 +1015,7 @@
 							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
 							selectedVariant: modeData.selectedVariant || null,
 							selectedSessionId: tab.selectedSessionId, // Preserve session ID
-							...restoredPatch,
+							...appliedPatch,
 							// Seed the per-mode cache from every OTHER mode this session has
 							// data for, so a live mode switch after this restore picks up
 							// that mode's saved config instead of starting empty.
@@ -1015,6 +1027,18 @@
 							),
 							sessionBaselineAwaitingFormNormalization: true
 						});
+						if (variablesDecision === 'replace') tabDraftSync.replaceDraft(tab.id, sessionVariables ?? {});
+						if (variablesDecision === 'defer') {
+							void finishDeferredSessionVariables(
+								{
+									settled: () => tabDraftSync.settled(),
+									currentVariables,
+									apply: (variables) => tabsStore.updateTab(tab.id, { variables }),
+									replace: (variables) => tabDraftSync.replaceDraft(tab.id, variables)
+								},
+								sessionVariables ?? {}
+							);
+						}
 					}
 				} else if (isSessionMissingResponse(response)) {
 					console.warn(`[TabRestore] Session for tab ${tab.name} no longer exists, clearing the link.`);
@@ -1664,9 +1688,9 @@
 		const cancelledId = currentGen.id;
 
 		try {
-			await api.cancelGeneration(cancelledId);
+			const response = await api.cancelGeneration(cancelledId);
 
-			applyConfirmedCancellations(tabsStore, targetTabId, [cancelledId]);
+			applyConfirmedCancellations(tabsStore, targetTabId, [cancelledId], response.data?.cancel_notice ?? null);
 			// Resolve any Director run it covers and retire its cache/
 			// subscription/retired-marker, same as the live generation_cancelled
 			// event does.
@@ -1785,12 +1809,14 @@
 				)
 			: null;
 		const batchBlocked = standardPromptActive && batch.overCap;
-		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
+		const unavailable = presetUnavailableReason(presets.find((preset: any) => preset.id === currentTab.selectedPreset));
+		canGenerate = !!currentTab.selectedPreset && !unavailable && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
 		generateDisabledReason = canGenerate
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
-				: resourceIssue ||
+				: unavailable ||
+					resourceIssue ||
 					(batchBlocked ? BATCH_CAP_MESSAGE : !hasPrompt ? noPromptReason : limitGate?.reason) ||
 					(missingModelField ? `Select ${missingModelField.label} to generate` : undefined);
 	}
@@ -1861,7 +1887,7 @@
 <!-- Main Layout Wrapper. Below md the shell's main reserves the fixed bottom
 	tab bar (4rem + safe-area), so this page must size itself to what's left of
 	the *visible* viewport — 100vh would overflow behind the bar. -->
-<div class="h-[calc(100dvh_-_4rem_-_env(safe-area-inset-bottom))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
+<div class="h-[calc(100dvh_-_var(--tab-bar-height))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
 
 	<TabBar />
 
@@ -1870,7 +1896,7 @@
 		{@const tabHandlers = createTabHandlers(tab.id)}
 		{@const tabModes = modesPerTab[tab.id] || []}
 		{@const isActive = tab.id === activeTabId}
-		<div class="flex-1 flex flex-col min-h-0" style="display: {isActive ? 'flex' : 'none'}">
+		<div class="flex-1 flex flex-col min-h-0 pb-[var(--deck-height)] md:pb-0" style="display: {isActive ? 'flex' : 'none'}">
 			{#if isActive}
 
 			{#snippet noSelectionState()}
@@ -1937,11 +1963,6 @@
 						{isLoading}
 						isReloadingPreset={isReloadingPreset && tab.id === activeTabId}
 						{tabModes}
-						{startGeneration}
-						{cancelGeneration}
-						{canGenerate}
-						{generateDisabledReason}
-						{costNote}
 						{promptRelayActive}
 						{videoDirectorActive}
 						{videoDirectorCaps}
@@ -1958,78 +1979,59 @@
 						onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
 						onMoveToWorkbench={handleMoveToWorkbench}
 					/>
-				{:else if !tab.selectedPreset || !tab.selectedMode}
-					<!-- Desktop: Placeholder when preset/mode not selected. The preset
-						card still needs to be reachable before either is chosen, so it
-						mounts in the same left settings-pane position GenerationPanels
-						uses once a preset+mode exist (PresetHeader isn't nested
-						inside GenerationPanels alone - it has to work before that
-						component ever mounts too). -->
-					<div class="flex h-full">
-						<div
-							class="flex-shrink-0 border-r border-line overflow-y-auto bg-surface-1/30 p-3"
-							style="width: min({leftPanelWidth}px, 45vw)"
-						>
-							<PresetControls
-								{tab}
-								{presets}
-								{readiness}
-								{isLoading}
-								isReloading={isReloadingPreset && tab.id === activeTabId}
-								availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
-								onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
-								onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
-								onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
-								onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
-							/>
-						</div>
-						<div class="flex flex-1 items-center justify-center pb-[var(--dock-height)]">
-							{@render noSelectionState()}
-						</div>
-					</div>
 				{:else}
-					<!-- Desktop: Resizable Two-Panel Layout -->
-					<GenerationPanels
+					<DesktopWorkspace
 						{tab}
-						{tabHandlers}
-						{promptRelayActive}
-						{videoDirectorActive}
-						{videoDirectorCaps}
-						{musicDirectorActive}
-						{musicDirectorCaps}
-						directorRuns={tab.directorRuns}
-						onDirectorCheckedChange={(checked) => handleDirectorCheckedChange(tab.id, checked)}
-						onDirectorGenerateShots={(shotIds) => submitVideoDirectorShots(tab.id, shotIds)}
-						{canBatch}
-						{negativePromptSupported}
-						{negativeInert}
-						{presetSegmentTemplates}
-						{presetStyles}
-						promptless={promptlessActive}
-						{isActive}
-						{leftPanelWidth}
-						{dynamicFormRefs}
 						{presets}
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
 						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
-						onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
-						onWorkbenchPrevious={handleWorkbenchPrevious}
-						onWorkbenchNext={handleWorkbenchNext}
-						onWorkbenchHeightChange={handleWorkbenchHeightChange}
-						onMoveToWorkbench={handleMoveToWorkbench}
 						onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 						onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 						onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
 						onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
-					/>
+					>
+						{#if !tab.selectedPreset || !tab.selectedMode}
+							<div class="flex h-full items-center justify-center pb-[var(--dock-height)]">
+								{@render noSelectionState()}
+							</div>
+						{:else}
+							<GenerationPanels
+								{tab}
+								{tabHandlers}
+								{promptRelayActive}
+								{videoDirectorActive}
+								{videoDirectorCaps}
+								{musicDirectorActive}
+								{musicDirectorCaps}
+								directorRuns={tab.directorRuns}
+								onDirectorCheckedChange={(checked) => handleDirectorCheckedChange(tab.id, checked)}
+								onDirectorGenerateShots={(shotIds) => submitVideoDirectorShots(tab.id, shotIds)}
+								{canBatch}
+								{negativePromptSupported}
+								{negativeInert}
+								{presetSegmentTemplates}
+								{presetStyles}
+								promptless={promptlessActive}
+								{isActive}
+								{leftPanelWidth}
+								{dynamicFormRefs}
+								{presets}
+								onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
+								onWorkbenchPrevious={handleWorkbenchPrevious}
+								onWorkbenchNext={handleWorkbenchNext}
+								onWorkbenchHeightChange={handleWorkbenchHeightChange}
+								onMoveToWorkbench={handleMoveToWorkbench}
+							/>
+						{/if}
+					</DesktopWorkspace>
 				{/if}
 			</div>
 
 			<!-- Connection Status Warning -->
 			{#if !isConnected}
-				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25 mb-[var(--dock-height)]">
+				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25 md:mb-[var(--deck-height)]">
 					<div class="flex items-center gap-3">
 						<svg class="w-5 h-5 text-warning flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
 							<path
@@ -2050,13 +2052,7 @@
 
 	<LimitNotice />
 
-	<!-- Generation Panel - Desktop only. `.generation-panel` (maintainer ruling)
-		keeps the pre-port docked-bar container: fixed, full-width, flush to the
-		bottom edge — only its inside is restyled onto generation-panel-concept.html.
-		It occupies no flow row, so it needs no wrapper here; the panes above
-		reserve their own clearance via `--dock-height`. -->
-	{#if !$isMobile}
-		{#key currentTab.id}
+	{#key currentTab.id}
 		<GenerationPanel
 			bind:this={generationPanelRef}
 			generation={generation}
@@ -2071,12 +2067,10 @@
 			isActiveTabGenerating={$isActiveTabGenerating}
 			onSwitchToGeneratingTab={switchToGeneratingTab}
 			onClearQueue={clearGenerationQueue}
-			presetId={currentTab.selectedPreset}
-			currentMode={currentTab.selectedMode}
+			preset={panelPreset}
+			modeLabel={panelModeLabel}
 			tabId={currentTab.id}
-			presetVersion={currentTabPresetVersion}
-			availableModes={activeTabModes}
-			workbenchFloating={!!currentTab.workbenchFloating}
+			workbenchFloating={!$isMobile && !!currentTab.workbenchFloating}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel
@@ -2098,7 +2092,6 @@
 			/>
 		</GenerationPanel>
 		{/key}
-	{/if}
 
 </div>
 

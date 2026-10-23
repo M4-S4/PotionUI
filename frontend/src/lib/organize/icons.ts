@@ -12,6 +12,7 @@ const FACT_ICONS: Record<string, string> = {
 	prompt: 'text-cursor-input',
 	filename: 'document',
 	tags: 'tag',
+	detected_tags: 'scan-search',
 	model_type: 'box',
 	base_model: 'boxes',
 	name: 'text-cursor-input',

@@ -1,5 +1,6 @@
 """Tests for ChatRuntime.send_message_stream method."""
 
+from dataclasses import replace
 import asyncio
 
 import pytest
@@ -8,15 +9,10 @@ from typing import AsyncGenerator, List
 
 from src.features.chat.runtime import ChatRuntime
 
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
 
 
-def _mode_registry() -> ChatModeRegistry:
-    """Real mode registry with the builtin generation mode (no settings)."""
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 from src.features.chat.exceptions import (
     SessionNotFoundException,
     AccessDeniedException,
@@ -96,7 +92,7 @@ class BaseStreamingTest:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def _make_active_session(
@@ -295,6 +291,52 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assert len(token_events) == len(chunks)
 
     @pytest.mark.asyncio
+    async def test_first_turn_preflight_budget_sees_the_discovered_window(self):
+        from src.features.llm import context_budget
+
+        self._setup_basic_stream(["hi"])
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.repository = Mock()
+
+        def profile(*args, **kwargs):
+            capacity = (
+                context_budget.CapacityInfo(65536, "discovered") if primed
+                else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+            )
+            return context_budget.ContextProfile(capacity=capacity, reserve_tokens=1024)
+
+        self.mock_llm.context_profile_for = Mock(side_effect=profile)
+
+        await collect_stream(
+            self.manager.send_message_stream(session_id="session-123", user_id="user-123", content="hello")
+        )
+
+        budget = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]["context_ledger"]["budget"]
+        assert budget["capacity_source"] == "discovered"
+        assert budget["capacity_tokens"] == 65536
+
+    @pytest.mark.asyncio
+    async def test_tool_tier_reads_the_window_probed_before_tools_resolve(self):
+        from src.features.llm import context_budget
+
+        self._setup_basic_stream(["hi"])
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.repository = Mock()
+        self.mock_llm.context_capacity_for = Mock(side_effect=lambda config: (
+            context_budget.CapacityInfo(8192, "discovered") if primed
+            else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+        ))
+
+        await collect_stream(
+            self.manager.send_message_stream(session_id="session-123", user_id="user-123", content="hello")
+        )
+
+        trace = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]
+        assert trace["tool_tier"] == context_budget.TOOL_TIER_COMPACT
+
+    @pytest.mark.asyncio
     async def test_message_created_contains_user_message_id(self):
         """message_created event should carry the user_message_id."""
         user_msg, _ = self._setup_basic_stream(["hi"])
@@ -419,7 +461,6 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
             llm_id="llm-abc",
             image_data=None,
             custom_system_message=ANY,
-            mode="generation",
             options_override=None,
         )
 
@@ -895,7 +936,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             tool_executor=mock_tool_executor,
         )
 
@@ -1221,7 +1262,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             tool_executor=mock_tool_executor,
         )
 
@@ -1413,7 +1454,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
 
     def _make_custom_mode_manager(self, contributor=None, llm_options=None, tool_executor=None):
         from src.features.chat.modes import ChatMode
-        registry = _mode_registry()
+        registry = mode_registry()
         registry.register(ChatMode(
             id="custom",
             name="Custom",
@@ -1546,7 +1587,6 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
 
         call_kwargs = self.mock_llm.stream_with_history.call_args.kwargs
         assert call_kwargs["options_override"] == {"think": False}
-        assert call_kwargs["mode"] == "custom"
 
     @pytest.mark.asyncio
     async def test_llm_options_reach_tool_executor(self):
@@ -1617,7 +1657,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         mock_memory_ops.read_notes.side_effect = lambda repo, user_id, scope, scope_ref=None: (
             [_make_memory_note("note-1")] if scope == "global" else []
         )
-        self.manager.llm_memory_repository = Mock()
+        self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=Mock())
 
         # Optional @resource registry.
         if resources:
@@ -2110,7 +2150,7 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             tool_executor=mock_tool_executor,
         )
 

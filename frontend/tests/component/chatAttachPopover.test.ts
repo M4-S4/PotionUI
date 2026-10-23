@@ -7,6 +7,7 @@
 // thumbnail and reusing the last generated image, both of which must call
 // their prop callback AND close the popover (`onClose`) in one click.
 import { describe, it, expect, vi } from 'vitest';
+import dismiss from '$lib/actions/dismiss';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -129,10 +130,10 @@ describe('ChatAttachPopover', () => {
 		const onClose = vi.fn();
 		const { component } = mount({ onClose, formImageEntries: [], selectedDurablePath: null, onSelectFormImage: vi.fn() });
 		const menu = document.createElement('div');
-		menu.setAttribute('data-source-menu', '');
 		const item = document.createElement('button');
 		menu.appendChild(item);
 		document.body.appendChild(menu);
+		const layer = dismiss(menu, { onDismiss: vi.fn() });
 
 		item.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 		expect(onClose).not.toHaveBeenCalled();
@@ -142,22 +143,27 @@ describe('ChatAttachPopover', () => {
 		outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 		expect(onClose).toHaveBeenCalledTimes(1);
 
+		layer.destroy();
 		menu.remove();
 		outside.remove();
 		component.$destroy?.();
 	});
+
 	it('keeps the popover open on Escape while a field menu is open, and closes on Escape after it is gone', () => {
 		const onClose = vi.fn();
 		const { component } = mount({ onClose, formImageEntries: [], selectedDurablePath: null, onSelectFormImage: vi.fn() });
 		const menu = document.createElement('div');
-		menu.setAttribute('data-source-menu', '');
 		document.body.appendChild(menu);
+		const onMenuDismiss = vi.fn();
+		const layer = dismiss(menu, { onDismiss: onMenuDismiss });
 
-		document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+		expect(onMenuDismiss).toHaveBeenCalledWith('escape', expect.any(Event));
 		expect(onClose).not.toHaveBeenCalled();
 
+		layer.destroy();
 		menu.remove();
-		document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 		expect(onClose).toHaveBeenCalledTimes(1);
 
 		component.$destroy?.();

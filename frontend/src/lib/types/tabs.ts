@@ -78,7 +78,6 @@ export interface PersistedTab {
 	videoDirector?: VideoDirectorValue;
 	musicDirector?: MusicDirectorValue;
 	formData?: Record<string, unknown>;
-	variables?: VariablesMap;
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
 	/** See the matching fields on `Tab` below. */
@@ -307,6 +306,7 @@ export interface PromptTabData {
 	prompt: string;
 	negativePrompt: string;
 	name?: string;
+	id?: string;
 }
 
 /** The prompt- and form-editor slice of a tab, snapshotted per preset mode so
@@ -395,6 +395,7 @@ export interface Tab {
 	sessionBaselineAwaitingFormNormalization?: boolean;
 	formPublished?: boolean;
 	formBaselineSignature?: string;
+	formReloadGeneration?: number;
 	prompt: string;
 	negativePrompt: string;
 	promptSegments?: Segment[];

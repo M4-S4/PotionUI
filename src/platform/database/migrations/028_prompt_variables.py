@@ -15,7 +15,3 @@ def up():
             added = f"{table}.{column}"
 
     print(f"Migration 028_prompt_variables: added {added or 'no'} column")
-
-
-def down():
-    print("Migration 028_prompt_variables: no-op (SQLite keeps the added column)")

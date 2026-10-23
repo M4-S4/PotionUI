@@ -33,28 +33,9 @@ class GetModelInfoTool(BaseTool):
     modes = ["generation", "models"]
     icon = "box"
 
-    @property
-    def name(self) -> str:
-        return "get_model_info"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Looks up details about a specific model you have installed."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When you need details about a specific model by ID — e.g., to check "
-            "a LoRA's trigger words or a checkpoint's style guide. The result includes "
-            "admin-authored prompting_guidance when present — consult it before writing "
-            "or rewriting prompts for that model."
-            "{{#if get_active_models}} For the user's currently active models, prefer "
-            "get_active_models instead.{{/if}}"
-        )
+    name = "get_model_info"
+    group = "Models & presets"
+    user_description = "Looks up details about a specific model you have installed."
 
     @property
     def description(self) -> str:
@@ -63,7 +44,9 @@ class GetModelInfoTool(BaseTool):
             "returns a compact core (id, filename, type, trigger words and "
             "prompting guidance when set). Pass fields to request more: "
             "'description' (can be long), 'tags', 'provider', 'model_metadata' "
-            "(per-type custom attributes, e.g. a LoRA's default strength)."
+            "(per-type custom attributes, e.g. a LoRA's default strength). "
+            "Read its prompting_guidance before writing a prompt for it."
+            "{{#if get_active_models}} For models on the form, use get_active_models.{{/if}}"
         )
 
     @property

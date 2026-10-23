@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "id": "apply_variable_confirmed",
+  "title": "After the user approves a manage_prompt_variables change, the assistant confirms the named variable even when a read call follows",
+  "mode": "generation",
+  "tool_names": [
+    "manage_prompt_variables",
+    "get_form_state"
+  ],
+  "context": {
+    "form_facts": {
+      "prompt": "portrait of a woman, ${mood} lighting"
+    }
+  },
+  "user_turns": [
+    "Pin mood to sunlit."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "manage_prompt_variables"
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "mood",
+        "sunlit"
+      ]
+    },
+    {
+      "type": "final_answer_not_contains",
+      "phrases": [
+        "nothing was applied",
+        "nothing was changed"
+      ]
+    }
+  ],
+  "live_supported": false,
+  "live_unsupported_reason": "The approval click happens between turns, so the continuation reply cannot be captured from a single live run."
+}

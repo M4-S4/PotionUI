@@ -51,10 +51,6 @@ class AudioGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for AudioGenerationOutput - saves audio (preview or final) and
     records final tracks in the database."""
 
-    def can_handle(self, output) -> bool:
-        """Check if this handler can process AudioGenerationOutput."""
-        return isinstance(output, AudioGenerationOutput)
-
     def handle(self, output: AudioGenerationOutput) -> Dict[str, Any]:
         """
         Process AudioGenerationOutput - save to disk (tmp if temporary),

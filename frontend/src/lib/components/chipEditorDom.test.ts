@@ -6,10 +6,14 @@ import {
 	buildSegmentNode,
 	extractContentFromDOM,
 	collectTextNodeSpans,
+	chipContainerSpan,
 	resourceContainerSpan,
 	atomicContainerAt,
-	atomicDeletionTarget
+	atomicContainerAround,
+	atomicDeletionTarget,
+	rangeOutsideAtomics
 } from './chipEditorDom';
+import { ENTER_SHAPES, ENTER_SHAPE_CHIPS } from '../../../tests/component/fixtures/chipEditorEnterShapes';
 
 function makeChip(overrides: Partial<ChipData> = {}): ChipData {
 	return {
@@ -184,6 +188,27 @@ describe('extractContentFromDOM', () => {
 });
 
 describe('collectTextNodeSpans', () => {
+	it('counts the newline extractContentFromDOM adds after an Enter-created block, so offsets match the value', () => {
+		const editor = document.createElement('div');
+		const first = document.createElement('div');
+		first.textContent = '[Verse]';
+		const second = document.createElement('div');
+		second.textContent = '[Chorus]';
+		editor.append(first, second);
+		const { value } = extractContentFromDOM(editor, {});
+		const spans = collectTextNodeSpans(editor, {});
+		expect(value).toBe('[Verse]\n[Chorus]');
+		expect(spans[1]).toMatchObject({ start: value.indexOf('[Chorus]'), end: value.length });
+	});
+
+	it('counts a Shift+Enter line break the same way as the value does', () => {
+		const editor = document.createElement('div');
+		editor.append('[Verse]', document.createElement('br'), '[Chorus]');
+		const { value } = extractContentFromDOM(editor, {});
+		const spans = collectTextNodeSpans(editor, {});
+		expect(spans[1].start).toBe(value.indexOf('[Chorus]'));
+	});
+
 	it('returns one span per text node with correct absolute offsets, skipping atomic containers', () => {
 		const chip = makeChip();
 		const editor = document.createElement('div');
@@ -269,6 +294,48 @@ describe('resourceContainerSpan', () => {
 	});
 });
 
+describe('container spans across Enter-created blocks', () => {
+	function buildBlocks(tail: HTMLElement) {
+		const editor = document.createElement('div');
+		const first = document.createElement('div');
+		first.textContent = 'line1';
+		const second = document.createElement('div');
+		second.textContent = 'line2';
+		editor.append(first, second, tail);
+		return editor;
+	}
+
+	it('finds a chip container at its place in the extracted value', () => {
+		const chip = makeChip();
+		const container = document.createElement('span');
+		container.dataset.chipId = chip.id;
+		const editor = buildBlocks(container);
+		const chips = { [chip.id]: chip };
+		const { value } = extractContentFromDOM(editor, chips);
+		expect(value).toBe('line1\nline2\n#emotions.happy');
+		expect(chipContainerSpan(editor, chips, container)).toEqual({ start: value.indexOf('#emotions.happy'), end: value.length });
+	});
+
+	it('finds a resource container at its place in the extracted value', () => {
+		const container = document.createElement('span');
+		container.dataset.resourceMarker = '@[references:a.png]';
+		const editor = buildBlocks(container);
+		const { value } = extractContentFromDOM(editor, {});
+		expect(resourceContainerSpan(editor, {}, container)).toEqual({
+			start: value.indexOf('@[references:a.png]'),
+			end: value.length
+		});
+	});
+
+	it('returns null for a chip container that is not under root', () => {
+		const editor = document.createElement('div');
+		editor.textContent = 'a';
+		const detached = document.createElement('span');
+		detached.dataset.chipId = 'chip-1';
+		expect(chipContainerSpan(editor, {}, detached)).toBeNull();
+	});
+});
+
 describe('atomicContainerAt', () => {
 	it('classifies each atomic container kind', () => {
 		const chip = makeChip();
@@ -301,6 +368,58 @@ describe('atomicContainerAt', () => {
 		expect(atomicContainerAt(document.createTextNode('x'))).toBeNull();
 		expect(atomicContainerAt(document.createElement('span'))).toBeNull();
 		expect(atomicContainerAt(null)).toBeNull();
+	});
+});
+
+describe('ranges and atomic containers', () => {
+	function buildEditor() {
+		const root = document.createElement('div');
+		const before = document.createTextNode('hello ');
+		const container = buildSegmentNode({ type: 'variable', content: '${m}', variableRaw: '${m}', variableName: 'm' }) as HTMLElement;
+		const chip = document.createElement('span');
+		chip.append('m');
+		container.appendChild(chip);
+		const after = document.createTextNode(' world');
+		root.append(before, container, after);
+		return { root, before, container, chip, after };
+	}
+
+	const caretAt = (node: Node, offset: number) => {
+		const range = document.createRange();
+		range.setStart(node, offset);
+		range.collapse(true);
+		return range;
+	};
+
+	it('finds the container around a node deep inside it, and nothing around plain text or the root', () => {
+		const { root, container, chip, after } = buildEditor();
+		expect(atomicContainerAround(chip.firstChild, root)).toBe(container);
+		expect(atomicContainerAround(after, root)).toBeNull();
+		expect(atomicContainerAround(root, root)).toBeNull();
+	});
+
+	it('moves a caret left inside a container to just after it', () => {
+		const { root, container, chip } = buildEditor();
+		const moved = rangeOutsideAtomics(caretAt(chip, 1), root);
+		expect(moved.collapsed).toBe(true);
+		expect(moved.startContainer).toBe(root);
+		expect(moved.startOffset).toBe(Array.from(root.childNodes).indexOf(container) + 1);
+	});
+
+	it('leaves a caret in plain text where it is', () => {
+		const { root, after } = buildEditor();
+		const moved = rangeOutsideAtomics(caretAt(after, 3), root);
+		expect([moved.startContainer, moved.startOffset]).toEqual([after, 3]);
+	});
+
+	it('stretches a selection that ends inside a container to cover it', () => {
+		const { root, before, container, chip } = buildEditor();
+		const range = document.createRange();
+		range.setStart(before, 2);
+		range.setEnd(chip.firstChild!, 1);
+		const moved = rangeOutsideAtomics(range, root);
+		expect([moved.startContainer, moved.startOffset]).toEqual([before, 2]);
+		expect([moved.endContainer, moved.endOffset]).toEqual([root, Array.from(root.childNodes).indexOf(container) + 1]);
 	});
 });
 
@@ -399,5 +518,48 @@ describe('atomicDeletionTarget', () => {
 		const { editor, before } = buildEditor();
 		expect(atomicDeletionTarget(null, before, 0, 'forward')).toBeNull();
 		expect(atomicDeletionTarget(editor, null, 0, 'forward')).toBeNull();
+	});
+});
+
+describe('lines the browser lays out after Enter', () => {
+	function editorFor(html: string) {
+		const editor = document.createElement('div');
+		editor.innerHTML = html;
+		return editor;
+	}
+
+	it.each(ENTER_SHAPES)('extracts $name as one line of the value per laid-out line', ({ html, value, lines }) => {
+		const extracted = extractContentFromDOM(editorFor(html), ENTER_SHAPE_CHIPS).value;
+		expect(extracted).toBe(value);
+		expect(extracted.split('\n')).toHaveLength(lines);
+	});
+
+	it.each(ENTER_SHAPES)('spans every text node of $name at its place in the value', ({ html }) => {
+		const editor = editorFor(html);
+		const { value } = extractContentFromDOM(editor, ENTER_SHAPE_CHIPS);
+		for (const span of collectTextNodeSpans(editor, ENTER_SHAPE_CHIPS)) {
+			expect(value.slice(span.start, span.end)).toBe(span.node.textContent);
+		}
+	});
+
+	it.each(ENTER_SHAPES.filter((shape) => shape.html.includes('data-chip-id')))(
+		'finds the chip container of $name at its place in the value',
+		({ html, value }) => {
+			const editor = editorFor(html);
+			const container = editor.querySelector<HTMLElement>('[data-chip-id]')!;
+			const start = value.indexOf('#cat');
+			expect(chipContainerSpan(editor, ENTER_SHAPE_CHIPS, container)).toEqual({ start, end: start + 4 });
+		}
+	);
+
+	it('finds a resource container after a first line that sits outside any block', () => {
+		const editor = editorFor('line one<div>line two</div><span data-resource-marker="@[references:a.png]"></span>');
+		const container = editor.querySelector<HTMLElement>('[data-resource-marker]')!;
+		const { value } = extractContentFromDOM(editor, {});
+		expect(value).toBe('line one\nline two\n@[references:a.png]');
+		expect(resourceContainerSpan(editor, {}, container)).toEqual({
+			start: value.indexOf('@['),
+			end: value.length
+		});
 	});
 });

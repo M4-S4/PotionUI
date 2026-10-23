@@ -35,7 +35,7 @@ import torch
 from src.platform.runtime.native.arch.krea2.model import Krea2
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _MODEL_PATH = "src/platform/runtime/native/arch/krea2/model.py"
@@ -47,10 +47,6 @@ TINY = {
     "txtheads": 2, "txtkvheads": 2, "txtlayers": 3, "patch": 2, "theta": 1000.0,
 }
 TINY_2LAYER = {**TINY, "layers": 2}
-
-
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
 
 
 def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
@@ -66,7 +62,7 @@ def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
 
 
 def _build_ready(config) -> Krea2:
-    m = Krea2.from_config(config, _fp32_ops())
+    m = Krea2.from_config(config, fp32_ops())
     load_into_module(m, _randomised_state_dict(m), match_model_spec(config))
     m.eval()
     return m
@@ -111,7 +107,7 @@ def test_no_nag_forward_matches_head_bit_exact(head_krea2_model):
     torch.manual_seed(0)
     m = _build_ready(TINY)
     head_cls = head_krea2_model.Krea2
-    m_head = head_cls.from_config(TINY, _fp32_ops())
+    m_head = head_cls.from_config(TINY, fp32_ops())
     load_into_module(m_head, m.state_dict(), match_model_spec(TINY))
     m_head.eval()
 

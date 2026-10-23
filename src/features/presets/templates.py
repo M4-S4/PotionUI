@@ -13,7 +13,6 @@ from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List, Union, Literal, Tuple
 
-from src.pipelines.contracts import IOType
 
 
 class GenerationMode(Enum):
@@ -33,7 +32,6 @@ class PipeTemplate:
     id: str = None
     enabled: bool = True
     configuration: Dict[str, Any] = None
-    cache: List[str] = None  # Cache specific output variables by name
     input: List[Tuple[str, str, str]] = None  # [param_name, provider_pipe, provider_output_var]
 
 
@@ -55,7 +53,7 @@ class FieldTemplate:
     visible: bool = None
     reactions: List[Dict[str, Any]] = None
     listeners: Any = None
-    children: Union[List['FieldTemplate'], str] = None
+    children: Union[List['FieldTemplate'], str, Dict[str, Any]] = None
     # "simple" (default) vs "advanced" - lets the frontend hide advanced-only
     # fields behind a toggle. Mirrors FieldSpec.audience in schema.py.
     audience: Literal["simple", "advanced"] = "simple"
@@ -186,17 +184,3 @@ class PresetTemplate:
         # Default to the built-in native engine if not specified
         if self.engine is None:
             self.engine = "native"
-
-
-@dataclass
-class Annotation:
-    text: str
-    box: Optional[Tuple[int, int, int, int]] = None
-
-    def serialize(self) -> Tuple[Optional[Tuple[int, int, int, int]], str]:
-        return self.box if self.box else (0, 0, 0, 0), self.text
-
-
-@dataclass
-class PresetInput:
-    input: Dict[IOType, Any]

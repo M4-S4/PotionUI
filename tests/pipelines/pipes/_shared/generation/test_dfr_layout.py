@@ -14,8 +14,6 @@ from __future__ import annotations
 import pytest
 
 from src.pipelines.pipes._shared.generation.dfr_layout import (
-    DFR_SEGMENT_CANDIDATES,
-    TILE_LEAD_SEGMENTS,
     default_tile_count,
     double_positions,
     dedupe_slots,
@@ -30,11 +28,6 @@ from src.pipelines.pipes._shared.generation.dfr_layout import (
 
 
 # -- constants (spec §1.14) ---------------------------------------------------
-
-def test_constants_match_spec_table():
-    # §1.14: segment length candidates {24, 32}; tile lead-in 1 segment.
-    assert DFR_SEGMENT_CANDIDATES == (24, 32)
-    assert TILE_LEAD_SEGMENTS == 1
 
 
 # -- canvas grid (spec §1.4) --------------------------------------------------

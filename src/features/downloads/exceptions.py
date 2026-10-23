@@ -36,6 +36,10 @@ class InvalidTypeException(DownloadException):
     pass
 
 
+class DownloadDestinationInvalid(DownloadQueueException):
+    pass
+
+
 class UnsafeFilenameException(DownloadQueueException):
     """Raised when a filename would place a download outside its destination
     directory. A `DownloadQueueException` so the queue routes answer 400."""

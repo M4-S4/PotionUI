@@ -2,6 +2,7 @@
 	import type { DirectorMediaValue } from '$lib/types/videoDirector';
 	import type { MediaRef } from '$lib/types/tabs';
 	import { resolveDirectorMediaDisplay, collectFormMediaOptions, formMediaOptionKeys, type FormMediaOption } from '$lib/utils/videoDirector';
+	import dismiss from '$lib/actions/dismiss';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaThumb from '$lib/components/media/MediaThumb.svelte';
@@ -38,13 +39,7 @@
 		onChange({ form_ref: { field: opt.field, path: opt.item.path } });
 		pickerOpen = false;
 	}
-
-	function handleWindowMousedown(e: MouseEvent) {
-		if (pickerOpen && rootEl && !rootEl.contains(e.target as Node)) pickerOpen = false;
-	}
 </script>
-
-<svelte:window onmousedown={handleWindowMousedown} />
 
 <div class="flex w-full min-w-0 flex-col items-stretch gap-1.5" bind:this={rootEl}>
 	{#if display.kind === 'broken'}
@@ -89,7 +84,7 @@
 				From form
 			</button>
 			{#if pickerOpen}
-				<div class="absolute left-0 top-full z-20 mt-1 max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-1 p-1 shadow-floating">
+				<div use:dismiss={{ onDismiss: () => (pickerOpen = false), ignore: [rootEl] }} class="absolute left-0 top-full z-20 mt-1 max-h-64 w-56 overflow-y-auto rounded-lg border border-line-strong bg-surface-1 p-1 shadow-floating">
 					{#each formOptions as opt, i (formOptionKeys[i])}
 						<button
 							type="button"

@@ -93,20 +93,6 @@ def test_t2m_happy_path(storage_dir):
     assert out["settings"]["seed"] >= 0
 
 
-def test_t2m_rejects_sections(storage_dir):
-    doc = _base_doc("t2m", sections={"id": "s-1", "lyrics": "la la"})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "sections" in str(excinfo.value)
-
-
-def test_t2m_rejects_references(storage_dir):
-    doc = _base_doc("t2m", references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}])
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "references" in str(excinfo.value)
-
-
 # --- description_required (real MiniMax-Music3 bug: an empty caption reached
 # the generator pipe, which failed mid-generation with "'caption' cannot be
 # empty -- there is nothing to generate music from") ------------------------
@@ -121,20 +107,6 @@ _DESCRIPTION_REQUIRED_CAPS = {
     "settings": _SETTINGS_OFF,
     "limits": _LIMITS,
 }
-
-
-def test_description_required_rejects_empty_description(storage_dir):
-    doc = _base_doc("t2m", description="")
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, _DESCRIPTION_REQUIRED_CAPS, str(storage_dir))
-    assert "description" in str(excinfo.value)
-    assert "non-empty description" in str(excinfo.value)
-
-
-def test_description_required_rejects_whitespace_only_description(storage_dir):
-    doc = _base_doc("t2m", description="   \n\t")
-    with pytest.raises(MusicDirectorValidationError):
-        normalize_music_director(doc, _DESCRIPTION_REQUIRED_CAPS, str(storage_dir))
 
 
 def test_description_required_rejects_missing_description(storage_dir):
@@ -179,24 +151,6 @@ def test_song_happy_path_section_list(storage_dir):
     assert [s["id"] for s in out["sections"]] == ["s-1", "s-2"]
 
 
-def test_song_requires_at_least_one_section(storage_dir):
-    doc = _base_doc("song")
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "song mode requires lyrics" in str(excinfo.value)
-
-
-def test_song_references_rejected_without_style_mode(storage_dir):
-    doc = _base_doc(
-        "song",
-        sections={"id": "s-1", "lyrics": "la"},
-        references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}],
-    )
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "references" in str(excinfo.value)
-
-
 def test_song_references_allowed_when_style_declared(storage_dir):
     doc = _base_doc(
         "song",
@@ -216,41 +170,11 @@ def test_style_happy_path(storage_dir):
     assert len(out["references"]) == 1
 
 
-def test_style_requires_references(storage_dir):
-    doc = _base_doc("style")
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "requires at least one reference" in str(excinfo.value)
-
-
-def test_style_empty_references_list_rejected(storage_dir):
-    doc = _base_doc("style", references=[])
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "requires at least one reference" in str(excinfo.value)
-
-
-def test_style_max_reference_seconds_violation(storage_dir):
-    doc = _base_doc("style", references=[
-        {"id": "r-1", "media": {"relative_path": "ref.wav", "duration_seconds": 45}},
-    ])
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "max_reference_seconds" in str(excinfo.value)
-
-
 def test_style_reference_without_duration_hint_passes(storage_dir):
     # No client-declared duration_seconds -- nothing to check against the cap.
     doc = _base_doc("style", references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}])
     out = normalize_music_director(doc, ACE_CAPS, str(storage_dir))
     assert len(out["references"]) == 1
-
-
-def test_style_not_declared_rejected(storage_dir):
-    doc = _base_doc("style", references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}])
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "unsupported mode" in str(excinfo.value)
 
 
 # --- extend ----------------------------------------------------------------
@@ -259,20 +183,6 @@ def test_extend_happy_path(storage_dir):
     doc = _base_doc("extend", extend_source={"media": {"relative_path": "track.wav"}})
     out = normalize_music_director(doc, YUE_CAPS, str(storage_dir))
     assert out["extend_source"]["media"]["path"] == str(storage_dir / "track.wav")
-
-
-def test_extend_requires_extend_source(storage_dir):
-    doc = _base_doc("extend")
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, YUE_CAPS, str(storage_dir))
-    assert "extend_source" in str(excinfo.value)
-
-
-def test_extend_source_rejected_outside_extend_mode(storage_dir):
-    doc = _base_doc("t2m", extend_source={"media": {"relative_path": "track.wav"}})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "extend_source" in str(excinfo.value)
 
 
 # --- repaint -----------------------------------------------------------
@@ -286,23 +196,6 @@ def test_repaint_happy_path(storage_dir):
     assert out["repaint"]["start"] == 12.0
     assert out["repaint"]["end"] == 20.0
     assert out["repaint"]["source"]["media"]["path"] == str(storage_dir / "track.wav")
-
-
-def test_repaint_requires_block(storage_dir):
-    doc = _base_doc("repaint")
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "repaint" in str(excinfo.value)
-
-
-def test_repaint_start_after_end_rejected(storage_dir):
-    doc = _base_doc(
-        "repaint",
-        repaint={"source": {"media": {"relative_path": "track.wav"}}, "start": 20.0, "end": 12.0},
-    )
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "start must be >= 0 and < end" in str(excinfo.value)
 
 
 # --- director ----------------------------------------------------------
@@ -321,13 +214,6 @@ def test_director_happy_path(storage_dir):
     assert out["sections"][1]["style_hint"] == "gritty"
 
 
-def test_director_requires_at_least_one_section(storage_dir):
-    doc = _base_doc("director", sections=[])
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "director mode requires at least one section" in str(excinfo.value)
-
-
 def test_director_max_sections_enforced(storage_dir):
     caps = copy.deepcopy(MUSIC3_CAPS)
     caps["modes"]["director"]["max_sections"] = 2
@@ -341,13 +227,6 @@ def test_director_max_sections_enforced(storage_dir):
     assert "at most 2 sections" in str(excinfo.value)
 
 
-def test_director_invalid_kind_rejected(storage_dir):
-    doc = _base_doc("director", sections=[{"id": "s-1", "kind": "breakdown", "lyrics": "a"}])
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "kind must be one of" in str(excinfo.value)
-
-
 def test_director_style_hint_without_capability_rejected(storage_dir):
     caps = copy.deepcopy(MUSIC3_CAPS)
     caps["modes"]["director"]["per_section_prompts"] = False
@@ -355,13 +234,6 @@ def test_director_style_hint_without_capability_rejected(storage_dir):
     with pytest.raises(MusicDirectorValidationError) as excinfo:
         normalize_music_director(doc, caps, str(storage_dir))
     assert "style_hint" in str(excinfo.value)
-
-
-def test_director_duration_hint_must_be_positive(storage_dir):
-    doc = _base_doc("director", sections=[{"id": "s-1", "kind": "verse", "lyrics": "a", "duration_hint": -1}])
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "duration_hint" in str(excinfo.value)
 
 
 def test_director_duration_hint_without_capability_rejected(storage_dir):
@@ -398,29 +270,6 @@ def test_director_per_section_references_happy_path(storage_dir):
     assert out["sections"][0]["references"] == ["r-1"]
 
 
-def test_director_per_section_references_unknown_id_rejected(storage_dir):
-    doc = _base_doc(
-        "director",
-        sections=[{"id": "s-1", "kind": "verse", "lyrics": "a", "references": ["nope"]}],
-        references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}],
-    )
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "not part of this document's references pool" in str(excinfo.value)
-
-
-def test_director_section_references_rejected_when_capability_is_whole(storage_dir):
-    # MUSIC3_CAPS declares references: "whole" -- no per-section selection.
-    doc = _base_doc(
-        "director",
-        sections=[{"id": "s-1", "kind": "verse", "lyrics": "a", "references": ["r-1"]}],
-        references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}],
-    )
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "does not allow per-section selection" in str(excinfo.value)
-
-
 # --- settings ----------------------------------------------------------
 
 def test_settings_duration_defaults_and_seed_rolled(storage_dir):
@@ -431,46 +280,16 @@ def test_settings_duration_defaults_and_seed_rolled(storage_dir):
     assert out["settings"]["seed"] >= 0
 
 
-def test_settings_duration_exceeds_max_rejected(storage_dir):
-    doc = _base_doc("t2m", settings={"duration": 999, "seed": -1})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "exceeds the allowed maximum" in str(excinfo.value)
-
-
 def test_settings_explicit_seed_passes_through(storage_dir):
     doc = _base_doc("t2m", settings={"duration": 60, "seed": 12345})
     out = normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
     assert out["settings"]["seed"] == 12345
 
 
-def test_settings_bpm_rejected_when_not_declared(storage_dir):
-    doc = _base_doc("t2m", settings={"duration": 60, "seed": -1, "bpm": 92})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "settings.bpm is not supported" in str(excinfo.value)
-    assert "description text" in str(excinfo.value)
-
-
 def test_settings_bpm_accepted_when_declared(storage_dir):
     doc = _base_doc("t2m", settings={"duration": 60, "seed": -1, "bpm": 92})
     out = normalize_music_director(doc, ACE_CAPS, str(storage_dir))
     assert out["settings"]["bpm"] == 92
-
-
-def test_settings_bpm_must_be_positive_number(storage_dir):
-    doc = _base_doc("t2m", settings={"duration": 60, "seed": -1, "bpm": -5})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "settings.bpm must be a positive number" in str(excinfo.value)
-
-
-def test_settings_key_rejected_when_not_declared_even_on_ace(storage_dir):
-    # ACE_CAPS declares bpm but not key/time_signature.
-    doc = _base_doc("t2m", settings={"duration": 60, "seed": -1, "key": "C minor"})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, ACE_CAPS, str(storage_dir))
-    assert "settings.key is not supported" in str(excinfo.value)
 
 
 # --- schema / mode / error accumulation --------------------------------
@@ -491,14 +310,6 @@ def test_schema_version_2_rejected(storage_dir):
     assert "schema_version" in str(excinfo.value)
 
 
-def test_mode_rejected_when_not_capable(storage_dir):
-    doc = _base_doc("repaint")
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, MUSIC3_CAPS, str(storage_dir))
-    assert "unsupported mode" in str(excinfo.value)
-    assert "repaint" in str(excinfo.value)
-
-
 def test_all_errors_collected(storage_dir):
     doc = _base_doc(
         "director",
@@ -513,20 +324,6 @@ def test_all_errors_collected(storage_dir):
     assert "kind" in joined
     assert "settings.bpm" in joined
     assert "duration" in joined
-
-
-def test_media_path_traversal_rejected(storage_dir):
-    doc = _base_doc("extend", extend_source={"media": {"relative_path": "../outside.wav"}})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, YUE_CAPS, str(storage_dir))
-    assert "escapes the storage directory" in str(excinfo.value)
-
-
-def test_media_path_missing_rejected(storage_dir):
-    doc = _base_doc("extend", extend_source={"media": {"relative_path": "missing.wav"}})
-    with pytest.raises(MusicDirectorValidationError) as excinfo:
-        normalize_music_director(doc, YUE_CAPS, str(storage_dir))
-    assert "does not exist" in str(excinfo.value)
 
 
 def test_upload_shaped_path_falls_back_to_relative_path(storage_dir):
@@ -699,3 +496,162 @@ def test_compile_mid_line_brackets_are_not_structure():
         "[Chorus]\nwe are the signal [x2]\n\n"
         "[Bridge]\nquiet now [fades] and gone"
     )
+
+
+REJECTED_DOCUMENTS = [
+    pytest.param(
+        lambda: _base_doc("t2m", sections={"id": "s-1", "lyrics": "la la"}),
+        MUSIC3_CAPS, ("sections",), None,
+        id="t2m_rejects_sections",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}]),
+        MUSIC3_CAPS, ("references",), None,
+        id="t2m_rejects_references",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", description=""),
+        _DESCRIPTION_REQUIRED_CAPS, ("description", "non-empty description"), None,
+        id="description_required_rejects_empty_description",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", description="   \n\t"),
+        _DESCRIPTION_REQUIRED_CAPS, (), None,
+        id="description_required_rejects_whitespace_only_description",
+    ),
+    pytest.param(
+        lambda: _base_doc("song"),
+        MUSIC3_CAPS, ("song mode requires lyrics",), None,
+        id="song_requires_at_least_one_section",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "song",
+            sections={"id": "s-1", "lyrics": "la"},
+            references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}],
+        ),
+        MUSIC3_CAPS, ("references",), None,
+        id="song_references_rejected_without_style_mode",
+    ),
+    pytest.param(
+        lambda: _base_doc("style"),
+        ACE_CAPS, ("requires at least one reference",), None,
+        id="style_requires_references",
+    ),
+    pytest.param(
+        lambda: _base_doc("style", references=[]),
+        ACE_CAPS, ("requires at least one reference",), None,
+        id="style_empty_references_list_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc("style", references=[
+            {"id": "r-1", "media": {"relative_path": "ref.wav", "duration_seconds": 45}},
+        ]),
+        ACE_CAPS, ("max_reference_seconds",), None,
+        id="style_max_reference_seconds_violation",
+    ),
+    pytest.param(
+        lambda: _base_doc("style", references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}]),
+        MUSIC3_CAPS, ("unsupported mode",), None,
+        id="style_not_declared_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc("extend"),
+        YUE_CAPS, ("extend_source",), None,
+        id="extend_requires_extend_source",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", extend_source={"media": {"relative_path": "track.wav"}}),
+        MUSIC3_CAPS, ("extend_source",), None,
+        id="extend_source_rejected_outside_extend_mode",
+    ),
+    pytest.param(
+        lambda: _base_doc("repaint"),
+        ACE_CAPS, ("repaint",), None,
+        id="repaint_requires_block",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "repaint",
+            repaint={"source": {"media": {"relative_path": "track.wav"}}, "start": 20.0, "end": 12.0},
+        ),
+        ACE_CAPS, ("start must be >= 0 and < end",), None,
+        id="repaint_start_after_end_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc("director", sections=[]),
+        MUSIC3_CAPS, ("director mode requires at least one section",), None,
+        id="director_requires_at_least_one_section",
+    ),
+    pytest.param(
+        lambda: _base_doc("director", sections=[{"id": "s-1", "kind": "breakdown", "lyrics": "a"}]),
+        MUSIC3_CAPS, ("kind must be one of",), None,
+        id="director_invalid_kind_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc("director", sections=[{"id": "s-1", "kind": "verse", "lyrics": "a", "duration_hint": -1}]),
+        MUSIC3_CAPS, ("duration_hint",), None,
+        id="director_duration_hint_must_be_positive",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            sections=[{"id": "s-1", "kind": "verse", "lyrics": "a", "references": ["nope"]}],
+            references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}],
+        ),
+        ACE_CAPS, ("not part of this document's references pool",), None,
+        id="director_per_section_references_unknown_id_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            sections=[{"id": "s-1", "kind": "verse", "lyrics": "a", "references": ["r-1"]}],
+            references=[{"id": "r-1", "media": {"relative_path": "ref.wav"}}],
+        ),
+        MUSIC3_CAPS, ("does not allow per-section selection",), None,
+        id="director_section_references_rejected_when_capability_is_whole",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", settings={"duration": 999, "seed": -1}),
+        MUSIC3_CAPS, ("exceeds the allowed maximum",), None,
+        id="settings_duration_exceeds_max_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", settings={"duration": 60, "seed": -1, "bpm": 92}),
+        MUSIC3_CAPS, ("settings.bpm is not supported", "description text"), None,
+        id="settings_bpm_rejected_when_not_declared",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", settings={"duration": 60, "seed": -1, "bpm": -5}),
+        ACE_CAPS, ("settings.bpm must be a positive number",), None,
+        id="settings_bpm_must_be_positive_number",
+    ),
+    pytest.param(
+        lambda: _base_doc("t2m", settings={"duration": 60, "seed": -1, "key": "C minor"}),
+        ACE_CAPS, ("settings.key is not supported",), None,
+        id="settings_key_rejected_when_not_declared_even_on_ace",
+    ),
+    pytest.param(
+        lambda: _base_doc("repaint"),
+        MUSIC3_CAPS, ("unsupported mode", "repaint"), None,
+        id="mode_rejected_when_not_capable",
+    ),
+    pytest.param(
+        lambda: _base_doc("extend", extend_source={"media": {"relative_path": "../outside.wav"}}),
+        YUE_CAPS, ("escapes the storage directory",), None,
+        id="media_path_traversal_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc("extend", extend_source={"media": {"relative_path": "missing.wav"}}),
+        YUE_CAPS, ("does not exist",), None,
+        id="media_path_missing_rejected",
+    ),
+]
+
+
+@pytest.mark.parametrize("build_doc,caps,fragments,match", REJECTED_DOCUMENTS)
+def test_invalid_document_rejected(storage_dir, build_doc, caps, fragments, match):
+    with pytest.raises(MusicDirectorValidationError, match=match) as excinfo:
+        normalize_music_director(build_doc(), caps, str(storage_dir))
+    for fragment in fragments:
+        assert fragment in str(excinfo.value)

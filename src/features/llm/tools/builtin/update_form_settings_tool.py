@@ -21,30 +21,10 @@ class UpdateFormSettingsTool(BaseTool):
     modes = ["generation"]
     icon = "sliders-horizontal"
 
-    @property
-    def name(self) -> str:
-        return "update_form_settings"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Changes values on your generation form for you."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When the user asks to change generation settings or wants recommendations "
-            "for better values — propose changes with this tool."
-            "{{#if get_form_state}} Always call get_form_state first to see current "
-            "values before proposing changes.{{/if}}"
-        )
+    name = "update_form_settings"
+    group = "Form & segments"
+    user_description = "Changes values on your generation form for you."
+    requires_approval = True
 
     @property
     def description(self) -> str:

@@ -1,5 +1,5 @@
 """IO Types documentation generator."""
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 
 class IoTypesDocumenter:
@@ -8,7 +8,6 @@ class IoTypesDocumenter:
     # Static descriptions mapping
     IO_TYPE_DESCRIPTIONS = {
         'INT': 'Integer number',
-        'FLOAT': 'Floating point number',
         'IMAGE': 'PIL Image object',
         'MASK': 'Image mask for inpainting',
         'LATENT': 'Latent representation of an image',
@@ -22,9 +21,6 @@ class IoTypesDocumenter:
         'NUMPY': 'NumPy array',
         'IMAGE_TYPE': 'Image type indicator (PIL/LATENT/TENSOR)',
         'P_PROMPT': 'Positive text prompt',
-        'N_PROMPT': 'Negative text prompt',
-        'P_PROMPT_EMBED': 'Positive prompt embeddings',
-        'N_PROMPT_EMBED': 'Negative prompt embeddings',
         'CONDITIONING': 'Conditioning data for generation',
         'EMBEDDING': 'Text embeddings',
         'SEED': 'Random seed for generation',
@@ -35,14 +31,8 @@ class IoTypesDocumenter:
         'CFG': 'Classifier-free guidance scale',
         'DENOISE': 'Denoising strength',
         'STEP': 'Number of sampling steps',
-        'MODE': 'Generation mode (txt2img, img2img, etc.)',
         'TEXT': 'Plain text string',
-        'DEVICE': 'Compute device (cuda, cpu)',
-        'ANNOTATION': 'Text annotation with optional bounding box',
-        'PIPE': 'Pipeline configuration',
-        'FORM': 'Form data',
-        'DICT': 'Dictionary/object data',
-        'LORA': 'LoRA model and weight pairs'
+        'DICT': 'Dictionary/object data'
     }
 
     def get_description(self, io_type) -> str:

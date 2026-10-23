@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "scenario": "add_second_prompt_night",
+  "capture": "replay",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Add a second prompt in this generation with a night version of my village scene."
+    },
+    {
+      "role": "assistant",
+      "content": "Here is a second prompt with the night version. Your first prompt stays as it is.\n\n<tool_action type=\"add_prompt\" name=\"Night version\">a quiet village at night, lit windows, moonlight on the rooftops</tool_action>\n\nAdd it from the card."
+    }
+  ]
+}

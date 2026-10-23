@@ -225,3 +225,16 @@ class TestGpuSettingsMovedToNativeBackend:
         mock_repository.get_setting_by_key.return_value = mock_setting
 
         assert settings.get_file_storage_directory() == "/data"
+
+
+class TestStorageFile:
+    def _settings(self, storage_dir):
+        repository = Mock(spec=SettingRepository)
+        repository.get_setting_by_key.return_value = Mock(get_typed_value=Mock(return_value=storage_dir))
+        return Settings(repository)
+
+    def test_joins_the_name_onto_the_storage_directory(self, tmp_path):
+        assert self._settings(str(tmp_path)).storage_file("auth.key") == tmp_path / "auth.key"
+
+    def test_is_none_when_the_storage_directory_is_empty(self):
+        assert self._settings("").storage_file("auth.key") is None

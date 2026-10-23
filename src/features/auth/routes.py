@@ -4,7 +4,7 @@ Authentication controller for user registration, login, and token management.
 from collections import defaultdict, deque
 import os
 import time
-from typing import TYPE_CHECKING, Deque, Dict, Optional
+from typing import TYPE_CHECKING, Deque, Dict
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm

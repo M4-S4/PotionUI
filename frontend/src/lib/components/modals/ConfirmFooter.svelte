@@ -9,6 +9,7 @@
 		busy = false,
 		confirmDisabled = false,
 		hideCancel = false,
+		stackOnPhone = false,
 		secondaryLabel,
 		secondaryIcon,
 		secondaryBusy = false,
@@ -25,6 +26,7 @@
 		busy?: boolean;
 		confirmDisabled?: boolean;
 		hideCancel?: boolean;
+		stackOnPhone?: boolean;
 		/** An optional extra action rendered between Cancel and Confirm, e.g. "Save to Library". */
 		secondaryLabel?: string;
 		secondaryIcon?: string;
@@ -43,9 +45,9 @@
 	let anyBusy = $derived(busy || secondaryBusy);
 </script>
 
-<div class="flex items-center justify-between gap-3 px-6 py-4">
+<div class="flex items-center justify-between gap-3 px-6 py-4 {stackOnPhone ? 'max-sm:flex-wrap' : ''}">
 	{#if leftActions || summary}
-		<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+		<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2 {stackOnPhone ? 'max-sm:basis-full' : ''}" data-testid="confirm-footer-left">
 			{#if leftActions}
 				{@render leftActions()}
 			{/if}

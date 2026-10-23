@@ -104,6 +104,7 @@ The context roots built by `PresetProcessor.process` (verified in `src/features/
 | `preset.vars` | The `vars:` mapping from `preset.yml` (e.g. `preset.vars.num_lora_slots`). |
 | `runtime.settings.file_storage_directory` | The storage root, resolved **once per build** with the authenticated user (a snapshot — no live settings calls at render time). |
 | `runtime.settings.nsfw` | The user's NSFW setting (same snapshot). |
+| `runtime.user.is_admin` | `true` only when the authenticated user is an administrator. Resolved by the server, never from form data, so a pipe can use it to gate admin-only work. `false` for unauthenticated callers (preview, test suite). |
 | `paths.preset` | Absolute path to this preset directory. (No `paths._shared` in the pipeline context.) |
 
 There is no `generation.seed`/`generation.quantity` (read `form.seed`/`form.quantity` — the
@@ -198,7 +199,8 @@ slots (`lora_1`, `lora_2`, ...) into a list in the pipeline. It is handled by
 
 1. **Inside a pipeline value** (most common), as a `"@loop":` mapping whose result replaces the value.
 2. **As a form field** of `type: "@loop"` whose `configuration` carries the loop config, expanding into
-   concrete fields.
+   concrete fields once when the preset loads. The template context holds only `paths`, so `form`,
+   `preset` and `runtime` expressions are not available there.
 
 Loop config keys used by presets:
 - `count` — how many iterations: a native integer, or an exact `{{ expression }}` that
@@ -424,6 +426,7 @@ this table and the scaffolder can never disagree for long.
 | `maya` | `model_loader/maya` | `generator/maya` | image |
 | `minimax_h3` | `model_loader/minimax_h3` | `generator/video_minimax_h3` | video |
 | `minimax_music3` | `model_loader/minimax_music3` | `generator/audio_minimax_music3` | audio |
+| `moss_image` | `model_loader/moss_image` | `generator/moss_image` | image |
 | `qwen` | `model_loader/qwen` | `generator/qwen` | image |
 | `sdxl` | `checkpoint_loader/sdxl` | `generator/sdxl` | image |
 | `seedvr2` | `model_loader/seedvr2` | `generator/seedvr2` | image/video (upscale) |

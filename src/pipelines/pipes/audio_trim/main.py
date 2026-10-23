@@ -74,7 +74,7 @@ re-encode into a `.wav` container) and falls back to `FLOAT` if unsupported.
 
 import os
 import tempfile
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import soundfile as sf
 
@@ -152,13 +152,6 @@ def compute_trim_window(start_seconds: float, duration_seconds: float,
 class AudioTrimPipe(BasePipe):
     name = "audio_trim"
     description = "Trim audio to a start/duration window, sample-accurate, without decoding the whole file"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "start_seconds": 0.0,
-            "duration_seconds": 10.0,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

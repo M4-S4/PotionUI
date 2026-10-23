@@ -72,14 +72,19 @@ migration seeds, so a location row against it needs no root of its own.
 `requirements-ci.txt` is a trimmed copy of `requirements.txt` for the
 CPU-only runner (see its own header for what's excluded and why);
 `constraints.txt` is not used there since it pins a
-CUDA-specific transitive closure. This is separate from
+CUDA-specific transitive closure. The Linux venv (`~/venv-ci`) is cached per
+interpreter version, requirement hashes and ISO week (requirements are floors,
+so the weekly component refreshes versions); a miss falls back to a fresh install.
+This is separate from
 `.github/workflows/onboarding-smoke.yml`, which only dry-run resolves
 dependencies and runs the architecture/setup-feature suites, not the full
 test tree.
 
-A third `plugins` shard covers marketplace plugins' own `tests/` directories
-(`content/plugins/marketplace/*/tests`, outside `pytest.ini`'s `testpaths`),
-via `tests/plugins/run_suites.py`. It runs each plugin's suite in its own
+Marketplace plugins' own `tests/` directories
+(`content/plugins/marketplace/*/tests`, outside `pytest.ini`'s `testpaths`)
+run inside the `rest` shard, as a separate step via `tests/plugins/run_suites.py`.
+At most `POTIONUI_PLUGIN_SUITE_WORKERS` suites run at once (default: the CPU
+count) and the suites with the most test files start first. `run_suites.py` runs each plugin's suite in its own
 pytest subprocess rather than one shared invocation — plugins that use the
 `api: module: "backend/api.py"` convention claim a top-level `backend` module
 name at conftest collection time, and pooling two such plugins' tests into
@@ -110,20 +115,24 @@ What it proves:
   start, `/health`, owner registration, a presets listing, `status`, `stop`,
   and that the process tree is actually gone. This is the actual proof of a
   native Windows boot, not just static checks.
-- `backend-tests` — the **full** pytest tree in the same two shards as
-  `backend-tests.yml` (`tests/platform` / the rest), `-n 2`, under the same
+- `backend-tests` — the **full** pytest tree in the same three shards as
+  `backend-tests.yml` (`platform` / `features` / `rest`), `-n 4`, under the same
   `not requires_gpu and not requires_models and not gc_sensitive` marker
   filter. A failing shard still uploads its junit/log as an artifact — the
   job is intentionally not `continue-on-error`: the failure is the signal,
-  not a green badge.
-- `plugin-suites` — `tests/plugins/run_suites.py`, one pytest subprocess per
-  marketplace plugin, as on Linux.
+  not a green badge. Linux uploads `junit-linux-<shard>[-serial].xml` per shard
+  the same way (`backend-tests-linux-<shard>` artifacts, kept 14 days).
+- the `rest` shard also runs `tests/plugins/run_suites.py`, one pytest
+  subprocess per marketplace plugin, as on Linux.
 - `release-gate` — `tests/release/release_gate.py --skip-gpu` (recipe lint,
   layering, setup/recipes suites, preset lint budget).
 - `frontend` — `npm run check`, `test:unit`, `test:component`, `build`, then
   `build:plugins` with the same check as the Linux `plugin-dist` job (a
-  changed or uncommitted `frontend/dist/` file fails): a plugin bundle that
-  builds differently on Windows is drift, not noise.
+  changed or uncommitted `frontend/dist/` file fails the step): a plugin
+  bundle that builds differently on Windows is drift, not noise. The step does
+  not fail the job (`continue-on-error`); when it fails, the job prints the
+  dist diff and uploads the Windows-built dists as the `plugin-dist-windows`
+  artifact (kept 7 days). The Linux `plugin-dist` job is the blocking check.
 - `e2e` — the HTTP journeys (`tests/e2e/journeys/run.py`) and the Playwright
   UI journeys (`tests/e2e/ui/run.py`, Chromium) against a throwaway backend.
   Linux CI does not run these; Windows is the only place they run unattended.
@@ -136,7 +145,10 @@ Every native command in this workflow runs under `shell: cmd`, never `pwsh`:
 pwsh's `$ErrorActionPreference = 'stop'` turns a native process's first
 stderr line into a step failure, and console-signal quirks kill a pwsh step
 silently. Long outputs go to a log file and are `type`d back so a killed
-step still uploads what it had.
+step still uploads what it had. The one exception is the `rest` shard's
+Chocolatey ffmpeg install, a pwsh loop that reads `$LASTEXITCODE` itself and
+retries up to four times, 30, 60 and 90 s apart, because the community feed
+sometimes answers 504.
 
 What it does **not** prove:
 
@@ -157,6 +169,15 @@ attribute, so there is no equivalent bit pattern), and
 is skipped on Windows because `Path.chmod(0o500)` does not make a directory
 unwritable there. A new Windows-only failure in this subset is therefore a
 real portability bug until proven otherwise.
+
+`Database` keeps its SQLite connections pooled, and a pooled connection holds
+the database file and its `-wal`/`-shm` open. Windows refuses to delete or
+move an open file, so a test that removes or replaces its own database (a
+`tearDown` that unlinks it, a `TemporaryDirectory` cleanup, a fixture that
+deletes its directory) must call `Database.close_pool()` first. The autouse
+fixture in `tests/conftest.py` closes the pool after every test, which is
+too late for cleanup that runs inside the test itself; on Linux the same
+mistake shows up as `Directory not empty` from an `rmdir`.
 
 ### Illegal-instruction crashes in bf16 tests (`0xc000001d`)
 
@@ -246,7 +267,18 @@ These are container/environment artefacts, not regressions caused by your change
   0.031. Not reproducible under a `taskset` 4-core simulation of the CI env,
   and no `set_num_threads`/`torch.backends`/default-dtype poisoner exists in
   the tree. The workflow runs these two files as a sequential step in the
-  platform shard; fold them back into the parallel step if root-caused.
+  features shard (`serial_paths`; the platform shard ignores them); fold them
+  back into the parallel step if root-caused.
+- **Shard layout (2026-10-21):** `tests/pipelines` runs in the features shard
+  and the platform shard keeps `tests/platform` + `tests/features/plugins`,
+  so the backend jobs are closer in length (Linux before: platform 309 s,
+  features 93 s, rest 241 s). The frontend job (388 s Linux, about 735 s
+  Windows) is the critical path, so this evens load rather than shortening the
+  workflow. `-n 2` inside `tests/plugins/run_suites.py` was evaluated and not
+  adopted: the plugin step is 34 s on Linux and 47 s on Windows inside the
+  non-critical `rest` job, and it is startup-bound (Linux already runs the
+  suites 10 at a time on 4 vCPUs), so worker-level parallelism saves
+  seconds at best.
 - **runner-CPU bf16 roulette (deterministic skip added):** part of GitHub's
   hosted runner fleet lacks native bf16 (no AMX/AVX512-BF16); torch's bf16
   conv2d fallback there is 10-20x slower, so a real sample+decode at size
@@ -316,7 +348,7 @@ PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py
 invocation reliably killed the `vite preview` process partway through:
 every remaining test then failed with `net::ERR_CONNECTION_REFUSED` at
 `/login`. `run.py` now splits the requested specs into fixed-size chunks
-(default 3 — empirically safe; override with `--chunk-size`) and boots a
+(default 8 — empirically safe; override with `--chunk-size`) and boots a
 fresh throwaway backend + preview + Playwright process per chunk, so a
 caller can't hit that cliff by passing a large spec list. If the preview
 process still dies mid-chunk, `run.py` detects it, aborts that chunk instead
@@ -345,7 +377,7 @@ behind, and the next run takes it over as stale. `--list` never takes the lock.
 The chat opens on `/models`, so the session runs in the Models assistant mode,
 and the scripted tool call has to be one that mode enables *and* that requires
 approval. `create_phrasebook_category` is not enabled there (it fails with
-"Tool '…' is not enabled for this session" and the fake LLM then runs out of
+"Tool '…' is unavailable; do not call it again" and the fake LLM then runs out of
 scripted turns), and `write_memory` saves without approval. Each test seeds its
 own global memory note through `POST /api/chat/memory`, scripts
 `delete_memory` for that note id, and checks the side effect through

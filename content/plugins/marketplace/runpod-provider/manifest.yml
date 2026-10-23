@@ -65,4 +65,5 @@ settings:
     label: "Allowed CUDA Versions"
     description: "Comma-separated host CUDA versions a pod may be placed on, matched exactly against RunPod's list (13.0, 12.9 ... 11.8). The default matches the worker image's cu130 torch build - on an older host driver torch falls back to CPU and generation silently crawls. Leave empty to accept any CUDA version."
     default: "13.0"
+    allow_empty: true
     required: false

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 const authState = vi.hoisted(() => ({ user: null as null | { account_type: string } }));
 
@@ -46,10 +47,6 @@ function mountPanel(props: Record<string, unknown>) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function setup(recipes: Array<{ id: string; name: string }>) {

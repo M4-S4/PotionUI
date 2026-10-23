@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mount, unmount, flushSync } from 'svelte';
+import { flushSync } from 'svelte';
+import { mountComponent } from './helpers/mount';
+import { advanceTimers } from './helpers/settle';
 import { catalogFixture, ruleFixture } from './organizeFixtures';
 
 const api = vi.hoisted(() => ({
@@ -23,23 +25,14 @@ vi.mock('$lib/services/api', async () => {
 const { default: RuleEditor } = await import('../../src/lib/components/organize/RuleEditor.svelte');
 const { draftFromParts, draftFromRule } = await import('../../src/lib/organize/draft');
 
-async function wait(ms = 0) {
-	await new Promise((resolve) => setTimeout(resolve, ms));
-	flushSync();
-}
-
 async function settle() {
-	for (let i = 0; i < 6; i++) await wait();
+	for (let i = 0; i < 6; i++) await advanceTimers(0);
 }
 
-let instance: ReturnType<typeof mount> | null = null;
 let target: HTMLElement;
 
 function render(initial: ReturnType<typeof draftFromParts>, extra: Record<string, unknown> = {}) {
-	instance = mount(RuleEditor, {
-		target,
-		props: { initial, catalog: catalogFixture, onBack: vi.fn(), onSaved: vi.fn(), ...extra }
-	});
+	target = mountComponent(RuleEditor, { initial, catalog: catalogFixture, onBack: vi.fn(), onSaved: vi.fn(), ...extra }).target;
 }
 
 function button(label: string): HTMLButtonElement {
@@ -64,8 +57,7 @@ function startDraft() {
 }
 
 beforeEach(() => {
-	target = document.createElement('div');
-	document.body.appendChild(target);
+	vi.useFakeTimers();
 	for (const fn of Object.values(api)) fn.mockReset();
 	api.listCollections.mockResolvedValue({ success: true, data: { collections: [], total: 0 } });
 	api.getOrganizeFactOptions.mockResolvedValue({ success: true, data: [] });
@@ -73,15 +65,13 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	if (instance) unmount(instance);
-	instance = null;
-	target.remove();
+	vi.useRealTimers();
 });
 
 describe('RuleEditor preview and backfill', () => {
 	it('shows how many existing items match once the rule is complete', async () => {
 		render(startDraft());
-		await wait(700);
+		await advanceTimers(600);
 		expect(api.previewOrganizeRule).toHaveBeenCalledTimes(1);
 		expect(api.previewOrganizeRule).toHaveBeenCalledWith({
 			subject: 'generation',
@@ -102,7 +92,7 @@ describe('RuleEditor preview and backfill', () => {
 				actions: []
 			})
 		);
-		await wait(700);
+		await advanceTimers(600);
 		expect(api.previewOrganizeRule).not.toHaveBeenCalled();
 		expect(target.textContent).toContain('Finish the conditions');
 	});
@@ -112,7 +102,7 @@ describe('RuleEditor preview and backfill', () => {
 			previewResult({ approximate: true, duplicates: [{ rule_id: 'r9', name: 'Old videos' }] })
 		);
 		render(startDraft());
-		await wait(700);
+		await advanceTimers(600);
 		expect(target.textContent).toContain('About 214');
 		expect(target.textContent).toContain('"Old videos"');
 	});
@@ -125,7 +115,7 @@ describe('RuleEditor preview and backfill', () => {
 		api.getOrganizeJob.mockResolvedValue({ success: true, data: { ...job, status: 'completed', processed: 198, applied: 198, run_id: 'run1' } });
 		const onSaved = vi.fn();
 		render(startDraft(), { onSaved });
-		await wait(700);
+		await advanceTimers(600);
 		(target.querySelector('[data-testid="apply-existing"]') as HTMLInputElement).click();
 		flushSync();
 		button('Create').click();
@@ -144,14 +134,14 @@ describe('RuleEditor preview and backfill', () => {
 		const progress = target.querySelector('[data-testid="job-progress"]')!;
 		expect(progress.getAttribute('data-status')).toBe('running');
 		expect(progress.textContent).toContain('50 of 198');
-		await wait(1100);
+		await advanceTimers(1100);
 		expect(target.querySelector('[data-testid="job-progress"]')!.getAttribute('data-status')).toBe('completed');
 		expect(target.textContent).toContain('Added 198 items to Videos');
 	});
 
 	it('renders the apply-existing option as the host switch, not a bare checkbox', async () => {
 		render(startDraft());
-		await wait(700);
+		await advanceTimers(600);
 		const control = target.querySelector('[data-testid="apply-existing"]') as HTMLInputElement;
 		expect(control.getAttribute('role')).toBe('switch');
 		expect(control.getAttribute('aria-label')).toMatch(/^Also add the \d+ existing/);
@@ -166,7 +156,7 @@ describe('RuleEditor preview and backfill', () => {
 	it('does not start a backfill when the box is left unchecked', async () => {
 		api.createOrganizeRule.mockResolvedValue({ success: true, data: ruleFixture() });
 		render(startDraft());
-		await wait(700);
+		await advanceTimers(600);
 		button('Create').click();
 		await settle();
 		expect(api.createOrganizeRule).toHaveBeenCalledTimes(1);
@@ -190,7 +180,7 @@ describe('RuleEditor preview and backfill', () => {
 			})
 		);
 		render(startDraft());
-		await wait(700);
+		await advanceTimers(600);
 		button('Create').click();
 		await settle();
 		expect(target.textContent).toContain('That collection no longer exists.');
@@ -200,7 +190,7 @@ describe('RuleEditor preview and backfill', () => {
 		const rule = ruleFixture();
 		api.updateOrganizeRule.mockResolvedValue({ success: true, data: { ...rule, name: 'Clips' } });
 		render(draftFromRule(rule));
-		await wait(700);
+		await advanceTimers(600);
 		const name = target.querySelector('input[aria-label="Rule name"]') as HTMLInputElement;
 		name.value = 'Clips';
 		name.dispatchEvent(new Event('input', { bubbles: true }));
@@ -231,7 +221,7 @@ describe('RuleEditor preview and backfill', () => {
 				actions: [{ action: 'add_to_collection', config: { collection_name: 'Potion shop', create_if_missing: true } }]
 			})
 		);
-		await wait(700);
+		await advanceTimers(600);
 		button('Create').click();
 		await settle();
 		const row = target.querySelector('[data-testid="action-row"]')!;

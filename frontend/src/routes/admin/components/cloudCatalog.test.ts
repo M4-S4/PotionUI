@@ -4,15 +4,9 @@ import {
 	DEFAULT_CATALOG_FILTERS,
 	bulkTargets,
 	canEnable,
-	catalogFilterActiveCount,
-	catalogFilterChips,
-	catalogFiltersFromSearchParams,
-	catalogFiltersToSearchParams,
 	catalogHasFilters,
 	catalogQuery,
 	catalogSummaryLine,
-	clearAllCatalogFilters,
-	clearCatalogFilterChip,
 	formatPriceLine,
 	formatUsd,
 	itemStatuses,
@@ -24,7 +18,8 @@ import {
 	catalogShowOf,
 	modelPageHref,
 	suggestedTip,
-	withCatalogShow
+	withCatalogShow,
+	cloudCatalogFilters
 } from './cloudCatalog';
 
 function item(overrides: Partial<CloudCatalogItem> = {}): CloudCatalogItem {
@@ -190,39 +185,39 @@ describe('bulkTargets', () => {
 describe('catalog filters', () => {
 	it('round-trips through the URL', () => {
 		const filters = { ...DEFAULT_CATALOG_FILTERS, q: 'veo', task: 'txt2video', output: 'video', enabledOnly: true };
-		const params = catalogFiltersToSearchParams(filters);
+		const params = cloudCatalogFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('veo');
 		expect(params.get('task')).toBe('txt2video');
 		expect(params.get('output')).toBe('video');
 		expect(params.get('enabled')).toBe('1');
-		expect(catalogFiltersFromSearchParams(params)).toEqual(filters);
+		expect(cloudCatalogFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('writes nothing for the defaults', () => {
-		expect(catalogFiltersToSearchParams(DEFAULT_CATALOG_FILTERS).toString()).toBe('');
+		expect(cloudCatalogFilters.toSearchParams(DEFAULT_CATALOG_FILTERS).toString()).toBe('');
 	});
 
 	it('ignores a task it does not know', () => {
-		expect(catalogFiltersFromSearchParams(new URLSearchParams('task=bogus')).task).toBe('');
+		expect(cloudCatalogFilters.fromSearchParams(new URLSearchParams('task=bogus')).task).toBe('');
 	});
 
 	it('counts filters but not the search text', () => {
 		const filters = { ...DEFAULT_CATALOG_FILTERS, q: 'x', task: 'txt2img', enabledOnly: true };
-		expect(catalogFilterActiveCount(filters)).toBe(2);
+		expect(cloudCatalogFilters.activeCount(filters)).toBe(2);
 		expect(catalogHasFilters({ ...DEFAULT_CATALOG_FILTERS, q: 'x' })).toBe(true);
 		expect(catalogHasFilters(DEFAULT_CATALOG_FILTERS)).toBe(false);
 	});
 
 	it('words its chips in plain language', () => {
-		const chips = catalogFilterChips({ ...DEFAULT_CATALOG_FILTERS, task: 'img2video', enabledOnly: true });
+		const chips = cloudCatalogFilters.chips({ ...DEFAULT_CATALOG_FILTERS, task: 'img2video', enabledOnly: true });
 		expect(chips.map((chip) => chip.label)).toEqual(['Image to video', 'Enabled only']);
 	});
 
 	it('clears one chip or all of them', () => {
 		const filters = { ...DEFAULT_CATALOG_FILTERS, q: 'x', task: 'txt2img', enabledOnly: true };
-		expect(clearCatalogFilterChip(filters, 'task').task).toBe('');
-		expect(clearCatalogFilterChip(filters, 'enabledOnly').enabledOnly).toBe(false);
-		const cleared = clearAllCatalogFilters(filters);
+		expect(cloudCatalogFilters.clearChip(filters, 'task').task).toBe('');
+		expect(cloudCatalogFilters.clearChip(filters, 'enabledOnly').enabledOnly).toBe(false);
+		const cleared = cloudCatalogFilters.clearAll(filters);
 		expect(cleared.task).toBe('');
 		expect(cleared.enabledOnly).toBe(false);
 		expect(cleared.q).toBe('x');
@@ -259,11 +254,11 @@ describe('suggested models', () => {
 
 	it('round-trips through the URL and shows as a removable chip', () => {
 		const filters = { ...DEFAULT_CATALOG_FILTERS, suggestedOnly: true };
-		const params = catalogFiltersToSearchParams(filters);
+		const params = cloudCatalogFilters.toSearchParams(filters);
 		expect(params.get('suggested')).toBeTruthy();
-		expect(catalogFiltersFromSearchParams(params).suggestedOnly).toBe(true);
-		expect(catalogFilterChips(filters).map((chip) => chip.label)).toContain('Suggested');
-		expect(clearCatalogFilterChip(filters, 'suggestedOnly').suggestedOnly).toBe(false);
+		expect(cloudCatalogFilters.fromSearchParams(params).suggestedOnly).toBe(true);
+		expect(cloudCatalogFilters.chips(filters).map((chip) => chip.label)).toContain('Suggested');
+		expect(cloudCatalogFilters.clearChip(filters, 'suggestedOnly').suggestedOnly).toBe(false);
 	});
 
 	it('credit the plugin that suggests them', () => {

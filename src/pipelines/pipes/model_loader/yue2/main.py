@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from src.pipelines.outputs import (
     ModelGenerationOutput,
@@ -40,23 +40,11 @@ class ModelLoaderYuE2Pipe(BaseModelLoaderPipe):
     description = "Load a native YuE2-3B checkpoint set (AR/NAR backbone + Oobleck VAE decoder)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "vae": None,
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("model", dict, None, "YuE2-3B AR/NAR backbone checkpoint", required=True),
             PipeConfigSpec("vae", dict, None, "YuE2 Oobleck VAE decoder checkpoint", required=True),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

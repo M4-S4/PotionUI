@@ -9,16 +9,16 @@
 // because it can't survive a browser's JSON.parse as a Number must render
 // correctly, never be offered as an editable mapped field, and never reach
 // the posted form at all (the server refuses a field with no mappings).
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 // A plain JS string literal - the digit runs below are just characters,
 // never parsed as a Number by the JS engine, so this constant is exact
@@ -118,10 +118,7 @@ const ANALYZE_RESULT_BOUNDARY = {
 };
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, `import-workflow-tab-bigint-${Math.random().toString(36).slice(2)}.mjs`);
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 
@@ -223,6 +220,12 @@ beforeAll(async () => {
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
 
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
+
 afterEach(() => {
 	vi.unstubAllGlobals();
 	document.body.innerHTML = '';
@@ -260,7 +263,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		textarea.value = RAW_WORKFLOW_TEXT;
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		// The analyze request carries the byte-exact pasted text, not a
@@ -275,7 +278,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		expect(stepsRow.textContent).toContain('exact literal');
 		expect(stepsRow.textContent).toContain(JUST_OVER_SAFE);
 		expect(stepsRow.textContent).not.toContain('[object Object]');
-		expect(stepsRow.querySelector('[data-action="add-input"]')).toBeNull();
+		expect(stepsRow.querySelector('[data-action="add-input"] button')).toBeNull();
 
 		// "steps" arrived already mapped via default_form (an "obvious"
 		// role): hydration drops it from the form outright, so there is no
@@ -284,7 +287,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		expect(el.querySelector('[data-field-name="steps"]')).toBeNull();
 
 		// The cfg candidate is ordinary and still addable normally.
-		el.querySelector<HTMLButtonElement>('[data-input-key="3:cfg"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:cfg"] [data-action="add-input"] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-input-key="3:cfg"]')?.className).toContain('mapped');
 
@@ -296,15 +299,15 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 
 		// Requirements preview also carries the exact text.
 		expect(requests.requirements.workflow_text).toBe(RAW_WORKFLOW_TEXT);
 
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 
 		// Import carries the exact text too, and the posted form carries no
@@ -361,7 +364,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		// The stored "steps" field default is tagged too (a pre-existing
@@ -371,11 +374,11 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		expect(el.querySelector('[data-field-name="steps"]')).toBeNull();
 		expect(el.querySelector('[data-input-key="3:steps"]')!.textContent).toContain(JUST_OVER_SAFE);
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 
 		// Resubmitted on Update as the literal stored text - never
@@ -416,7 +419,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		FakeFileReader.instances[0].complete(RAW_WORKFLOW_TEXT);
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		// The analyze request carries the file's own exact text - never a
@@ -429,7 +432,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		const stepsRow = el.querySelector('[data-input-key="3:steps"]')!;
 		expect(stepsRow.textContent).toContain('exact literal');
 		expect(stepsRow.textContent).toContain(JUST_OVER_SAFE);
-		expect(stepsRow.querySelector('[data-action="add-input"]')).toBeNull();
+		expect(stepsRow.querySelector('[data-action="add-input"] button')).toBeNull();
 		expect(el.querySelector('[data-field-name="steps"]')).toBeNull();
 
 		unmount(instance);
@@ -461,7 +464,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		textarea.value = RAW_WORKFLOW_TEXT_BOUNDARY;
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		// At exactly MAX_SAFE_INTEGER, the row is a plain unmapped candidate -
@@ -470,7 +473,7 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		expect(stepsRow.className).not.toContain('locked');
 		expect(stepsRow.textContent).not.toContain('exact literal');
 		expect(stepsRow.textContent).toContain(MAX_SAFE);
-		const addBtn = stepsRow.querySelector<HTMLButtonElement>('[data-action="add-input"]');
+		const addBtn = stepsRow.querySelector<HTMLButtonElement>('[data-action="add-input"] button');
 		expect(addBtn).toBeTruthy();
 		addBtn!.click();
 		await settle();
@@ -492,11 +495,11 @@ describe('ImportWorkflowTab large integer literals (real compiled dist)', () => 
 		nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 
 		// The submitted form carries it as a plain JSON number, exact at

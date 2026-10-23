@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 
@@ -6,8 +6,6 @@ from src.features.llm.tools.base import BaseTool, ToolContext
 from src.features.llm.tools.builtin.active_models_tool import GetActiveModelsTool
 from src.features.llm.tools.builtin.phrasebook_tool import ListPhrasebookCategoriesTool
 from src.features.llm.tools.builtin.segments_tool import ListSegmentCategoriesTool
-from src.features.llm.tools.executor import ToolExecutor
-from src.features.llm.tools.registry import ToolRegistry
 
 SECRET = "connection to /srv/app/storage/db.sqlite refused"
 
@@ -50,10 +48,10 @@ def _break_active_models_metadata(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("builder", BUILDERS)
-async def test_regular_user_never_sees_exception_text(builder):
+async def test_regular_user_never_sees_exception_text(builder, run_tool):
     tool, context = builder(False)
 
-    result = await tool.execute(context)
+    result = await run_tool(tool, context)
 
     assert result.success is False
     assert "refused" not in result.error
@@ -63,10 +61,10 @@ async def test_regular_user_never_sees_exception_text(builder):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("builder", BUILDERS)
-async def test_admin_sees_exception_text_with_paths_scrubbed(builder):
+async def test_admin_sees_exception_text_with_paths_scrubbed(builder, run_tool):
     tool, context = builder(True)
 
-    result = await tool.execute(context)
+    result = await run_tool(tool, context)
 
     assert "refused" in result.error
     assert "/srv/app" not in result.error
@@ -96,19 +94,12 @@ class _ExplodingTool(BaseTool):
         raise RuntimeError(SECRET)
 
 
-def _executor():
-    registry = ToolRegistry()
-    registry.register(_ExplodingTool())
-    return ToolExecutor(tool_registry=registry, llm_service=AsyncMock())
-
-
 @pytest.mark.asyncio
-async def test_executor_hides_a_raising_tool_from_regular_users():
-    executor = _executor()
+async def test_executor_hides_a_raising_tool_from_regular_users(run_tool, confirm_tool):
     context = ToolContext(user_id="u1")
 
-    result, _pending = await executor._execute_tool("explode", context, {})
-    confirmed = await executor.execute_tool_confirmed("explode", context, {})
+    result = await run_tool(_ExplodingTool(), context)
+    confirmed = await confirm_tool(_ExplodingTool(), context)
 
     for outcome in (result, confirmed):
         assert outcome.success is False
@@ -117,12 +108,11 @@ async def test_executor_hides_a_raising_tool_from_regular_users():
 
 
 @pytest.mark.asyncio
-async def test_executor_keeps_the_scrubbed_detail_for_admins():
-    executor = _executor()
+async def test_executor_keeps_the_scrubbed_detail_for_admins(run_tool, confirm_tool):
     context = ToolContext(user_id="a1", is_admin=True)
 
-    result, _pending = await executor._execute_tool("explode", context, {})
-    confirmed = await executor.execute_tool_confirmed("explode", context, {})
+    result = await run_tool(_ExplodingTool(), context)
+    confirmed = await confirm_tool(_ExplodingTool(), context)
 
     for outcome in (result, confirmed):
         assert "refused" in outcome.error

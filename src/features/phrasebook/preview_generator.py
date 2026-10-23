@@ -5,7 +5,6 @@ Generates preview images for phrasebook values using << value >> templates.
 Leverages the existing generation infrastructure to create images.
 """
 import asyncio
-import os
 import re
 import logging
 import random
@@ -88,66 +87,6 @@ class PhrasebookPreviewGenerator:
             Rendered prompt string
         """
         return re.sub(r'<<\s*value\s*>>', lambda m: value, template)
-
-    def get_preview_storage_path(self, category_id: str) -> str:
-        """
-        Get the storage path for preview images.
-
-        Args:
-            category_id: The category ID
-
-        Returns:
-            Absolute path to the preview storage directory
-        """
-        base_path = self.settings.get_setting("file_storage_directory", "storage")
-        return os.path.join(base_path, "phrasebook", category_id)
-
-    def build_generation_request(
-        self,
-        session_data: Dict[str, Any],
-        preset_id: str,
-        rendered_prompt: str,
-        negative_prompt: Optional[str] = None,
-        seed: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Build a generation request from session data.
-
-        Args:
-            session_data: The session's form data
-            preset_id: The preset ID to use
-            rendered_prompt: The rendered prompt with value substituted
-            negative_prompt: Optional override for negative prompt
-            seed: Optional seed (None = random)
-
-        Returns:
-            Dictionary suitable for GenerationRequest
-        """
-        # Start with session form data
-        form_data = dict(session_data.get('form_data', session_data))
-
-        # Determine final negative prompt
-        final_negative = negative_prompt
-        if final_negative is None:
-            # Try to get from session data
-            final_negative = (
-                session_data.get('negative_prompt') or
-                form_data.get('negative_prompt', '')
-            )
-
-        # Determine seed
-        final_seed = seed if seed is not None else random.randint(0, 2147483647)
-
-        return {
-            'preset_id': preset_id,
-            'prompts': [{
-                'positive': rendered_prompt,
-                'negative': final_negative
-            }],
-            'mode': session_data.get('mode', 'txt2img'),
-            'form_data': form_data,
-            'seed': final_seed
-        }
 
     async def generate_previews(
         self,
@@ -466,41 +405,3 @@ class PhrasebookPreviewGenerator:
                 f"Failed to link preview image for value {value_id}: {e}",
                 exc_info=True
             )
-
-    def delete_preview_image(self, value_id: str, category_id: str, user_id: str) -> bool:
-        """
-        Delete a preview image for a value.
-
-        Args:
-            value_id: The value ID
-            category_id: The category ID (not used, kept for API compatibility)
-            user_id: The user ID
-
-        Returns:
-            True if deleted, False otherwise
-        """
-        from src.features.generation.file_repository import file_repo
-
-        value = self.values.get_by_id(value_id, user_id)
-        if not value or not value.preview_file_id:
-            return False
-
-        try:
-            # Get the file record
-            file_record = file_repo.get_by_id(value.preview_file_id)
-            if file_record:
-                # Delete the actual file
-                self._resolve_storage_driver().delete(file_record.file_path)
-
-                # Delete the file record
-                file_repo.delete(value.preview_file_id)
-
-            # Clear the preview file ID in database
-            self.values.update_preview_file(value_id, user_id, None, None)
-
-            logger.info(f"Deleted preview image for value {value_id}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to delete preview image for value {value_id}: {e}")
-            return False

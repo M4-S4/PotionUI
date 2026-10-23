@@ -1,10 +1,9 @@
-from typing import Dict, Any, List
+from typing import List
 
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
     PipeInput,
     PipeOutput,
-    IOType,
     PipeInputSpec,
     PipeOutputSpec,
     PipeConfigSpec,
@@ -63,13 +62,6 @@ class FromIOTypePipe(BasePipe):
                 logger.warning(f"[FROM_IOTYPE] Input '{input_name}' not found in pipe input")
 
         return PipeOutput(output=output)
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "from": None,
-            "mappings": [],
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

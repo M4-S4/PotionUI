@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // "New workspace" wipes every open tab down to one fresh empty tab.
 // When the workspace has unsaved changes it must ask first (3-way modal:
@@ -8,21 +9,6 @@ import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, 
 // session-tab-switch-preserves-draft.spec.ts.
 
 const JOURNEY = 'new-workspace';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function typeIntoSegment(page: Page, listAriaLabel: string, index: number, text: string) {
 	const item = page.locator(`div[role="list"][aria-label="${listAriaLabel}"] [role="listitem"]`).nth(index);
@@ -33,8 +19,8 @@ async function typeIntoSegment(page: Page, listAriaLabel: string, index: number,
 
 async function pickPreset(page: Page, presetName: string) {
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByRole('listbox', { name: 'Presets' }).getByText(presetName, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, presetName).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 }
 
 test('New workspace warns and discards on a dirty, never-saved tab', async ({ page }) => {
@@ -63,11 +49,10 @@ test('New workspace warns and discards on a dirty, never-saved tab', async ({ pa
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
 
 	// Clicking "New workspace" on a pristine app (single default tab, nothing
 	// picked or typed) must wipe with no modal at all.
-	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace' });
+	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace', exact: true });
 	await expect(newWorkspaceButton).toBeVisible({ timeout: 10000 });
 	await newWorkspaceButton.click();
 	await expect(page.getByRole('heading', { name: 'Unsaved changes' })).not.toBeVisible();
@@ -79,7 +64,6 @@ test('New workspace warns and discards on a dirty, never-saved tab', async ({ pa
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A lighthouse on a stormy cliff.');
 	await expect(mainList).toContainText('A lighthouse on a stormy cliff.');
@@ -147,13 +131,11 @@ test('New workspace "Save & create new" saves a dirty existing session before wi
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
 
 	await pickPreset(page, imagePreset.name);
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A quiet harbor at dawn.');
 
@@ -171,7 +153,7 @@ test('New workspace "Save & create new" saves a dirty existing session before wi
 	await typeIntoSegment(page, 'Positive segments', 0, ' Gulls circle the empty pier.');
 	await expect(page.getByRole('button', { name: 'Save session' })).toBeVisible({ timeout: 10000 });
 
-	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace' });
+	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace', exact: true });
 	await newWorkspaceButton.click();
 
 	const modalTitle = page.getByRole('heading', { name: 'Unsaved changes' });

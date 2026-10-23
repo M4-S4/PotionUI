@@ -1,59 +1,7 @@
-"""Generator for native Krea-2 (txt2img).
-
-Mirrors ``generator/flux``: consumes the ``model`` bundle from
-``model_loader/krea2`` and the ``conditioning`` from the shared ``prompt_encoder``
-pipe, runs ``NativeGenerator.sample`` per seed, decodes and emits through the
-shared gallery path. Krea-2 turbo defaults: 8 steps, cfg 1.0 (true CFG collapses
-to a single forward at scale 1.0 -- see the ModelSpec's ``guidance: "cfg"`` in
-``detect/registry.py``), the official fixed-mu=1.15 schedule. The Krea-2 DiT is
-driven through its flat ``forward`` adapter, so ``NativeGenerator.sample`` needs
-no Krea-specific wiring.
-
-``mu_schedule`` (BE-CFG-KREA2) switches the sigma-schedule mu SOURCE: ``"fixed"``
-(default) is the ModelSpec's own fixed_mu=1.15 (the distilled turbo checkpoint's
-official schedule); ``"dynamic"`` overrides it with the resolution-anchored
-mu interpolation upstream documents for the un-distilled base/midtrain
-checkpoint (see the ModelSpec comment). One architecture signature covers both
-checkpoints, so the *preset* -- not detection -- picks the regime; this pipe
-only translates that choice into the ``schedule_settings`` override
-``NativeGenerator.sample`` whitelists (``engine._sampling_settings_for``).
-
-``schedule``/``schedule_options``/``manual_sigmas``/``detail_strength``/
-``detail_start``/``detail_end`` (``schedule_settings_config_specs`` in
-``_shared/generation/guidance_options.py``) are the same flat sigma-schedule
-knobs the Wan/LTX video pipes expose, merged into ``ctx.extra["schedule_settings"]``
-by ``apply_schedule_settings`` -- resolved BEFORE ``_apply_mu_schedule`` so
-``mu_schedule="dynamic"``'s ``fixed_mu``/``dynamic_shift`` still land on top.
-That ordering is moot in practice: ``schedule="beta"``/``"exponential"``/
-``"linear_quadratic"`` all bypass the shift-based mu selection entirely in
-``build_sigmas`` (``sampling/flow_schedule.py``), so ``fixed_mu``/``dynamic_shift``
-are simply unread whenever a preset picks one of those families.
-
-``build_context``/``generate_one`` (shared by every native flow-matching family)
-live in ``FlowMatchGeneratorPipe``; this module only carries Krea-2's own config
-schema/defaults, and opts out of the shift override (``supports_shift = False``)
-since Krea-2 is a turbo model with no shift knob.
-
-``nag_scale``/``nag_tau``/``nag_alpha`` wire Normalized Attention
-Guidance (arXiv:2505.21179) into Krea-2's joint attention (see
-``arch/krea2/model.py``/``layers.py``) -- makes the negative prompt actually
-count at guidance=0 (NoCFG turbo). Attached to the cond dict by
-``FlowMatchGeneratorPipe.generate_one``'s ``_attach_nag``, inert at the
-default ``nag_scale=1.0``.
-
-``refine_tail`` is the "whole-frame enhance" mode: img2img-only, it
-slices the tail of Krea-2's official fixed-mu 8-step Euler grid
-(``build_sigmas(8, fixed_mu=<spec>)``) and hands it to the shared img2img path
-as an explicit ``sigmas`` schedule (see ``Img2ImgGeneratorMixin.maybe_img2img``,
-which forwards ``ctx.extra["sigmas"]`` unchanged). ``fixed_mu`` is read off the
-loaded model's own ``ModelSpec.sampling_settings`` rather than hardcoded here,
-so a future Krea-2 variant with a different (or absent) fixed-mu schedule is
-never silently misrendered.
-"""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional, Tuple
 
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import ParamGenerationOutput
@@ -64,10 +12,20 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_config_specs,
 )
 from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    nag_config_specs,
+    preview_config_spec,
+    seed_config_spec,
+)
 
 # refine_tail -> how many trailing sigmas of the official 8-step grid to walk.
 _REFINE_TAIL_STEPS = {"subtle": 2, "balanced": 3, "strong": 4}
 _REFINE_TAIL_GRID_STEPS = 8
+_REFINE_BASE_GRID_STEPS = 24
+_REFINE_BASE_MIN_STEPS = 2
+_REFINE_BASE_MAX_START_SIGMA = 0.8
+_LATENT_TOKEN_PX = 16
 
 # mu_schedule="dynamic" anchors (upstream krea-ai/krea-2 sampling.py
 # `timesteps()`): mu = slope*seq_len + intercept through (x1, y1)/(x2, y2),
@@ -87,9 +45,38 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
         # Before _apply_mu_schedule, so that method's fixed_mu/dynamic_shift
         # override still lands on top for mu_schedule="dynamic".
         apply_schedule_settings(ctx, self.config)
+        self._refine_tail_base_start = None
         self._refine_tail_sigmas = self._apply_refine_tail(ctx)
         self._apply_mu_schedule(ctx)
         return ctx
+
+    def maybe_img2img(self, gen, conditioning, ctx, index, seed, progress):
+        if ctx.extra.get("mode") == "img2img" and self._refine_tail_base_start is not None:
+            source = self._select_source(ctx.extra.get("images") or [], index)
+            if source is not None:
+                width, height = self._img2img_target_size(gen, ctx, source.size)
+                tail = self._base_refine_tail(self._refine_tail_base_start, width, height)
+                ctx.extra["sigmas"] = tail
+                self._refine_tail_sigmas = [round(float(v), 6) for v in tail.tolist()]
+        return super().maybe_img2img(gen, conditioning, ctx, index, seed, progress)
+
+    def _base_refine_tail(self, start_sigma: float, width: int, height: int):
+        seq_len = max(1, (width // _LATENT_TOKEN_PX) * (height // _LATENT_TOKEN_PX))
+        full = build_sigmas(
+            _REFINE_BASE_GRID_STEPS,
+            dynamic_shift=_BASE_DYNAMIC_SHIFT,
+            image_seq_len=seq_len,
+        )
+        first = min(range(len(full)), key=lambda i: abs(float(full[i]) - start_sigma))
+        first = min(first, _REFINE_BASE_GRID_STEPS - _REFINE_BASE_MIN_STEPS)
+        tail = full[first:]
+        if float(tail[0]) > _REFINE_BASE_MAX_START_SIGMA:
+            raise ValueError(
+                f"[{self.family_tag}] Enhance cannot keep the image intact on the Base profile at "
+                f"{width}x{height}: its resolution-dependent schedule would re-noise it almost "
+                f"completely. Use the Turbo profile or a smaller 'Upscale by'."
+            )
+        return tail
 
     def _apply_mu_schedule(self, ctx: GeneratorContext) -> None:
         """``mu_schedule="dynamic"``: override the ModelSpec's fixed_mu=1.15 with
@@ -138,14 +125,33 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
         tail_len = _REFINE_TAIL_STEPS[refine_tail]
         full = build_sigmas(_REFINE_TAIL_GRID_STEPS, fixed_mu=float(fixed_mu))
         tail = full[-tail_len:]
-        ctx.extra["sigmas"] = tail
+        if self.config.get("mu_schedule", "fixed") == "dynamic":
+            self._refine_tail_base_start = float(tail[0])
+            tail = None
+        else:
+            ctx.extra["guidance"] = 1.0
+            ctx.extra["sampler"] = "euler"
+            ctx.extra["sigmas"] = tail
         # img2img_denoise() early-returns the source unchanged when denoise<=0,
         # regardless of an explicit sigmas list -- denoise is otherwise fully
         # inert once sigmas is set (sigmas[0] fixes the noise blend), so a
         # non-positive value here would silently skip the whole refine pass.
         if ctx.extra.get("denoise", 0.0) <= 0.0:
             ctx.extra["denoise"] = 1.0
+        if tail is None:
+            return None
         return [round(float(v), 6) for v in tail.tolist()]
+
+    def attach_conditioning(self, ctx: GeneratorContext, cond: dict,
+                            uncond: Optional[dict]) -> Tuple[dict, Optional[dict]]:
+        strength = float(self.config.get("text_enhancer_strength", 0.0))
+        scale = float(self.config.get("text_scale", 1.0))
+        if strength == 0.0 and scale == 1.0:
+            return cond, uncond
+        cond = {**cond, "text_fusion": {"strength": strength, "scale": scale}}
+        if uncond:
+            uncond = {**uncond, "text_fusion": {"strength": strength, "scale": scale}}
+        return cond, uncond
 
     def emit_results(self, generation_outputs, results, used_seeds) -> None:
         super().emit_results(generation_outputs, results, used_seeds)
@@ -159,34 +165,6 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
         generation_outputs(ParamGenerationOutput(
             name="refine_tail_sigmas", values=[sigmas] * quantity,
         ))
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "txt2img",
-            "steps": 8,             # turbo distilled
-            "guidance": 1.0,        # true CFG, but scale 1.0 = single forward (turbo default)
-            "mu_schedule": "fixed", # ModelSpec's own fixed_mu=1.15 (turbo/distilled schedule)
-            "sampler": "euler",
-            "resolution": "1024x1024",
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "denoise": 0.55,
-            "img2img_scale": 0.0,
-            "preview": True,
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-            "refine_tail": "",
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -207,19 +185,19 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
                            "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
-            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
+            seed_config_spec(),
+            device_config_spec(),
+            preview_config_spec(),
+            *nag_config_specs("Normalized Attention Guidance scale (1.0 = off). Injects the negative "
                            "prompt into the joint attention so it's enforced even at guidance=1.0 (single-forward turbo "
                            "speed) — set nag_scale to ~1.1-1.5 for real negative-prompt influence without a second "
                            "forward pass. Redundant with (and unvalidated alongside) real CFG (guidance > 1.0), which "
-                           "already runs a full negative-conditioned pass -- leave at 1.0 on a CFG profile.",
-                           required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
-                           min_value=0.0, max_value=1.0),
+                           "already runs a full negative-conditioned pass -- leave at 1.0 on a CFG profile."),
+            PipeConfigSpec("text_enhancer_strength", float, 0.0, "Experimental text-fusion enhancer strength "
+                           "(0 = off): re-runs the text fusion with deep text-encoder layers amplified and blends the "
+                           "shift back in, capped per token.", required=False, min_value=0.0, max_value=2.0),
+            PipeConfigSpec("text_scale", float, 1.0, "Multiplier on the fused text signal before it enters the image "
+                           "blocks (1.0 = off).", required=False, min_value=0.25, max_value=4.0),
             PipeConfigSpec("refine_tail", str, "", "Whole-frame enhance (img2img only): walk only the tail of the "
                            "official fixed-mu 8-step Euler grid instead of a denoise-truncated schedule. '' = off, "
                            "'subtle'/'balanced'/'strong' = the last 2/3/4 grid steps.",

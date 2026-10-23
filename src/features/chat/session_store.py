@@ -17,6 +17,7 @@ from src.features.chat.exceptions import (
     SessionCreationFailedException,
 )
 from src.features.chat.hooks import CHAT_SESSION_HOOKS
+from src.features.chat.thinking import apply_thinking_visibility, config_shows_thinking, hide_thinking_stream
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +78,27 @@ class ChatSessionStore:
         self._m._verify_ownership(session, user_id)
 
         if before is None:
-            return self._m.chat_repository.get_message_tail(session_id, limit)
+            messages, has_earlier = self._m.chat_repository.get_message_tail(session_id, limit)
+            return self._visible_messages(session, messages), has_earlier
 
         page = self._m.chat_repository.get_messages_before(session_id, before, limit)
         if page is None:
             raise MessageNotFoundException(f"Message {before} not found in session {session_id}")
-        return page
+        messages, has_earlier = page
+        return self._visible_messages(session, messages), has_earlier
+
+    def _visible_messages(self, session: SessionResponse, messages: List[MessageResponse]) -> List[MessageResponse]:
+        return apply_thinking_visibility(messages, self._m.llm_service, session.llm_config_id)
+
+    def visible_turn_events(self, session: SessionResponse, events):
+        if config_shows_thinking(self._m.llm_service, session.llm_config_id):
+            return events
+        return hide_thinking_stream(events)
+
+    def visible_session(self, session: SessionResponse) -> SessionResponse:
+        if not session.messages:
+            return session
+        return session.model_copy(update={"messages": self._visible_messages(session, session.messages)})
 
     # --- CRUD ---
 
@@ -221,7 +237,7 @@ class ChatSessionStore:
         else:
             session = self.get_with_messages_or_raise(session_id)
         self._m._verify_ownership(session, user_id)
-        return session
+        return self.visible_session(session)
 
     def update_session(
         self,

@@ -33,9 +33,9 @@ from ..test_minimax_h3_model import (
     _build_ready,
     _fbcache_forward,
     _fbcache_inputs,
-    _fp32_ops,
     _tiny_layout,
 )
+from ..._native_ops import fp32_ops
 
 FRAMES = 12
 TOKENS_PER_FRAME = 2
@@ -54,7 +54,7 @@ def _branch_state_dict(blocks: int, config: dict = TINY_FULL) -> dict[str, torch
     """A full branch checkpoint for ``blocks`` blocks, keyed as the real one is."""
     proto = MiniMaxH3LinearBranch(
         config["hidden_size"], config["num_attention_heads"], config["attention_head_dim"],
-        _fp32_ops(),
+        fp32_ops(),
     )
     template = proto.state_dict()
     state: dict[str, torch.Tensor] = {}
@@ -295,6 +295,21 @@ def test_model_refuses_a_layout_alongside_chunking_or_sparse_attention():
     with pytest.raises(ValueError, match="mutually exclusive"):
         _fbcache_forward(hybrid, packed, inputs, ts, vdn_layout=vdn,
                          sparse_attn_ctx=SolAttnContext())
+
+
+def test_a_layout_runs_with_the_mlp_chunked_and_matches_the_whole_mlp():
+    hybrid, _ = _attached()
+    packed = _packed_layout()
+    torch.manual_seed(37)
+    inputs = _fbcache_inputs(TINY_FULL, packed)
+    ts = torch.tensor([0.2, 0.9])
+    vdn = _vdn_layout()
+
+    whole = _fbcache_forward(hybrid, packed, inputs, ts, vdn_layout=vdn, ffn_chunk_rows=0)
+    chunked = _fbcache_forward(hybrid, packed, inputs, ts, vdn_layout=vdn, ffn_chunk_rows=4)
+
+    for a, b in zip(whole, chunked):
+        assert torch.equal(a, b)
 
 
 def test_fbcache_identical_inputs_skip_still_replays_both_streams_with_a_layout():

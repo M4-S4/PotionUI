@@ -58,7 +58,7 @@ class TestChatContextBuilderNeverInsertsSystemMessages:
         manager.chat_mode_registry.get.return_value = ChatMode(
             id="custom", name="Custom", context_contributor=lambda cm, s, u: "CONTRIBUTOR BLOCK",
         )
-        manager.llm_memory_repository = None  # inject_memory_block no-ops without one
+        manager.tool_services.llm_memory_repository = None
         builder = ChatContextBuilder(manager)
 
         history = [{"role": "user", "content": "hello"}]

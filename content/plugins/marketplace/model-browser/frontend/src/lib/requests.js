@@ -223,7 +223,7 @@ function requestPath(id, action = '') {
 	return `/requests/${encodeURIComponent(String(id))}${action ? `/${action}` : ''}`;
 }
 
-export function cleanNote(note) {
+function cleanNote(note) {
 	return typeof note === 'string' ? note.trim() : '';
 }
 
@@ -266,14 +266,6 @@ export function requestKey(source, modelId, versionId, fileId) {
 	return [source, modelId, versionId, fileId].map(idText).join('\u0000');
 }
 
-export function pendingKeys(listing) {
-	const keys = new Set();
-	for (const request of listing?.requests ?? []) {
-		if (isOpen(request)) keys.add(requestKey(request.source, request.source_model_id, request.source_version_id, request.file_id));
-	}
-	return keys;
-}
-
 export async function fetchPendingKeys(api) {
 	const result = await callPlugin(api, 'get', '/requests/pending');
 	if (!result.ok) return null;
@@ -292,7 +284,7 @@ export function withPending(keys, request) {
 	return next;
 }
 
-export function noteProblem(note) {
+function noteProblem(note) {
 	return cleanNote(note).length > MAX_NOTE_LENGTH ? `At most ${MAX_NOTE_LENGTH} characters` : '';
 }
 

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Query, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import soft_guarded
+from src.platform.http.errors import NotFoundError
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.repository import DatabasePresetRepository
@@ -45,21 +47,17 @@ class TagController(BaseController):
 
     # ========== List/Search Methods ==========
 
+    @soft_guarded("list_tags_failed", "Failed to list tags", admin="user")
     async def list_tags(self, tag_type: TagType, user: User) -> APIResponse:
         """List all tags of specified type with usage counts. Pure DB read."""
-        try:
-            effective_user_id = effective_user_id_for_type(tag_type, user.id)
-            tags = self.repository.get_tags_with_counts(type=tag_type.value, user_id=effective_user_id)
-            return self.success_response(data={
-                "tags": [tag.model_dump() for tag in tags],
-                "total": len(tags)
-            })
-        except ValueError as e:
-            return self.error_api_response(error="list_tags_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error listing tags: {e}")
-            return self.error_api_response(error="list_tags_failed", message=str(e))
+        effective_user_id = effective_user_id_for_type(tag_type, user.id)
+        tags = self.repository.get_tags_with_counts(type=tag_type.value, user_id=effective_user_id)
+        return self.success_response(data={
+            "tags": [tag.model_dump() for tag in tags],
+            "total": len(tags)
+        })
 
+    @soft_guarded("search_tags_failed", "Failed to search tags", admin="user")
     async def search_tags(
         self,
         query: str,
@@ -68,17 +66,11 @@ class TagController(BaseController):
         user: User
     ) -> APIResponse:
         """Search tags by name. Pure DB read."""
-        try:
-            effective_user_id = effective_user_id_for_type(tag_type, user.id)
-            tags = self.repository.search_tags(query=query, type=tag_type.value, user_id=effective_user_id, limit=limit)
-            return self.success_response(data={
-                "tags": [tag.model_dump() for tag in tags]
-            })
-        except ValueError as e:
-            return self.error_api_response(error="search_tags_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error searching tags: {e}")
-            return self.error_api_response(error="search_tags_failed", message=str(e))
+        effective_user_id = effective_user_id_for_type(tag_type, user.id)
+        tags = self.repository.search_tags(query=query, type=tag_type.value, user_id=effective_user_id, limit=limit)
+        return self.success_response(data={
+            "tags": [tag.model_dump() for tag in tags]
+        })
 
     def _get_owned_tag(self, tag_id: str, user_id: str):
         """Look up a tag by id and enforce ownership for user-scoped types.
@@ -86,29 +78,25 @@ class TagController(BaseController):
         `delete_tag` also make before mutating)."""
         tag = self.repository.get_tag_by_id(tag_id)
         if not tag:
-            raise ValueError("Tag not found")
+            raise NotFoundError("tag_not_found", "Tag not found")
         if tag.type in USER_SCOPED_TAG_TYPES and tag.user_id != user_id:
-            raise ValueError("Tag not found or access denied")
+            raise NotFoundError("tag_not_found", "Tag not found or access denied")
         return tag
 
     # ========== CRUD Methods ==========
 
+    @soft_guarded("create_tag_failed", "Failed to create tag", admin="user")
     async def create_tag(self, request: CreateTagRequest, user: User) -> APIResponse:
         """Create a new tag."""
-        try:
-            tag = operations.create_tag(
-                self.repository, self.plugins, request, user.id, is_admin=user.account_type == AccountType.ADMIN
-            )
-            return self.success_response(data={
-                "message": f"Tag '{tag.name}' created successfully",
-                "tag": tag.model_dump()
-            })
-        except ValueError as e:
-            return self.error_api_response(error="create_tag_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error creating tag: {e}")
-            return self.error_api_response(error="create_tag_failed", message=str(e))
+        tag = operations.create_tag(
+            self.repository, self.plugins, request, user.id, is_admin=user.account_type == AccountType.ADMIN
+        )
+        return self.success_response(data={
+            "message": f"Tag '{tag.name}' created successfully",
+            "tag": tag.model_dump()
+        })
 
+    @soft_guarded("update_tag_failed", "Failed to update tag", admin="user")
     async def update_tag(
         self,
         tag_id: str,
@@ -116,64 +104,41 @@ class TagController(BaseController):
         user: User
     ) -> APIResponse:
         """Update a tag's name."""
-        try:
-            tag = operations.update_tag(
-                self.repository, self.plugins, tag_id, request, user.id, is_admin=user.account_type == AccountType.ADMIN
-            )
-            return self.success_response(data={
-                "message": "Tag updated successfully",
-                "tag": tag.model_dump()
-            })
-        except ValueError as e:
-            return self.error_api_response(error="update_tag_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error updating tag: {e}")
-            return self.error_api_response(error="update_tag_failed", message=str(e))
+        tag = operations.update_tag(
+            self.repository, self.plugins, tag_id, request, user.id, is_admin=user.account_type == AccountType.ADMIN
+        )
+        return self.success_response(data={
+            "message": "Tag updated successfully",
+            "tag": tag.model_dump()
+        })
 
+    @soft_guarded("delete_tag_failed", "Failed to delete tag", admin="user")
     async def delete_tag(self, tag_id: str, user: User) -> APIResponse:
         """Delete a tag (cascade removes all associations)."""
+        tag = self._get_owned_tag(tag_id, user.id)
+        tag_name = tag.name
         try:
-            # Get tag name before deletion for the message
-            tag = self._get_owned_tag(tag_id, user.id)
-            tag_name = tag.name
-
             operations.delete_tag(
                 self.repository, self.plugins, self.preset_repository, self.file_preset_repository,
                 tag_id, user.id, is_admin=user.account_type == AccountType.ADMIN
             )
-            return self.success_response(data={
-                "message": f"Tag '{tag_name}' deleted successfully"
-            })
         except TagInUseByPresetError as e:
-            # Fixed contract with the frontend - see docs/presets.md
-            # "Configuration (admin-set)": no force flag, the admin must unset the
-            # tag from the preset's configuration first.
             raise HTTPException(
                 status_code=409,
                 detail={"error": "tag_in_use_by_preset", "used_by": e.used_by},
             )
-        except ValueError as e:
-            return self.error_api_response(error="delete_tag_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error deleting tag: {e}")
-            return self.error_api_response(error="delete_tag_failed", message=str(e))
+        return self.success_response(data={
+            "message": f"Tag '{tag_name}' deleted successfully"
+        })
 
+    @soft_guarded("bulk_model_tags_failed", "Failed to update model tags")
     async def bulk_update_model_tags(self, request: BulkModelTagsRequest) -> APIResponse:
-        try:
-            result = operations.bulk_update_model_tags(self.repository, request.model_ids, request.add, request.remove)
-            return self.success_response(data=result)
-        except ValueError as e:
-            return self.error_api_response(error="bulk_model_tags_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error bulk updating model tags: {e}")
-            return self.error_api_response(error="bulk_model_tags_failed", message=str(e))
+        result = operations.bulk_update_model_tags(self.repository, request.model_ids, request.add, request.remove)
+        return self.success_response(data=result)
 
+    @soft_guarded("model_selection_tags_failed", "Failed to read model selection tags")
     async def model_selection_tags(self, request: ModelSelectionTagsRequest) -> APIResponse:
-        try:
-            return self.success_response(data=operations.model_selection_tags(self.repository, request.model_ids))
-        except Exception as e:
-            self.logger.error(f"Error reading selection tags: {e}")
-            return self.error_api_response(error="model_selection_tags_failed", message=str(e))
+        return self.success_response(data=operations.model_selection_tags(self.repository, request.model_ids))
 
 
 def build_router(container: "AppContainer") -> APIRouter:

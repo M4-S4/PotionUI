@@ -234,7 +234,7 @@ class RecipesRootSpec(BaseModel):
     path: str
 
 
-class ModelLayoutsRootSpec(BaseModel):
+class PluginRelativePathSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str
@@ -250,20 +250,12 @@ class ModelLayoutsRootSpec(BaseModel):
         return value
 
 
-class FiltersRootSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class ModelLayoutsRootSpec(PluginRelativePathSpec):
+    pass
 
-    path: str
 
-    @field_validator("path")
-    @classmethod
-    def _contained_relative_path(cls, value: str) -> str:
-        normalized = value.replace("\\", "/")
-        if not normalized or normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
-            raise ValueError("must be a relative path inside the plugin directory")
-        if ".." in normalized.split("/"):
-            raise ValueError("must not contain '..' segments")
-        return value
+class FiltersRootSpec(PluginRelativePathSpec):
+    pass
 
 
 class FilterOpParamSpec(BaseModel):

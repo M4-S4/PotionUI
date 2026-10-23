@@ -5,6 +5,7 @@ import pytest
 
 from src.features.llm.tools.base import ToolContext
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
+from tests.fixtures.fake_tab_drafts import drafts_context
 
 
 # ---------------------------------------------------------------------------
@@ -12,7 +13,7 @@ from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVar
 # ---------------------------------------------------------------------------
 
 def make_context(session_metadata: dict = None) -> ToolContext:
-    return ToolContext(user_id="user-1", session_metadata=session_metadata or {})
+    return drafts_context(session_metadata)
 
 
 def make_form_state(variables: list = None) -> dict:
@@ -28,6 +29,10 @@ def choice_var(name: str, options: list, mode: str = "shuffle", pinned_index=Non
     if pinned_index is not None:
         var["pinnedIndex"] = pinned_index
     return var
+
+
+def stored(ctx: ToolContext) -> dict:
+    return ctx.tab_drafts.variables(ctx.user_id, "tab-1")
 
 
 def set_op(name: str, **kwargs) -> dict:
@@ -49,10 +54,8 @@ class TestSchema:
     def test_requires_approval(self):
         assert ManagePromptVariablesTool().requires_approval is True
 
-    def test_hint_and_description_nonempty(self):
-        tool = ManagePromptVariablesTool()
-        assert len(tool.hint) > 0
-        assert len(tool.description) > 0
+    def test_description_nonempty(self):
+        assert len(ManagePromptVariablesTool().description) > 0
 
     def test_to_schema_structure(self):
         schema = ManagePromptVariablesTool().to_schema()
@@ -80,7 +83,7 @@ class TestExecuteErrors:
             ctx, operations=[set_op("mood", type="text", value="noir")]
         )
         assert result.success is False
-        assert "form state" in result.error.lower() or "no form" in result.error.lower()
+        assert result.error.startswith("No Generate tab is open")
 
     @pytest.mark.asyncio
     async def test_rejects_invalid_variable_name(self):
@@ -276,14 +279,23 @@ class TestExecuteSuccess:
 
 class TestExecuteConfirmed:
     @pytest.mark.asyncio
-    async def test_returns_apply_variable_changes_action(self):
+    async def test_applies_the_operations_to_the_draft_and_reports_the_revision(self):
         ctx = make_context(session_metadata={"form_state": make_form_state()})
         result = await ManagePromptVariablesTool().execute_confirmed(
             ctx, operations=[set_op("mood", type="text", value="noir")]
         )
         assert result.success is True
         payload = json.loads(result.data)
-        assert payload["action"] == "apply_variable_changes"
+        assert payload["status"] == "applied"
+        assert (payload["tab_id"], payload["rev"], payload["applied_count"]) == ("tab-1", 1, 1)
+        [row] = payload["applied_changes"]
+        assert row["field_name"] == "${mood}"
+        assert row["old_value"] == "not set"
+        assert "noir" in row["new_value"]
+        assert payload["summary"].startswith("Applied 1 variable change.")
+        assert "${mood}" in payload["summary"]
+        assert "action" not in payload
+        assert stored(ctx) == {"mood": {"type": "text", "value": "noir"}}
 
     @pytest.mark.asyncio
     async def test_set_text_operation_shape(self):
@@ -291,9 +303,8 @@ class TestExecuteConfirmed:
         result = await ManagePromptVariablesTool().execute_confirmed(
             ctx, operations=[set_op("mood", type="text", value="noir")]
         )
-        payload = json.loads(result.data)
-        op = payload["operations"][0]
-        assert op == {"op": "set", "name": "mood", "type": "text", "value": "noir"}
+        assert result.success is True
+        assert stored(ctx) == {"mood": {"type": "text", "value": "noir"}}
 
     @pytest.mark.asyncio
     async def test_set_choice_operation_shape(self):
@@ -304,15 +315,9 @@ class TestExecuteConfirmed:
                 set_op("time", type="choice", options=["dawn", "dusk"], mode="pin", pinned_index=1)
             ],
         )
-        payload = json.loads(result.data)
-        op = payload["operations"][0]
-        assert op == {
-            "op": "set",
-            "name": "time",
-            "type": "choice",
-            "options": ["dawn", "dusk"],
-            "mode": "pin",
-            "pinned_index": 1,
+        assert result.success is True
+        assert stored(ctx) == {
+            "time": {"type": "choice", "options": ["dawn", "dusk"], "mode": "pin", "pinnedIndex": 1}
         }
 
     @pytest.mark.asyncio
@@ -322,8 +327,8 @@ class TestExecuteConfirmed:
         result = await ManagePromptVariablesTool().execute_confirmed(
             ctx, operations=[remove_op("mood")]
         )
-        payload = json.loads(result.data)
-        assert payload["operations"][0] == {"op": "remove", "name": "mood"}
+        assert result.success is True
+        assert stored(ctx) == {}
 
     @pytest.mark.asyncio
     async def test_reruns_validation_rejects_unknown_removal_even_if_replayed(self):
@@ -334,14 +339,13 @@ class TestExecuteConfirmed:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_works_without_form_state(self):
-        ctx = make_context()
+    async def test_works_over_mcp_given_a_tab_id(self):
+        ctx = drafts_context({}, chat_session=False)
         result = await ManagePromptVariablesTool().execute_confirmed(
-            ctx, operations=[set_op("mood", type="text", value="noir")]
+            ctx, tab_id="tab-1", operations=[set_op("mood", type="text", value="noir")]
         )
         assert result.success is True
-        payload = json.loads(result.data)
-        assert payload["operations"][0]["name"] == "mood"
+        assert stored(ctx) == {"mood": {"type": "text", "value": "noir"}}
 
     @pytest.mark.asyncio
     async def test_confirm_accepts_more_than_24_variables(self):
@@ -376,9 +380,7 @@ class TestConditionalOptions:
             ],
         )
         assert result.success is True
-        payload = json.loads(result.data)
-        op = payload["operations"][0]
-        assert op["options"] == [
+        assert stored(ctx)["dance"]["options"] == [
             {"text": "breaking", "when": {"var": "music", "values": ["hip hop"]}},
             "salsa",
         ]
@@ -401,9 +403,8 @@ class TestConditionalOptions:
             ],
         )
         assert result.success is True
-        payload = json.loads(result.data)
-        assert len(payload["operations"]) == 2
-        assert payload["operations"][1]["options"][0]["when"] == {
+        assert set(stored(ctx)) == {"music", "dance"}
+        assert stored(ctx)["dance"]["options"][0]["when"] == {
             "var": "music",
             "values": ["hip hop"],
         }

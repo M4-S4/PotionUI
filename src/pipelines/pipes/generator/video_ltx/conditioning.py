@@ -43,6 +43,7 @@ from typing import Callable, List, Optional
 import torch
 
 from vendor.gpl.comfyui.ltx.patchifier import SymmetricPatchifier, latent_to_pixel_coords
+from src.pipelines.pipes._shared.video.frames import resize_cover_center_crop
 
 Tensor = torch.Tensor
 
@@ -131,19 +132,6 @@ class PreparedConditioning:
     base_tokens: int
 
 
-def _resize_cover_center_crop(frames: Tensor, height: int, width: int) -> Tensor:
-    """``(n, H0, W0, 3)`` [0,1] -> ``(1, 3, n, H, W)`` in [-1, 1] (cover + center crop)."""
-    chw = frames.permute(0, 3, 1, 2)  # (n, 3, H0, W0)
-    _, _, h0, w0 = chw.shape
-    scale = max(width / w0, height / h0)
-    chw = torch.nn.functional.interpolate(
-        chw, size=(round(h0 * scale), round(w0 * scale)), mode="bilinear", align_corners=False)
-    _, _, h1, w1 = chw.shape
-    top, left = (h1 - height) // 2, (w1 - width) // 2
-    chw = chw[:, :, top:top + height, left:left + width]
-    return (chw * 2.0 - 1.0).permute(1, 0, 2, 3).unsqueeze(0)  # (1, 3, n, H, W)
-
-
 def _trim_condition_frames(start_px: int, n_frames: int, target_frames: int) -> int:
     """diffusers ``trim_conditioning_sequence``: clip to the target range, then
     down to ``1 + 8*k`` frames."""
@@ -151,7 +139,7 @@ def _trim_condition_frames(start_px: int, n_frames: int, target_frames: int) -> 
     return (n - 1) // LTX_TEMPORAL * LTX_TEMPORAL + 1
 
 
-def _pack(latent: Tensor) -> Tensor:
+def pack_tokens(latent: Tensor) -> Tensor:
     """``(1, C, f, h, w)`` -> ``(1, f*h*w, C)`` (patch size 1, SymmetricPatchifier order)."""
     b, c, f, h, w = latent.shape
     return latent.permute(0, 2, 3, 4, 1).reshape(b, f * h * w, c)
@@ -222,7 +210,7 @@ def prepare_ltx_conditions(
             lat = cond.latent.to(device=device, dtype=dtype)
             _, _, f, h, w = lat.shape
             n = 1 if f == 1 else (f - 1) * LTX_TEMPORAL + 1
-            packed_pre = _pack(lat)
+            packed_pre = pack_tokens(lat)
             pixel_frame_idx = cond.pixel_frame_index
             if pixel_frame_idx is None:
                 # No pixel index: the only remaining addressing a pre-encoded
@@ -264,10 +252,10 @@ def prepare_ltx_conditions(
             n = min(n_in, frames)
             n = (n - 1) // LTX_TEMPORAL * LTX_TEMPORAL + 1
             clip = _temporal_subsample(cond.frames[:n], int(cond.temporal_scale_factor))
-            pixels = _resize_cover_center_crop(clip, height // scale, width // scale).to(device=device, dtype=dtype)
+            pixels = resize_cover_center_crop(clip, height // scale, width // scale).to(device=device, dtype=dtype)
             lat = vae_encode(pixels)
             _, _, f, h, w = lat.shape
-            packed = _pack(lat).to(device=device, dtype=dtype)
+            packed = pack_tokens(lat).to(device=device, dtype=dtype)
             coords = reference_coords(
                 f, h, w, device, causal_fix=causal_fix, downscale_factor=scale,
                 temporal_scale_factor=int(cond.temporal_scale_factor))
@@ -298,10 +286,10 @@ def prepare_ltx_conditions(
         if n < 1:
             raise ValueError(
                 f"LTX media condition at pixel frame {start_px} has no frames left after trimming")
-        pixels = _resize_cover_center_crop(cond.frames[:n], height, width).to(device=device, dtype=dtype)
+        pixels = resize_cover_center_crop(cond.frames[:n], height, width).to(device=device, dtype=dtype)
         lat = vae_encode(pixels)
         _, _, f, h, w = lat.shape
-        packed = _pack(lat).to(device=device, dtype=dtype)
+        packed = pack_tokens(lat).to(device=device, dtype=dtype)
 
         if latent_idx == 0:
             n_tok = packed.shape[1]

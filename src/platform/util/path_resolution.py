@@ -5,8 +5,22 @@
 `video_director` and `music_director`) built on top of it.
 """
 
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+_path = os.path
+
+PathLike = Union[str, "os.PathLike[str]"]
+
+
+def is_within(base: PathLike, target: PathLike) -> bool:
+    anchor = _path.normcase(_path.normpath(os.fspath(base)))
+    other = _path.normcase(_path.normpath(os.fspath(target)))
+    try:
+        return _path.commonpath([anchor, other]) == anchor
+    except ValueError:
+        return False
 
 
 def resolve_within(root: Path, raw: str, *, must_exist: bool = False) -> Optional[Path]:

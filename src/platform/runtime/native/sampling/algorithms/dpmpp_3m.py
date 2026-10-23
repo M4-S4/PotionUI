@@ -31,8 +31,7 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from ..hooks import StepLoop
 
 Tensor = torch.Tensor
 
@@ -60,24 +59,16 @@ def sample_dpmpp_3m(
     :func:`~.unipc.sample_unipc`'s docstring for why a multi-expert
     ``model_fn`` needs this.
     """
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
-    discontinuity_steps = frozenset((sampler_options or {}).get("discontinuity_steps") or ())
+    with StepLoop(sigmas, hooks, is_cancelled) as loop:
+        discontinuity_steps = frozenset((sampler_options or {}).get("discontinuity_steps") or ())
 
-    s_in = x.new_ones((x.shape[0],))
-    x0_1 = x0_2 = None       # previous / second-previous x0 estimates
-    h_1 = h_2 = None         # previous / second-previous step sizes (in log-sigma)
-    try:
-        for i in range(total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
+        s_in = x.new_ones((x.shape[0],))
+        x0_1 = x0_2 = None
+        h_1 = h_2 = None
+        for i, _, sigma, sigma_next in loop:
             if i in discontinuity_steps:
                 x0_1 = x0_2 = None
                 h_1 = h_2 = None
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
 
             v = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
             x0 = x - sigma * v
@@ -105,9 +96,6 @@ def sample_dpmpp_3m(
 
             x0_2, x0_1 = x0_1, x0
             h_2, h_1 = h_1, h
-            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
-    finally:
-        run_hooks(hooks, "on_end")
+            x = loop.finish_step(x, i, sigma, sigma_next, x0)
 
     return x

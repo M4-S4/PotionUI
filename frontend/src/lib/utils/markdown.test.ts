@@ -245,6 +245,56 @@ describe('parseToolActions / processMarkdownWithActions', () => {
 		]);
 	});
 
+	it('parses add_segment with an anchor, a list and no anchor at all', () => {
+		const text =
+			'<tool_action type="add_segment" segment_index="0" segment_id="seg-1">soft rim light</tool_action>' +
+			'<tool_action type="add_segment" list="negative">blurry</tool_action>';
+		const { cleanedText, actions } = parseToolActions(text);
+		expect(cleanedText).toBe('');
+		expect(actions).toEqual([
+			{ type: 'add_segment', segmentIndex: 0, segmentId: 'seg-1', content: 'soft rim light' },
+			{ type: 'add_segment', segmentIndex: -1, segmentId: '', list: 'negative', content: 'blurry' }
+		]);
+	});
+
+	it('parses delete_segment with an empty body and either address', () => {
+		const text =
+			'<tool_action type="delete_segment" segment_index="2" segment_id="seg-3"></tool_action>' +
+			'<tool_action type="delete_segment" segment_id="seg-9"/></tool_action>';
+		const { actions } = parseToolActions(text);
+		expect(actions).toEqual([
+			{ type: 'delete_segment', segmentIndex: 2, segmentId: 'seg-3', content: '' },
+			{ type: 'delete_segment', segmentIndex: -1, segmentId: 'seg-9', content: '' }
+		]);
+	});
+
+	it('leaves a delete_segment tag with no address as plain text', () => {
+		const text = '<tool_action type="delete_segment"></tool_action>';
+		expect(parseToolActions(text).actions).toEqual([]);
+	});
+
+	it('accepts single-quoted and reordered attributes', () => {
+		const { actions } = parseToolActions(
+			"<tool_action segment_id='x' type='add_segment' segment_index='3' list='NEGATIVE'>text</tool_action>"
+		);
+		expect(actions).toEqual([
+			{ type: 'add_segment', segmentIndex: 3, segmentId: 'x', list: 'negative', content: 'text' }
+		]);
+	});
+
+	it('unwraps a code fence that only held tool_action tags', () => {
+		const text =
+			'Here:\n```xml\n<tool_action type="add_segment" segment_id="a" segment_index="0">fresh</tool_action>\n```\nDone';
+		const { cleanedText, actions } = parseToolActions(text);
+		expect(actions).toHaveLength(1);
+		expect(cleanedText).not.toContain('```');
+	});
+
+	it('still requires both index and id on update_segment', () => {
+		const text = '<tool_action type="update_segment" segment_id="a">x</tool_action>';
+		expect(parseToolActions(text).actions).toEqual([]);
+	});
+
 	it('combines tool action parsing with markdown rendering', () => {
 		const text = '**bold** <tool_action type="x" segment_index="1" segment_id="y">hidden</tool_action>';
 		const { html, actions } = processMarkdownWithActions(text);
@@ -432,7 +482,9 @@ describe('decorateVariableChips', () => {
 		const out = decorateVariableChips('use ${mood} please', tips);
 		expect(out).toContain('border-accent/30');
 		expect(out).toContain('bg-accent/10');
-		expect(out).toContain('title="one of noir, sunlit — shuffles each generation"');
+		expect(out).toContain('data-tooltip="one of noir, sunlit — shuffles each generation"');
+		expect(out).toContain('tabindex="0"');
+		expect(out).not.toContain('title=');
 		expect(out).toContain('>mood<');
 		expect(out).not.toContain('${mood}');
 	});

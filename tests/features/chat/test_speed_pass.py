@@ -16,14 +16,8 @@ import pytest
 
 from src.features.chat.context_builder import ChatContextBuilder
 from src.features.chat.conversation import ConversationRunner, _DEFAULT_HISTORY_TOKEN_BUDGET
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.llm import context_budget
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def _session(mode="generation", metadata=None):
@@ -40,7 +34,7 @@ def _session(mode="generation", metadata=None):
 class TestResolveSessionPromptAndToolsCache:
     def _make_builder(self):
         manager = Mock()
-        manager.chat_mode_registry = _mode_registry()
+        manager.chat_mode_registry = mode_registry()
         registry = Mock()
         registry.get_for_mode.return_value = []
         registry.get_tool_hints_text.return_value = ""
@@ -58,10 +52,10 @@ class TestResolveSessionPromptAndToolsCache:
         with patch.object(
             builder._prompt_tools_cache, "set", wraps=builder._prompt_tools_cache.set,
         ) as set_spy:
-            prompt1, tools1, mode1 = builder.resolve_session_prompt_and_tools(session)
+            prompt1, tools1, mode1, _ = builder.resolve_session_prompt_and_tools(session)
             assert set_spy.call_count == 1
 
-            prompt2, tools2, mode2 = builder.resolve_session_prompt_and_tools(session)
+            prompt2, tools2, mode2, _ = builder.resolve_session_prompt_and_tools(session)
             # Not recomputed: the cache hit never calls .set() again.
             assert set_spy.call_count == 1
 
@@ -86,8 +80,8 @@ class TestResolveSessionPromptAndToolsCache:
         with patch.object(
             builder._prompt_tools_cache, "set", wraps=builder._prompt_tools_cache.set,
         ) as set_spy:
-            prompt1, _, _ = builder.resolve_session_prompt_and_tools(session)
-            prompt2, _, _ = builder.resolve_session_prompt_and_tools(session)
+            prompt1, _, _, _ = builder.resolve_session_prompt_and_tools(session)
+            prompt2, _, _, _ = builder.resolve_session_prompt_and_tools(session)
             assert set_spy.call_count == 1
 
         assert prompt1 == "Be terse." == prompt2
@@ -123,7 +117,7 @@ class TestResolvedPromptIsSessionAccurate:
         tool_registry.register(GetActiveModelsTool())
 
         manager = Mock()
-        manager.chat_mode_registry = _mode_registry()
+        manager.chat_mode_registry = mode_registry()
         tool_executor = Mock()
         tool_executor.tool_registry = tool_registry
         manager.tool_executor = tool_executor
@@ -131,7 +125,7 @@ class TestResolvedPromptIsSessionAccurate:
 
     def test_full_set_names_every_tool(self):
         builder = self._make_builder()
-        prompt, allowed, _ = builder.resolve_session_prompt_and_tools(_session())
+        prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(_session())
         assert set(allowed) == {"get_form_state", "get_active_models"}
         assert "get_form_state" in prompt
         assert "get_active_models" in prompt
@@ -139,15 +133,15 @@ class TestResolvedPromptIsSessionAccurate:
     def test_disabling_a_tool_drops_it_from_the_prompt(self):
         builder = self._make_builder()
         session = _session(metadata={"disabled_tools": ["get_form_state"]})
-        prompt, allowed, _ = builder.resolve_session_prompt_and_tools(session)
+        prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(session)
         assert allowed == ["get_active_models"]
         assert "get_form_state" not in prompt
         assert "get_active_models" in prompt
 
     def test_two_sessions_do_not_share_a_prompt(self):
         builder = self._make_builder()
-        full, _, _ = builder.resolve_session_prompt_and_tools(_session())
-        reduced, _, _ = builder.resolve_session_prompt_and_tools(
+        full, _, _, _ = builder.resolve_session_prompt_and_tools(_session())
+        reduced, _, _, _ = builder.resolve_session_prompt_and_tools(
             _session(metadata={"disabled_tools": ["get_form_state"]})
         )
         assert full != reduced
@@ -169,7 +163,7 @@ class TestFormStateAwareToolAvailability:
         tool_registry.register(GetVideoDirectorTool())
 
         manager = Mock()
-        manager.chat_mode_registry = _mode_registry()
+        manager.chat_mode_registry = mode_registry()
         tool_executor = Mock()
         tool_executor.tool_registry = tool_registry
         manager.tool_executor = tool_executor
@@ -180,36 +174,36 @@ class TestFormStateAwareToolAvailability:
 
     def test_director_tools_excluded_when_form_state_absent(self):
         builder = self._make_builder()
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(_session())
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(_session())
         assert allowed == []
 
     def test_director_tools_excluded_when_inactive(self):
         builder = self._make_builder()
         form_state = {"video_director": {"active": False}}
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=form_state,
         )
         assert allowed == []
 
     def test_director_tools_included_when_active(self):
         builder = self._make_builder()
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=self._active_form_state(),
         )
         assert set(allowed) == {"get_video_director"}
 
-    def test_unavailable_tools_drop_from_hints_and_schemas(self):
+    def test_unavailable_tools_drop_from_prompt_and_schemas(self):
         builder = self._make_builder()
         registry = builder._m.tool_executor.tool_registry
 
-        _prompt, allowed_inactive, _ = builder.resolve_session_prompt_and_tools(_session())
-        assert "get_video_director" not in registry.get_tool_hints_text(allowed_inactive)
+        prompt_inactive, allowed_inactive, _, _ = builder.resolve_session_prompt_and_tools(_session())
+        assert "get_video_director" not in prompt_inactive
         assert registry.get_schemas(allowed_inactive) == []
 
-        _prompt, allowed_active, _ = builder.resolve_session_prompt_and_tools(
+        prompt_active, allowed_active, _, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=self._active_form_state(),
         )
-        assert "get_video_director" in registry.get_tool_hints_text(allowed_active)
+        assert "get_video_director" in prompt_active
         schema_names = {s["function"]["name"] for s in registry.get_schemas(allowed_active)}
         assert schema_names == {"get_video_director"}
 
@@ -217,10 +211,10 @@ class TestFormStateAwareToolAvailability:
         builder = self._make_builder()
         session = _session()
 
-        active_prompt, active_allowed, _ = builder.resolve_session_prompt_and_tools(
+        active_prompt, active_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=self._active_form_state(),
         )
-        inactive_prompt, inactive_allowed, _ = builder.resolve_session_prompt_and_tools(
+        inactive_prompt, inactive_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=None,
         )
 
@@ -235,10 +229,10 @@ class TestFormStateAwareToolAvailability:
         builder = self._make_builder()
         session = _session()
 
-        inactive_prompt, inactive_allowed, _ = builder.resolve_session_prompt_and_tools(
+        inactive_prompt, inactive_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=None,
         )
-        active_prompt, active_allowed, _ = builder.resolve_session_prompt_and_tools(
+        active_prompt, active_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=self._active_form_state(),
         )
 
@@ -260,7 +254,7 @@ class TestApplyHistoryBudget:
 
     def _runner(self, get_setting_return=None, get_setting_side_effect=None):
         manager = Mock()
-        manager.settings.get_setting = Mock(
+        manager.tool_services.settings.get_setting = Mock(
             return_value=get_setting_return, side_effect=get_setting_side_effect
         )
         return ConversationRunner(manager)
@@ -476,21 +470,7 @@ class TestResolveBudgetInputs:
         result = runner._resolve_budget_inputs(self._session(), mode=None)
 
         assert result is expected
-        manager.llm_service.context_profile_for.assert_called_once_with(config, None, None)
-
-    def test_tool_schemas_is_passed_through_to_the_gateways_shared_builder(self):
-        manager = Mock()
-        config = Mock(type="ollama", provider_options={"num_ctx": 4096}, max_tokens=2000)
-        manager.llm_service.repository.get_configuration.return_value = config
-        manager.llm_service.context_profile_for.return_value = context_budget.ContextProfile(
-            capacity=context_budget.CapacityInfo(4096, "config"), reserve_tokens=2000,
-        )
-        runner = ConversationRunner(manager)
-        tool_schemas = [{"type": "function", "function": {"name": "noop"}}]
-
-        runner._resolve_budget_inputs(self._session(), mode=None, tool_schemas=tool_schemas)
-
-        manager.llm_service.context_profile_for.assert_called_once_with(config, None, tool_schemas)
+        manager.llm_service.context_profile_for.assert_called_once_with(config, None)
 
     def test_mode_llm_options_is_passed_through_as_options_override(self):
         from types import SimpleNamespace
@@ -508,7 +488,7 @@ class TestResolveBudgetInputs:
         result = runner._resolve_budget_inputs(self._session(), mode=mode)
 
         assert result.reserve_tokens == 512
-        manager.llm_service.context_profile_for.assert_called_once_with(config, {"max_tokens": 512}, None)
+        manager.llm_service.context_profile_for.assert_called_once_with(config, {"max_tokens": 512})
 
     def test_config_lookup_failure_degrades_to_none_never_raises(self):
         manager = Mock()
@@ -603,11 +583,11 @@ class TestResolveMessageResourcesParallel:
 
         registry.resolve = AsyncMock(side_effect=resolve)
         manager.resource_registry = registry
-        manager.model_index_manager = None
-        manager.phrasebook_category_repository = None
-        manager.phrasebook_value_repository = None
+        manager.tool_services.model_index_manager = None
+        manager.tool_services.phrasebook_category_repository = None
+        manager.tool_services.phrasebook_value_repository = None
         manager.phrasebook_search = None
-        manager.preset_collaborators = None
+        manager.tool_services.preset_collaborators = None
         manager.generation_repository = None
         manager.generation_parameter_repository = None
         manager.generation_model_repository = None

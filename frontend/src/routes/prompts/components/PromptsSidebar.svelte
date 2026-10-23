@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { promptsCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
+	import CollectionActionsMenu from '$lib/components/collections/CollectionActionsMenu.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
 
 	export let activeId: string | undefined;
@@ -11,9 +12,10 @@
 	export let onSelectFavorites: () => void | Promise<void>;
 	export let onSelectUnsorted: () => void | Promise<void>;
 	export let onSelectFolder: (id: string) => void | Promise<void>;
-	export let onDirectOnlyChange: (directOnly: boolean) => void;
+	export let part: 'sidebar' | 'actions' = 'sidebar';
 
 	$: collections = $collectionsStore.collections;
+	$: activeCollection = collections.find((c) => c.id === activeId);
 	$: smartCounts = $collectionsStore.smartCounts;
 	$: void collectionsStore.setDirectOnly(directOnly);
 
@@ -60,17 +62,26 @@
 	};
 </script>
 
-<CollectionLibrarySidebar
-	storageKey="prompts-expanded-collections"
-	label="Collections"
-	embedded
-	{collections}
-	{activeId}
-	{allView}
-	{favoritesView}
-	{unsortedView}
-	{directOnly}
-	{onDirectOnlyChange}
-	{treeActions}
-	onCreateRoot={(name) => collectionsStore.create(name, null)}
-/>
+{#if part === 'actions'}
+	{#if activeCollection}
+		<CollectionActionsMenu
+			variant="toolbar"
+			item={activeCollection}
+			{collections}
+			{treeActions}
+		/>
+	{/if}
+{:else}
+	<CollectionLibrarySidebar
+		storageKey="prompts-expanded-collections"
+		label="Prompts"
+		embedded
+		{collections}
+		{activeId}
+		{allView}
+		{favoritesView}
+		{unsortedView}
+		{treeActions}
+		onCreateRoot={(name) => collectionsStore.create(name, null)}
+	/>
+{/if}

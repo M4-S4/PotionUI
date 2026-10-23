@@ -1,8 +1,9 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { onMount } from 'svelte';
 	import DrawerShell from '$lib/components/drawer/DrawerShell.svelte';
 	import DrawerHeader from '$lib/components/drawer/DrawerHeader.svelte';
-	import StudioSheet from '../../../routes/generate/components/studio/StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import { Button, Switch } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import AxisCard from './AxisCard.svelte';
@@ -170,16 +171,17 @@
 						<Button variant="ghost" size="sm" onclick={() => turnOffCompare(tabId)}>Turn off</Button>
 					</div>
 				</div>
-				<Button
-					variant="primary"
-					size="lg"
-					class="w-full"
-					disabled={generateBlockedReason !== null || isGenerating}
-					title={generateBlockedReason ?? undefined}
-					onclick={onGenerate}
-				>
-					{generateLabel}
-				</Button>
+				<Tooltip text={generateBlockedReason ?? ''} wrapperClass="flex w-full">
+					<Button
+						variant="primary"
+						size="lg"
+						class="w-full"
+						disabled={generateBlockedReason !== null || isGenerating}
+						onclick={onGenerate}
+					>
+						{generateLabel}
+					</Button>
+				</Tooltip>
 			</svelte:fragment>
 		</StudioSheet>
 	{:else}

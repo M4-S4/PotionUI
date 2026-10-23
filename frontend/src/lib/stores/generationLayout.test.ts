@@ -12,7 +12,8 @@ import {
 	WORKBENCH_FLOOR_WIDTH,
 	type ThreePaneInput,
 	PROMPT_PANEL_FOLDED_MIN_WIDTH,
-	PROMPT_PANEL_FOLDED_MAX_WIDTH
+	PROMPT_PANEL_FOLDED_MAX_WIDTH,
+	PANE_HANDLE_WIDTH
 } from './generationLayout';
 
 // Video Director auto-widen (PLAN.md §C W4): pure reducers only — the
@@ -225,7 +226,7 @@ describe('resolveThreePaneLayout freed form width', () => {
 	const workbenchWidth = (input: ThreePaneInput, promptWidth: number, folded: boolean) => {
 		const formOpen = Math.min(input.formWidth, input.viewportWidth * 0.45);
 		const formSpace = folded ? 12 : formOpen + 12;
-		return input.panelsWidth - formSpace - 4 - promptWidth;
+		return input.panelsWidth - formSpace - PANE_HANDLE_WIDTH - promptWidth;
 	};
 
 	it('gives the freed width to prompts at 1536 px and keeps the workbench width', () => {
@@ -304,5 +305,26 @@ describe('resolveThreePaneLayout with a folded workbench', () => {
 			workbenchCollapsed: true
 		});
 		expect(out.promptWidth).toBe(fill(1480, 12));
+	});
+});
+
+describe('resolveThreePaneLayout with the 12px prompts and workbench handle', () => {
+	it.each([
+		[1440, 1384],
+		[1280, 1224]
+	])('keeps the workbench at its floor at %ipx with the form folded', (viewportWidth, panelsWidth) => {
+		const input = { ...base, panelsWidth, viewportWidth, promptPanelWidth: PROMPT_PANE_READABLE_MIN_WIDTH };
+		const out = resolveThreePaneLayout(input);
+		expect(out.formFolded).toBe(true);
+		const workbench = panelsWidth - 12 - PANE_HANDLE_WIDTH - out.promptWidth;
+		expect(workbench).toBe(WORKBENCH_FLOOR_WIDTH);
+		expect(out.workbenchMinWidth).toBe(WORKBENCH_FLOOR_WIDTH);
+	});
+
+	it('squeezes the workbench instead of overflowing when the screen is too narrow', () => {
+		const out = resolveThreePaneLayout({ ...base, panelsWidth: 968, viewportWidth: 1024 });
+		const workbench = 968 - 12 - PANE_HANDLE_WIDTH - out.promptWidth;
+		expect(out.workbenchMinWidth).toBe(0);
+		expect(workbench).toBeGreaterThan(0);
 	});
 });

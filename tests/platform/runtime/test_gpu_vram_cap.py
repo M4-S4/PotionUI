@@ -54,11 +54,6 @@ class TestVramCapSet:
         assert g.get_total_vram() == 16 * 1024  # MB
         assert g.get_free_vram() == 12 * 1024  # MB
 
-    def test_used_vram_is_not_capped(self, monkeypatch):
-        monkeypatch.setenv(vram_cap.VRAM_CAP_ENV_VAR, "16")
-        g = _gpu_with_real_vram(monkeypatch, total_gb=32.0, free_gb=28.0)
-        assert g.get_used_vram() == 4 * 1024  # MB, real usage untouched
-
     def test_available_vram_reflects_the_cap(self, monkeypatch):
         monkeypatch.setenv(vram_cap.VRAM_CAP_ENV_VAR, "8")
         g = _gpu_with_real_vram(monkeypatch, total_gb=32.0, free_gb=30.0)

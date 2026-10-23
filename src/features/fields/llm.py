@@ -11,10 +11,6 @@ class LLMField(BaseField):
     Components can be shown/hidden via configuration.
     """
 
-    def can_handle(self, field_type: str) -> bool:
-        """Check if this field handles the given type"""
-        return field_type == 'llm'
-
     def output(self, field, preset_id: str = None) -> Dict[str, Any]:
         """Transform LLM field to frontend schema with loaded options
 
@@ -208,7 +204,3 @@ configuration:
                 }
             ),
         ]
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        """Map a field to its JSON schema representation"""
-        return self.output(field, preset_id)

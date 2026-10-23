@@ -334,8 +334,8 @@ class FakeCore:
             return None
         return {key: copy.deepcopy(found[key]) for key in core_bridge.MODEL_KEYS if key in found}
 
-    def find_model_by_sha256(self, sha256: str) -> Optional[Dict[str, Any]]:
-        self.calls.append(("find_model_by_sha256", sha256))
+    def find_model_by_sha256(self, sha256: str, size: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        self.calls.append(("find_model_by_sha256", sha256) if size is None else ("find_model_by_sha256", sha256, size))
         return self._answer(self.models_by_sha.get(sha256.lower()))
 
     def find_model_by_path(self, path: str) -> Optional[Dict[str, Any]]:

@@ -122,7 +122,7 @@ class TestKeybindingController:
 
         assert result.success is False
         assert result.error == "get_keybindings_failed"
-        assert "Database error" in result.message
+        assert "Database error" not in result.message
 
     # ========== Get Defaults Tests ==========
 

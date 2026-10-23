@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Backend, EngineDescriptor } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	indexBackendModels: vi.fn(),
@@ -53,10 +54,6 @@ function ok<T>(data: T) {
 	return { success: true, data };
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function mountTab() {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -76,7 +73,7 @@ async function openBackend(target: HTMLElement, name: string) {
 	const row = Array.from(target.querySelectorAll('[role="row"]')).find((r) => r.textContent?.includes(name));
 	if (!row) throw new Error(`row "${name}" not found`);
 	(row as HTMLElement).click();
-	await settle();
+	await settle(10);
 }
 
 let mounted: ReturnType<typeof mountTab> | undefined;
@@ -112,7 +109,7 @@ describe('Backends admin: Catalog tab', () => {
 	it('is offered on a cloud backend, between Overview and Stats', async () => {
 		setup();
 		mounted = mountTab();
-		await settle();
+		await settle(10);
 		await openBackend(mounted.target, 'Cloud One');
 
 		expect(mounted.tabNames()).toEqual(['Overview', 'Catalog', 'Stats']);
@@ -121,7 +118,7 @@ describe('Backends admin: Catalog tab', () => {
 	it('is not offered on any other engine', async () => {
 		setup();
 		mounted = mountTab();
-		await settle();
+		await settle(10);
 		await openBackend(mounted.target, 'Comfy Box');
 
 		expect(mounted.tabNames()).toEqual(['Overview', 'Stats']);
@@ -130,14 +127,14 @@ describe('Backends admin: Catalog tab', () => {
 	it('loads the backend catalog when opened', async () => {
 		setup();
 		mounted = mountTab();
-		await settle();
+		await settle(10);
 		await openBackend(mounted.target, 'Cloud One');
 
 		const tab = Array.from(mounted.target.querySelectorAll('nav[aria-label="Backend details"] button')).find(
 			(b) => b.textContent?.includes('Catalog')
 		) as HTMLElement;
 		tab.click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledWith('b1', { limit: 50, offset: 0 });
 		expect(mounted.target.textContent).toContain('No models yet');

@@ -35,10 +35,6 @@ logger = logging.getLogger(__name__)
 class GalleryGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for GalleryGenerationOutput - processes multiple images, videos, audio files and meshes."""
 
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process GalleryGenerationOutput."""
-        return isinstance(output, GalleryGenerationOutput)
-
     def handle(self, output: GalleryGenerationOutput) -> Dict[str, Any]:
         """
         Process GalleryGenerationOutput - handle each media item in the gallery.

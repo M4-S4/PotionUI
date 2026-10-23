@@ -1198,3 +1198,143 @@ describe('onAssistantFinalized: every live arrival of a final assistant message'
 		expect(seen).toEqual([]);
 	});
 });
+
+describe('thinking events (createStreamEventHandler)', () => {
+	async function openStream() {
+		chatSession.patch({ sessionId: 'A' });
+		let deliverEvent: ((e: { type: string; data: any }) => void | Promise<void>) | undefined;
+		void sendMessage(
+			{
+				store: chatSession,
+				api: makeFakeApi({
+					sendChatMessageStream: (_sid, _payload, onEvent) => {
+						deliverEvent = onEvent;
+						return new Promise<void>(() => {});
+					}
+				})
+			},
+			basicSendParams('hi')
+		);
+		await waitFor(() => !!deliverEvent);
+		return deliverEvent!;
+	}
+
+	const assistant = () => {
+		const messages = get(chatSession).messages;
+		return messages[messages.length - 1];
+	};
+
+	it('accumulates thinking deltas into one open segment, applied once per frame', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { content: 'let ', segment: 0 } });
+		await deliver({ type: 'thinking', data: { content: 'me think', segment: 0 } });
+		expect(assistant().thinking).toBeUndefined();
+
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(assistant().thinking).toHaveLength(1);
+		expect(assistant().thinking![0]).toMatchObject({ text: 'let me think', open: true });
+	});
+
+	it('an answer token folds the segment, even with no frame in between', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { content: 'plan', segment: 0 } });
+		await deliver({ type: 'token', data: { content: 'Answer' } });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(assistant().thinking![0].text).toBe('plan');
+		expect(assistant().thinking![0].open).toBeUndefined();
+		expect(assistant().content).toBe('Answer');
+	});
+
+	it('flushes pending thinking before a tool call so the order holds', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { content: 'need a tool', segment: 0 } });
+		await deliver({ type: 'tool_start', data: { tool_name: 'list_models' } });
+
+		expect(assistant().thinking![0].text).toBe('need a tool');
+		expect(assistant().thinking![0].open).toBeUndefined();
+		expect(assistant().tool_executions).toHaveLength(1);
+	});
+
+	it('keeps each model turn of a tool round as its own segment', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { content: 'first', segment: 0 } });
+		await deliver({ type: 'tool_start', data: { tool_name: 'list_models' } });
+		await deliver({ type: 'tool_end', data: { tool_name: 'list_models', success: true } });
+		await deliver({ type: 'thinking', data: { content: 'second', segment: 1 } });
+		await deliver({ type: 'thinking', data: { content: ' look', segment: 1 } });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(assistant().thinking!.map((s) => s.text)).toEqual(['first', 'second look']);
+		expect(assistant().thinking![1].open).toBe(true);
+	});
+
+	it('done without the thinking in its payload keeps what streamed', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { content: 'streamed reasoning', segment: 0 } });
+		await deliver({ type: 'token', data: { content: 'answer' } });
+		await deliver({
+			type: 'done',
+			data: {
+				assistant_message: {
+					id: 'a1',
+					content: 'answer',
+					metadata: { behavior_trace: { steps: [], thinking_visible: true } }
+				}
+			}
+		});
+
+		expect(assistant().thinking!.map((s) => s.text)).toEqual(['streamed reasoning']);
+		expect(assistant().thinking![0].open).toBeUndefined();
+		expect(assistant().isStreaming).toBe(false);
+	});
+
+	it('a new segment index applies the old segment text before starting the next', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { content: 'first turn', segment: 0 } });
+		await deliver({ type: 'thinking', data: { content: 'second turn', segment: 1 } });
+
+		expect(assistant().thinking!.map((s) => s.text)).toEqual(['first turn']);
+
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(assistant().thinking!.map((s) => s.text)).toEqual(['first turn', 'second turn']);
+		expect(assistant().thinking![0].open).toBeUndefined();
+	});
+
+	it('done replaces the live segments with the persisted ones', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { content: 'live text', segment: 0 } });
+		await deliver({
+			type: 'done',
+			data: {
+				assistant_message: {
+					id: 'a1',
+					content: 'answer',
+					metadata: { thinking: { segments: [{ text: 'stored text', duration_ms: 7000 }] } }
+				}
+			}
+		});
+
+		expect(assistant().thinking).toEqual([{ text: 'stored text', duration_ms: 7000 }]);
+		expect(assistant().isStreaming).toBe(false);
+	});
+
+	it('a truncated thinking reference does not break the stream', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'thinking', data: { truncated: true, preview: 'xx', content_bytes: 9000 } });
+		await deliver({ type: 'token', data: { content: 'ok' } });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+
+		expect(assistant().content).toBe('ok');
+	});
+});

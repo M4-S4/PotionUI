@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import torch
 
-from src.platform.runtime.primitives.clip import ClipTextEncoder, ConditioningModel
+from src.platform.runtime.primitives.clip import ConditioningModel
 from src.platform.runtime.native.text_encoders import NativeTextEncoder
 from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
 
@@ -31,11 +31,6 @@ class _FakeEncoder(NativeTextEncoder):
         if "pooled" in self._roles:
             out["pooled"] = torch.ones(1, 8)
         return out
-
-
-def test_is_a_clip_text_encoder():
-    enc = FluxClipTextEncoder(_FakeEncoder({"context", "pooled"}))
-    assert isinstance(enc, ClipTextEncoder)
 
 
 def test_packs_roles_into_conditioning_model():
@@ -66,22 +61,3 @@ def test_empty_negative_skips_negative_pass():
     assert cond.n_embeds == {}
     assert fake.calls == [["only positive"]]  # negative not encoded
 
-
-def test_no_cfg_skips_negative_pass():
-    fake = _FakeEncoder({"context"})
-    enc = FluxClipTextEncoder(fake, device="cpu")
-    cond = enc.encode_prompt("p", "some negative", do_classifier_free_guidance=False)
-    assert cond.n_embeds == {}
-    assert fake.calls == [["p"]]
-
-
-def test_model_fingerprint_surfaced_for_prompt_encoder_cache():
-    enc = FluxClipTextEncoder(_FakeEncoder({"context"}), model_fingerprint="flux|abc|lora=none")
-    assert enc._model_fingerprint == "flux|abc|lora=none"
-
-
-def test_embedding_files_ignored_not_fatal():
-    fake = _FakeEncoder({"context"})
-    enc = FluxClipTextEncoder(fake, device="cpu")
-    cond = enc.encode_prompt("p", "", embedding_files={"tok": "/path/to.pt"})
-    assert isinstance(cond, ConditioningModel)  # ignored, no crash

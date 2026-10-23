@@ -6,6 +6,7 @@ from src.features.downloads.models import Download, DownloadSettings, DownloadSt
 from src.features.downloads.repository import DownloadRepository
 from src.features.downloads.worker import DownloadWorker
 from src.features.downloads.exceptions import (
+    DownloadDestinationInvalid,
     DownloadException,
     DownloadNotFoundException,
     DownloadOperationException,
@@ -16,6 +17,7 @@ from src.features.downloads.exceptions import (
 
 __all__ = [
     "Download",
+    "DownloadDestinationInvalid",
     "DownloadException",
     "DownloadQueue",
     "DownloadNotFoundException",

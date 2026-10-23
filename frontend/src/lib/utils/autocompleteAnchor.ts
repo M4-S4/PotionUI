@@ -1,3 +1,4 @@
+import { CHIP_POPOVER_WIDTH } from './chipPopover';
 /**
  * Where the autocomplete list goes, given the rect of the element it is
  * anchored to. Pure so the placement rules can be reasoned about without a
@@ -35,8 +36,8 @@ export const AUTOCOMPLETE_ESTIMATED_HEIGHT = 340;
  *  the list collapse with it. */
 export const AUTOCOMPLETE_MIN_WIDTH = 320;
 
-export const AUTOCOMPLETE_SEGMENT_WIDTH = 432;
-export const AUTOCOMPLETE_SEGMENT_MIN_WIDTH = 384;
+export const AUTOCOMPLETE_SEGMENT_WIDTH = CHIP_POPOVER_WIDTH;
+export const AUTOCOMPLETE_SEGMENT_MIN_WIDTH = 360;
 
 const EDGE_GUTTER = 8;
 

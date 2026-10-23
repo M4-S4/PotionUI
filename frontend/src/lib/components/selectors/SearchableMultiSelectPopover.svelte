@@ -17,6 +17,7 @@
 	import { browser } from '$app/environment';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss from '$lib/actions/dismiss';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	// Matches the panel's former `mt-2`/`mb-2` gap from the trigger.
@@ -130,13 +131,6 @@
 		}
 	});
 
-	function handleWindowClick(event: MouseEvent) {
-		if (!open) return;
-		const target = event.target as Node;
-		if (rootEl?.contains(target) || panelEl?.contains(target)) return;
-		close();
-	}
-
 	function moveActive(delta: number) {
 		if (optionIds.length === 0) return;
 		const currentIndex = activeId ? optionIds.indexOf(activeId) : -1;
@@ -146,10 +140,6 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		switch (event.key) {
-			case 'Escape':
-				event.preventDefault();
-				close();
-				break;
 			case 'ArrowDown':
 				event.preventDefault();
 				moveActive(1);
@@ -177,8 +167,6 @@
 	}
 </script>
 
-<svelte:window onclick={handleWindowClick} />
-
 <div class="relative inline-flex flex-col" bind:this={rootEl}>
 	{@render trigger({ open, toggle })}
 </div>
@@ -190,6 +178,7 @@
 {#if open}
 	<div
 		bind:this={panelEl}
+		use:dismiss={{ onDismiss: close, ignore: [rootEl] }}
 		use:portal
 		use:overlayLayer
 		style={panelStyle(panelPosition)}

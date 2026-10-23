@@ -33,6 +33,7 @@ from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from vendor.gpl.comfyui.ops import pick_operations
 import torch.nn.functional as F
+from .._native_ops import fp32_ops
 
 TINY = {
     "image_model": "krea2", "features": 32, "heads": 2, "kvheads": 1,
@@ -75,10 +76,6 @@ def _old_attention_forward(self, x, freqs=None, mask=None, nag_ctx=None, nag_fre
 
 def _fp64_ops():
     return pick_operations(torch.float64, torch.float64)
-
-
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
 
 
 HEADDIM = sum(AXDIMS)  # apply_rope_inplace pairs headdim/2 features against AXDIMS
@@ -229,7 +226,7 @@ def _randomised_state_dict(module):
 
 def _build_model(config=TINY):
     torch.manual_seed(0)
-    m = Krea2.from_config(config, _fp32_ops())
+    m = Krea2.from_config(config, fp32_ops())
     load_into_module(m, _randomised_state_dict(m), match_model_spec(config))
     return m.eval()
 

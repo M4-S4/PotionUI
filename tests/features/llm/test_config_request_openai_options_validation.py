@@ -95,4 +95,5 @@ def test_openai_validators_are_skipped_for_other_provider_types():
         "reasoning_effort": "ultra",
         "parallel_tool_calls": "true",
         "stop": 5,
+        "think": False,
     }

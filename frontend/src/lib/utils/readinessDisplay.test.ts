@@ -46,6 +46,18 @@ describe('readinessCheckBadgeVariant / readinessCheckStatusLabel', () => {
 		expect(readinessCheckBadgeVariant(c)).toBe('info');
 		expect(readinessCheckStatusLabel(c)).toBe('indexing');
 	});
+
+	it('reads RECIPE_MODELS_VERIFYING as info/"checking" rather than "degraded"', () => {
+		const c = check({ area: 'content', status: 'degraded', code: 'RECIPE_MODELS_VERIFYING' });
+		expect(readinessCheckBadgeVariant(c)).toBe('info');
+		expect(readinessCheckStatusLabel(c)).toBe('checking');
+	});
+
+	it('keeps RECIPE_MODELS_MISSING as a plain degraded status', () => {
+		const c = check({ area: 'content', status: 'degraded', code: 'RECIPE_MODELS_MISSING' });
+		expect(readinessCheckBadgeVariant(c)).toBe('warning');
+		expect(readinessCheckStatusLabel(c)).toBe('degraded');
+	});
 });
 
 describe('readinessAreaLabel', () => {

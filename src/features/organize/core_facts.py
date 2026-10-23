@@ -3,7 +3,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.features.generation.policy import GenerationPolicy
-from src.features.generation.prompt_text import prompt_contains_params, prompt_contains_sql, prompt_texts
+from src.features.generation.prompt_text import prompt_search_sql, prompt_texts
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.well_known import WellKnownModelAttribute
 from src.features.organize.evaluator import NEGATED_TEXT, as_list
@@ -232,11 +232,11 @@ def _duration_sql(operator: str, value: Any, alias: str) -> SqlResult:
 def _prompt_sql(operator: str, value: Any, alias: str) -> SqlResult:
     if alias != "g" or not isinstance(value, str) or not value:
         return None
-    exists = prompt_contains_sql(alias)
+    exists, params = prompt_search_sql(value, alias)
     if operator == "contains":
-        return f"({exists})", prompt_contains_params(value)
+        return f"({exists})", params
     if operator == "not_contains":
-        return f"NOT ({exists})", prompt_contains_params(value)
+        return f"NOT ({exists})", params
     return None
 
 
@@ -477,6 +477,21 @@ def _tags_sql(operator: str, value: Any, alias: str) -> SqlResult:
     return None
 
 
+def _detected_tags_sql(operator: str, value: Any, alias: str) -> SqlResult:
+    names = [str(v).lower() for v in as_list(value) if str(v).strip()]
+    if not names or alias != "g":
+        return None
+    exists = (
+        "EXISTS (SELECT 1 FROM media_system_tags s WHERE s.generation_id = g.id "
+        "AND s.category != 'rating' AND LOWER(s.tag) = ?)"
+    )
+    if operator == "has":
+        return " AND ".join([exists] * len(names)), names
+    if operator == "has_not":
+        return " AND ".join([f"NOT {exists}"] * len(names)), names
+    return None
+
+
 def _preset_sql(operator: str, value: Any, alias: str) -> SqlResult:
     return _in_or_not("g.preset_id", operator, [str(v) for v in as_list(value)]) if alias == "g" else None
 
@@ -533,6 +548,9 @@ def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepositor
         tag_type = {"generation": "GENERATION", "upload": "UPLOAD", "model": "MODEL"}[subject]
         owner = None if subject == "model" else user_id
         return _options(items.tag_names(tag_type, owner, query or "", 200), "")
+
+    def detected_tag_options(user_id: str, subject: str, query: str) -> List[Dict[str, str]]:
+        return _options(items.detected_tag_names(user_id, query or "", 200), "")
 
     def source_options(user_id: str, subject: str, query: str) -> List[Dict[str, str]]:
         static = {o["value"]: o["label"] for o in SOURCE_OPTIONS}
@@ -623,6 +641,11 @@ def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepositor
             key="tags", label="Tags", subjects=("generation", "upload", "model"), kind="tag_list",
             extract=lambda item: item.get("tags", []), sql=_tags_sql, options_handler=tag_options,
             triggers=("item_created", "tags_changed"),
+        ),
+        OrganizeFactDefinition(
+            key="detected_tags", label="Detected tags", subjects=("generation",), kind="tag_list",
+            extract=lambda item: item.get("detected_tags", []), sql=_detected_tags_sql,
+            options_handler=detected_tag_options, triggers=("detected_tags_changed",),
         ),
         OrganizeFactDefinition(
             key="model_type", label="Model type", subjects=("model",), kind="enum",

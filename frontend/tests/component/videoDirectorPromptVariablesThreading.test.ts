@@ -28,7 +28,6 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { flushSync } = await import('svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { default: VideoDirectorEditor } = await import(
 	'$lib/components/video-director/VideoDirectorEditor.svelte'
@@ -37,6 +36,7 @@ const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector')
 
 import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
 import type { VariablesMap } from '$lib/utils/variableDefs';
+import { settleFlush } from './helpers/settle';
 
 function baseDoc(): VideoDirectorValue {
 	return {
@@ -104,11 +104,6 @@ function h3RefsCaps(): DirectorCapabilities {
 	return resolveDirectorCapabilities(H3_REFS_PRESET_RAW, 'refs')!;
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
@@ -152,10 +147,10 @@ describe('VideoDirectorEditor: prompt-variable state reaches the shot prompt edi
 		});
 		cleanup = () => instance.$destroy();
 
-		await settle();
+		await settleFlush();
 
 		expect(target.querySelector('.beat-b')).toBeNull();
-		await settle();
+		await settleFlush();
 
 		const stageBeat = target.querySelector('.stage-beat');
 		expect(stageBeat).not.toBeNull();

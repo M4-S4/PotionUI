@@ -1,11 +1,12 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { historyStore, filteredGenerations } from '$lib/stores/history';
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { api } from '$lib/services/api/index';
-	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { createFlashMessage } from '$lib/utils/flashMessage';
 	import Icon from '$lib/components/Icon.svelte';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
+	import { createMembershipActions } from '$lib/components/collections/scopeActions';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
@@ -71,60 +72,20 @@
 		historyStore.toggleSelectionMode();
 	}
 
-	async function handleAddToCollection(collectionId: string): Promise<boolean> {
-		if (selectedIds.length === 0) return false;
-		try {
-			const response = await api.addToCollection(collectionId, selectedIds, 'history');
-			if (response.success) {
-				await collectionsStore.load();
-				const added = response.data?.added ?? selectedIds.length;
-				historyStore.clearSelection();
-				flash(`Added ${added} to collection`);
-				return true;
-			}
-			flash('Failed to add to collection');
-			return false;
-		} catch (e) {
-			logger.error('Add to collection failed:', getErrorMessage(e));
-			flash('Failed to add to collection');
-			return false;
-		}
-	}
+	const { addToCollection: handleAddToCollection, removeFromCollection, createAndAdd: handleCreateAndAdd } =
+		createMembershipActions({
+			getSelectedIds: () => selectedIds,
+			add: (collectionId, ids) => api.addToCollection(collectionId, ids, 'history'),
+			remove: (collectionId, ids) => api.removeFromCollection(collectionId, ids, 'history'),
+			create: (name) => collectionsStore.create(name),
+			reloadCollections: () => collectionsStore.load(),
+			clearSelection: () => historyStore.clearSelection(),
+			afterRemove: () => historyStore.loadGenerations(),
+			flash
+		});
 
-	async function handleRemoveFromCollection(): Promise<void> {
-		const collectionId = activeCollectionId;
-		if (!collectionId || selectedIds.length === 0) return;
-		try {
-			const response = await api.removeFromCollection(collectionId, selectedIds, 'history');
-			if (response.success) {
-				await collectionsStore.load();
-				const removed = response.data?.removed ?? selectedIds.length;
-				historyStore.clearSelection();
-				flash(`Removed ${removed} from collection`);
-				await historyStore.loadGenerations();
-				return;
-			}
-			flash('Failed to remove from collection');
-		} catch (e) {
-			logger.error('Remove from collection failed:', getErrorMessage(e));
-			flash('Failed to remove from collection');
-		}
-	}
-
-	async function handleCreateAndAdd(name: string): Promise<boolean> {
-		try {
-			const created = await collectionsStore.create(name);
-			const collection = created.success ? created.data?.collection : undefined;
-			if (!collection) {
-				flash('Failed to create collection');
-				return false;
-			}
-			return await handleAddToCollection(collection.id);
-		} catch (e) {
-			logger.error('Create collection failed:', getErrorMessage(e));
-			flash('Failed to create collection');
-			return false;
-		}
+	function handleRemoveFromCollection(): Promise<void> {
+		return removeFromCollection(activeCollectionId);
 	}
 </script>
 
@@ -145,7 +106,7 @@
 		<button
 			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
 			disabled={copyingToLibrary}
-			title="Copy the selected media into your library (the generations stay in history)"
+			use:tooltip={'Copy the selected media into your library (the generations stay in history)'}
 			on:click={handleCopyToLibrary}
 		>
 			<Icon name="photo" className="w-4 h-4" />
@@ -158,7 +119,7 @@
 			<!-- Remove from the collection currently being browsed -->
 			<button
 				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
-				title="Remove the selected items from this collection"
+				use:tooltip={'Remove the selected items from this collection'}
 				on:click={handleRemoveFromCollection}
 			>
 				<Icon name="minus" className="w-4 h-4" />

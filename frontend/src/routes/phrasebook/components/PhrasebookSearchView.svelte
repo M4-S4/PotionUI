@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onMount, untrack } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import { parseComponentRef } from '$lib/plugin-api/componentRef';
@@ -341,13 +342,13 @@
 												onclick={(e) => handleRowCheck(e, hit.id)}
 											/>
 										</td>
-										<td class="px-3 py-2 align-top font-medium text-fg max-w-[16rem] truncate" title={hit.label}>
+										<td class="px-3 py-2 align-top font-medium text-fg max-w-[16rem] truncate" use:tooltip={{ text: hit.label, truncateOnly: true }}>
 											{#each highlightSegments(hit.label, hit.matches, 'label') as part}{#if part.match}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}
 										</td>
-										<td class="px-3 py-2 align-top font-mono text-xs max-w-[36rem] truncate" title={hit.value}>
+										<td class="px-3 py-2 align-top font-mono text-xs max-w-[36rem] truncate" use:tooltip={{ text: hit.value, truncateOnly: true }}>
 											{#each highlightSegments(hit.value, hit.matches, 'value') as part}{#if part.match}<mark>{part.text}</mark>{:else}{part.text}{/if}{/each}
 										</td>
-										<td class="px-3 py-2 align-top font-mono text-2xs text-fg-subtle max-w-[14rem] truncate" title={hit.category_path}>
+										<td class="px-3 py-2 align-top font-mono text-2xs text-fg-subtle max-w-[14rem] truncate" use:tooltip={{ text: hit.category_path, truncateOnly: true }}>
 											{hit.category_path}
 											{#if !hit.category_is_active}<Badge size="sm" class="ml-1">inactive category</Badge>{/if}
 										</td>

@@ -81,17 +81,6 @@ def _pil_clip(n=12, h=64, w=64, value=100):
 # -- static contract ------------------------------------------------------
 
 
-def test_name_and_io():
-    assert DetailerVideoLtxPipe.name == "detailer"
-    inputs = {i.name: i for i in DetailerVideoLtxPipe.inputs()}
-    assert inputs["model"].io_type == IOType.MODEL and inputs["model"].required
-    assert inputs["video"].io_type == IOType.VIDEO and inputs["video"].is_array
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["seed"].required is False
-    outputs = {o.name: o for o in DetailerVideoLtxPipe.outputs()}
-    assert outputs["video"].io_type == IOType.VIDEO and outputs["video"].is_array
-
-
 def test_config_defaults_have_specs():
     spec_names = {s.name for s in DetailerVideoLtxPipe.configuration()}
     assert set(DetailerVideoLtxPipe.get_default_config()) <= spec_names

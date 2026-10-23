@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, UploadFile, File
 from fastapi.responses import PlainTextResponse, FileResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded, soft_guarded
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.current_user import get_current_active_user
 from src.features.phrasebook.dto import (
     BatchRequest,
@@ -26,7 +28,7 @@ from src.features.phrasebook.dto import (
 )
 from src.features.phrasebook import PhrasebookPreviewGenerator, operations
 from src.features.phrasebook.hooks import PHRASEBOOK_HOOKS
-from src.features.phrasebook.import_service import phrasebook_import_service
+from src.features.phrasebook.import_manager import phrasebook_import_manager
 from src.features.phrasebook.repository import (
     PhrasebookCategoryRepository,
     PhrasebookValueRepository,
@@ -39,6 +41,11 @@ from src.features.generation.orchestrator import GenerationOrchestrator
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
+
+
+_BATCH_TABLE = {
+    BatchOperationError: Fail(lambda e: e.code, lambda e: e.message, lambda e: e.status),
+}
 
 
 class PhrasebookController(BaseController):
@@ -69,6 +76,7 @@ class PhrasebookController(BaseController):
 
     # ========== Category Methods ==========
 
+    @soft_guarded("get_categories_failed", "Failed to get categories", admin="user")
     async def get_categories(
         self,
         user: User,
@@ -76,149 +84,104 @@ class PhrasebookController(BaseController):
         state_filter: PhrasebookStateFilter = PhrasebookStateFilter.ALL
     ) -> APIResponse:
         """Get phrasebook categories for the current user with optional state filtering."""
-        try:
-            if root_only:
-                categories = self.categories.get_children(None, user.id)
-                # Apply state filter manually for root categories
-                if state_filter == PhrasebookStateFilter.ACTIVE:
-                    categories = [c for c in categories if c.is_active]
-                elif state_filter == PhrasebookStateFilter.INACTIVE:
-                    categories = [c for c in categories if not c.is_active]
-            else:
-                categories = self.categories.get_all(user.id, state_filter)
-            return self.success_response(
-                data={"categories": [cat.model_dump() for cat in categories]}
-            )
-        except ValueError as e:
-            return self.error_api_response(error="get_categories_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="get_categories_failed", message=str(e))
+        if root_only:
+            categories = self.categories.get_children(None, user.id)
+            if state_filter == PhrasebookStateFilter.ACTIVE:
+                categories = [c for c in categories if c.is_active]
+            elif state_filter == PhrasebookStateFilter.INACTIVE:
+                categories = [c for c in categories if not c.is_active]
+        else:
+            categories = self.categories.get_all(user.id, state_filter)
+        return self.success_response(
+            data={"categories": [cat.model_dump() for cat in categories]}
+        )
 
+    @soft_guarded("get_children_failed", "Failed to get children", admin="user")
     async def get_category_children(self, category_id: str, user: User) -> APIResponse:
         """Get direct children of a category."""
-        try:
-            children = self.categories.get_children(category_id, user.id)
-            return self.success_response(
-                data={"categories": [cat.model_dump() for cat in children]}
-            )
-        except ValueError as e:
-            return self.error_api_response(error="get_children_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="get_children_failed", message=str(e))
+        children = self.categories.get_children(category_id, user.id)
+        return self.success_response(
+            data={"categories": [cat.model_dump() for cat in children]}
+        )
 
+    @soft_guarded("get_category_failed", "Failed to get category", admin="user")
     async def get_category(self, category_id: str, user: User) -> APIResponse:
         """Get a specific phrasebook category with its values."""
-        try:
-            category = operations.get_category(self.categories, category_id, user.id)
-            values = self.values.get_by_category(category_id, user.id)
-            return self.success_response(
-                data={
-                    "category": category.model_dump(),
-                    "values": [val.model_dump() for val in values]
-                }
-            )
-        except ValueError as e:
-            return self.error_api_response(error="get_category_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="get_category_failed", message=str(e))
+        category = operations.get_category(self.categories, category_id, user.id)
+        values = self.values.get_by_category(category_id, user.id)
+        return self.success_response(
+            data={
+                "category": category.model_dump(),
+                "values": [val.model_dump() for val in values]
+            }
+        )
 
+    @soft_guarded("create_category_failed", "Failed to create category", admin="user")
     async def create_category(
         self, request: PhrasebookCategoryRequest, user: User
     ) -> APIResponse:
         """Create a new phrasebook category."""
-        try:
-            category = operations.create_category(self.categories, self.plugins, request, user.id)
-            return self.success_response(data=category.model_dump())
-        except ValueError as e:
-            return self.error_api_response(error="create_category_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="create_category_failed", message=str(e))
+        category = operations.create_category(self.categories, self.plugins, request, user.id)
+        return self.success_response(data=category.model_dump())
 
+    @soft_guarded("update_category_failed", "Failed to update category", admin="user")
     async def update_category(
         self, category_id: str, request: PhrasebookCategoryRequest, user: User
     ) -> APIResponse:
         """Update an phrasebook category."""
-        try:
-            category = operations.update_category(self.categories, self.plugins, category_id, request, user.id)
-            return self.success_response(data=category.model_dump())
-        except ValueError as e:
-            return self.error_api_response(error="update_category_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="update_category_failed", message=str(e))
+        category = operations.update_category(self.categories, self.plugins, category_id, request, user.id)
+        return self.success_response(data=category.model_dump())
 
+    @soft_guarded("delete_category_failed", "Failed to delete category", admin="user")
     async def delete_category(self, category_id: str, user: User) -> APIResponse:
         """Delete an phrasebook category and all its values."""
-        try:
-            operations.delete_category(self.categories, self.plugins, category_id, user.id)
-            return self.success_response(data={"message": "Category deleted successfully"})
-        except ValueError as e:
-            return self.error_api_response(error="delete_category_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="delete_category_failed", message=str(e))
+        operations.delete_category(self.categories, self.plugins, category_id, user.id)
+        return self.success_response(data={"message": "Category deleted successfully"})
 
+    @soft_guarded("toggle_category_failed", "Failed to toggle category", admin="user")
     async def toggle_category_active(
         self, category_id: str, request: ToggleActiveRequest, user: User
     ) -> APIResponse:
         """Toggle the active state of a category."""
-        try:
-            category = operations.toggle_category_active(self.categories, category_id, request.is_active, user.id)
-            return self.success_response(data=category.model_dump())
-        except ValueError as e:
-            return self.error_api_response(error="toggle_category_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="toggle_category_failed", message=str(e))
+        category = operations.toggle_category_active(self.categories, category_id, request.is_active, user.id)
+        return self.success_response(data=category.model_dump())
 
     # ========== Value Methods ==========
 
+    @soft_guarded("create_value_failed", "Failed to create value", admin="user")
     async def create_value(
         self, request: PhrasebookValueRequest, user: User
     ) -> APIResponse:
         """Create a new phrasebook value."""
-        try:
-            value = operations.create_value(self.values, self.categories, self.plugins, request, user.id)
-            return self.success_response(data=value.model_dump())
-        except ValueError as e:
-            return self.error_api_response(error="create_value_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="create_value_failed", message=str(e))
+        value = operations.create_value(self.values, self.categories, self.plugins, request, user.id)
+        return self.success_response(data=value.model_dump())
 
+    @soft_guarded("update_value_failed", "Failed to update value", admin="user")
     async def update_value(
         self, value_id: str, request: PhrasebookValueRequest, user: User
     ) -> APIResponse:
         """Update an phrasebook value."""
-        try:
-            value = operations.update_value(self.values, self.categories, self.plugins, value_id, request, user.id)
-            return self.success_response(data=value.model_dump())
-        except ValueError as e:
-            return self.error_api_response(error="update_value_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="update_value_failed", message=str(e))
+        value = operations.update_value(self.values, self.categories, self.plugins, value_id, request, user.id)
+        return self.success_response(data=value.model_dump())
 
+    @soft_guarded("delete_value_failed", "Failed to delete value", admin="user")
     async def delete_value(self, value_id: str, user: User) -> APIResponse:
         """Delete an phrasebook value."""
-        try:
-            operations.delete_value(self.values, self.plugins, value_id, user.id)
-            return self.success_response(data={"message": "Value deleted successfully"})
-        except ValueError as e:
-            return self.error_api_response(error="delete_value_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="delete_value_failed", message=str(e))
+        operations.delete_value(self.values, self.plugins, value_id, user.id)
+        return self.success_response(data={"message": "Value deleted successfully"})
 
+    @soft_guarded("toggle_value_failed", "Failed to toggle value", admin="user")
     async def toggle_value_active(
         self, value_id: str, request: ToggleActiveRequest, user: User
     ) -> APIResponse:
         """Toggle the active state of a value."""
-        try:
-            value = operations.toggle_value_active(self.values, value_id, request.is_active, user.id)
-            return self.success_response(data=value.model_dump())
-        except ValueError as e:
-            return self.error_api_response(error="toggle_value_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="toggle_value_failed", message=str(e))
+        value = operations.toggle_value_active(self.values, value_id, request.is_active, user.id)
+        return self.success_response(data=value.model_dump())
 
 
     # ========== Search Methods ==========
 
+    @soft_guarded("search_failed", "Failed to search", admin="user")
     async def search(
         self,
         path: str,
@@ -227,14 +190,17 @@ class PhrasebookController(BaseController):
         state_filter: PhrasebookStateFilter = PhrasebookStateFilter.ACTIVE
     ) -> APIResponse:
         """Search for phrasebook suggestions by path prefix with state filtering."""
-        try:
-            results = operations.search_phrasebook(self.categories, self.values, path, user.id, limit, state_filter)
-            return self.success_response(data=results)
-        except ValueError as e:
-            return self.error_api_response(error="search_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="search_failed", message=str(e))
+        results = operations.search_phrasebook(self.categories, self.values, path, user.id, limit, state_filter)
+        return self.success_response(data=results)
 
+    @guarded(
+        {
+            operations.InvalidFields: Fail("invalid_fields", status=400),
+            operations.InvalidPattern: Fail("invalid_pattern", status=422),
+        },
+        Fail("find_failed", "Failed to search phrasebook", detail=failure_detail),
+        admin="user",
+    )
     async def find(
         self,
         user: User,
@@ -248,28 +214,20 @@ class PhrasebookController(BaseController):
         limit: int = 200,
     ) -> APIResponse:
         """Text search across categories and values with per-field match spans."""
-        try:
-            field_names = operations.parse_fields(fields)
-        except operations.InvalidFields as e:
-            self.error_response(error="invalid_fields", message=str(e), status_code=400)
-        try:
-            results = operations.find_phrasebook(
-                self.categories,
-                self.values,
-                user.id,
-                query,
-                mode=mode.value,
-                case_sensitive=case_sensitive,
-                scope=scope.value,
-                include_inactive=include_inactive,
-                path_prefix=path_prefix,
-                fields=field_names,
-                limit=limit,
-            )
-        except operations.InvalidPattern as e:
-            self.error_response(error="invalid_pattern", message=str(e), status_code=422)
-        except Exception as e:
-            return self.error_api_response(error="find_failed", message=str(e))
+        field_names = operations.parse_fields(fields)
+        results = operations.find_phrasebook(
+            self.categories,
+            self.values,
+            user.id,
+            query,
+            mode=mode.value,
+            case_sensitive=case_sensitive,
+            scope=scope.value,
+            include_inactive=include_inactive,
+            path_prefix=path_prefix,
+            fields=field_names,
+            limit=limit,
+        )
         hook_data, _ = execute_hook(
             self.plugins,
             PHRASEBOOK_HOOKS.find_results,
@@ -305,6 +263,7 @@ class PhrasebookController(BaseController):
     def _batch_context(self, user: User):
         return operations.RepositoryBatchContext(self.values, self.categories, user.id, plugins=self.plugins)
 
+    @guarded(_BATCH_TABLE, Fail("batch_failed", "Batch operation failed", detail=failure_detail), admin="user")
     async def batch_values(self, request: BatchRequest, user: User) -> APIResponse:
         """Run one registered batch operation over the user's selected values,
         between the `phrasebook.batch.before` / `after` hooks."""
@@ -320,12 +279,7 @@ class PhrasebookController(BaseController):
             )
         value_ids = list(hook_data.get("value_ids", value_ids))
         params = dict(hook_data.get("params", request.params))
-        try:
-            outcome = await definition.backend.run(self._batch_context(user), value_ids, params)
-        except BatchOperationError as e:
-            self.error_response(error=e.code, message=e.message, status_code=e.status)
-        except Exception as e:
-            return self.error_api_response(error="batch_failed", message=str(e))
+        outcome = await definition.backend.run(self._batch_context(user), value_ids, params)
         data = dataclasses.asdict(outcome)
         execute_hook(
             self.plugins,
@@ -334,53 +288,44 @@ class PhrasebookController(BaseController):
         )
         return self.success_response(data=data)
 
+    @guarded(_BATCH_TABLE, Fail("batch_failed", "Batch operation failed", detail=failure_detail), admin="user")
     async def preview_batch(self, request: BatchRequest, user: User) -> APIResponse:
         """Dry-run a registered batch operation; no hooks, no writes."""
         definition, value_ids = self._batch_target(request)
-        try:
-            preview = await definition.backend.preview(self._batch_context(user), value_ids, dict(request.params))
-        except BatchOperationError as e:
-            self.error_response(error=e.code, message=e.message, status_code=e.status)
-        except Exception as e:
-            return self.error_api_response(error="batch_failed", message=str(e))
+        preview = await definition.backend.preview(self._batch_context(user), value_ids, dict(request.params))
         return self.success_response(data=dataclasses.asdict(preview))
 
     # ========== Import/Export Methods ==========
 
+    @soft_guarded("import_failed", "Failed to import", admin="user")
     async def import_yaml(
         self, file: UploadFile, root_category: Optional[str], user: User
     ) -> APIResponse:
         """Import a YAML file to create phrasebook categories and values."""
-        try:
-            # Validate file type
-            if not file.filename.endswith(('.yaml', '.yml')):
-                return self.error_api_response(
-                    error="invalid_file_type",
-                    message="File must be a YAML file (.yaml or .yml)"
-                )
-
-            # Read file content
-            content = await file.read()
-            yaml_content = content.decode('utf-8')
-
-            # Import using the service
-            result = phrasebook_import_service.import_yaml(
-                yaml_content, user.id, root_category
+        if not file.filename.endswith(('.yaml', '.yml')):
+            return self.error_api_response(
+                error="invalid_file_type",
+                message="File must be a YAML file (.yaml or .yml)"
             )
 
-            if not result['success']:
-                return self.error_api_response(
-                    error="import_failed",
-                    message=result.get('error', 'Import failed')
-                )
+        content = await file.read()
+        yaml_content = content.decode('utf-8')
 
-            return self.success_response(data=result)
-        except Exception as e:
-            return self.error_api_response(error="import_failed", message=str(e))
+        result = phrasebook_import_manager.import_yaml(
+            yaml_content, user.id, root_category
+        )
+
+        if not result['success']:
+            return self.error_api_response(
+                error="import_failed",
+                message=result.get('error', 'Import failed')
+            )
+
+        return self.success_response(data=result)
 
     async def export_category(self, category_id: str, user: User) -> PlainTextResponse:
         """Export a category and its values as YAML."""
-        yaml_content = phrasebook_import_service.export_to_yaml(category_id, user.id)
+        yaml_content = phrasebook_import_manager.export_to_yaml(category_id, user.id)
 
         if yaml_content is None:
             # Return error as plain text since we can't mix response types easily
@@ -394,27 +339,23 @@ class PhrasebookController(BaseController):
 
     # ========== Preview Generation Methods ==========
 
+    @soft_guarded("generate_previews_failed", "Failed to generate previews", admin="user")
     async def generate_previews(
         self, category_id: str, request: GeneratePreviewRequest, user: User
     ) -> APIResponse:
         """Generate preview images for values in a category."""
-        try:
-            result = await self.preview_generator.generate_previews(
-                category_id=category_id,
-                session_id=request.session_id,
-                prompt_template=request.prompt_template,
-                mode=request.mode,
-                user_id=user.id,
-                generation_orchestrator=self.generation_orchestrator,
-                value_ids=request.value_ids,
-                negative_prompt=request.negative_prompt,
-                seed=request.seed
-            )
-            return self.success_response(data=result)
-        except ValueError as e:
-            return self.error_api_response(error="generate_previews_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(error="generate_previews_failed", message=str(e))
+        result = await self.preview_generator.generate_previews(
+            category_id=category_id,
+            session_id=request.session_id,
+            prompt_template=request.prompt_template,
+            mode=request.mode,
+            user_id=user.id,
+            generation_orchestrator=self.generation_orchestrator,
+            value_ids=request.value_ids,
+            negative_prompt=request.negative_prompt,
+            seed=request.seed
+        )
+        return self.success_response(data=result)
 
 
 # ========== Route Handlers ==========

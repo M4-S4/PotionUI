@@ -87,7 +87,7 @@ class CloudBackend(BaseBackend):
 
     def prepare_pipes(self, pipes: List[Dict[str, Any]], user_ref: str = "") -> List[Dict[str, Any]]:
         identity = {"backend_id": self.backend_id, "driver": self.driver}
-        if user_ref:
+        if user_ref and self.config.send_user_hash:
             identity["user_ref"] = user_ref
         prepared = []
         for pipe in pipes:

@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { onDestroy, tick, untrack } from 'svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import {
-		createConfirmSettlementGate,
-		getConfirmKeyboardAction,
-		settleIfEligible
-	} from '$lib/components/modals/confirmKeyboard';
+	import { debounce } from '$lib/utils/time';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, Input, Spinner, Switch } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
@@ -97,14 +92,12 @@
 	let savingToLibrary = $state(false);
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
 	let previewPane = $state<HTMLElement | null>(null);
-	let previewTimer: ReturnType<typeof setTimeout> | null = null;
+	const schedulePreview = debounce(() => untrack(renderPreview), PREVIEW_DEBOUNCE_MS);
 	// 1 is "fit"; the pane's own size decides what that means in pixels.
 	let zoom = $state(1);
 	let paneSize = $state({ width: PREVIEW_FALLBACK_WIDTH, height: PREVIEW_FALLBACK_HEIGHT });
 	let panning = $state(false);
 	let panOrigin: { x: number; y: number; scrollLeft: number; scrollTop: number } | null = null;
-
-	const settlementGate = createConfirmSettlementGate();
 
 	let imageItems = $derived(context.items.filter((item) => item.kind === 'image'));
 	let lines = $derived(
@@ -230,7 +223,6 @@
 		untrack(() => {
 			loading = true;
 			drawn = false;
-			settlementGate.reset();
 			void loadAll(entries);
 		});
 	});
@@ -282,8 +274,7 @@
 			compareLayout,
 			effectiveCompare
 		];
-		if (previewTimer) clearTimeout(previewTimer);
-		previewTimer = setTimeout(() => untrack(renderPreview), PREVIEW_DEBOUNCE_MS);
+		schedulePreview();
 	});
 
 	// The pane's size is what "fit" means, so it has to be measured rather than
@@ -408,7 +399,7 @@
 	}
 
 	onDestroy(() => {
-		if (previewTimer) clearTimeout(previewTimer);
+		schedulePreview.cancel();
 		for (const entry of loaded) entry.bitmap.close();
 	});
 
@@ -478,10 +469,11 @@
 			URL.revokeObjectURL(url);
 
 			onClose();
+			return true;
 		} catch (error) {
 			logger.error('Stitch: download failed', getErrorMessage(error));
 			toasts.error('Could not build the stitched image');
-			settlementGate.reset();
+			return false;
 		} finally {
 			saving = false;
 		}
@@ -504,42 +496,28 @@
 			savingToLibrary = false;
 		}
 	}
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(
-			settlementGate,
-			loaded.length > 0 && !loading && !saving && !savingToLibrary,
-			download
-		);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (saving || savingToLibrary) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	isOpen={true}
 	title="Stitch"
 	subtitle="Combine the selected images into one"
 	size="xl"
-	closeable={!saving && !savingToLibrary}
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	busy={saving}
+	resetKey={imageItems}
+	confirmLabel="Download PNG"
+	confirmDisabled={loading || loaded.length === 0}
+	secondaryLabel="Save to Library"
+	secondaryIcon="photo"
+	secondaryBusy={savingToLibrary}
+	secondaryDisabled={loading || loaded.length === 0}
+	onConfirm={download}
+	onCancel={onClose}
+	onSecondary={saveToLibrary}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<Icon name="grid" className="h-5 w-5 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_260px]">
 		<div class="min-w-0 space-y-2">
@@ -796,19 +774,4 @@
 			{/if}
 		</div>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Download PNG"
-			busy={saving}
-			confirmDisabled={loading || loaded.length === 0}
-			secondaryLabel="Save to Library"
-			secondaryIcon="photo"
-			secondaryBusy={savingToLibrary}
-			secondaryDisabled={loading || loaded.length === 0}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-			onSecondary={saveToLibrary}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

@@ -7,7 +7,11 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 
 import {
+	applySegmentAdd,
+	applySegmentDelete,
 	applySegmentUpdate,
+	locateSegmentInLists,
+	restoreSegment,
 	locateSegmentIndex,
 	mergeChipSelections,
 	resolvePromptSegments
@@ -253,5 +257,163 @@ describe('applySegmentUpdate resource tokens', () => {
 
 		expect(result?.segments[0].content).toBe('<Picture 1> smiles');
 		expect(result?.segments[0].resources).toBeUndefined();
+	});
+});
+
+describe('segment list add, delete and undo', () => {
+	beforeEach(() => {
+		searchPhrasebook.mockReset();
+	});
+
+	const lists = () => ({
+		positive: [
+			{ id: 'a', content: 'one' },
+			{ id: 'b', content: 'two' },
+			{ id: 'c', content: 'three' }
+		],
+		negative: [
+			{ id: 'n1', content: 'blurry' },
+			{ id: 'n2', content: 'watermark' }
+		]
+	});
+
+	it('finds a segment by id in either list and falls back to the flat index the model saw', () => {
+		expect(locateSegmentInLists(lists(), { segmentId: 'n2', segmentIndex: 0 })).toEqual({ list: 'negative', index: 1 });
+		expect(locateSegmentInLists(lists(), { segmentId: 'gone', segmentIndex: 1 })).toEqual({ list: 'positive', index: 1 });
+		expect(locateSegmentInLists(lists(), { segmentId: '', segmentIndex: 4 })).toEqual({ list: 'negative', index: 1 });
+		expect(locateSegmentInLists(lists(), { segmentId: 'gone', segmentIndex: 9 })).toBeNull();
+	});
+
+	it('inserts a new segment right after the segment named by id', async () => {
+		const result = await applySegmentAdd(lists(), { segmentId: 'a', segmentIndex: -1, content: 'fresh' });
+
+		expect(result!.list).toBe('positive');
+		expect(result!.index).toBe(1);
+		expect(result!.lists.positive.map((s) => s.content)).toEqual(['one', 'fresh', 'two', 'three']);
+		expect(result!.lists.negative).toEqual(lists().negative);
+		expect(result!.lists.positive[1].id).not.toBe('a');
+	});
+
+	it('uses the index when the id is missing and appends when neither resolves', async () => {
+		const byIndex = await applySegmentAdd(lists(), { segmentId: 'gone', segmentIndex: 1, content: 'fresh' });
+		expect(byIndex!.lists.positive.map((s) => s.content)).toEqual(['one', 'two', 'fresh', 'three']);
+
+		const appended = await applySegmentAdd(lists(), { segmentId: '', segmentIndex: -1, content: 'fresh' });
+		expect(appended!.lists.positive.map((s) => s.content)).toEqual(['one', 'two', 'three', 'fresh']);
+		expect(appended!.index).toBe(3);
+	});
+
+	it('targets the negative list when asked, ignoring an anchor from the other list', async () => {
+		const result = await applySegmentAdd(lists(), {
+			segmentId: 'a',
+			segmentIndex: 0,
+			content: 'extra fingers',
+			list: 'negative'
+		});
+
+		expect(result!.list).toBe('negative');
+		expect(result!.lists.negative.map((s) => s.content)).toEqual(['blurry', 'watermark', 'extra fingers']);
+		expect(result!.lists.positive).toEqual(lists().positive);
+	});
+
+	it('follows the anchor into the negative list when no list is given', async () => {
+		const result = await applySegmentAdd(lists(), { segmentId: 'n1', segmentIndex: -1, content: 'lowres' });
+
+		expect(result!.list).toBe('negative');
+		expect(result!.lists.negative.map((s) => s.content)).toEqual(['blurry', 'lowres', 'watermark']);
+	});
+
+	it('replaces a lone blank segment instead of leaving an empty one behind', async () => {
+		const blank = { positive: [{ id: 'blank', content: '', chips: {}, enabled: true, type: 'content' as const }], negative: [] };
+
+		const result = await applySegmentAdd(blank, { segmentId: '', segmentIndex: -1, content: 'fresh' });
+
+		expect(result!.lists.positive.map((s) => s.content)).toEqual(['fresh']);
+	});
+
+	it('refuses an empty addition', async () => {
+		expect(await applySegmentAdd(lists(), { segmentId: 'a', segmentIndex: 0, content: '   ' })).toBeNull();
+	});
+
+	it('removes the segment by id or index and reports what was removed', () => {
+		const byId = applySegmentDelete(lists(), { segmentId: 'b', segmentIndex: 0 });
+		expect(byId!.lists.positive.map((s) => s.id)).toEqual(['a', 'c']);
+		expect(byId!.removal).toEqual({
+			list: 'positive',
+			index: 1,
+			segment: { id: 'b', content: 'two' },
+			previousId: 'a',
+			nextId: 'c'
+		});
+
+		const byIndex = applySegmentDelete(lists(), { segmentId: 'gone', segmentIndex: 3 });
+		expect(byIndex!.lists.negative.map((s) => s.id)).toEqual(['n2']);
+		expect(applySegmentDelete(lists(), { segmentId: 'gone', segmentIndex: 9 })).toBeNull();
+	});
+
+	it('keeps one blank segment when the last one is deleted', () => {
+		const result = applySegmentDelete({ positive: [{ id: 'only', content: 'solo' }], negative: [] }, { segmentId: 'only', segmentIndex: 0 });
+
+		expect(result!.lists.positive).toHaveLength(1);
+		expect(result!.lists.positive[0].content).toBe('');
+		expect(result!.removal.segment.content).toBe('solo');
+	});
+
+	it('undoes a delete by putting the segment back at its position', () => {
+		const deleted = applySegmentDelete(lists(), { segmentId: 'b', segmentIndex: 0 })!;
+
+		const restored = restoreSegment(deleted.lists, deleted.removal);
+
+		expect(restored).toEqual(lists());
+	});
+
+	it('undoes a delete after an add before it shifted the indexes', () => {
+		const deleted = applySegmentDelete(lists(), { segmentId: 'c', segmentIndex: 0 })!;
+		const shifted = {
+			...deleted.lists,
+			positive: [deleted.lists.positive[0], { id: 'x', content: 'new' }, ...deleted.lists.positive.slice(1)]
+		};
+
+		expect(restoreSegment(shifted, deleted.removal).positive.map((s) => s.id)).toEqual(['a', 'x', 'b', 'c']);
+	});
+
+	it('undoes a delete after an add following its previous neighbour', () => {
+		const deleted = applySegmentDelete(lists(), { segmentId: 'b', segmentIndex: 0 })!;
+		const shifted = {
+			...deleted.lists,
+			positive: [deleted.lists.positive[0], { id: 'x', content: 'new' }, deleted.lists.positive[1]]
+		};
+
+		expect(restoreSegment(shifted, deleted.removal).positive.map((s) => s.id)).toEqual(['a', 'b', 'x', 'c']);
+	});
+
+	it('restores before the next neighbour when the previous one is gone', () => {
+		const deleted = applySegmentDelete(lists(), { segmentId: 'b', segmentIndex: 0 })!;
+		const withoutPrevious = { ...deleted.lists, positive: [{ id: 'z', content: 'z' }, { id: 'y', content: 'y' }, deleted.lists.positive[1]] };
+
+		expect(restoreSegment(withoutPrevious, deleted.removal).positive.map((s) => s.id)).toEqual(['z', 'y', 'b', 'c']);
+	});
+
+	it('falls back to the clamped old index when both neighbours are gone', () => {
+		const deleted = applySegmentDelete(lists(), { segmentId: 'b', segmentIndex: 0 })!;
+		const bothGone = { ...deleted.lists, positive: [{ id: 'y', content: 'y' }, { id: 'z', content: 'z' }, { id: 'w', content: 'w' }] };
+
+		expect(restoreSegment(bothGone, deleted.removal).positive.map((s) => s.id)).toEqual(['y', 'b', 'z', 'w']);
+		expect(restoreSegment({ ...deleted.lists, positive: [{ id: 'y', content: 'y' }] }, deleted.removal).positive.map((s) => s.id)).toEqual(['y', 'b']);
+	});
+
+	it('undoes the deletion of the last segment by replacing the placeholder blank', () => {
+		const deleted = applySegmentDelete({ positive: [{ id: 'only', content: 'solo' }], negative: [] }, { segmentId: 'only', segmentIndex: 0 })!;
+
+		const restored = restoreSegment(deleted.lists, deleted.removal);
+
+		expect(restored.positive).toEqual([{ id: 'only', content: 'solo' }]);
+	});
+
+	it('does not duplicate a segment that is already back', () => {
+		const deleted = applySegmentDelete(lists(), { segmentId: 'b', segmentIndex: 0 })!;
+		const once = restoreSegment(deleted.lists, deleted.removal);
+
+		expect(restoreSegment(once, deleted.removal)).toBe(once);
 	});
 });

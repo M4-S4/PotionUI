@@ -325,16 +325,6 @@ class RecipeRunner:
 
     # --- resume semantics --------------------------------------------------
 
-    def resume_position(self, run_id: str) -> Optional[RecipeRun]:
-        """Reconstruct a run's position from the database alone.
-
-        A restarted process holds no in-memory cursor: the run's persisted
-        status + current_step + append-only attempts ARE the position. This is a
-        plain re-read, named to make the resume contract explicit - the frontend
-        renders whatever this returns.
-        """
-        return self.repo.get_run(run_id)
-
     # --- executor seam -----------------------------------------------------
 
     @property

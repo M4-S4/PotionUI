@@ -12,6 +12,7 @@ from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
 from src.features.tags.repository import TagRepository
 from tests.conftest import TestDatabase
+from tests.fixtures.seed import seed_user
 
 
 class _Safety:
@@ -28,12 +29,8 @@ def library():
     test_database = TestDatabase.from_template()
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.database.migration_runner.db", test_database):
-        with test_database.get_cursor() as cursor:
-            for user_id in ("user-1", "user-2"):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-                    (user_id, user_id, f"{user_id}@x.com", "x"),
-                )
+        for user_id in ("user-1", "user-2"):
+            seed_user(test_database, user_id)
         uploads = UploadRepository()
         fox = uploads.create(Upload(
             user_id="user-1", filename="a1.png", original_filename="fox.png", media_type="image", file_size=10,

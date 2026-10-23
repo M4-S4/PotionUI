@@ -392,7 +392,7 @@ class TestPhrasebookProvider:
         assert resolved.metadata["sample_count"] == 20
         assert resolved.metadata["value_count"] == 50
         assert "sample, not the full list" in resolved.content
-        assert "list_phrasebook_values" in resolved.content
+        assert "get_phrasebook_values" in resolved.content
 
     @pytest.mark.asyncio
     async def test_resolve_category_includes_subcategory_counts(self):
@@ -840,7 +840,11 @@ class TestFormProvider:
             model_index_manager=self.manager,
             form_state={
                 "preset": "01ABC", "mode": "txt2img",
-                "form_data": form_data, "variables": variables,
+                "form_data": form_data, "tab_id": "tab-1",
+                "variable_rolls": {v["name"]: v["lastRoll"] for v in variables if "lastRoll" in v},
+            },
+            prompt_variables=lambda: {
+                v["name"]: {k: val for k, val in v.items() if k not in ("name", "lastRoll")} for v in variables
             },
         )
 
@@ -853,7 +857,8 @@ class TestFormProvider:
         )
         resolved = await self.provider.resolve([], ctx)
         assert "## Prompt variables" in resolved.content
-        assert "- mood: one of noir, sunlit — shuffles each generation; last roll: sunlit" in resolved.content
+        assert "- mood: choice, shuffles each generation, 2 options (noir, sunlit); last roll: sunlit" in resolved.content
+        assert "- Every option, condition and full value: call get_prompt_variables." in resolved.content
         assert "steps: 30" in resolved.content
 
     @pytest.mark.asyncio
@@ -864,8 +869,23 @@ class TestFormProvider:
         )
         resolved = await self.provider.resolve([], ctx)
         assert "## Prompt variables" in resolved.content
-        assert "- subject: a fox" in resolved.content
+        assert '- subject: text, 5 chars ("a fox")' in resolved.content
         assert "no values set yet" not in resolved.content
+
+    @pytest.mark.asyncio
+    async def test_bare_dump_never_lists_every_option_of_a_big_choice(self):
+        options = [f"option {i:02d} " + "long outfit description " * 8 for i in range(40)]
+        ctx = self._ctx_with_variables({"steps": 30}, [{"name": "outfit_kind", "type": "choice", "options": options}])
+        resolved = await self.provider.resolve([], ctx)
+        assert "40 options" in resolved.content
+        assert options[0] not in resolved.content
+        assert "option 05" not in resolved.content
+
+    @pytest.mark.asyncio
+    async def test_bare_dump_without_a_draft_reader_has_no_variables_section(self):
+        ctx = _ctx(form_state={"preset": "01ABC", "mode": "txt2img", "form_data": {"steps": 30}, "tab_id": "t"})
+        resolved = await self.provider.resolve([], ctx)
+        assert "Prompt variables" not in resolved.content
 
     @pytest.mark.asyncio
     async def test_bare_dump_no_variables_key_unchanged(self):

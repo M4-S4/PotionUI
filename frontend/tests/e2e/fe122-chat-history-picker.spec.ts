@@ -3,7 +3,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'fe122-chat-history-picker';
-const BEAT = 400;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // Repro for "can't load image from history on the LLM Chat media loader
@@ -85,7 +84,6 @@ test('chat vision picker - History pick lands the image in the field', async ({ 
 
 	const dropzone = page.locator('[data-media-dropzone]').first();
 	await expect(dropzone).toBeVisible({ timeout: 15000 });
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '01-panel-open-empty');
 
 	// --- Open History from the compact field and pick the seeded generation.
@@ -93,7 +91,6 @@ test('chat vision picker - History pick lands the image in the field', async ({ 
 
 	const historyModal = page.getByText('Select Image from Generation History');
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '02-history-modal-open');
 
 	const thumbnail = page.locator(`img[src*="${generationId}"]`).first();
@@ -103,7 +100,6 @@ test('chat vision picker - History pick lands the image in the field', async ({ 
 	await thumbnail.locator('xpath=ancestor::button[1]').click();
 
 	await expect(historyModal).not.toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	// --- Decisive assertion: the compact field's preview shows the picked
 	// image, not an empty dropzone.

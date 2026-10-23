@@ -17,7 +17,7 @@ from src.features.llm.hooks import LLM_HOOKS
 from src.features.llm.repository import LLMRepository
 from src.features.llm.response_processor import LLMResponseProcessor
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ async def generate_response(
         )
 
     # Execute before_generate hook
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugins,
         LLM_HOOKS.before_generate,
         {
@@ -75,12 +75,8 @@ async def generate_response(
             "prompt": request.prompt,
             "has_image": bool(request.image_data),
         },
+        "Generation blocked", error=GenerationFailedException,
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Generation blocked")
-        logger.warning(f"LLM generation blocked by plugin: {reason}")
-        raise GenerationFailedException(reason)
 
     # Allow hooks to modify prompt
     prompt = hook_data.get("prompt", request.prompt)

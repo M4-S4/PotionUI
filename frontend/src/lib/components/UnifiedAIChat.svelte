@@ -7,10 +7,10 @@
 	import { scopedStorage } from '$lib/stores/identityScopedStorage';
 	import { api, type ChatSessionResponse } from '$lib/services/api/index';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
+	import { canApplySegmentAction } from '$lib/chat/conditionText';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
-	import ChatIconSprite from '$lib/components/chat/ChatIconSprite.svelte';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
 	import { activeTab, tabsStore } from '$lib/stores/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
@@ -60,11 +60,31 @@
 		ToolExecution
 	} from '$lib/types/chat';
 	import type { Segment } from '$lib/types/segments';
-	import { buildVariablesSnapshot } from '$lib/utils/variableSnapshot';
+	import { buildChatFormState } from '$lib/chat/chatFormState';
 	import { flattenRichSegments, isSegmentEnabled } from '$lib/utils/richSegments';
-	import { applySegmentUpdate } from '$lib/utils/promptSegments';
+	import {
+		applySegmentAdd,
+		applySegmentDelete,
+		applySegmentUpdate,
+		locateSegmentInLists,
+		restoreSegment,
+		type SegmentListKey,
+		type SegmentLists
+	} from '$lib/utils/promptSegments';
 	import { lastAppliedSegment } from '$lib/stores/lastAppliedSegment';
 	import { appliedSegmentActions } from '$lib/stores/appliedSegmentActions';
+	import { removedSegmentActions, removedActionKey } from '$lib/stores/removedSegmentActions';
+	import { promptActionUndos, promptActionMarkerKey } from '$lib/stores/promptActionUndos';
+	import { toasts } from '$lib/stores/toast';
+	import {
+		applyPromptListAction,
+		applySegmentActionToPrompt,
+		restoreSegmentInPrompt,
+		segmentTextInPrompt,
+		undoPromptListAction
+	} from '$lib/chat/promptActions';
+	import { isPromptListAction } from '$lib/utils/markdown';
+	import { activePromptIndex, promptCount, promptList } from '$lib/generation/promptBatch';
 	import { applyTitle, mapPersistedMessage } from '$lib/utils/chatStream';
 	import {
 		sendMessage as turnControllerSendMessage,
@@ -89,7 +109,6 @@
 	} from '$lib/utils/musicDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import { collectFormImages, type FormImageEntry } from '$lib/chat/formMedia';
-	import { applyVariableChanges } from '$lib/chat/applyVariableChanges';
 	import {
 		loadFromStorage,
 		saveToStorage,
@@ -104,6 +123,7 @@
 	import { loadHistoryRailCollapsed, saveHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 	import { getPresetPromptResources, type PresetPromptResourcesResult } from '$lib/utils/presetPromptResourcesCache';
 	import type { ResourceTokenContext } from '$lib/utils/promptResourceTokens';
+	import Icon from '$lib/components/Icon.svelte';
 
 	// Props
 	export let onClose: (() => void) | undefined = undefined;
@@ -292,13 +312,19 @@
 	// cached for every preset id at once since both surfaces need it for
 	// every open tab, not just the current one.
 	let presetNamesCache: Record<string, string> = {};
+	let presetBatchCache: Record<string, boolean> = {};
 	async function loadPresetNames() {
 		try {
 			const response = await loadPresets();
 			if (response.success) {
 				const map: Record<string, string> = {};
-				for (const p of response.data || []) map[p.id] = p.name;
+				const batch: Record<string, boolean> = {};
+				for (const p of response.data || []) {
+					map[p.id] = p.name;
+					batch[p.id] = p.supports_prompt_batch === true;
+				}
 				presetNamesCache = map;
+				presetBatchCache = batch;
 			}
 		} catch (err) {
 			logger.error('Failed to load preset names:', err);
@@ -986,6 +1012,9 @@
 		await sendMessage(instruction, { resourceRefs, attachedResources });
 	}
 
+	$: promptBatchOn =
+		!videoDirectorActive && !!contextTab?.selectedPreset && presetBatchCache[contextTab.selectedPreset] === true;
+
 	function buildContextMetadata(): Record<string, any> {
 		const tab = contextTab;
 		const activeSegments: Segment[] = videoDirectorActive ? [] : tab?.promptSegments || [];
@@ -1009,30 +1038,45 @@
 				...activeSegments.map((seg, i) => mapSegment(seg, i, false)),
 				...negativeSegments.map((seg, i) => mapSegment(seg, activeSegments.length + i, true))
 			],
-			form_state: {
-				preset: generationPresetActive ? tab?.selectedPreset || null : null,
-				tab_id: generatePageActive ? tab?.id ?? null : null,
-				session_id: chatFormSessionId(tab, currentMode),
-				mode: tab?.selectedMode || null,
-				variant: tab?.selectedVariant || null,
-				form_data: generatePageActive ? tab?.formData || {} : {},
-				variables: buildVariablesSnapshot(tab?.variables, tab?.variableRolls),
-				video_director: videoDirectorActive
+			form_state: buildChatFormState({
+				tab,
+				generatePageActive,
+				generationPresetActive,
+				sessionId: chatFormSessionId(tab, currentMode),
+				videoDirector: videoDirectorActive
 					? {
 							active: true,
 							doc: normalizeDirectorValue(tab?.videoDirector, videoDirectorCaps!),
 							capabilities: videoDirectorCapsRaw
 						}
 					: { active: false, doc: null, capabilities: null },
-				music_director: musicDirectorActive
+				musicDirector: musicDirectorActive
 					? {
 							active: true,
 							doc: normalizeMusicDirectorValue(tab?.musicDirector, musicDirectorCaps!),
 							capabilities: musicDirectorCapsRaw
 						}
 					: { active: false, doc: null, capabilities: null }
-			}
+			})
 		};
+		if (promptBatchOn && tab) {
+			const active = activePromptIndex(tab);
+			contextMetadata.form_state.prompt_batch = { supported: true, count: promptCount(tab), active };
+			contextMetadata.prompt_batch = {
+				active,
+				prompts: promptList(tab).map((entry, index) => {
+					const positive = entry.promptSegments || [];
+					return {
+						index,
+						name: entry.name?.trim() || '',
+						segments: [
+							...positive.map((seg, i) => mapSegment(seg, i, false)),
+							...(entry.negativePromptSegments || []).map((seg, i) => mapSegment(seg, positive.length + i, true))
+						]
+					};
+				})
+			};
+		}
 		Object.assign(contextMetadata, collectProvidedContext());
 		return contextMetadata;
 	}
@@ -1162,12 +1206,35 @@
 			 * `applyDirectorSegmentPrompt`'s own doc comment in
 			 * utils/videoDirector.ts for the resolution rule this mirrors. */
 			shotId?: string;
+			list?: SegmentListKey;
+			promptIndex?: number;
+			name?: string;
 		},
 		messageId: string,
 		actionIndex: number
 	) {
 		const tab = contextTab;
 		if (!tab) return;
+		if (!canApplySegmentAction(action)) return;
+
+		if (isPromptListAction(action.type)) {
+			await applyPromptAction(tab, action, messageId, actionIndex);
+			return;
+		}
+		if (
+			action.promptIndex !== undefined &&
+			promptBatchOn &&
+			action.promptIndex !== activePromptIndex(tab) &&
+			(action.type === 'update_segment' || action.type === 'add_segment' || action.type === 'delete_segment')
+		) {
+			await applySegmentToOtherPrompt(tab, action, messageId, actionIndex);
+			return;
+		}
+
+		if (action.type === 'add_segment' || action.type === 'delete_segment') {
+			await applySegmentListAction(tab, action, messageId, actionIndex);
+			return;
+		}
 
 		if (action.type === 'update_director_segment') {
 			if (!videoDirectorActive || !videoDirectorCaps) return;
@@ -1224,6 +1291,119 @@
 
 		lastAppliedSegment.set(segments[idx].id);
 		appliedSegmentActions.set(segments[idx].id, messageId, actionIndex);
+	}
+
+	function segmentListsOf(tab: { promptSegments?: Segment[]; negativePromptSegments?: Segment[] }): SegmentLists {
+		return { positive: tab.promptSegments || [], negative: tab.negativePromptSegments || [] };
+	}
+
+	function commitSegmentList(tabId: string, lists: SegmentLists, list: SegmentListKey) {
+		tabsStore.updateTab(
+			tabId,
+			list === 'positive'
+				? { promptSegments: lists.positive, prompt: flattenRichSegments(lists.positive) }
+				: { negativePromptSegments: lists.negative, negativePrompt: flattenRichSegments(lists.negative) }
+		);
+	}
+
+	async function applySegmentListAction(
+		tab: NonNullable<typeof contextTab>,
+		action: { type: string; segmentIndex: number; segmentId: string; content: string; list?: SegmentListKey },
+		messageId: string,
+		actionIndex: number
+	) {
+		if (videoDirectorActive) return;
+		const lists = segmentListsOf(tab);
+
+		if (action.type === 'add_segment') {
+			const result = await applySegmentAdd(lists, action, await resourceTokenContextFor(tab));
+			if (!result) return;
+			commitSegmentList(tab.id, result.lists, result.list);
+			const added = result.lists[result.list][result.index];
+			lastAppliedSegment.set(added.id);
+			appliedSegmentActions.set(added.id, messageId, actionIndex);
+			return;
+		}
+
+		const result = applySegmentDelete(lists, action);
+		if (!result) return;
+		commitSegmentList(tab.id, result.lists, result.removal.list);
+		removedSegmentActions.set(messageId, actionIndex, result.removal);
+		appliedSegmentActions.set(result.removal.segment.id, messageId, actionIndex);
+	}
+
+	async function applyPromptAction(
+		tab: NonNullable<typeof contextTab>,
+		action: { type: string; promptIndex?: number; name?: string; content: string },
+		messageId: string,
+		actionIndex: number
+	) {
+		if (!promptBatchOn) return;
+		const result = await applyPromptListAction(tab, action, await resourceTokenContextFor(tab));
+		if (!result) return;
+		tabsStore.updateTab(tab.id, result.patch);
+		promptActionUndos.set(messageId, actionIndex, result.undo);
+		appliedSegmentActions.set(promptActionMarkerKey(messageId, actionIndex), messageId, actionIndex);
+	}
+
+	async function applySegmentToOtherPrompt(
+		tab: NonNullable<typeof contextTab>,
+		action: { type: string; segmentIndex: number; segmentId: string; content: string; list?: SegmentListKey; promptIndex?: number },
+		messageId: string,
+		actionIndex: number
+	) {
+		const result = await applySegmentActionToPrompt(tab, action.promptIndex!, action, await resourceTokenContextFor(tab));
+		if (!result) return;
+		tabsStore.updateTab(tab.id, result.patch);
+		if (result.removal) removedSegmentActions.set(messageId, actionIndex, result.removal);
+		appliedSegmentActions.set(result.segmentId, messageId, actionIndex);
+	}
+
+	function handleUndoPromptAction(messageId: string, actionIndex: number): boolean {
+		const tab = contextTab;
+		const undo = $promptActionUndos[removedActionKey(messageId, actionIndex)];
+		if (!undo) return false;
+		if (!tab) return true;
+		const patch = undoPromptListAction(tab, undo);
+		if (!patch) {
+			toasts.info("This prompt changed; undo isn't available");
+			return true;
+		}
+		tabsStore.updateTab(tab.id, patch);
+		appliedSegmentActions.clear(promptActionMarkerKey(messageId, actionIndex));
+		promptActionUndos.clear(messageId, actionIndex);
+		return true;
+	}
+
+	function handleUndoSegmentAction(messageId: string, actionIndex: number) {
+		if (handleUndoPromptAction(messageId, actionIndex)) return;
+		const tab = contextTab;
+		const removal = $removedSegmentActions[removedActionKey(messageId, actionIndex)];
+		if (!tab || !removal || videoDirectorActive) return;
+		if (removal.prompt !== undefined) {
+			const patch = restoreSegmentInPrompt(tab, removal.prompt, removal);
+			if (!patch) return;
+			tabsStore.updateTab(tab.id, patch);
+			appliedSegmentActions.clear(removal.segment.id);
+			removedSegmentActions.clear(messageId, actionIndex);
+			return;
+		}
+		const restored = restoreSegment(segmentListsOf(tab), removal);
+		commitSegmentList(tab.id, restored, removal.list);
+		appliedSegmentActions.clear(removal.segment.id);
+		removedSegmentActions.clear(messageId, actionIndex);
+		lastAppliedSegment.set(removal.segment.id);
+	}
+
+	function segmentTextForAction(action: { segmentId: string; segmentIndex: number; promptIndex?: number }): string | null {
+		const tab = contextTab;
+		if (!tab) return null;
+		if (action.promptIndex !== undefined && action.promptIndex !== activePromptIndex(tab)) {
+			return segmentTextInPrompt(tab, action.promptIndex, action);
+		}
+		const lists = segmentListsOf(tab);
+		const found = locateSegmentInLists(lists, action);
+		return found ? lists[found.list][found.index].content : null;
 	}
 
 	async function handlePromptFeedback(
@@ -1326,7 +1506,6 @@
 			if (resultData.action === 'apply_music_director_ops') handleMusicDirectorApplied(resultData.operations);
 			if (resultData.action === 'set_prompt_relay') handlePromptRelaySet(resultData);
 			if (resultData.action === 'apply_segment_updates') await handleSegmentUpdatesApplied(resultData.updates);
-			if (resultData.action === 'apply_variable_changes') handleVariableChangesApplied(resultData.operations);
 			return null;
 		} catch (err) {
 			logger.error('Failed to apply the approved change:', err);
@@ -1451,12 +1630,6 @@
 			updatedFormData[change.field_name] = change.new_value;
 		}
 		tabsStore.updateTab(tab.id, { formData: updatedFormData });
-	}
-
-	function handleVariableChangesApplied(operations: Parameters<typeof applyVariableChanges>[1]) {
-		const tab = contextTab;
-		if (!tab || !operations || operations.length === 0) return;
-		tabsStore.updateTab(tab.id, { variables: applyVariableChanges(tab.variables ?? {}, operations) });
 	}
 
 	function handleMusicDirectorApplied(operations: unknown[]) {
@@ -1751,8 +1924,6 @@
 	}
 </script>
 
-<ChatIconSprite />
-
 <!-- History rail: a real column (mock's <aside class="history-rail">), always
      mounted — .chat-shell's own &.rail-collapsed rule (chat-concept.css)
      animates it to zero width instead of this unmounting it. -->
@@ -1782,9 +1953,7 @@
 		<!-- No usable LLM config — a state the prototype never shows.
 		     Non-admins get no pointer into Admin — they can't act on it. -->
 		<div class="chat-shell-notice">
-			<svg class="icon" style="width:28px;height:28px;color:rgb(var(--fg-subtle))"
-				><use href="#i-info" /></svg
-			>
+			<Icon name="chat-info" className="icon !h-[28px] !w-[28px] text-fg-subtle" strokeWidth={1.8} />
 			{#if $authStore.user?.account_type === 'ADMIN'}
 				<p>No enabled LLM configurations</p>
 				<p>
@@ -1815,7 +1984,7 @@
 					</div>
 				{/if}
 				{#each messages as message, idx (message.id ?? message.clientKey ?? idx)}
-					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && idx === messages.length - 1}
+					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && !message.thinking?.length && idx === messages.length - 1}
 						<!-- Nothing has happened for this turn yet (no content, no tool call, no
 						     trace step) — a bare "thinking" placeholder covers that brief gap
 						     for a tool called with no preceding narration. Once any of those
@@ -1838,6 +2007,10 @@
 								? (action, actionIndex) =>
 										handleApplySegmentAction(action, message.id || '', actionIndex)
 								: undefined}
+							onUndoAction={(actionIndex) => handleUndoSegmentAction(message.id || '', actionIndex)}
+							segmentTextFor={segmentTextForAction}
+							listActionsDisabled={videoDirectorActive || !contextTab}
+							batchPromptCount={contextTab ? promptCount(contextTab) : 0}
 							applyActionHint={videoDirectorActive
 								? "Applies to the Video Director's persistent Direction prompt"
 								: undefined}
@@ -1846,6 +2019,7 @@
 								: undefined}
 							toolExecutions={message.tool_executions || []}
 							traceSteps={message.trace_steps || []}
+							thinking={message.thinking || []}
 							sources={message.sources || []}
 							sessionId={sessionId || ''}
 							messageId={message.id || ''}
@@ -1901,7 +2075,7 @@
 									inputRef?.focus();
 								}}
 							>
-								<svg class="icon"><use href="#{suggestion.icon}" /></svg><strong>{suggestion.title}</strong
+								<Icon name={suggestion.icon} className="icon" strokeWidth={1.8} /><strong>{suggestion.title}</strong
 								><span>{suggestion.sub}</span>
 							</button>
 						{/each}
@@ -1930,7 +2104,7 @@
 		{#if $chatSession.error}
 			<div class="chat-overlay-col">
 				<div class="chat-error-banner">
-					<svg class="icon"><use href="#i-info" /></svg>
+					<Icon name="chat-info" className="icon" strokeWidth={1.8} />
 					{$chatSession.error}
 				</div>
 			</div>

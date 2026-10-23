@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from src.features.content_safety import gate as gate_module
 from src.features.content_safety.errors import ContentCheckUnavailable
 from src.features.content_safety.gate import (
     ContentGate,
@@ -73,10 +74,12 @@ def test_frames_are_sampled_from_ten_to_ninety_percent():
     assert frame_times(10.0, 1) == [5.0]
 
 
-def test_one_ffmpeg_call_seeks_every_frame():
+def test_one_ffmpeg_call_seeks_every_frame(monkeypatch):
+    monkeypatch.setattr(gate_module, "find_ffmpeg", lambda: "/opt/ffmpeg/bin/ffmpeg")
+
     command = build_frame_command("clip.mp4", [1.0, 2.0], Path("out"))
 
-    assert command[0] == "ffmpeg"
+    assert command[0] == "/opt/ffmpeg/bin/ffmpeg"
     assert command.count("-i") == 2
     assert command.count("-ss") == 2
     assert Path("out", "frame_1.jpg").as_posix() in [Path(part).as_posix() for part in command]

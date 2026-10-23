@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { AUTH_STATE_PATH } from './tests/e2e/helpers';
 
 // The browser-UI E2E layer is driven by tests/e2e/ui/run.py, which boots
 // a throwaway backend, serves the built frontend with `vite preview`, and exports
@@ -13,10 +14,12 @@ export default defineConfig({
 	fullyParallel: false,
 	workers: 1,
 	forbidOnly: !!process.env.CI,
+	globalSetup: './tests/e2e/global-setup.ts',
 	retries: process.env.CI ? 1 : 0,
 	reporter: [['list']],
 	use: {
 		baseURL,
+		storageState: AUTH_STATE_PATH,
 		screenshot: process.env.CI ? 'only-on-failure' : 'on',
 		trace: 'retain-on-failure',
 		video: process.env.CI ? 'retain-on-failure' : 'on'

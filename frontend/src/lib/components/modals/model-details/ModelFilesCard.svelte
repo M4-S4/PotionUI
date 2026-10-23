@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
-	import { formatBytes } from './formatters';
+	import { formatBytes } from '$lib/utils/format';
 	import { KVGrid, KVItem } from '$lib/components/detail';
 
 	export let files: any[] = [];
@@ -11,7 +11,7 @@
 	{#if bare}
 		<KVGrid>
 			{#each files as file, index (file.id ?? index)}
-				<KVItem label={file.file_type} mono>{formatBytes(file.file_size)}</KVItem>
+				<KVItem label={file.file_type} mono>{file.file_size ? formatBytes(file.file_size) : 'Unknown'}</KVItem>
 			{/each}
 		</KVGrid>
 	{:else}
@@ -27,7 +27,7 @@
 				{#each files as file}
 					<div class="flex items-center justify-between text-xs py-1">
 						<span class="text-fg-muted capitalize">{file.file_type}</span>
-						<span class="text-fg font-medium font-mono tabular-nums">{formatBytes(file.file_size)}</span>
+						<span class="text-fg font-medium font-mono tabular-nums">{file.file_size ? formatBytes(file.file_size) : 'Unknown'}</span>
 					</div>
 				{/each}
 			</div>

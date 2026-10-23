@@ -111,10 +111,21 @@ class TestIoTypesDocumenter:
 
         # Common types that should be documented
         common_types = [
-            'INT', 'FLOAT', 'IMAGE', 'MODEL', 'CLIP', 'VAE',
-            'P_PROMPT', 'N_PROMPT', 'SEED', 'CFG', 'SAMPLER'
+            'INT', 'IMAGE', 'MODEL', 'CLIP', 'VAE',
+            'P_PROMPT', 'SEED', 'CFG', 'SAMPLER'
         ]
 
         for type_name in common_types:
             assert type_name in documenter.IO_TYPE_DESCRIPTIONS
             assert len(documenter.IO_TYPE_DESCRIPTIONS[type_name]) > 0
+
+    def test_unused_members_are_not_io_types_or_documented(self):
+        removed = {
+            'FLOAT', 'N_PROMPT', 'P_PROMPT_EMBED', 'N_PROMPT_EMBED', 'TRUE_CFG_SCALE', 'PAG_SCALE',
+            'MODE', 'DEVICE', 'ANNOTATION', 'PIPE', 'FORM', 'LORA',
+        }
+
+        documenter = IoTypesDocumenter()
+
+        assert removed.isdisjoint({m.value for m in IOType})
+        assert removed.isdisjoint(documenter.IO_TYPE_DESCRIPTIONS)

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getSettings: vi.fn(),
@@ -10,10 +11,6 @@ const adminApi = await import('$lib/services/admin-api');
 const { page } = await import('./stubs/appStores');
 const { default: SystemSettingsTab } = await import('../../src/routes/admin/components/SystemSettingsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
-
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 function rowIn(target: HTMLElement, key: string): HTMLElement {
 	const el = target.querySelector<HTMLElement>(`[data-testid="runtime-setting-${key}"]`);
@@ -27,7 +24,7 @@ async function mountOn(view: string, settings: Record<string, unknown>) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	createClassComponent({ component: SystemSettingsTab as never, target, props: {} });
-	await settle();
+	await settle(10);
 	return target;
 }
 
@@ -35,7 +32,7 @@ async function save(target: HTMLElement) {
 	const saveButton = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith('Save'));
 	if (!saveButton) throw new Error('save button not rendered');
 	saveButton.click();
-	await settle();
+	await settle(10);
 	return vi.mocked(adminApi.updateSettings).mock.calls.at(-1)![0] as Record<string, unknown>;
 }
 
@@ -53,7 +50,7 @@ describe('System Settings save body for the diagnostics settings', () => {
 			native_sol_attn_debug: true
 		});
 		rowIn(target, 'profiling_enabled').querySelector<HTMLInputElement>('input[role="switch"]')!.click();
-		await settle();
+		await settle(10);
 
 		const body = await save(target);
 		expect(body.profiling_enabled).toBe(true);

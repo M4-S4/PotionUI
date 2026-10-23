@@ -67,8 +67,8 @@ class GoogleProvider(CloudProvider):
     label: ClassVar[str] = "Google Gemini"
     config_class: ClassVar[type[CloudBackendConfig]] = GoogleConfig
     data_notice: ClassVar[str] = DATA_NOTICE
-    supports_cancel: ClassVar[bool] = False
-    idempotent_submit: ClassVar[bool] = False
+    error_brand: ClassVar[str] = "Google"
+    credits_hint: ClassVar[str] = "An administrator can add credit in Google AI Studio."
     default_base_url: ClassVar[str] = DEFAULT_BASE_URL
     auth_header: ClassVar[Tuple[str, str]] = ("x-goog-api-key", "")
     catalog_file: ClassVar[Path] = SUGGESTIONS_FILE
@@ -79,20 +79,10 @@ class GoogleProvider(CloudProvider):
         message = str(error.get("message") or "")[:300]
         code = str(error.get("status") or "")
         reasons, delay = _details(error)
-        retry_after = parse_retry_after(headers.get("retry-after"))
-        if retry_after is None:
-            retry_after = delay
         detail = f"HTTP {status} {code}: {message}".strip()
         key_problem = any(reason in KEY_REASONS for reason in reasons) or "api key" in message.lower()
-        if status == 401 or (status in (400, 403) and key_problem):
+        if status in (400, 403) and key_problem:
             return CloudError("auth", "Google rejected the API key. Check it in Administration, Backends.", detail=detail)
-        if status == 402:
-            return CloudError(
-                "credits", "The Google account has no prepaid credit left. An administrator can add credit in Google AI Studio.",
-                detail=detail, retry_after_s=retry_after,
-            )
-        if status == 403:
-            return CloudError("refused", "Google refused this request. The key may not be allowed to use this model.", detail=detail)
         if status == 400 and code == "FAILED_PRECONDITION":
             if "location" in message.lower() or "region" in message.lower():
                 return CloudError("refused", "Google does not offer this model where this server is.", detail=detail)
@@ -100,22 +90,19 @@ class GoogleProvider(CloudProvider):
                 "credits", "This model needs billing turned on for the key's project. An administrator can turn it on in Google AI Studio.",
                 detail=detail,
             )
-        if status == 429:
-            return CloudError(
-                "rate_limited", "Google is limiting requests from this key. Try again shortly.",
-                detail=detail, retry_after_s=retry_after,
-            )
         if status == 404:
             return CloudError("invalid_request", "Google does not offer this model to this key.", detail=detail)
-        if status == 400:
-            return CloudError("invalid_request", "Google rejected the request settings.", detail=detail)
         if status == 503:
-            return CloudError("unavailable", "The model is overloaded at the moment. Try again shortly.", detail=detail, retry_after_s=retry_after)
-        if status == 504:
-            return CloudError("timeout", "Google took too long to answer.", detail=detail)
-        if status >= 500:
-            return CloudError("unavailable", "Google is having trouble at the moment. Try again shortly.", detail=detail, retry_after_s=retry_after)
-        return None
+            return CloudError(
+                "unavailable", "The model is overloaded at the moment. Try again shortly.",
+                detail=detail, retry_after_s=parse_retry_after(headers.get("retry-after")) or delay,
+            )
+        mapped = super().map_error(status, headers, body)
+        if mapped is not None:
+            mapped.detail = detail
+            if mapped.retry_after_s is None:
+                mapped.retry_after_s = delay
+        return mapped
 
     async def _list_models(self) -> List[Any]:
         items: List[Any] = []
@@ -170,11 +157,6 @@ class GoogleProvider(CloudProvider):
         payload = await self.http.request_json("GET", f"/{job.handle['operation']}")
         return parse_operation(self.http, payload, dict(job.handle), job.job_id)
 
-    async def check(self) -> CloudHealth:
-        try:
-            await self.http.request_json("GET", "/models", params={"pageSize": 1})
-        except CloudError as error:
-            if error.kind in FATAL_LISTING_KINDS:
-                return CloudHealth(ok=False, message=error.user_message)
-            raise
+    async def probe(self) -> CloudHealth:
+        await self.http.request_json("GET", "/models", params={"pageSize": 1})
         return CloudHealth(ok=True)

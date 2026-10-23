@@ -94,34 +94,14 @@ const FIELDS: readonly FilterFieldDescriptor<GenerationsFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<GenerationsFilters>({
+export const generationsFilters = createFilterCodec<GenerationsFilters>({
 	defaults: DEFAULT_GENERATIONS_FILTERS,
 	fields: FIELDS,
 	sortValues: ['created_desc', 'created_asc']
 });
 
-export function generationsFiltersFromSearchParams(params: URLSearchParams): GenerationsFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function generationsFiltersToSearchParams(filters: GenerationsFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function generationsFilterActiveCount(filters: GenerationsFilters): number {
-	return codec.activeCount(filters);
-}
-
 export function generationsFilterChips(filters: GenerationsFilters, userLabel: (userId: string) => string): FilterChip[] {
-	return codec.chips(filters, { userId: ((value: string) => userLabel(value)) as (value: never) => string | null });
-}
-
-export function clearGenerationsFilterChip(filters: GenerationsFilters, key: string): GenerationsFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllGenerationsFilters(filters: GenerationsFilters): GenerationsFilters {
-	return codec.clearAll(filters);
+	return generationsFilters.chips(filters, { userId: ((value: string) => userLabel(value)) as (value: never) => string | null });
 }
 
 export function generationsSortParams(sortBy: GenerationSortBy): { sortBy: 'created_at'; sortDir: 'asc' | 'desc' } {

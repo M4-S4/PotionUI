@@ -10,6 +10,7 @@ from typing import List, Optional
 from src.features.collections.operations.reads import get_collection
 from src.features.collections.records import Collection
 from src.features.collections.repository import CollectionRepository
+from src.platform.http.errors import NotFoundError
 
 
 def move_collection(
@@ -31,7 +32,7 @@ def move_collection(
 
     success = collection_repository.move(collection_id, new_parent_id, user_id, scope)
     if not success:
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("collection_not_found", "Collection not found or access denied")
 
     return get_collection(collection_repository, collection_id, user_id, scope)
 
@@ -72,7 +73,7 @@ def bulk_move_collections(
                 raise ValueError(target_error)
             success = collection_repository.move(collection_id, new_parent_id, user_id, scope)
             if not success:
-                raise ValueError("Collection not found or access denied")
+                raise NotFoundError("collection_not_found", "Collection not found or access denied")
             moved += 1
         except ValueError as e:
             errors.append({"id": collection_id, "reason": str(e)})

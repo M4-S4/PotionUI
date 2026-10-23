@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 from src.features.backends.records import Backend
 from src.platform.security.secrets import get_secret_cipher
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 class BackendRepository:
     @staticmethod
@@ -21,30 +22,20 @@ class BackendRepository:
 
     def get_all(self) -> List[Backend]:
         """Get all backends"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM backends ORDER BY name")
             return [self._decrypt(Backend.from_row(row)) for row in cursor.fetchall()]
 
     def get_by_id(self, backend_id: str) -> Optional[Backend]:
         """Get backend by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM backends WHERE id = ?", (backend_id,))
             row = cursor.fetchone()
             return self._decrypt(Backend.from_row(row)) if row else None
 
-    def get_by_engine(self, engine: str) -> List[Backend]:
-        """Get all backends providing a given engine"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM backends WHERE engine = ? ORDER BY name", (engine,))
-            return [self._decrypt(Backend.from_row(row)) for row in cursor.fetchall()]
-
     def get_default(self, engine: str) -> Optional[Backend]:
         """Get the default backend for an engine"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM backends WHERE engine = ? AND is_default = 1 LIMIT 1",
                 (engine,)
@@ -60,8 +51,7 @@ class BackendRepository:
         if backend.is_default:
             self._unset_defaults_for_engine(backend.engine)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO backends (id, name, engine, driver, enabled, is_default, config, description)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -83,8 +73,7 @@ class BackendRepository:
         if backend.is_default:
             self._unset_defaults_for_engine(backend.engine, exclude_id=backend_id)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE backends
                 SET name = ?, engine = ?, driver = ?, enabled = ?, is_default = ?, config = ?, description = ?
@@ -107,15 +96,13 @@ class BackendRepository:
 
     def delete(self, backend_id: str) -> bool:
         """Delete backend by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM backends WHERE id = ?", (backend_id,))
             return cursor.rowcount > 0
 
     def set_default(self, backend_id: str, engine: str) -> bool:
         """Set a backend as the default for its engine"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE backends SET is_default = 0 WHERE engine = ?",
                 (engine,)
@@ -128,15 +115,13 @@ class BackendRepository:
 
     def iter_encrypted_configs(self) -> List[Dict[str, Any]]:
         """Raw (undecrypted) config blobs, for the preflight check and rotation."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT id, config FROM backends")
             return [dict(row) for row in cursor.fetchall()]
 
     def replace_config(self, backend_id: str, serialized_config: str) -> None:
         """Overwrite one backend's stored config JSON verbatim."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE backends SET config = ? WHERE id = ?",
                 (serialized_config, backend_id),
@@ -144,8 +129,7 @@ class BackendRepository:
 
     def _unset_defaults_for_engine(self, engine: str, exclude_id: Optional[str] = None):
         """Unset the default flag from all backends of an engine"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if exclude_id:
                 cursor.execute(
                     "UPDATE backends SET is_default = 0 WHERE engine = ? AND id != ?",

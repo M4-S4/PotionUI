@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('../../src/lib/utils/chipParser', () => ({
 	hydrateSegments: async (segments: unknown[]) => segments
@@ -53,10 +54,6 @@ function mount(props: Record<string, unknown> = {}) {
 		props: { segments: [], ...props }
 	});
 	return { target, component };
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function buttonByText(root: ParentNode, text: string): HTMLButtonElement | undefined {
@@ -124,7 +121,8 @@ describe('SegmentedPromptEditor reports the library prompt behind the compositio
 			segments: [{ id: 'a', type: 'content', content: 'a lighthouse keeper', chips: {}, enabled: true }]
 		});
 		await openMoreMenuItem(editor.target, 'Save as Prompt');
-		buttonByText(document.body, 'Save Prompt')?.click();
+		const primary = document.body.querySelector('[role="dialog"] [data-segment-modal-primary]');
+		(primary?.closest('button') as HTMLButtonElement | null)?.click();
 		await settle();
 
 		expect(api.createPrompt).toHaveBeenCalled();

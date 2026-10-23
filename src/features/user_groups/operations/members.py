@@ -13,7 +13,7 @@ from src.features.user_groups.mappers import group_to_dto, member_to_dto
 from src.features.user_groups.operations.guards import require_admin, require_group_exists
 from src.features.user_groups.repository import UserGroupRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.security.user import User
 
 logger = logging.getLogger(__name__)
@@ -98,16 +98,12 @@ def remove_member(
     require_group_exists(repository, group_id)
 
     # Execute before_remove_member hook
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugins,
         USER_GROUP_HOOKS.before_remove_member,
         {"group_id": group_id, "user_id": user_id, "admin_id": user.id},
+        "Member removal blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Member removal blocked")
-        logger.warning(f"Member removal blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     removed = repository.remove_user_from_group(group_id, user_id)
     if not removed:

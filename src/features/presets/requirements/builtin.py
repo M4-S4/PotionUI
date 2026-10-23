@@ -189,6 +189,13 @@ class ModelRequirementChecker:
             model = ctx.models.model_repo.get_by_sha256(parsed.hash, include_providers=False)
             if model is not None and model.is_available:
                 return RequirementResult(status="ok", detail=f"model '{model.filename}' present (hash match)")
+            unverified = self._unverified_files(ctx) if model is None else 0
+            if unverified:
+                noun = "file is" if unverified == 1 else "files are"
+                return RequirementResult(
+                    status="unknown",
+                    detail=f"{unverified} model {noun} still being verified, so a match for hash '{parsed.hash}' cannot be ruled out yet",
+                )
             return RequirementResult(
                 status="missing",
                 detail=f"no available model with hash '{parsed.hash}' found in the depot",
@@ -216,6 +223,11 @@ class ModelRequirementChecker:
             hint=parsed.hint,
             action=RequirementAction(kind="open_downloader", payload={"tag": parsed.tag}),
         )
+
+    @staticmethod
+    def _unverified_files(ctx: RequirementContext) -> int:
+        digests = getattr(ctx.models, "digests", None)
+        return digests.pending_count() if digests is not None else 0
 
     def describe(self, spec: Dict[str, Any]) -> str:
         tag = spec.get("tag")

@@ -19,17 +19,6 @@ from .suggest import AnalyzeResult, InputCandidate
 _FOUNDATIONAL_ROLES = frozenset({"seed", "prompt_positive", "prompt_negative", "batch_size"})
 _MODEL_ROLES = ("checkpoint", "diffusion_model", "clip", "vae")
 
-_LORA_PICKER_CONFIG = {
-    "model_type": "lora",
-    "placeholder": "Select a LoRA...",
-    "allow_info_modal": True,
-    "strength_min": -2.0,
-    "strength_max": 2.0,
-    "strength_step": 0.1,
-    "strength_default": 1.0,
-    "max_items": 6,
-}
-
 
 def _tab_id(label: str) -> str:
     import re
@@ -73,17 +62,6 @@ def _model_item(candidate: InputCandidate) -> FieldItem:
         default=None,
         config=config,
         mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform="strip_model_prefix")],
-    )
-
-
-def _lora_item() -> FieldItem:
-    return FieldItem(
-        field_name="loras",
-        field_type="lora_picker",
-        label="LoRAs",
-        default=[],
-        config=dict(_LORA_PICKER_CONFIG),
-        mappings=[],
     )
 
 

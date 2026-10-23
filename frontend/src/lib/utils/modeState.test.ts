@@ -82,9 +82,18 @@ describe('buildModeSwitchPatch', () => {
 		const patch = buildModeSwitchPatch(tab, 'txt2img', 'img2img');
 
 		expect(patch.prompt).toBe('');
-		expect(patch.promptSegments).toEqual([]);
 		expect(patch.formData).toEqual({});
 		expect(patch.modeStateByMode?.txt2img).toEqual(captureModeState(tab));
+	});
+
+	it('never leaves the entered mode with zero prompt segments', () => {
+		const tab = makeTab({ selectedMode: 'txt2img', promptSegments: [{ id: 's1', content: 'a cat' } as any] });
+
+		const patch = buildModeSwitchPatch(tab, 'txt2img', 'img2img');
+
+		expect(patch.promptSegments).toHaveLength(1);
+		expect(patch.promptSegments?.[0].content).toBe('');
+		expect(patch.negativePromptSegments).toHaveLength(1);
 	});
 
 	it('restores a previously visited mode on return, including formData', () => {

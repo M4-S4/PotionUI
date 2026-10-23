@@ -2,18 +2,20 @@ import asyncio
 import io
 import logging
 import traceback
+from dataclasses import replace
 from typing import List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, WebSocket, Depends, Query, UploadFile, File as FastAPIFile, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse, PlainTextResponse, Response
 
 # Import services - needed for injector
-from src.features.plans.errors import LimitExceeded
 from src.platform.filesystem import FileStore
 from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation import profile_paths
 from src.platform.observability.profiling import render_report_from_file
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.current_user import (
     get_current_active_user,
     get_current_admin_user,
@@ -68,10 +70,10 @@ from src.features.generation import (
     GenerationPolicy,
 )
 from src.features.generation.history_executor import HistoryExecutorSaturated
+from src.features.generation.history_filter import HistoryFilter, history_filter_query
 from src.features.generation.repository import generation_repo
 from src.features.generation.state_lookup import resolve_generation_state
 from src.features.generation.status_tracker import TERMINAL_STATES
-from src.features.generation.file_repository import file_repo
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -113,6 +115,12 @@ class _SpooledZipResponse(StreamingResponse):
             await super().__call__(scope, receive, send)
         finally:
             _close_spooled_file(self._zip_file)
+
+
+_NOT_FOUND = {GenerationNotFoundException: Fail("generation_not_found", status=404)}
+_BUSY = {HistoryExecutorSaturated: Fail("history_busy", "Generation history is busy. Please retry.", status=503)}
+_INVALID_TAG = {InvalidTagException: Fail("invalid_tag", status=400)}
+_INVALID_DATE = {InvalidDateFilterException: Fail("invalid_date_format", status=400)}
 
 
 class GenerationController(BaseController):
@@ -161,8 +169,6 @@ class GenerationController(BaseController):
 
             return self.success_response(data=result)
 
-        except LimitExceeded as e:
-            raise e.http()
         except FormNotFoundException as e:
             return self.error_response(
                 error="form_not_found",
@@ -332,63 +338,38 @@ class GenerationController(BaseController):
             )
         return FileResponse(str(target_path), media_type=media_type, filename=filename)
 
+    @guarded(
+        fallback=Fail("clear_queue_failed", "Failed to clear tab queue", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def clear_tab_queue(self, tab_id: str, current_user) -> APIResponse:
-        """
-        Drop every generation this tab has queued but not yet started.
+        cancelled = await self.generation_orchestrator.clear_tab_queue(
+            current_user.id, tab_id
+        )
 
-        Scoped to the calling user, so one user's tab id can never clear
-        another's queue - tab ids are minted client-side and collide freely
-        across users.
-        """
-        try:
-            cancelled = await self.generation_orchestrator.clear_tab_queue(
-                current_user.id, tab_id
-            )
+        for generation_id in cancelled:
+            await self.output_broadcaster.broadcast_cancelled(generation_id)
 
-            for generation_id in cancelled:
-                await self.output_broadcaster.broadcast_cancelled(generation_id)
+        return self.success_response(
+            data={'cancelled': cancelled, 'count': len(cancelled)},
+            message=f"Cleared {len(cancelled)} queued generation(s)"
+        )
 
-            return self.success_response(
-                data={'cancelled': cancelled, 'count': len(cancelled)},
-                message=f"Cleared {len(cancelled)} queued generation(s)"
-            )
-
-        except Exception as e:
-            logging.error(f"Failed to clear queue for tab {tab_id}: {str(e)}")
-            return self.error_response(
-                error="clear_queue_failed",
-                message=f"Failed to clear tab queue: {str(e)}"
-            )
-
+    @guarded(
+        fallback=Fail("queue_read_failed", "Failed to read generation queue", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def get_queue(self, current_user, tab_id: Optional[str] = None) -> APIResponse:
-        """The caller's pending generations in FIFO order, plus their running ones."""
-        try:
-            return self.success_response(
-                data=self.generation_orchestrator.get_queue_snapshot(current_user.id, tab_id)
-            )
-        except Exception as e:
-            logging.error(f"Failed to read generation queue: {str(e)}")
-            return self.error_response(
-                error="queue_read_failed",
-                message=f"Failed to read generation queue: {str(e)}"
-            )
+        return self.success_response(
+            data=self.generation_orchestrator.get_queue_snapshot(current_user.id, tab_id)
+        )
 
+    @guarded(fallback=Fail("queue_read_failed", "Failed to read generation queue", detail=failure_detail, status=400))
     async def get_all_queue(self) -> APIResponse:
-        try:
-            return self.success_response(data=self.generation_orchestrator.get_all_queue_snapshot())
-        except Exception as e:
-            logging.error(f"Failed to read the full generation queue: {str(e)}")
-            return self.error_response(
-                error="queue_read_failed",
-                message=f"Failed to read generation queue: {str(e)}"
-            )
+        return self.success_response(data=self.generation_orchestrator.get_all_queue_snapshot())
 
+    @guarded(fallback=Fail("cancel_failed", "Failed to cancel generation", detail=failure_detail, status=400), admin="current_user")
     async def cancel_generation(self, generation_id: str, current_user) -> APIResponse:
-        """Cancel a running generation"""
-        # Enforce ownership before cancelling. Return 404 (not 403) on a denied
-        # non-owner so the response can't be used to probe for the existence of
-        # another user's generation ids. This runs outside the try/except below
-        # so the 404 isn't swallowed and re-wrapped as a generic cancel error.
         state = await self._resolve_generation_state(generation_id)
         if state is not None and not GenerationPolicy.can_access(current_user, state.owner_id):
             return self.error_response(
@@ -397,27 +378,22 @@ class GenerationController(BaseController):
                 status_code=404
             )
 
-        try:
-            success = await self.generation_orchestrator.cancel_generation(generation_id)
+        success = await self.generation_orchestrator.cancel_generation(generation_id)
 
-            if not success:
-                return self.error_response(
-                    error="cancel_failed",
-                    message="Failed to cancel generation",
-                    status_code=400
-                )
-
-            # Broadcast cancellation to WebSocket clients
-            await self.output_broadcaster.broadcast_cancelled(generation_id)
-
-            return self.success_response(message="Generation cancelled successfully")
-
-        except Exception as e:
-            logging.error(f"Failed to cancel generation {generation_id}: {str(e)}")
+        if not success:
             return self.error_response(
                 error="cancel_failed",
-                message=f"Failed to cancel generation: {str(e)}"
+                message="Failed to cancel generation",
+                status_code=400
             )
+
+        await self.output_broadcaster.broadcast_cancelled(generation_id)
+
+        status = self.generation_orchestrator.status_tracker.get(generation_id)
+        return self.success_response(
+            data={"cancel_notice": status.cancel_notice if status else None},
+            message="Generation cancelled successfully",
+        )
 
     async def list_generations(self, current_user) -> APIResponse:
         """List active generations visible to the caller.
@@ -433,19 +409,6 @@ class GenerationController(BaseController):
             if GenerationPolicy.can_access(current_user, record.user_id)
         ]
         return self.success_response(data=visible)
-
-    def _history_busy_response(self):
-        """Admission to the off-loop history boundary was refused.
-
-        503 with a stable message so a client can retry: the request was never
-        run, nothing is wrong with it, and the server is momentarily out of
-        history workers.
-        """
-        return self.error_response(
-            error="history_busy",
-            message="Generation history is busy. Please retry.",
-            status_code=503
-        )
 
     @staticmethod
     def _stream_zip_response(zip_file, filename: str) -> StreamingResponse:
@@ -483,91 +446,40 @@ class GenerationController(BaseController):
             _close_spooled_file(zip_file)
             raise
 
+    @guarded(
+        {**_INVALID_DATE, **_BUSY},
+        Fail("history_fetch_failed", "Failed to fetch generation history", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def get_generation_history(
         self,
         current_user,
+        flt: HistoryFilter,
         limit: Optional[int] = 50,
         offset: int = 0,
-        status: Optional[str] = None,
-        created_from: Optional[str] = None,
-        created_to: Optional[str] = None,
-        completed_from: Optional[str] = None,
-        completed_to: Optional[str] = None,
-        tag_ids: Optional[str] = None,
         include_tags: bool = True,
-        media_type: Optional[str] = None,
-        search: Optional[str] = None,
-        mode: Optional[str] = None,
-        preset_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        min_rating: Optional[int] = None,
-        favorites_only: bool = False,
-        collection_id: Optional[str] = None,
-        include_descendants: bool = True,
-        unsorted: bool = False,
-        used_phrasebook_value_id: Optional[str] = None,
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = None,
-        system_tag: Optional[str] = None,
-        semantic_query: Optional[str] = None,
-        grid_id: Optional[str] = None
     ) -> APIResponse:
-        """Get generation history from database with optional filtering"""
-        try:
-            # Parse tag_ids if provided
-            parsed_tag_ids = None
-            if tag_ids:
-                parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()]
+        result = await self.history_facade.get_history_async(
+            replace(flt, user_id=current_user.id),
+            limit=limit,
+            offset=offset,
+            include_tags=include_tags,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            group_grids=True,
+        )
+        is_admin = GenerationPolicy.is_admin(current_user)
+        result = {**result, 'generations': [scope_generation(item, is_admin) for item in result.get('generations') or []]}
 
-            result = await self.history_facade.get_history_async(
-                user_id=current_user.id,
-                limit=limit,
-                offset=offset,
-                status=status,
-                created_from=created_from,
-                created_to=created_to,
-                completed_from=completed_from,
-                completed_to=completed_to,
-                tag_ids=parsed_tag_ids,
-                include_tags=include_tags,
-                media_type=media_type,
-                search=search,
-                mode=mode,
-                preset_id=preset_id,
-                model_name=model_name,
-                min_rating=min_rating,
-                favorites_only=favorites_only,
-                collection_id=collection_id,
-                include_descendants=include_descendants,
-                unsorted=unsorted,
-                used_phrasebook_value_id=used_phrasebook_value_id,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-                system_tag=system_tag,
-                semantic_query=semantic_query,
-                group_grids=True,
-                grid_id=grid_id
-            )
-            is_admin = GenerationPolicy.is_admin(current_user)
-            result = {**result, 'generations': [scope_generation(item, is_admin) for item in result.get('generations') or []]}
+        return self.success_response(data=result)
 
-            return self.success_response(data=result)
-
-        except InvalidDateFilterException as e:
-            return self.error_response(
-                error="invalid_date_format",
-                message=str(e),
-                status_code=400
-            )
-        except HistoryExecutorSaturated:
-            return self._history_busy_response()
-        except Exception as e:
-            logging.error(f"Failed to get generation history: {str(e)}")
-            return self.error_response(
-                error="history_fetch_failed",
-                message=f"Failed to fetch generation history: {str(e)}"
-            )
-
+    @guarded(
+        {**_NOT_FOUND, **_BUSY},
+        Fail("generation_fetch_failed", "Failed to fetch generation", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def get_generation_by_id(
         self,
         generation_id: str,
@@ -575,163 +487,102 @@ class GenerationController(BaseController):
         include_files: bool = True,
         include_batch: bool = False,
     ) -> APIResponse:
-        """Get specific generation by ID from database"""
-        try:
-            result = await self.history_facade.get_by_id_async(
-                generation_id=generation_id,
-                user_id=current_user.id,
-                include_files=include_files,
-                include_batch=include_batch,
-            )
-            return self.success_response(data=scope_generation(result, GenerationPolicy.is_admin(current_user)))
+        result = await self.history_facade.get_by_id_async(
+            generation_id=generation_id,
+            user_id=current_user.id,
+            include_files=include_files,
+            include_batch=include_batch,
+        )
+        return self.success_response(data=scope_generation(result, GenerationPolicy.is_admin(current_user)))
 
-        except GenerationNotFoundException:
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except HistoryExecutorSaturated:
-            return self._history_busy_response()
-        except Exception as e:
-            logging.error(f"Failed to get generation {generation_id}: {str(e)}")
-            return self.error_response(
-                error="generation_fetch_failed",
-                message=f"Failed to fetch generation: {str(e)}"
-            )
-
+    @guarded(
+        _NOT_FOUND,
+        Fail("params_fetch_failed", "Error retrieving generation parameters", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def get_generation_params(
         self,
         generation_id: str,
         index: int,
         current_user
     ) -> APIResponse:
-        """Get parameters for a specific generation and image index"""
-        try:
-            result = self.history_query.get_params(
-                generation_id=generation_id,
-                index=index,
-                user_id=current_user.id
-            )
-            return self.success_response(data=result)
+        result = self.history_query.get_params(
+            generation_id=generation_id,
+            index=index,
+            user_id=current_user.id
+        )
+        return self.success_response(data=result)
 
-        except GenerationNotFoundException:
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except Exception as e:
-            logging.error(f"Error getting generation parameters: {str(e)}")
-            return self.error_response(
-                error="params_fetch_failed",
-                message=f"Error retrieving generation parameters: {str(e)}"
-            )
-
+    @guarded(
+        {**_NOT_FOUND, ValueError: Fail("invalid_rating", status=400)},
+        Fail("rating_update_failed", "Failed to update rating", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def set_generation_rating(
         self,
         generation_id: str,
         rating: int,
         current_user
     ) -> APIResponse:
-        """Set the star rating (0-5) for a generation."""
-        try:
-            value = self.history_facade.set_rating(generation_id, rating, current_user.id)
-            return self.success_response(data={"id": generation_id, "rating": value})
-        except GenerationNotFoundException:
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except ValueError as e:
-            return self.error_response(error="invalid_rating", message=str(e), status_code=400)
-        except Exception as e:
-            logging.error(f"Failed to set rating for {generation_id}: {str(e)}")
-            return self.error_response(error="rating_update_failed", message=str(e))
+        value = self.history_facade.set_rating(generation_id, rating, current_user.id)
+        return self.success_response(data={"id": generation_id, "rating": value})
 
+    @guarded(
+        _NOT_FOUND,
+        Fail("favorite_update_failed", "Failed to update favorite", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def set_generation_favorite(
         self,
         generation_id: str,
         is_favorite: bool,
         current_user
     ) -> APIResponse:
-        """Set the favorite flag for a generation."""
-        try:
-            value = self.history_facade.set_favorite(generation_id, is_favorite, current_user.id)
-            return self.success_response(data={"id": generation_id, "is_favorite": value})
-        except GenerationNotFoundException:
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except Exception as e:
-            logging.error(f"Failed to set favorite for {generation_id}: {str(e)}")
-            return self.error_response(error="favorite_update_failed", message=str(e))
+        value = self.history_facade.set_favorite(generation_id, is_favorite, current_user.id)
+        return self.success_response(data={"id": generation_id, "is_favorite": value})
 
+    @guarded(fallback=Fail("facets_fetch_failed", "Failed to fetch history facets", detail=failure_detail, status=400), admin="current_user")
     async def get_history_facets(self, current_user) -> APIResponse:
-        """Get distinct modes, presets and models for history filter controls."""
-        try:
-            result = self.history_query.get_facets(current_user.id)
-            return self.success_response(data=result)
-        except Exception as e:
-            logging.error(f"Failed to get history facets: {str(e)}")
-            return self.error_response(error="facets_fetch_failed", message=str(e))
+        result = self.history_query.get_facets(current_user.id)
+        return self.success_response(data=result)
 
+    @guarded(
+        _BUSY,
+        Fail("history_version_failed", "Failed to get history version", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def get_history_version(self, current_user) -> APIResponse:
-        """A token for the state of the caller's history.
+        version = await self.history_facade.get_history_version_async(current_user.id)
+        return self.success_response(data={'version': version})
 
-        Clients compare it for equality to decide whether a full history page is
-        worth fetching; it carries no meaning beyond "same" or "different".
-        """
-        try:
-            version = await self.history_facade.get_history_version_async(current_user.id)
-            return self.success_response(data={'version': version})
-        except HistoryExecutorSaturated:
-            return self._history_busy_response()
-        except Exception as e:
-            logging.error(f"Failed to get history version: {str(e)}")
-            return self.error_response(error="history_version_failed", message=str(e))
-
+    @guarded(
+        {**_NOT_FOUND, GenerationDeleteFailedException: Fail("delete_failed", status=400)},
+        Fail("delete_failed", "Failed to delete generation", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def delete_generation_history(
         self,
         generation_id: str,
         current_user
     ) -> APIResponse:
-        """Delete generation from history and its files"""
-        try:
-            result = self.history_facade.delete(
-                generation_id=generation_id,
-                user_id=current_user.id
-            )
+        result = self.history_facade.delete(
+            generation_id=generation_id,
+            user_id=current_user.id
+        )
 
-            message = f"Generation deleted successfully. "
-            message += f"Removed {result['files_deleted_fs']} files from filesystem, "
-            message += f"{result['files_deleted_db']} file records from database."
-            if result.get('files_failed_fs', 0) > 0:
-                message += f" Warning: Failed to delete {result['files_failed_fs']} files from filesystem."
+        message = f"Generation deleted successfully. "
+        message += f"Removed {result['files_deleted_fs']} files from filesystem, "
+        message += f"{result['files_deleted_db']} file records from database."
+        if result.get('files_failed_fs', 0) > 0:
+            message += f" Warning: Failed to delete {result['files_failed_fs']} files from filesystem."
 
-            return self.success_response(message=message)
+        return self.success_response(message=message)
 
-        except GenerationNotFoundException:
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except GenerationDeleteFailedException as e:
-            return self.error_response(
-                error="delete_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logging.error(f"Failed to delete generation {generation_id}: {str(e)}")
-            return self.error_response(
-                error="delete_failed",
-                message=f"Failed to delete generation: {str(e)}"
-            )
-
+    @guarded(
+        {GenerationDeleteFailedException: Fail("bulk_delete_blocked", status=400)},
+        Fail("bulk_delete_failed", "Failed to bulk delete generations", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def bulk_delete_generations(
         self,
         generation_ids: List[str],
@@ -739,7 +590,6 @@ class GenerationController(BaseController):
         *,
         any_owner: bool = False,
     ) -> APIResponse:
-        """Delete multiple generations and their files"""
         if not generation_ids:
             return self.error_response(
                 error="invalid_request",
@@ -747,66 +597,52 @@ class GenerationController(BaseController):
                 status_code=400
             )
 
-        try:
-            if any_owner:
-                result = self.history_facade.admin_bulk_delete(
-                    generation_ids=generation_ids,
-                    admin_user_id=current_user.id
-                )
-                logging.info(
-                    f"Admin {current_user.id} bulk-deleted {result['deleted_count']} generation(s), "
-                    f"{result['failed_count']} failed"
-                )
-            else:
-                result = self.history_facade.bulk_delete(
-                    generation_ids=generation_ids,
-                    user_id=current_user.id
-                )
-
-            # Build response message
-            message = f"Successfully deleted {result['deleted_count']} generation(s). "
-            message += f"Removed {result['total_files_deleted']} files from filesystem, "
-            message += f"{result.get('total_files_deleted_db', 0)} file records from database."
-
-            if result.get('total_files_failed_fs', 0) > 0:
-                message += f" Warning: Failed to delete {result['total_files_failed_fs']} files from filesystem."
-
-            if result['failed_count'] > 0:
-                message += f" Failed to delete {result['failed_count']} generation(s)."
-
-            return self.success_response(
-                message=message,
-                data={
-                    "deleted_count": result['deleted_count'],
-                    "failed_count": result['failed_count'],
-                    "failed_ids": result['failed_ids'],
-                    "total_files_deleted": result['total_files_deleted']
-                }
+        if any_owner:
+            result = self.history_facade.admin_bulk_delete(
+                generation_ids=generation_ids,
+                admin_user_id=current_user.id
+            )
+            logging.info(
+                f"Admin {current_user.id} bulk-deleted {result['deleted_count']} generation(s), "
+                f"{result['failed_count']} failed"
+            )
+        else:
+            result = self.history_facade.bulk_delete(
+                generation_ids=generation_ids,
+                user_id=current_user.id
             )
 
-        except GenerationDeleteFailedException as e:
-            return self.error_response(
-                error="bulk_delete_blocked",
-                message=str(e)
-            )
-        except Exception as e:
-            logging.error(f"Failed to bulk delete generations: {str(e)}")
-            return self.error_response(
-                error="bulk_delete_failed",
-                message=f"Failed to bulk delete generations: {str(e)}"
-            )
+        message = f"Successfully deleted {result['deleted_count']} generation(s). "
+        message += f"Removed {result['total_files_deleted']} files from filesystem, "
+        message += f"{result.get('total_files_deleted_db', 0)} file records from database."
 
+        if result.get('total_files_failed_fs', 0) > 0:
+            message += f" Warning: Failed to delete {result['total_files_failed_fs']} files from filesystem."
+
+        if result['failed_count'] > 0:
+            message += f" Failed to delete {result['failed_count']} generation(s)."
+
+        return self.success_response(
+            message=message,
+            data={
+                "deleted_count": result['deleted_count'],
+                "failed_count": result['failed_count'],
+                "failed_ids": result['failed_ids'],
+                "total_files_deleted": result['total_files_deleted']
+            }
+        )
+
+    @guarded(
+        {**_NOT_FOUND, **_BUSY},
+        Fail("export_failed", "Failed to export generations", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def export_generations(
         self,
         generation_ids: List[str],
         strip_metadata: bool,
         current_user
     ):
-        """Export the final files of multiple generations as a downloadable zip.
-
-        Unlike the other endpoints this returns the binary zip directly (via a
-        StreamingResponse) instead of an APIResponse JSON envelope.
-        """
         if not generation_ids:
             return self.error_response(
                 error="invalid_request",
@@ -814,87 +650,40 @@ class GenerationController(BaseController):
                 status_code=400
             )
 
-        try:
-            zip_file, filename = await self.history_facade.export_zip_async(
-                generation_ids=generation_ids,
-                user_id=current_user.id,
-                strip_metadata=strip_metadata
-            )
+        zip_file, filename = await self.history_facade.export_zip_async(
+            generation_ids=generation_ids,
+            user_id=current_user.id,
+            strip_metadata=strip_metadata
+        )
 
-            return self._stream_zip_response(zip_file, filename)
+        return self._stream_zip_response(zip_file, filename)
 
-        except GenerationNotFoundException as e:
-            return self.error_response(
-                error="generation_not_found",
-                message=str(e),
-                status_code=404
-            )
-        except HistoryExecutorSaturated:
-            return self._history_busy_response()
-        except Exception as e:
-            logging.error(f"Failed to export generations: {str(e)}")
-            logging.error(traceback.format_exc())
-            return self.error_response(
-                error="export_failed",
-                message=f"Failed to export generations: {str(e)}"
-            )
-
+    @guarded(
+        {**_NOT_FOUND, **_BUSY},
+        Fail("export_failed", "Failed to export generation bundle", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def export_generation_bundle(self, generation_id: str, current_user):
-        """Portable bundle for one generation - envelope + final output files -
-        another PotionUI instance can import to reproduce the same output.
+        zip_file, filename = await self.history_facade.export_bundle_async(
+            generation_id=generation_id,
+            user_id=current_user.id
+        )
 
-        Unlike the other endpoints this returns the binary zip directly (via a
-        StreamingResponse) instead of an APIResponse JSON envelope.
-        """
-        try:
-            zip_file, filename = await self.history_facade.export_bundle_async(
-                generation_id=generation_id,
-                user_id=current_user.id
-            )
+        return self._stream_zip_response(zip_file, filename)
 
-            return self._stream_zip_response(zip_file, filename)
-
-        except GenerationNotFoundException as e:
-            return self.error_response(
-                error="generation_not_found",
-                message=str(e),
-                status_code=404
-            )
-        except HistoryExecutorSaturated:
-            return self._history_busy_response()
-        except Exception as e:
-            logging.error(f"Failed to export generation bundle: {str(e)}")
-            logging.error(traceback.format_exc())
-            return self.error_response(
-                error="export_failed",
-                message=f"Failed to export generation bundle: {str(e)}"
-            )
-
+    @guarded(
+        {GenerationBundleImportError: Fail("invalid_bundle", status=400)},
+        Fail("import_failed", "Failed to import generation bundle", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def import_generation_bundle(self, file: UploadFile, current_user) -> APIResponse:
-        """Parse an uploaded generation bundle (zip or bare generation.json)
-        into a reuse payload. Never creates a generation record."""
-        try:
-            content = await file.read()
-            result = self.history_facade.import_bundle(content)
+        content = await file.read()
+        result = self.history_facade.import_bundle(content)
 
-            return self.success_response(
-                message="Bundle parsed successfully",
-                data=result
-            )
-
-        except GenerationBundleImportError as e:
-            return self.error_response(
-                error="invalid_bundle",
-                message=str(e),
-                status_code=400
-            )
-        except Exception as e:
-            logging.error(f"Failed to import generation bundle: {str(e)}")
-            logging.error(traceback.format_exc())
-            return self.error_response(
-                error="import_failed",
-                message=f"Failed to import generation bundle: {str(e)}"
-            )
+        return self.success_response(
+            message="Bundle parsed successfully",
+            data=result
+        )
 
     def _owner_delete_criteria(self, request: BulkDeleteByCriteriaRequest, user_id: str) -> GenerationDeleteCriteria:
         """Build a `GenerationDeleteCriteria` scoped to `user_id`, validating
@@ -921,70 +710,39 @@ class GenerationController(BaseController):
             keep_favorites=request.keep_favorites,
         )
 
+    @guarded(
+        {**_INVALID_TAG, **_INVALID_DATE, ValueError: Fail("validation_error", status=400)},
+        Fail("count_failed", "Failed to count generations by criteria", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def count_generations_by_criteria(
         self,
         request: BulkDeleteByCriteriaRequest,
         current_user
     ) -> APIResponse:
-        """Count the current user's generations matching criteria, AND-ed (for preview)."""
-        try:
-            criteria = self._owner_delete_criteria(request, current_user.id)
-            count = preview_generations(generation_repo, criteria)
-            return self.success_response(
-                message=f"Found {count} generation(s) matching the given criteria",
-                data={"count": count}
-            )
-        except InvalidTagException as e:
-            return self.error_response(
-                error="invalid_tag",
-                message=str(e),
-                status_code=400
-            )
-        except InvalidDateFilterException as e:
-            return self.error_response(
-                error="invalid_date_format",
-                message=str(e),
-                status_code=400
-            )
-        except ValueError as e:
-            return self.error_response(
-                error="validation_error",
-                message=str(e),
-                status_code=400
-            )
-        except Exception as e:
-            logging.error(f"Failed to count generations by criteria: {str(e)}")
-            return self.error_response(
-                error="count_failed",
-                message=f"Failed to count generations by criteria: {str(e)}"
-            )
+        criteria = self._owner_delete_criteria(request, current_user.id)
+        count = preview_generations(generation_repo, criteria)
+        return self.success_response(
+            message=f"Found {count} generation(s) matching the given criteria",
+            data={"count": count}
+        )
 
+    @guarded(
+        {
+            **_INVALID_TAG,
+            **_INVALID_DATE,
+            ValueError: Fail("validation_error", status=400),
+            GenerationDeleteFailedException: Fail("bulk_delete_blocked", status=400),
+        },
+        Fail("bulk_delete_failed", "Failed to bulk delete generations by tags", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def bulk_delete_by_criteria(
         self,
         request: BulkDeleteByCriteriaRequest,
         current_user
     ) -> APIResponse:
-        """Delete every generation of the current user matching criteria, AND-ed."""
-        try:
-            criteria = self._owner_delete_criteria(request, current_user.id)
-        except InvalidTagException as e:
-            return self.error_response(
-                error="invalid_tag",
-                message=str(e),
-                status_code=400
-            )
-        except InvalidDateFilterException as e:
-            return self.error_response(
-                error="invalid_date_format",
-                message=str(e),
-                status_code=400
-            )
-        except ValueError as e:
-            return self.error_response(
-                error="validation_error",
-                message=str(e),
-                status_code=400
-            )
+        criteria = self._owner_delete_criteria(request, current_user.id)
 
         if criteria.is_empty():
             return self.error_response(
@@ -993,163 +751,100 @@ class GenerationController(BaseController):
                 status_code=400
             )
 
-        try:
-            summary = delete_generations(generation_repo, self.history_facade, criteria)
-            return self.success_response(
-                message=f"Successfully deleted {summary['deleted_count']} generation(s).",
-                data=summary
-            )
-        except GenerationDeleteFailedException as e:
-            return self.error_response(
-                error="bulk_delete_blocked",
-                message=str(e)
-            )
-        except Exception as e:
-            logging.error(f"Failed to bulk delete by tags: {str(e)}")
-            return self.error_response(
-                error="bulk_delete_failed",
-                message=f"Failed to bulk delete generations by tags: {str(e)}"
-            )
+        summary = delete_generations(generation_repo, self.history_facade, criteria)
+        return self.success_response(
+            message=f"Successfully deleted {summary['deleted_count']} generation(s).",
+            data=summary
+        )
 
+    @guarded(
+        {UploadFailedException: Fail("upload_failed", status=400), **_INVALID_TAG},
+        Fail("upload_failed", "Failed to upload files", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def upload_generations(
         self,
         files: List[UploadFile],
         tag_ids: List[str],
         current_user
     ) -> APIResponse:
-        """Upload files as completed generations"""
-        try:
-            result = await self.history_facade.upload_generations(
-                files=files,
-                tag_ids=tag_ids,
-                user_id=current_user.id
-            )
+        result = await self.history_facade.upload_generations(
+            files=files,
+            tag_ids=tag_ids,
+            user_id=current_user.id
+        )
 
-            return self.success_response(
-                message=f"Successfully uploaded {len(result['files'])} file(s)",
-                data=result
-            )
+        return self.success_response(
+            message=f"Successfully uploaded {len(result['files'])} file(s)",
+            data=result
+        )
 
-        except LimitExceeded as e:
-            raise e.http()
-        except UploadFailedException as e:
-            return self.error_response(
-                error="upload_failed",
-                message=str(e),
-                status_code=400
-            )
-        except InvalidTagException as e:
-            return self.error_response(
-                error="invalid_tag",
-                message=str(e),
-                status_code=400
-            )
-        except Exception as e:
-            logging.error(f"Failed to upload generations: {str(e)}")
-            logging.error(traceback.format_exc())
-            return self.error_response(
-                error="upload_failed",
-                message=f"Failed to upload files: {str(e)}"
-            )
-
+    @guarded(
+        _NOT_FOUND,
+        Fail("fetch_tags_failed", "Failed to get tags", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def get_generation_tags(
         self,
         generation_id: str,
         current_user
     ) -> APIResponse:
-        """Get all tags for a generation"""
-        try:
-            tags = self.history_facade.get_tags(
-                generation_id=generation_id,
-                user_id=current_user.id
-            )
-            return self.success_response(data={"tags": tags})
+        tags = self.history_facade.get_tags(
+            generation_id=generation_id,
+            user_id=current_user.id
+        )
+        return self.success_response(data={"tags": tags})
 
-        except GenerationNotFoundException:
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except Exception as e:
-            logging.error(f"Error getting tags for generation {generation_id}: {str(e)}")
-            return self.error_response(
-                error="fetch_tags_failed",
-                message=f"Failed to get tags: {str(e)}"
-            )
-
+    @guarded(
+        {**_NOT_FOUND, **_INVALID_TAG},
+        Fail("update_tags_failed", "Failed to update tags", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def update_generation_tags(
         self,
         generation_id: str,
         tag_ids: List[str],
         current_user
     ) -> APIResponse:
-        """Replace all tags for a generation"""
-        try:
-            tags = self.history_facade.update_tags(
-                generation_id=generation_id,
-                tag_ids=tag_ids,
-                user_id=current_user.id
-            )
-            return self.success_response(data={
-                "message": "Generation tags updated successfully",
-                "tags": tags
-            })
+        tags = self.history_facade.update_tags(
+            generation_id=generation_id,
+            tag_ids=tag_ids,
+            user_id=current_user.id
+        )
+        return self.success_response(data={
+            "message": "Generation tags updated successfully",
+            "tags": tags
+        })
 
-        except GenerationNotFoundException:
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except InvalidTagException as e:
-            return self.error_response(
-                error="invalid_tag",
-                message=str(e),
-                status_code=400
-            )
-        except Exception as e:
-            logging.error(f"Error updating tags for generation {generation_id}: {str(e)}")
-            return self.error_response(
-                error="update_tags_failed",
-                message=f"Failed to update tags: {str(e)}"
-            )
-
+    @guarded(
+        _NOT_FOUND,
+        Fail("remove_tag_failed", "Failed to remove tag", detail=failure_detail, status=400),
+        admin="current_user",
+    )
     async def remove_generation_tag(
         self,
         generation_id: str,
         tag_id: str,
         current_user
     ) -> APIResponse:
-        """Remove a single tag from a generation"""
-        try:
-            success = self.history_facade.remove_tag(
-                generation_id=generation_id,
-                tag_id=tag_id,
-                user_id=current_user.id
-            )
+        success = self.history_facade.remove_tag(
+            generation_id=generation_id,
+            tag_id=tag_id,
+            user_id=current_user.id
+        )
 
-            if success:
-                return self.success_response(data={"message": "Tag removed successfully"})
-            else:
-                return self.error_response(
-                    error="remove_failed",
-                    message="Failed to remove tag or tag not found"
-                )
-
-        except GenerationNotFoundException:
+        if success:
+            return self.success_response(data={"message": "Tag removed successfully"})
+        else:
             return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-        except Exception as e:
-            logging.error(f"Error removing tag from generation {generation_id}: {str(e)}")
-            return self.error_response(
-                error="remove_tag_failed",
-                message=f"Failed to remove tag: {str(e)}"
+                error="remove_failed",
+                message="Failed to remove tag or tag not found"
             )
 
+    @guarded(
+        {**_INVALID_DATE, **_BUSY},
+        Fail("history_fetch_failed", "Failed to fetch generation history", detail=failure_detail, status=400),
+    )
     async def admin_list_generations(
         self,
         user_id: Optional[str] = None,
@@ -1169,59 +864,37 @@ class GenerationController(BaseController):
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = None,
     ) -> APIResponse:
-        """Global generation history across every user (admin only).
+        result = await self.history_facade.get_history_async(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+            status=status,
+            error_category=error_category,
+            created_from=created_from,
+            created_to=created_to,
+            completed_from=completed_from,
+            completed_to=completed_to,
+            include_tags=False,
+            media_type=media_type,
+            search=search,
+            mode=mode,
+            preset_id=preset_id,
+            model_name=model_name,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
 
-        Reuses the same filter/query machinery as the per-user history
-        endpoint - `user_id` is a filter here, not scoping, and defaults to
-        None (every user).
-        """
-        try:
-            result = await self.history_facade.get_history_async(
-                user_id=user_id,
-                limit=limit,
-                offset=offset,
-                status=status,
-                error_category=error_category,
-                created_from=created_from,
-                created_to=created_to,
-                completed_from=completed_from,
-                completed_to=completed_to,
-                include_tags=False,
-                media_type=media_type,
-                search=search,
-                mode=mode,
-                preset_id=preset_id,
-                model_name=model_name,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-            )
+        generation_ids = [g['id'] for g in result['generations']]
+        report_ids = self.run_report_recorder.has_reports(generation_ids)
+        costs = (
+            self.generation_cost_repository.summaries(generation_ids)
+            if self.generation_cost_repository is not None else {}
+        )
+        for gen_dict in result['generations']:
+            gen_dict['has_run_report'] = gen_dict['id'] in report_ids
+            gen_dict['cost'] = costs.get(gen_dict['id'])
 
-            generation_ids = [g['id'] for g in result['generations']]
-            report_ids = self.run_report_recorder.has_reports(generation_ids)
-            costs = (
-                self.generation_cost_repository.summaries(generation_ids)
-                if self.generation_cost_repository is not None else {}
-            )
-            for gen_dict in result['generations']:
-                gen_dict['has_run_report'] = gen_dict['id'] in report_ids
-                gen_dict['cost'] = costs.get(gen_dict['id'])
-
-            return self.success_response(data=result)
-
-        except InvalidDateFilterException as e:
-            return self.error_response(
-                error="invalid_date_format",
-                message=str(e),
-                status_code=400
-            )
-        except HistoryExecutorSaturated:
-            return self._history_busy_response()
-        except Exception as e:
-            logging.error(f"Failed to get admin generation history: {str(e)}")
-            return self.error_response(
-                error="history_fetch_failed",
-                message=f"Failed to fetch generation history: {str(e)}"
-            )
+        return self.success_response(data=result)
 
     async def admin_get_generation(self, generation_id: str) -> APIResponse:
         """Full generation record + its run report (admin only). 404, not 403 -
@@ -1430,48 +1103,20 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.list_generations(current_user)
 
     @router.get("/history", response_model=APIResponse, summary="Get Generation History")
-    async def get_generation_history(limit: int = 50, offset: int = 0, status: str = None,
-                                   created_from: str = None, created_to: str = None,
-                                   completed_from: str = None, completed_to: str = None,
-                                   tag_ids: str = None, include_tags: bool = True, media_type: str = None,
-                                   search: str = None, mode: str = None, preset_id: str = None,
-                                   model_name: str = None, min_rating: int = None,
-                                   favorites_only: bool = False, collection_id: str = None,
-                                   include_descendants: bool = True, unsorted: bool = False,
-                                   used_phrasebook_value_id: str = None,
+    async def get_generation_history(limit: int = 50, offset: int = 0,
+                                   include_tags: bool = True,
                                    sort_by: str = None, sort_dir: str = None,
-                                   system_tag: str = None,
-                                   semantic_query: str = None,
-                                   grid_id: str = None,
+                                   flt: HistoryFilter = Depends(history_filter_query),
                                    current_user = Depends(get_current_active_user)):
         """Get paginated generation history with optional filtering, search and sorting."""
         return await controller.get_generation_history(
             current_user,
+            flt,
             limit=limit,
             offset=offset,
-            status=status,
-            created_from=created_from,
-            created_to=created_to,
-            completed_from=completed_from,
-            completed_to=completed_to,
-            tag_ids=tag_ids,
             include_tags=include_tags,
-            media_type=media_type,
-            search=search,
-            mode=mode,
-            preset_id=preset_id,
-            model_name=model_name,
-            min_rating=min_rating,
-            favorites_only=favorites_only,
-            collection_id=collection_id,
-            include_descendants=include_descendants,
-            unsorted=unsorted,
-            used_phrasebook_value_id=used_phrasebook_value_id,
             sort_by=sort_by,
             sort_dir=sort_dir,
-            system_tag=system_tag,
-            semantic_query=semantic_query,
-            grid_id=grid_id
         )
 
     @router.get("/history/facets", response_model=APIResponse, summary="Get History Filter Facets")
@@ -1609,21 +1254,6 @@ def build_router(container: "AppContainer") -> APIRouter:
                     "generation": generation.to_dict(include_files=True),
                     "files_direct": [file.to_dict() for file in files],
                     "files_count": len(files)
-                }
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @router.get("/debug/files", summary="Debug All Files")
-    async def debug_all_files(current_user = Depends(get_current_admin_user)):
-        """Debug endpoint to inspect all files in the database (development only)."""
-        try:
-            files = file_repo.debug_recent_generation_files(limit=20)
-            return {
-                "success": True,
-                "data": {
-                    "files": files,
-                    "count": len(files)
                 }
             }
         except Exception as e:

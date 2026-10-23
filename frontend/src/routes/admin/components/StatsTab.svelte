@@ -1,9 +1,4 @@
 <script lang="ts">
-	/**
-	 * Admin usage-statistics dashboard. All endpoints are scoped by the same
-	 * single date-range row; every chart carries a table-view toggle via
-	 * ChartCard (the accessibility twin required by the palette).
-	 */
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import type {
@@ -12,7 +7,6 @@
 		StatsDurations,
 		StatsStorage,
 		StatsBreakdown,
-		StatsDimension,
 		DurationBucket,
 		PresetTimingItem,
 		PresetResourcesItem
@@ -33,9 +27,9 @@
 	} from '$lib/components/charts';
 	import { formatBytes, formatDuration, formatCount } from '$lib/utils/format';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { statsRowLimits, type StatsSection } from '$lib/stores/statsRowLimits';
+	import { statsRowLimits } from '$lib/stores/statsRowLimits';
+	import { BREAKDOWNS, BREAKDOWN_BY_SECTION, type BreakdownConfig, type BreakdownSection } from './statsBreakdowns';
 
-	/** MB values (peak_vram_mb, peak_ram_mb, ...) reuse the byte formatter. */
 	function formatMb(mb: number | null): string {
 		return mb === null ? '—' : formatBytes(mb * 1024 * 1024);
 	}
@@ -50,16 +44,9 @@
 	let timeseries = $state<StatsTimeseries | null>(null);
 	let durations = $state<StatsDurations | null>(null);
 	let storage = $state<StatsStorage | null>(null);
-	let presets = $state<StatsBreakdown | null>(null);
-	let models = $state<StatsBreakdown | null>(null);
-	let samplers = $state<StatsBreakdown | null>(null);
-	let schedulers = $state<StatsBreakdown | null>(null);
-	let resolutions = $state<StatsBreakdown | null>(null);
-	let steps = $state<StatsBreakdown | null>(null);
-	let cfgs = $state<StatsBreakdown | null>(null);
-	let denoises = $state<StatsBreakdown | null>(null);
-	// Durable, generation-independent stats: keep reporting after the underlying
-	// generation is deleted.
+	let breakdowns = $state<Record<BreakdownSection, StatsBreakdown | null>>(
+		Object.fromEntries(BREAKDOWNS.map((b) => [b.section, null])) as Record<BreakdownSection, StatsBreakdown | null>
+	);
 	let presetTiming = $state<PresetTimingItem[] | null>(null);
 	let presetResources = $state<PresetResourcesItem[] | null>(null);
 	let spend = $state<CloudSpend | null>(null);
@@ -82,14 +69,7 @@
 				timeseriesRes,
 				durationsRes,
 				storageRes,
-				presetsRes,
-				modelsRes,
-				samplersRes,
-				schedulersRes,
-				resolutionsRes,
-				stepsRes,
-				cfgsRes,
-				denoisesRes,
+				breakdownRes,
 				presetTimingRes,
 				presetResourcesRes,
 				spendRes
@@ -98,14 +78,7 @@
 				api.getStatsTimeseries('count', 'day', range),
 				api.getStatsDurations(range),
 				api.getStatsStorage(range, 'day', limits.storage),
-				api.getStatsBreakdown('preset', limits.presets, range),
-				api.getStatsBreakdown('model', limits.models, range),
-				api.getStatsBreakdown('sampler', limits.samplers, range),
-				api.getStatsBreakdown('scheduler', limits.schedulers, range),
-				api.getStatsBreakdown('resolution', limits.resolutions, range),
-				api.getStatsBreakdown('steps', limits.steps, range),
-				api.getStatsBreakdown('cfg', limits.cfgs, range),
-				api.getStatsBreakdown('denoise', limits.denoises, range),
+				Promise.all(BREAKDOWNS.map((b) => api.getStatsBreakdown(b.dimension, limits[b.section], range))),
 				api.getStatsPresetTiming(limits.presetTiming),
 				api.getStatsPresetResources(limits.presetResources),
 				api.getStatsSpend(range).catch(() => null)
@@ -115,14 +88,10 @@
 			timeseries = timeseriesRes.success ? timeseriesRes.data ?? null : null;
 			durations = durationsRes.success ? durationsRes.data ?? null : null;
 			storage = storageRes.success ? storageRes.data ?? null : null;
-			presets = presetsRes.success ? presetsRes.data ?? null : null;
-			models = modelsRes.success ? modelsRes.data ?? null : null;
-			samplers = samplersRes.success ? samplersRes.data ?? null : null;
-			schedulers = schedulersRes.success ? schedulersRes.data ?? null : null;
-			resolutions = resolutionsRes.success ? resolutionsRes.data ?? null : null;
-			steps = stepsRes.success ? stepsRes.data ?? null : null;
-			cfgs = cfgsRes.success ? cfgsRes.data ?? null : null;
-			denoises = denoisesRes.success ? denoisesRes.data ?? null : null;
+			BREAKDOWNS.forEach((b, index) => {
+				const res = breakdownRes[index];
+				breakdowns[b.section] = res.success ? (res.data ?? null) : null;
+			});
 			presetTiming = presetTimingRes.success ? presetTimingRes.data?.items ?? null : null;
 			presetResources = presetResourcesRes.success ? presetResourcesRes.data?.items ?? null : null;
 
@@ -138,20 +107,9 @@
 		}
 	}
 
-	// --- per-section row-limit changes: refetch only the affected section,
-	// not the whole page (a per-section control, not a global reload trigger). ---
-
-	async function reloadBreakdown(dimension: StatsDimension, section: StatsSection, limit: number) {
-		const res = await api.getStatsBreakdown(dimension, limit, currentRange());
-		const data = res.success ? (res.data ?? null) : null;
-		if (section === 'presets') presets = data;
-		else if (section === 'models') models = data;
-		else if (section === 'samplers') samplers = data;
-		else if (section === 'schedulers') schedulers = data;
-		else if (section === 'resolutions') resolutions = data;
-		else if (section === 'steps') steps = data;
-		else if (section === 'cfgs') cfgs = data;
-		else if (section === 'denoises') denoises = data;
+	async function reloadBreakdown(b: BreakdownConfig, limit: number) {
+		const res = await api.getStatsBreakdown(b.dimension, limit, currentRange());
+		breakdowns[b.section] = res.success ? (res.data ?? null) : null;
 	}
 
 	async function reloadStorage(limit: number) {
@@ -195,9 +153,6 @@
 		].filter((m): m is { label: string; at: string } => m.at !== null)
 	);
 
-	// Generations with no recorded duration are excluded from every bin rather than counted as
-	// zero (pre-migration rows, and any row whose completion time could not be trusted). Saying
-	// so is the difference between "nothing took 0s" and "we don't know".
 	let durationSubtitle = $derived(
 		[
 			`p50 ${durations?.p50_ms != null ? formatDuration(durations.p50_ms) : '—'}`,
@@ -213,6 +168,8 @@
 		)
 	);
 
+	const PARAMETER_BREAKDOWNS = BREAKDOWNS.filter((b) => b.group === 'parameters');
+
 	const STATS_SECTIONS: readonly LibrarySectionMeta<'overview'>[] = [{ id: 'overview', label: 'Overview', icon: 'gauge' }];
 
 	function clearRange() {
@@ -221,6 +178,31 @@
 		load();
 	}
 </script>
+
+{#snippet breakdownCard(b: BreakdownConfig)}
+	{@const data = breakdowns[b.section]}
+	{#if data}
+		<ChartCard
+			title={b.title}
+			subtitle={b.subtitle}
+			tableData={data.items}
+			tableColumns={[
+				{ key: 'label', label: b.label },
+				...(b.groupLabel ? [{ key: 'group', label: b.groupLabel }] : []),
+				{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
+			]}
+		>
+			{#snippet headerExtra()}
+				<RowLimitSelect
+					section={b.section}
+					value={$statsRowLimits[b.section]}
+					onchange={(limit) => reloadBreakdown(b, limit)}
+				/>
+			{/snippet}
+			<RankBarChart data={data.items} colorBy={b.colorBy} valueFormat={b.valueFormat} />
+		</ChartCard>
+	{/if}
+{/snippet}
 
 <LibraryShell
 	title="Stats"
@@ -334,56 +316,8 @@
 			</ChartCard>
 		{/if}
 
-		{#if presets}
-			<ChartCard
-				title="Top presets"
-				subtitle="By generation count"
-				tableData={presets.items}
-				tableColumns={[
-					{ key: 'label', label: 'Preset' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="presets"
-						value={$statsRowLimits.presets}
-						onchange={(limit) => reloadBreakdown('preset', 'presets', limit)}
-					/>
-				{/snippet}
-				<RankBarChart
-					data={presets.items}
-					colorBy="single"
-					valueFormat={(n) => formatCount(Math.round(n))}
-				/>
-			</ChartCard>
-		{/if}
-
-		{#if models}
-			<ChartCard
-				title="Top models"
-				subtitle="Colored by model type"
-				tableData={models.items}
-				tableColumns={[
-					{ key: 'label', label: 'Model' },
-					{ key: 'group', label: 'Type' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="models"
-						value={$statsRowLimits.models}
-						onchange={(limit) => reloadBreakdown('model', 'models', limit)}
-					/>
-				{/snippet}
-				<RankBarChart
-					data={models.items}
-					colorBy="group"
-					valueFormat={(n) => formatCount(Math.round(n))}
-				/>
-			</ChartCard>
-		{/if}
+		{@render breakdownCard(BREAKDOWN_BY_SECTION.presets)}
+		{@render breakdownCard(BREAKDOWN_BY_SECTION.models)}
 
 		{#if storage}
 			<ChartCard
@@ -447,130 +381,15 @@
 			</ChartCard>
 		{/if}
 
-		{#if resolutions}
-			<ChartCard
-				title="Top resolutions"
-				subtitle="By generation count"
-				tableData={resolutions.items}
-				tableColumns={[
-					{ key: 'label', label: 'Resolution' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="resolutions"
-						value={$statsRowLimits.resolutions}
-						onchange={(limit) => reloadBreakdown('resolution', 'resolutions', limit)}
-					/>
-				{/snippet}
-				<RankBarChart
-					data={resolutions.items}
-					colorBy="single"
-					valueFormat={(n) => formatCount(Math.round(n))}
-				/>
-			</ChartCard>
-		{/if}
+		{@render breakdownCard(BREAKDOWN_BY_SECTION.resolutions)}
 	</div>
 	</DetailSection>
 
 	<DetailSection label="Generation parameters">
 	<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-		{#if samplers}
-			<ChartCard
-				title="Samplers"
-				tableData={samplers.items}
-				tableColumns={[
-					{ key: 'label', label: 'Sampler' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="samplers"
-						value={$statsRowLimits.samplers}
-						onchange={(limit) => reloadBreakdown('sampler', 'samplers', limit)}
-					/>
-				{/snippet}
-				<RankBarChart data={samplers.items} colorBy="single" />
-			</ChartCard>
-		{/if}
-		{#if schedulers}
-			<ChartCard
-				title="Schedulers"
-				tableData={schedulers.items}
-				tableColumns={[
-					{ key: 'label', label: 'Scheduler' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="schedulers"
-						value={$statsRowLimits.schedulers}
-						onchange={(limit) => reloadBreakdown('scheduler', 'schedulers', limit)}
-					/>
-				{/snippet}
-				<RankBarChart data={schedulers.items} colorBy="single" />
-			</ChartCard>
-		{/if}
-		{#if steps}
-			<ChartCard
-				title="Steps"
-				tableData={steps.items}
-				tableColumns={[
-					{ key: 'label', label: 'Steps' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="steps"
-						value={$statsRowLimits.steps}
-						onchange={(limit) => reloadBreakdown('steps', 'steps', limit)}
-					/>
-				{/snippet}
-				<RankBarChart data={steps.items} colorBy="single" />
-			</ChartCard>
-		{/if}
-		{#if cfgs}
-			<ChartCard
-				title="CFG scale"
-				tableData={cfgs.items}
-				tableColumns={[
-					{ key: 'label', label: 'CFG' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="cfgs"
-						value={$statsRowLimits.cfgs}
-						onchange={(limit) => reloadBreakdown('cfg', 'cfgs', limit)}
-					/>
-				{/snippet}
-				<RankBarChart data={cfgs.items} colorBy="single" />
-			</ChartCard>
-		{/if}
-		{#if denoises}
-			<ChartCard
-				title="Denoise"
-				tableData={denoises.items}
-				tableColumns={[
-					{ key: 'label', label: 'Denoise' },
-					{ key: 'count', label: 'Count', align: 'right', format: (v) => formatCount(Number(v)) }
-				]}
-			>
-				{#snippet headerExtra()}
-					<RowLimitSelect
-						section="denoises"
-						value={$statsRowLimits.denoises}
-						onchange={(limit) => reloadBreakdown('denoise', 'denoises', limit)}
-					/>
-				{/snippet}
-				<RankBarChart data={denoises.items} colorBy="single" />
-			</ChartCard>
-		{/if}
+		{#each PARAMETER_BREAKDOWNS as b (b.section)}
+			{@render breakdownCard(b)}
+		{/each}
 	</div>
 	</DetailSection>
 

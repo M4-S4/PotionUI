@@ -91,4 +91,27 @@ describe('modelLibraryStore', () => {
 
 		expect(listModelCollections).toHaveBeenCalledTimes(2);
 	});
+	it('ignores a load that settles after reset() and a newer load', async () => {
+		let resolveOld!: (value: any) => void;
+		listModelCollections
+			.mockImplementationOnce(
+				() => new Promise((resolve) => {
+					resolveOld = resolve;
+				})
+			)
+			.mockResolvedValueOnce({
+				success: true,
+				data: { collections: [{ id: 'new', name: 'New', item_count: 0 }] }
+			} as any);
+
+		const old = modelLibraryStore.load();
+		modelLibraryStore.reset();
+		await modelLibraryStore.load();
+		resolveOld({ success: true, data: { collections: [{ id: 'old', name: 'Old', item_count: 0 }] } });
+		await old;
+
+		expect(get(modelLibraryStore).collections.map((c) => c.id)).toEqual(['new']);
+		await modelLibraryStore.load();
+		expect(listModelCollections).toHaveBeenCalledTimes(2);
+	});
 });

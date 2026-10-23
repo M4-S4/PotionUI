@@ -16,7 +16,9 @@ back exactly what was published.
 from __future__ import annotations
 
 import gc
+import shutil
 import subprocess
+import tempfile
 import tracemalloc
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,6 +33,7 @@ from src.pipelines.pipes.generator.seedvr2 import encode as enc
 from src.pipelines.pipes.generator.seedvr2 import main as m
 from src.pipelines.pipes.generator.seedvr2 import stream as S
 from src.pipelines.pipes.generator.seedvr2.main import GeneratorSeedVR2Pipe
+from src.platform.util import video_stream
 
 
 # -- fixtures: frames and a deterministic "upscale" --------------------------
@@ -483,17 +486,17 @@ def test_oom_retry_replays_the_clip_with_no_duplicate_or_lost_frames(monkeypatch
     )
 
 
-def test_failed_attempts_leave_no_output_behind(monkeypatch):
+def test_failed_attempts_leave_no_output_behind(monkeypatch, tmp_path):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     frames = _frames(20)
     gen = _StubGen(fail_with=RuntimeError("synthetic decode failure"))
     _wire_pipe(monkeypatch, gen, frames)
     pipe = GeneratorSeedVR2Pipe(_config(batch_size=5))
 
-    before = set(Path("/tmp").glob("*.mp4*"))
     with pytest.raises(RuntimeError, match="synthetic decode failure"):
         pipe.process(_pipe_input(), lambda o: None)
 
-    leftovers = set(Path("/tmp").glob("*.mp4*")) - before
+    leftovers = set(tmp_path.glob("*.mp4*"))
     assert not leftovers, f"a failed attempt left files behind: {leftovers}"
     assert gen.released >= 1
 
@@ -564,7 +567,8 @@ class _FakeFFmpeg:
 
 
 def _wire_ffmpeg(monkeypatch, *, returncode=0, write_output=True):
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     created = []
 
     def _popen(cmd, stdin=None, stdout=None, stderr=None):
@@ -648,7 +652,8 @@ def test_stream_encoder_uses_the_same_ffmpeg_argv_as_the_eager_encoder(monkeypat
 
     seen = {}
 
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     def _popen(cmd, stdin=None, stdout=None, stderr=None):
         seen["cmd"] = cmd
@@ -660,13 +665,14 @@ def test_stream_encoder_uses_the_same_ffmpeg_argv_as_the_eager_encoder(monkeypat
     enc.encode_frames_stream_to_mp4(iter(_frames(2, size=4)), out_path, 24.0)
 
     assert seen["cmd"] == _build_ffmpeg_args(
-        width=4, height=4, fps=24.0, codec="libx264", crf=18,
+        "/usr/bin/ffmpeg", width=4, height=4, fps=24.0, codec="libx264", crf=18,
         out_path=out_path, audio_path=None,
     )
 
 
 def test_stream_encoder_times_out_and_cleans_up(monkeypatch, tmp_path):
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     class _Hanging(_FakeFFmpeg):
         def wait(self, timeout=None):
@@ -689,7 +695,8 @@ def test_stream_encoder_closes_stderr_handle_on_a_popen_spawn_failure(monkeypatc
     ``Popen`` itself raises (a spawn failure -- missing binary despite the
     ``which`` check above, a permission error, ...) that handle must still be
     closed rather than leaked, and no output file must ever appear."""
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     created_handles = []
 
@@ -738,7 +745,8 @@ class _RaisingCloseFFmpeg(_FakeFFmpeg):
 
 
 def test_stream_encoder_stdin_close_failure_does_not_mask_the_producer_error(monkeypatch, tmp_path):
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(enc.subprocess, "Popen", lambda cmd, **kw: _RaisingCloseFFmpeg(cmd[-1]))
     out_path = tmp_path / "out.mp4"
 
@@ -757,7 +765,8 @@ def test_stream_encoder_stdin_close_failure_does_not_mask_the_producer_error(mon
 def test_stream_encoder_stdin_close_failure_does_not_mask_sampling_cancelled(monkeypatch, tmp_path):
     from src.platform.runtime.native.errors import SamplingCancelled
 
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(enc.subprocess, "Popen", lambda cmd, **kw: _RaisingCloseFFmpeg(cmd[-1]))
     out_path = tmp_path / "out.mp4"
 
@@ -793,7 +802,8 @@ class _EarlyClosingFFmpeg(_FakeFFmpeg):
 
 
 def test_stream_encoder_raises_when_the_pipe_breaks_before_the_producer_is_exhausted(monkeypatch, tmp_path):
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     created = []
 
     def _popen(cmd, stdin=None, stdout=None, stderr=None):
@@ -821,7 +831,8 @@ def test_stream_encoder_succeeds_when_the_pipe_never_breaks(monkeypatch, tmp_pat
         created.append(proc)
         return proc
 
-    monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(enc.subprocess, "Popen", _popen)
     out_path = tmp_path / "out.mp4"
 

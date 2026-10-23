@@ -46,7 +46,7 @@ class TestAuthConfig:
         """Test that secret_key generates a random key when nothing is
         configured, and persists it under the file storage directory."""
         mock_settings.get_setting.return_value = None
-        mock_settings.get_file_storage_directory.return_value = str(tmp_path)
+        mock_settings.storage_file.side_effect = lambda name: tmp_path / name
 
         with patch.dict(os.environ, {}, clear=True):
             config = AuthConfig(mock_settings)
@@ -147,7 +147,7 @@ class TestPersistedSecretKey:
         """Settings mock with no env/DB secret and a writable storage dir."""
         m = Mock(spec=Settings)
         m.get_setting.return_value = None
-        m.get_file_storage_directory.return_value = str(tmp_path)
+        m.storage_file.side_effect = lambda name: tmp_path / name
         return m
 
     def test_env_takes_precedence_over_file(self, settings, tmp_path):
@@ -248,7 +248,7 @@ class TestPersistedSecretKey:
         """No resolvable storage dir -> in-memory key with a warning."""
         m = Mock(spec=Settings)
         m.get_setting.return_value = None
-        m.get_file_storage_directory.return_value = ""
+        m.storage_file.return_value = None
         with patch.dict(os.environ, {}, clear=True):
             config = AuthConfig(m)
             with caplog.at_level("WARNING"):
@@ -260,7 +260,7 @@ class TestPersistedSecretKey:
         """If resolving the storage dir raises, degrade to an in-memory key."""
         m = Mock(spec=Settings)
         m.get_setting.return_value = None
-        m.get_file_storage_directory.side_effect = RuntimeError("db not ready")
+        m.storage_file.side_effect = RuntimeError("db not ready")
         with patch.dict(os.environ, {}, clear=True):
             config = AuthConfig(m)
             key = config.secret_key

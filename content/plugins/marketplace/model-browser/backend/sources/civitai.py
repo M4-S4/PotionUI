@@ -27,6 +27,12 @@ from ..schema import (
 from ..security import sanitize_html
 from ..type_mapping import civitai_mb_type
 from .base import SearchQuery
+from .coerce import as_list as _list
+from .coerce import clean_list as _clean_list
+from .coerce import int_value as _int
+from .coerce import sha256_hex
+from .coerce import strings
+from .coerce import text as _text
 
 logger = logging.getLogger("plugins.model-browser")
 
@@ -93,7 +99,6 @@ _COMMERCIAL_LABELS = dict(_COMMERCIAL_USES)
 _DIGITS = re.compile(r"[0-9]{1,12}")
 _MODEL_PATH = re.compile(r"^/models/([0-9]{1,12})(?:/[^/]*)?/?$")
 _ID_SEPARATORS = re.compile(r"[\s,;]+")
-_SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 _IMAGE_ID_IN_URL = re.compile(r"/([0-9]{1,15})\.[A-Za-z0-9]{2,5}$")
 
 
@@ -178,20 +183,6 @@ def _choice(value: Optional[str], choices: Dict[str, str], what: str) -> Optiona
         ) from None
 
 
-def _clean_list(values: Iterable[str]) -> List[str]:
-    return sorted({str(value).strip() for value in values or () if str(value).strip()})
-
-
-def _int(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and math.isfinite(value):
-        return int(value)
-    return None
-
-
 def _float(value: Any) -> Optional[float]:
     if isinstance(value, bool):
         return None
@@ -208,28 +199,12 @@ def _id(value: Any) -> Optional[int]:
     return None
 
 
-def _text(value: Any) -> Optional[str]:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
 def _is_true(value: Any) -> bool:
     return value is True or (isinstance(value, str) and value.strip().lower() == "true")
 
 
 def _bool_or_none(value: Any) -> Optional[bool]:
     return value if isinstance(value, bool) else None
-
-
-def _list(value: Any) -> List[Any]:
-    return value if isinstance(value, list) else []
-
-
-def _strings(values: Any) -> List[str]:
-    if not isinstance(values, list):
-        return []
-    return list(dict.fromkeys(value for value in values if isinstance(value, str) and value))
 
 
 def _parse_date(value: Any) -> Optional[datetime]:
@@ -327,21 +302,35 @@ def pick_thumbnail(images: Sequence[Image]) -> Optional[Image]:
     return images[best]
 
 
+def _strings(values: Any) -> List[str]:
+    return strings(values, strip=False)
+
+
 def _file_sha256(raw: Any) -> Optional[str]:
     hashes = raw.get("hashes") if isinstance(raw, dict) else None
     sha256 = hashes.get("SHA256") if isinstance(hashes, dict) else None
-    return sha256.lower() if isinstance(sha256, str) and _SHA256.fullmatch(sha256) else None
+    return sha256_hex(sha256)
 
 
-def primary_file_sha256(raw_version: Optional[Dict[str, Any]]) -> Optional[str]:
+def _primary_hashed_file(raw_version: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if raw_version is None:
         return None
     files = [raw for raw in _list(raw_version.get("files")) if isinstance(raw, dict)]
     for raw in [raw for raw in files if _is_true(raw.get("primary"))] + files:
-        sha256 = _file_sha256(raw)
-        if sha256:
-            return sha256
+        if _file_sha256(raw):
+            return raw
     return None
+
+
+def primary_file_sha256(raw_version: Optional[Dict[str, Any]]) -> Optional[str]:
+    raw = _primary_hashed_file(raw_version)
+    return _file_sha256(raw) if raw is not None else None
+
+
+def primary_file_size_bytes(raw_version: Optional[Dict[str, Any]]) -> Optional[int]:
+    raw = _primary_hashed_file(raw_version)
+    size_kb = _float(raw.get("sizeKB")) if raw is not None else None
+    return round(size_kb * 1024) if size_kb is not None and size_kb >= 0 else None
 
 
 _RED_HOSTS = frozenset({"civitai.red", "www.civitai.red"})
@@ -575,6 +564,7 @@ def normalize_item(raw: Dict[str, Any], max_level: int) -> SearchItem:
         stats=_stats(raw),
         source_url=model_page_url(model_id, nsfw),
         primary_sha256=primary_file_sha256(first),
+        primary_size_bytes=primary_file_size_bytes(first),
     )
 
 

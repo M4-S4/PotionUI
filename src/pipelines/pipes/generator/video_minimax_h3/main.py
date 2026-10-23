@@ -109,7 +109,6 @@ what the DiT samples against during the refine itself.
 from __future__ import annotations
 
 import math
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -134,6 +133,7 @@ from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_
 from src.platform.runtime.native.sla_attn import estimate_transient_gb as sla_estimate_transient_gb
 from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context
 from src.platform.runtime.native.sol_attn import estimate_transient_gb as sol_estimate_transient_gb
+from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows, effective_mlp_chunk_rows
 from src.platform.runtime.native.arch.minimax_h3.vdn import (
     VdnLayout,
     estimate_vdn_transient_gb,
@@ -157,9 +157,14 @@ from src.pipelines.pipes._shared.vae.minimax_h3_decode import (
     decode_tile_tokens,
     decode_video,
 )
-from src.pipelines.pipes._shared.media.video_encode import AudioInput, AudioTrack, encode_frames_to_mp4
+from src.pipelines.pipes._shared.media.video_encode import (
+    AudioInput,
+    AudioTrack,
+    encode_frames_to_mp4,
+)
+from src.platform.util.video_stream import FFmpegNotFoundError, require_ffmpeg
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
-from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (
     AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
@@ -219,6 +224,11 @@ from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     DirectorPlanError,
     WindowPlan,
     build_director_plan,
+)
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    preview_config_spec,
+    seed_config_spec,
 )
 
 Tensor = torch.Tensor
@@ -375,6 +385,13 @@ def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     return ReferenceMedia(kind="audio", audio=waveform, sample_rate=int(sample_rate))
 
 
+def _require_ffmpeg_or_raise() -> str:
+    try:
+        return require_ffmpeg()
+    except FFmpegNotFoundError as exc:
+        raise GenerationExecutionError(f"generator/video_minimax_h3: {exc}") from exc
+
+
 def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
     """Any media file (pure audio, or a video with an embedded soundtrack) ->
     a `(channels, samples)` float32 waveform at its native rate, via a real
@@ -382,17 +399,13 @@ def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
     containers) -- the fallback path for a refine's `audio_refine` when no
     `initial_audio_latent` was connected (module docstring, "Audio on a
     refine")."""
-    if shutil.which("ffmpeg") is None:
-        raise GenerationExecutionError(
-            "generator/video_minimax_h3: encoding a passthrough audio track into a refine's audio "
-            "latent needs ffmpeg on PATH"
-        )
+    ffmpeg = _require_ffmpeg_or_raise()
     import soundfile as sf
 
     wav_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
     try:
         result = subprocess.run(
-            ["ffmpeg", "-y", "-i", str(path), "-vn", "-acodec", "pcm_s16le", "-ar", str(AUDIO_SAMPLE_RATE), wav_path],
+            [ffmpeg, "-y", "-i", str(path), "-vn", "-acodec", "pcm_s16le", "-ar", str(AUDIO_SAMPLE_RATE), wav_path],
             capture_output=True, timeout=120,
         )
         if result.returncode != 0:
@@ -832,6 +845,7 @@ class _MiniMaxH3Forward:
         step_cache: Optional[FirstBlockCache] = None,
         sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext] = None,
         seq_chunk_rows: int = 0,
+        ffn_chunk_rows: Optional[int] = None,
     ) -> tuple[Tensor, Tensor]:
         current_revision = self.weight_revision() if self.weight_revision is not None else None
         if self._prepared_context is None:
@@ -858,6 +872,7 @@ class _MiniMaxH3Forward:
             step_cache=step_cache,
             sparse_attn_ctx=sparse_attn_ctx,
             seq_chunk_rows=seq_chunk_rows,
+            ffn_chunk_rows=ffn_chunk_rows,
             # Spread, not a plain `vdn_layout=None`: a DiT with no branch must
             # be called exactly as it was before VDN existed.
             **({"vdn_layout": self.vdn_layout} if self.vdn_layout is not None else {}),
@@ -937,45 +952,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
     description = "Native MiniMax-H3 t2va/fl2va video+audio generator"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "video",
-            "steps": 24,
-            "resolution": "1344x768",
-            "frames": 124,
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "preview": True,
-            "keyframe_anchors": [],
-            "audio_source": "generate",
-            "audio_refine": "lock",
-            "decode": True,
-            "decode_tile_px": 256,
-            "step_cache_threshold": 0.0,
-            "step_cache_warmup_steps": 4,
-            "step_cache_max_skips": 3,
-            "sparse_attn": "off",
-            "sol_attn_tau": 1.0,
-            "sla_sparsity": 0.90,
-            "sla_block_size": 64,
-            "sparse_attn_dense_last_steps": 2,
-            "sparse_attn_start_percent": 0.0,
-            "seq_chunk_rows": 0,
-            "sampler": "euler",
-            "scheduler": SIMPLE_SCHEDULER,
-            "manual_sigmas": "",
-            "manual_audio_sigmas": "",
-            "denoise": 1.0,
-            "video_sigma_shift": VIDEO_SHIFT,
-            "runtime_loras": [],
-            "document": None,
-            "references": [],
-            "reference_videos": [],
-            "reference_audios": [],
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "video", "Generation mode. 'video' is t2va/fl2va: the request "
@@ -994,9 +970,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                            "timeline here and is cut into windows of at most max_frames_per_segment",
                            required=False, min_value=1),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews during sampling", required=False),
+            seed_config_spec(),
+            device_config_spec(),
+            preview_config_spec("Emit live latent previews during sampling"),
             PipeConfigSpec("keyframe_anchors", list, [],
                            "Which end of the video each 'image' input anchors, positional with it: "
                            "['first'], ['last'] or ['first','last'] (fl2va). Empty with images present "
@@ -1102,11 +1078,17 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "full-length at once -- the attention core itself is unaffected. "
                 "0 (default) is off and byte-identical to a run without the "
                 "feature; a value below the packed sequence length trades a "
-                "small perf cost (quantized weights are re-dequantized per "
-                "chunk) for materially lower peak VRAM. Only worth setting on "
+                "small perf cost for materially lower peak VRAM. Only worth setting on "
                 "very long sequences (e.g. a high-resolution refine); leave off "
                 "for an ordinary generation.",
                 required=False, min_value=0,
+            ),
+            PipeConfigSpec(
+                "ffn_chunking", bool, True,
+                "Row-chunk each block's SwiGLU MLP so its transient stays below attention's peak "
+                "and the VRAM reserve can drop it; the math is unchanged. Off restores the "
+                "full-length MLP and its larger reserve.",
+                required=False,
             ),
             PipeConfigSpec(
                 "sampler", str, "euler",
@@ -1305,6 +1287,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
     # -- context -------------------------------------------------------
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
+        _require_ffmpeg_or_raise()
         bundle = pipe_input.input["model"]
         conditioning = pipe_input.input["conditioning"] or []
         seeds = pipe_input.input.get("seed", [])
@@ -1339,11 +1322,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 f"is not a MiniMax-H3 checkpoint. Pick a MiniMax-H3 DiT for this preset."
             )
 
-        # This pipe never touches the TE itself (conditioning was already
-        # produced by prompt_encoder) -- same eviction idiom LTX established
-        # (release_idle_te's docstring), reused verbatim: it is duck-typed on
-        # bundle.te_cache_key/bundle.te, both of which MiniMaxH3ModelBundle
-        # carries.
         release_idle_te(bundle, pipe_input.input.get("MODELS"), "GENERATOR MINIMAX-H3")
 
         mode = str(self.config.get("mode", "video"))
@@ -2115,6 +2093,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         dense_start_percent = sparse_attn_start_percent(self.config)
         sparse_attn_reserve = sparse_attn_reserve_gb(sparse_attn_ctx, layout)
         seq_chunk_rows = int(self.config.get("seq_chunk_rows", 0) or 0)
+        ffn_chunk_rows = (
+            default_ffn_chunk_rows(int(layout.position_ids.shape[0]), H3_HIDDEN_SIZE, H3_FFN_DIM)
+            if self.config.get("ffn_chunking", True) else 0
+        )
 
         vdn_layout = None
         if vdn_attached(getattr(c.bundle.dit, "module", None)):
@@ -2181,6 +2163,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             video_tokens=video_rows.shape[0] + layout.text_indices.numel(), audio_tokens=audio_rows.shape[0],
             own_models=(c.bundle.dit, c.bundle.video_vae, c.bundle.audio_vae),
             inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM,
+            ffn_chunk_rows=effective_mlp_chunk_rows(seq_chunk_rows, ffn_chunk_rows),
             # 0.0 unless a sparse-attention method is on: its routing and QKV
             # copies are the one piece of this generation's GPU work the
             # token-derived reserve cannot see.
@@ -2259,6 +2242,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                         step_cache=None if is_final_step else step_cache,
                         sparse_attn_ctx=sparse_attn_ctx,
                         seq_chunk_rows=seq_chunk_rows,
+                        ffn_chunk_rows=ffn_chunk_rows,
                     )
 
                     # A step the cache skipped hands back the previous step's velocity;

@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { chooseLayout, selectPresetInPicker } from './presetPreamble';
+import { FORM_RAIL_WIDTH, PANE_HANDLE_WIDTH, WORKBENCH_FLOOR_WIDTH } from '../../src/lib/stores/generationLayout';
 
 // Video Director auto-widen (PLAN.md §C W4) — an HTTP-only check can't see a
 // real layout reflow, so this drives a real browser: three-pane layout, an
@@ -17,10 +19,7 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 const JOURNEY = 'director-console-autowiden';
 
-// Mirrors GenerationPanels.svelte's own constants — this is a black-box
-// check of the rendered layout, not a re-import of the component's
-// internals, so the formula is duplicated deliberately.
-const WORKBENCH_BOUND_WIDTH = 336;
+const WORKBENCH_BOUND_WIDTH = FORM_RAIL_WIDTH + PANE_HANDLE_WIDTH + WORKBENCH_FLOOR_WIDTH;
 const MAX_WIDTH_TOLERANCE_PX = 2;
 
 interface DiscoveredPreset {
@@ -29,57 +28,15 @@ interface DiscoveredPreset {
 	installed?: boolean;
 }
 
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 async function ensureAssigned(page: Page, token: string, userId: string, preset: DiscoveredPreset) {
 	if (!preset.installed) await apiPost(page, `/api/presets/${preset.id}/install`, token);
 	await apiPost(page, `/api/presets/${preset.id}/assign`, token, { user_ids: [userId] });
 }
 
-/** Copied from director-console-render.spec.ts (same header note there on why
- * this isn't shared with presetPreamble.ts's image-only picker helper): picks
- * `preset` through the real picker on an already-loaded /generate page, and
- * lands on the "Video" mode if a segmented image/video split shows up. */
-async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promise<boolean> {
-	const pickerTrigger = page.locator('button[aria-haspopup="dialog"]').first();
-	await pickerTrigger.click();
-	const presetList = page.getByRole('listbox', { name: 'Presets' });
-	const opened = await presetList.isVisible({ timeout: 15000 }).catch(() => false);
-	if (!opened) return false;
-	const entry = presetList.getByText(preset.name, { exact: true });
-	if ((await entry.count()) === 0) return false;
-	await entry.click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1500);
-	const videoModeBtn = page.locator('button[title="Video"]');
-	if ((await videoModeBtn.count()) > 0) {
-		await videoModeBtn.click();
-		await page.waitForTimeout(500);
-	}
-	return true;
-}
-
-/** Switches the active tab to three-pane layout via the tabs-row "…" overflow
- * menu's view-layout picker (`TabsOverflowMenu` -> `GenerationLayoutPicker`).
- * A no-op (returns true immediately) if the tab is already three-pane. */
 async function switchToThreePaneLayout(page: Page): Promise<void> {
 	const promptsPane = page.getByTestId('prompts-pane');
 	if (await promptsPane.isVisible({ timeout: 500 }).catch(() => false)) return;
-	await page.getByRole('button', { name: 'More view options' }).click();
-	await page.getByRole('option', { name: /Three panes/ }).click();
+	await chooseLayout(page, 'Three panes');
 	await expect(promptsPane).toBeVisible({ timeout: 10000 });
 }
 
@@ -155,9 +112,10 @@ test.describe('Video Director prompts-pane auto-widen', () => {
 		}
 		const director = page.locator('section.video-director[aria-label="Video Director"]');
 		await expect(director).toBeVisible({ timeout: 15000 });
-		// The widen runs after a DOM tick following activation; give it a beat.
-		await page.waitForTimeout(500);
 
+		await expect
+			.poll(async () => (await readPromptPaneGeometry(page))?.promptWidth ?? 0)
+			.toBeGreaterThan(before!.promptWidth);
 		const widened = await readPromptPaneGeometry(page);
 		expect(widened, 'prompts pane must be measurable once the Director is active').not.toBeNull();
 		const expectedMax = Math.max(
@@ -182,8 +140,10 @@ test.describe('Video Director prompts-pane auto-widen', () => {
 			return;
 		}
 		await expect(director).toHaveCount(0, { timeout: 15000 });
-		await page.waitForTimeout(300);
 
+		await expect
+			.poll(async () => Math.abs(((await readPromptPaneGeometry(page))?.promptWidth ?? Infinity) - before!.promptWidth))
+			.toBeLessThanOrEqual(MAX_WIDTH_TOLERANCE_PX);
 		const restored = await readPromptPaneGeometry(page);
 		expect(restored, 'prompts pane must be measurable after restoring').not.toBeNull();
 		expect(

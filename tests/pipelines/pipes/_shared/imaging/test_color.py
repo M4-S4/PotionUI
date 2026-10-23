@@ -52,11 +52,6 @@ def test_pure_green_chroma_is_off_center():
 
 
 def test_scaled_pure_hue_moves_linearly_toward_neutral():
-    """A pure-hue colour scaled by a brightness factor k moves LINEARLY from
-    its own chroma point toward (128, 128) as k -> 0 - the mechanism the
-    color_key docstring/report leans on. This is the bite-check for
-    `rgb_to_cbcr` being a genuinely linear transform (a buggy non-linear
-    stand-in would fail the exact proportionality asserted here)."""
     base = np.array([[[0.0, 255.0, 0.0]]])
     full = rgb_to_cbcr(base)[0, 0]
     neutral = np.array([128.0, 128.0])
@@ -84,7 +79,7 @@ def test_despill_is_a_no_op_when_dominant_channel_is_already_low():
     assert tuple(out[0, 0]) == (200, 50, 200)
 
 
-def test_despill_bite_check_wrong_channel_would_fail():
+def test_despill_acts_on_the_key_colours_dominant_channel():
     """despill must act on the KEY colour's dominant channel, not a fixed
     one - pin that against a blue key."""
     key = (0, 0, 255)  # blue dominant

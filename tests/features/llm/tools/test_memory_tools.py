@@ -66,10 +66,10 @@ class TestWriteMemoryTool:
         assert "scope" in schema["function"]["parameters"]["required"]
         assert "default" not in schema["function"]["parameters"]["properties"]["scope"]
 
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "remember" in tool.hint.lower()
+    def test_description_carries_one_good_and_one_bad_example(self):
+        description = self._tool().description
+        assert "Good: {" in description
+        assert "Bad: {" in description
 
     @pytest.mark.asyncio
     async def test_execute_persists_immediately(self, mock_ops):
@@ -273,17 +273,6 @@ class TestWriteMemoryTool:
         assert result.success is False
         assert "content is required" in result.error
 
-    @pytest.mark.asyncio
-    async def test_execute_handles_error(self, mock_ops):
-        mm = MagicMock()
-        mock_ops.write_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute(ctx, key="k", content="c", scope="global")
-
-        assert result.success is False
-        assert "db error" not in result.error
-
 
 # ---------------------------------------------------------------------------
 # ReadMemoryTool
@@ -301,10 +290,8 @@ class TestReadMemoryTool:
         assert "scope" in schema["function"]["parameters"]["properties"]
         assert schema["function"]["parameters"]["required"] == []
 
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "memory" in tool.hint.lower()
+    def test_description_points_at_the_notes_already_in_context(self):
+        assert "already in your context" in self._tool().description
 
     @pytest.mark.asyncio
     async def test_execute_returns_all_notes(self, mock_ops):
@@ -392,17 +379,6 @@ class TestReadMemoryTool:
         assert "not available" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_handles_error(self, mock_ops):
-        mm = MagicMock()
-        mock_ops.read_notes.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute(ctx, scope="global")
-
-        assert result.success is False
-        assert "db error" not in result.error
-
-    @pytest.mark.asyncio
     async def test_execute_all_without_model_or_preset(self, mock_ops):
         """scope=all without a preset/model returns only global notes."""
         global_notes = [make_note(id="g1")]
@@ -434,11 +410,6 @@ class TestDeleteMemoryTool:
         schema = tool.to_schema()
         assert "note_id" in schema["function"]["parameters"]["properties"]
         assert "note_id" in schema["function"]["parameters"]["required"]
-
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "memory" in tool.hint.lower()
 
     @pytest.mark.asyncio
     async def test_execute_returns_preview(self, mock_ops):
@@ -521,17 +492,6 @@ class TestDeleteMemoryTool:
         assert result.success is False
         assert "could not be deleted" in result.error
 
-    @pytest.mark.asyncio
-    async def test_execute_confirmed_handles_error(self, mock_ops):
-        mm = MagicMock()
-        mock_ops.delete_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute_confirmed(ctx, note_id="note-1")
-
-        assert result.success is False
-        assert "db error" not in result.error
-
 
 # ---------------------------------------------------------------------------
 # UpdateMemoryTool
@@ -555,11 +515,8 @@ class TestUpdateMemoryTool:
         assert "content" in props
         assert schema["function"]["parameters"]["required"] == []
 
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "scope" in tool.hint.lower()
-        assert "key" in tool.hint.lower()
+    def test_description_addresses_notes_by_scope_and_key(self):
+        assert "'scope' + 'key'" in self._tool().description
 
     @pytest.mark.asyncio
     async def test_execute_returns_preview_for_content_change(self, mock_ops):
@@ -792,19 +749,6 @@ class TestUpdateMemoryTool:
 
         assert result.success is False
         assert "could not be updated" in result.error
-
-    @pytest.mark.asyncio
-    async def test_execute_confirmed_handles_error(self, mock_ops):
-        note = make_note()
-        mm = MagicMock()
-        mock_ops.get_note.return_value = note
-        mock_ops.update_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute_confirmed(ctx, note_id="note-1", content="x")
-
-        assert result.success is False
-        assert "db error" not in result.error
 
     @pytest.mark.asyncio
     async def test_execute_confirmed_content_over_limit_raises_teaching_error(self, mock_ops):

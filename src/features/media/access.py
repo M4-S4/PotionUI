@@ -29,15 +29,20 @@ class MediaAccess:
     def _rating_state(self, key: str) -> Optional[str]:
         return self.content_safety.ledger.states([key]).get(key)
 
-    def generation_allowed(self, viewer: Any, generation_id: Optional[str]) -> bool:
+    def allowed_generation(self, viewer: Any, generation_id: Optional[str]) -> Optional[Any]:
         if viewer is None or not generation_id:
-            return False
+            return None
         generation = self.generations.get_by_id(generation_id)
         if generation is None or not GenerationPolicy.can_access(viewer, generation.user_id):
-            return False
+            return None
         if not self.is_restricted(viewer) or generation.is_active():
-            return True
-        return generation_id in self.content_safety.viewable_generation_ids(viewer.id, [generation_id])
+            return generation
+        if generation_id in self.content_safety.viewable_generation_ids(viewer.id, [generation_id]):
+            return generation
+        return None
+
+    def generation_allowed(self, viewer: Any, generation_id: Optional[str]) -> bool:
+        return self.allowed_generation(viewer, generation_id) is not None
 
     def temp_allowed(self, viewer: Any, filename: str) -> bool:
         if viewer is None:

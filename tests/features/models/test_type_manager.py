@@ -1,8 +1,11 @@
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 
+from src.features.models.exceptions import ModelNotFoundException, ModelTypeNotAssignableException
+from src.features.models.records import Model
 from src.features.models.repository import model_repo
 from src.features.models.type_repository import ModelTypeRepository
 from src.features.models.type_manager import ModelTypeManager
@@ -286,3 +289,108 @@ def test_a_failing_recompute_on_reset_restores_the_assertion(lib):
         failing.reset_type(lib.sha)
 
     assert assertion(lib.sha)["model_type"] == "vae"
+
+
+class PendingDigests:
+    def __init__(self, answer):
+        self.answer = answer
+        self.requests = []
+
+    def request_digest(self, model_id):
+        self.requests.append(model_id)
+        return self.answer
+
+
+def _bare(name="bare.safetensors"):
+    return model_repo.create(Model(filename=name, model_type="lora"))
+
+
+def _manager_with(lib, digests):
+    manager = ModelTypeManager(model_repo, lib.scanner.types, lib.scanner.recompute_types)
+    manager.attach_digests(digests)
+    return manager
+
+
+def test_a_model_without_a_hash_is_queued_for_one_and_the_type_is_reported_as_pending(lib):
+    bare = _bare()
+    digests = PendingDigests({"state": "queued", "eta_seconds": 7})
+
+    result = _manager_with(lib, digests).set_admin_type(bare.id, "checkpoint", None)
+
+    assert result == {"state": "queued", "eta_seconds": 7}
+    assert digests.requests == [bare.id]
+    assert model_repo.get_by_id(bare.id).type_source != "admin"
+
+
+@pytest.mark.parametrize("state", ["unavailable", "missing"])
+def test_a_model_with_no_file_to_hash_still_cannot_be_typed(lib, state):
+    bare = _bare()
+    manager = _manager_with(lib, PendingDigests({"state": state, "eta_seconds": None}))
+
+    with pytest.raises(ModelTypeNotAssignableException, match="no readable file"):
+        manager.set_admin_type(bare.id, "checkpoint", None)
+
+
+def test_a_model_whose_file_failed_to_be_read_cannot_be_typed_yet(lib):
+    bare = _bare()
+    manager = _manager_with(lib, PendingDigests({"state": "failed", "eta_seconds": None}))
+
+    with pytest.raises(ModelTypeNotAssignableException, match="could not be read"):
+        manager.set_admin_type(bare.id, "checkpoint", None)
+
+
+def test_a_model_folded_into_another_while_its_hash_is_requested_is_reported_as_not_found(lib):
+    bare = _bare()
+
+    class FoldsAway:
+        def request_digest(self, model_id):
+            model_repo.delete(model_id)
+            return {"state": "ready", "eta_seconds": 0, "merged_into": "other"}
+
+    with pytest.raises(ModelNotFoundException):
+        _manager_with(lib, FoldsAway()).set_admin_type(bare.id, "checkpoint", None)
+
+
+def test_without_a_digest_service_a_model_without_a_hash_cannot_be_typed(lib, manager):
+    bare = _bare()
+
+    with pytest.raises(ModelTypeNotAssignableException):
+        manager.set_admin_type(bare.id, "checkpoint", None)
+
+
+def test_a_digest_that_lands_while_the_request_is_made_lets_the_type_be_set_at_once(lib):
+    bare = _bare()
+    sha = "c" * 64
+
+    class LandsMeanwhile:
+        def request_digest(self, model_id):
+            model_repo.update_digest(model_id, sha256=sha, file_size=1)
+            return {"state": "ready", "eta_seconds": 0}
+
+    result = _manager_with(lib, LandsMeanwhile()).set_admin_type(bare.id, "checkpoint", None)
+
+    assert result is None
+    assert assertion(sha)["model_type"] == "checkpoint"
+
+
+def test_a_pending_file_gets_its_type_once_the_real_pool_has_hashed_it(tmp_path, mock_db, monkeypatch):
+    from src.features.models import indexer as indexer_module
+    from tests.features.models.rows_first_support import Harness, _blob
+
+    monkeypatch.setattr(indexer_module, "INLINE_HASH_LIMIT", 10)
+    harness = Harness(tmp_path)
+    harness.put("home", "a.safetensors", _blob(1))
+    harness.index()
+    model = harness.model("a.safetensors")
+    manager = ModelTypeManager(model_repo, harness.scanner.types, harness.scanner.recompute_types)
+    manager.attach_digests(harness.manager)
+
+    first = manager.set_admin_type(model.id, "vae", None)
+    deadline = time.monotonic() + 5
+    while not model_repo.get_by_id(model.id).sha256 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    second = manager.set_admin_type(model.id, "vae", None)
+
+    assert first["state"] == "queued" and second is None
+    settled = model_repo.get_by_id(model.id)
+    assert (settled.model_type, settled.type_source) == ("vae", "admin")

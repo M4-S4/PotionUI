@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { CopyButton } from '$lib/components/ui';
 
 	export let artifact: { artifact_data: { seed: number } };
@@ -9,7 +10,7 @@
 	<button
 		class="px-3 py-1.5 bg-surface-3 text-fg font-mono tabular-nums font-semibold hover:bg-line-hover transition-colors flex items-center gap-1"
 		on:click={() => onSeedClick?.(artifact.artifact_data.seed)}
-		title="Click to use this seed"
+		use:tooltip={'Click to use this seed'}
 	>
 		<span class="text-fg-subtle">#</span>
 		{artifact.artifact_data.seed}

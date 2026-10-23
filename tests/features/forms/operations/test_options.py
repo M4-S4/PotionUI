@@ -1,7 +1,7 @@
 """Tests for src.features.forms.operations.options."""
 import pytest
 import yaml
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, patch
 
 from src.features.forms.operations import options as options_module
 from src.platform.plugins.field_types import FieldTypeRegistry
@@ -182,9 +182,9 @@ class TestGetSelectOptions:
         template_processor = Mock()
         template_processor.process_template.return_value = "/processed/options.yml"
 
-        with patch("builtins.open", mock_open(read_data=yaml.dump(file_content))):
-            with patch("yaml.safe_load", return_value=file_content):
-                result = options_module.get_select_options(template_processor, config)
+        with patch("src.features.forms.operations.options.load_yaml_cached", return_value=file_content) as loader:
+            result = options_module.get_select_options(template_processor, config)
+        loader.assert_called_once_with("/processed/options.yml")
 
         assert len(result) == 2
         assert result[0]["label"] == "File Option 1"
@@ -196,7 +196,7 @@ class TestGetSelectOptions:
         template_processor = Mock()
         template_processor.process_template.return_value = "/processed/nonexistent.yml"
 
-        with patch("builtins.open", side_effect=FileNotFoundError()):
+        with patch("src.features.forms.operations.options.load_yaml_cached", side_effect=FileNotFoundError()):
             result = options_module.get_select_options(template_processor, config)
 
         assert len(result) == 0
@@ -206,9 +206,8 @@ class TestGetSelectOptions:
         template_processor = Mock()
         template_processor.process_template.return_value = "/processed/invalid.yml"
 
-        with patch("builtins.open", mock_open(read_data="invalid: yaml: content:")):
-            with patch("yaml.safe_load", side_effect=yaml.YAMLError()):
-                result = options_module.get_select_options(template_processor, config)
+        with patch("src.features.forms.operations.options.load_yaml_cached", side_effect=yaml.YAMLError()):
+            result = options_module.get_select_options(template_processor, config)
 
         assert len(result) == 0
 
@@ -251,10 +250,9 @@ class TestGetSelectOptions:
         template_processor = Mock()
         template_processor.process_template.side_effect = ["/processed/options.yml", "/processed/models"]
 
-        with patch("builtins.open", mock_open(read_data=yaml.dump(file_content))):
-            with patch("yaml.safe_load", return_value=file_content):
-                with patch("glob.glob", return_value=mock_files):
-                    result = options_module.get_select_options(template_processor, config)
+        with patch("src.features.forms.operations.options.load_yaml_cached", return_value=file_content):
+            with patch("glob.glob", return_value=mock_files):
+                result = options_module.get_select_options(template_processor, config)
 
         assert len(result) == 3
         assert result[0]["label"] == "Static Option"

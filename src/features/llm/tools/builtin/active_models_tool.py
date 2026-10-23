@@ -36,26 +36,9 @@ class GetActiveModelsTool(BaseTool):
     modes = ["generation"]
     icon = "boxes"
 
-    @property
-    def name(self) -> str:
-        return "get_active_models"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads details of the models currently selected in your form."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "ALWAYS call this before improving prompts, suggesting tags, or giving generation advice — "
-            "each active model may carry admin-authored prompting_guidance plus trigger_words that you MUST "
-            "consult and weave into any prompt you write or rewrite for it. Also call when the user asks "
-            "about their models, LoRAs, VAE, or checkpoint."
-        )
+    name = "get_active_models"
+    group = "Models & presets"
+    user_description = "Reads details of the models currently selected in your form."
 
     @property
     def description(self) -> str:
@@ -64,7 +47,8 @@ class GetActiveModelsTool(BaseTool):
             "currently selected in the user's generation form. Scans form data "
             "for model selections (checkpoint, LoRA, VAE, etc.), looks each one up "
             "in the model index, and returns metadata. Use this to understand what "
-            "models the user is working with."
+            "models the user is working with. Call it before writing a prompt and weave "
+            "each model's trigger_words and prompting_guidance in."
         )
 
     @property

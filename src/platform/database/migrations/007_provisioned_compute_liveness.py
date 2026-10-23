@@ -60,7 +60,3 @@ def up():
         f"Migration 007_provisioned_compute_liveness: added {added or 'no'} column(s), "
         f"setting {'seeded' if seeded else 'already present'}"
     )
-
-
-def down():
-    print("Migration 007_provisioned_compute_liveness: no-op (SQLite keeps the added columns)")

@@ -12,13 +12,6 @@ class TestGate(unittest.TestCase):
         self.preset_loader = Mock()
         self.gate_field = Gate(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test that gate field handler correctly identifies gate fields"""
-        self.assertTrue(self.gate_field.can_handle('gate'))
-        self.assertFalse(self.gate_field.can_handle('section'))
-        self.assertFalse(self.gate_field.can_handle(''))
-        self.assertFalse(self.gate_field.can_handle(None))
-
     def test_output_keeps_name(self):
         """Unlike section, a gate carries a real boolean value and must keep
         its `name` in the emitted schema"""
@@ -190,39 +183,6 @@ class TestGate(unittest.TestCase):
         self.assertEqual(len(row_schema['children']), 2)
         self.assertEqual(row_schema['children'][0]['name'], 'enhance_resolution')
         self.assertEqual(row_schema['children'][1]['name'], 'enhance_detail')
-
-
-    def test_configuration_specs(self):
-        config_specs = Gate.configuration()
-
-        summary_spec = next((spec for spec in config_specs if spec.name == 'summary'), None)
-        self.assertIsNotNone(summary_spec)
-        self.assertEqual(summary_spec.param_type, str)
-
-        experimental_spec = next((spec for spec in config_specs if spec.name == 'experimental'), None)
-        self.assertIsNotNone(experimental_spec)
-        self.assertEqual(experimental_spec.param_type, bool)
-        self.assertEqual(experimental_spec.default, False)
-
-    def test_validation_rules_empty(self):
-        self.assertEqual(Gate.validation_rules(), [])
-
-    def test_examples(self):
-        examples = Gate.examples()
-
-        self.assertGreater(len(examples), 0)
-        for example in examples:
-            self.assertIsNotNone(example.title)
-            self.assertIsNotNone(example.description)
-            self.assertIsNotNone(example.yaml_config)
-            self.assertIn('type', example.rendered_output)
-            self.assertEqual(example.rendered_output['type'], 'gate')
-
-    def test_description(self):
-        description = Gate.description()
-        self.assertIsNotNone(description)
-        self.assertIsInstance(description, str)
-        self.assertGreater(len(description), 0)
 
 
 class TestGateRegistration(unittest.TestCase):

@@ -99,3 +99,26 @@ def test_write_lands_on_the_repointed_db_not_the_fixtures(mock_db):
             "SELECT 1 FROM keybinding_defaults WHERE id = ?", ("written-under-repoint",)
         )
         assert cursor.fetchone() is None, "write leaked into the fixture's own db"
+
+
+def test_module_level_get_cursor_follows_a_repointed_db(mock_db):
+    from src.platform.database import get_cursor
+
+    second_db = _second_database()
+
+    with patch("src.platform.database.database.db", second_db):
+        with get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO keybinding_defaults "
+                "(id, key, modifiers, label, category, context, description, enabled, source, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("via-get-cursor", "k", "[]", "Label", "cat", "ctx", "desc", 1, "system", 0),
+            )
+
+    with second_db.get_cursor() as cursor:
+        cursor.execute("SELECT 1 FROM keybinding_defaults WHERE id = ?", ("via-get-cursor",))
+        assert cursor.fetchone() is not None
+
+    with mock_db.get_cursor() as cursor:
+        cursor.execute("SELECT 1 FROM keybinding_defaults WHERE id = ?", ("via-get-cursor",))
+        assert cursor.fetchone() is None

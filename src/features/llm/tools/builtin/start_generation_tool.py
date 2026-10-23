@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.features.generation.details_url import REQUEST_ORIGIN_KEY, generation_details_url
 from src.features.generation.failure import start_failure_reason
 from src.features.generation.prompt_batch import MAX_BATCH_IMAGES, PromptBatchError
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
@@ -27,27 +28,15 @@ class StartGenerationTool(BaseTool):
 
     modes = ["generation"]
     icon = "play"
+    context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "start_generation"
+    name = "start_generation"
+    group = "Generation"
+    user_description = "Starts a generation from a chosen preset, without needing an open form."
+    requires_approval = True
 
-    @property
-    def group(self) -> str:
-        return "Generation"
-
-    @property
-    def user_description(self) -> str:
-        return "Starts a generation from a chosen preset, without needing an open form."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When there is no live Generate form to read (e.g. no form_state / an MCP caller) "
-            "and the user wants to generate with a specific preset - give preset_id, prompt, and "
-            "any field overrides directly.{{#if get_preset_info}} Call get_preset_info first to "
-            "see the preset's fields and default mode.{{/if}}"
-        )
+    def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
+        return not form_state
 
     @property
     def description(self) -> str:
@@ -100,10 +89,6 @@ class StartGenerationTool(BaseTool):
             },
             "required": ["preset_id"],
         }
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @staticmethod
     def _build_preview(kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -267,10 +252,14 @@ class StartGenerationTool(BaseTool):
                 user_id=context.user_id,
             )
 
+            started_id = result.get("generation_id", "")
             return ToolResult(success=True, data=json.dumps({
                 "message": "Generation started successfully",
-                "generation_id": result.get("generation_id", ""),
+                "generation_id": started_id,
                 "status": result.get("status", {}).get("status", "pending"),
+                "details_url": generation_details_url(
+                    started_id, context.settings, context.session_metadata.get(REQUEST_ORIGIN_KEY)
+                ) if started_id else "",
             }))
         except PromptBatchError as e:
             return ToolResult(success=False, data="", error=str(e))

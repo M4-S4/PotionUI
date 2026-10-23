@@ -20,8 +20,6 @@ its failure classification untouched.
 
 from __future__ import annotations
 
-import json
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -31,9 +29,16 @@ from typing import Callable, Iterable, Optional, Union
 import numpy as np
 
 from src.pipelines.pipes._shared.media.video_encode import (
-    FFmpegNotFoundError,
     _build_ffmpeg_args,
     _pad_to_even,
+)
+from src.platform.util.video_stream import (
+    AUDIO_PROBE_FAILED,
+    AUDIO_PROBE_SILENT,
+    AudioProbeResult,
+    mux_audio,
+    probe_audio_stream,
+    require_ffmpeg,
 )
 from src.platform.observability.logger import logger
 
@@ -48,64 +53,6 @@ AUDIO_MUXED = "muxed"
 AUDIO_NOT_REQUESTED = "not_requested"
 AUDIO_SILENT_SOURCE = "silent_source"
 AUDIO_MUX_FAILED = "mux_failed"
-AUDIO_PROBE_FAILED = "probe_failed"
-
-# `AudioProbeResult.status` values -- `AUDIO_PROBE_FAILED` is shared with the
-# `VideoAudioResult.audio_outcome` constant above so a failed probe's status
-# can be forwarded as the outcome verbatim.
-AUDIO_PROBE_PRESENT = "present"
-AUDIO_PROBE_SILENT = "silent"
-
-
-@dataclass(frozen=True)
-class AudioProbeResult:
-    """Outcome of :func:`probe_audio_stream` -- three-way, unlike the shared
-    ``has_audio_stream`` helper, which collapses "confirmed no audio track"
-    and "the probe itself failed" (missing ffprobe, timeout, corrupt JSON, an
-    unreadable source, a non-zero exit) into the same ``False``. Collapsing
-    those was the bug: :func:`encode_video_with_audio` treated an INCONCLUSIVE
-    probe as "nothing to mux" and dropped the audio silently, with no warning
-    and no recorded reason, indistinguishable from a source that genuinely
-    carries no audio.
-
-    ``reason`` is set only for :data:`AUDIO_PROBE_FAILED`.
-    """
-    status: str
-    reason: Optional[str] = None
-
-
-def probe_audio_stream(path: Union[str, Path]) -> AudioProbeResult:
-    """Classify whether ``path`` has an audio stream, a confirmed absence of
-    one, or an inconclusive probe -- via the same ``ffprobe`` invocation as
-    the shared ``has_audio_stream``, but reporting WHY when it can't tell."""
-    if shutil.which("ffprobe") is None:
-        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffprobe not found on PATH")
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe", "-v", "quiet", "-print_format", "json",
-                "-show_streams", "-select_streams", "a",
-                str(path),
-            ],
-            capture_output=True, text=True, timeout=10,
-        )
-    except subprocess.TimeoutExpired:
-        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffprobe timed out")
-    except OSError as exc:
-        return AudioProbeResult(AUDIO_PROBE_FAILED, f"ffprobe could not run: {exc}")
-
-    if result.returncode != 0:
-        return AudioProbeResult(AUDIO_PROBE_FAILED, f"ffprobe exited {result.returncode}")
-
-    try:
-        data = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffprobe returned unparseable output")
-
-    if data.get("streams"):
-        return AudioProbeResult(AUDIO_PROBE_PRESENT)
-    return AudioProbeResult(AUDIO_PROBE_SILENT)
-
 
 @dataclass(frozen=True)
 class VideoAudioResult:
@@ -125,40 +72,10 @@ class VideoAudioResult:
     omitted_reason: Optional[str] = None
 
 
-def mux_audio_into_video(
+def _mux_audio_aac_shortest(
     video_only: Union[str, Path], source: Union[str, Path], out_path: Union[str, Path],
 ) -> None:
-    """Copy ``video_only``'s video stream and ``source``'s audio stream into
-    ``out_path``. Raises ``RuntimeError`` on any mux failure (ffmpeg exit,
-    timeout, or a zero-byte result), removing whatever partial file it may
-    have written first -- callers must be able to rely on ``out_path`` not
-    existing after this raises. Callers are expected to have already
-    confirmed ``source`` has an audio stream (see :func:`probe_audio_stream`)
-    -- that is a "nothing to mux" case, not a mux failure, and is handled by
-    :func:`encode_video_with_audio` before this is ever called.
-    """
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(video_only), "-i", str(source),
-        "-map", "0:v:0", "-map", "1:a:0",
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
-        str(out_path),
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, timeout=600)
-    except subprocess.TimeoutExpired as e:
-        Path(out_path).unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg audio mux timed out after 600s: {source}") from e
-
-    if result.returncode != 0:
-        Path(out_path).unlink(missing_ok=True)
-        stderr = result.stderr.decode("utf-8", errors="replace")
-        raise RuntimeError(f"ffmpeg audio mux failed (exit {result.returncode}): {stderr[-2000:]}")
-
-    out = Path(out_path)
-    if not out.exists() or out.stat().st_size == 0:
-        out.unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg reported success but produced no muxed output at {out_path}")
+    mux_audio(video_only, source, out_path, shortest=True, prefer_copy=False)
 
 
 def encode_video_with_audio(
@@ -169,7 +86,7 @@ def encode_video_with_audio(
     source_audio_path: Optional[Union[str, Path]],
     keep_audio: bool,
     encode_video: Callable[..., object],
-    mux_audio: Callable[[Union[str, Path], Union[str, Path], Union[str, Path]], None] = mux_audio_into_video,
+    mux_audio: Callable[[Union[str, Path], Union[str, Path], Union[str, Path]], None] = _mux_audio_aac_shortest,
     probe_audio: Callable[[Union[str, Path]], AudioProbeResult] = probe_audio_stream,
 ) -> VideoAudioResult:
     """Encode ``frames_arr`` to ``out_path`` (video only) then, if
@@ -331,11 +248,7 @@ def encode_frames_stream_to_mp4(
         raise TypeError(
             "encode_frames_stream_to_mp4 encodes video only; mux audio with encode_video_with_audio"
         )
-    if shutil.which("ffmpeg") is None:
-        raise FFmpegNotFoundError(
-            "ffmpeg binary not found on PATH -- required to encode video output. "
-            "Install ffmpeg (e.g. `apt install ffmpeg`) and retry."
-        )
+    ffmpeg = require_ffmpeg()
 
     frames_iter = iter(frames)
     try:
@@ -347,7 +260,7 @@ def encode_frames_stream_to_mp4(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = _build_ffmpeg_args(
-        width=width, height=height, fps=fps, codec=codec, crf=crf,
+        ffmpeg, width=width, height=height, fps=fps, codec=codec, crf=crf,
         out_path=out_path, audio_path=None,
     )
 

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, screenshot, waitForFormPublished } from './helpers';
+import { installAndSelectImagePreset, presetOption } from './presetPreamble';
 
 // Regression: db97094/b3ad9d3 stopped +page.svelte's own onMount from
 // re-applying a saved session over a tab's live draft on SPA remount. But
@@ -16,21 +17,6 @@ import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, 
 
 const JOURNEY = 'session-tab-switch-preserves-draft';
 
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 async function typeIntoSegment(page: Page, listAriaLabel: string, index: number, text: string) {
 	const item = page.locator(`div[role="list"][aria-label="${listAriaLabel}"] [role="listitem"]`).nth(index);
 	const editor = item.locator('.inline-chip-editor[role="textbox"]');
@@ -40,43 +26,21 @@ async function typeIntoSegment(page: Page, listAriaLabel: string, index: number,
 
 async function pickPreset(page: Page, presetName: string) {
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByRole('listbox', { name: 'Presets' }).getByText(presetName, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, presetName).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 }
 
 test('editing a segment after loading a session survives switching tabs and back', async ({ page }) => {
 	await loginAsOwner(page);
-	const token = await ownerToken(page);
-
-	const me = await apiGet(page, '/api/auth/me', token);
-	const userId = me.data.id as string;
-
-	const list = await apiGet(page, '/api/presets?include_uninstalled=true', token);
-	const presets = (list.data || []) as Array<{ id: string; name: string; engine?: string; category?: string; installed?: boolean }>;
-	const imagePreset =
-		presets.find((p) => /sdxl/i.test(p.id)) ||
-		presets.find((p) => p.engine === 'native' && p.category === 'image');
-
+	const imagePreset = await installAndSelectImagePreset(page);
 	if (!imagePreset) {
 		test.skip(true, 'No native image preset available on this throwaway instance.');
 		return;
 	}
-
-	if (!imagePreset.installed) {
-		await apiPost(page, `/api/presets/${imagePreset.id}/install`, token);
-	}
-	await apiPost(page, `/api/presets/${imagePreset.id}/assign`, token, { user_ids: [userId] });
-
 	await page.setViewportSize({ width: 1440, height: 960 });
-	await page.goto('/generate');
-	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
-
-	await pickPreset(page, imagePreset.name);
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A lighthouse on a stormy cliff.');
 
@@ -90,13 +54,16 @@ test('editing a segment after loading a session survives switching tabs and back
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
 	await clickDialogSaveAndAwaitResponse(page);
 
-	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
+	const firstTab = page.locator('button.book-tab', { hasText: 'Generation 1' });
+	await expect(firstTab).not.toContainText('unsaved changes');
 
 	// Edit the segment further - now dirty against the saved baseline, never
 	// re-saved.
 	await typeIntoSegment(page, 'Positive segments', 0, ' Neon light flickers over the waves.');
 	await expect(page.getByRole('button', { name: 'Save session' })).toBeVisible({ timeout: 10000 });
+	await expect(firstTab).toContainText('unsaved changes', { timeout: 10000 });
 
 	const dirtyText = await mainList.textContent();
 	expect(dirtyText).toContain('A lighthouse on a stormy cliff.');
@@ -107,6 +74,8 @@ test('editing a segment after loading a session survives switching tabs and back
 	// Switch to a second tab and back - the exact repro from the bug report.
 	await page.getByRole('button', { name: 'Add new tab' }).click();
 	await expect(page.getByText('Generation 2', { exact: true })).toBeVisible();
+	await expect(page.locator('button.book-tab', { hasText: 'Generation 2' })).not.toContainText('unsaved changes');
+	await expect(firstTab).toContainText('unsaved changes', { timeout: 10000 });
 
 	await page.locator('button.book-tab', { hasText: 'Generation 1' }).click();
 
@@ -124,6 +93,7 @@ test('editing a segment after loading a session survives switching tabs and back
 	// The dirty indicator must still read dirty - not silently "Saved" as if
 	// the round trip re-synced against the server's (stale) saved copy.
 	await expect(page.getByRole('button', { name: 'Save session' })).toBeVisible({ timeout: 10000 });
+	await expect(firstTab).toContainText('unsaved changes');
 
 	await screenshot(page, JOURNEY, '01-after-tab-switch-round-trip');
 
@@ -141,38 +111,15 @@ test('editing a segment after loading a session survives switching tabs and back
 // same edit + tab-switch round trip as the test above.
 test('loading an existing session on a second tab, then editing it, survives switching tabs and back', async ({ page }) => {
 	await loginAsOwner(page);
-	const token = await ownerToken(page);
-
-	const me = await apiGet(page, '/api/auth/me', token);
-	const userId = me.data.id as string;
-
-	const list = await apiGet(page, '/api/presets?include_uninstalled=true', token);
-	const presets = (list.data || []) as Array<{ id: string; name: string; engine?: string; category?: string; installed?: boolean }>;
-	const imagePreset =
-		presets.find((p) => /sdxl/i.test(p.id)) ||
-		presets.find((p) => p.engine === 'native' && p.category === 'image');
-
+	const imagePreset = await installAndSelectImagePreset(page);
 	if (!imagePreset) {
 		test.skip(true, 'No native image preset available on this throwaway instance.');
 		return;
 	}
-
-	if (!imagePreset.installed) {
-		await apiPost(page, `/api/presets/${imagePreset.id}/install`, token);
-	}
-	await apiPost(page, `/api/presets/${imagePreset.id}/assign`, token, { user_ids: [userId] });
-
 	await page.setViewportSize({ width: 1440, height: 960 });
-	await page.goto('/generate');
-	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
-
-	// Tab 1: create and save a session to load later.
-	await pickPreset(page, imagePreset.name);
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A quiet harbor at dawn.');
 
@@ -184,7 +131,7 @@ test('loading an existing session on a second tab, then editing it, survives swi
 	const sessionName = `E2E Load Round Trip ${Date.now()}`;
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
 	await clickDialogSaveAndAwaitResponse(page);
-	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(sessionName, { timeout: 10000 });
 
 	// Tab 2: a fresh tab, same preset, load the session through the picker
 	// (not save-as-new).
@@ -193,14 +140,13 @@ test('loading an existing session on a second tab, then editing it, survives swi
 
 	await pickPreset(page, imagePreset.name);
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
-	await page.getByRole('button', { name: 'Session', exact: true }).click();
+	await page.getByTestId('session-trigger').click();
 	await page.locator('[data-session-row]', { hasText: sessionName }).click();
 
 	// Confirm the load actually applied before touching anything.
 	await expect(mainList).toContainText('A quiet harbor at dawn.', { timeout: 10000 });
-	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
 
 	// Edit after the load - dirty against the just-loaded baseline, never

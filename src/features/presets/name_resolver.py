@@ -18,10 +18,15 @@ class PresetNameResolver:
         Callers resolving many ids should take one snapshot and read it,
         rather than calling ``resolve`` per id.
         """
-        self.preset_loader._ensure_loaded()
-        return {preset.id: preset.name for preset in self.preset_loader.presets}
+        names: Dict[str, str] = {}
+        for preset in self.preset_loader.all():
+            names.setdefault(preset.id, preset.name)
+        return names
 
     def resolve(self, preset_id: Optional[str], default: Optional[str] = None) -> Optional[str]:
         if not preset_id:
             return default
-        return self.name_map().get(preset_id, default if default is not None else preset_id)
+        preset = self.preset_loader.get(preset_id)
+        if preset is None:
+            return default if default is not None else preset_id
+        return preset.name

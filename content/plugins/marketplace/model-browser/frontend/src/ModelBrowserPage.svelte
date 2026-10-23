@@ -297,7 +297,7 @@
 	async function changeMode(mode) {
 		if (modeBusy || !me || mode === me.nsfw.mode) return;
 		modeBusy = true;
-		const saved = await setNsfwMode(api, mode, nsfwInfo(me).settingKey);
+		const saved = await setNsfwMode(mode, nsfwInfo(me).settingKey);
 		if (!alive) return;
 		if (!saved.ok) {
 			modeBusy = false;

@@ -9,6 +9,8 @@
 	 * JsonTreeNode.svelte.
 	 */
 	import type { ArgTreeNode } from '$lib/chat/approvalPreview';
+	import { hasConditionBlocks } from '$lib/chat/conditionText';
+	import ConditionText from '../ConditionText.svelte';
 
 	export let nodes: ArgTreeNode[] = [];
 
@@ -90,7 +92,9 @@
 	{:else}
 		<div class="py-0.5 flex items-start gap-2 font-mono text-sm">
 			<span class="text-fg-subtle flex-shrink-0 min-w-[7rem]">{node.key}</span>
-			<span class="break-words {valueClass(node)}">{node.display}</span>
+			<span class="break-words {valueClass(node)}"
+				>{#if node.raw !== undefined && hasConditionBlocks(node.raw)}<ConditionText text={node.raw} />{:else}{node.display}{/if}</span
+			>
 		</div>
 	{/if}
 {/each}

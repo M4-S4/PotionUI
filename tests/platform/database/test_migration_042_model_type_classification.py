@@ -1,7 +1,5 @@
 import builtins
-import importlib.util
 import shutil
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,17 +8,7 @@ import pytest
 from src.platform.database.database import Database
 from src.platform.util.ids import generate_ulid
 from tests.fixtures.persistence_base import make_lean_file_database
-
-_MIGRATIONS = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
-
-
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+from tests.platform.database._support import load_migration
 
 
 @pytest.fixture(scope="session")
@@ -39,7 +27,7 @@ def template(tmp_path_factory):
             "036_native_availability_logical_refs",
             "037_drop_model_file_path",
         ):
-            _load_migration(stem, database).up()
+            load_migration(stem, database).up()
     with database.get_connection() as conn:
         conn.execute("PRAGMA journal_mode = DELETE").close()
     Database._instance = None
@@ -55,7 +43,7 @@ def env(template, tmp_path):
     shutil.copyfile(template, database.db_path)
     make_lean_file_database(database)
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        migration = _load_migration("042_model_type_classification", database)
+        migration = load_migration("042_model_type_classification", database)
         yield database, migration
     Database._instance = None
 
@@ -177,28 +165,6 @@ def test_a_second_run_keeps_what_an_admin_toggled(env):
     assert flags[("home", "checkpoint")] == 1
 
 
-def test_down_removes_everything_up_added(env):
-    database, migration = env
-    migration.up()
-
-    migration.down()
-
-    assert "scan_headers" not in _columns(database, "model_root_bindings")
-    assert "type_source" not in _columns(database, "models")
-    assert not {"model_header_verdicts", "model_type_assertions"} & _tables(database)
-
-
-def test_down_is_safe_twice_and_up_can_follow(env):
-    database, migration = env
-    migration.up()
-    migration.down()
-    migration.down()
-
-    migration.up()
-
-    assert "scan_headers" in _columns(database, "model_root_bindings")
-
-
 def test_up_touches_no_files(env):
     database, migration = env
 
@@ -209,7 +175,6 @@ def test_up_touches_no_files(env):
         "os.walk", side_effect=AssertionError
     ):
         migration.up()
-
 
 
 def test_assertions_reject_an_unknown_source(env):

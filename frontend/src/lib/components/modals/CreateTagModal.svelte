@@ -1,28 +1,18 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import {
-		createConfirmSettlementGate,
-		getConfirmKeyboardAction,
-		settleIfEligible
-	} from './confirmKeyboard';
 
-	// "Create tag" dialog, shared by every page that owns its own tag
-	// vocabulary - the caller supplies the create call and the sentence that
-	// explains what its tags are for.
 	export let onClose: () => void;
 	export let onCreate: (name: string) => Promise<{ success: boolean }>;
 	export let description: string;
 
 	let newTagName = '';
 	let creatingTag = false;
-
-	const settlementGate = createConfirmSettlementGate();
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	async function handleCreateTag() {
-		if (!newTagName.trim() || creatingTag) return;
+		if (!newTagName.trim() || creatingTag) return false;
 
 		try {
 			creatingTag = true;
@@ -30,12 +20,12 @@
 			if (response.success) {
 				newTagName = '';
 				onClose();
-			} else {
-				settlementGate.reset();
+				return true;
 			}
+			return false;
 		} catch (error) {
 			logger.error('Failed to create tag:', error);
-			settlementGate.reset();
+			return false;
 		} finally {
 			creatingTag = false;
 		}
@@ -46,40 +36,22 @@
 		onClose();
 	}
 
-	function submit() {
-		settleIfEligible(settlementGate, !!newTagName.trim() && !creatingTag, handleCreateTag);
-	}
-
-	function dismiss() {
-		settleIfEligible(settlementGate, !creatingTag, handleCancel);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (suppress) e.preventDefault();
-		if (action === 'confirm') submit();
-		else if (action === 'cancel') dismiss();
-	}
-
-	// The shared keyboard helper deliberately leaves Enter untouched while
-	// focus sits in an editable element (input/textarea/select), so the text
-	// field submits itself here rather than through the global handler above.
 	function handleInputKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') submit();
+		if (e.key === 'Enter') dialog.confirm();
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
+	bind:this={dialog}
 	isOpen={true}
-	title=""
 	size="sm"
 	hideCloseButton
-	closeable={!creatingTag}
-	handleEscapeKey={false}
+	busy={creatingTag}
 	labelledBy="add-tag-title"
-	on:close={dismiss}
+	confirmLabel="Confirm"
+	confirmDisabled={!newTagName.trim() || creatingTag}
+	onConfirm={handleCreateTag}
+	onCancel={handleCancel}
 >
 	<div class="p-6">
 		<div class="flex items-center gap-2 mb-4">
@@ -99,13 +71,4 @@
 			<p class="text-sm text-fg-muted mt-2">{description}</p>
 		</div>
 	</div>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Confirm"
-			confirmDisabled={!newTagName.trim() || creatingTag}
-			busy={creatingTag}
-			onCancel={dismiss}
-			onConfirm={submit}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, screenshot } from './helpers';
+import { installAndSelectImagePreset } from './presetPreamble';
 
 // Regression: a /generate tab whose prompt/settings were configured but
 // never saved as a session used to lose everything on a page reload —
@@ -11,21 +12,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 // content survived without ever saving a session.
 
 const JOURNEY = 'fe70-unsaved-tab-reload';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function typeIntoSegment(page: Page, listAriaLabel: string, index: number, text: string) {
 	const item = page.locator(`div[role="list"][aria-label="${listAriaLabel}"] [role="listitem"]`).nth(index);
@@ -46,7 +32,7 @@ async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, 
 	const dialog = page.getByRole('dialog', { name: 'Segment details' });
 	await dialog.getByPlaceholder('Optional segment name').fill(name);
 	await dialog.getByRole('button', { name: colorName, exact: true }).click();
-	await dialog.getByRole('button', { name: 'Save details' }).click();
+	await dialog.getByRole('button', { name: /^Save/ }).click();
 	// BaseModal's own exit transition (~150ms) keeps the dialog node — and its
 	// focusTrap action — mounted a beat after `isOpen` flips false; that
 	// action's `destroy()` restores focus to whatever was focused before the
@@ -67,39 +53,15 @@ async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, 
 
 test('unsaved tab keeps its prompt/segments/negative prompt across a reload', async ({ page }) => {
 	await loginAsOwner(page);
-	const token = await ownerToken(page);
-
-	const me = await apiGet(page, '/api/auth/me', token);
-	const userId = me.data.id as string;
-
-	const list = await apiGet(page, '/api/presets?include_uninstalled=true', token);
-	const presets = (list.data || []) as Array<{ id: string; name: string; engine?: string; category?: string; installed?: boolean }>;
-	const imagePreset =
-		presets.find((p) => /sdxl/i.test(p.id)) ||
-		presets.find((p) => p.engine === 'native' && p.category === 'image');
-
+	const imagePreset = await installAndSelectImagePreset(page);
 	if (!imagePreset) {
 		test.skip(true, 'No native image preset available on this throwaway instance.');
 		return;
 	}
-
-	if (!imagePreset.installed) {
-		await apiPost(page, `/api/presets/${imagePreset.id}/install`, token);
-	}
-	await apiPost(page, `/api/presets/${imagePreset.id}/assign`, token, { user_ids: [userId] });
-
 	await page.setViewportSize({ width: 1440, height: 960 });
-	await page.goto('/generate');
-	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
-
-	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByRole('listbox', { name: 'Presets' }).getByText(imagePreset.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	// Seed a named/colored positive section and a negative prompt — never
 	// saved as a session (no "Save session" click anywhere in this spec).
@@ -111,15 +73,19 @@ test('unsaved tab keeps its prompt/segments/negative prompt across a reload', as
 		await typeIntoSegment(page, 'Negative segments', 0, 'blurry, low detail, watermark');
 	}
 
-	// Give the 500ms-debounced localStorage save time to fire.
-	await page.waitForTimeout(1000);
+	await expect
+		.poll(() =>
+			page.evaluate(() =>
+				Object.keys(localStorage).some((key) => (localStorage.getItem(key) || '').includes('rain-slicked alley'))
+			)
+		)
+		.toBe(true);
 	await screenshot(page, JOURNEY, '00-before-reload');
 
 	const beforeReloadUrl = page.url();
 
 	await page.reload();
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1500);
 
 	expect(page.url()).toBe(beforeReloadUrl);
 
@@ -135,6 +101,5 @@ test('unsaved tab keeps its prompt/segments/negative prompt across a reload', as
 		await expect(restoredNegativeList).toContainText('blurry, low detail, watermark');
 	}
 
-	await page.waitForTimeout(300);
 	await screenshot(page, JOURNEY, '01-after-reload');
 });

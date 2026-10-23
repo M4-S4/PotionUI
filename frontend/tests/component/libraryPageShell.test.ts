@@ -5,6 +5,7 @@
 // the load sequence (items + facets + tags + collections) exists nowhere else
 // to be tested.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -53,10 +54,6 @@ function mountPage() {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let mounted: ReturnType<typeof mountPage> | undefined;
 let originalResizeObserver: unknown;
 
@@ -96,7 +93,7 @@ describe('library page', () => {
 		expect(api.getLibraryFacets).toHaveBeenCalled();
 		expect(api.listCollections).toHaveBeenCalled();
 		// The library owns its own tag vocabulary, never the generation one.
-		expect(api.getTags).toHaveBeenCalledWith('UPLOAD');
+		expect(api.getTags).toHaveBeenCalledWith('UPLOAD', expect.any(AbortSignal));
 	});
 
 	it('shows the empty state with a way in when the library holds nothing', async () => {

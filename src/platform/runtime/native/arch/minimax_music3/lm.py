@@ -41,7 +41,7 @@ import torch.nn as nn
 
 from ...base import NativeArchModule
 from ...attention import grouped_attention
-from ._nn import GatedMLP, RMSNorm, apply_rope, module_device
+from ...text_encoders._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device
 from .config import MiniMaxMusic3TextEncoderConfig
 from .depth_decoder import DepthDecoderModule
 from .prompt import AUDIO_CODE_OFFSET, SEMANTIC_VOCAB_SIZE
@@ -118,7 +118,7 @@ class _GlobalAttention(nn.Module):
     def prefill(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
                 cache_k: torch.Tensor, cache_v: torch.Tensor) -> torch.Tensor:
         q, k, v = self._qkv(x)
-        q, k = apply_rope(q, k, cos, sin)
+        q, k = apply_rope_qk(q, k, cos, sin)
         length = x.shape[1]
         cache_k[:, :, :length, :] = k.to(cache_k.dtype)
         cache_v[:, :, :length, :] = v.to(cache_v.dtype)
@@ -128,7 +128,7 @@ class _GlobalAttention(nn.Module):
     def step(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
               cache_k: torch.Tensor, cache_v: torch.Tensor, pos: int) -> torch.Tensor:
         q, k, v = self._qkv(x)  # x is a single new position: seq len 1
-        q, k = apply_rope(q, k, cos, sin)
+        q, k = apply_rope_qk(q, k, cos, sin)
         cache_k[:, :, pos:pos + 1, :] = k.to(cache_k.dtype)
         cache_v[:, :, pos:pos + 1, :] = v.to(cache_v.dtype)
         # Attends over every filled position, itself included, unmasked: this
@@ -146,7 +146,7 @@ class _GlobalBlock(nn.Module):
     def __init__(self, cfg: MiniMaxMusic3TextEncoderConfig, operations, device=None, dtype=None) -> None:
         super().__init__()
         self.self_attn = _GlobalAttention(cfg, operations, device=device, dtype=dtype)
-        self.mlp = GatedMLP(cfg.hidden_size, cfg.intermediate_size, cfg.merged_mlp, operations, device=device, dtype=dtype)
+        self.mlp = GatedMLP(cfg.hidden_size, cfg.intermediate_size, operations, merged=cfg.merged_mlp, device=device, dtype=dtype)
         self.input_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
         self.post_attention_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
 

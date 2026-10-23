@@ -1,7 +1,5 @@
 """Plain-language rendering of the generate tab's typed prompt variables.
 
-The chat form-state snapshot carries a compact ``variables`` list alongside
-``form_data`` (see the frontend ``buildVariablesSnapshot`` helper). A prompt
 variable is a named ``${...}`` placeholder the user can reuse across their
 prompt; it is either free ``text`` or a ``choice`` of options resolved per a
 mode (shuffle once per generation / pin one option / re-roll per image).
@@ -11,25 +9,36 @@ list into short human sentences the chat model reads — e.g.::
 
     mood: one of noir, sunlit — shuffles each generation; last roll: sunlit
 
-This module is the single pure renderer shared by both surfaces. It is
-defensive about the untrusted client shape and applies the same
-count/length caps FormResourceProvider uses so a padded snapshot can never
-bloat the prompt.
 """
 
 import json
 import random
 import re
+from dataclasses import dataclass
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Caps mirror FormResourceProvider's discipline (small-model payload budget).
-_MAX_OPTIONS = 12
-_MAX_VALUE_CHARS = 80
 _MAX_NAME_CHARS = 60
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALID_MODES = {"shuffle", "pin", "per-image"}
+MAX_NUMBER_GRID = 200
+MAX_ROLL_ENTRIES = 200
+MAX_ROLL_CHARS = 300
+MAX_CHOICE_OPTIONS = 200
+MAX_OPTION_CHARS = 2000
+MAX_TEXT_VALUE_CHARS = 2000
+MAX_STEP_PLACES = 6
+MAX_NUMBER_EXPONENT = 12
+MAX_NUMBER_DIGITS = 12
 MAX_NAME_CHARS = _MAX_NAME_CHARS
+SUMMARY_OPTION_PREVIEW = 3
+SUMMARY_OPTION_CHARS = 24
+SUMMARY_VALUE_CHARS = 40
+SUMMARY_READ_HINT = (
+    "Every option, condition and full value: call get_prompt_variables."
+)
 
 
 def _clip(text: str, limit: int) -> str:
@@ -119,14 +128,13 @@ def dependency_prefix(deps: List[str]) -> str:
     return f"resolves after {', '.join('$' + d for d in deps)} — "
 
 
-def _mode_phrase(mode: Any, options: List[str], pinned_index: Any) -> str:
+def _choice_mode_phrase(mode: Any, options: List[str], pinned_index: Any) -> str:
     if mode == "pin":
         if isinstance(pinned_index, int) and 0 <= pinned_index < len(options):
-            return f"pinned to {options[pinned_index]}"
+            return f"pinned to {_clip(options[pinned_index], SUMMARY_VALUE_CHARS)}"
         return "pinned"
     if mode == "per-image":
         return "re-rolls independently per image"
-    # 'shuffle' is the default (and the value for any unknown/missing mode).
     return "shuffles each generation"
 
 
@@ -134,25 +142,52 @@ def _render_choice(name: str, var: dict) -> Optional[str]:
     options = valid_options(var.get("options"))
     if not options:
         return None
-    shown = options[:_MAX_OPTIONS]
-    listing = ", ".join(_clip(format_option(o), _MAX_VALUE_CHARS) for o in shown)
-    if len(options) > _MAX_OPTIONS:
-        listing += ", …"
-    deps = variable_dependencies(var)
-    prefix = f"{name} — {dependency_prefix(deps)}" if deps else f"{name}: "
     texts = option_texts(options)
-    line = f"{prefix}one of {listing} — {_mode_phrase(var.get('mode'), texts, var.get('pinnedIndex'))}"
+    count = len(texts)
+    parts = ["choice"]
+    deps = variable_dependencies(var)
+    if deps:
+        parts.append("resolves after " + ", ".join(f"${d}" for d in deps))
+    parts.append(_choice_mode_phrase(var.get("mode"), texts, var.get("pinnedIndex")))
+    preview = ", ".join(_clip(t, SUMMARY_OPTION_CHARS) for t in texts[:SUMMARY_OPTION_PREVIEW])
+    if count > SUMMARY_OPTION_PREVIEW:
+        preview = f"first {SUMMARY_OPTION_PREVIEW}: {preview}"
+    conditional = sum(1 for o in options if o.get("when"))
+    suffix = f", {conditional} conditional" if conditional else ""
+    parts.append(f"{count} {'option' if count == 1 else 'options'}{suffix} ({preview})")
+    line = f"{name}: " + ", ".join(parts)
     roll = var.get("lastRoll")
     if isinstance(roll, (str, int, float)) and str(roll).strip():
-        line += f"; last roll: {_clip(str(roll).strip(), _MAX_VALUE_CHARS)}"
+        line += f"; last roll: {_clip(str(roll).strip(), SUMMARY_VALUE_CHARS)}"
+    return line
+
+
+def _render_number(name: str, var: dict) -> Optional[str]:
+    grid = number_grid(var)
+    if grid is None:
+        return None
+    line = f"{name}: number from {grid.format_index(0)} to {grid.format_index(grid.count - 1)}"
+    if grid.count > 1:
+        line += f" in steps of {format(grid.step, 'f')}"
+    mode = var.get("mode")
+    if mode == "pin":
+        line += f" — pinned to {number_pinned_text(var, grid)}"
+    elif mode == "per-image":
+        line += " — re-rolls independently per image"
+    else:
+        line += " — shuffles each generation"
+    roll = var.get("lastRoll")
+    if isinstance(roll, (str, int, float)) and not isinstance(roll, bool) and str(roll).strip():
+        line += f"; last roll: {_clip(str(roll).strip(), SUMMARY_VALUE_CHARS)}"
     return line
 
 
 def _render_text(name: str, var: dict) -> str:
     value = var.get("value")
-    if not isinstance(value, (str, int, float)) or str(value).strip() == "":
-        return f"{name}: free text (empty)"
-    return f"{name}: {_clip(str(value).strip(), _MAX_VALUE_CHARS)}"
+    text = str(value).strip() if isinstance(value, (str, int, float)) else ""
+    if not text:
+        return f"{name}: text, empty"
+    return f'{name}: text, {len(text)} chars ("{_clip(text, SUMMARY_VALUE_CHARS)}")'
 
 
 def render_prompt_variable_lines(variables: Any) -> List[str]:
@@ -175,10 +210,126 @@ def render_prompt_variable_lines(variables: Any) -> List[str]:
             line = _render_choice(name, var)
             if line is None:
                 continue
+        elif var.get("type") == "number":
+            line = _render_number(name, var)
+            if line is None:
+                continue
         else:
             line = _render_text(name, var)
         lines.append(line)
     return lines
+
+
+def variables_as_list(variables: Any, rolls: Any = None) -> List[Dict[str, Any]]:
+    if not isinstance(variables, dict):
+        return []
+    last_rolls = rolls if isinstance(rolls, dict) else {}
+    kept_rolls = 0
+    out: List[Dict[str, Any]] = []
+    for name, definition in variables.items():
+        if not isinstance(name, str) or not isinstance(definition, dict):
+            continue
+        entry = {**definition, "name": name}
+        roll = last_rolls.get(name)
+        if isinstance(roll, str) and kept_rolls < MAX_ROLL_ENTRIES:
+            kept_rolls += 1
+            entry["lastRoll"] = roll if len(roll) <= MAX_ROLL_CHARS else roll[: MAX_ROLL_CHARS - 1] + "…"
+        out.append(entry)
+    return out
+
+
+def render_prompt_variable_summary(variables: Any, rolls: Any = None) -> List[str]:
+    lines = render_prompt_variable_lines(variables_as_list(variables, rolls))
+    return [*lines, SUMMARY_READ_HINT] if lines else []
+
+
+@dataclass(frozen=True)
+class NumberGrid:
+    minimum: Decimal
+    maximum: Decimal
+    step: Decimal
+    places: int
+    count: int
+
+    def format_index(self, index: int) -> str:
+        value = self.minimum + self.step * index
+        return format(value.quantize(Decimal(1).scaleb(-self.places)), "f")
+
+    def values(self) -> List[str]:
+        return [self.format_index(k) for k in range(self.count)]
+
+    def clamp_format(self, value: Decimal) -> str:
+        clamped = min(max(value, self.minimum), self.maximum)
+        quantum = Decimal(1).scaleb(-self.places)
+        return format(clamped.quantize(quantum, rounding=ROUND_HALF_UP), "f")
+
+
+def _to_decimal(raw: Any) -> Optional[Decimal]:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        return None
+    try:
+        value = Decimal(str(raw).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    if not value.is_finite() or value.adjusted() >= MAX_NUMBER_EXPONENT:
+        return None
+    if len(value.as_tuple().digits) > MAX_NUMBER_DIGITS:
+        return None
+    return value
+
+
+def _step_places(step: Decimal) -> int:
+    exponent = step.as_tuple().exponent
+    return max(0, -exponent) if isinstance(exponent, int) else 0
+
+
+def _parse_number_grid(name: str, definition: Dict[str, Any]) -> Tuple[Optional[NumberGrid], Optional[str]]:
+    limits = f"|value| below 10^{MAX_NUMBER_EXPONENT} with at most {MAX_NUMBER_DIGITS} significant digits"
+    for field in ("min", "max"):
+        if _to_decimal(definition.get(field)) is None:
+            return None, (
+                f"'{name}': a number variable needs a numeric {field} ({limits}), "
+                f"e.g. {{\"type\": \"number\", \"min\": 18, \"max\": 80, \"step\": 1}}."
+            )
+    step_raw = definition.get("step")
+    step = Decimal(1) if step_raw is None else _to_decimal(step_raw)
+    if step is None or step <= 0:
+        return None, f"'{name}': step must be a number greater than 0 ({limits})."
+    low = _to_decimal(definition.get("min"))
+    high = _to_decimal(definition.get("max"))
+    if low > high:
+        return None, f"'{name}': min {low} is greater than max {high}."
+    places = _step_places(step)
+    if places > MAX_STEP_PLACES:
+        return None, f"'{name}': step {step} has more than {MAX_STEP_PLACES} decimal places."
+    if _step_places(low) > places:
+        return None, f"'{name}': min {low} has more decimal places than step {step}; use a finer step or a rounder min."
+    value = definition.get("value")
+    if value is not None and _to_decimal(value) is None:
+        return None, f"'{name}': a number variable's value must be a number ({limits})."
+    count = int((high - low) // step) + 1
+    if count > MAX_NUMBER_GRID:
+        needed = ((high - low) / (MAX_NUMBER_GRID - 1)).quantize(
+            Decimal(1).scaleb(-places), rounding=ROUND_CEILING
+        )
+        return None, (
+            f"'{name}': {low} to {high} in steps of {step} is {count} values, "
+            f"more than the limit of {MAX_NUMBER_GRID}. Raise the step to at least {format(needed, 'f')} or narrow the range."
+        )
+    return NumberGrid(low, high, step, places, count), None
+
+
+def number_grid_error(name: str, definition: Dict[str, Any]) -> Optional[str]:
+    return _parse_number_grid(name, definition)[1]
+
+
+def number_grid(definition: Dict[str, Any]) -> Optional[NumberGrid]:
+    return _parse_number_grid("", definition)[0]
+
+
+def number_pinned_text(definition: Dict[str, Any], grid: NumberGrid) -> str:
+    value = _to_decimal(definition.get("value"))
+    return grid.clamp_format(grid.minimum if value is None else value)
 
 
 def name_error(name: str) -> Optional[str]:
@@ -259,8 +410,18 @@ def validate_variables_map(variables: Any) -> List[str]:
                 errors.append(f"'{name}': a text variable's value must be a string.")
             continue
 
+        if var_type == "number":
+            grid_error = number_grid_error(name, definition)
+            if grid_error:
+                errors.append(grid_error)
+                continue
+            mode = definition.get("mode") or "shuffle"
+            if mode not in VALID_MODES:
+                errors.append(f"'{name}': invalid mode '{mode}'. Use shuffle, pin, or per-image.")
+            continue
+
         if var_type != "choice":
-            errors.append(f"'{name}': invalid type '{var_type}'. Use text or choice.")
+            errors.append(f"'{name}': invalid type '{var_type}'. Use text, choice or number.")
             continue
 
         raw_options = definition.get("options")
@@ -326,6 +487,17 @@ def resolve_variable_order(variables_by_name: Dict[str, Any]) -> List[str]:
 
 
 def build_variable_wire_value(var: Dict[str, Any]) -> str:
+    if var.get("type") == "number":
+        grid = number_grid(var)
+        if grid is None:
+            return ""
+        mode = var.get("mode") or "shuffle"
+        if mode == "pin":
+            return number_pinned_text(var, grid)
+        if grid.count == 1:
+            return grid.format_index(0)
+        return "{" + "|".join(grid.values()) + "}"
+
     if var.get("type") != "choice":
         value = var.get("value")
         return value if isinstance(value, str) else ""
@@ -374,6 +546,22 @@ def build_variables_for_submit(
     for name in resolve_variable_order(by_name):
         var = by_name[name]
 
+        if var.get("type") == "number":
+            grid = number_grid(var)
+            if grid is None:
+                continue
+            mode = var.get("mode") or "shuffle"
+            if mode == "shuffle":
+                text = grid.format_index(min(int(rand() * grid.count), grid.count - 1))
+                wire_map[name] = text
+                resolved[name] = text
+            else:
+                text = build_variable_wire_value(var)
+                wire_map[name] = text
+                if mode == "pin":
+                    resolved[name] = text
+            continue
+
         if var.get("type") != "choice":
             value = var.get("value")
             value = value if isinstance(value, str) else ""
@@ -400,52 +588,3 @@ def build_variables_for_submit(
             resolved[name] = value
 
     return wire_map
-
-
-def apply_variable_operations(variables: Any, operations: Any) -> List[Dict[str, Any]]:
-    by_name: Dict[str, Dict[str, Any]] = {}
-    order: List[str] = []
-    if isinstance(variables, (list, tuple)):
-        for var in variables:
-            if not isinstance(var, dict):
-                continue
-            name = var.get("name")
-            if isinstance(name, str) and name.strip():
-                name = name.strip()
-                by_name[name] = dict(var)
-                order.append(name)
-
-    for op in operations or []:
-        if not isinstance(op, dict):
-            continue
-        name = op.get("name")
-        if not isinstance(name, str) or not name.strip():
-            continue
-        name = name.strip()
-
-        if op.get("op") == "remove":
-            if name in by_name:
-                del by_name[name]
-                order = [n for n in order if n != name]
-            continue
-
-        if op.get("op") != "set":
-            continue
-
-        if op.get("type") == "choice":
-            mode = op.get("mode") or "shuffle"
-            entry: Dict[str, Any] = {
-                "name": name,
-                "type": "choice",
-                "options": op.get("options") or ["", ""],
-                "mode": mode,
-                "pinnedIndex": op.get("pinned_index") if mode == "pin" else None,
-            }
-        else:
-            entry = {"name": name, "type": "text", "value": op.get("value") or ""}
-
-        if name not in by_name:
-            order.append(name)
-        by_name[name] = entry
-
-    return [by_name[n] for n in order]

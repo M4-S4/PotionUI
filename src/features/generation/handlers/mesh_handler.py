@@ -43,10 +43,6 @@ MESH_FILE_TYPE = 'MESH'
 class MeshGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for MeshGenerationOutput - validates and stores registered mesh formats."""
 
-    def can_handle(self, output) -> bool:
-        """Check if this handler can process MeshGenerationOutput."""
-        return isinstance(output, MeshGenerationOutput)
-
     def handle(self, output: MeshGenerationOutput) -> Dict[str, Any]:
         """
         Process MeshGenerationOutput - validate, then save to disk (tmp if temporary).

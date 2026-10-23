@@ -18,6 +18,7 @@ from .key_mapping import (
     build_flux_lora_key_map,
     build_krea2_lora_key_map,
     build_minimax_h3_lora_key_map,
+    build_moss_image_lora_key_map,
     map_lora_keys,
 )
 from .row_mask import (
@@ -57,6 +58,7 @@ __all__ = [
     "build_flux_lora_key_map",
     "build_krea2_lora_key_map",
     "build_minimax_h3_lora_key_map",
+    "build_moss_image_lora_key_map",
     "has_lora_window",
     "map_lora_keys",
     "parse_lora_window",

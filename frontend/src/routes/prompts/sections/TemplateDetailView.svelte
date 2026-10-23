@@ -4,8 +4,10 @@
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import { Badge, Button, IconButton, Input } from '$lib/components/ui';
 	import type { Segment, SegmentTemplate } from '$lib/types/segments';
+	import { libraryVariableScope, type LibraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import { flattenRichSegments, hasMeaningfulSegments, isSegmentEnabled } from '$lib/utils/richSegments';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import LibraryVariablesSection from './LibraryVariablesSection.svelte';
 
 	let {
 		mode,
@@ -21,7 +23,8 @@
 		onDiscard,
 		onDelete,
 		onDuplicate,
-		onApply
+		onApply,
+		tabVariables
 	}: {
 		mode: 'create' | 'edit';
 		template: SegmentTemplate | null;
@@ -37,12 +40,16 @@
 		onDelete: () => void;
 		onDuplicate: () => void;
 		onApply: () => void;
+		tabVariables: LibraryTabVariables;
 	} = $props();
+
+	let variablesOpen = $state(false);
 
 	const title = $derived(mode === 'create' ? 'New template' : template?.name || 'Untitled');
 	const slotCount = $derived(editorSegments.length);
 	const enabledCount = $derived(editorSegments.filter((segment) => isSegmentEnabled(segment)).length);
 	const preview = $derived(flattenRichSegments(editorSegments));
+	const scope = $derived(libraryVariableScope(tabVariables, editorSegments.map((segment) => segment.content)));
 </script>
 
 <div class="flex h-full flex-col">
@@ -105,6 +112,9 @@
 					label="Template slots"
 					compact
 					showLibraryActions={false}
+					variables={tabVariables.variables}
+					onVariableDefChange={tabVariables.setDef}
+					onOpenVariableManager={() => (variablesOpen = true)}
 					on:segmentsChange={(event) => (editorSegments = event.detail)}
 				/>
 			{/snippet}
@@ -124,6 +134,8 @@
 						<KVItem label="Enabled" mono>{enabledCount}</KVItem>
 					</KVGrid>
 				</DetailSection>
+
+				<LibraryVariablesSection source={tabVariables} {scope} bind:open={variablesOpen} />
 			{/snippet}
 		</DetailLayout>
 	</DetailBody>

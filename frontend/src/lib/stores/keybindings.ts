@@ -1,4 +1,4 @@
-import { logger, getErrorMessage } from '$lib/utils/logger';
+import { logger } from '$lib/utils/logger';
 import { writable, derived, get } from 'svelte/store';
 import { api } from '$lib/services/api/index';
 

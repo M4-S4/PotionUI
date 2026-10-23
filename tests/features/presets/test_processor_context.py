@@ -185,6 +185,37 @@ class TestContextShape:
         settings.is_nsfw_enabled.assert_not_called()
 
 
+class TestRuntimeUser:
+    def _processor_with(self, resolver):
+        return PresetProcessor(
+            template_processor=TemplateProcessor(settings=Mock()),
+            settings=Mock(),
+            preset_template_loader=Mock(),
+            user_resolver=resolver,
+        )
+
+    def _is_admin(self, processor, user_id):
+        template = _preset(pipe_configuration={"admin": "{{ runtime.user.is_admin }}"})
+        return processor.process(template, _generation_data(), user_id=user_id)[0]["config"]["admin"]
+
+    def test_admin_account_is_flagged(self):
+        from src.platform.security.user import AccountType
+
+        users = {"a": Mock(account_type=AccountType.ADMIN), "u": Mock(account_type=AccountType.USER)}
+        processor = self._processor_with(users.get)
+        assert self._is_admin(processor, "a") is True
+        assert self._is_admin(processor, "u") is False
+
+    def test_unknown_missing_or_unresolvable_user_is_not_admin(self):
+        def boom(_user_id):
+            raise RuntimeError("db down")
+
+        assert self._is_admin(self._processor_with({}.get), "ghost") is False
+        assert self._is_admin(self._processor_with(boom), "a") is False
+        assert self._is_admin(self._processor_with(lambda _u: None), None) is False
+        assert self._is_admin(_processor(), "a") is False
+
+
 class TestObjectAndDictDirectivesAreGone:
     def test_object_prefixed_string_is_no_longer_special_cased(self):
         """`@object:` used to short-circuit into a raw context path lookup;

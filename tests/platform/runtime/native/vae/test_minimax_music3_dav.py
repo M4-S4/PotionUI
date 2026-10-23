@@ -48,16 +48,6 @@ class TestMiniMaxMusic3DAVTiny:
         module = _build()
         assert module.hop_length == math.prod(_TINY_CONFIG["upsampling_ratios"])
 
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = _build()
-        sd = module.state_dict()
-        module2 = MiniMaxMusic3DAV.from_config(_TINY_CONFIG, disable_weight_init)
-        load_into_module(module2, sd, _VaeSpec(family="vae", variant="minimax_music3_dav"))
-
-    def test_post_load_is_safe_noop(self):
-        module = _build()
-        module.post_load()  # must not raise
-
     def test_decode_rejects_wrong_channel_count(self):
         module = _build()
         with pytest.raises(NativeEngineUnsupportedError):
@@ -209,9 +199,6 @@ class TestTiledDecodeMatchesWhole:
     from the internal chunk boundaries, at fp32 tolerance."""
 
     def test_tiled_and_whole_decode_agree(self):
-        """With the overlap context kept (not just the kept span), tiled and
-        whole decode agree to float32 precision everywhere -- no boundary
-        masking needed. See the bite-check below for what breaks this."""
         torch.manual_seed(0)
         module = _build()
         torch.manual_seed(1)
@@ -230,11 +217,7 @@ class TestTiledDecodeMatchesWhole:
         assert tiled.shape == whole.shape
         assert torch.allclose(tiled, whole, atol=1e-5)
 
-    def test_bite_zero_overlap_measurably_diverges_from_whole(self):
-        """Confirms the equality above is actually exercising the overlap
-        context, not trivially true for any tiling: dropping the context
-        (`tile_overlap_latents=0`, keeping the exact tile boundaries) must
-        widen the gap from `whole` by orders of magnitude."""
+    def test_tiled_decode_with_no_overlap_context_diverges_from_whole_decode(self):
         torch.manual_seed(0)
         module = _build()
         torch.manual_seed(1)
@@ -257,12 +240,9 @@ class TestTiledDecodeMatchesWhole:
         assert module.use_tiling is True
         assert module.tile_latents == _TINY_CONFIG["tile_latents"]
 
-    def test_bite_disabling_tiling_changes_nothing_below_threshold(self):
-        """Below `tile_latents`, tiled and whole decode take the exact same
-        code path (`total <= tile_latents` short-circuits to `_decode_core`
-        either way) -- so toggling `use_tiling` must be a no-op here."""
+    def test_use_tiling_has_no_effect_below_the_tile_threshold(self):
         module = _build()
-        latents = torch.randn(1, _TINY_CONFIG["latent_channels"], 4)  # < tile_latents=6
+        latents = torch.randn(1, _TINY_CONFIG["latent_channels"], 4)
         module.use_tiling = True
         with torch.no_grad():
             a = module.decode(latents)

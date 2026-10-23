@@ -326,15 +326,6 @@ class TestMarketplaceProviderBase(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             asyncio.run(run_test())
 
-    def test_get_settings_schema_default(self):
-        """Test default settings schema"""
-        provider = ConcreteTestProvider()
-        schema = provider.get_settings_schema()
-
-        self.assertEqual(schema['type'], 'object')
-        self.assertEqual(schema['properties'], {})
-        self.assertEqual(schema['required'], [])
-
     def test_test_connection_default(self):
         """Test default test_connection returns True"""
         provider = ConcreteTestProvider()

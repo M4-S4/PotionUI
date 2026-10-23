@@ -19,7 +19,7 @@ from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.lora import apply_loras, map_lora_keys, remove_loras
 from src.platform.runtime.native.lora.key_mapping import build_krea2_lora_key_map, _select_key_map, _krea2_diffusers_stem
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 TINY = {
     "image_model": "krea2", "features": 32, "heads": 2, "kvheads": 1, "channels": 4,
@@ -28,12 +28,8 @@ TINY = {
 }
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build() -> Krea2:
-    m = Krea2.from_config(TINY, _fp32_ops())
+    m = Krea2.from_config(TINY, fp32_ops())
     sd = {}
     for k, v in m.state_dict().items():
         if k.endswith(".scale") or k.endswith(".mod.lin") or k.endswith(".modulation.lin"):
@@ -86,7 +82,7 @@ def test_flux_module_still_uses_flux_map():
              "context_in_dim": 32, "axes_dim": [8, 8, 8, 8], "mlp_ratio": 3.0,
              "theta": 2000, "patch_size": 1, "qkv_bias": False, "guidance_embed": False}
     with torch.device("meta"):
-        fm = Flux.from_config(ftiny, _fp32_ops())
+        fm = Flux.from_config(ftiny, fp32_ops())
     km = _select_key_map(fm)
     # flux map carries the diffusers fused-qkv slices Krea-2's never has.
     to_q = km["transformer.transformer_blocks.0.attn.to_q"]

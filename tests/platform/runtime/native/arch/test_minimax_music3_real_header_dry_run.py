@@ -20,9 +20,6 @@ loaded from — caught here before any real load path exists (that's S5's).
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 import torch
 
@@ -31,21 +28,12 @@ from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3Audi
 from src.platform.runtime.native.detect.te_detect import detect_te_config
 from vendor.gpl.comfyui.ops import disable_weight_init
 
-_HEADER_DIR = Path("ai/minimax_music3")
-_PRUNED_HEADER = "minimax_music3_text_encoder_pruned_bf16_header.json"
-_FULL_HEADER = "minimax_music3_text_encoder_bf16_header.json"
+from .._header_listings import load_header
+
+_PRUNED_HEADER = "minimax_music3/minimax_music3_text_encoder_pruned_bf16"
+_FULL_HEADER = "minimax_music3/minimax_music3_text_encoder_bf16"
 
 _DTYPES = {"BF16": torch.bfloat16, "F32": torch.float32, "F16": torch.float16, "U8": torch.uint8}
-
-
-def _load_real_header(name: str) -> dict:
-    path = _HEADER_DIR / name
-    if not path.exists():
-        pytest.skip(f"{path} not present (fetched once via range request; not part of the repo checkout)")
-    with path.open() as f:
-        header = json.load(f)
-    header.pop("__metadata__", None)
-    return header
 
 
 def _meta_state_dict(header: dict) -> dict[str, torch.Tensor]:
@@ -60,7 +48,7 @@ def _meta_state_dict(header: dict) -> dict[str, torch.Tensor]:
 
 
 def _build_module(header_name: str) -> tuple[dict, MiniMaxMusic3AudioLM]:
-    header = _load_real_header(header_name)
+    header = load_header(header_name)
     sd = _meta_state_dict(header)
     config = detect_te_config(sd)
     assert config is not None and config["te_type"] == "minimax_music3"

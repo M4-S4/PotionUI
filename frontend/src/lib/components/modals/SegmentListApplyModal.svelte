@@ -1,30 +1,27 @@
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { api } from '$lib/services/api';
 	import type { Prompt, SegmentTemplate } from '$lib/types/segments';
 	import { flattenRichSegments, type SegmentApplyMode } from '$lib/utils/richSegments';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { parseVariableUsageTokens } from '$lib/utils/promptVariables';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
-	import ConfirmModal from './ConfirmModal.svelte';
+	import SegmentModal from './SegmentModal.svelte';
 	import ModelAssignmentModal from './ModelAssignmentModal.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, Spinner, Alert } from '$lib/components/ui';
 	import PromptFiltersPopover from '$lib/prompts/PromptFiltersPopover.svelte';
 	import {
 		DEFAULT_PROMPT_FILTERS,
-		promptFilterActiveCount,
 		promptFilterChips,
-		clearPromptFilterChip,
-		clearAllPromptFilters,
 		type PromptFilters,
-		type PromptSortBy
+		type PromptSortBy,
+		promptFilters
 	} from '$lib/prompts/promptFilters';
 	import { queryPromptLibrary } from '$lib/prompts/promptLibraryQuery';
 	import { promptCardTitle, summarizePromptVariables } from '$lib/prompts/promptCardDisplay';
@@ -56,23 +53,25 @@
 	let error = '';
 	let searchTerm = '';
 	let selectedId: string | null = null;
-	let applyMode: SegmentApplyMode | null = null;
+	let applyMode: SegmentApplyMode = 'append';
 	let previousOpen = false;
 	let showReplaceConfirmation = false;
-	const applyModes: SegmentApplyMode[] = ['append', 'prepend', 'replace'];
+	const applyModes: { mode: SegmentApplyMode; label: string }[] = [
+		{ mode: 'append', label: 'Append' },
+		{ mode: 'prepend', label: 'Prepend' },
+		{ mode: 'replace', label: 'Replace' }
+	];
 
 	let filters: PromptFilters = { ...DEFAULT_PROMPT_FILTERS };
 	let filtersOpen = false;
 	let showModelPicker = false;
 	let semanticHitCount = 0;
 	let promptRequestId = 0;
-	let loadDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleLoad = debounce(() => void loadPrompts(true), 250);
 	let models: Array<{ id: string; filename?: string; name?: string; model_type?: string }> = [];
 	let modelsLoaded = false;
-	let bodyEl: HTMLDivElement | undefined;
 	let listEl: HTMLDivElement | undefined;
 	let filtersTriggerEl: HTMLDivElement | undefined;
-	const settlementGate = createConfirmSettlementGate();
 
 	$: items = kind === 'template' ? [...presetTemplates, ...loadedItems] : loadedItems;
 	$: normalizedSearch = searchTerm.trim().toLowerCase();
@@ -87,8 +86,12 @@
 				})
 			: items;
 	$: selectedItem = visibleItems.find((item) => item.id === selectedId) || null;
+	$: selectedPrompt = kind === 'prompt' && selectedItem ? (selectedItem as Prompt) : null;
+	$: selectedVariables = selectedPrompt ? summarizePromptVariables(selectedPrompt.variables) : null;
+	$: title = kind === 'prompt' ? 'Apply Prompt' : 'Apply Segment Template';
+	$: context = kind === 'prompt' ? `${total} prompt${total === 1 ? '' : 's'} in your library` : `${visibleItems.length} template${visibleItems.length === 1 ? '' : 's'}`;
 	$: hasMore = kind === 'prompt' && loadedItems.length < total;
-	$: filterCount = promptFilterActiveCount(filters);
+	$: filterCount = promptFilters.activeCount(filters);
 	$: modelLabel = filters.modelId
 		? modelDisplayName(models.find((model) => model.id === filters.modelId)) || 'Selected model'
 		: 'Any';
@@ -142,13 +145,12 @@
 	function resetSelection() {
 		searchTerm = '';
 		selectedId = null;
-		applyMode = null;
+		applyMode = 'append';
 		showReplaceConfirmation = false;
-		settlementGate.reset();
 	}
 
 	function resetLibrary() {
-		clearTimeout(loadDebounce);
+		scheduleLoad.cancel();
 		filters = { ...DEFAULT_PROMPT_FILTERS };
 		filtersOpen = false;
 		showModelPicker = false;
@@ -205,7 +207,7 @@
 			if (requestId !== promptRequestId) return;
 			loadedItems = reset ? result.rows : [...loadedItems, ...result.rows];
 			total = result.total;
-			semanticHitCount = reset ? result.semanticHits : semanticHitCount;
+			semanticHitCount = (reset ? 0 : semanticHitCount) + result.semanticHits;
 		} catch (loadError) {
 			if (requestId !== promptRequestId) return;
 			logger.error('Failed to load prompt library:', loadError);
@@ -221,8 +223,7 @@
 
 	function updateFilters(next: PromptFilters) {
 		filters = next;
-		clearTimeout(loadDebounce);
-		loadDebounce = setTimeout(() => void loadPrompts(true), 250);
+		scheduleLoad();
 	}
 
 	function handleSearchInput() {
@@ -235,30 +236,17 @@
 	}
 
 	function removeChip(key: string) {
-		updateFilters(clearPromptFilterChip(filters, key));
+		updateFilters(promptFilters.clearChip(filters, key));
 	}
 
 	function clearFilters() {
-		updateFilters(clearAllPromptFilters(filters));
+		updateFilters(promptFilters.clearAll(filters));
 	}
 
 	function selectModelForFilter(model: { id: string } | null) {
 		showModelPicker = false;
 		if (model && !models.some((entry) => entry.id === model.id)) models = [model as never, ...models];
 		updateFilters({ ...filters, modelId: model?.id || '' });
-	}
-
-	function ownDialog(): Element | null {
-		return bodyEl?.closest('[role="dialog"]') ?? null;
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		if (!filtersOpen) return;
-		const target = event.target as Element | null;
-		if (!target || filtersTriggerEl?.contains(target)) return;
-		const dialog = target.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]');
-		if (dialog && dialog !== ownDialog()) return;
-		filtersOpen = false;
 	}
 
 	function moveSelection(step: 1 | -1) {
@@ -276,99 +264,99 @@
 		if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
 			event.preventDefault();
 			moveSelection(event.key === 'ArrowDown' ? 1 : -1);
-		} else if (event.key === 'Enter') {
-			if (!selectedItem || !applyMode) return;
+		} else if (event.key === 'Enter' && !event.defaultPrevented) {
+			if (!selectedItem) return;
 			event.preventDefault();
-			handleConfirm();
+			requestApply();
 		}
 	}
 
 	function handleClose() {
 		resetSelection();
-		clearTimeout(loadDebounce);
+		scheduleLoad.cancel();
 		filtersOpen = false;
 		showModelPicker = false;
 		dispatch('close');
 	}
 
-	function handleCancel() {
-		settlementGate.settle(handleClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !!selectedItem && !!applyMode, requestApply);
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
-		if (showModelPicker) return;
-		if (filtersOpen) {
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				filtersOpen = false;
-			}
-			return;
-		}
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
-	}
-
 	function requestApply() {
-		if (!selectedItem || !applyMode) return;
+		if (!selectedItem) return false;
 		if (applyMode === 'replace' && targetHasMeaningfulContent) {
 			showReplaceConfirmation = true;
-			return;
+			return false;
 		}
 		applySelection();
+		return true;
 	}
 
 	function applySelection() {
-		if (!selectedItem || !applyMode) return;
+		if (!selectedItem) return;
 		dispatch('apply', { item: selectedItem, mode: applyMode });
 		resetSelection();
 	}
 </script>
 
-<svelte:window on:click|capture={handleWindowClick} on:keydown|capture={handleWindowKeydown} />
+{#snippet addAs()}
+	<fieldset class="flex items-center gap-2">
+		<legend class="sr-only">Add as</legend>
+		<span class="text-sm text-fg-subtle" aria-hidden="true">Add as</span>
+		<div class="inline-grid grid-cols-3 gap-0.5 rounded border border-line bg-surface-2 p-0.5">
+			{#each applyModes as choice (choice.mode)}
+				<label
+					class="flex h-7 cursor-pointer items-center justify-center rounded-sm px-2.5 text-sm font-medium transition-colors {applyMode === choice.mode
+						? 'bg-surface-3 text-fg shadow-raised'
+						: 'text-fg-muted hover:text-fg'}"
+				>
+					<input class="sr-only" type="radio" name="segment-apply-mode" value={choice.mode} bind:group={applyMode} />
+					{choice.label}
+				</label>
+			{/each}
+		</div>
+	</fieldset>
+{/snippet}
 
-<BaseModal
+<SegmentModal
 	{isOpen}
-	title={kind === 'prompt' ? 'Apply Prompt' : 'Apply Segment Template'}
-	sizeClass={kind === 'prompt' ? 'md:max-w-5xl md:w-full md:max-h-[88vh]' : 'md:max-w-3xl md:w-full md:max-h-[85vh]'}
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	tier="L"
+	icon={kind === 'prompt' ? 'document' : 'layout-template'}
+	{title}
+	{context}
+	primaryLabel="Apply"
+	primaryDisabled={!selectedItem}
+	footerStart={addAs}
+	onConfirm={requestApply}
+	onCancel={handleClose}
 >
-	<svelte:fragment slot="headerIcon">
-		<Icon name={kind === 'prompt' ? 'book-open' : 'layout-template'} className="h-5 w-5 text-fg-muted" />
-	</svelte:fragment>
+	<div class="flex h-full min-h-0 flex-col">
+		<div class="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3 max-md:px-4">
+			<div class="input flex h-9 min-w-[14rem] flex-1 items-center gap-2 max-md:h-11 max-md:basis-full">
+				<Icon name="search" className="h-4 w-4 flex-shrink-0 text-fg-subtle" />
+				<input
+					type="search"
+					class="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-fg-subtle"
+					placeholder={kind === 'prompt' ? 'Search prompts…' : 'Search template names and content…'}
+					aria-label={kind === 'prompt' ? 'Search prompts' : 'Search Segment Templates'}
+					bind:value={searchTerm}
+					data-autofocus
+					on:input={handleSearchInput}
+					on:keydown={handleListKeydown}
+				/>
+				{#if loading && loadedItems.length > 0}
+					<Spinner size="sm" />
+				{:else if searchHint}
+					<span class="whitespace-nowrap font-mono text-sm tabular-nums text-fg-subtle">{searchHint}</span>
+				{:else}
+					<span class="whitespace-nowrap font-mono text-sm tabular-nums text-fg-subtle">
+						{kind === 'prompt' ? total : visibleItems.length}
+					</span>
+				{/if}
+			</div>
 
-	<div class="flex flex-col gap-4 p-4 sm:p-6" bind:this={bodyEl}>
-		{#if kind === 'prompt'}
-			<div class="flex flex-wrap items-center gap-2">
-				<div class="input flex h-8 min-w-[14rem] flex-1 items-center gap-2">
-					<Icon name="search" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
-					<input
-						type="search"
-						class="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-fg-subtle"
-						placeholder="Search prompts…"
-						aria-label="Search prompts"
-						bind:value={searchTerm}
-						on:input={handleSearchInput}
-						on:keydown={handleListKeydown}
-					/>
-					{#if loading && loadedItems.length > 0}
-						<Spinner size="sm" />
-					{:else if searchHint}
-						<span class="whitespace-nowrap font-mono text-xs tabular-nums text-fg-subtle">{searchHint}</span>
-					{/if}
-				</div>
-
+			{#if kind === 'prompt'}
 				<div class="relative flex-shrink-0" bind:this={filtersTriggerEl}>
 					<button
 						type="button"
-						class="input flex h-8 items-center gap-1.5 whitespace-nowrap text-xs font-medium"
+						class="input flex h-9 items-center gap-1.5 whitespace-nowrap text-sm font-medium max-md:h-11"
 						aria-haspopup="dialog"
 						aria-expanded={filtersOpen}
 						on:click={() => (filtersOpen = !filtersOpen)}
@@ -380,7 +368,10 @@
 						<Icon name="chevron-down" className="h-3 w-3 text-fg-subtle" />
 					</button>
 					{#if filtersOpen}
-						<div class="absolute right-0 top-[calc(100%+6px)] z-40">
+						<div
+							class="absolute right-0 top-[calc(100%+6px)] z-40"
+							use:dismiss={{ onDismiss: () => (filtersOpen = false), ignore: [filtersTriggerEl] }}
+						>
 							<PromptFiltersPopover
 								{filters}
 								{modelLabel}
@@ -394,209 +385,183 @@
 
 				<label class="relative flex-shrink-0">
 					<span class="sr-only">Sort</span>
-					<select class="input h-8 appearance-none pr-6 text-xs font-medium" value={filters.sortBy} on:change={handleSortChange}>
+					<select class="input h-9 appearance-none pr-8 text-sm font-medium max-md:h-11" value={filters.sortBy} on:change={handleSortChange}>
 						{#each SORT_OPTIONS as option (option.value)}
 							<option value={option.value}>{option.label}</option>
 						{/each}
 					</select>
 				</label>
-			</div>
-
-			{#if filterChips.length > 0}
-				<div class="flex flex-wrap items-center gap-1.5">
-					{#each filterChips as chip (chip.key)}
-						<span class="inline-flex h-6 items-center gap-1.5 rounded border border-signal/28 bg-signal/10 px-2 font-mono text-xs text-signal">
-							{chip.label}
-							<button
-								type="button"
-								aria-label={`Remove filter ${chip.label}`}
-								class="opacity-70 hover:opacity-100"
-								on:click={() => removeChip(chip.key)}
-							>
-								<Icon name="close" className="h-2.5 w-2.5" />
-							</button>
-						</span>
-					{/each}
-					<button type="button" class="text-xs text-fg-subtle hover:text-fg" on:click={clearFilters}>Clear all</button>
-					<span class="ml-auto font-mono text-xs tabular-nums text-fg-subtle">{loadedItems.length} of {total}</span>
-				</div>
 			{/if}
-		{:else}
-			<div>
-				<label for="segment-library-search" class="mb-1.5 block text-xs font-medium text-fg-muted">
-					Search Segment Templates
-				</label>
-				<input
-					id="segment-library-search"
-					type="search"
-					class="input w-full"
-					bind:value={searchTerm}
-					placeholder="Search template names and content…"
-					on:keydown={handleListKeydown}
-				/>
+		</div>
+
+		{#if kind === 'prompt' && filterChips.length > 0}
+			<div class="flex flex-wrap items-center gap-1.5 border-b border-line px-5 py-2 max-md:px-4">
+				{#each filterChips as chip (chip.key)}
+					<span class="inline-flex h-6 items-center gap-1.5 rounded border border-signal/28 bg-signal/10 px-2 font-mono text-sm text-signal">
+						{chip.label}
+						<button
+							type="button"
+							aria-label={`Remove filter ${chip.label}`}
+							class="opacity-70 hover:opacity-100"
+							on:click={() => removeChip(chip.key)}
+						>
+							<Icon name="close" className="h-3 w-3" />
+						</button>
+					</span>
+				{/each}
+				<Button variant="ghost" size="sm" onclick={clearFilters}>Clear all</Button>
+				<span class="ml-auto font-mono text-sm tabular-nums text-fg-subtle">{loadedItems.length} of {total}</span>
 			</div>
 		{/if}
 
-		{#if loading && loadedItems.length === 0}
-			<div class="flex justify-center py-12"><Spinner size="lg" /></div>
-		{:else if error}
-			<Alert variant="danger" live="polite">{error}</Alert>
-		{:else if visibleItems.length === 0}
-			<div class="flex flex-col items-center gap-3 rounded-lg border border-dashed border-line p-8 text-center text-sm text-fg-muted">
-				{#if kind === 'prompt'}
-					<span>{emptyReason}</span>
-					{#if filterCount > 0}
-						<Button size="xs" variant="secondary" onclick={clearFilters}>Clear filters</Button>
-					{/if}
-				{:else}
-					<span>No Segment Templates found.</span>
-				{/if}
-			</div>
-		{:else}
-			<div
-				class="space-y-2 overflow-y-auto pr-1 {kind === 'prompt' ? 'h-[48vh] min-h-[16rem]' : 'max-h-[46vh]'}"
-				role="listbox"
-				tabindex="-1"
-				aria-label={`${kind} library`}
-				bind:this={listEl}
-				on:keydown={handleListKeydown}
-			>
-				{#each visibleItems as item (item.id)}
-					<button
-						type="button"
-						class="w-full rounded-lg border text-left transition-colors {kind === 'prompt' ? 'px-3 py-2.5' : 'p-3'} {selectedId === item.id
-							? 'border-signal bg-signal/10'
-							: 'border-line bg-surface-2 hover:border-line-hover hover:bg-surface-3'}"
-						role="option"
-						aria-selected={selectedId === item.id}
-						data-library-row
-						on:click={() => (selectedId = item.id)}
-					>
+		<div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_22.5rem] max-md:grid-cols-1">
+			<div class="min-h-0 overflow-y-auto p-2">
+				{#if loading && loadedItems.length === 0}
+					<div class="flex justify-center py-12"><Spinner size="lg" /></div>
+				{:else if error}
+					<div class="p-2"><Alert variant="danger" live="polite">{error}</Alert></div>
+				{:else if visibleItems.length === 0}
+					<div class="flex flex-col items-center gap-3 px-5 py-10 text-center text-base text-fg-subtle">
 						{#if kind === 'prompt'}
-							{@const prompt = item as Prompt}
-							{@const title = promptCardTitle(prompt)}
-							{@const negative = prompt.usage_hint === 'negative'}
-							{@const variablesSummary = summarizePromptVariables(prompt.variables)}
-							{@const sourceLabel = promptSourceLabel(prompt)}
-							{@const relativeLabel = promptRelativeLabel(prompt)}
-							<div class="flex items-start gap-2.5">
-								<Tooltip text={negative ? 'Negative prompt' : 'Positive prompt'}>
-									<span
-										class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border font-mono text-xs {negative
-											? 'border-danger/35 text-danger'
-											: 'border-line-strong bg-surface-1 text-fg-muted'}"
-									>
-										{negative ? '−' : '+'}
-									</span>
-								</Tooltip>
-								<div class="flex min-w-0 flex-1 flex-col gap-1">
-									<span
-										class="min-w-0 truncate text-sm font-semibold {title.untitled
-											? 'font-medium italic text-fg-muted'
-											: 'text-fg'}"
-									>
-										{title.text}
-									</span>
-									<p class="line-clamp-2 text-sm leading-relaxed text-fg-muted">
-										{#each parseVariableUsageTokens(prompt.flattened_text || '') as token, index (index)}
-											{#if token.type === 'variable'}<span class="font-mono text-xs text-signal">{token.raw}</span
-												>{:else}{token.raw}{/if}
-										{/each}
-									</p>
-									<div class="flex flex-wrap items-center gap-1.5">
-										<span
-											class="inline-flex h-5 max-w-full items-center truncate rounded border border-line-strong bg-surface-1 px-1.5 font-mono text-xs text-fg-muted"
-										>
-											{prompt.model_name || 'any model'}
-										</span>
-										{#if sourceLabel}
-											<span class="inline-flex h-5 items-center rounded border border-line-strong bg-surface-1 px-1.5 font-mono text-xs text-fg-muted">
-												{sourceLabel}
-											</span>
-										{/if}
-										{#if variablesSummary.count > 0}
-											<Tooltip text={variablesSummary.broken ? 'A condition references a missing variable' : 'Variables used in this prompt'}>
-												<span
-													class="inline-flex h-5 items-center gap-1 rounded border px-1.5 font-mono text-xs {variablesSummary.broken
-														? 'border-warning/35 bg-warning/10 text-warning'
-														: 'border-signal/28 bg-signal/10 text-signal'}"
-												>
-													<Icon name="braces" className="h-2.5 w-2.5" />
-													{variablesSummary.count}{variablesSummary.linked > 0 ? ` · ${variablesSummary.linked} linked` : ''}
-												</span>
-											</Tooltip>
-										{/if}
-										{#if prompt.nsfw}
-											<span class="inline-flex h-5 items-center rounded border border-line-strong bg-surface-1 px-1.5 font-mono text-xs text-fg-muted">
-												nsfw
-											</span>
-										{/if}
-										<span class="ml-auto flex items-center gap-2.5 whitespace-nowrap font-mono text-xs tabular-nums text-fg-subtle">
-											<span>{promptUsageLabel(prompt)}</span>
-											{#if relativeLabel}<span>{relativeLabel}</span>{/if}
-										</span>
-									</div>
-								</div>
-							</div>
+							<span>{emptyReason}</span>
+							{#if filterCount > 0}
+								<Button size="sm" variant="secondary" onclick={clearFilters}>Clear filters</Button>
+							{/if}
 						{:else}
-							<div class="flex items-start justify-between gap-3">
-								<div class="min-w-0 flex-1">
-									<div class="flex items-center gap-2">
-										<span class="truncate text-sm font-medium text-fg">{itemName(item)}</span>
-										{#if isPresetItem(item)}
-											<Badge size="sm" class="flex-shrink-0">Preset</Badge>
-										{/if}
-									</div>
-									<div class="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">
-										{itemPreview(item) || 'Blank starter segments'}
-									</div>
-								</div>
-								<span class="flex-shrink-0 font-mono text-xs text-fg-subtle">
-									{item.segments.length} segment{item.segments.length === 1 ? '' : 's'}
+							<span>No Segment Templates found.</span>
+						{/if}
+					</div>
+				{:else}
+					<div
+						class="space-y-0.5"
+						role="listbox"
+						tabindex="-1"
+						aria-label={`${kind} library`}
+						bind:this={listEl}
+						on:keydown={handleListKeydown}
+					>
+						{#each visibleItems as item (item.id)}
+							{@const selected = selectedId === item.id}
+							<button
+								type="button"
+								class="grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded px-2.5 py-2.5 text-left transition-colors {selected
+									? 'bg-signal/10 shadow-[inset_2px_0_0_rgb(var(--signal))]'
+									: 'hover:bg-surface-2'}"
+								role="option"
+								aria-selected={selected}
+								data-library-row
+								on:click={() => (selectedId = item.id)}
+								on:dblclick={() => {
+									selectedId = item.id;
+									requestApply();
+								}}
+							>
+								{#if kind === 'prompt'}
+									{@const prompt = item as Prompt}
+									{@const promptTitle = promptCardTitle(prompt)}
+									{@const negative = prompt.usage_hint === 'negative'}
+									{@const variablesSummary = summarizePromptVariables(prompt.variables)}
+									{@const sourceLabel = promptSourceLabel(prompt)}
+									{@const relativeLabel = promptRelativeLabel(prompt)}
+									<Tooltip text={negative ? 'Negative prompt' : 'Positive prompt'}>
+										<span
+											class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border font-mono text-sm {negative
+												? 'border-danger/35 text-danger'
+												: 'border-line-strong bg-surface-1 text-fg-muted'}"
+										>
+											{negative ? '−' : '+'}
+										</span>
+									</Tooltip>
+									<span class="flex min-w-0 flex-col gap-1">
+										<span class="min-w-0 truncate text-base font-semibold {promptTitle.untitled ? 'font-medium italic text-fg-muted' : 'text-fg'}">
+											{promptTitle.text}
+										</span>
+										<span class="line-clamp-2 text-base leading-5 text-fg-muted">
+											{#each parseVariableUsageTokens(prompt.flattened_text || '') as token, index (index)}
+												{#if token.type === 'variable'}<span class="font-mono text-sm text-signal">{token.raw}</span
+													>{:else}{token.raw}{/if}
+											{/each}
+										</span>
+										<span class="flex flex-wrap items-center gap-1.5">
+											<Badge size="lg">{prompt.model_name || 'any model'}</Badge>
+											{#if sourceLabel}<Badge size="lg">{sourceLabel}</Badge>{/if}
+											{#if variablesSummary.count > 0}
+												<Tooltip text={variablesSummary.broken ? 'A condition references a missing variable' : 'Variables used in this prompt'}>
+													<Badge size="lg" variant={variablesSummary.broken ? 'warning' : 'signal'}>
+														<Icon name="braces" className="h-3 w-3" />
+														{variablesSummary.count}{variablesSummary.linked > 0 ? ` · ${variablesSummary.linked} linked` : ''}
+													</Badge>
+												</Tooltip>
+											{/if}
+											{#if prompt.nsfw}<Badge size="lg">nsfw</Badge>{/if}
+											<span class="ml-auto flex items-center gap-2.5 whitespace-nowrap font-mono text-sm tabular-nums text-fg-subtle">
+												<span>{promptUsageLabel(prompt)}</span>
+												{#if relativeLabel}<span>{relativeLabel}</span>{/if}
+											</span>
+										</span>
+									</span>
+								{:else}
+									<span class="mt-0.5 grid h-8 w-8 place-items-center rounded border border-line bg-surface-2 text-fg-subtle">
+										<Icon name="layout-template" className="h-4 w-4" />
+									</span>
+									<span class="flex min-w-0 flex-col gap-1">
+										<span class="flex min-w-0 items-center gap-2">
+											<span class="truncate text-base font-medium text-fg">{itemName(item)}</span>
+											{#if isPresetItem(item)}<Badge size="lg" class="flex-shrink-0">Preset</Badge>{/if}
+										</span>
+										<span class="line-clamp-2 text-sm leading-5 text-fg-muted">{itemPreview(item) || 'Blank starter segments'}</span>
+										<span class="font-mono text-sm text-fg-subtle">{item.segments.length} segment{item.segments.length === 1 ? '' : 's'}</span>
+									</span>
+								{/if}
+								<span
+									class="mt-0.5 grid h-[18px] w-[18px] flex-shrink-0 place-items-center rounded-full border {selected
+										? 'border-signal bg-signal text-accent-contrast'
+										: 'border-line-hover text-transparent'}"
+									aria-hidden="true"
+								>
+									<Icon name="check" className="h-3 w-3" />
 								</span>
+							</button>
+						{/each}
+						{#if hasMore}
+							<div class="flex justify-center pt-2">
+								<Button size="sm" variant="secondary" loading={loadingMore} disabled={loadingMore} onclick={() => loadPrompts(false)}>
+									Show {Math.min(PAGE_SIZE, total - loadedItems.length)} more
+								</Button>
 							</div>
 						{/if}
-					</button>
-				{/each}
-				{#if hasMore}
-					<div class="flex justify-center pt-1">
-						<Button size="sm" variant="secondary" loading={loadingMore} disabled={loadingMore} onclick={() => loadPrompts(false)}>
-							Show {Math.min(PAGE_SIZE, total - loadedItems.length)} more
-						</Button>
 					</div>
 				{/if}
 			</div>
-		{/if}
 
-		<fieldset>
-			<legend class="mb-2 text-xs font-medium text-fg-muted">Choose how to apply</legend>
-			<div class="grid grid-cols-3 gap-2">
-				{#each applyModes as mode}
-					<label
-						class="cursor-pointer rounded-lg border p-2.5 text-center text-xs font-medium capitalize transition-colors {applyMode === mode
-							? 'border-signal bg-signal/10 text-fg'
-							: 'border-line text-fg-muted hover:border-line-hover'}"
-					>
-						<input class="sr-only" type="radio" name="segment-apply-mode" value={mode} bind:group={applyMode} />
-						{mode}
-					</label>
-				{/each}
-			</div>
-			<p class="mt-2 text-xs text-fg-subtle">
-				Incoming segments are detached copies. Other generation settings are not changed.
-			</p>
-		</fieldset>
+			<aside class="min-h-0 overflow-y-auto border-l border-line bg-surface-2/30 px-5 py-4 max-md:hidden" aria-label="Preview">
+				{#if selectedItem}
+					<span class="font-mono text-sm uppercase tracking-[0.04em] text-fg-subtle">Preview</span>
+					<h3 class="mt-1 break-words text-md font-semibold text-fg">{itemName(selectedItem)}</h3>
+					<p class="mt-0.5 text-sm text-fg-subtle">
+						{#if selectedPrompt}{selectedPrompt.model_name || 'any model'} · {/if}{selectedItem.segments.length} segment{selectedItem.segments.length === 1 ? '' : 's'}{#if selectedVariables && selectedVariables.count > 0}&nbsp;· {selectedVariables.count} variable{selectedVariables.count === 1 ? '' : 's'}{/if}
+					</p>
+					{#if itemDescription(selectedItem)}
+						<p class="mt-2 text-sm text-fg-muted">{itemDescription(selectedItem)}</p>
+					{/if}
+					<div class="mt-3 space-y-2">
+						{#each selectedItem.segments as segment, index (index)}
+							<div class="rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm leading-5 text-fg-muted">
+								<span class="block font-semibold text-fg">{index + 1} · {segment.name || `Segment ${index + 1}`}</span>
+								<span class="line-clamp-3 break-words">{segment.content || 'Empty'}</span>
+							</div>
+						{:else}
+							<div class="rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm leading-5 text-fg-muted">{itemPreview(selectedItem) || 'Blank prompt'}</div>
+						{/each}
+					</div>
+					<p class="mt-3 text-sm text-fg-subtle">Incoming segments are detached copies. Other generation settings are not changed.</p>
+				{:else}
+					<p class="py-10 text-center text-base text-fg-subtle">Pick one on the left to see what it adds.</p>
+				{/if}
+			</aside>
+		</div>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Apply"
-			confirmDisabled={!selectedItem || !applyMode}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</SegmentModal>
 
 {#if showModelPicker}
 	<ModelAssignmentModal
@@ -611,14 +576,22 @@
 	/>
 {/if}
 
-<ConfirmModal
+<SegmentModal
 	isOpen={showReplaceConfirmation}
+	tier="S"
+	role="alertdialog"
+	icon="warning"
+	tone="syntax"
 	title="Replace current segments?"
-	message="This will replace the meaningful content in this editor. Preset, mode, form values, session, backend, seed, tags, and generation settings stay unchanged."
-	variant="warning"
-	on:confirm={() => {
+	context={selectedItem ? `${title} · ${itemName(selectedItem)}` : title}
+	primaryLabel="Replace"
+	onConfirm={() => {
 		showReplaceConfirmation = false;
 		applySelection();
 	}}
-	on:cancel={() => (showReplaceConfirmation = false)}
-/>
+	onCancel={() => (showReplaceConfirmation = false)}
+>
+	<p class="px-5 py-4 text-base text-fg-muted">
+		This replaces the meaningful content in this editor. Preset, mode, form values, session, backend, seed, tags, and generation settings stay unchanged.
+	</p>
+</SegmentModal>

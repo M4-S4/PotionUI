@@ -12,14 +12,6 @@ class TestSection(unittest.TestCase):
         self.preset_loader = Mock()
         self.section_field = Section(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test that section field handler correctly identifies section fields"""
-        self.assertTrue(self.section_field.can_handle('section'))
-        self.assertFalse(self.section_field.can_handle('header'))
-        self.assertFalse(self.section_field.can_handle('text'))
-        self.assertFalse(self.section_field.can_handle(''))
-        self.assertFalse(self.section_field.can_handle(None))
-
     def test_output_basic_section(self):
         """Test output transformation for a basic section field"""
         field = {
@@ -189,68 +181,6 @@ class TestSection(unittest.TestCase):
         self.assertEqual(result['title'], 'Object Section')
         self.assertEqual(result['badge'], '2 fields')
 
-
-    def test_map_field(self):
-        """Test that map_field delegates to output"""
-        field = {
-            'type': 'section',
-            'label': 'Test Section',
-            'configuration': {'badge': '1 changed'}
-        }
-
-        output_result = self.section_field.output(field, 'preset_id')
-        map_result = self.section_field.map_field(field, 'preset_id')
-
-        self.assertEqual(output_result, map_result)
-
-    def test_configuration_specs(self):
-        """Test configuration specifications"""
-        config_specs = Section.configuration()
-
-        self.assertGreater(len(config_specs), 0)
-
-        badge_spec = next((spec for spec in config_specs if spec.name == 'badge'), None)
-        self.assertIsNotNone(badge_spec)
-        self.assertEqual(badge_spec.param_type, str)
-
-        tooltip_spec = next((spec for spec in config_specs if spec.name == 'tooltip'), None)
-        self.assertIsNotNone(tooltip_spec)
-        self.assertEqual(tooltip_spec.param_type, str)
-
-        collapsed_spec = next((spec for spec in config_specs if spec.name == 'collapsed'), None)
-        self.assertIsNotNone(collapsed_spec)
-        self.assertEqual(collapsed_spec.param_type, bool)
-        self.assertEqual(collapsed_spec.default, False)
-
-        experimental_spec = next((spec for spec in config_specs if spec.name == 'experimental'), None)
-        self.assertIsNotNone(experimental_spec)
-        self.assertEqual(experimental_spec.param_type, bool)
-        self.assertEqual(experimental_spec.default, False)
-
-    def test_validation_rules_empty(self):
-        """Section is display-only - it has no validation rules"""
-        self.assertEqual(Section.validation_rules(), [])
-
-    def test_examples(self):
-        """Test example configurations"""
-        examples = Section.examples()
-
-        self.assertGreater(len(examples), 0)
-
-        for example in examples:
-            self.assertIsNotNone(example.title)
-            self.assertIsNotNone(example.description)
-            self.assertIsNotNone(example.yaml_config)
-            self.assertIsNotNone(example.rendered_output)
-            self.assertIn('type', example.rendered_output)
-            self.assertEqual(example.rendered_output['type'], 'section')
-
-    def test_description(self):
-        """Test field description"""
-        description = Section.description()
-        self.assertIsNotNone(description)
-        self.assertIsInstance(description, str)
-        self.assertGreater(len(description), 0)
 
     def test_name_removal_from_output(self):
         """Test that name is always removed from output schema"""

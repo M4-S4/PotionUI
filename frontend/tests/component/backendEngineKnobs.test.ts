@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getBackendOptimizations: vi.fn(),
@@ -83,16 +84,12 @@ function localPayload(flags: Record<string, unknown> = FLAGS) {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 async function mountLocal(flags: Record<string, unknown> = FLAGS) {
 	vi.mocked(adminApi.getBackendOptimizations).mockResolvedValue(localPayload(flags) as never);
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	createClassComponent({ component: BackendOptimizations as never, target, props: { backendId: 'b1' } });
-	await settle();
+	await settle(10);
 	return target;
 }
 
@@ -108,7 +105,7 @@ async function mountRemote(flags: Record<string, unknown> = FLAGS) {
 		target,
 		props: { backendId: 'w1', local: false }
 	});
-	await settle();
+	await settle(10);
 	return target;
 }
 
@@ -154,7 +151,7 @@ describe('BackendOptimizations engine knobs on the local backend', () => {
 		vi.mocked(adminApi.setEngineFlags).mockResolvedValue(savedResponse({ native_fp8_matmul: true }));
 		const target = await mountLocal();
 		row(target, 'native_fp8_matmul').querySelector<HTMLInputElement>('input[role="switch"]')!.click();
-		await settle();
+		await settle(10);
 		expect(adminApi.setEngineFlags).toHaveBeenCalledWith('b1', { native_fp8_matmul: true });
 		expect(row(target, 'native_fp8_matmul').querySelector<HTMLInputElement>('input[role="switch"]')!.checked).toBe(
 			true
@@ -167,10 +164,10 @@ describe('BackendOptimizations engine knobs on the local backend', () => {
 		const input = row(target, 'native_min_inference_memory_gb').querySelector<HTMLInputElement>('input')!;
 		input.value = '2.5';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settle(10);
 		expect(adminApi.setEngineFlags).not.toHaveBeenCalled();
 		input.dispatchEvent(new Event('change', { bubbles: true }));
-		await settle();
+		await settle(10);
 		expect(adminApi.setEngineFlags).toHaveBeenCalledWith('b1', { native_min_inference_memory_gb: 2.5 });
 	});
 
@@ -179,7 +176,7 @@ describe('BackendOptimizations engine knobs on the local backend', () => {
 		const input = row(target, 'native_ltx_decode_tile_px').querySelector<HTMLInputElement>('input')!;
 		input.value = '';
 		input.dispatchEvent(new Event('change', { bubbles: true }));
-		await settle();
+		await settle(10);
 		expect(adminApi.setEngineFlags).not.toHaveBeenCalled();
 		expect(input.value).toBe('0');
 	});
@@ -190,7 +187,7 @@ describe('BackendOptimizations engine knobs on the local backend', () => {
 		[...row(target, 'native_fp8_quantize').querySelectorAll('button')]
 			.find((b) => b.textContent?.trim() === 'Always')!
 			.click();
-		await settle();
+		await settle(10);
 		expect(adminApi.setEngineFlags).toHaveBeenCalledWith('b1', { native_fp8_quantize: 'force' });
 	});
 
@@ -207,7 +204,7 @@ describe('BackendOptimizations engine knobs on the local backend', () => {
 		vi.mocked(adminApi.setEngineFlags).mockResolvedValue({ success: false, message: 'nope' } as never);
 		const target = await mountLocal();
 		row(target, 'native_fp8_matmul').querySelector<HTMLInputElement>('input[role="switch"]')!.click();
-		await settle();
+		await settle(10);
 		expect(toasts.error).toHaveBeenCalledWith('nope');
 		expect(row(target, 'native_fp8_matmul').querySelector<HTMLInputElement>('input[role="switch"]')!.checked).toBe(
 			false
@@ -221,7 +218,7 @@ describe('BackendOptimizations engine knobs on the local backend', () => {
 		[...row(target, 'native_sol_attn_backend').querySelectorAll('button')]
 			.find((b) => b.textContent?.trim() === 'Kernel')!
 			.click();
-		await settle();
+		await settle(10);
 		const hint = target.querySelector('[data-testid="engine-restart-hint"]')!;
 		expect(hint.textContent).toContain('Restart PotionUI to apply the settings marked Applies after restart.');
 		expect([...hint.querySelectorAll('button')].some((b) => b.textContent?.includes('Restart now'))).toBe(true);
@@ -249,7 +246,7 @@ describe('BackendOptimizations engine knobs on a remote worker', () => {
 		expect(select.value).toBe('');
 		select.value = 'sage2';
 		select.dispatchEvent(new Event('change', { bubbles: true }));
-		await settle();
+		await settle(10);
 		expect(adminApi.setEngineFlags).toHaveBeenCalledWith('w1', { native_attention_backend: 'sage2' });
 	});
 
@@ -259,7 +256,7 @@ describe('BackendOptimizations engine knobs on a remote worker', () => {
 		[...row(target, 'native_sol_attn_backend').querySelectorAll('button')]
 			.find((b) => b.textContent?.trim() === 'Kernel')!
 			.click();
-		await settle();
+		await settle(10);
 		const hint = target.querySelector('[data-testid="engine-restart-hint"]')!;
 		expect(hint.textContent?.trim()).toContain('Restart the worker to apply.');
 		expect(hint.querySelectorAll('button')).toHaveLength(0);
@@ -269,7 +266,7 @@ describe('BackendOptimizations engine knobs on a remote worker', () => {
 		vi.mocked(adminApi.setEngineFlags).mockResolvedValue(savedResponse({ native_sol_attn_debug: true }));
 		const target = await mountRemote();
 		row(target, 'native_sol_attn_debug').querySelector<HTMLInputElement>('input[role="switch"]')!.click();
-		await settle();
+		await settle(10);
 		expect(adminApi.setEngineFlags).toHaveBeenCalledWith('w1', { native_sol_attn_debug: true });
 	});
 });

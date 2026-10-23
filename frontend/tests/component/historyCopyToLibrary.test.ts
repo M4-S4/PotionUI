@@ -6,6 +6,7 @@
 // and that the toolbar says so. Mounts the real component against the real
 // stores.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -63,10 +64,6 @@ function mountToolbar() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function currentHistoryState() {

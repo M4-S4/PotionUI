@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from src.plugin_api.providers import client_ssl_context
+
 from .gpu_catalog import STATIC_GPU_CATALOG, GpuType
 
 DEFAULT_BASE_URL = "https://rest.runpod.io/v1"
@@ -106,6 +108,7 @@ class RunPodClient:
                 base_url=self.base_url,
                 timeout=self.timeout,
                 transport=self.transport,
+                verify=client_ssl_context(),
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",

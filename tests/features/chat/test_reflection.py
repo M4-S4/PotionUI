@@ -14,18 +14,18 @@ from src.features.presets.dto import PresetInfo
 
 
 def _wire_preset_lookup(manager, name_by_id):
-    manager.preset_collaborators.requirements_cache = None
+    manager.tool_services.preset_collaborators.requirements_cache = None
     if isinstance(name_by_id, str):
         fixed_name = name_by_id
-        manager.preset_collaborators.file_repo.find_preset_by_id.return_value = SimpleNamespace(id="any")
-        manager.preset_collaborators.file_repo.preset_to_info.return_value = PresetInfo(
+        manager.tool_services.preset_collaborators.file_repo.find_preset_by_id.return_value = SimpleNamespace(id="any")
+        manager.tool_services.preset_collaborators.file_repo.preset_to_info.return_value = PresetInfo(
             id="any", name=fixed_name, version="1",
         )
         return
-    manager.preset_collaborators.file_repo.find_preset_by_id.side_effect = (
+    manager.tool_services.preset_collaborators.file_repo.find_preset_by_id.side_effect = (
         lambda pid: SimpleNamespace(id=pid) if pid in name_by_id else None
     )
-    manager.preset_collaborators.file_repo.preset_to_info.side_effect = (
+    manager.tool_services.preset_collaborators.file_repo.preset_to_info.side_effect = (
         lambda tmpl, **kw: PresetInfo(id=tmpl.id, name=name_by_id[tmpl.id], version="1")
     )
 
@@ -85,7 +85,7 @@ def _manager(monkeypatch, config_memory_reflection=True):
     config.memory_reflection = config_memory_reflection
     manager.llm_service.repository.get_configuration.return_value = config
     manager.chat_repository = Mock()
-    manager.llm_memory_repository = Mock()
+    manager.tool_services.llm_memory_repository = Mock()
     mock_ops = Mock()
     monkeypatch.setattr("src.features.chat.reflection.memory_operations", mock_ops)
     manager.memory_ops = mock_ops
@@ -124,7 +124,7 @@ class TestShouldReflect:
 
     def test_false_when_no_memory_manager(self, monkeypatch):
         manager = _manager(monkeypatch)
-        manager.llm_memory_repository = None
+        manager.tool_services.llm_memory_repository = None
         generator = ChatReflectionGenerator(manager)
         session = _session()
         assert generator.should_reflect(session, _messages(MIN_UNREFLECTED_USER_MESSAGES)) is False
@@ -202,6 +202,26 @@ class TestReflect:
         return manager, ChatReflectionGenerator(manager), messages
 
     @pytest.mark.asyncio
+    async def test_context_window_is_ensured_before_the_span_budget_is_resolved(self, monkeypatch):
+        manager, generator, messages = self._setup(monkeypatch, "[]")
+        order = []
+        manager.llm_service.ensure_context_window = AsyncMock(side_effect=lambda config: order.append("ensure"))
+        original = generator._resolve_span_budget
+
+        def spy(prompt, config):
+            order.append("budget")
+            return original(prompt, config)
+
+        monkeypatch.setattr(generator, "_resolve_span_budget", spy)
+
+        await generator.reflect("session-1")
+
+        assert order == ["ensure", "budget"]
+        manager.llm_service.ensure_context_window.assert_awaited_once_with(
+            manager.llm_service.repository.get_configuration.return_value,
+        )
+
+    @pytest.mark.asyncio
     async def test_happy_path_persists_items_and_records_bookkeeping(self, monkeypatch):
         manager, generator, messages = self._setup(
             monkeypatch,
@@ -213,7 +233,7 @@ class TestReflect:
 
         assert saved == [{"key": "saved"}]
         manager.memory_ops.write_note.assert_called_once_with(
-            manager.llm_memory_repository,
+            manager.tool_services.llm_memory_repository,
             user_id="user-1", key="likes_anime",
             content="prefers anime style over realism",
             scope="global", scope_ref=None,
@@ -513,7 +533,7 @@ class TestReflectScoping:
         _wire_preset_lookup(manager, "My Preset")
         model = Mock()
         model.filename = "my_model.safetensors"
-        manager.model_index_manager.model_repo.get_by_id.return_value = model
+        manager.tool_services.model_index_manager.model_repo.get_by_id.return_value = model
         chat_mode = Mock()
         chat_mode.name = "LoRA Dataset"
         manager.chat_mode_registry.get.return_value = chat_mode
@@ -540,7 +560,7 @@ class TestReflectScoping:
         await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
 
         manager.memory_ops.write_note.assert_called_once_with(
-            manager.llm_memory_repository,
+            manager.tool_services.llm_memory_repository,
             user_id="user-1", key="k",
             content="always uses this preset for portraits",
             scope="preset", scope_ref="preset-123",
@@ -565,7 +585,7 @@ class TestReflectScoping:
         sent = manager.llm_service.generate_with_history.await_args.kwargs["messages"][0]["content"]
         assert "preset-old" in sent and "preset-new" in sent
         manager.memory_ops.write_note.assert_called_once_with(
-            manager.llm_memory_repository,
+            manager.tool_services.llm_memory_repository,
             user_id="user-1", key="k",
             content="always uses this preset for portraits",
             scope="preset", scope_ref="preset-old",
@@ -605,7 +625,7 @@ class TestReflectScoping:
         await generator.reflect("session-1")
 
         manager.memory_ops.write_note.assert_called_once_with(
-            manager.llm_memory_repository,
+            manager.tool_services.llm_memory_repository,
             user_id="user-1", key="k",
             content="always captions one image at a time in this mode",
             scope="mode", scope_ref="lora-dataset",
@@ -674,7 +694,7 @@ class TestReflectScoping:
         await generator.reflect("session-1")
 
         manager.memory_ops.write_note.assert_called_once_with(
-            manager.llm_memory_repository,
+            manager.tool_services.llm_memory_repository,
             user_id="user-1", key="k",
             content="prefers moody lighting overall",
             scope="global", scope_ref=None,

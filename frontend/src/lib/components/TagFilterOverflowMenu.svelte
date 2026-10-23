@@ -1,5 +1,5 @@
 <script lang="ts" generics="T extends { id: string; name: string; color: string }">
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeAnchoredMenuPosition } from '$lib/utils/menuPosition';
@@ -26,15 +26,6 @@
 	let popoverEl: HTMLDivElement;
 	let searchInput: HTMLInputElement;
 	let popoverPos = { top: 0, left: 0 };
-
-	onMount(() => {
-		document.addEventListener('click', handleClickOutside);
-		document.addEventListener('keydown', handleKeydown);
-		return () => {
-			document.removeEventListener('click', handleClickOutside);
-			document.removeEventListener('keydown', handleKeydown);
-		};
-	});
 
 	$: filteredTags = tags.filter((tag) =>
 		tag.name.toLowerCase().includes(searchValue.toLowerCase())
@@ -69,19 +60,6 @@
 		}
 	}
 
-	function handleClickOutside(event: MouseEvent) {
-		const target = event.target as Node;
-		// The popover lives at body level (portalled) once open — only the
-		// trigger is still inside `container`.
-		if (isOpen && container && !container.contains(target) && !(popoverEl && popoverEl.contains(target))) {
-			close();
-		}
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && isOpen) close();
-	}
-
 	function tagChipStyle(color: string | undefined, selected: boolean): string {
 		if (!selected) return 'color: rgb(var(--fg-subtle));';
 		if (!color) return 'background-color: rgb(var(--surface-3)); color: rgb(var(--fg)); box-shadow: 0 0 0 1px rgb(var(--line-hover));';
@@ -109,6 +87,7 @@
 				use:portal
 				use:overlayLayer
 				bind:this={popoverEl}
+				use:dismiss={{ onDismiss: close, ignore: [container] }}
 				class="fixed z-overlay w-64 max-h-80 bg-surface-1 border border-line-strong rounded-lg shadow-overlay flex flex-col"
 				style="top: {popoverPos.top}px; left: {popoverPos.left}px;"
 				role="dialog"

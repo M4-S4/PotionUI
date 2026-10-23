@@ -182,6 +182,13 @@ class CapabilitySpec(BaseModel):
         return self
 
 
+class ChildrenIncludeSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file: StrictStr
+    vars: Dict[str, Union[StrictStr, StrictBool, int, float]] = Field(default_factory=dict)
+
+
 class FieldSpec(BaseModel):
     """Mirrors src.features.presets.templates.FieldTemplate. `type` is an opaque, registry-validated
     string - this schema does not enumerate field types."""
@@ -207,7 +214,7 @@ class FieldSpec(BaseModel):
     visible: Optional[bool] = None
     reactions: Optional[List[ReactionSpec]] = None
     listeners: Optional[Any] = None
-    children: Optional[Union[List["FieldSpec"], str]] = None
+    children: Optional[Union[List["FieldSpec"], str, ChildrenIncludeSpec]] = None
     # "simple" (default) vs "advanced" - lets the frontend hide advanced-only
     # fields behind a toggle. See docs/presets.md field reference.
     audience: Literal["simple", "advanced"] = "simple"
@@ -423,7 +430,6 @@ class PipeSpec(BaseModel):
     # time by W2's evaluator); runtime checks `is True`, not `== 'true'`.
     enabled: Union[str, bool] = True
     input: Optional[List[List[Any]]] = None
-    cache: Optional[List[Any]] = None
     configuration: Optional[Dict[str, Any]] = None
 
 

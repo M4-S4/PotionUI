@@ -3,12 +3,14 @@ import { browser } from '$app/environment';
 import { goto } from '$app/navigation';
 import { api } from '$lib/services/api/index';
 import { logger } from '$lib/utils/logger';
+import { parseApiError } from '$lib/utils/apiErrors';
 import { storage } from '$lib/utils/storage';
 import { chatSession } from '$lib/stores/chatSession';
 import { tabsStore } from '$lib/stores/tabs';
 import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
 import { LAST_USER_ID_KEY } from '$lib/stores/identityScopedStorage';
 import { activeAccount } from '$lib/stores/accountRegistry';
+import { sleep } from '$lib/utils/time';
 import {
 	clearAllAccounts,
 	currentRegistry,
@@ -39,17 +41,6 @@ interface AuthState {
 	user: User | null;
 	loading: boolean;
 	error: string | null;
-}
-
-// The backend's error_response() wraps failures as detail: { error, message }
-// (see src/platform/http/base_controller.py), not a bare string - unwrap it
-// so callers (e.g. the claim screen) see the actual "already claimed" /
-// "invalid setup token" text instead of a stringified object.
-function extractApiErrorMessage(error: any): string | undefined {
-	const detail = error?.response?.data?.detail;
-	if (typeof detail === 'string') return detail;
-	if (detail && typeof detail.message === 'string') return detail.message;
-	return error?.message;
 }
 
 const INIT_RETRY_BASE_MS = 1000;
@@ -133,7 +124,7 @@ function createAuthStore() {
 				}
 				logger.error('Failed to fetch user info on init:', err);
 			}
-			await new Promise((resolve) => setTimeout(resolve, delay));
+			await sleep(delay);
 			delay = Math.min(delay * 2, INIT_RETRY_MAX_MS);
 		}
 	}
@@ -209,14 +200,14 @@ function createAuthStore() {
 			loading: false,
 			error: null
 		});
-		hardNavigate('/login');
+		hardNavigate('/login?signedout=1');
 	}
 
 	return {
 		subscribe,
 
 		async login(username: string, password: string, rememberMe: boolean = false) {
-			update((state) => ({ ...state, loading: true, error: null }));
+			update((state) => ({ ...state, error: null }));
 
 			try {
 				const response = await api.login({ username, password, remember_me: rememberMe });
@@ -228,7 +219,7 @@ function createAuthStore() {
 				}
 				return { success: false, error: 'Login did not return an access token.' };
 			} catch (error: any) {
-				const errorMessage = extractApiErrorMessage(error) || 'Login failed. Please try again.';
+				const errorMessage = parseApiError(error).message || 'Login failed. Please try again.';
 
 				update((state) => ({
 					...state,
@@ -241,7 +232,7 @@ function createAuthStore() {
 		},
 
 		async register(username: string, email: string, password: string, claimToken?: string) {
-			update((state) => ({ ...state, loading: true, error: null }));
+			update((state) => ({ ...state, error: null }));
 
 			try {
 				const response = await api.register({ username, email, password, claim_token: claimToken });
@@ -269,7 +260,8 @@ function createAuthStore() {
 					return { success: false, error: errorMessage };
 				}
 			} catch (error: any) {
-				const errorMessage = extractApiErrorMessage(error) || 'Registration failed. Please try again.';
+				const parsed = parseApiError(error);
+				const errorMessage = parsed.message || 'Registration failed. Please try again.';
 
 				update((state) => ({
 					...state,
@@ -277,7 +269,7 @@ function createAuthStore() {
 					error: errorMessage
 				}));
 
-				return { success: false, error: errorMessage };
+				return { success: false, error: errorMessage, fieldErrors: parsed.fieldErrors };
 			}
 		},
 
@@ -309,7 +301,7 @@ function createAuthStore() {
 				loading: false,
 				error: null
 			});
-			hardNavigate('/login');
+			hardNavigate('/login?signedout=1');
 		},
 
 		finishSignIn(path: string) {

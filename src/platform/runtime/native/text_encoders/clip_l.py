@@ -17,7 +17,7 @@ import torch.nn as nn
 
 from ..base import NativeArchModule
 from ._functional import optimized_attention
-from .base import NativeTextEncoder, _module_to, _module_unload
+from .base import NativeTextEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -164,14 +164,6 @@ class CLIPLTextEncoder(NativeTextEncoder):
         self.module = module
         self.tokenizer = tokenizer
         self._device = torch.device(device)
-
-    def to(self, device: str | torch.device) -> "CLIPLTextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
 
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:

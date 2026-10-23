@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "scenario": "number_variable_proposal",
+  "capture": "replay",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Make an age variable from 18 to 90 that picks a different age per image."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "manage_prompt_variables",
+          "arguments": {
+            "operations": [
+              {
+                "op": "set",
+                "name": "age",
+                "type": "number",
+                "min": 18,
+                "max": 90,
+                "step": 1,
+                "mode": "per-image",
+                "reason": "A different age for every image"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "manage_prompt_variables",
+      "content": "{\"status\": \"pending_approval\", \"proposed_changes\": [{\"field_name\": \"${age}\", \"old_value\": \"not set\", \"new_value\": \"number from 18 to 90 in steps of 1 \\u2014 re-rolls independently per image\"}], \"change_count\": 1}",
+      "outcome": "pending_approval"
+    },
+    {
+      "role": "assistant",
+      "content": "I've proposed an age variable from 18 to 90 that re-rolls per image - approve the change to add it."
+    }
+  ]
+}

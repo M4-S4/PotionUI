@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // A "row" field group (e.g. Seed + Quantity) used to only render side-by-side
 // once the settings pane was dragged well past its default width - the
@@ -18,7 +19,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // asserting the row keeps sharing one line at all of them.
 
 const JOURNEY = 'row-layout';
-const BEAT = 300;
 const SDXL_PRESET_ID = '01K0W24A3RADXXABH16YQ7KE90';
 
 const DESKTOP_VIEWPORTS = [
@@ -26,21 +26,6 @@ const DESKTOP_VIEWPORTS = [
 	{ label: 'xl-desktop', width: 1300, height: 900 },
 	{ label: '2xl-desktop', width: 1600, height: 900 }
 ] as const;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('row layout — Seed and Quantity share one line at every desktop viewport tier', async ({ page }) => {
 	await page.setViewportSize({ width: DESKTOP_VIEWPORTS[0].width, height: DESKTOP_VIEWPORTS[0].height });
@@ -75,14 +60,13 @@ test('row layout — Seed and Quantity share one line at every desktop viewport 
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const generationTab = page.getByRole('tab', { name: 'Generation' });
 	if ((await generationTab.count()) > 0) {
 		await generationTab.click();
 	}
-	await page.waitForTimeout(BEAT);
 
 	const seedLabel = page.locator('label', { hasText: /^Seed$/ }).first();
 	const quantityLabel = page.locator('label', { hasText: /^Quantity$/ }).first();
@@ -96,7 +80,6 @@ test('row layout — Seed and Quantity share one line at every desktop viewport 
 
 	for (const viewport of DESKTOP_VIEWPORTS) {
 		await page.setViewportSize({ width: viewport.width, height: viewport.height });
-		await page.waitForTimeout(BEAT);
 		await rowGrid.scrollIntoViewIfNeeded();
 
 		await screenshot(page, JOURNEY, `01-${viewport.label}-full-page`);

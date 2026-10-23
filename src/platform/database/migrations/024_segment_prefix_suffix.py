@@ -29,7 +29,3 @@ def up():
                 added.append(f"{table}.{column}")
 
     print(f"Migration 024_segment_prefix_suffix: added {len(added)} column(s): {', '.join(added) or 'none'}")
-
-
-def down():
-    print("Migration 024_segment_prefix_suffix: no-op (SQLite keeps the added columns)")

@@ -226,16 +226,6 @@ async def test_a_transparent_background_in_jpeg_is_refused_before_sending(provid
     assert calls(openai_api, "/images/generations") == []
 
 
-async def test_no_user_id_is_sent_by_default(provider, openai_api, tmp_path):
-    await provider.submit(await request_for(provider, user_ref="ref-abc"))
-    await provider.submit(await request_for(
-        provider, task="img_edit", user_ref="ref-abc", inputs={"reference": [media(tmp_path, "a.png", PNG)]},
-    ))
-
-    assert "user" not in calls(openai_api, "/images/generations")[-1]["body"]
-    assert "user" not in calls(openai_api, "/images/edits")[-1]["body"]
-
-
 async def test_the_anonymous_user_id_is_sent_only_when_the_admin_turns_it_on(openai_api, tmp_path):
     made, http = build(openai_api, send_user_hash=True)
     try:

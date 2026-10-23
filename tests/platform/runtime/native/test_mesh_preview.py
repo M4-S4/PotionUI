@@ -386,44 +386,6 @@ class TestEmptyMesh:
             render_mesh_preview(b"not a real glb file")
 
 
-class TestMinimalParserSourceSelection:
-    def test_uses_minimal_parser_when_trimesh_unavailable(self, monkeypatch):
-        """Import-seam sanity check: with `trimesh` unimportable (its actual
-        state in this project today), `load_glb` must still parse - i.e. it
-        really did fall through to the minimal parser rather than raising."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name == "trimesh":
-                raise ImportError("no trimesh in this environment")
-            return real_import(name, *args, **kwargs)
-
-        monkeypatch.setattr(builtins, "__import__", fake_import)
-
-        mesh = load_glb(build_minimal_glb())
-        assert mesh is not None
-        assert mesh.faces.shape == (TRIANGLE_FACE_COUNT, 3)
-
-
-@pytest.fixture
-def no_trimesh(monkeypatch):
-    """Forces the minimal-parser loading path regardless of whether
-    `trimesh` happens to be importable in the environment this test runs
-    in."""
-    import builtins
-
-    real_import = builtins.__import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "trimesh":
-            raise ImportError("no trimesh in this environment")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-
-
 class TestDoubleSidedShading:
     """TRELLIS's dual-grid export produces inward-facing triangle winding
     intrinsically - a preview that lights a triangle by `max(0, n.l)` instead
@@ -476,10 +438,6 @@ class TestTexturedMesh:
         assert sum(1 for s in spreads if s > 10) / len(spreads) > 0.3
 
     def test_texture_colors_appear_via_live_loader(self):
-        png = render_mesh_preview(build_textured_quad_glb())
-        self._assert_multiple_hues_present(png)
-
-    def test_texture_colors_appear_via_minimal_parser(self, no_trimesh):
         png = render_mesh_preview(build_textured_quad_glb())
         self._assert_multiple_hues_present(png)
 

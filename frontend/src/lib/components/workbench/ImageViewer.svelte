@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher } from 'svelte';
 
 	export let imageUrl: string;
@@ -200,7 +201,8 @@
 			on:pointerdown|stopPropagation
 			on:click|stopPropagation={() => dispatch('exitComparison')}
 			class="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors pointer-events-auto"
-			title="Exit comparison mode"
+			use:tooltip={'Exit comparison mode'}
+			aria-label="Exit comparison mode"
 		>
 			<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -243,8 +245,9 @@
 			<button
 				on:click|stopPropagation={handleZoomIn}
 				class="bg-white/20 hover:bg-white/30 text-white p-2 rounded transition-colors flex items-center justify-center"
-				title="Zoom in"
+				use:tooltip={'Zoom in'}
 				disabled={zoomScale >= 5.0}
+				aria-label="Zoom in"
 			>
 				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -255,8 +258,9 @@
 			<button
 				on:click|stopPropagation={handleZoomOut}
 				class="bg-white/20 hover:bg-white/30 text-white p-2 rounded transition-colors flex items-center justify-center"
-				title="Zoom out"
+				use:tooltip={'Zoom out'}
 				disabled={zoomScale <= 0.5}
+				aria-label="Zoom out"
 			>
 				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12H6" />
@@ -267,7 +271,8 @@
 			<button
 				on:click|stopPropagation={handleResetZoom}
 				class="bg-white/20 hover:bg-white/30 text-white p-2 rounded transition-colors flex items-center justify-center"
-				title="Reset zoom (1:1)"
+				use:tooltip={'Reset zoom (1:1)'}
+				aria-label="Reset zoom (1:1)"
 			>
 				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
@@ -280,7 +285,8 @@
 			<button
 				on:click|stopPropagation={() => dispatch('exitZoom')}
 				class="bg-white/20 hover:bg-white/30 text-white p-2 rounded transition-colors flex items-center justify-center"
-				title="Exit zoom mode"
+				use:tooltip={'Exit zoom mode'}
+				aria-label="Exit zoom mode"
 			>
 				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />

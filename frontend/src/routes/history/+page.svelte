@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
+	import { generationIdOf } from '$lib/generation/messages/wire';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { get } from 'svelte/store';
 	import {
 		historyStore,
 		selectedPosition,
@@ -20,8 +23,10 @@
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
+	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
+	import { createUrlState } from '$lib/utils/urlState';
+	import { generationIdFromUrl, hrefWithGeneration } from '$lib/utils/deepLink';
 	import UploadGenerationModal from '$lib/components/modals/UploadGenerationModal.svelte';
-	import Icon from '$lib/components/Icon.svelte';
 	import HistoryToolbar from './components/HistoryToolbar.svelte';
 	import HistoryTagsBar from './components/HistoryTagsBar.svelte';
 	import HistorySidebar from './components/HistorySidebar.svelte';
@@ -73,6 +78,62 @@
 	let activeToolContext: MediaToolContext | null = null;
 
 	$: currentState = $historyStore;
+	$: currentUrl = $page.url;
+
+	let linkedMissingId: string | null = null;
+	let lastUrlId: string | null = null;
+	let lastSelectedId: string | null = null;
+
+	const generationUrl = createUrlState<string | null>({
+		href: (id) => hrefWithGeneration(currentUrl, id)
+	});
+
+	async function openLinkedGeneration(id: string) {
+		const known = get(historyStore).generations.find((gen) => gen.id === id);
+		if (known) {
+			historyStore.setSelectedGeneration(known);
+			return;
+		}
+		try {
+			const response = await api.getGenerationById(id, true, true);
+			if (lastUrlId !== id) return;
+			if (response.success && response.data) historyStore.setSelectedGeneration(response.data);
+			else linkedMissingId = id;
+		} catch (error) {
+			logger.error('Failed to load the linked generation:', error);
+			if (lastUrlId === id) linkedMissingId = id;
+		}
+	}
+
+	function syncFromUrl(urlId: string | null) {
+		if (urlId === lastUrlId) return;
+		lastUrlId = urlId;
+		linkedMissingId = null;
+		const selectedId = get(historyStore).selectedGeneration?.id ?? null;
+		if (!urlId) {
+			if (selectedId) historyStore.setSelectedGeneration(null);
+			return;
+		}
+		if (selectedId !== urlId) void openLinkedGeneration(urlId);
+	}
+
+	function syncToUrl(selectedId: string | null) {
+		if (selectedId === lastSelectedId) return;
+		lastSelectedId = selectedId;
+		if (selectedId === lastUrlId) return;
+		if (!selectedId && linkedMissingId) return;
+		lastUrlId = selectedId;
+		void generationUrl.replace(selectedId);
+	}
+
+	function closeMissingLink() {
+		linkedMissingId = null;
+		lastUrlId = null;
+		void generationUrl.replace(null);
+	}
+
+	$: syncFromUrl(generationIdFromUrl($page.url));
+	$: syncToUrl(currentState.selectedGeneration?.id ?? null);
 	$: availableTags = currentState.availableTags;
 
 	let detailGrid: ActiveGrid | null = null;
@@ -164,7 +225,7 @@
 
 	function handleWsMessage(message: WebSocketMessage) {
 		const m = message as Record<string, any>;
-		let generationId: string | undefined = m.generation_id;
+		const generationId = generationIdOf(message);
 		let status: string | null = null;
 		let progress: number | undefined;
 
@@ -173,13 +234,10 @@
 			progress = typeof m.progress === 'number' ? m.progress : undefined;
 		} else if (m.type === 'generation_complete') {
 			status = 'completed';
-			generationId = m.data?.id ?? m.data?.generation_id ?? generationId;
 		} else if (m.type === 'generation_error') {
 			status = 'failed';
-			generationId = m.data?.generation_id ?? m.data?.id ?? generationId;
 		} else if (m.type === 'generation_cancelled') {
 			status = 'cancelled';
-			generationId = m.data?.id ?? generationId;
 		} else {
 			return;
 		}
@@ -268,14 +326,24 @@
 	}
 
 	async function confirmDelete() {
-		if (generationToDelete) {
+		const target = generationToDelete;
+		if (!target) return;
+		if (target.grid) {
+			showDeleteModal = false;
+			generationToDelete = null;
 			try {
-				await historyStore.deleteGeneration(generationToDelete.id);
-				showDeleteModal = false;
-				generationToDelete = null;
+				await historyStore.deleteGrid(target.grid.id);
 			} catch (error) {
-				logger.error('Failed to delete generation:', error);
+				toasts.error(getErrorMessage(error));
 			}
+			return;
+		}
+		try {
+			await historyStore.deleteGeneration(target.id);
+			showDeleteModal = false;
+			generationToDelete = null;
+		} catch (error) {
+			logger.error('Failed to delete generation:', error);
 		}
 	}
 
@@ -308,29 +376,19 @@
 
 <div class="flex h-[100dvh] bg-canvas">
 	{#if sidebarOpen}
-		<aside class="hidden md:flex w-60 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
+		<aside class="hidden md:flex w-[272px] flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
 			<div class="flex-1 min-h-0">
 				<HistorySidebar onCollapse={() => (sidebarOpen = false)} />
 			</div>
 			<HistoryUsageCard />
-		</aside>
-	{:else}
-		<aside class="hidden md:flex w-8 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
-			<button
-				class="flex h-full w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
-				on:click={() => (sidebarOpen = true)}
-				title="Show library"
-				aria-label="Show library"
-			>
-				<Icon name="chevron-right" className="w-4 h-4" />
-				<Icon name="folder" className="w-4 h-4" />
-			</button>
 		</aside>
 	{/if}
 
 	<div class="flex-1 min-w-0 flex flex-col min-h-0">
 		<div class="flex-shrink-0 z-30">
 			<HistoryToolbar
+				{sidebarOpen}
+				onOpenSidebar={() => (sidebarOpen = true)}
 				onOpenUpload={() => (showUploadModal = true)}
 				onOpenAddTag={() => (showAddTagModal = true)}
 				onOpenDeleteByCriteria={() => (showDeleteByCriteriaModal = true)}
@@ -376,6 +434,18 @@
 			{/if}
 		</svelte:fragment>
 	</GenerationDetailsModal>
+{/if}
+
+{#if linkedMissingId}
+	<ConfirmModal
+		isOpen={true}
+		title="Generation not found"
+		message="This generation does not exist, or you do not have access to it."
+		variant="info"
+		confirmLabel="Back to History"
+		on:confirm={closeMissingLink}
+		on:cancel={closeMissingLink}
+	/>
 {/if}
 
 {#if $openGridId}

@@ -68,7 +68,16 @@ class TranscodeResult:
 
 
 def find_ffmpeg() -> Optional[str]:
-    return shutil.which("ffmpeg")
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+
+        bundled = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+    return bundled if bundled and Path(bundled).is_file() else None
 
 
 def find_ffprobe() -> Optional[str]:

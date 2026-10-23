@@ -1,16 +1,14 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { api } from '$lib/services/api';
 	import type { Workspace, WorkspaceData } from '$lib/types/generation';
-	import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 	import { toasts } from '$lib/stores/toast';
 	import BookTab from '$lib/components/BookTab.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import TabsOverflowMenu from '$lib/components/layout/TabsOverflowMenu.svelte';
 	import { shortcutLabels } from '$lib/stores/keybindings';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import NewWorkspaceModal from '$lib/components/modals/NewWorkspaceModal.svelte';
 	import { Input } from '$lib/components/ui';
 	import { workspaceHasUnsavedChanges, hasUnsavedWorkOutsideTab } from '$lib/utils/newWorkspace';
@@ -18,22 +16,16 @@
 	import { queryTabDirty } from '$lib/stores/workspaceDirtyQuery';
 	import CloseTabModal from '$lib/tabs/CloseTabModal.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
-
-	// Mostly self-contained: reads/writes tabsStore directly. The session
-	// picker lives in the generation console bar's session/save cells, not here.
+	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
+	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
 
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
-	$: activeTab = tabs.find((t) => t.id === activeTabId);
-
-	function handleLayoutChange(mode: GenerationLayoutMode) {
-		if (!activeTab || mode === activeTab.layoutMode) return;
-		tabsStore.updateTab(activeTab.id, { layoutMode: mode });
-	}
 
 	let showWorkspaceMenu = false;
 	let workspaces: Workspace[] = [];
 	let showSaveWorkspaceModal = false;
+	let saveWorkspaceDialog: ReturnType<typeof ConfirmDialog>;
 	let workspaceName = '';
 	let savingWorkspace = false;
 	let workspaceModalMode: 'create' | 'update' = 'create';
@@ -64,15 +56,12 @@
 		};
 	}
 
-	const saveWorkspaceGate = createConfirmSettlementGate();
-
 	function openCreateWorkspaceModal() {
 		workspaceModalMode = 'create';
 		workspaceToUpdate = null;
 		workspaceName = '';
 		showSaveWorkspaceModal = true;
 		showWorkspaceMenu = false;
-		saveWorkspaceGate.reset();
 	}
 
 	function openUpdateWorkspaceModal(workspace: Workspace) {
@@ -81,27 +70,10 @@
 		workspaceName = workspace.name;
 		showSaveWorkspaceModal = true;
 		showWorkspaceMenu = false;
-		saveWorkspaceGate.reset();
-	}
-
-	function cancelSaveWorkspace() {
-		saveWorkspaceGate.settle(() => (showSaveWorkspaceModal = false));
-	}
-
-	function confirmSaveWorkspace() {
-		settleIfEligible(saveWorkspaceGate, !!workspaceName.trim() && !savingWorkspace, saveCurrentWorkspace);
-	}
-
-	function handleSaveWorkspaceKeydown(e: KeyboardEvent) {
-		if (!showSaveWorkspaceModal) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') cancelSaveWorkspace();
-		else if (action === 'confirm') confirmSaveWorkspace();
-		if (suppress) e.preventDefault();
 	}
 
 	async function saveCurrentWorkspace() {
-		if (!workspaceName.trim()) return;
+		if (!workspaceName.trim()) return false;
 		savingWorkspace = true;
 		try {
 			const workspaceData = getCurrentWorkspaceData();
@@ -123,12 +95,13 @@
 			workspaceName = '';
 			workspaceToUpdate = null;
 			await loadWorkspaces();
+			return true;
 		} catch (e) {
 			console.error('Failed to save workspace:', e);
 			toasts.error(e instanceof Error ? e.message : 'Failed to save workspace');
+			return false;
 		} finally {
 			savingWorkspace = false;
-			saveWorkspaceGate.reset();
 		}
 	}
 
@@ -189,11 +162,9 @@
 		}
 	}
 
-	function handleWorkspaceClickOutside(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-		if (!target.closest('.workspace-menu-container')) {
-			showWorkspaceMenu = false;
-		}
+	function handleWorkspaceDismiss(reason: DismissReason, event: Event) {
+		if (reason === 'outside' && event.target instanceof Element && event.target.closest('.workspace-menu-container')) return;
+		showWorkspaceMenu = false;
 	}
 
 	function toggleWorkspaceMenu() {
@@ -232,11 +203,6 @@
 	let newWorkspaceOtherTabsDirty = false;
 	let checkingNewWorkspace = false;
 
-	// The cheap cross-tab heuristic (workspaceHasUnsavedChanges) can't see a
-	// background tab's live prompt/form edits - only the ACTIVE tab's mounted
-	// SessionCluster knows that in real time. Ask it once, at click time (see
-	// stores/workspaceDirtyQuery.ts for why this is a one-shot query rather
-	// than a continuous push).
 	async function handleNewWorkspaceClick() {
 		if (checkingNewWorkspace) return;
 		checkingNewWorkspace = true;
@@ -266,10 +232,6 @@
 		tabsStore.reset();
 	}
 
-	// "Save" reuses the real save flow (SessionCluster's quick-save/save-as),
-	// requested through workspaceSaveRequest.ts since that UI only mounts for
-	// the active tab. A background tab's own unsaved edits are not saved by
-	// this - see NewWorkspaceModal's `otherTabsAlsoDirty` copy.
 	async function saveAndCreateNewWorkspace() {
 		newWorkspaceSaving = true;
 		try {
@@ -303,6 +265,7 @@
 						isActive={tab.id === activeTabId}
 						canDelete={tabs.length > 1}
 						isGenerating={tab.generation.isGenerating}
+						unsaved={tabShowsUnsavedChanges(tab, $tabSessionDirty)}
 						on:select={(e) => setActiveTab(e.detail.id)}
 						on:rename={handleTabRename}
 						on:delete={(e) => removeTab(e.detail.id)}
@@ -349,7 +312,8 @@
 						class="new-tab-button"
 						on:click|stopPropagation={toggleWorkspaceMenu}
 						type="button"
-						title="Workspaces"
+						use:tooltip={'Workspaces'}
+						aria-label="Workspaces"
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -360,7 +324,7 @@
 						<!-- Anchored right: the trigger now sits at the right edge of the
 						     tab bar (see comment above), so a left-0 dropdown ran off
 						     the viewport edge. Opening leftward keeps it on screen. -->
-						<div class="absolute right-0 top-full mt-1 z-50 bg-surface-1 border border-line-strong rounded-lg shadow-floating min-w-[260px] py-1">
+						<div use:dismiss={{ onDismiss: handleWorkspaceDismiss }} class="absolute right-0 top-full mt-1 z-50 bg-surface-1 border border-line-strong rounded-lg shadow-floating min-w-[260px] py-1">
 							<div class="px-3 py-2 text-xs font-semibold text-fg-muted uppercase tracking-wider border-b border-line">Workspaces</div>
 
 							<!-- Save current -->
@@ -415,31 +379,21 @@
 						</div>
 					{/if}
 				</div>
-
-			<!-- Right cluster: overflow only - the session picker lives in the
-				generation console bar; Simple/Advanced moved into the
-				overflow menu alongside the layout picker. -->
-			{#if activeTab}
-				<div class="flex flex-shrink-0 items-center gap-2.5">
-					<TabsOverflowMenu
-						layoutValue={activeTab.layoutMode || 'two'}
-						onLayoutChange={handleLayoutChange}
-					/>
-				</div>
-			{/if}
 		</div>
 	</div>
 </div>
 
-<svelte:window on:click={handleWorkspaceClickOutside} on:keydown|capture={handleSaveWorkspaceKeydown} />
-
 <!-- Save Workspace Modal -->
-<BaseModal
+<ConfirmDialog
+	bind:this={saveWorkspaceDialog}
 	isOpen={showSaveWorkspaceModal}
 	title={workspaceModalMode === 'update' ? 'Update Workspace' : 'Save Workspace'}
 	size="sm"
-	handleEscapeKey={false}
-	on:close={cancelSaveWorkspace}
+	busy={savingWorkspace}
+	confirmLabel={workspaceModalMode === 'update' ? 'Update workspace' : 'Save as new'}
+	confirmDisabled={!workspaceName.trim()}
+	onConfirm={saveCurrentWorkspace}
+	onCancel={() => (showSaveWorkspaceModal = false)}
 >
 	<div class="p-6">
 		<p class="text-sm text-fg-muted mb-4">
@@ -452,21 +406,11 @@
 			class="mb-4"
 			placeholder="Workspace name..."
 			bind:value={workspaceName}
-			onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && confirmSaveWorkspace()}
+			onkeydown={(e: KeyboardEvent) => e.key === 'Enter' && saveWorkspaceDialog.confirm()}
 			data-autofocus
 		/>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel={workspaceModalMode === 'update' ? 'Update workspace' : 'Save as new'}
-			busy={savingWorkspace}
-			confirmDisabled={!workspaceName.trim()}
-			onCancel={cancelSaveWorkspace}
-			onConfirm={confirmSaveWorkspace}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>
 
 <NewWorkspaceModal
 	isOpen={showNewWorkspaceModal}

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 from PIL import Image
@@ -44,6 +44,7 @@ from src.pipelines.pipes._shared.generation.img2img import img2img_denoise
 from src.pipelines.pipes._shared.generation.native_generator import build_native_generator
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes.tiled_refiner.tiling import tile_denoise, tiled_refine
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec, seed_config_spec
 
 
 def _round_to_multiple(value: int, multiple: int) -> int:
@@ -54,23 +55,6 @@ def _round_to_multiple(value: int, multiple: int) -> int:
 class TiledRefiner(BasePipe):
     name = "tiled_refiner"
     description = "Upscale then refine an image tile-by-tile via low-denoise img2img (bounded VRAM)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "scale": 2.0,
-            "upscale_model": None,
-            "denoise": 0.25,
-            "content_aware": True,
-            "min_denoise": 0.10,
-            "tile_size": 1024,
-            "tile_overlap": 128,
-            "steps": 20,
-            "guidance": 6.0,
-            "sampler": "euler",
-            "seed": -1,
-            "device": "cuda",
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -95,8 +79,8 @@ class TiledRefiner(BasePipe):
             PipeConfigSpec("guidance", float, 6.0, "CFG scale", required=False, min_value=0.0, max_value=30.0),
             PipeConfigSpec("sampler", str, "euler", "Sampler", required=False,
                            choices=["euler", "dpmpp_2m", "unipc"]),
-            PipeConfigSpec("seed", int, -1, "Seed (-1 -> per-image random)", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            seed_config_spec("Seed (-1 -> per-image random)"),
+            device_config_spec(),
         ]
 
     @classmethod

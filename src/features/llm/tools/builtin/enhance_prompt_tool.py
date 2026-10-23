@@ -1,15 +1,11 @@
 """Prompt enhancement tool: routes conversational enhancement requests into the pipeline."""
 
 import json
-import logging
 from typing import Any, Dict, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.model_info_tool import model_visible
 from src.features.llm.tools.builtin.utils import allowed_model_ids, video_director_active
-from src.features.llm.tools.errors import unexpected
-
-logger = logging.getLogger(__name__)
 
 
 class EnhancePromptTool(BaseTool):
@@ -23,27 +19,9 @@ class EnhancePromptTool(BaseTool):
         # has no meaning once the Video Director owns "segment #N" (a shot).
         return not video_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "enhance_prompt"
-
-    @property
-    def group(self) -> str:
-        return "Prompt writing"
-
-    @property
-    def user_description(self) -> str:
-        return "Rewrites your prompt into a stronger version tuned to your model."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When the user wants their prompt made richer — 'improve it', 'make it better', "
-            "'expand this', 'help me' — or the prompt is thin or generic. This runs a full "
-            "creative pipeline (model grounding, community examples, ideation, writing); do NOT "
-            "rewrite the prompt yourself first. Present the returned prompt EXACTLY as-is inside "
-            "a tool_action update_segment tag."
-        )
+    name = "enhance_prompt"
+    group = "Prompt writing"
+    user_description = "Rewrites your prompt into a stronger version tuned to your model."
 
     @property
     def description(self) -> str:
@@ -53,7 +31,9 @@ class EnhancePromptTool(BaseTool):
             "approved prompts. Returns a finished rich prompt. Pass a brief; in chat it falls "
             "back to the open tab's prompt segments. Without an open Generate tab, pass "
             "model_id (from search_models) and/or preset_id (from list_presets) to ground the "
-            "result on that model and preset."
+            "result on that model and preset. Use it when the user wants a richer prompt; "
+            "do not rewrite it yourself first. Present the result verbatim in an "
+            "update_segment tag."
         )
 
     @property
@@ -115,18 +95,14 @@ class EnhancePromptTool(BaseTool):
 
         from src.features.prompt_enhancement import operations as prompt_enhancement_operations
 
-        try:
-            result = await prompt_enhancement_operations.enhance(
-                context.prompt_enhancement_manager,
-                user_id=context.user_id,
-                llm_id=context.llm_id,
-                brief=brief,
-                form_state=form_state,
-                n_candidates=n_candidates,
-            )
-        except Exception as e:
-            logger.error(f"enhance_prompt failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("enhance_prompt", "enhancement", e, context.is_admin))
+        result = await prompt_enhancement_operations.enhance(
+            context.prompt_enhancement_manager,
+            user_id=context.user_id,
+            llm_id=context.llm_id,
+            brief=brief,
+            form_state=form_state,
+            n_candidates=n_candidates,
+        )
 
         candidates = [c["text"] for c in result.get("candidates", []) if c.get("text")]
         if not candidates:

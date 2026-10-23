@@ -159,3 +159,47 @@ describe('PhrasebookReplaceModal footer', () => {
 		expect(api.runPhrasebookBatch).not.toHaveBeenCalled();
 	});
 });
+
+describe('PhrasebookReplaceModal live preview', () => {
+	it('re-previews once, 250ms after the last keystroke', async () => {
+		mountModal();
+		await flushAsync();
+		const calls = vi.mocked(api.previewPhrasebookBatch).mock.calls.length;
+
+		vi.useFakeTimers();
+		try {
+			const input = document.querySelector<HTMLInputElement>('[data-replace-input]')!;
+			for (const value of ['c', 'ca', 'cat']) {
+				input.value = value;
+				input.dispatchEvent(new Event('input', { bubbles: true }));
+				vi.advanceTimersByTime(100);
+			}
+			expect(api.previewPhrasebookBatch).toHaveBeenCalledTimes(calls);
+			vi.advanceTimersByTime(149);
+			expect(api.previewPhrasebookBatch).toHaveBeenCalledTimes(calls);
+			vi.advanceTimersByTime(1);
+			expect(api.previewPhrasebookBatch).toHaveBeenCalledTimes(calls + 1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('drops a pending preview when the modal unmounts', async () => {
+		mountModal();
+		await flushAsync();
+		const calls = vi.mocked(api.previewPhrasebookBatch).mock.calls.length;
+
+		vi.useFakeTimers();
+		try {
+			const input = document.querySelector<HTMLInputElement>('[data-replace-input]')!;
+			input.value = 'x';
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+			unmount(component);
+			component = undefined as never;
+			vi.advanceTimersByTime(500);
+			expect(api.previewPhrasebookBatch).toHaveBeenCalledTimes(calls);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});

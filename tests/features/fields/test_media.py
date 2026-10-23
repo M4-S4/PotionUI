@@ -11,10 +11,6 @@ class TestMediaField(unittest.TestCase):
         self.preset_loader = Mock()
         self.media_field = Media(self.preset_loader)
 
-    def test_can_handle(self):
-        self.assertTrue(self.media_field.can_handle('media'))
-        self.assertFalse(self.media_field.can_handle('image'))
-
     def test_input_single_passthrough_image_item(self):
         item = {
             'path': 'uploads/a.png', 'relative_path': 'uploads/a.png',

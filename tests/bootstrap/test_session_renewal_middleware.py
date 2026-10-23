@@ -12,12 +12,13 @@ from jose import jwt
 from src.bootstrap.middleware import register_middleware
 from src.platform.security import current_user
 from src.platform.security.config import AuthConfig
-from src.platform.security.media_session import media_cookie_name
+from src.platform.security.media_session import media_cookie_name, partitioned_media_cookie_name
 from src.platform.security.token import TokenCodec
 
 SECRET = "session-renewal-middleware-secret"
 HOUR = 3600
 ORIGIN = "http://localhost:26731"
+LOOPBACK = {"Host": "127.0.0.1:8005"}
 
 
 def _token(issued_ago, lifetime=24 * HOUR):
@@ -37,6 +38,15 @@ def _media_cookie(response):
         if media_cookie_name() in parsed:
             return parsed[media_cookie_name()]
     return None
+
+
+def _set_cookies(response):
+    cookies = {}
+    for header in response.headers.get_list("set-cookie"):
+        pair, *attributes = [part.strip() for part in header.split(";")]
+        name, _, value = pair.partition("=")
+        cookies[name] = (value.strip('"'), {key.lower(): val for key, _, val in (a.partition("=") for a in attributes)})
+    return cookies
 
 
 @pytest.fixture
@@ -73,6 +83,12 @@ def client(monkeypatch):
         response.set_cookie(media_cookie_name(), "managed-by-route", path="/api")
         return response
 
+    @app.get("/sets-partitioned-cookie")
+    async def sets_partitioned_cookie():
+        response = JSONResponse({"ok": True})
+        response.set_cookie(partitioned_media_cookie_name(), "managed-by-route", path="/api")
+        return response
+
     @app.get("/clears-cookie")
     async def clears_cookie():
         response = JSONResponse({"ok": True})
@@ -107,6 +123,53 @@ def test_the_media_cookie_follows_the_fresh_token(client):
     assert morsel["path"] == "/api"
     assert morsel["samesite"].lower() == "lax"
     assert 24 * HOUR - 60 <= int(morsel["max-age"]) <= 24 * HOUR
+
+
+def test_a_loopback_renewal_appends_the_lax_and_the_partitioned_cookie(client):
+    response = client.get("/ok", headers={**_auth_header(_token(13 * HOUR)), **LOOPBACK})
+
+    fresh = response.headers["x-refreshed-token"]
+    cookies = _set_cookies(response)
+    lax_value, lax = cookies[media_cookie_name()]
+    partitioned_value, partitioned = cookies[partitioned_media_cookie_name()]
+    assert list(cookies) == [media_cookie_name(), f"{media_cookie_name()}_p"]
+    assert lax_value == partitioned_value == fresh
+    assert lax["samesite"].lower() == "lax"
+    assert "secure" not in lax and "partitioned" not in lax
+    assert partitioned["samesite"].lower() == "none"
+    assert {"secure", "partitioned", "httponly"} <= set(partitioned)
+    assert partitioned["path"] == "/api"
+    assert 24 * HOUR - 60 <= int(partitioned["max-age"]) <= 24 * HOUR
+
+
+def test_a_lan_http_renewal_appends_only_the_lax_cookie(client):
+    response = client.get("/ok", headers={**_auth_header(_token(13 * HOUR)), "Host": "192.168.1.5:8005"})
+
+    assert response.headers["x-refreshed-token"]
+    assert list(_set_cookies(response)) == [media_cookie_name()]
+
+
+def test_an_https_renewal_appends_both_cookies(client):
+    response = client.get(
+        "/ok",
+        headers={**_auth_header(_token(13 * HOUR)), "Host": "photos.example.com", "X-Forwarded-Proto": "https"},
+    )
+
+    assert list(_set_cookies(response)) == [media_cookie_name(), f"{media_cookie_name()}_p"]
+
+
+def test_a_response_that_sets_only_the_partitioned_cookie_is_not_renewed(client):
+    response = client.get("/sets-partitioned-cookie", headers={**_auth_header(_token(13 * HOUR)), **LOOPBACK})
+
+    assert "x-refreshed-token" not in response.headers
+    assert list(_set_cookies(response)) == [partitioned_media_cookie_name()]
+
+
+def test_a_loopback_response_that_sets_the_lax_cookie_is_not_given_a_second_pair(client):
+    response = client.get("/sets-cookie", headers={**_auth_header(_token(13 * HOUR)), **LOOPBACK})
+
+    assert "x-refreshed-token" not in response.headers
+    assert list(_set_cookies(response)) == [media_cookie_name()]
 
 
 def test_a_young_token_is_left_alone(client):

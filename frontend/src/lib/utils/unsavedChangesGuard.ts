@@ -1,4 +1,5 @@
 import type { ModeBasedSessionData, SessionData } from '$lib/types/api';
+import { jsonEqual } from '$lib/utils/equal';
 import type { ModeState, Tab } from '$lib/types/tabs';
 import { captureModeState } from '$lib/utils/modeState';
 
@@ -30,7 +31,7 @@ function normalizeModeContent(data: Partial<SessionData & ModeState> | undefined
 }
 
 function modeContentDiffers(saved: SessionData | undefined, current: ModeState): boolean {
-	return JSON.stringify(normalizeModeContent(saved)) !== JSON.stringify(normalizeModeContent(current));
+	return !jsonEqual(normalizeModeContent(saved), normalizeModeContent(current));
 }
 
 export function tabHasUnsavedSessionChanges(tab: Tab): boolean {

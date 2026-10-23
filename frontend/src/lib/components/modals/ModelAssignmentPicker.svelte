@@ -1,6 +1,9 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { parseServerDate } from '$lib/utils/relativeTime';
+	import { formatBytes } from '$lib/utils/format';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
@@ -45,7 +48,11 @@
 	let modelTypes: string[] = [];
 	type ViewFilter = 'all' | 'assigned' | 'unassigned';
 	let viewFilter: ViewFilter = 'all';
-	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
+	const applySearch = debounce(() => {
+		searchQuery = searchInputValue;
+		currentPage = 1;
+		loadModels();
+	}, 300);
 	let searchInputValue = '';
 
 	const viewOptions: { key: ViewFilter; label: string }[] = [
@@ -119,12 +126,7 @@
 
 	function handleSearchInput(value: string) {
 		searchInputValue = value;
-		if (searchTimeout) clearTimeout(searchTimeout);
-		searchTimeout = setTimeout(() => {
-			searchQuery = searchInputValue;
-			currentPage = 1;
-			loadModels();
-		}, 300);
+		applySearch();
 	}
 
 	function handleTypeChange(type: string) {
@@ -165,17 +167,6 @@
 		// modelDisplayName() never falls back to the bare id - keep that as the
 		// last resort here, since this grid has nothing else to show per card.
 		return modelDisplayName(model) || model.id;
-	}
-
-	function formatFileSize(bytes: number | null | undefined): string {
-		if (!bytes) return '';
-		if (bytes >= 1024 * 1024 * 1024) {
-			return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-		}
-		if (bytes >= 1024 * 1024) {
-			return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-		}
-		return (bytes / 1024).toFixed(1) + ' KB';
 	}
 
 	function formatDate(isoString: string | null | undefined): string {
@@ -336,21 +327,21 @@
 
 						<!-- Info below card -->
 						<div class="px-2 py-1.5 bg-surface-1 space-y-0.5">
-							<p class="text-xs font-medium text-fg truncate" title={getDisplayName(model)}>
+							<p class="text-xs font-medium text-fg truncate" use:tooltip={{ text: getDisplayName(model), truncateOnly: true }}>
 								{getDisplayName(model)}
 							</p>
 							{#if model.filename && model.filename !== getDisplayName(model)}
-								<p class="text-2xs text-fg-muted truncate" title={model.filename}>
+								<p class="text-2xs text-fg-muted truncate" use:tooltip={{ text: model.filename, truncateOnly: true }}>
 									{model.filename}
 								</p>
 							{/if}
 							<div class="flex items-center gap-1.5 text-2xs text-fg-subtle font-mono tabular-nums flex-wrap">
 								{#if model.file_size}
-									<span>{formatFileSize(model.file_size)}</span>
+									<span>{formatBytes(model.file_size)}</span>
 								{/if}
 								{#if model.indexed_at}
 									<span class="w-px h-2.5 bg-line"></span>
-									<span title="Indexed at">{formatDate(model.indexed_at)}</span>
+									<span use:tooltip={'Indexed at'}>{formatDate(model.indexed_at)}</span>
 								{/if}
 							</div>
 							<slot name="cardExtra" {model} />

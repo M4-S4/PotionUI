@@ -7,10 +7,7 @@ from src.features.fields.base_field import BaseField
 class MockField(BaseField):
     """Mock implementation of BaseField for testing"""
     
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'mock'
-    
-    def map_field(self, field, preset_id: str = None):
+    def output(self, field, preset_id: str = None):
         return {'type': 'mock', 'mapped': True}
 
 
@@ -20,15 +17,18 @@ class TestBaseField(unittest.TestCase):
         self.preset_loader = Mock()
         self.mock_field = MockField(self.preset_loader)
     
-    def test_output_default_implementation(self):
-        """Test default output implementation calls map_field"""
-        field = {'type': 'mock', 'name': 'test'}
-        
-        result = self.mock_field.output(field, 'preset_id')
-        
-        # Should call map_field by default
+    def test_output_is_abstract(self):
+        class Incomplete(BaseField):
+            pass
+
+        with self.assertRaises(TypeError):
+            Incomplete(self.preset_loader)
+
+    def test_output_returns_subclass_schema(self):
+        result = self.mock_field.output({'type': 'mock', 'name': 'test'}, 'preset_id')
+
         self.assertEqual(result, {'type': 'mock', 'mapped': True})
-    
+
     def test_input_default_implementation(self):
         """Test default input implementation passes through value"""
         test_value = 'test_value'
@@ -311,7 +311,7 @@ class TestBaseField(unittest.TestCase):
         preset2 = Mock()
         preset2.id = 'preset_2'
         
-        self.preset_loader.presets = [preset1, preset2]
+        self.preset_loader.get.side_effect = {'preset_1': preset1, 'preset_2': preset2}.get
         
         # Test finding existing preset
         found = self.mock_field._find_preset_by_id('preset_2')
@@ -352,3 +352,33 @@ class TestBaseField(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class TestFindPresetByIdWithRealLoader(unittest.TestCase):
+
+    def test_lazy_loads_an_unloaded_loader(self):
+        import tempfile
+        from pathlib import Path
+
+        import yaml
+
+        from src.features.presets.loader import PresetTemplateLoader
+
+        with tempfile.TemporaryDirectory() as tmp:
+            preset_dir = Path(tmp) / "alpha"
+            mode_dir = preset_dir / "modes" / "txt2img"
+            mode_dir.mkdir(parents=True)
+            (preset_dir / "preset.yml").write_text(
+                yaml.dump({
+                    "schema": 1, "id": "alpha", "name": "alpha", "version": "1.0.0",
+                    "category": "image", "engine": "native", "modes": ["txt2img"],
+                }),
+                encoding="utf-8",
+            )
+            (mode_dir / "pipeline.yml").write_text("pipeline: []\n", encoding="utf-8")
+            (mode_dir / "form.yml").write_text("fields: []\n", encoding="utf-8")
+            field = MockField(PresetTemplateLoader([tmp]))
+
+            found = field._find_preset_by_id("alpha")
+
+        self.assertIsNotNone(found)
+        self.assertEqual(found.id, "alpha")

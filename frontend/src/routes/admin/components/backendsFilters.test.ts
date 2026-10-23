@@ -5,10 +5,7 @@ import {
 	applyBackendsFilters,
 	backendEngineCounts,
 	backendEngines,
-	backendsFilterActiveCount,
-	backendsFilterChips,
-	clearAllBackendsFilters,
-	clearBackendsFilterChip
+	backendsFilters
 } from './backendsFilters';
 
 function backend(overrides: Partial<Backend> = {}): Backend {
@@ -81,23 +78,23 @@ describe('backendEngines and backendEngineCounts', () => {
 
 describe('backends filter chips', () => {
 	it('has no chip for the default engine filter', () => {
-		expect(backendsFilterChips({ q: 'x', engine: '', sortBy: 'name' })).toEqual([]);
-		expect(backendsFilterActiveCount({ q: 'x', engine: '', sortBy: 'name' })).toBe(0);
+		expect(backendsFilters.chips({ q: 'x', engine: '', sortBy: 'name' })).toEqual([]);
+		expect(backendsFilters.activeCount({ q: 'x', engine: '', sortBy: 'name' })).toBe(0);
 	});
 
 	it('shows a chip when an engine filter is active', () => {
 		const filters = { q: '', engine: 'comfyui', sortBy: 'name' as const };
-		expect(backendsFilterChips(filters)).toEqual([{ key: 'engine', label: 'engine: comfyui' }]);
-		expect(backendsFilterActiveCount(filters)).toBe(1);
+		expect(backendsFilters.chips(filters)).toEqual([{ key: 'engine', label: 'engine: comfyui' }]);
+		expect(backendsFilters.activeCount(filters)).toBe(1);
 	});
 
 	it('keeps query and sort when clearing all', () => {
 		const filters = { q: 'keep me', engine: 'comfyui', sortBy: 'name' as const };
-		expect(clearAllBackendsFilters(filters)).toEqual({ q: 'keep me', engine: '', sortBy: 'name' });
+		expect(backendsFilters.clearAll(filters)).toEqual({ q: 'keep me', engine: '', sortBy: 'name' });
 	});
 
 	it('is a no-op when clearing an unknown chip key', () => {
 		const filters = { q: 'x', engine: '', sortBy: 'name' as const };
-		expect(clearBackendsFilterChip(filters, 'nothing')).toBe(filters);
+		expect(backendsFilters.clearChip(filters, 'nothing')).toBe(filters);
 	});
 });

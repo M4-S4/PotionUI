@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from src.platform.runtime.native.arch.flux3.model import Flux3
+from src.platform.runtime.native.arch.moss_image.model import MossImage
 from src.platform.runtime.native.cancellation import cancellation_scope
 from src.platform.runtime.native.errors import SamplingCancelled
 from vendor.gpl.comfyui.ops import pick_operations
@@ -15,11 +16,13 @@ from .test_flux_model import TINY_FLUX1, TINY_FLUX2
 from .test_flux_model import _build_ready as _build_flux
 from .test_krea2_model import TINY as TINY_KREA2
 from .test_krea2_model import _build_ready as _build_krea2
+from .test_moss_image_parity import CONFIG as TINY_MOSS
+from .test_moss_image_parity import _inputs as _moss_inputs
 from .test_qwen_image21_model import TINY as TINY_QWEN21
 from .test_qwen_image21_model import _build_ready as _build_qwen21
 from .test_qwen_image_model import TINY as TINY_QWEN
 from .test_qwen_image_model import _build_ready as _build_qwen
-from .test_z_image_fbcache import _build as _build_z_image
+from .test_z_image_model import _build as _build_z_image
 
 _T = torch.tensor([0.5])
 
@@ -90,6 +93,12 @@ def _z_image_case():
     return m.layers, lambda: m(x, _T, ctx)
 
 
+def _moss_image_case():
+    m = _randomised(MossImage.from_config(TINY_MOSS, pick_operations(torch.float32, torch.float32)))
+    x, ctx, mask = _moss_inputs(0, 4, 4, [5])
+    return m.layers, lambda: m(x, _T, ctx, attention_mask=mask)
+
+
 CASES = {
     "flux1": lambda: _flux_case(TINY_FLUX1, y=torch.randn(1, 768), guidance=torch.tensor([3.5])),
     "flux2-klein": lambda: _flux_case(TINY_FLUX2),
@@ -99,6 +108,7 @@ CASES = {
     "qwen-image-2.1": _qwen21_case,
     "anima": _anima_case,
     "z-image": _z_image_case,
+    "moss-image": _moss_image_case,
 }
 
 

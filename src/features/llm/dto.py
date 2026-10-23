@@ -39,6 +39,7 @@ class LLMConfigRequest(BaseModel):
     supports_vision: bool = False
     disable_system_prompt: bool = False
     memory_reflection: bool = True
+    show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
 
     @model_validator(mode="after")
@@ -63,26 +64,19 @@ class LLMConfigRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_ollama_think(self) -> "LLMConfigRequest":
-        """``provider_options.think`` (the Ollama root-request thinking
-        toggle — see ``build_ollama_chat_request``) accepts ``null``/omitted
-        (automatic), a real ``bool``, or one of the named effort levels
-        ``_OLLAMA_THINK_LEVELS`` that some models support instead of a plain
-        on/off. No truthiness coercion: a stray ``1``/``"true"`` is rejected
-        rather than silently accepted as ``True``. Checked only for
-        ``type == "ollama"``."""
-        if self.type != "ollama" or not self.provider_options:
+        if self.type != "ollama":
             return self
-        if "think" not in self.provider_options:
-            return self
-        value = self.provider_options["think"]
-        if value is None or isinstance(value, bool):
-            return self
-        if isinstance(value, str) and value in _OLLAMA_THINK_LEVELS:
-            return self
-        raise ValueError(
-            "provider_options.think must be true, false, one of "
-            f"{_OLLAMA_THINK_LEVELS!r}, or omitted (null) for an 'ollama' config, got {value!r}"
-        )
+        options = dict(self.provider_options or {})
+        value = options.get("think")
+        if value is None:
+            options["think"] = False
+        elif not isinstance(value, bool) and value not in _OLLAMA_THINK_LEVELS:
+            raise ValueError(
+                "provider_options.think must be true, false or one of "
+                f"{_OLLAMA_THINK_LEVELS!r} for an 'ollama' config, got {value!r}"
+            )
+        self.provider_options = options
+        return self
 
     @model_validator(mode="after")
     def _validate_sampling_options(self) -> "LLMConfigRequest":
@@ -187,6 +181,14 @@ class ModelDiscoveryRequest(BaseModel):
     config_id: Optional[str] = None
 
 
+class ContextWindowDiscoveryRequest(BaseModel):
+    type: str
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    config_id: Optional[str] = None
+    model: str
+
+
 class ToolGovernanceUpdateRequest(BaseModel):
     """Admin update to one tool's governance row. Both fields optional so a
     client can flip just `enabled` or just `locked` in one call."""
@@ -224,6 +226,7 @@ class LLMConfigResponse(BaseModel):
     supports_vision: bool = False
     disable_system_prompt: bool = False
     memory_reflection: bool = True
+    show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
     is_default: bool = False
 

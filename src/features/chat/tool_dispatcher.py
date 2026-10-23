@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, FrozenSet, List, Optional, Set
 from weakref import WeakValueDictionary
 
 from src.features.chat import tool_transcript
@@ -13,7 +13,7 @@ from src.features.chat.exceptions import (
 )
 from src.features.llm.tools.base import ToolContext, ToolResult, serialize_approval_preview
 from src.features.llm.tools.errors import unexpected
-from src.platform.resources.prompt_variables import apply_variable_operations
+from src.features.llm.tools.use_tools import USE_TOOLS_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +22,12 @@ logger = logging.getLogger(__name__)
 class Continuation:
     message_id: str
     tool_index: int
+    tool_name: str
+    tool_call_id: str
     rounds_used: int
     applied_calls: Set[str]
     context_metadata: Optional[Dict[str, Any]]
+    loaded_groups: FrozenSet[str] = frozenset()
 
 
 class ToolCallDispatcher:
@@ -47,31 +50,14 @@ class ToolCallDispatcher:
         context_metadata: Optional[Dict[str, Any]],
         mode_id: Optional[str] = None,
     ) -> ToolContext:
-        return ToolContext(
-            user_id=user_id,
+        return ToolContext.for_session(
+            self._m.tool_services,
+            user_id,
             mode_id=mode_id or session.mode,
             is_admin=is_admin,
             session_metadata=context_metadata or {},
-            segment_category_repository=self._m.segment_category_repository,
-            saved_segment_repository=self._m.saved_segment_repository,
-            segment_template_repository=self._m.segment_template_repository,
-            model_index_manager=self._m.model_index_manager,
-            preset_collaborators=self._m.preset_collaborators,
-            phrasebook_category_repository=self._m.phrasebook_category_repository,
-            phrasebook_value_repository=self._m.phrasebook_value_repository,
             llm_repository=self._m.llm_service.repository,
-            prompt_database=self._m.prompt_database,
-            generation_orchestrator=self._m.generation_orchestrator,
-            llm_memory_repository=self._m.llm_memory_repository,
-            prompt_enhancement_manager=self._m.prompt_enhancement_manager,
-            media_indexer=self._m.media_indexer,
-            settings=self._m.settings,
-            collection_repository=self._m.collection_repository,
-            tag_repository=self._m.tag_repository,
             plugin_registry=self._m.plugins,
-            generation_history_facade=self._m.generation_history_facade,
-            content_safety=self._m.content_safety,
-            library_collaborators=self._m.library_collaborators,
             llm_id=session.llm_config_id,
         )
 
@@ -248,10 +234,30 @@ class ToolCallDispatcher:
         return Continuation(
             message_id=message_id,
             tool_index=tool_index,
+            tool_name=executions[tool_index].get("tool_name") or "",
+            tool_call_id=executions[tool_index].get("tool_call_id") or "",
             rounds_used=int(metadata.get("turn_rounds") or 0),
             applied_calls=tool_transcript.applied_call_keys(chain),
             context_metadata=metadata.get("context_metadata"),
+            loaded_groups=self._loaded_tool_groups(chain),
         )
+
+    def _loaded_tool_groups(self, chain: List[Any]) -> FrozenSet[str]:
+        registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
+        groups: Set[str] = set()
+        for row in chain:
+            for record in (row.metadata or {}).get("tool_executions") or []:
+                name = record.get("tool_name", "")
+                if name == USE_TOOLS_NAME:
+                    group = (record.get("arguments") or {}).get("group")
+                    if (record.get("result") or {}).get("success") and isinstance(group, str):
+                        groups.add(group)
+                    continue
+                tool = registry.get(name) if registry else None
+                group = getattr(tool, "context_group", None)
+                if isinstance(group, str):
+                    groups.add(group)
+        return frozenset(groups)
 
     @staticmethod
     def _apply_action_to_context_metadata(
@@ -275,11 +281,7 @@ class ToolCallDispatcher:
             return
 
         action = payload.get("action")
-        if action == "apply_variable_changes":
-            form_state["variables"] = apply_variable_operations(
-                form_state.get("variables"), payload.get("operations")
-            )
-        elif action == "apply_form_changes":
+        if action == "apply_form_changes":
             form_data = dict(form_state.get("form_data") or {})
             for change in payload.get("applied_changes") or []:
                 field_name = change.get("field_name") if isinstance(change, dict) else None

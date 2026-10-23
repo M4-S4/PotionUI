@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Writable } from 'svelte/store';
+import { settle } from './helpers/settle';
 
 type PageStore = Writable<{ url: URL }>;
 
@@ -10,23 +11,11 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 		api: {
 			...actual.api,
 			listPrompts: vi.fn(),
-			searchPrompts: vi.fn(),
 			getModels: vi.fn(),
 			listCollections: vi.fn(),
 			listPromptImporters: vi.fn()
 		}
-	};
-});
 
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		afterNavigate: () => {},
-		beforeNavigate: () => {}
 	};
 });
 
@@ -52,10 +41,6 @@ function mountWorkspace() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mountWorkspace> | undefined;

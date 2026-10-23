@@ -51,9 +51,9 @@ path), :func:`place_dit_for_sequence` also calls
 regional ``torch.compile`` ``NativeGenerator.sample`` applies to the image
 path (``engine.py``'s own ``_maybe_compile``). These BYO-loop pipes have no
 ``NativeGenerator`` instance to call that private method on, so this is the
-seam that gives LTX/DFR/MiniMax-H3 compile parity with the image families;
-"partial" residency is never compiled (the gate itself would refuse it too --
-this is a fast local skip, not a second source of truth).
+seam that gives LTX/DFR/MiniMax-H3 compile parity with the image families.
+A "partial" placement is offered to the same gate as non-resident, which
+compiles only while the DiT's streamer is active.
 
 :func:`place_dit_for_sequence` also takes an optional ``reserve_gb`` on top of
 the token-derived ``activation_reserve``. The token-only reserve is wrong for a
@@ -211,7 +211,7 @@ _LTX_ROPE_HALF_DIM = _LTX_INNER_DIM // 2
 # derived as ``inner_dim // 2``, the same ratio LTX's own constants use) so a
 # non-LTX caller gets a reserve scaled to ITS attention width rather than
 # LTX's -- see :data:`_LTX_INNER_DIM`'s docstring above.
-def _activation_reserve_bytes_per_token(inner_dim: int, ffn_dim: int | None = None) -> int:
+def _activation_reserve_bytes_per_token(inner_dim: int) -> int:
     rope_half_dim = inner_dim // 2
     total = (
         6 * inner_dim * 2         # attention transient (bf16)
@@ -219,8 +219,6 @@ def _activation_reserve_bytes_per_token(inner_dim: int, ffn_dim: int | None = No
         + 2 * rope_half_dim * 2   # held bf16 cos/sin
         + 1 * inner_dim * 2       # hidden states (x)
     )
-    if ffn_dim:
-        total += _ffn_transient_bytes_per_token(ffn_dim)
     return total
 
 
@@ -250,6 +248,24 @@ def _ffn_transient_bytes_per_token(ffn_dim: int) -> int:
     return 4 * ffn_dim * 2
 
 
+def _chunked_ffn_phase_bytes(tokens: int, inner_dim: int, ffn_dim: int, chunk_rows: int) -> int:
+    held_rope_bytes_per_token = 2 * (inner_dim // 2) * 2
+    full_length_streams_bytes_per_token = 3 * inner_dim * 2
+    return (
+        tokens * (held_rope_bytes_per_token + full_length_streams_bytes_per_token)
+        + chunk_rows * _ffn_transient_bytes_per_token(ffn_dim)
+    )
+
+
+def _activation_bytes(tokens: int, inner_dim: int, ffn_dim: int | None, ffn_chunk_rows: int) -> int:
+    attention = tokens * _activation_reserve_bytes_per_token(inner_dim)
+    if not ffn_dim:
+        return attention
+    if not ffn_chunk_rows or ffn_chunk_rows >= tokens:
+        return attention + tokens * _ffn_transient_bytes_per_token(ffn_dim)
+    return max(attention, _chunked_ffn_phase_bytes(tokens, inner_dim, ffn_dim, ffn_chunk_rows))
+
+
 _LTX_FFN_DIM = 4 * _LTX_INNER_DIM
 _LTX_PROMPT_ADALN_MODULATION_ROWS = 7
 _LTX_MODULATION_ROWS = 5
@@ -269,7 +285,6 @@ def ltx_reserve_terms(dit_module: Any, *, per_token_timestep: bool) -> dict[str,
         prompt_adaln = bool(getattr(getattr(dit_module, "config", None), "has_prompt_adaln", False))
         rows = _LTX_PROMPT_ADALN_MODULATION_ROWS if prompt_adaln else _LTX_MODULATION_ROWS
     return {"gelu_ffn_dim": _LTX_FFN_DIM, "modulation_rows": rows}
-
 
 # LoRA cost terms. A resident runtime LoRA delta (quantized-storage Linears
 # -- lora/apply.py's ``_needs_runtime_deltas``) is applied per forward by
@@ -368,7 +383,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 
 def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
-    inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None,
+    inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
     quant_activation_bytes_per_token: int = 0, dequant_transient_bytes: int = 0,
     gelu_ffn_dim: int | None = None, modulation_rows: int = 0,
 ) -> float:
@@ -402,14 +417,14 @@ def estimate_activation_reserve_gb(
     v = max(0, int(video_tokens))
     s = v + max(0, int(audio_tokens))
     gelu_bytes = _gelu_ffn_bytes_per_token(gelu_ffn_dim)
-    bytes_per_token = _activation_reserve_bytes_per_token(inner_dim, ffn_dim)
-    bytes_per_token += lora.output_buffer_bytes_per_token
+    bytes_per_token = lora.output_buffer_bytes_per_token
     bytes_per_token += max(0, int(quant_activation_bytes_per_token))
     bytes_per_token += gelu_bytes
+    activation_bytes = _activation_bytes(s, inner_dim, ffn_dim, max(0, int(ffn_chunk_rows)))
     transient_bytes = max(max(0, int(dequant_transient_bytes)), s * gelu_bytes)
     flat_bytes = lora.weight_side_bytes + transient_bytes
     modulation_bytes = v * _modulation_bytes_per_token(inner_dim, modulation_rows)
-    raw_gb = (s * bytes_per_token + modulation_bytes + flat_bytes) / _BYTES_PER_GB
+    raw_gb = (activation_bytes + s * bytes_per_token + modulation_bytes + flat_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
@@ -588,6 +603,7 @@ def place_dit_for_sequence(
     reserve_gb: float = 0.0,
     inner_dim: int = _LTX_INNER_DIM,
     ffn_dim: int | None = None,
+    ffn_chunk_rows: int = 0,
     fit_hint: "FitHint | None" = None,
     gelu_ffn_dim: int | None = None,
     modulation_rows: int = 0,
@@ -655,6 +671,7 @@ def place_dit_for_sequence(
 
     activation_reserve = estimate_activation_reserve_gb(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
+        ffn_chunk_rows=ffn_chunk_rows,
         quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
         dequant_transient_bytes=_dit_dequant_transient_bytes(dit),
         gelu_ffn_dim=gelu_ffn_dim, modulation_rows=modulation_rows,
@@ -724,11 +741,7 @@ def place_dit_for_sequence(
     else:
         mode = _move_partial(dit, device, weight_budget, own_models)
 
-    if mode == "resident":
-        # Regional torch.compile only ever engages on a FULLY resident DiT
-        # (compile.py's own gate re-checks quantization/runtime-LoRA/env); a
-        # "partial" mode here means an OOM-degrade already ruled it out.
-        maybe_compile_dit(dit, resident=True, is_cuda=True)
+    maybe_compile_dit(dit, resident=mode == "resident", is_cuda=True)
 
     decision = DitPlacementDecision(
         mode, weight_gb, activation_reserve, weight_budget, video_tokens, audio_tokens,

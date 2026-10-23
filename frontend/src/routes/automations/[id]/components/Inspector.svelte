@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, Badge } from '$lib/components/ui';
 	import { automationEditor, buildVariableScope, selectedNode } from '$lib/stores/automationEditor';
@@ -8,6 +9,7 @@
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 	import NodeConfigForm from './NodeConfigForm.svelte';
+	import HttpRequestTestPanel from './HttpRequestTestPanel.svelte';
 
 	/** The reference most recently copied, to flash "copied" on that row. */
 	let copied = $state<string | null>(null);
@@ -89,6 +91,14 @@
 					{scope}
 				/>
 
+				{#if nodeTypeDef.key === 'action.http_request'}
+					<HttpRequestTestPanel
+						config={node.data.config}
+						automationId={$automationEditor.automation?.id}
+						nodeId={node.id}
+					/>
+				{/if}
+
 				<!-- The data contract: what downstream nodes may read from this one. -->
 				<section class="pt-2 border-t border-line">
 					<h3 class="text-2xs font-mono font-semibold uppercase tracking-wide text-fg-subtle mb-2">
@@ -109,7 +119,7 @@
 								<button
 									type="button"
 									class="w-full text-left rounded px-2 py-1 -mx-2 hover:bg-surface-2 transition-colors"
-									title="Copy “{reference}”"
+									use:tooltip={`Copy “${reference}”`}
 									onclick={() => copyReference(reference)}
 								>
 									<span class="flex items-baseline justify-between gap-2">

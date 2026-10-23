@@ -1,15 +1,6 @@
-import importlib.util
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 _KEYS = (
     "external_login_auto_create",
@@ -18,36 +9,8 @@ _KEYS = (
 )
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration025ExternalIdentities(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        with self.db.get_connection() as conn:
-            conn.execute(
-                "CREATE TABLE applied_migrations ("
-                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                "migration_name TEXT UNIQUE NOT NULL, "
-                "applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
-            )
-            conn.commit()
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("025_external_identities", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration025ExternalIdentities(MigrationCase):
+    MIGRATION = "025_external_identities"
 
     def _settings(self):
         with self.db.get_cursor() as cursor:
@@ -125,14 +88,6 @@ class TestMigration025ExternalIdentities(unittest.TestCase):
         self.assertEqual(seeded["external_login_auto_create"]["value"], "true")
         self.assertEqual(len(seeded), 3)
         self.assertTrue(self._table_exists())
-
-    def test_down_removes_the_table_and_the_settings(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        self.assertFalse(self._table_exists())
-        self.assertEqual(self._settings(), {})
 
 
 if __name__ == "__main__":

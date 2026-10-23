@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validatePasswordChange, PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES } from './passwordValidation';
+import { passwordErrorsFromServer, validatePasswordChange, PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES } from './passwordValidation';
 
 describe('validatePasswordChange', () => {
 	it('requires all fields filled', () => {
@@ -76,5 +76,18 @@ describe('validatePasswordChange', () => {
 		});
 		expect(result.valid).toBe(true);
 		expect(result.errors).toEqual({});
+	});
+});
+
+describe('passwordErrorsFromServer', () => {
+	it('maps server field names onto the form fields', () => {
+		expect(
+			passwordErrorsFromServer({ new_password: 'Password is too weak', current_password: 'Wrong' })
+		).toEqual({ new: 'Password is too weak', current: 'Wrong' });
+	});
+
+	it('returns null when no password field is named', () => {
+		expect(passwordErrorsFromServer({})).toBeNull();
+		expect(passwordErrorsFromServer({ email: 'x' })).toBeNull();
 	});
 });

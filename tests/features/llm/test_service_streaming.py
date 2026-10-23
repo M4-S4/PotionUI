@@ -156,7 +156,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -177,7 +177,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -200,7 +200,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -221,7 +221,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -241,7 +241,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -266,7 +266,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             all_events = await _collect(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -287,7 +287,7 @@ class TestStreamOllamaWithHistory:
         with patch("httpx.AsyncClient", return_value=client_cm):
             with pytest.raises(ValueError, match="Ollama returned status 500"):
                 await _collect(
-                    service._ollama.stream_with_history(
+                    service._ollama.stream_with_tools(
                         [{"role": "user", "content": "hi"}], config, "sys"
                     )
                 )
@@ -306,7 +306,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     messages, config, "sys", image_data=image_data
                 )
             )
@@ -329,7 +329,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -338,7 +338,7 @@ class TestStreamOllamaWithHistory:
         assert call_kwargs["json"]["options"]["num_ctx"] == 4096
 
     @pytest.mark.asyncio
-    async def test_think_defaults_to_true_when_not_set(self):
+    async def test_think_defaults_to_false_when_not_set(self):
         config = _make_config("ollama", provider_options={})
         service = self._service(config)
 
@@ -347,13 +347,13 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
 
         call_kwargs = mock_client.stream.call_args[1]
-        assert call_kwargs["json"]["think"] is True
+        assert call_kwargs["json"]["think"] is False
 
     @pytest.mark.asyncio
     async def test_stream_flag_is_true(self):
@@ -366,7 +366,7 @@ class TestStreamOllamaWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._ollama.stream_with_history(
+                service._ollama.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -402,7 +402,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -423,7 +423,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -449,7 +449,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -471,7 +471,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -492,7 +492,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -509,7 +509,7 @@ class TestStreamOpenaiWithHistory:
         with patch("httpx.AsyncClient", return_value=client_cm):
             with pytest.raises(ValueError, match="OpenAI returned status 401"):
                 await _collect(
-                    service._openai.stream_with_history(
+                    service._openai.stream_with_tools(
                         [{"role": "user", "content": "hi"}], config, "sys"
                     )
                 )
@@ -524,7 +524,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -542,7 +542,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -560,7 +560,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -581,7 +581,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             await _collect(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     messages, config, "sys", image_data=image_data
                 )
             )
@@ -613,7 +613,7 @@ class TestStreamOpenaiWithHistory:
 
         with patch("httpx.AsyncClient", return_value=client_cm):
             chunks = await _collect_tokens(
-                service._openai.stream_with_history(
+                service._openai.stream_with_tools(
                     [{"role": "user", "content": "hi"}], config, "sys"
                 )
             )
@@ -748,7 +748,6 @@ class TestStreamWithHistory:
                 service.stream_with_history(
                     [{"role": "user", "content": "improve my prompt"}],
                     llm_id="cfg-1",
-                    mode="generation",
                 )
             )
 
@@ -780,7 +779,7 @@ class TestStreamingNetworkErrors:
         with patch("httpx.AsyncClient", return_value=mock_client_cm):
             with pytest.raises(Exception):
                 await _collect(
-                    service._ollama.stream_with_history(
+                    service._ollama.stream_with_tools(
                         [{"role": "user", "content": "hi"}], config, "sys"
                     )
                 )
@@ -799,7 +798,7 @@ class TestStreamingNetworkErrors:
         with patch("httpx.AsyncClient", return_value=mock_client_cm):
             with pytest.raises(Exception):
                 await _collect(
-                    service._openai.stream_with_history(
+                    service._openai.stream_with_tools(
                         [{"role": "user", "content": "hi"}], config, "sys"
                     )
                 )

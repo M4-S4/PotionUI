@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
 	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
@@ -212,31 +212,6 @@
 	function closeMore() {
 		moreOpen = false;
 	}
-
-	function handleMoreClickOutside(event: MouseEvent) {
-		const target = event.target as Node;
-		if (
-			moreOpen &&
-			moreTriggerEl &&
-			!moreTriggerEl.contains(target) &&
-			!(moreMenuEl && moreMenuEl.contains(target))
-		) {
-			closeMore();
-		}
-	}
-
-	function handleMoreKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && moreOpen) closeMore();
-	}
-
-	onMount(() => {
-		document.addEventListener('click', handleMoreClickOutside);
-		document.addEventListener('keydown', handleMoreKeydown);
-		return () => {
-			document.removeEventListener('click', handleMoreClickOutside);
-			document.removeEventListener('keydown', handleMoreKeydown);
-		};
-	});
 </script>
 
 <aside class="fixed left-0 top-0 h-screen w-14 flex flex-col bg-canvas border-r border-line z-50">
@@ -379,7 +354,6 @@
 		</div>
 	</nav>
 
-	<!-- Bottom Section: Widgets + Quick Actions + User -->
 	<div class="border-t border-line py-3 px-2 space-y-2">
 		<!-- Dynamic Sidebar Widgets (e.g. System Monitor plugin) -->
 		<SidebarWidgets position="bottom" />
@@ -463,13 +437,13 @@
 
 		<!-- Quick Actions (core palette; plugins are one contributing source) -->
 		<QuickActions />
-
-		{#if $authStore.user}
-			<div class="flex flex-col items-center pt-2 border-t border-line">
-				<UserMenu />
-			</div>
-		{/if}
 	</div>
+
+	{#if $authStore.user}
+		<div class="flex h-[var(--dock-height,92px)] flex-shrink-0 items-center justify-center border-t border-line" data-rail-user>
+			<UserMenu />
+		</div>
+	{/if}
 </aside>
 
 {#if moreOpen}
@@ -477,6 +451,7 @@
 		use:portal
 		use:overlayLayer
 		bind:this={moreMenuEl}
+		use:dismiss={{ onDismiss: closeMore, ignore: [moreTriggerEl] }}
 		class="fixed z-overlay min-w-[12rem] p-1 bg-surface-1 border border-line-strong rounded-lg shadow-overlay"
 		style="top: {morePos.top}px; left: {morePos.left}px;"
 		role="menu"

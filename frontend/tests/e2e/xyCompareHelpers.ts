@@ -1,9 +1,10 @@
 import { expect, type Page } from '@playwright/test';
+import { apiGet } from './helpers';
+import { presetOption } from './presetPreamble';
 
 export const BACKEND_NAME = 'E2E Fake Cloud';
 export const PRESET_NAME = 'Fake Studio';
 export const GRIDS = '/api/generations/grids';
-export const BEAT = 400;
 
 export const field = (page: Page, name: string) => page.locator(`[data-field-name="${name}"]`);
 
@@ -32,7 +33,7 @@ export const compareToggle = (page: Page) => page.locator('[data-compare-toggle]
 export const compareDrawer = (page: Page) => page.getByRole('dialog', { name: 'Compare', exact: true });
 export const compareGenerate = (page: Page, count: number) =>
 	page.getByRole('button', { name: new RegExp(`^Generate ${count}\\b`) }).first();
-export const generateMarkCount = (page: Page) => page.locator('.generate-button:visible .generate-count').first();
+export const compareCount = (page: Page) => page.locator('[data-compare-toggle]:visible .compare-count').first();
 
 export async function openCompareDrawer(page: Page) {
 	const drawer = compareDrawer(page);
@@ -79,12 +80,6 @@ export async function turnOffCompare(page: Page) {
 	if (await drawer.isVisible()) await closeCompareDrawer(page);
 }
 
-export async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 export async function backendId(page: Page, token: string): Promise<string> {
 	const list = await apiGet(page, '/api/backends', token);
 	const backend = (list.data as Array<{ id: string; name: string }>).find((b) => b.name === BACKEND_NAME);
@@ -123,8 +118,8 @@ export async function openFakeStudio(page: Page) {
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(PRESET_NAME, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, PRESET_NAME).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
 	await turnOffCompare(page);
@@ -135,14 +130,12 @@ export async function pickModel(page: Page, label: string) {
 	if (await swap.isVisible().catch(() => false)) await swap.click();
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
-	await page.waitForTimeout(BEAT);
 }
 
 export async function typePrompt(page: Page, text: string) {
 	const editor = page.locator('[contenteditable="true"]').first();
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(BEAT);
 }
 
 export async function captureStartRequest(page: Page): Promise<Record<string, any>> {

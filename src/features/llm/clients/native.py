@@ -85,6 +85,7 @@ from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 from src.features.llm.clients.base import LLMResponse
 from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.context_budget import MessagesCounter, TokenCounter
+from src.features.llm.model_listing import DiscoveredWindow, positive_int
 from src.features.llm.native_library import (
     NATIVE_LLM_QUANT_MODES,
     NATIVE_LLM_QUANT_SIZE_FACTORS,
@@ -390,6 +391,32 @@ class _NativeLLMResidencyHandle:
             get_residency_registry().note_offloaded(self)
         except Exception:
             logger.debug("[NativeLLM] note_offloaded failed for key='%s'", self.key, exc_info=True)
+
+
+_UNBOUNDED_MODEL_MAX_LENGTH = 10_000_000
+
+
+def _read_json_file(path: str) -> Dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def read_checkpoint_context_window(directory: str) -> Optional[DiscoveredWindow]:
+    config = _read_json_file(os.path.join(directory, "config.json"))
+    for section in (config, config.get("text_config"), config.get("llm_config")):
+        if isinstance(section, dict):
+            tokens = positive_int(section.get("max_position_embeddings"))
+            if tokens:
+                return DiscoveredWindow(tokens=tokens, kind="trained")
+    tokenizer_config = _read_json_file(os.path.join(directory, "tokenizer_config.json"))
+    tokens = positive_int(tokenizer_config.get("model_max_length"))
+    if tokens and tokens < _UNBOUNDED_MODEL_MAX_LENGTH:
+        return DiscoveredWindow(tokens=tokens, kind="trained")
+    return None
 
 
 class NativeLLMClient:
@@ -711,6 +738,18 @@ class NativeLLMClient:
             return None
         ref = self._checkpoint_refs.get(self._cache_key(path, is_te))
         return ref() if ref is not None else None
+
+    async def discover_context_window(
+        self, base_url: str, api_key: Optional[str], model: str,
+    ) -> Optional[DiscoveredWindow]:
+        try:
+            path, is_te = self._resolve_model(model)
+            if is_te or not os.path.isdir(path):
+                return None
+            return read_checkpoint_context_window(path)
+        except Exception:
+            logger.debug("Native context window probe failed for %s", model, exc_info=True)
+            return None
 
     def token_counter(self, config: LLMConfig) -> Optional[TokenCounter]:
         """A per-fragment token counter using this config's own tokenizer —

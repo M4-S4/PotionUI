@@ -21,6 +21,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Kbd } from '$lib/components/ui';
 	import portal from '$lib/actions/portal';
+	import { stepIndex } from '$lib/utils/listNavigation';
 	import overlayLayer from '$lib/actions/overlayLayer';
 
 	export let isOpen: boolean = false;
@@ -124,11 +125,11 @@
 			}
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			selectedIndex = (selectedIndex + 1) % filteredItems.length;
+			selectedIndex = stepIndex(selectedIndex, 1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			selectedIndex = selectedIndex === 0 ? filteredItems.length - 1 : selectedIndex - 1;
+			selectedIndex = stepIndex(selectedIndex, -1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'Home' && filteredItems.length > 0) {
 			e.preventDefault();
@@ -169,11 +170,11 @@
 			}
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			selectedIndex = (selectedIndex + 1) % filteredItems.length;
+			selectedIndex = stepIndex(selectedIndex, 1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			selectedIndex = selectedIndex === 0 ? filteredItems.length - 1 : selectedIndex - 1;
+			selectedIndex = stepIndex(selectedIndex, -1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'Home' && filteredItems.length > 0) {
 			e.preventDefault();
@@ -265,12 +266,12 @@
 						{#if subtitle}<span>{subtitle}</span>{/if}
 					</div>
 					<button type="button" class="close" aria-label="Close value finder" on:click={handleClose}>
-						<svg class="icon"><use href="#i-close" /></svg>
+						<Icon name="composer-close" className="icon" strokeWidth={1.7} />
 					</button>
 				</header>
 				<div class="modal-body finder-body">
 					<div class="finder-search-wrap">
-						<svg class="icon"><use href="#i-search" /></svg>
+						<Icon name="composer-search" className="icon" strokeWidth={1.7} />
 						<input
 							bind:this={searchInput}
 							bind:value={searchQuery}
@@ -301,14 +302,14 @@
 										{#if item.imageUrl}
 											<img src={item.imageUrl} alt={item.label} />
 										{:else}
-											<svg class="icon"><use href="#i-file" /></svg>
+											<Icon name="composer-file" className="icon" strokeWidth={1.7} />
 										{/if}
 									</span>
 									<span class="finder-copy">
 										<strong>{item.label}</strong>
 										{#if item.description}<span>{item.description}</span>{/if}
 									</span>
-									<span class="finder-check"><svg class="icon"><use href="#i-check" /></svg></span>
+									<span class="finder-check"><Icon name="composer-check" className="icon" strokeWidth={1.7} /></span>
 								</button>
 							{/each}
 						{/if}

@@ -22,11 +22,3 @@ def up():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_generation_costs_generation ON generation_costs (generation_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_generation_costs_created ON generation_costs (created_at)")
     print(f"Migration {_NAME}: generation costs created")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP INDEX IF EXISTS idx_generation_costs_created")
-        cursor.execute("DROP INDEX IF EXISTS idx_generation_costs_generation")
-        cursor.execute("DROP TABLE IF EXISTS generation_costs")
-    print(f"Migration {_NAME}: generation costs dropped")

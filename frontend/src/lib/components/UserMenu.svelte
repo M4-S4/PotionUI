@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition';
+	import dismiss from '$lib/actions/dismiss';
 	import { authStore } from '$lib/stores/auth';
 	import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
 	import UserPanel from './accounts/UserPanel.svelte';
@@ -21,17 +22,7 @@
 	function close() {
 		open = false;
 	}
-
-	function onWindowClick(e: MouseEvent) {
-		if (open && menuEl && !menuEl.contains(e.target as Node)) close();
-	}
-
-	function onWindowKey(e: KeyboardEvent) {
-		if (open && e.key === 'Escape') close();
-	}
 </script>
-
-<svelte:window on:click={onWindowClick} on:keydown={onWindowKey} />
 
 {#if user}
 	<div class="relative" bind:this={menuEl}>
@@ -67,6 +58,7 @@
 				class="absolute left-full bottom-0 ml-2 z-overlay w-96 max-w-[calc(100vw-16px)] bg-surface-2 border border-line-strong
 					rounded-xl shadow-floating overflow-hidden"
 				role="menu"
+				use:dismiss={{ onDismiss: close, ignore: [menuEl] }}
 				transition:fly={{ x: -4, duration: 120 }}
 			>
 				<div

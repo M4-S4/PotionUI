@@ -1,9 +1,15 @@
 <script lang="ts">
+	import { activeTab } from '$lib/stores/tabs';
+	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
+	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
+
 	export let tabName: string;
 	export let presetName: string | undefined = undefined;
 	export let modeLabel: string | undefined = undefined;
 	export let onOpenPresetSheet: () => void;
 	export let onOpenChatSheet: () => void;
+
+	$: unsaved = !!$activeTab && tabShowsUnsavedChanges($activeTab, $tabSessionDirty);
 </script>
 
 <div
@@ -12,11 +18,14 @@
 >
 	<button
 		type="button"
-		class="pointer-events-auto flex flex-shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface-1/85 px-2.5 py-1.5 text-2xs font-medium text-fg backdrop-blur-sm"
-		aria-label="Open tabs"
+		class="pointer-events-auto flex flex-shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface-1/85 px-2.5 py-1.5 text-sm font-medium text-fg backdrop-blur-sm"
+		aria-label={unsaved ? 'Open tabs, unsaved changes' : 'Open tabs'}
 		on:click={onOpenPresetSheet}
 	>
 		{tabName}
+		{#if unsaved}
+			<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning-solid" aria-hidden="true" data-testid="tab-unsaved"></span>
+		{/if}
 		<svg class="h-2.5 w-2.5 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
 		</svg>

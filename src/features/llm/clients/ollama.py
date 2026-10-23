@@ -1,12 +1,13 @@
 import logging
+import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
-from src.features.llm import trace_collector
 from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.clients.base import LLMResponse
+from src.platform.http.tls import client_ssl_context
 from src.features.llm.clients.ollama_wire import (
     TOOLS_AUTO,
     TOOLS_NATIVE,
@@ -14,9 +15,40 @@ from src.features.llm.clients.ollama_wire import (
     build_ollama_chat_request,
     build_ollama_generate_request,
 )
-from src.features.llm.model_listing import DiscoveredModel, ModelListingError, fetch_json, sorted_models
-from src.features.llm.clients.wire_events import Done, TextDelta, ToolCalls, Usage
+from src.features.llm.model_listing import (
+    CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+    DiscoveredModel,
+    DiscoveredWindow,
+    ModelListingError,
+    fetch_json,
+    positive_int,
+    sorted_models,
+)
+from src.features.llm.clients.transport import record_trace, stream_timeout
+from src.features.llm.clients.wire_events import Done, TextDelta, ThinkingDelta, ToolCalls, Usage
 from src.features.llm.repository import LLMConfig
+
+
+_MODELFILE_NUM_CTX = re.compile(r"^\s*num_ctx\s+(\d+)\s*$", re.MULTILINE)
+
+
+def parse_show_context_window(payload: Any) -> Optional[DiscoveredWindow]:
+    if not isinstance(payload, dict):
+        return None
+    parameters = payload.get("parameters")
+    if isinstance(parameters, str):
+        match = _MODELFILE_NUM_CTX.search(parameters)
+        runtime = positive_int(int(match.group(1))) if match else None
+        if runtime:
+            return DiscoveredWindow(tokens=runtime, kind="runtime")
+    model_info = payload.get("model_info")
+    if isinstance(model_info, dict):
+        for key, value in model_info.items():
+            if isinstance(key, str) and key.endswith(".context_length"):
+                trained = positive_int(value)
+                if trained:
+                    return DiscoveredWindow(tokens=trained, kind="trained")
+    return None
 
 
 class OllamaClient:
@@ -28,12 +60,6 @@ class OllamaClient:
     Payload building and chunk parsing live in ``ollama_wire``; what stays here
     is the HTTP call and the response shaping.
     """
-
-    @staticmethod
-    def _stream_timeout(config: LLMConfig) -> httpx.Timeout:
-        return httpx.Timeout(
-            connect=config.timeout, read=None, write=config.timeout, pool=config.timeout
-        )
 
     display_name = "Ollama"
 
@@ -69,6 +95,20 @@ class OllamaClient:
             ))
         return sorted_models(models)
 
+    async def discover_context_window(
+        self, base_url: str, api_key: Optional[str], model: str,
+    ) -> Optional[DiscoveredWindow]:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        try:
+            payload = await fetch_json(
+                self.display_name, base_url, "/api/show", headers,
+                body={"model": model}, timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+            )
+            return parse_show_context_window(payload)
+        except Exception:
+            logging.debug("Ollama context window probe failed for %s", model, exc_info=True)
+            return None
+
     @staticmethod
     def _usage_event(event: Usage) -> Dict[str, Any]:
         return {
@@ -96,7 +136,7 @@ class OllamaClient:
         try:
             request = build_ollama_generate_request(config, prompt, system_message, image_data)
 
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
+            async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 keep_alive = request.payload["keep_alive"]
                 think_enabled = request.payload["think"]
                 if image_data:
@@ -148,136 +188,6 @@ class OllamaClient:
             logging.error(f"Ollama exception: {str(e)}")
             raise ValueError(f"Error generating Ollama response: {str(e)}")
 
-    async def generate_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        config: LLMConfig,
-        system_message: str,
-        image_data: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> LLMResponse:
-        """Generate a response over a full conversation history."""
-        try:
-            request = build_ollama_chat_request(
-                config, messages, system_message, image_data, options_override
-            )
-
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
-                logging.debug(f"[Ollama Chat] Sending request to {config.base_url}/api/chat")
-                logging.debug(f"[Ollama Chat] Model: {config.model}")
-                logging.debug(f"[Ollama Chat] System message ({len(system_message)} chars): {system_message[:200]}{'...' if len(system_message) > 200 else ''}")
-                logging.debug(f"[Ollama Chat] Messages count: {len(request.messages)}")
-                for i, msg in enumerate(request.messages):
-                    content_preview = msg['content'][:100] + '...' if len(msg['content']) > 100 else msg['content']
-                    logging.debug(f"[Ollama Chat] Message {i}: role={msg['role']}, content={content_preview}")
-                logging.debug(f"[Ollama Chat] Options: think={request.payload['think']}, keep_alive={request.payload['keep_alive']}")
-
-                _trace_start = time.monotonic()
-                response = await client.post(
-                    f"{config.base_url}{request.endpoint}",
-                    json=request.payload
-                )
-
-                if response.status_code != 200:
-                    error_text = response.text
-                    logging.error(f"Ollama error response: {error_text}")
-                    raise ValueError(f"Ollama returned status {response.status_code}: {error_text}")
-
-                response.raise_for_status()
-                data = response.json()
-
-                message = data.get("message", {})
-                content = message.get("content", "")
-
-                if not content and message.get("thinking"):
-                    logging.warning("Model returned empty content but has thinking field.")
-                    content = message.get("thinking", "")
-
-                finish_reason = data.get("done_reason")
-
-                trace_collector.record(
-                    provider="ollama",
-                    model=config.model,
-                    request_system=system_message,
-                    request_messages=request.messages,
-                    request_params=request.options,
-                    response_text=content,
-                    prompt_tokens=data.get("prompt_eval_count"),
-                    completion_tokens=data.get("eval_count"),
-                    duration_ms=int((time.monotonic() - _trace_start) * 1000),
-                )
-
-                return LLMResponse(
-                    content=content,
-                    model=config.model,
-                    provider_id=config.id,
-                    tokens_used=data.get("eval_count"),
-                    prompt_tokens=data.get("prompt_eval_count"),
-                    completion_tokens=data.get("eval_count"),
-                    finish_reason=finish_reason,
-                    completion=completion_outcome.from_ollama(finish_reason),
-                )
-        except httpx.HTTPStatusError as e:
-            logging.error(f"Ollama HTTP error: {e.response.text if e.response else str(e)}")
-            raise ValueError(f"Error generating Ollama response: {e.response.text if e.response else str(e)}")
-        except Exception as e:
-            logging.error(f"Ollama exception: {str(e)}")
-            raise ValueError(f"Error generating Ollama response: {str(e)}")
-
-    async def stream_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        config: LLMConfig,
-        system_message: str,
-        image_data: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> AsyncGenerator[dict, None]:
-        """Stream a response over a full conversation history."""
-        request = build_ollama_chat_request(
-            config, messages, system_message, image_data, options_override, stream=True
-        )
-
-        logging.info(f"[Ollama Stream] Sending streaming request to {config.base_url}/api/chat")
-
-        decoder = OllamaNDJSONDecoder("Ollama Stream")
-        full_content_parts: List[str] = []
-        usage_event: Optional[Dict[str, Any]] = None
-        _trace_start = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._stream_timeout(config)) as client:
-            async with client.stream("POST", f"{config.base_url}{request.endpoint}", json=request.payload) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    raise ValueError(f"Ollama returned status {response.status_code}: {error_text.decode()}")
-
-                async for line in response.aiter_lines():
-                    stop = False
-                    for event in decoder.feed(line):
-                        if isinstance(event, TextDelta):
-                            full_content_parts.append(event.text)
-                            yield {"type": "token", "content": event.text}
-                        elif isinstance(event, Usage):
-                            usage_event = self._usage_event(event)
-                        elif isinstance(event, Done):
-                            usage_event = usage_event or self._usage_event(Usage(None, None, None))
-                            usage_event["completion"] = completion_outcome.from_ollama(event.finish_reason)
-                            yield usage_event
-                            stop = True
-                            break
-                    if stop:
-                        break
-
-        trace_collector.record(
-            provider="ollama",
-            model=config.model,
-            request_system=system_message,
-            request_messages=request.messages,
-            request_params=request.options,
-            response_text="".join(full_content_parts),
-            prompt_tokens=(usage_event or {}).get("prompt_tokens"),
-            completion_tokens=(usage_event or {}).get("completion_tokens"),
-            duration_ms=int((time.monotonic() - _trace_start) * 1000),
-        )
-
     async def generate_with_tools(
         self,
         messages: list[Dict[str, Any]],
@@ -294,7 +204,7 @@ class OllamaClient:
                 tool_mode=TOOLS_AUTO,
             )
 
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
+            async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 tool_mode = "native" if request.native_tools else "prompt-injected"
                 logging.info(f"[Ollama Tools] Sending request to {config.base_url}/api/chat")
                 logging.info(f"[Ollama Tools] Model: {config.model}, tools: {len(tools) if tools else 0} ({tool_mode}), think: {request.payload['think']}")
@@ -343,15 +253,15 @@ class OllamaClient:
                 elif content:
                     logging.info(f"[Ollama Tools] Content preview: {content[:200]}")
 
-                if not content and message.get("thinking"):
+                thinking = message.get("thinking") or None
+                if not content and message.get("thinking") and not config.show_thinking:
                     logging.warning("Model returned empty content but has thinking field.")
                     content = message.get("thinking", "")
 
                 finish_reason = data.get("done_reason")
 
-                trace_collector.record(
-                    provider="ollama",
-                    model=config.model,
+                record_trace(
+                    "ollama", config, _trace_start,
                     request_system=request.system_message,
                     request_messages=request.messages,
                     request_params=request.options,
@@ -360,7 +270,6 @@ class OllamaClient:
                     response_tool_calls=tool_calls,
                     prompt_tokens=data.get("prompt_eval_count"),
                     completion_tokens=data.get("eval_count"),
-                    duration_ms=int((time.monotonic() - _trace_start) * 1000),
                 )
 
                 return LLMResponse(
@@ -373,6 +282,7 @@ class OllamaClient:
                     tool_calls=tool_calls,
                     finish_reason=finish_reason,
                     completion=completion_outcome.from_ollama(finish_reason),
+                    thinking=thinking,
                 )
         except httpx.HTTPStatusError as e:
             logging.error(f"Ollama HTTP error: {e.response.text if e.response else str(e)}")
@@ -411,7 +321,7 @@ class OllamaClient:
         tool_calls: Optional[List[Dict[str, Any]]] = None
         usage_event: Optional[Dict[str, Any]] = None
         _trace_start = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._stream_timeout(config)) as client:
+        async with httpx.AsyncClient(timeout=stream_timeout(config), verify=client_ssl_context()) as client:
             async with client.stream("POST", f"{config.base_url}{request.endpoint}", json=request.payload) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()
@@ -423,6 +333,8 @@ class OllamaClient:
                         if isinstance(event, TextDelta):
                             full_content_parts.append(event.text)
                             yield {"type": "token", "content": event.text}
+                        elif isinstance(event, ThinkingDelta):
+                            yield {"type": "thinking", "content": event.text}
                         elif isinstance(event, ToolCalls):
                             tool_calls = event.tool_calls
                         elif isinstance(event, Usage):
@@ -438,9 +350,8 @@ class OllamaClient:
                     if stop:
                         break
 
-        trace_collector.record(
-            provider="ollama",
-            model=config.model,
+        record_trace(
+            "ollama", config, _trace_start,
             request_system=system_message,
             request_messages=request.messages,
             request_params=request.options,
@@ -449,5 +360,4 @@ class OllamaClient:
             response_tool_calls=tool_calls,
             prompt_tokens=(usage_event or {}).get("prompt_tokens"),
             completion_tokens=(usage_event or {}).get("completion_tokens"),
-            duration_ms=int((time.monotonic() - _trace_start) * 1000),
         )

@@ -306,8 +306,9 @@ class TestGenerationOrderingAndMembership(PersistenceTestBase):
     # --- query plan ---
 
     def _plan_for(self, **kwargs):
+        kwargs.setdefault('user_id', self.user_id)
         with self._capture_sql() as log:
-            self.repo.get_all(user_id=self.user_id, limit=50, offset=0, **kwargs)
+            self.repo.get_all(limit=50, offset=0, **kwargs)
         sql, params = log[0]
         with self.db.get_cursor() as cursor:
             cursor.execute(f"EXPLAIN QUERY PLAN {sql}", params)
@@ -332,3 +333,49 @@ class TestGenerationOrderingAndMembership(PersistenceTestBase):
             any('TEMP B-TREE' in step.upper() for step in plan),
             f"plan still sorts: {plan}",
         )
+
+    def _assert_index_without_sorter(self, plan, index_name):
+        self.assertTrue(any(index_name in step for step in plan), f"plan did not use {index_name}: {plan}")
+        self.assertFalse(any('TEMP B-TREE' in step.upper() for step in plan), f"plan still sorts: {plan}")
+
+    def test_every_users_history_page_reads_the_created_index_without_a_sorter(self):
+        self._tied_rows()
+
+        _, plan = self._plan_for(user_id=None)
+
+        self._assert_index_without_sorter(plan, 'idx_generations_created_id')
+
+    def test_failed_generations_page_reads_the_status_index_without_a_sorter(self):
+        self._tied_rows()
+
+        _, plan = self._plan_for(user_id=None, status='failed')
+
+        self._assert_index_without_sorter(plan, 'idx_generations_status_created_id')
+
+    def test_preset_filtered_page_reads_the_user_preset_index_without_a_sorter(self):
+        self._tied_rows()
+
+        _, plan = self._plan_for(preset_id='native/SDXL/realistic')
+
+        self._assert_index_without_sorter(plan, 'idx_generations_user_preset')
+
+    def test_mode_filtered_page_reads_the_user_mode_index_without_a_sorter(self):
+        self._tied_rows()
+
+        _, plan = self._plan_for(mode='txt2img')
+
+        self._assert_index_without_sorter(plan, 'idx_generations_user_mode')
+
+    def test_facet_counts_read_their_covering_indexes(self):
+        self._tied_rows()
+
+        with self._capture_sql() as log:
+            self.repo.get_facets(self.user_id)
+        plans = []
+        for sql, params in log[:2]:
+            with self.db.get_cursor() as cursor:
+                cursor.execute(f"EXPLAIN QUERY PLAN {sql}", params)
+                plans.append([row[3] for row in cursor.fetchall()])
+
+        self.assertTrue(any('COVERING INDEX idx_generations_user_mode' in step for step in plans[0]), plans[0])
+        self.assertTrue(any('COVERING INDEX idx_generations_user_preset' in step for step in plans[1]), plans[1])

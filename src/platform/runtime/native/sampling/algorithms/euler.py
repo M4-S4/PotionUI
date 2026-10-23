@@ -18,8 +18,7 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from ..hooks import StepLoop
 
 Tensor = torch.Tensor
 
@@ -60,25 +59,13 @@ def sample_euler(
     array, so global step indices (hence per-step guidance) are preserved and the
     tail is bit-identical to the cold run's. ``0`` (default) is the normal path.
     """
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
-
-    s_in = x.new_ones((x.shape[0],))
-    try:
-        for i in range(start_step, total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
-
+    with StepLoop(sigmas, hooks, is_cancelled, start_step) as loop:
+        s_in = x.new_ones((x.shape[0],))
+        for i, _, sigma, sigma_next in loop:
             v = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
             x0_est = x - sigma * v
             x = x + (sigma_next - sigma) * v
 
-            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0_est)
-    finally:
-        run_hooks(hooks, "on_end")
+            x = loop.finish_step(x, i, sigma, sigma_next, x0_est)
 
     return x

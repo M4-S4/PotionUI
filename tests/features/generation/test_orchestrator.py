@@ -178,39 +178,6 @@ def sample_request():
 class TestGenerationOrchestratorInitialization:
     """Test cases for orchestrator initialization."""
 
-    def test_initialization_with_dependencies(
-        self,
-        mock_pipeline_builder,
-        mock_backend_registry,
-        mock_connection_manager,
-        mock_settings,
-        mock_output_processor,
-        mock_preset_template_loader
-    ):
-        """Test proper initialization with all dependencies."""
-        from src.features.generation.orchestrator import GenerationOrchestrator
-        from src.features.generation.status_tracker import GenerationStatusTracker
-
-        orchestrator = GenerationOrchestrator(
-            pipeline_builder=mock_pipeline_builder,
-            backend_registry=mock_backend_registry,
-            connection_hub=mock_connection_manager,
-            settings=mock_settings,
-            output_processor=mock_output_processor,
-            preset_template_loader=mock_preset_template_loader
-        )
-
-        assert orchestrator.pipeline_builder == mock_pipeline_builder
-        assert orchestrator.backend_registry == mock_backend_registry
-        assert orchestrator.connection_hub == mock_connection_manager
-        assert orchestrator.settings == mock_settings
-        assert orchestrator.output_processor == mock_output_processor
-        assert orchestrator.preset_template_loader == mock_preset_template_loader
-        assert isinstance(orchestrator.status_tracker, GenerationStatusTracker)
-
-    def test_initialization_empty_tracking(self, orchestrator):
-        """Test that the status tracker starts empty."""
-        assert len(orchestrator.status_tracker.list_all()) == 0
 
     def test_accepts_injected_status_tracker(
         self,
@@ -340,10 +307,7 @@ class TestModeAndPromptStatePersistence:
         with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_mode_3'):
             await orchestrator.start_generation(sample_request, 'user_123')
 
-        # Called twice: once at enqueue time (the model-identity affinity
-        # build, no generation_id yet) and once at dispatch time (the real
-        # backend payload build) - both must use the persisted mode.
-        assert mock_pipeline_builder.build_pipeline.call_count == 2
+        assert mock_pipeline_builder.build_pipeline.call_count == 1
         for call in mock_pipeline_builder.build_pipeline.call_args_list:
             assert call.kwargs['mode'] == 'img2img'
 
@@ -416,12 +380,8 @@ class TestLocalGenerationStartup:
         assert gen_arg.user_id == user_id
         assert gen_arg.status == 'pending'
 
-        # Verify pipeline was built - once at enqueue time for the
-        # model-identity affinity key (no generation_id yet), once at
-        # dispatch time for the actual backend payload (generation_id set).
-        assert mock_pipeline_builder.build_pipeline.call_count == 2
-        enqueue_call, dispatch_call = mock_pipeline_builder.build_pipeline.call_args_list
-        assert 'generation_id' not in enqueue_call.kwargs
+        assert mock_pipeline_builder.build_pipeline.call_count == 1
+        (dispatch_call,) = mock_pipeline_builder.build_pipeline.call_args_list
         assert dispatch_call.kwargs['generation_id'] == 'gen_123'
 
         # Verify backend was called with (pipeline_data, emit)
@@ -546,12 +506,8 @@ class TestUnifiedBackendPath:
         assert 'pipes' in pipeline_data
         assert isinstance(pipeline_data['pipes'], list)
 
-        # Verify pipeline builder was called - once at enqueue time for the
-        # model-identity affinity key (no generation_id yet), once at
-        # dispatch time for the actual backend payload (generation_id set).
-        assert mock_pipeline_builder.build_pipeline.call_count == 2
-        enqueue_call, dispatch_call = mock_pipeline_builder.build_pipeline.call_args_list
-        assert 'generation_id' not in enqueue_call.kwargs
+        assert mock_pipeline_builder.build_pipeline.call_count == 1
+        (dispatch_call,) = mock_pipeline_builder.build_pipeline.call_args_list
         assert dispatch_call.kwargs['generation_id'] == 'gen_comfyui'
 
 
@@ -572,12 +528,8 @@ class TestOutputHandling:
         generation_id = 'gen_progress'
         user_id = 'user_123'
 
-        orchestrator.status_tracker.create(id=generation_id)
+        orchestrator.status_tracker.create(id=generation_id, user_id=user_id)
         orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
-
-        # Mock repository to return generation
-        mock_gen = Mock(user_id=user_id)
-        mock_generation_repo.get_by_id.return_value = mock_gen
 
         # Create output with progress
         output = ProgressGenerationOutput(
@@ -609,6 +561,53 @@ class TestOutputHandling:
 
         # Verify callback was called
         callback.assert_called_once_with(generation_id, output)
+
+    @pytest.mark.asyncio
+    async def test_text_only_phase_keeps_its_text_but_never_pushes_a_fraction(
+        self,
+        orchestrator,
+        mock_output_processor,
+        mock_generation_repo
+    ):
+        from src.pipelines.outputs import ProgressGenerationOutput, Progress
+        from src.features.generation.status_tracker import GenerationState
+        generation_id = 'gen_text_phase'
+        orchestrator.status_tracker.create(id=generation_id)
+        orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123')
+        callback = AsyncMock()
+
+        load = ProgressGenerationOutput(state='Loading 2 of 2', progress=Progress(40, 100), bar=False)
+        loaded = ProgressGenerationOutput(state='Loaded', progress=Progress(100, 100), bar=False)
+        sampling = ProgressGenerationOutput(state='EDIT', progress=Progress(1, 50))
+        broadcast = []
+        for output in (load, loaded, sampling):
+            await orchestrator._handle_generation_output(generation_id, output, 'local', callback)
+            broadcast.append((output.state, output.progress and output.progress.current / output.progress.max))
+
+        assert broadcast == [('Loading 2 of 2', None), ('Loaded', None), ('EDIT', 0.02)]
+        assert orchestrator.status_tracker.get(generation_id).progress == 0.02
+
+    @pytest.mark.asyncio
+    async def test_second_sampling_pass_is_broadcast_without_going_back(
+        self,
+        orchestrator,
+        mock_output_processor,
+        mock_generation_repo
+    ):
+        from src.pipelines.outputs import ProgressGenerationOutput, Progress
+        from src.features.generation.status_tracker import GenerationState
+        generation_id = 'gen_two_passes'
+        orchestrator.status_tracker.create(id=generation_id)
+        orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123')
+        sent = []
+        for current in (10, 50, 1, 25):
+            output = ProgressGenerationOutput(state='S', progress=Progress(current, 50))
+            await orchestrator._handle_generation_output(generation_id, output, 'local', AsyncMock())
+            sent.append(output.progress.current / output.progress.max)
+
+        assert sent == [0.2, 1.0, 1.0, 1.0]
 
     @pytest.mark.asyncio
     async def test_handle_error_output_fails_and_notifies(

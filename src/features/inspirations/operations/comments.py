@@ -1,4 +1,5 @@
 """Comment operations on a published inspiration."""
+from src.platform.http.errors import InvalidInputError, NotFoundError
 from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.records import InspirationComment
 
@@ -9,13 +10,13 @@ def add_comment(collaborators: InspirationCollaborators, inspiration_id: str, us
     """Raises ValueError if the inspiration is not found or the body is empty/too long."""
     insp = collaborators.repository.get_by_id(inspiration_id)
     if not insp:
-        raise ValueError("Inspiration not found")
+        raise NotFoundError("not_found", "Inspiration not found")
 
     body = (body or "").strip()
     if not body:
-        raise ValueError("Comment body is required")
+        raise InvalidInputError("invalid_request", "Comment body is required")
     if len(body) > MAX_COMMENT_LENGTH:
-        raise ValueError(f"Comment must be {MAX_COMMENT_LENGTH} characters or fewer")
+        raise InvalidInputError("invalid_request", f"Comment must be {MAX_COMMENT_LENGTH} characters or fewer")
 
     comment = collaborators.repository.create_comment(inspiration_id, user_id, body)
 
@@ -37,7 +38,7 @@ def add_comment(collaborators: InspirationCollaborators, inspiration_id: str, us
 def delete_comment(collaborators: InspirationCollaborators, comment_id: str, user_id: str, is_admin: bool = False) -> None:
     comment = collaborators.repository.get_comment(comment_id)
     if not comment:
-        raise ValueError("Comment not found")
+        raise NotFoundError("not_found", "Comment not found")
     if comment.user_id != user_id and not is_admin:
-        raise ValueError("Comment not found")
+        raise NotFoundError("not_found", "Comment not found")
     collaborators.repository.delete_comment(comment_id)

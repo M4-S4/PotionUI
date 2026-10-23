@@ -91,14 +91,6 @@ class GenerationStatus(BaseModel):
     completed_at: Optional[str] = None
 
 
-class GenerationResult(BaseModel):
-    id: str
-    status: str
-    images: List[str] = []
-    metadata: Dict[str, Any] = {}
-    error: Optional[str] = None
-
-
 class UpdateTagsRequest(BaseModel):
     """Request to update tags on a generation."""
     tag_ids: List[str]
@@ -120,11 +112,6 @@ class BulkDeleteByCriteriaRequest(BaseModel):
     without_media: bool = False
     statuses: Optional[List[str]] = None
     keep_favorites: bool = True
-
-
-class UploadGenerationRequest(BaseModel):
-    """Request to upload generations with optional tags."""
-    tag_ids: Optional[List[str]] = []
 
 
 class RatingRequest(BaseModel):

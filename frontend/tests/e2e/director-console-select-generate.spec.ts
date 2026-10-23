@@ -1,5 +1,6 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { selectPresetInPicker } from './presetPreamble';
 
 // W3 per-shot generation (PLAN.md §C W3's E2E line): checks two rows in a
 // chain-style (Wan) film, drives the PAGE's own Generate control (the
@@ -36,46 +37,9 @@ interface DiscoveredPreset {
 	name: string;
 }
 
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 async function ensureAssigned(page: Page, token: string, userId: string, preset: { id: string; installed?: boolean }) {
 	if (!preset.installed) await apiPost(page, `/api/presets/${preset.id}/install`, token);
 	await apiPost(page, `/api/presets/${preset.id}/assign`, token, { user_ids: [userId] });
-}
-
-/** Mirrors director-console-render.spec.ts's own copy of the preset-picker
- * selection half (see that file's doc comment for why this isn't shared with
- * presetPreamble.ts). */
-async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promise<boolean> {
-	const pickerTrigger = page.locator('button[aria-haspopup="dialog"]').first();
-	await pickerTrigger.click();
-	const presetList = page.getByRole('listbox', { name: 'Presets' });
-	const opened = await presetList.isVisible({ timeout: 15000 }).catch(() => false);
-	if (!opened) return false;
-	const entry = presetList.getByText(preset.name, { exact: true });
-	if ((await entry.count()) === 0) return false;
-	await entry.click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1500);
-	const videoModeBtn = page.locator('button[title="Video"]');
-	if ((await videoModeBtn.count()) > 0) {
-		await videoModeBtn.click();
-		await page.waitForTimeout(500);
-	}
-	return true;
 }
 
 /** Types `text` into the currently-expanded chain shot's prompt editor — a
@@ -89,7 +53,6 @@ async function typeChainShotPrompt(director: ReturnType<Page['locator']>, page: 
 	await expect(editor).toBeVisible({ timeout: 5000 });
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(300);
 }
 
 test.describe('Video Director shot console: per-shot generation', () => {
@@ -149,23 +112,19 @@ test.describe('Video Director shot console: per-shot generation', () => {
 			return;
 		}
 		await addShotBtn.click();
-		await page.waitForTimeout(300);
 		await expect(director.getByText(/2 shots? · [\d.]+ s/)).toBeVisible({ timeout: 10000 });
 
 		// Every segment needs a prompt before the page's Generate control
 		// enables (validateDirector's chain branch) — shot 1 starts expanded.
 		await typeChainShotPrompt(director, page, 'First shot, lanterns in the rain');
 		await director.getByRole('button', { name: /^Expand / }).first().click();
-		await page.waitForTimeout(300);
 		await typeChainShotPrompt(director, page, 'Second shot, steam fills the frame');
 
 		// Every row carries its checkbox in stack order (01 then 02), whether
 		// collapsed or expanded: check shot 2 then shot 1.
 		const checkboxes = director.getByRole('button', { name: 'Select for generation' });
 		await checkboxes.nth(1).click();
-		await page.waitForTimeout(150);
 		await checkboxes.nth(0).click();
-		await page.waitForTimeout(150);
 
 		await expect(director.getByText('2 selected')).toBeVisible({ timeout: 5000 });
 

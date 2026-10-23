@@ -3,7 +3,10 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { automationEditor, canUndo, canRedo } from '$lib/stores/automationEditor';
 	import { toasts } from '$lib/stores/toast';
+	import { primaryModifier } from '$lib/utils/platform';
 	import { nodeDetail, toggleNodeDetail } from '$lib/automations/nodeDetail';
+
+	const modifier = primaryModifier();
 
 	let validating = $derived($automationEditor.validating);
 	let undoable = $derived($canUndo);
@@ -39,10 +42,10 @@
 
 <div class="h-10 flex items-center justify-between gap-2 px-3 border-b border-line bg-surface-1 flex-shrink-0">
 	<div class="flex items-center gap-1">
-		<Tooltip text="Undo (Ctrl+Z)">
+		<Tooltip text="Undo ({modifier}+Z)">
 			<IconButton icon="undo" label="Undo" disabled={!undoable} onclick={handleUndo} />
 		</Tooltip>
-		<Tooltip text="Redo (Ctrl+Shift+Z)">
+		<Tooltip text="Redo ({modifier}+Shift+Z)">
 			<IconButton
 				icon="undo"
 				label="Redo"

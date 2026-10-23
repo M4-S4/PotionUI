@@ -1,6 +1,7 @@
 import { test, expect, type WebSocketRoute } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
+import { makeModelFieldsOptional, generationStatusMessage } from './generationMocks';
 
 const JOURNEY = 'live-generation-progress';
 const GENERATION_ID = '01LIVEGENPROGRESS00000001';
@@ -10,20 +11,8 @@ const SEED = 74213;
 const PREVIEW_IMAGE =
 	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
-function statusMsg(pipeId: number, pipeName: string, currentStep: string, progress: number, stepNum?: number) {
-	return {
-		type: 'generation_status',
-		generation_id: GENERATION_ID,
-		pipe_id: pipeId,
-		pipe_name: pipeName,
-		output_type: 'progress',
-		status: 'running',
-		current_step: currentStep,
-		message: `<<PIPE:${pipeName}>>`,
-		progress,
-		...(stepNum !== undefined ? { current_step_num: stepNum, total_steps: TOTAL_STEPS } : {})
-	};
-}
+const statusMsg = (pipeId: number, pipeName: string, currentStep: string, progress: number, stepNum?: number) =>
+	generationStatusMessage({ generationId: GENERATION_ID, pipeId, pipeName, currentStep, progress, stepNum, totalSteps: TOTAL_STEPS });
 
 function workbenchMsg(stepNum: number) {
 	return {
@@ -75,6 +64,8 @@ test('live generation progress — bar advances, preview refines, gallery strip 
 			}
 		});
 	});
+
+	await makeModelFieldsOptional(page);
 
 	await loginAsOwner(page);
 	const preset = await installAndSelectImagePreset(page);

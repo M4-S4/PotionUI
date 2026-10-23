@@ -11,10 +11,14 @@ from collections import Counter
 import torch
 
 from src.platform.runtime.model_headers.signatures import detect_prefix, strip_prefix
+from vendor.gpl.comfyui.ops import _parse_comfy_quant
+
+from .safetensors_loader import CONVROT_W4A4
 
 __all__ = [
     "count_blocks",
     "detect_prefix",
+    "is_int4_packed",
     "is_nvfp4_packed",
     "key_shapes",
     "linear_in_features",
@@ -58,6 +62,26 @@ def is_nvfp4_packed(sd: dict[str, torch.Tensor], weight_key: str) -> bool:
     return weight_key[: -len(".weight")] + ".weight_scale_2" in sd
 
 
+def is_int4_packed(sd: dict[str, torch.Tensor], weight_key: str) -> bool:
+    if not weight_key.endswith(".weight"):
+        return False
+    base = weight_key[: -len(".weight")]
+    blob = sd.get(base + ".comfy_quant")
+    if blob is not None and blob.device.type != "meta":
+        conf = _parse_comfy_quant(blob)
+        if conf is not None:
+            return conf.get("format") == CONVROT_W4A4
+    weight = sd[weight_key]
+    scale = sd.get(base + ".weight_scale")
+    return (
+        weight.dtype == torch.int8
+        and scale is not None
+        and scale.dim() == 1
+        and weight.dim() == 2
+        and scale.shape[0] == weight.shape[0]
+    )
+
+
 def linear_in_features(sd: dict[str, torch.Tensor], weight_key: str) -> int:
     """True in-features of a ``[out, in]`` Linear weight, undoing nvfp4 packing
     when ``weight_key`` is packed (see :func:`is_nvfp4_packed`).
@@ -72,7 +96,7 @@ def linear_in_features(sd: dict[str, torch.Tensor], weight_key: str) -> int:
     needs no such guard.
     """
     width = int(sd[weight_key].shape[1])
-    return width * 2 if is_nvfp4_packed(sd, weight_key) else width
+    return width * 2 if is_nvfp4_packed(sd, weight_key) or is_int4_packed(sd, weight_key) else width
 
 
 def weight_dtype(sd: dict[str, torch.Tensor]) -> torch.dtype | None:

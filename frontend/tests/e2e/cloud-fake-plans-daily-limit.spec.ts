@@ -1,11 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'cloud-fake-plans-daily-limit';
 const BACKEND_NAME = 'E2E Fake Cloud';
 const PRESET_NAME = 'Fake Studio';
 const PLAN_NAME = 'E2E daily limit 1';
-const BEAT = 400;
 
 const field = (page: Page, name: string) => page.locator(`[data-field-name="${name}"]`);
 
@@ -42,8 +42,8 @@ async function openFakeStudio(page: Page) {
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(PRESET_NAME, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, PRESET_NAME).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
 }
@@ -53,14 +53,12 @@ async function pickModel(page: Page, label: string) {
 	if (await swap.isVisible().catch(() => false)) await swap.click();
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
-	await page.waitForTimeout(BEAT);
 }
 
 async function typePrompt(page: Page, text: string) {
 	const editor = page.locator('[contenteditable="true"]').first();
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(BEAT);
 }
 
 test.describe.configure({ mode: 'serial' });

@@ -4,6 +4,7 @@
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { Switch } from '$lib/components/ui';
 	import { tabsStore } from '$lib/stores/tabs';
+	import { playfulStatusLines } from '$lib/stores/playfulStatusLines';
 	import {
 		getApplySoundToAllTabs,
 		setApplySoundToAllTabs,
@@ -65,6 +66,20 @@
 		<h3 class="label">Auto-collections</h3>
 		<p class="text-xs text-fg-subtle mb-2">Add every generation from this tab to these collections.</p>
 		<AutoCollectionSelector bind:selectedCollectionIds={autoCollectionIds} />
+	</section>
+
+	<section>
+		<h3 class="label">Status</h3>
+		<p class="text-sm text-fg-subtle mb-2">Shown in the generation panel while a run is in progress.</p>
+		<div class="flex items-center justify-between gap-3 py-1.5">
+			<span class="text-sm text-fg">Playful status lines</span>
+			<Switch
+				checked={$playfulStatusLines}
+				onchange={(value) => playfulStatusLines.set(value)}
+				label="Playful status lines while generating"
+				size="sm"
+			/>
+		</div>
 	</section>
 
 	<section>

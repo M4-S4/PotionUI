@@ -6,7 +6,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
 	import PromptCard from './PromptCard.svelte';
-	import { promptFilterActiveCount, clearAllPromptFilters, type PromptFilters } from '$lib/prompts/promptFilters';
+	import { type PromptFilters, promptFilters } from '$lib/prompts/promptFilters';
 
 	let {
 		prompts,
@@ -64,11 +64,11 @@
 
 	let gridEl: HTMLDivElement | undefined = $state();
 
-	const activeFilterCount = $derived(promptFilterActiveCount(filters));
+	const activeFilterCount = $derived(promptFilters.activeCount(filters));
 	const filtered = $derived(activeFilterCount > 0 || !!filters.q);
 
 	function clearAll() {
-		onFiltersChange(clearAllPromptFilters(filters));
+		onFiltersChange(promptFilters.clearAll(filters));
 	}
 
 	function handleWindowKeydown(event: KeyboardEvent) {

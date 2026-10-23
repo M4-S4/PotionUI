@@ -1,8 +1,10 @@
 <script lang="ts">
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { downloadStore, remoteBackends, type QueueModelDownloadOptions } from '$lib/stores/downloads';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import {
 		AUTO_PROVIDER,
 		NO_PROVIDER,
@@ -11,9 +13,7 @@
 		selectedProviderValue
 	} from '$lib/utils/downloadUrlDetect';
 	import { buildSubdirNodes } from '$lib/utils/subdirTree';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Spinner, Alert, Badge, SegmentedControl } from '$lib/components/ui';
@@ -55,7 +55,6 @@
 	let submitting = false;
 	let errorMessage = '';
 	let advancedOpen = false;
-	const settlementGate = createConfirmSettlementGate();
 
 	// Loaded data
 	let modelTypes: { type: string; directory: string | null; count: number; subdirectories: string[] }[] = [];
@@ -106,7 +105,7 @@
 			const [typesRes, providersRes, tagsRes] = await Promise.all([
 				api.getModelTypes({ include_empty: true }),
 				api.getProviders(),
-				api.getTags('MODEL')
+				tagCatalog.get<ApiTagItem>('MODEL', { fresh: true })
 			]);
 
 			if (typesRes.success && typesRes.data?.types) {
@@ -130,12 +129,7 @@
 				}));
 			}
 
-			if (tagsRes.success && tagsRes.data?.tags) {
-				availableTags = (tagsRes.data.tags as ApiTagItem[]).map((t) => ({
-					id: t.id,
-					name: t.name
-				}));
-			}
+			availableTags = tagsRes.map((t) => ({ id: t.id, name: t.name }));
 		} catch (err) {
 			logger.error('Failed to load initial data:', err);
 		} finally {
@@ -246,11 +240,11 @@
 	async function handleSubmit() {
 		if (!url.trim()) {
 			errorMessage = 'URL is required';
-			return;
+			return false;
 		}
 		if (noWritableFolder) {
 			errorMessage = 'This model type has no writable folder';
-			return;
+			return false;
 		}
 
 		submitting = true;
@@ -278,11 +272,13 @@
 
 			if (result) {
 				dispatch('close');
-			} else {
-				errorMessage = 'Failed to queue download';
+				return true;
 			}
+			errorMessage = 'Failed to queue download';
+			return false;
 		} catch (err: unknown) {
 			errorMessage = getErrorMessage(err, 'Failed to queue download');
+			return false;
 		} finally {
 			submitting = false;
 		}
@@ -292,35 +288,25 @@
 		dispatch('close');
 	}
 
-	function handleCancel() {
-		settlementGate.settle(close);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !loadingData && !submitting && !!url.trim() && !noWritableFolder, handleSubmit);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
-
-	function handleClickOutsideTagDropdown(e: MouseEvent) {
-		const target = e.target as HTMLElement;
-		if (!target.closest('.tag-search-container')) {
-			showTagDropdown = false;
-		}
+	function handleTagDropdownDismiss(reason: DismissReason, event: Event) {
+		if (reason === 'outside' && event.target instanceof Element && event.target.closest('.tag-search-container')) return;
+		showTagDropdown = false;
 	}
 </script>
 
-<svelte:window onclick={handleClickOutsideTagDropdown} on:keydown|capture={handleKeydown} />
-
-<BaseModal isOpen={true} title="Add download" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
-	<svelte:fragment slot="headerIcon">
+<ConfirmDialog
+	isOpen={true}
+	title="Add download"
+	sizeClass="md:max-w-lg md:w-full"
+	busy={submitting}
+	confirmLabel={submitting ? 'Queueing…' : 'Queue download'}
+	confirmDisabled={loadingData || !url.trim() || noWritableFolder}
+	onConfirm={handleSubmit}
+	onCancel={close}
+>
+	{#snippet headerIconContent()}
 		<Icon name="download" className="h-4 w-4 flex-shrink-0 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	{#if loadingData}
 		<div class="px-6 py-12 flex flex-col items-center justify-center">
@@ -615,7 +601,7 @@
 								/>
 
 								{#if showTagDropdown && (tagSearchResults.length > 0 || searchingTags)}
-									<div class="absolute z-10 w-full mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-y-auto">
+									<div use:dismiss={{ onDismiss: handleTagDropdownDismiss }} class="absolute z-10 w-full mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-y-auto">
 										{#if searchingTags}
 											<div class="px-3 py-2 text-sm text-fg-subtle">Searching...</div>
 										{:else}
@@ -666,14 +652,4 @@
 			</div>
 		</form>
 	{/if}
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel={submitting ? 'Queueing…' : 'Queue download'}
-			busy={submitting}
-			confirmDisabled={loadingData || !url.trim() || noWritableFolder}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

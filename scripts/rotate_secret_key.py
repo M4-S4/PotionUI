@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.features.backends.repository import BackendRepository  # noqa: E402
 from src.features.llm.repository import LLMConfigurationRepository  # noqa: E402
 from src.features.plugins.repository import PluginRepository  # noqa: E402
+from src.platform.settings.records import ENCRYPTED_SETTING_KEYS
+from src.platform.settings.repository import SettingRepository
 from src.platform.security.secrets import (  # noqa: E402
     SecretCipher,
     SecretDecryptionError,
@@ -35,7 +37,7 @@ from src.platform.security.secrets import (  # noqa: E402
 )
 
 
-def _collect(plugin_repo, backend_repo, llm_repo):
+def _collect(plugin_repo, backend_repo, llm_repo, setting_repo):
     """Every stored envelope, as (kind, addressing info, context, ciphertext)."""
     items = []
     for row in plugin_repo.iter_encrypted_settings():
@@ -53,6 +55,10 @@ def _collect(plugin_repo, backend_repo, llm_repo):
         for key, value in config.items():
             if SecretCipher.is_encrypted(value):
                 items.append(('backend', (row['id'], key), f"backends:{row['id']}/{key}", value))
+    for key in sorted(ENCRYPTED_SETTING_KEYS):
+        setting = setting_repo.get_setting_by_key(key)
+        if setting is not None and SecretCipher.is_encrypted(setting.value):
+            items.append(('core_setting', key, f"settings:{key}", setting.value))
     for row in llm_repo.iter_encrypted_api_keys():
         items.append((
             'llm', row['id'], f"llm_configurations:{row['id']}/api_key", row['api_key'],
@@ -60,10 +66,10 @@ def _collect(plugin_repo, backend_repo, llm_repo):
     return items
 
 
-def cmd_status(plugin_repo, backend_repo, llm_repo) -> int:
+def cmd_status(plugin_repo, backend_repo, llm_repo, setting_repo) -> int:
     keys = resolve_secret_keys(allow_generate=False)
     cipher = SecretCipher(keys)
-    items = _collect(plugin_repo, backend_repo, llm_repo)
+    items = _collect(plugin_repo, backend_repo, llm_repo, setting_repo)
     bad = [context for _, _, context, value in items if not cipher.can_decrypt(value)]
     print(f"Keyring: {len(keys)} key(s); key file: {default_key_path()}")
     print(f"Encrypted values: {len(items)}")
@@ -76,13 +82,13 @@ def cmd_status(plugin_repo, backend_repo, llm_repo) -> int:
     return 0
 
 
-def cmd_rotate(plugin_repo, backend_repo, llm_repo, key_file: Path, dry_run: bool) -> int:
+def cmd_rotate(plugin_repo, backend_repo, llm_repo, setting_repo, key_file: Path, dry_run: bool) -> int:
     old_keys = resolve_secret_keys(allow_generate=False)
     new_key = generate_key()
     reader = SecretCipher(old_keys)
     writer = SecretCipher([new_key])
 
-    items = _collect(plugin_repo, backend_repo, llm_repo)
+    items = _collect(plugin_repo, backend_repo, llm_repo, setting_repo)
 
     # Decrypt everything first. A single failure aborts before any write, so a
     # partially-readable store is never turned into a partially-rewritten one.
@@ -114,6 +120,8 @@ def cmd_rotate(plugin_repo, backend_repo, llm_repo, key_file: Path, dry_run: boo
             plugin_repo.replace_encrypted_value(address, reencrypted)
         elif kind == 'llm':
             llm_repo.replace_api_key(address, reencrypted)
+        elif kind == 'core_setting':
+            setting_repo.update_setting_value_by_key(address, reencrypted)
         else:
             backend_id, field = address
             backend_configs.setdefault(backend_id, {})[field] = reencrypted
@@ -152,13 +160,14 @@ def main() -> int:
     plugin_repo = PluginRepository()
     backend_repo = BackendRepository()
     llm_repo = LLMConfigurationRepository()
+    setting_repo = SettingRepository()
 
     try:
         if args.status:
-            return cmd_status(plugin_repo, backend_repo, llm_repo)
+            return cmd_status(plugin_repo, backend_repo, llm_repo, setting_repo)
 
         return cmd_rotate(
-            plugin_repo, backend_repo, llm_repo,
+            plugin_repo, backend_repo, llm_repo, setting_repo,
             args.key_file or default_key_path(), args.dry_run,
         )
     except SecretKeyError as exc:

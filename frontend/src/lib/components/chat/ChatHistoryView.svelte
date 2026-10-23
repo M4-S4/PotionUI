@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	// The rail: brand + search toggle, new-conversation button, mode filter
 	// chips (real functionality; the prototype's single-mode history never
 	// needs them), and the grouped session list. Markup ported verbatim from
@@ -6,6 +7,7 @@
 	// component IS that aside; UnifiedAIChat renders it as a direct child of
 	// .chat-shell so its own `&.rail-collapsed .history-rail` CSS rule applies.
 	import { onMount, tick } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { api } from '$lib/services/api';
 	import { chatModes, resolveModeName } from '$lib/stores/chatModes';
 	import { chatSession } from '$lib/stores/chatSession';
@@ -16,6 +18,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { logger } from '$lib/utils/logger';
 	import type { ChatSessionResponse } from '$lib/types/api';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let onOpenSession: (id: string) => void | Promise<void>;
 	export let onNewChat: () => void;
@@ -31,7 +34,7 @@
 	let searchOpen = false;
 	let searchInputEl: HTMLInputElement | undefined;
 	let modeFilter: string | null = null;
-	let searchTimer: ReturnType<typeof setTimeout> | null = null;
+	const scheduleSearch = debounce(() => fetchSessions(), 250);
 	let requestSeq = 0;
 
 	$: activeSessionId = $chatSession.sessionId;
@@ -68,8 +71,7 @@
 	}
 
 	function handleSearchInput() {
-		if (searchTimer) clearTimeout(searchTimer);
-		searchTimer = setTimeout(fetchSessions, 250);
+		scheduleSearch();
 	}
 
 	async function toggleSearch() {
@@ -105,7 +107,7 @@
 	onMount(() => {
 		fetchSessions();
 		return () => {
-			if (searchTimer) clearTimeout(searchTimer);
+			scheduleSearch.cancel();
 		};
 	});
 </script>
@@ -115,14 +117,7 @@
 		<div class="brand-orb"><Logo size={20} /></div>
 		<div class="brand-name">PotionAI</div>
 		<Tooltip text="Search conversations" position="bottom">
-			<button
-				class="tiny-button"
-				class:active={searchOpen}
-				aria-label="Search conversations"
-				on:click={toggleSearch}
-			>
-				<svg class="icon"><use href="#i-search" /></svg>
-			</button>
+			<IconButton icon="chat-search" label="Search conversations" size="sm" active={searchOpen} onclick={toggleSearch} />
 		</Tooltip>
 	</div>
 
@@ -146,7 +141,7 @@
 						<option value={mode.id}>{mode.name}</option>
 					{/each}
 				</select>
-				<svg class="icon chevron"><use href="#i-chevron" /></svg>
+				<Icon name="chat-chevron" className="icon chevron" strokeWidth={1.8} />
 			</span>
 		</div>
 	{/if}
@@ -154,7 +149,7 @@
 	<Tooltip text="New chat" position="bottom" wrapperClass="block w-full">
 		<button class="new-chat-button" on:click={onNewChat}>
 			<span style="display:flex;align-items:center;gap:8px"
-				><svg class="icon"><use href="#i-plus" /></svg>New conversation</span
+				><Icon name="chat-plus" className="icon" strokeWidth={1.8} />New conversation</span
 			>
 		</button>
 	</Tooltip>
@@ -200,7 +195,7 @@
 								aria-label="Delete conversation"
 								on:click={(e) => handleDelete(session.id, e)}
 							>
-								<svg class="icon"><use href="#i-trash" /></svg>
+								<Icon name="chat-trash" className="icon" strokeWidth={1.8} />
 							</button>
 						</Tooltip>
 					</div>

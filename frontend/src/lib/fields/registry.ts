@@ -55,10 +55,6 @@ export function hasFieldComponent(type: string): boolean {
 	return registry.has(type);
 }
 
-export function listFieldTypes(): string[] {
-	return registry.keys();
-}
-
 const axisEditorRegistry = createRegistry<FieldComponentEntry>('field-axis-editor');
 const axisEditorCache = new Map<string, any | null>();
 

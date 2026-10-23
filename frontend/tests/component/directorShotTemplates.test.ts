@@ -18,7 +18,7 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { mount, unmount, flushSync } = await import('svelte');
+const { mount, unmount } = await import('svelte');
 const { readable } = await import('svelte/store');
 const { default: StageBeat } = await import('$lib/components/video-director/console/StageBeat.svelte');
 const { deriveStageModel } = await import('$lib/components/video-director/stage-rail/stageModel');
@@ -26,6 +26,7 @@ const { deriveStageModel } = await import('$lib/components/video-director/stage-
 import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
 import type { StageShotModel } from '$lib/components/video-director/stage-rail/stageModel';
 import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
+import { settleFlush } from './helpers/settle';
 
 function baseDoc(): VideoDirectorValue {
 	return {
@@ -124,11 +125,6 @@ const presetTemplate: PresetSegmentTemplate = {
 	origin: 'preset'
 };
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
@@ -161,13 +157,13 @@ function mountStageBeat(context?: Map<string, unknown>) {
 }
 
 async function openTemplateModal(target: HTMLElement) {
-	await settle();
+	await settleFlush();
 	const templateButton = Array.from(target.querySelectorAll('button')).find(
 		(button) => button.textContent?.trim() === 'Templates'
 	) as HTMLButtonElement | undefined;
 	if (!templateButton) throw new Error('no Apply a Segment Template button found in StageBeat render');
 	templateButton.click();
-	await settle();
+	await settleFlush();
 }
 
 describe('StageBeat -- preset Segment Templates reach the shot picker', () => {

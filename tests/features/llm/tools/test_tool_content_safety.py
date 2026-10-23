@@ -18,6 +18,7 @@ from src.features.segments.dto import RichSegment
 from src.features.tags.repository import TagRepository
 from tests.conftest import TestDatabase
 from tests.features.generation.test_history_query_content_safety import ContentHistoryBase
+from tests.fixtures.seed import seed_user
 
 
 class _Safety:
@@ -43,10 +44,7 @@ def prompts():
     test_database = TestDatabase.from_template()
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.database.migration_runner.db", test_database):
-        with test_database.get_cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash) VALUES ('user-1', 'u1', 'u1@x.com', 'x')"
-            )
+        seed_user(test_database, "user-1")
         repository = PromptRepository()
         safe = repository.create(Prompt(user_id="user-1", name="Safe fox", segments=[RichSegment(content="a fox in snow")]))
         spicy = repository.create(Prompt(

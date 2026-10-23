@@ -19,6 +19,7 @@
 	 * itself instead of going through model-viewer's public API.
 	 */
 	import { onMount, onDestroy } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { browser } from '$app/environment';
 	import { Alert, Spinner, EmptyState, IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -111,42 +112,12 @@
 	type OpenPopover = 'camera' | 'exposure' | 'animation' | null;
 	let openPopover: OpenPopover = null;
 	let cameraTriggerEl: HTMLElement | null = null;
-	let cameraMenuEl: HTMLElement | null = null;
 	let exposureTriggerEl: HTMLElement | null = null;
-	let exposureMenuEl: HTMLElement | null = null;
 	let animationTriggerEl: HTMLElement | null = null;
-	let animationMenuEl: HTMLElement | null = null;
 
 	function togglePopover(which: Exclude<OpenPopover, null>) {
 		openPopover = openPopover === which ? null : which;
 	}
-
-	// Registered once (not tied to a popover's open state) so a stale
-	// listener never survives a popover that closed some other way - the
-	// same idiom ChatInput.svelte uses for its portaled Tools menu.
-	function handleOutsidePointerDown(e: PointerEvent) {
-		if (!openPopover) return;
-		const target = e.target as Node;
-		const trigger =
-			openPopover === 'camera' ? cameraTriggerEl : openPopover === 'exposure' ? exposureTriggerEl : animationTriggerEl;
-		const menu = openPopover === 'camera' ? cameraMenuEl : openPopover === 'exposure' ? exposureMenuEl : animationMenuEl;
-		if (!menu?.contains(target) && !trigger?.contains(target)) {
-			openPopover = null;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && openPopover) openPopover = null;
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 
 	// Re-enter "loading" whenever there's a new URL - including switching
 	// between generations/gallery items while this renderer stays mounted.
@@ -379,7 +350,7 @@
 						</Tooltip>
 						{#if openPopover === 'camera'}
 							<div
-								bind:this={cameraMenuEl}
+								use:dismiss={{ onDismiss: () => (openPopover = null), ignore: [cameraTriggerEl] }}
 								class="absolute bottom-full right-0 mb-2 w-36 bg-surface-1 border border-line rounded-lg shadow-floating py-1 z-30"
 							>
 								{#each CAMERA_PRESETS as preset (preset.label)}
@@ -412,7 +383,7 @@
 						</Tooltip>
 						{#if openPopover === 'exposure'}
 							<div
-								bind:this={exposureMenuEl}
+								use:dismiss={{ onDismiss: () => (openPopover = null), ignore: [exposureTriggerEl] }}
 								class="absolute bottom-full right-0 mb-2 w-44 bg-surface-1 border border-line rounded-lg shadow-floating p-3 z-30"
 							>
 								<div class="flex items-center justify-between mb-1.5">
@@ -456,7 +427,7 @@
 								</Tooltip>
 								{#if openPopover === 'animation'}
 									<div
-										bind:this={animationMenuEl}
+										use:dismiss={{ onDismiss: () => (openPopover = null), ignore: [animationTriggerEl] }}
 										class="absolute bottom-full right-0 mb-2 w-48 max-h-52 overflow-y-auto bg-surface-1 border border-line rounded-lg shadow-floating py-1 z-30"
 									>
 										{#each availableAnimations as name (name)}

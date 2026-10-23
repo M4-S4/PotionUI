@@ -182,6 +182,53 @@ class TestModelRequirementChecker:
         assert result.status == "missing"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("pending", "wording"), [(1, "1 model file is still"), (7, "7 model files are still")])
+    async def test_a_hash_nobody_has_is_unknown_while_files_are_still_being_verified(self, pending, wording):
+        models = SimpleNamespace(
+            model_repo=MagicMock(get_by_sha256=MagicMock(return_value=None)),
+            digests=MagicMock(pending_count=MagicMock(return_value=pending)),
+        )
+        checker = ModelRequirementChecker()
+
+        result = await checker.check({"type": "model", "hash": "abc123"}, _ctx(models=models))
+
+        assert result.status == "unknown"
+        assert wording in result.detail
+
+    @pytest.mark.asyncio
+    async def test_a_hash_nobody_has_is_missing_once_every_file_is_verified(self):
+        models = SimpleNamespace(
+            model_repo=MagicMock(get_by_sha256=MagicMock(return_value=None)),
+            digests=MagicMock(pending_count=MagicMock(return_value=0)),
+        )
+
+        result = await ModelRequirementChecker().check({"type": "model", "hash": "abc123"}, _ctx(models=models))
+
+        assert result.status == "missing"
+
+    @pytest.mark.asyncio
+    async def test_a_known_but_unavailable_model_is_missing_even_while_files_are_being_verified(self):
+        model = SimpleNamespace(filename="checkpoint.safetensors", is_available=False)
+        digests = MagicMock(pending_count=MagicMock(return_value=3))
+        models = SimpleNamespace(model_repo=MagicMock(get_by_sha256=MagicMock(return_value=model)), digests=digests)
+
+        result = await ModelRequirementChecker().check({"type": "model", "hash": "abc123"}, _ctx(models=models))
+
+        assert result.status == "missing"
+        digests.pending_count.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_hash_that_is_present_needs_no_count_of_pending_files(self):
+        model = SimpleNamespace(filename="checkpoint.safetensors", is_available=True)
+        digests = MagicMock(pending_count=MagicMock(return_value=3))
+        models = SimpleNamespace(model_repo=MagicMock(get_by_sha256=MagicMock(return_value=model)), digests=digests)
+
+        result = await ModelRequirementChecker().check({"type": "model", "hash": "abc123"}, _ctx(models=models))
+
+        assert result.status == "ok"
+        digests.pending_count.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_tag_not_found(self):
         models = SimpleNamespace(tag_repo=MagicMock(get_tag_by_name=MagicMock(return_value=None)))
         checker = ModelRequirementChecker()

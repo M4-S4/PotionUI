@@ -16,6 +16,7 @@ scanning, independent of whether a `models` row exists yet for that path. See mi
 
 from dataclasses import dataclass
 from typing import Optional
+from src.platform.database import get_cursor
 
 
 @dataclass
@@ -28,8 +29,7 @@ class CachedHash:
 
 class ModelHashCacheRepository:
     def get(self, path: str) -> Optional[CachedHash]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT path, size, mtime_ns, sha256 FROM model_hash_cache WHERE path = ?",
                 (path,),
@@ -42,8 +42,7 @@ class ModelHashCacheRepository:
             )
 
     def put(self, path: str, size: int, mtime_ns: int, sha256: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO model_hash_cache (path, size, mtime_ns, sha256, hashed_at)

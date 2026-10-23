@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from src.features.library import operations as library_operations
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
-from src.features.llm.tools.builtin.utils import viewer_is_restricted
-from src.features.llm.tools.errors import unexpected
+from src.features.llm.tools.builtin.utils import parse_page, viewer_is_restricted
 
 logger = logging.getLogger(__name__)
 
@@ -32,25 +31,11 @@ def _content_states(context: ToolContext, paths: List[str]) -> Optional[Dict[str
 class ListLibraryItemsTool(BaseTool):
     modes = ["generation", "history"]
     icon = "folder-open"
+    context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "list_library_items"
-
-    @property
-    def group(self) -> str:
-        return "Generation"
-
-    @property
-    def user_description(self) -> str:
-        return "Lists the files in your library, such as uploads."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Use to find library item ids (uploads) before manage_collections with scope "
-            "'library', or when the user asks about files they uploaded."
-        )
+    name = "list_library_items"
+    group = "Generation"
+    user_description = "Lists the files in your library, such as uploads."
 
     @property
     def description(self) -> str:
@@ -82,12 +67,9 @@ class ListLibraryItemsTool(BaseTool):
         if context.library_collaborators is None:
             return ToolResult(success=False, data="", error="The library is not available on this server.")
         try:
-            raw_limit = kwargs.get("limit")
-            limit = DEFAULT_LIBRARY_LIMIT if raw_limit in (None, "") else int(raw_limit)
-            offset = max(0, int(kwargs.get("offset") or 0))
-        except (TypeError, ValueError):
-            return ToolResult(success=False, data="", error="'limit' and 'offset' must be integers.")
-        limit = min(max(1, limit), MAX_LIBRARY_LIMIT)
+            offset, limit = parse_page(kwargs, DEFAULT_LIBRARY_LIMIT, MAX_LIBRARY_LIMIT)
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
         media_type = kwargs.get("media_type") or None
         if media_type and media_type not in LIBRARY_MEDIA_TYPES:
             return ToolResult(
@@ -106,9 +88,6 @@ class ListLibraryItemsTool(BaseTool):
             )
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error("list_library_items failed: %s", e)
-            return ToolResult(success=False, data="", error=unexpected("list_library_items", "list", e, context.is_admin))
 
         items = page.items
         collections = {}

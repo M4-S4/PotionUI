@@ -103,13 +103,6 @@ class ChatSession:
             result['messages'] = [msg.to_dict() for msg in self.messages]
         return result
 
-    def get_latest_suggestion(self) -> Optional[str]:
-        """Extract the latest AI suggestion from messages"""
-        for message in reversed(self.messages):
-            if message.role == 'assistant' and message.parsed_content:
-                return message.parsed_content.get('modifiedPrompt')
-        return None
-
     def get_conversation_history(self) -> List[Dict[str, str]]:
         """Get conversation history in format suitable for LLM API"""
         return [

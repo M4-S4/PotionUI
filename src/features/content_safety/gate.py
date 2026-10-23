@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence
 
+from src.platform.util.video_transcode import find_ffmpeg
 from src.features.content_safety.errors import ContentCheckUnavailable
 from src.features.content_safety.constants import (
     DEFAULT_VIDEO_FRAMES,
@@ -25,7 +26,7 @@ def frame_times(duration: float, count: int) -> List[float]:
 
 
 def build_frame_command(video_path: str, times: Sequence[float], out_dir: Path) -> List[str]:
-    command = ["ffmpeg", "-y", "-nostdin", "-v", "error"]
+    command = [find_ffmpeg() or "ffmpeg", "-y", "-nostdin", "-v", "error"]
     for moment in times:
         command += ["-ss", f"{moment:.3f}", "-i", video_path]
     for index in range(len(times)):

@@ -4,6 +4,7 @@
 	import type { DiscoveredLLMModel } from '$lib/types/llm';
 	import { IconButton, Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
@@ -181,13 +182,6 @@
 		}
 	}
 
-	function handleWindowPointerDown(event: PointerEvent) {
-		if (!open) return;
-		const target = event.target as Node | null;
-		if (target && (wrapper?.contains(target) || listbox?.contains(target))) return;
-		closeList();
-	}
-
 	function handleViewportChange() {
 		if (open) reposition();
 	}
@@ -198,7 +192,6 @@
 </script>
 
 <svelte:window
-	onpointerdown={handleWindowPointerDown}
 	onresize={handleViewportChange}
 	onscrollcapture={handleViewportChange}
 />
@@ -242,6 +235,7 @@
 {#if open && position}
 	<div
 		bind:this={listbox}
+		use:dismiss={{ onDismiss: closeList, ignore: [wrapper], escape: false }}
 		id={listboxId}
 		role="listbox"
 		aria-label="Available models"

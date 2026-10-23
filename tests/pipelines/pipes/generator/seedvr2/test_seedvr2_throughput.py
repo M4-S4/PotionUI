@@ -12,6 +12,7 @@ encoder are all stubbed, and CUDA is forced unavailable.
 from __future__ import annotations
 
 import glob
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -505,11 +506,11 @@ def _wire_real_audio_boundary(monkeypatch, *, ffprobe_present: bool, has_audio_s
     from src.pipelines.pipes.generator.seedvr2 import encode as enc
 
     monkeypatch.setattr(
-        enc.shutil, "which", lambda name: (f"/usr/bin/{name}" if name != "ffprobe" or ffprobe_present else None),
+        shutil, "which", lambda name: (f"/usr/bin/{name}" if name != "ffprobe" or ffprobe_present else None),
     )
 
     def _run(cmd, **kwargs):
-        if cmd[0] == "ffprobe":
+        if Path(cmd[0]).name == "ffprobe":
             streams = [{"codec_type": "audio"}] if has_audio_stream else []
             return SimpleNamespace(returncode=0, stdout=f'{{"streams": {streams!r}}}'.replace("'", '"'))
         return _fake_ffmpeg_mux(succeeds=mux_succeeds, writes_partial_on_failure=mux_writes_partial_on_failure)(cmd, **kwargs)

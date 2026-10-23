@@ -8,6 +8,7 @@
 	// DOM<->value sync) are kept from the original; the ChipData value-cycling
 	// machinery is dropped — a resource chip is just a label with a remove button.
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { createEventDispatcher, onMount, onDestroy, tick, mount, unmount } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import type { ResourceChipData } from '$lib/types/chat';
@@ -61,7 +62,7 @@
 	let autocompletePath = '';
 	let autocompleteTriggerNode: Text | null = null;
 	let autocompleteTriggerOffset = -1; // Position of @ in that text node
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	const scheduleSuggestions = debounce((path: string) => fetchResourceSuggestions(path), 200);
 	let autocompleteCache = new Map<string, any>();
 
 	// Track if we're programmatically updating
@@ -145,12 +146,12 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				autocompleteSelectedIndex = (autocompleteSelectedIndex + 1) % totalItems;
+				if (totalItems > 0) autocompleteSelectedIndex = (autocompleteSelectedIndex + 1) % totalItems;
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				autocompleteSelectedIndex =
-					autocompleteSelectedIndex === 0 ? totalItems - 1 : autocompleteSelectedIndex - 1;
+				if (totalItems > 0)
+					autocompleteSelectedIndex = autocompleteSelectedIndex === 0 ? totalItems - 1 : autocompleteSelectedIndex - 1;
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -297,11 +298,7 @@
 				isAutocompleteOpen = true;
 
 				// Debounce API call
-				if (debounceTimer) clearTimeout(debounceTimer);
-
-				debounceTimer = setTimeout(() => {
-					fetchResourceSuggestions(path);
-				}, 200);
+				scheduleSuggestions(path);
 				return;
 			}
 		}
@@ -327,10 +324,7 @@
 		// Navigated into @form.<...>: serve field completions from live form state.
 		if (path === 'form.' || path.startsWith('form.')) {
 			const partial = path.slice('form.'.length);
-			if (debounceTimer) {
-				clearTimeout(debounceTimer);
-				debounceTimer = null;
-			}
+			scheduleSuggestions.cancel();
 			applyLocalFormSuggestions(partial);
 			return;
 		}
@@ -384,8 +378,8 @@
 				handleSelectCategory(category);
 			}
 		} else {
-			const valueIndex = autocompleteSelectedIndex - totalCategories;
-			handleSelectValue(autocompleteSuggestions[valueIndex]);
+			const valueItem = autocompleteSuggestions[autocompleteSelectedIndex - totalCategories];
+			if (valueItem) handleSelectValue(valueItem);
 		}
 	}
 
@@ -663,10 +657,7 @@
 		autocompleteTriggerNode = null;
 		autocompleteTriggerOffset = -1;
 
-		if (debounceTimer) {
-			clearTimeout(debounceTimer);
-			debounceTimer = null;
-		}
+		scheduleSuggestions.cancel();
 	}
 
 	// Every DOM rebuild below (`editorRef.innerHTML = ''`) destroys chip host

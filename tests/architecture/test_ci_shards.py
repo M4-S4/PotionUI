@@ -55,6 +55,20 @@ def test_shard_roots_do_not_overlap(os_name):
             seen[token] = shard["name"]
 
 
+@pytest.mark.parametrize("os_name", sorted(WORKFLOWS))
+def test_serial_paths_are_ignored_by_every_parallel_run_that_would_collect_them(os_name):
+    shards = load_shards(WORKFLOWS[os_name])
+    for shard in shards:
+        for serial in tokens(shard, "serial_paths"):
+            owners = [s["name"] for s in shards if serial in tokens(s, "serial_paths")]
+            assert owners == [shard["name"]], f"{serial} is quarantined in {owners}"
+            for other in shards:
+                parts = [t for t in tokens(other, "paths") if not t.startswith("--ignore=")]
+                ignored = {t.removeprefix("--ignore=") for t in tokens(other, "paths") if t.startswith("--ignore=")}
+                collects = any(serial == p.rstrip("/") or serial.startswith(p.rstrip("/") + "/") for p in parts)
+                assert not collects or any(serial == i or serial.startswith(i.rstrip("/") + "/") for i in ignored), f"{other['name']} collects {serial} in parallel"
+
+
 def load_e2e_job(path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["e2e"]
 

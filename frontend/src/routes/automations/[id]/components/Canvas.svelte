@@ -53,6 +53,7 @@
 		type FlowNode
 	} from '$lib/stores/automationEditor';
 	import { automationNodeTypes } from '$lib/stores/automationNodeTypes';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import { setNodeCount } from '$lib/automations/nodeDetail';
 	import { PALETTE_DRAG_MIME } from './paletteDrag';
 
@@ -131,9 +132,7 @@
 	 *  Backspace/Delete handling. */
 	function handleKeydown(event: KeyboardEvent) {
 		if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-
-		const target = event.target as HTMLElement | null;
-		if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+		if (isTypingInField(event)) return;
 
 		const key = event.key.toLowerCase();
 		if (key === 'z') {

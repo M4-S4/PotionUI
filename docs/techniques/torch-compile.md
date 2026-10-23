@@ -11,7 +11,7 @@ knobs:
   - key: native_torch_compile
     surface: admin
     default: "off"
-    effect: "Compiles the repeated transformer block of a fully GPU-resident DiT for faster steps after warm-up"
+    effect: "Compiles the repeated transformer block of a GPU-resident or streamed DiT, fp8-scaled included, for faster steps after warm-up"
 related: [first-block-cache, fp8-matmul]
 ---
 
@@ -35,8 +35,8 @@ uncompiled version.
 
 Best for repeated generations against the same model where the compile warm-up cost on the first
 run is amortized over many subsequent steps or requests — long sessions on one preset/model rather
-than one-off generations or frequent model switching. It only ever engages when the model is fully
-GPU-resident; it has no effect during low-VRAM streamed (partial-residency) generation.
+than one-off generations or frequent model switching. It engages when the model is fully
+GPU-resident or streamed (partial residency) without stream prefetch; see the limits below.
 
 ## How to enable it
 
@@ -57,10 +57,24 @@ if it was set (`auto` is seeded as on); after that the variable is ignored.
 
 - First-generation cost: the initial forward through a newly compiled block pays the Inductor
   compile time before it becomes faster on subsequent calls.
-- Requires full GPU residency: skipped automatically (falls back to eager, no error) if the model is
-  running under partial/streamed residency, carries active runtime LoRA deltas (cast-mode), or uses
-  quantized (`Fp8ScaledLinear`/`Nvfp4Linear`) linears — none of those are compile-compatible in the
-  current implementation.
+- What compiles: fully resident DiTs (each block is wrapped), fp8-scaled and int8 tensorwise
+  (`Fp8ScaledLinear`, including ConvRot and AWQ pre-scale) DiTs, and streamed DiTs under partial
+  residency (each block's `forward` is compiled in place; the streamer's per-leaf cast stays inside
+  the graph, so hooks on the block itself keep firing eagerly). The fp8 and streamed block forwards
+  trace with zero graph breaks under `torch._dynamo.explain` on CPU.
+- Still skipped automatically (eager, no error), with the reason logged at debug level:
+  - `runtime-lora`: active cast-mode runtime LoRA deltas rebuild the weight per forward and would
+    recompile on every strength change.
+  - `nvfp4`: `Nvfp4Linear` layers dequantise through a uint8 lookup-table gather into a full
+    float32 weight; not validated under compile on a GPU.
+  - `fp8-scaled-mm`: the opt-in native fp8 GEMM (`native_fp8_matmul`, `torch._scaled_mm`) reads
+    scale values back to the host and logs per call, which graph-breaks around every linear.
+  - `streaming-hooks`: a streamed DiT with stream prefetch on installs forward hooks on every
+    streamed leaf that swap `weight.data` per call; a compiled graph cannot follow that.
+  - `no-triton`: Triton is not importable (typical on native Windows).
+  - `quantized`: any quantisation format other than fp8-scaled.
+- A DiT that flips from resident to streaming (co-tenant out-of-memory fallback) or leaves the GPU is
+  restored to plain modules first; a streamed DiT is compiled again after the flip.
 - Any compile failure at first-forward time degrades gracefully to eager execution (logged, not
   fatal) rather than aborting the generation.
 - Applies only to the `native` engine family DiTs; SDXL runs on a separate diffusers-based stack and
@@ -72,7 +86,8 @@ if it was set (`auto` is seeded as on); after that the variable is ignored.
   sampling loop and place the DiT through `place_dit_for_sequence` (`src/pipelines/pipes/_shared/
   generation/dit_placement.py`), which calls the same gate on every resident placement. Wan 2.1/2.2
   (`generator/txt2vid_wan22`, `generator/img2vid_wan22`, `generator/chain_video_wan22`) place their
-  high/low-noise experts through `_ExpertRouter._place_expert`, which offers each expert to the same
+  high/low-noise experts through `ExpertRouter._place_expert` (`src/pipelines/pipes/_shared/video/
+  wan_experts.py`), which offers each expert to the same
   gate independently the moment it lands fully resident. SeedVR2 (`generator/seedvr2`) subclasses
   `NativeGenerator` and calls the inherited `_maybe_compile()` right after its own `_move_dit_to_gpu`,
   same as the image path.

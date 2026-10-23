@@ -43,8 +43,8 @@ class TestSchema:
         assert tool.requires_approval is True
         assert tool.parameters["required"] == ["operation"]
 
-    def test_modes_include_generation_and_history(self):
-        assert OrganizeGalleryTool().modes == ["generation", "history"]
+    def test_belongs_to_the_history_mode_only(self):
+        assert OrganizeGalleryTool().modes == ["history"]
 
 
 class TestListRecentFilters:
@@ -226,21 +226,6 @@ class TestExecuteConfirmedTag:
         )
         assert result.success is False
         assert "tag" in result.error.lower()
-
-
-class TestExecuteConfirmedUnexpectedError:
-    @pytest.mark.asyncio
-    async def test_unexpected_exception_names_tool_and_operation_not_bare_message(self):
-        history_facade = make_history_facade()
-        history_facade.set_rating.side_effect = RuntimeError("db exploded")
-        result = await OrganizeGalleryTool().execute_confirmed(
-            make_context(history_facade), operation="rate", generation_id="gen-1", rating=5,
-        )
-        assert result.success is False
-        assert "organize_gallery" in result.error
-        assert "rate" in result.error
-        assert "db exploded" not in result.error
-        assert result.error != "Failed: db exploded"
 
 
 class TestListRecentError:

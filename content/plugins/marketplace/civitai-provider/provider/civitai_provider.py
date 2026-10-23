@@ -9,22 +9,19 @@ import re
 import asyncio
 import aiohttp
 import logging
-import time
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.plugin_api import (
-    MarketplaceProviderBase,
     ProviderCapability,
     ProviderMetadata,
     ProviderModelInfo,
     ProviderSearchResult,
     ProviderConnectionError,
-    ProviderRateLimitError,
     ProviderNotFoundError,
     RemoteDownloadRef,
 )
-from src.plugin_api.providers import aiohttp_connector
+from src.plugin_api.providers import HttpMarketplaceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +85,7 @@ def _parse_model_page_url(url: str) -> Optional[Tuple[str, Optional[str]]]:
     return match.group(1), (parse_qs(parsed.query).get('modelVersionId') or [None])[0]
 
 
-class CivitaiProvider(MarketplaceProviderBase):
+class CivitaiProvider(HttpMarketplaceProvider):
     """
     CivitAI marketplace provider.
 
@@ -100,16 +97,14 @@ class CivitaiProvider(MarketplaceProviderBase):
     """
 
     BASE_URL = "https://civitai.com/api/v1"
+    DOWNLOAD_HOST = "civitai.com"
+    DEFAULT_RATE_LIMIT_DELAY = 1.0
+    EXTRA_HEADERS = {'Content-Type': 'application/json'}
 
     def __init__(self):
-        self._api_key: Optional[str] = None
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._rate_limit_delay: float = 1.0
-        self._last_request_time: float = 0
+        super().__init__()
         self._download_media: bool = True
         self._max_media_files: int = 10
-        self._headers: Dict[str, str] = {}
-        self._initialized: bool = False
 
     def get_metadata(self) -> ProviderMetadata:
         """Get CivitAI provider metadata."""
@@ -133,64 +128,10 @@ class CivitaiProvider(MarketplaceProviderBase):
         )
 
     async def initialize(self, settings: Dict[str, Any]) -> bool:
-        """
-        Initialize the CivitAI provider with settings.
-
-        Args:
-            settings: Provider settings including api_key, rate_limit_delay, etc.
-
-        Returns:
-            True if initialization successful
-        """
-        self._api_key = settings.get('api_key')
-        self._rate_limit_delay = float(settings.get('rate_limit_delay', 1.0))
+        await super().initialize(settings)
         self._download_media = settings.get('download_media', 'true') == 'true' or settings.get('download_media') is True
         self._max_media_files = int(settings.get('max_media_files', 10))
-
-        # Store headers for lazy session creation
-        self._headers = {
-            'User-Agent': 'PotionUI/1.0',
-            'Content-Type': 'application/json'
-        }
-
-        if self._api_key:
-            self._headers['Authorization'] = f'Bearer {self._api_key}'
-
-        # Don't create session here - it will be created lazily on first request
-        # to ensure it's in the correct async context
-        self._initialized = True
-
-        logger.info(f"CivitAI provider initialized (API key: {'configured' if self._api_key else 'not configured'})")
         return True
-
-    async def shutdown(self) -> None:
-        """Cleanup provider resources."""
-        if self._session:
-            await self._session.close()
-            self._session = None
-        self._initialized = False
-        logger.info("CivitAI provider shutdown")
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """
-        Get or create the HTTP session.
-
-        Creates the session lazily on first use to ensure it's in the correct
-        async context, avoiding "Timeout context manager should be used inside a task" errors.
-        """
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(headers=self._headers, connector=aiohttp_connector())
-        return self._session
-
-    async def _rate_limit(self) -> None:
-        """Apply rate limiting between requests."""
-        current_time = time.monotonic()
-        time_since_last = current_time - self._last_request_time
-
-        if time_since_last < self._rate_limit_delay:
-            await asyncio.sleep(self._rate_limit_delay - time_since_last)
-
-        self._last_request_time = time.monotonic()
 
     async def get_model_by_hash(self, sha256: str) -> Optional[ProviderModelInfo]:
         """
@@ -207,45 +148,25 @@ class CivitaiProvider(MarketplaceProviderBase):
 
         await self._rate_limit()
 
-        url = f"{self.BASE_URL}/model-versions/by-hash/{sha256}"
-        session = await self._get_session()
+        logger.debug(f"Fetching CivitAI data for hash: {sha256}")
+        status, data = await self._get_json(
+            f"{self.BASE_URL}/model-versions/by-hash/{sha256}",
+            what=f"fetching CivitAI data for hash: {sha256}",
+        )
 
-        try:
-            logger.debug(f"Fetching CivitAI data for hash: {sha256}")
+        if status == 404:
+            logger.debug(f"Model not found on CivitAI for hash: {sha256}")
+            return None
+        if status != 200:
+            logger.warning(f"CivitAI API error {status}: {data}")
+            raise ProviderConnectionError(f"CivitAI API error {status}: {data}")
+        if self._matching_file(data.get('files', []), sha256) is None:
+            logger.debug(f"CivitAI by-hash response for {sha256} has no matching file")
+            return None
 
-            info: Optional[ProviderModelInfo] = None
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    if self._matching_file(data.get('files', []), sha256) is None:
-                        logger.debug(f"CivitAI by-hash response for {sha256} has no matching file")
-                        return None
-                    info = self._parse_model_version_response(data)
-
-                elif response.status == 404:
-                    logger.debug(f"Model not found on CivitAI for hash: {sha256}")
-                    return None
-
-                elif response.status == 429:
-                    retry_after = response.headers.get('Retry-After', '60')
-                    raise ProviderRateLimitError(
-                        f"CivitAI rate limit exceeded",
-                        retry_after=float(retry_after)
-                    )
-
-                else:
-                    error_text = await response.text()
-                    logger.warning(f"CivitAI API error {response.status}: {error_text}")
-                    raise ProviderConnectionError(f"CivitAI API error {response.status}: {error_text}")
-
-            if info is not None:
-                await self._enrich_model_details(info)
-            return info
-
-        except asyncio.TimeoutError:
-            raise ProviderConnectionError(f"Timeout fetching CivitAI data for hash: {sha256}")
-        except aiohttp.ClientError as e:
-            raise ProviderConnectionError(f"Connection error: {e}")
+        info = self._parse_model_version_response(data)
+        await self._enrich_model_details(info)
+        return info
 
     async def _enrich_model_details(self, info: ProviderModelInfo) -> None:
         if not info.provider_model_id:
@@ -318,30 +239,13 @@ class CivitaiProvider(MarketplaceProviderBase):
         if 'sort' in kwargs:
             params['sort'] = kwargs['sort']  # Most Downloaded, Highest Rated, Newest
 
-        url = f"{self.BASE_URL}/models"
-        session = await self._get_session()
-
-        try:
-            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return self._parse_search_response(data)
-
-                elif response.status == 429:
-                    retry_after = response.headers.get('Retry-After', '60')
-                    raise ProviderRateLimitError(
-                        "CivitAI rate limit exceeded",
-                        retry_after=float(retry_after)
-                    )
-
-                else:
-                    logger.warning(f"CivitAI search error {response.status}")
-                    return []
-
-        except asyncio.TimeoutError:
-            raise ProviderConnectionError("Timeout during CivitAI search")
-        except aiohttp.ClientError as e:
-            raise ProviderConnectionError(f"Connection error: {e}")
+        status, data = await self._get_json(
+            f"{self.BASE_URL}/models", params=params, what="during CivitAI search"
+        )
+        if status != 200:
+            logger.warning(f"CivitAI search error {status}")
+            return []
+        return self._parse_search_response(data)
 
     async def get_download_url(
         self,
@@ -368,32 +272,20 @@ class CivitaiProvider(MarketplaceProviderBase):
             return f"https://civitai.com/api/download/models/{provider_version_id}"
 
         # Otherwise, fetch model info to get the latest version's download URL
-        url = f"{self.BASE_URL}/models/{provider_model_id}"
-        session = await self._get_session()
+        status, data = await self._get_json(
+            f"{self.BASE_URL}/models/{provider_model_id}", what="getting download URL from CivitAI"
+        )
+        if status == 404:
+            raise ProviderNotFoundError(f"Model {provider_model_id} not found on CivitAI")
+        if status != 200:
+            return None
 
-        try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    versions = data.get('modelVersions', [])
-                    if versions:
-                        # Get latest version's primary file download URL
-                        latest = versions[0]
-                        for file in latest.get('files', []):
-                            if file.get('primary', False):
-                                return file.get('downloadUrl')
-                    return None
-
-                elif response.status == 404:
-                    raise ProviderNotFoundError(f"Model {provider_model_id} not found on CivitAI")
-
-                else:
-                    return None
-
-        except asyncio.TimeoutError:
-            raise ProviderConnectionError("Timeout getting download URL from CivitAI")
-        except aiohttp.ClientError as e:
-            raise ProviderConnectionError(f"Connection error: {e}")
+        versions = data.get('modelVersions', [])
+        if versions:
+            for file in versions[0].get('files', []):
+                if file.get('primary', False):
+                    return file.get('downloadUrl')
+        return None
 
     async def resolve_remote_download(
         self,
@@ -440,25 +332,14 @@ class CivitaiProvider(MarketplaceProviderBase):
 
         await self._rate_limit()
 
-        url = f"{self.BASE_URL}/model-versions/by-hash/{sha256}"
-        session = await self._get_session()
-
-        try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 404:
-                    raise ProviderNotFoundError(f"No CivitAI model found for hash {sha256}")
-                if response.status == 429:
-                    retry_after = response.headers.get('Retry-After', '60')
-                    raise ProviderRateLimitError(
-                        "CivitAI rate limit exceeded", retry_after=float(retry_after)
-                    )
-                if response.status != 200:
-                    raise ProviderConnectionError(f"CivitAI by-hash lookup returned HTTP {response.status}")
-                data = await response.json()
-        except asyncio.TimeoutError:
-            raise ProviderConnectionError(f"Timeout during CivitAI by-hash lookup for {sha256}")
-        except aiohttp.ClientError as e:
-            raise ProviderConnectionError(f"Connection error: {e}")
+        status, data = await self._get_json(
+            f"{self.BASE_URL}/model-versions/by-hash/{sha256}",
+            what=f"during CivitAI by-hash lookup for {sha256}",
+        )
+        if status == 404:
+            raise ProviderNotFoundError(f"No CivitAI model found for hash {sha256}")
+        if status != 200:
+            raise ProviderConnectionError(f"CivitAI by-hash lookup returned HTTP {status}")
 
         file_info = self._matching_file(data.get('files', []), sha256)
         if file_info is None or not file_info.get('downloadUrl'):
@@ -486,43 +367,6 @@ class CivitaiProvider(MarketplaceProviderBase):
             if file_hash and file_hash.lower() == target:
                 return file_info
         return None
-
-    def get_settings_schema(self) -> Dict[str, Any]:
-        """Get JSON schema for CivitAI provider settings."""
-        return {
-            "type": "object",
-            "properties": {
-                "api_key": {
-                    "type": "string",
-                    "title": "API Key",
-                    "format": "password",
-                    "description": "Your CivitAI API key (optional but recommended for higher rate limits)"
-                },
-                "rate_limit_delay": {
-                    "type": "number",
-                    "title": "Rate Limit Delay (seconds)",
-                    "description": "Delay between API requests to avoid rate limiting",
-                    "default": 1.0,
-                    "minimum": 0.5,
-                    "maximum": 10.0
-                },
-                "download_media": {
-                    "type": "boolean",
-                    "title": "Download Preview Media",
-                    "description": "Download preview images and videos when fetching model info",
-                    "default": True
-                },
-                "max_media_files": {
-                    "type": "integer",
-                    "title": "Max Media Files",
-                    "description": "Maximum number of preview media files to download per model",
-                    "default": 10,
-                    "minimum": 1,
-                    "maximum": 50
-                }
-            },
-            "required": []
-        }
 
     async def _validate_model_id(
         self, model_id: str, session: Optional[aiohttp.ClientSession] = None
@@ -752,7 +596,6 @@ class CivitaiProvider(MarketplaceProviderBase):
             params["nsfw"] = nsfw
 
         url = f"{self.BASE_URL}/images"
-        session = await self._get_session()
         all_items: List[Dict[str, Any]] = []
         logger.info(
             f"CivitAI _fetch_images_paginated: url={url}, params={params}, "
@@ -763,29 +606,13 @@ class CivitaiProvider(MarketplaceProviderBase):
         while url:
             page_num += 1
             await self._rate_limit()
-            try:
-                async with session.get(
-                    url, params=params, timeout=aiohttp.ClientTimeout(total=60)
-                ) as response:
-                    actual_url = str(response.url)
-                    logger.info(f"CivitAI page {page_num}: GET {actual_url} -> status={response.status}")
-                    if response.status == 429:
-                        retry_after = response.headers.get("Retry-After", "60")
-                        raise ProviderRateLimitError(
-                            "CivitAI rate limit exceeded",
-                            retry_after=float(retry_after),
-                        )
-                    if response.status != 200:
-                        logger.warning(
-                            f"CivitAI images endpoint returned {response.status}"
-                        )
-                        break
-
-                    data = await response.json()
-            except asyncio.TimeoutError:
-                raise ProviderConnectionError("Timeout fetching CivitAI images")
-            except aiohttp.ClientError as e:
-                raise ProviderConnectionError(f"Connection error: {e}")
+            status, data = await self._get_json(
+                url, params=params, timeout=60, what="fetching CivitAI images"
+            )
+            logger.info(f"CivitAI page {page_num}: GET {url} -> status={status}")
+            if status != 200:
+                logger.warning(f"CivitAI images endpoint returned {status}")
+                break
 
             items = data.get("items", [])
             skipped_no_meta = 0
@@ -872,21 +699,6 @@ class CivitaiProvider(MarketplaceProviderBase):
             headers['Authorization'] = f'Bearer {self._api_key}'
 
         return headers
-
-    def get_authenticated_download_url(self, url: str) -> str:
-        """
-        Get an authenticated download URL for CivitAI.
-
-        CivitAI uses redirect-based authentication - the initial request needs
-        Authorization header, then redirects to a pre-signed URL.
-        No URL modification needed.
-        """
-        # CivitAI doesn't need token in URL - it uses header auth + redirect
-        return url
-
-    def matches_download_url(self, url: str) -> bool:
-        """CivitAI owns civitai.com downloads."""
-        return 'civitai.com' in url
 
     def get_model_page_url(self, provider_model_id: Optional[str], provider_version_id: Optional[str] = None) -> Optional[str]:
         if not provider_model_id:

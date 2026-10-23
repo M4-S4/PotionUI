@@ -867,7 +867,7 @@ def test_forward_comfy_cast_weights_logs_scaled_mm_fast_path_rejection_only_once
     assert len(warnings) == 1
 
 
-def test_forward_comfy_cast_weights_does_not_log_when_fast_path_eligible(caplog):
+def test_forward_comfy_cast_weights_does_not_log_when_fp8_fast_path_eligible(caplog):
     # Force eligibility past the predicate (CPU-box tensors can never really
     # satisfy is_cuda) so this exercises the "took the fast path, no
     # rejection to log" branch instead of the always-false-on-CPU device check.

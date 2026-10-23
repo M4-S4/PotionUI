@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from src.features.models.exceptions import ProviderFetchException
 from src.features.models.attributes.well_known import WellKnownModelAttribute
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.records import ModelInfo
@@ -61,11 +61,13 @@ class ProviderInfoFetcher:
         plugin_registry: PluginRegistry,
         metadata_editor: Optional[ModelMetadataEditor] = None,
         storage_driver: Optional[FileStorageDriver] = None,
+        digests: Optional[Any] = None,
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
         self.metadata_editor = metadata_editor
         self.storage_driver = storage_driver
+        self.digests = digests
 
     def fetch_provider_info(
         self,
@@ -93,19 +95,16 @@ class ProviderInfoFetcher:
                 f"Provider '{provider}' is not initialized. Please configure API key and other settings in Providers settings."
             )
 
-        hook_data, blocked = execute_hook(
+        run_veto_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_fetch_info,
             {
                 "provider": provider,
                 "model_ids": model_ids,
                 "force_refresh": force_refresh
-            }
+            },
+            "Provider fetch blocked by plugin", error=ProviderFetchException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Provider fetch blocked by plugin")
-            raise ProviderFetchException(reason)
 
         logger.info(f"Using provider plugin for {provider}")
 
@@ -141,6 +140,9 @@ class ProviderInfoFetcher:
             failed = 0
             errors: List[Dict[str, Any]] = []
 
+            to_hash = sum(1 for m in models if not m.sha256 and not getattr(m, 'is_directory', False))
+            hashed = 0
+
             for model in models:
                 if getattr(model, 'is_directory', False):
                     # HF-layout checkpoints are local-only for now: their
@@ -149,12 +151,17 @@ class ProviderInfoFetcher:
                     logger.debug(f"Model {model.id} is an HF-layout directory, skipping provider fetch")
                     continue
 
+                if not model.sha256 and self.digests is not None:
+                    hashed += 1
+                    logger.info(f"Hashing {hashed} of {to_hash} before the {provider} lookup: {model.filename}")
+                    model.sha256 = await asyncio.to_thread(self.digests.ensure_digest, model.id)
+
                 if not model.sha256:
                     logger.warning(f"Model {model.id} has no SHA256 hash, skipping")
                     failed += 1
                     errors.append({
                         "model_id": model.id,
-                        "reason": "No SHA256 hash yet - the model is still being indexed",
+                        "reason": "The file could not be read, so no SHA256 hash could be made for it",
                     })
                     continue
 

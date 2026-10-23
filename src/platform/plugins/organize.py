@@ -43,7 +43,7 @@ OPERATOR_LABELS: Mapping[str, str] = MappingProxyType({
 
 CONFIG_FIELD_KINDS = ("collection", "tag_list", "text", "bool", "enum", "number")
 
-FACT_TRIGGERS = ("item_created", "tags_changed", "metadata_changed")
+FACT_TRIGGERS = ("item_created", "tags_changed", "metadata_changed", "detected_tags_changed")
 
 
 class DuplicateOrganizeEntryError(ValueError):

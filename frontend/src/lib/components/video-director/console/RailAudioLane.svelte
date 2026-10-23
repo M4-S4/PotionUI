@@ -3,7 +3,7 @@
 	// W1 brief, audio only grows through the trailing `+` column
 	// (`onAddAudio()` takes no time argument), so this lane is select-only.
 	import type { RailAudioClip } from './shotRailModel';
-	import type { ConsoleSelection } from './consoleSelection';
+	import { consoleSelectionMatches, type ConsoleSelection } from './consoleSelection';
 
 	const MIN_WIDTH_PERCENT = 2;
 	const BAR_COUNT = 42;
@@ -21,7 +21,7 @@
 	} = $props();
 
 	function isSelected(id: string): boolean {
-		return selection?.shotId === shotId && selection.kind === 'audio' && selection.id === id;
+		return consoleSelectionMatches(selection, shotId, 'audio', id);
 	}
 
 	// Deterministic per-clip pseudo-waveform -- console.html fills its

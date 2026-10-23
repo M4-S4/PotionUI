@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { modelLibraryStore } from '$lib/stores/modelLibrary';
@@ -44,14 +45,13 @@
 
 	// Re-fetch whenever the search term flips or changes (debounced), or the
 	// current folder changes (handled by enter/goTo calling loadModels directly).
-	let searchDebounce: ReturnType<typeof setTimeout> | null = null;
+	const scheduleLoad = debounce(() => loadModels(), 250);
 	let lastSearch = '';
 	$: {
 		const term = search.trim();
 		if (term !== lastSearch) {
 			lastSearch = term;
-			if (searchDebounce) clearTimeout(searchDebounce);
-			searchDebounce = setTimeout(loadModels, 250);
+			scheduleLoad();
 		}
 	}
 

@@ -10,26 +10,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync } from 'svelte';
 import type { Writable } from 'svelte/store';
+import { settle } from './helpers/settle';
 
 type PageStore = Writable<{ url: URL }>;
-
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		invalidate: async () => {},
-		invalidateAll: async () => {},
-		preloadData: async () => {},
-		preloadCode: async () => {},
-		afterNavigate: () => {},
-		beforeNavigate: () => {},
-		pushState: () => {},
-		replaceState: () => {}
-	};
-});
 
 let StubComponent: any;
 
@@ -140,10 +123,6 @@ function mount() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function clickPluginRow(target: HTMLElement, name: string) {

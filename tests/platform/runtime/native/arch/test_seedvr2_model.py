@@ -16,7 +16,7 @@ from src.platform.runtime.native.arch.seedvr2.config import SeedVR2Config
 from src.platform.runtime.native.arch.seedvr2.model import SeedVR2
 from src.platform.runtime.native.arch.seedvr2_7b.config import SeedVR27BConfig
 from src.platform.runtime.native.arch.seedvr2_7b.model import SeedVR27B
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 # Tiny 3B config. head_dim=8 is fine here (the 3B's language-basis RoPE
 # doesn't degenerate at this width the way the 7B's pixel-basis one does).
@@ -36,10 +36,6 @@ TINY_7B = dict(
 )
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _randomize(m: torch.nn.Module) -> None:
     with torch.no_grad():
         for p in m.parameters():
@@ -52,7 +48,7 @@ def _randomize(m: torch.nn.Module) -> None:
 def test_seedvr2_3b_forward_shape():
     torch.manual_seed(0)
     cfg = SeedVR2Config(**TINY_3B)
-    m = SeedVR2(cfg, _fp32_ops())
+    m = SeedVR2(cfg, fp32_ops())
     _randomize(m)
     m.eval()
 
@@ -68,7 +64,7 @@ def test_seedvr2_3b_forward_shape():
 def test_seedvr2_7b_forward_shape():
     torch.manual_seed(0)
     cfg = SeedVR27BConfig(**TINY_7B)
-    m = SeedVR27B(cfg, _fp32_ops())
+    m = SeedVR27B(cfg, fp32_ops())
     _randomize(m)
     m.eval()
 
@@ -85,7 +81,7 @@ def test_seedvr2_3b_is_native_arch_module():
     from src.platform.runtime.native.base import NativeArchModule
 
     with torch.device("meta"):
-        m = SeedVR2(SeedVR2Config(**TINY_3B), _fp32_ops())
+        m = SeedVR2(SeedVR2Config(**TINY_3B), fp32_ops())
     assert isinstance(m, NativeArchModule)
 
 
@@ -93,5 +89,5 @@ def test_seedvr2_7b_is_native_arch_module():
     from src.platform.runtime.native.base import NativeArchModule
 
     with torch.device("meta"):
-        m = SeedVR27B(SeedVR27BConfig(**TINY_7B), _fp32_ops())
+        m = SeedVR27B(SeedVR27BConfig(**TINY_7B), fp32_ops())
     assert isinstance(m, NativeArchModule)

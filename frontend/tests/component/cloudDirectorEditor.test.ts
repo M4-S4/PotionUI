@@ -17,7 +17,6 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { flushSync } = await import('svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { default: VideoDirectorEditor } = await import('$lib/components/video-director/VideoDirectorEditor.svelte');
 const { parseDirectorCapabilities, createDefaultDirectorValue } = await import('$lib/utils/videoDirector');
@@ -27,6 +26,7 @@ const { nsfwRevealStore } = await import('$lib/stores/nsfwReveal');
 
 import type { ChainSegment, DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { DirectorRunState } from '$lib/types/tabs';
+import { settleFlush } from './helpers/settle';
 
 const presetBlock = {
 	preset_modes: ['txt2video', 'img2video'],
@@ -78,11 +78,6 @@ function run(overrides: Partial<DirectorRunState>): DirectorRunState {
 	return { generationId: 'gen-1', status: 'queued', progress: null, finishedAt: null, posterUrl: null, inputsHash: null, ...overrides };
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 
 afterEach(async () => {
@@ -103,7 +98,7 @@ async function mount(props: Record<string, unknown>) {
 		props: { presetId: 'cloud-video', formData: {}, onChange: () => {}, ...props }
 	});
 	cleanup = () => instance.$destroy();
-	await settle();
+	await settleFlush();
 	return target;
 }
 
@@ -241,7 +236,7 @@ describe('Video Director editor for a hosted model', () => {
 		const reveal = target.querySelector('button[aria-label="Sensitive content, click to reveal"]') as HTMLButtonElement;
 		expect(reveal).toBeTruthy();
 		reveal.click();
-		await settle();
+		await settleFlush();
 		expect(target.querySelector('[data-thumb-blurred]')).toBeNull();
 		expect(target.querySelector('.row-thumb video')!.getAttribute('class')).not.toContain('blur-2xl');
 	});

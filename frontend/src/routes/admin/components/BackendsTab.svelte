@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { isAxiosError } from 'axios';
@@ -23,9 +24,7 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { Button, Badge, Spinner, EmptyState, LoadErrorState, Switch, Alert, IconButton } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import BackendForm from './BackendForm.svelte';
 	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem, DetailFooter } from '$lib/components/detail';
 	import type { DetailHeaderChip, DetailHeaderChipTone } from '$lib/components/detail/detailHeaderChips';
@@ -44,19 +43,16 @@
 		applyBackendsFilters,
 		backendEngineCounts,
 		backendEngines,
-		backendsFilterActiveCount,
-		backendsFilterChips,
-		clearAllBackendsFilters,
-		clearBackendsFilterChip,
 		type BackendSortBy,
-		type BackendsFilters
+		type BackendsFilters,
+		backendsFilters
 	} from './backendsFilters';
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
 	import BackendRowActions from './BackendRowActions.svelte';
 	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
-	import { indexingIsRunning, indexingIsVisible } from '$lib/models-location/indexingDisplay';
+	import { indexingIsRunning, indexingScanHasContent } from '$lib/models-location/indexingDisplay';
 	import {
 		NATIVE_LOCAL_DRIVER,
 		backendIndexBusy,
@@ -204,8 +200,8 @@
 	const editDirty = $derived(JSON.stringify(editFormData) !== editSnapshot);
 
 	const filteredBackends = $derived(applyBackendsFilters(backends, filters, formatEngineName));
-	const filterChips = $derived(backendsFilterChips(filters));
-	const activeFilterCount = $derived(backendsFilterActiveCount(filters));
+	const filterChips = $derived(backendsFilters.chips(filters));
+	const activeFilterCount = $derived(backendsFilters.activeCount(filters));
 	const engineList = $derived(backendEngines(backends));
 	const engineCounts = $derived(backendEngineCounts(backends));
 	const activeBackend = $derived(backends.find((b) => b.id === selectedBackendId) ?? null);
@@ -307,18 +303,6 @@
 	});
 	onDestroy(unsubscribeComputeStatus);
 
-	function handleWindowClick(event: MouseEvent) {
-		const target = event.target as Element | null;
-		if (target?.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]')) return;
-		if (detailOverflowOpen && detailOverflowEl && !detailOverflowEl.contains(event.target as Node)) {
-			detailOverflowOpen = false;
-		}
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') detailOverflowOpen = false;
-	}
-
 	async function loadEngines() {
 		try {
 			const response = await getBackendEngines();
@@ -385,34 +369,8 @@
 		formData = emptyFormData();
 	}
 
-	const createBackendGate = createConfirmSettlementGate();
-	$effect(() => {
-		if (showModal) createBackendGate.reset();
-	});
-
-	function cancelCreateBackend() {
-		createBackendGate.settle(closeModal);
-	}
-
-	function confirmCreateBackend() {
-		settleIfEligible(createBackendGate, canCreateBackend, saveBackend);
-	}
-
-	function handleCreateBackendKeydown(e: KeyboardEvent) {
-		if (!showModal) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') cancelCreateBackend();
-		else if (action === 'confirm') confirmCreateBackend();
-		if (suppress) e.preventDefault();
-	}
-
-	$effect(() => {
-		window.addEventListener('keydown', handleCreateBackendKeydown, true);
-		return () => window.removeEventListener('keydown', handleCreateBackendKeydown, true);
-	});
-
 	async function saveBackend() {
-		if (!canCreateBackend) return;
+		if (!canCreateBackend) return false;
 		saving = true;
 		try {
 			const backendData = buildBackendPayload(formData, { includeDriver: true });
@@ -423,14 +381,15 @@
 				closeModal();
 				const created = response.data;
 				if (created?.id) selectBackend(created.id);
-			} else {
-				toasts.error(response.message || 'Failed to save backend');
+				return true;
 			}
+			toasts.error(response.message || 'Failed to save backend');
+			return false;
 		} catch (e: unknown) {
 			toasts.error(getApiErrorMessage(e, 'Failed to save backend'));
+			return false;
 		} finally {
 			saving = false;
-			createBackendGate.reset();
 		}
 	}
 
@@ -777,8 +736,6 @@
 	/>
 {/snippet}
 
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
-
 <LibraryShell
 	title="Backends"
 	persistKey="admin-backends-library"
@@ -790,8 +747,8 @@
 	count={filteredBackends.length}
 	{detailOpen}
 	filterChips={filterChips}
-	onRemoveChip={(key) => (filters = clearBackendsFilterChip(filters, key))}
-	onClearFilters={() => (filters = clearAllBackendsFilters(filters))}
+	onRemoveChip={(key) => (filters = backendsFilters.clearChip(filters, key))}
+	onClearFilters={() => (filters = backendsFilters.clearAll(filters))}
 	loadedCount={filteredBackends.length}
 	total={backends.length}
 >
@@ -886,7 +843,7 @@
 									<IconButton icon="more" label="More actions" ariaExpanded={detailOverflowOpen} active={detailOverflowOpen} onclick={() => (detailOverflowOpen = !detailOverflowOpen)} />
 								</Tooltip>
 								{#if detailOverflowOpen}
-									<div class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[200px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating" role="menu">
+									<div class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[200px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating" role="menu" use:dismiss={{ onDismiss: () => (detailOverflowOpen = false), ignore: [detailOverflowEl] }}>
 										<button
 											type="button"
 											role="menuitem"
@@ -922,7 +879,7 @@
 									{/if}
 								{/snippet}
 								{#snippet main()}
-									{#if isNativeLocalBackend(activeBackend) && indexingIsVisible(indexingStatusStore.status)}
+									{#if isNativeLocalBackend(activeBackend) && indexingScanHasContent(indexingStatusStore.status)}
 										<DetailSection label="Model indexing">
 											<IndexingStatusPanel status={indexingStatusStore.status} />
 										</DetailSection>
@@ -1173,7 +1130,7 @@
 				{#snippet filteredEmptyState()}
 					<EmptyState icon="search" title="No backends match" description="Try a different name or engine." compact>
 						{#snippet actions()}
-							<Button variant="ghost" size="sm" onclick={() => (filters = clearAllBackendsFilters(filters))}>Clear filters</Button>
+							<Button variant="ghost" size="sm" onclick={() => (filters = backendsFilters.clearAll(filters))}>Clear filters</Button>
 						{/snippet}
 					</EmptyState>
 				{/snippet}
@@ -1182,7 +1139,16 @@
 	{/if}
 </LibraryShell>
 
-<BaseModal isOpen={showModal} title="Add Backend" sizeClass="md:max-w-2xl md:w-full" handleEscapeKey={false} on:close={cancelCreateBackend}>
+<ConfirmDialog
+	isOpen={showModal}
+	title="Add Backend"
+	sizeClass="md:max-w-2xl md:w-full"
+	busy={saving}
+	confirmLabel="Create Backend"
+	confirmDisabled={!canCreateBackend}
+	onConfirm={saveBackend}
+	onCancel={closeModal}
+>
 	<div class="px-6 py-4">
 		<BackendForm
 			bind:draft={formData}
@@ -1197,17 +1163,7 @@
 			fieldHints={formData.driver === NATIVE_REMOTE_DRIVER ? { base_url: workerUrlCreateHint } : {}}
 		/>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Create Backend"
-			busy={saving}
-			confirmDisabled={!canCreateBackend}
-			onCancel={cancelCreateBackend}
-			onConfirm={confirmCreateBackend}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>
 
 <ConfirmModal
 	isOpen={showDeleteModal && !!deleteTarget}

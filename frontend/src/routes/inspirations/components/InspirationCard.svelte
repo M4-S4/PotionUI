@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
@@ -83,7 +84,7 @@
 	</div>
 
 	<div class="p-2.5 space-y-2">
-		<h3 class="text-xs font-medium text-fg truncate" title={title}>{title}</h3>
+		<h3 class="text-xs font-medium text-fg truncate" use:tooltip={{ text: title, truncateOnly: true }}>{title}</h3>
 
 		<div class="flex items-center gap-1.5 min-w-0">
 			{#if item.author.avatar_url}

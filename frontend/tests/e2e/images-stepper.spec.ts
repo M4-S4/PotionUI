@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Images-count stepper — the batch-count field ("quantity") renders as a
 // compact bordered [-][value][+] control (`type: "stepper"`, still
@@ -8,22 +9,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // the bumped value, and assert the bound value actually changed.
 
 const JOURNEY = 'images-stepper';
-const BEAT = 400;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('images stepper — SDXL batch count renders and steps as a compact control', async ({ page }) => {
 	await loginAsOwner(page);
@@ -56,17 +41,15 @@ test('images stepper — SDXL batch count renders and steps as a compact control
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(sdxlPreset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, sdxlPreset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	// The Quantity stepper lives on the "Generation" tab (first tab, icon-only).
 	const generationTab = page.locator('[role="tab"]').first();
 	await generationTab.click();
-	await page.waitForTimeout(BEAT);
 
 	const quantityLabel = page.getByText('Quantity', { exact: true }).first();
 	await expect(quantityLabel).toBeVisible({ timeout: 10000 });
@@ -84,9 +67,7 @@ test('images stepper — SDXL batch count renders and steps as a compact control
 
 	const incrementButton = stepperCard.getByRole('button', { name: 'Increase value' });
 	await incrementButton.click();
-	await page.waitForTimeout(BEAT);
 	await incrementButton.click();
-	await page.waitForTimeout(BEAT);
 
 	await expect(valueInput).toHaveValue('3');
 

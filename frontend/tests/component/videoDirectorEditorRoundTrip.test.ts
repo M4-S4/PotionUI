@@ -18,6 +18,7 @@
 // Stage.svelte always resolved to. Reaching the shot's own prompt editor now
 // means clicking its rail beat first, same as any other rail object.
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settleFlush } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -35,7 +36,6 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { flushSync } = await import('svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { default: VideoDirectorEditor } = await import(
 	'$lib/components/video-director/VideoDirectorEditor.svelte'
@@ -43,7 +43,7 @@ const { default: VideoDirectorEditor } = await import(
 const { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission } =
 	await import('$lib/utils/videoDirector');
 
-import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
+import type { VideoDirectorValue, ChainSegment } from '$lib/types/videoDirector';
 
 function baseDoc(): VideoDirectorValue {
 	return {
@@ -107,11 +107,6 @@ const H3_REFS_PRESET_RAW = {
 	}
 };
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
@@ -166,7 +161,7 @@ describe('VideoDirectorEditor: typed shot edit reaches onChange, and a store rou
 		});
 		cleanup = () => instance.$destroy();
 
-		await settle();
+		await settleFlush();
 
 		// Maintainer ruling (09-04, "I don't want to have two headers"): the ONE
 		// "Video Director" title + the console's derived info strip (shot
@@ -181,13 +176,13 @@ describe('VideoDirectorEditor: typed shot edit reaches onChange, and a store rou
 		// rail beat (PLAN.md D3: one beat per chain shot) to select it before
 		// its own SegmentedPromptEditor appears.
 		expect(target.querySelector('.beat-b')).toBeNull();
-		await settle();
+		await settleFlush();
 
 		const editable = target.querySelector('[contenteditable="true"]') as HTMLElement | null;
 		expect(editable).toBeTruthy();
 		editable!.textContent = 'a lighthouse at dusk';
 		editable!.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settleFlush();
 
 		expect(onChangeCalls).toBeGreaterThan(0);
 		expect(storedValue).toBeDefined();
@@ -200,7 +195,7 @@ describe('VideoDirectorEditor: typed shot edit reaches onChange, and a store rou
 		// is where a re-projection would wipe the just-typed text back out.
 		const callsBeforeSettle = onChangeCalls;
 		instance.$set({ value: storedValue });
-		await settle();
+		await settleFlush();
 		const segAfterRoundTrip = storedValue!.chain.segments.find((s) => s.id === 'chain-1')!;
 		expect(segAfterRoundTrip.prompt).toContain('a lighthouse at dusk');
 

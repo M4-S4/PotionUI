@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from src.platform.database.rows import dt_iso, json_column, now_iso, now_utc
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 def _dumps(value: Any) -> Optional[str]:
@@ -63,8 +64,7 @@ class ChatCallTraceRepository:
     ) -> str:
         """Insert one call trace row. Returns the new row id."""
         trace_id = generate_ulid()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO chat_llm_call_traces (
                     id, session_id, user_id, message_id, purpose, iteration,
@@ -90,8 +90,7 @@ class ChatCallTraceRepository:
         the same session), so "every NULL row for this session" is exactly
         "this turn's rows" in practice.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE chat_llm_call_traces SET message_id = ? "
                 "WHERE session_id = ? AND message_id IS NULL",
@@ -101,8 +100,7 @@ class ChatCallTraceRepository:
 
     def list_for_session(self, session_id: str) -> List[Dict[str, Any]]:
         """All call traces for a session, oldest first, grouped by message via message_id."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM chat_llm_call_traces WHERE session_id = ? "
                 "ORDER BY created_at ASC, iteration ASC",
@@ -111,14 +109,12 @@ class ChatCallTraceRepository:
             return [_row_to_dict(row) for row in cursor.fetchall()]
 
     def delete_for_session(self, session_id: str) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM chat_llm_call_traces WHERE session_id = ?", (session_id,))
             return cursor.rowcount
 
     def delete_all(self) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM chat_llm_call_traces")
             return cursor.rowcount
 
@@ -130,8 +126,7 @@ class ChatCallTraceRepository:
 
     def prune_older_than(self, days: int) -> int:
         """Delete rows created before ``days`` ago. Returns the row count deleted."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM chat_llm_call_traces WHERE created_at < ?",
                 (self._cutoff(days),),
@@ -140,8 +135,7 @@ class ChatCallTraceRepository:
 
     def count_older_than(self, days: int) -> int:
         """How many rows ``prune_older_than`` would delete."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) AS n FROM chat_llm_call_traces WHERE created_at < ?",
                 (self._cutoff(days),),

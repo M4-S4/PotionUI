@@ -261,12 +261,11 @@ test('FloatingWorkbench stays below a modal opened over it', async ({ page }) =>
 	const workbench = page.getByRole('dialog', { name: 'Workbench' });
 	await expect(workbench).toBeVisible({ timeout: 10000 });
 
-	await pickerTrigger.focus();
-	await page.keyboard.press('Enter');
-	const modal = page.getByRole('dialog', { name: 'Choose preset' });
+	await page.getByRole('button', { name: 'Keyboard shortcuts' }).click();
+	const modal = page.getByRole('dialog', { name: 'Keyboard Shortcuts' });
 	await expect(modal).toBeVisible({ timeout: 10000 });
 
-	await screenshot(page, JOURNEY, 'floating-workbench-below-preset-modal');
+	await screenshot(page, JOURNEY, 'floating-workbench-below-shortcuts-modal');
 
 	const workbenchBox = await workbench.boundingBox();
 	const modalBox = await modal.boundingBox();
@@ -278,5 +277,5 @@ test('FloatingWorkbench stays below a modal opened over it', async ({ page }) =>
 	expect(overlap.bottom, 'workbench and modal overlap vertically').toBeGreaterThan(overlap.top);
 
 	const overlapPoint = { x: (overlap.left + overlap.right) / 2, y: (overlap.top + overlap.bottom) / 2 };
-	expect(await pointClosestDialogLabel(page, overlapPoint)).toBe('Choose preset');
+	expect(await pointClosestDialogLabel(page, overlapPoint)).toBe('Keyboard Shortcuts');
 });

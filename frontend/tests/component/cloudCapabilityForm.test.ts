@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { CloudCapabilities } from '$lib/form/capabilityBinder';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetFormSchema: vi.fn() }
@@ -129,10 +130,6 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function mountForm(extra: Record<string, unknown> = {}) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -164,7 +161,7 @@ function mountForm(extra: Record<string, unknown> = {}) {
 			const select = target.querySelector<HTMLSelectElement>('select[aria-label="Model"]')!;
 			select.value = value;
 			select.dispatchEvent(new Event('change', { bubbles: true }));
-			await settle();
+			await settle(10);
 		},
 		destroy: () => {
 			form.$destroy();
@@ -191,12 +188,12 @@ afterEach(() => {
 describe('Capability-bound fields', () => {
 	it('shows the aspect ratio with only the options the model offers, and hides it for a model without one', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 
 		expect(fetchCloudCapabilities).toHaveBeenCalledWith('a');
 		expect(mounted.field('aspect_ratio')).toBeTruthy();
 		mounted.field('aspect_ratio')!.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')!.click();
-		await settle();
+		await settle(10);
 		const labels = Array.from(document.querySelectorAll('[role="option"]')).map((el) => el.textContent?.trim());
 		expect(labels).toEqual(['Square', 'Wide']);
 		document.body.click();
@@ -214,7 +211,7 @@ describe('Capability-bound fields', () => {
 
 	it('resets a value the model does not offer to its default', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 
 		expect(mounted.published().aspect_ratio).toBe('1:1');
 		expect(mounted.published().guidance).toBe(5);
@@ -223,7 +220,7 @@ describe('Capability-bound fields', () => {
 
 	it('constrains a range to the model', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 
 		const slider = mounted.field('guidance')!.querySelector<HTMLInputElement>('input[type="range"]')!;
 		expect([slider.min, slider.max, slider.step]).toEqual(['1', '10', '0.5']);
@@ -231,7 +228,7 @@ describe('Capability-bound fields', () => {
 
 	it('brings the fields back when the model that has them is chosen again', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		await mounted.chooseModel('model:b');
 		expect(mounted.field('aspect_ratio')).toBeNull();
 
@@ -248,12 +245,12 @@ describe('Capability-bound fields', () => {
 			id === 'a' ? slow.promise : Promise.resolve(capsFor(id))
 		);
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		await mounted.chooseModel('model:b');
 		expect(mounted.field('aspect_ratio')).toBeNull();
 
 		slow.resolve(capsFor('a'));
-		await settle();
+		await settle(10);
 
 		expect(mounted.field('aspect_ratio')).toBeNull();
 		expect(mounted.published()).not.toHaveProperty('aspect_ratio');
@@ -262,7 +259,7 @@ describe('Capability-bound fields', () => {
 	it('shows the fields as declared when no model is chosen or the request fails', async () => {
 		vi.mocked(fetchCloudCapabilities).mockRejectedValue(new Error('404'));
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 
 		expect(mounted.field('aspect_ratio')).toBeTruthy();
 		expect(mounted.field('guidance')).toBeTruthy();
@@ -287,7 +284,7 @@ describe('Defaults of the chosen model', () => {
 
 	it('shows the model default on an untouched form', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 
 		expect(mounted.published().aspect_ratio).toBe('1:1');
 		expect(mounted.published().guidance).toBe(5);
@@ -296,7 +293,7 @@ describe('Defaults of the chosen model', () => {
 
 	it('keeps a valid pick when switching to a model that also offers it', async () => {
 		mounted = mountForm({ initialData: { aspect_ratio: '1:1', guidance: 2 } });
-		await settle();
+		await settle(10);
 		sharedCapabilityCache.set('c', capsFor('c'));
 
 		await mounted.chooseModel('model:c');
@@ -307,7 +304,7 @@ describe('Defaults of the chosen model', () => {
 
 	it('resets to the new default when the new model does not offer the pick', async () => {
 		mounted = mountForm({ initialData: { aspect_ratio: '16:9', guidance: 7 } });
-		await settle();
+		await settle(10);
 		sharedCapabilityCache.set('c', capsFor('c'));
 
 		await mounted.chooseModel('model:c');
@@ -320,7 +317,7 @@ describe('Defaults of the chosen model', () => {
 describe('Switching between cached models', () => {
 	it('keeps the values of a session loaded with another model', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		sharedCapabilityCache.set('d', capsFor('d'));
 
 		mounted.form.$set({
@@ -331,7 +328,7 @@ describe('Switching between cached models', () => {
 				provider_options: { 'x.note': 'kept' }
 			}
 		});
-		await settle();
+		await settle(10);
 
 		expect(mounted.published().aspect_ratio).toBe('3:4');
 		expect(mounted.published().guidance).toBe(2);
@@ -341,7 +338,7 @@ describe('Switching between cached models', () => {
 
 	it('applies the new model rules at once and never the old ones', async () => {
 		mounted = mountForm({ initialData: { aspect_ratio: '16:9', guidance: 7 } });
-		await settle();
+		await settle(10);
 		expect(mounted.published().aspect_ratio).toBe('16:9');
 		sharedCapabilityCache.set('d', capsFor('d'));
 		const before = mounted.log.length;
@@ -363,29 +360,92 @@ describe('Switching between cached models', () => {
 describe('Late echoes of the published data', () => {
 	it('do not undo a model change made after they were published', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		const stale = mounted.log[0];
 
 		await mounted.chooseModel('model:b');
 		mounted.form.$set({ initialData: stale });
-		await settle();
+		await settle(10);
 
 		expect(mounted.published().model).toBe('model:b');
 		expect(mounted.field('aspect_ratio')).toBeNull();
 	});
 });
 
+describe('Reloading a saved snapshot', () => {
+	it('puts the snapshot values back although the form published them before the edit', async () => {
+		mounted = mountForm({ initialData: { aspect_ratio: '1:1', guidance: 2 } });
+		await settle(10);
+		const snapshot = { ...mounted.published() };
+		expect(snapshot.aspect_ratio).toBe('1:1');
+		expect(snapshot.guidance).toBe(2);
+
+		mounted.form.$set({ initialData: { ...snapshot, aspect_ratio: '16:9', guidance: 7 } });
+		await settle(10);
+		expect(mounted.published().aspect_ratio).toBe('16:9');
+		expect(mounted.field('aspect_ratio')!.textContent).toContain('Wide');
+
+		mounted.form.$set({ initialData: snapshot, reloadGeneration: 1 });
+		await settle(10);
+
+		expect(mounted.published().aspect_ratio).toBe('1:1');
+		expect(mounted.published().guidance).toBe(2);
+		expect(mounted.field('aspect_ratio')!.textContent).toContain('Square');
+	});
+
+	it('brings back the model of the snapshot where a late echo of the same data would be ignored', async () => {
+		mounted = mountForm();
+		await settle(10);
+		const snapshot = mounted.log[0];
+
+		await mounted.chooseModel('model:b');
+		mounted.form.$set({ initialData: snapshot, reloadGeneration: 1 });
+		await settle(10);
+
+		expect(mounted.published().model).toBe('model:a');
+		expect(mounted.field('aspect_ratio')).toBeTruthy();
+	});
+
+	it('keeps ignoring late echoes after the generation moved, so a reload does not switch the guard off for good', async () => {
+		mounted = mountForm();
+		await settle(10);
+		await mounted.chooseModel('model:b');
+		mounted.form.$set({ initialData: mounted.log[0], reloadGeneration: 1 });
+		await settle(10);
+		await mounted.chooseModel('model:b');
+		const stale = mounted.log.at(-1)!;
+		await mounted.chooseModel('model:a');
+
+		mounted.form.$set({ initialData: stale, reloadGeneration: 1 });
+		await settle(10);
+
+		expect(mounted.published().model).toBe('model:a');
+	});
+
+	it('keeps ignoring a late echo when the generation did not change', async () => {
+		mounted = mountForm({ reloadGeneration: 3 });
+		await settle(10);
+		const stale = mounted.log[0];
+
+		await mounted.chooseModel('model:b');
+		mounted.form.$set({ initialData: stale, reloadGeneration: 3 });
+		await settle(10);
+
+		expect(mounted.published().model).toBe('model:b');
+	});
+});
+
 describe('Cache lifetime', () => {
 	it('asks for the capabilities again once they are old, so catalog changes show up', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		expect(fetchCloudCapabilities).toHaveBeenCalledTimes(1);
 
 		sharedCapabilityCache.expireAll();
 		const prompt = mounted.field('prompt')!.querySelector<HTMLInputElement>('input')!;
 		prompt.value = 'changed';
 		prompt.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		expect(fetchCloudCapabilities).toHaveBeenCalledTimes(2);
 		expect(mounted.field('aspect_ratio')).toBeTruthy();
@@ -395,7 +455,7 @@ describe('Cache lifetime', () => {
 describe('Cloud options field', () => {
 	it('renders the extras and submits them keyed by their full names', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 
 		const options = mounted.field('provider_options')!;
 		expect(options.textContent).toContain('HDR');
@@ -405,23 +465,23 @@ describe('Cloud options field', () => {
 		const hdr = options.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
 		hdr.checked = true;
 		hdr.dispatchEvent(new Event('change', { bubbles: true }));
-		await settle();
+		await settle(10);
 		const note = options.querySelector<HTMLInputElement>('input[type="text"], input:not([type])')!;
 		note.value = 'moody';
 		note.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		expect(mounted.published().provider_options).toEqual({ 'x.hdr': true, 'x.note': 'moody' });
 	});
 
 	it('removes a key when its value is cleared', async () => {
 		mounted = mountForm({ initialData: { provider_options: { 'x.note': 'moody' } } });
-		await settle();
+		await settle(10);
 
 		const note = mounted.field('provider_options')!.querySelector<HTMLInputElement>('input[type="text"], input:not([type])')!;
 		note.value = '';
 		note.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		expect(mounted.published().provider_options).toEqual({});
 	});
@@ -432,20 +492,20 @@ describe('Cloud options field', () => {
 			id === 'd' ? slow.promise : Promise.resolve(capsFor(id))
 		);
 		mounted = mountForm({ initialData: { provider_options: { 'x.note': 'moody' } } });
-		await settle();
+		await settle(10);
 		expect(mounted.published().provider_options).toEqual({ 'x.note': 'moody' });
 
 		await mounted.chooseModel('model:d');
 		expect(mounted.published()).not.toHaveProperty('provider_options');
 
 		slow.resolve(capsFor('d'));
-		await settle();
+		await settle(10);
 		expect(mounted.field('provider_options')).toBeTruthy();
 	});
 
 	it('shows nothing, not an empty box, when the model has no extras', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		await mounted.chooseModel('model:b');
 
 		expect(mounted.field('provider_options')).toBeNull();
@@ -454,7 +514,7 @@ describe('Cloud options field', () => {
 
 	it('drops option values the new model does not offer', async () => {
 		mounted = mountForm({ initialData: { provider_options: { 'x.note': 'moody' } } });
-		await settle();
+		await settle(10);
 		expect(mounted.published().provider_options).toEqual({ 'x.note': 'moody' });
 
 		await mounted.chooseModel('model:b');
@@ -471,7 +531,7 @@ describe('Server field errors', () => {
 				provider_options: ['x.note: must be shorter', 'an unrelated option problem']
 			}
 		});
-		await settle();
+		await settle(10);
 
 		expect(mounted.field('aspect_ratio')!.textContent).toContain("'21:9' is not offered by this model.");
 		const note = mounted.target.querySelector('[data-option-name="x.note"]')!;

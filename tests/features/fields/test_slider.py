@@ -10,12 +10,6 @@ class TestSliderField(unittest.TestCase):
         self.preset_loader = Mock()
         self.slider_field = Slider(self.preset_loader)
     
-    def test_can_handle(self):
-        """Test that slider field handles 'slider' type"""
-        self.assertTrue(self.slider_field.can_handle('slider'))
-        self.assertFalse(self.slider_field.can_handle('select'))
-        self.assertFalse(self.slider_field.can_handle('image'))
-    
     
     
     

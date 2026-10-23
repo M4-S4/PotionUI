@@ -374,7 +374,7 @@ def test_the_badge_is_resolved_once_for_the_page_and_only_for_the_items_the_user
     assert _marks(response) == {"58390": False, "82098": True}
     assert len(transport.calls_to("/models")) == 2
     assert core.names().count("visible_model_ids") == 1
-    assert core.calls_to("find_model_by_sha256") == [(_sha("models_lora_page1", 58390),), (sha_82098,)]
+    assert core.calls_to("find_model_by_sha256") == [(_sha("models_lora_page1", 58390), 37861176), (sha_82098, 9547795)]
 
 
 def test_two_users_get_their_own_badges_from_one_cached_page(client, transport, core, state):

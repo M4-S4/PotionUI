@@ -369,11 +369,6 @@ class TestGalleryGenerationOutputWithAudio:
         assert stored_audio.guidance_scale == 1.5
         assert stored_audio.segment == 0
 
-    def test_gallery_audios_list_type(self):
-        """Test that audios attribute is a list."""
-        output = GalleryGenerationOutput(images=[])
-
-        assert isinstance(output.audios, list)
 
     def test_empty_gallery_all_types(self):
         """Test that all media type lists can be empty."""

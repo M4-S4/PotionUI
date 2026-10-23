@@ -292,7 +292,6 @@ pipeline:
       scheduler: "{{ form.scheduler | default(preset.vars.default_scheduler) }}"
 
       # Tile configuration from form with fallback to resolution-based defaults
-      tile_size: "{{ form.td_tile_size }}"
       overlap: "{{ form.td_overlap | default(((form.resolution).split('x')[0]|int >= 1792 and 128 or 64)) }}"
       feather_amount: "{{ form.td_feather_amount }}"
 
@@ -300,13 +299,8 @@ pipeline:
       min_tile_size: "{{ form.td_min_tile_size }}"
 
       # Advanced boolean options with fallback defaults
-      adaptive_tiles: "{{ 'adaptive_tiles' in (form.td_adaptive_tiles) }}"
       enable_detail_conditioning: "{{ 'enable_detail_conditioning' in (form.td_adaptive_tiles) }}"
       content_aware_denoise: "{{ 'content_aware_denoise' in (form.td_adaptive_tiles) }}"
-
-      # Content-aware settings (only used if content_aware_denoise is enabled)
-      min_denoise: "{{ form.td_min_denoise }}"
-      max_denoise: "{{ form.td_max_denoise }}"
 
   #############
   ## Detailer

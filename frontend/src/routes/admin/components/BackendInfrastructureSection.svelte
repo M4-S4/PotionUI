@@ -30,7 +30,7 @@
 		canStart,
 		isNearBottom
 	} from './provisionedComputeView';
-	import { createVisiblePoll } from './visiblePoll';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 
 	/**
 	 * Shown on a backend's detail pane. Three states, discriminated by whether

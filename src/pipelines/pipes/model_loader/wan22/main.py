@@ -9,7 +9,7 @@ cache key so a shared UMT5/VAE is reused across Wan presets. A single-DiT Wan
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from src.pipelines.outputs import (
     ModelGenerationOutput,
@@ -45,19 +45,6 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
     description = "Load a native Wan video checkpoint set (high/low DiT + UMT5 + causal-3D VAE)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "high_noise_model": None,
-            "low_noise_model": None,
-            "text_encoder": None,
-            "vae": None,
-            "loras_high": [],
-            "loras_low": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("high_noise_model", dict, None, "Wan DiT (high-noise expert, or the only DiT)", required=True),
@@ -66,10 +53,7 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
             PipeConfigSpec("vae", dict, None, "Wan causal-3D VAE", required=True),
             PipeConfigSpec("loras_high", list, [], "LoRAs for the high-noise expert (or the only DiT); busts only that DiT's cache", required=False),
             PipeConfigSpec("loras_low", list, [], "LoRAs for the low-noise expert (Wan 2.2 pairs ship separate high/low files)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

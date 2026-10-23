@@ -1,4 +1,5 @@
 import { writable, get } from 'svelte/store';
+import { jsonEqual } from '$lib/utils/equal';
 import { browser } from '$app/environment';
 import { api } from '$lib/services/api/index';
 import { storage } from '$lib/utils/storage';
@@ -135,7 +136,7 @@ export function canAddAccount(userId?: string): boolean {
 export function refreshExpiry(now: number = Date.now()): void {
 	const before = get(registryStore);
 	const next = normalizeRegistry(before, now);
-	if (JSON.stringify(next) === JSON.stringify(before)) return;
+	if (jsonEqual(next, before)) return;
 	const keptIds = new Set(next.accounts.map((a) => a.userId));
 	for (const account of before.accounts) {
 		if (!keptIds.has(account.userId)) removeIdentityKeys(account.userId);

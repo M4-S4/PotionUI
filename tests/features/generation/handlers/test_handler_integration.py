@@ -2,7 +2,6 @@
 Comprehensive integration tests for handler system.
 
 Tests cover:
-- Handler can_handle() logic
 - Cross-handler integration
 - File saving with user_id
 - Metadata propagation
@@ -19,11 +18,6 @@ from src.features.generation.handlers.image_handler import ImageGenerationOutput
 from src.features.generation.handlers.video_handler import VideoGenerationOutputHandler
 from src.features.generation.handlers.gallery_handler import GalleryGenerationOutputHandler
 from src.features.generation.handlers.param_handler import ParamGenerationOutputHandler
-from src.features.generation.handlers.artifact_handlers import (
-    SeedGenerationOutputHandler,
-    ModelsGenerationOutputHandler,
-    ProgressGenerationOutputHandler
-)
 from src.pipelines.outputs import (
     ImageGenerationOutput,
     VideoGenerationOutput,
@@ -40,23 +34,6 @@ from pathlib import Path
 
 class TestImageHandlerIntegration:
     """Integration tests for image handler."""
-
-    def test_image_handler_can_handle(self):
-        """Test image handler can_handle logic."""
-        handler = ImageGenerationOutputHandler('gen_123', 'user_456')
-
-        image = Image.new('RGB', (100, 100))
-        output = ImageGenerationOutput(image=image)
-
-        assert handler.can_handle(output) is True
-
-    def test_image_handler_rejects_other_outputs(self):
-        """Test image handler rejects non-image outputs."""
-        handler = ImageGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ParamGenerationOutput(name='test', values=[1, 2])
-
-        assert handler.can_handle(output) is False
 
     @patch('src.features.generation.handlers.image_handler.generation_repo')
     @patch('src.features.generation.handlers.image_handler.os')
@@ -108,16 +85,6 @@ class TestImageHandlerIntegration:
 class TestGalleryHandlerIntegration:
     """Integration tests for gallery handler."""
 
-    def test_gallery_handler_can_handle(self):
-        """Test gallery handler can_handle logic."""
-        handler = GalleryGenerationOutputHandler('gen_123', 'user_456')
-
-        image = Image.new('RGB', (50, 50))
-        image_output = ImageGenerationOutput(image=image)
-        output = GalleryGenerationOutput(images=[image_output])
-
-        assert handler.can_handle(output) is True
-
     @patch('src.features.generation.handlers.image_handler.generation_repo')
     @patch('src.features.generation.handlers.image_handler.os')
     @patch('src.platform.filesystem.file_store.FileStore')
@@ -163,14 +130,6 @@ class TestGalleryHandlerIntegration:
 class TestParamHandlerIntegration:
     """Integration tests for param handler."""
 
-    def test_param_handler_can_handle(self):
-        """Test param handler can_handle logic."""
-        handler = ParamGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ParamGenerationOutput(name='seed', values=[12345, 67890])
-
-        assert handler.can_handle(output) is True
-
     @patch('src.features.generation.parameter_repository.generation_parameter_repo')
     def test_param_handler_processes_params(self, mock_param_repo):
         """Test param handler processes parameters correctly."""
@@ -190,94 +149,6 @@ class TestParamHandlerIntegration:
         assert result['processed'] is True
         assert result['parameter_name'] == 'cfg_scale'
         assert result['value_count'] == 3
-
-
-class TestSeedHandlerIntegration:
-    """Integration tests for seed handler."""
-
-    def test_seed_handler_can_handle(self):
-        """Test seed handler can_handle logic."""
-        handler = SeedGenerationOutputHandler('gen_123', 'user_456')
-
-        output = SeedGenerationOutput(index=0, seed=12345)
-
-        assert handler.can_handle(output) is True
-
-    def test_seed_handler_processes_seed(self):
-        """Test seed handler processes seed correctly."""
-        handler = SeedGenerationOutputHandler('gen_123', 'user_456')
-
-        output = SeedGenerationOutput(index=2, seed=98765)
-
-        result = handler.handle(output)
-
-        assert result['processed'] is True
-        assert result['seed'] == 98765
-        assert result['index'] == 2
-
-
-class TestModelsHandlerIntegration:
-    """Integration tests for models handler."""
-
-    def test_models_handler_can_handle(self):
-        """Test models handler can_handle logic."""
-        handler = ModelsGenerationOutputHandler('gen_123', 'user_456')
-
-        model = ModelGenerationOutput(name='test_model', type='checkpoint')
-        output = ModelsGenerationOutput(models=[model])
-
-        assert handler.can_handle(output) is True
-
-    def test_models_handler_processes_models(self):
-        """Test models handler processes models correctly."""
-        handler = ModelsGenerationOutputHandler('gen_123', 'user_456')
-
-        models = [
-            ModelGenerationOutput(name='checkpoint1', type='checkpoint', weight=1.0),
-            ModelGenerationOutput(name='lora1', type='lora', weight=0.8),
-            ModelGenerationOutput(name='lora2', type='lora', weight=0.6)
-        ]
-        output = ModelsGenerationOutput(models=models)
-
-        result = handler.handle(output)
-
-        # ModelsGenerationOutputHandler is transport-only, doesn't return model_count
-        assert result['processed'] is True
-        assert result['handler'] == 'ModelsGenerationOutputHandler'
-
-
-class TestProgressHandlerIntegration:
-    """Integration tests for progress handler."""
-
-    def test_progress_handler_can_handle(self):
-        """Test progress handler can_handle logic."""
-        handler = ProgressGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ProgressGenerationOutput(
-            pipe_id=2,
-            state='Generating',
-            progress=Progress(current=5, max=10)
-        )
-
-        assert handler.can_handle(output) is True
-
-    def test_progress_handler_processes_progress(self):
-        """Test progress handler processes progress correctly."""
-        handler = ProgressGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ProgressGenerationOutput(
-            pipe_id=3,
-            pipe_name='generator',
-            state='Processing',
-            title='Generating Images',
-            progress=Progress(current=7, max=10)
-        )
-
-        result = handler.handle(output)
-
-        # ProgressGenerationOutputHandler is transport-only, doesn't return state
-        assert result['processed'] is True
-        assert result['handler'] == 'ProgressGenerationOutputHandler'
 
 
 class TestUserIdPropagation:
@@ -322,8 +193,6 @@ class TestErrorHandling:
     def test_handler_error_returns_error_metadata(self):
         """Test that handler errors are captured in metadata."""
         class FailingHandler(BaseGenerationOutputHandler):
-            def can_handle(self, output):
-                return True
 
             def handle(self, output):
                 raise Exception("Handler processing failed")

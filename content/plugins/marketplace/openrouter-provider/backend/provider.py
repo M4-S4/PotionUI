@@ -52,8 +52,7 @@ class OpenRouterProvider(CloudProvider):
     label: ClassVar[str] = "OpenRouter"
     config_class: ClassVar[type[CloudBackendConfig]] = OpenRouterConfig
     data_notice: ClassVar[str] = DATA_NOTICE
-    supports_cancel: ClassVar[bool] = False
-    idempotent_submit: ClassVar[bool] = False
+    credits_hint: ClassVar[str] = "An administrator can add credits at openrouter.ai."
     default_base_url: ClassVar[str] = DEFAULT_BASE_URL
     catalog_file: ClassVar[Path] = SUGGESTIONS_FILE
 
@@ -77,26 +76,16 @@ class OpenRouterProvider(CloudProvider):
         metadata = error.get("metadata") if isinstance(error.get("metadata"), dict) else {}
         message = str(error.get("message") or "")[:300]
         retry_after = parse_retry_after(headers.get("retry-after"))
-        if status == 402:
+        reasons = metadata.get("reasons")
+        if status == 403 and reasons:
+            listed = ", ".join(str(reason) for reason in reasons) if isinstance(reasons, list) else str(reasons)
+            facts = [f"reasons: {listed}"]
+            for label, field in (("provider", "provider_name"), ("model", "model_slug")):
+                if metadata.get(field):
+                    facts.append(f"{label}: {metadata[field]}")
             return CloudError(
-                "credits", "The OpenRouter account is out of credits. An administrator can add credits at openrouter.ai.",
-                detail=f"HTTP 402: {message}", retry_after_s=retry_after,
-            )
-        if status == 403:
-            reasons = metadata.get("reasons")
-            if reasons:
-                listed = ", ".join(str(reason) for reason in reasons) if isinstance(reasons, list) else str(reasons)
-                facts = [f"reasons: {listed}"]
-                for label, field in (("provider", "provider_name"), ("model", "model_slug")):
-                    if metadata.get(field):
-                        facts.append(f"{label}: {metadata[field]}")
-                return CloudError(
-                    "refused", "The model's content filter refused this request. Try a different prompt or picture.",
-                    detail="moderation refused (" + "; ".join(facts) + ")",
-                )
-            return CloudError(
-                "refused", "OpenRouter refused this request. The key may not be allowed to use this model.",
-                detail=f"HTTP 403: {message}",
+                "refused", "The model's content filter refused this request. Try a different prompt or picture.",
+                detail="moderation refused (" + "; ".join(facts) + ")",
             )
         if status == 502:
             return CloudError(
@@ -108,15 +97,7 @@ class OpenRouterProvider(CloudProvider):
                 "unavailable", "No provider could serve this request with the current routing settings.",
                 detail=f"HTTP 503: {message}", retry_after_s=retry_after,
             )
-        if status in (404, 405):
-            return CloudError(
-                "invalid_request", "OpenRouter does not offer this.", detail=f"HTTP {status}: {message}",
-            )
-        if status in (400, 422):
-            return CloudError(
-                "invalid_request", "OpenRouter rejected the request settings.", detail=f"HTTP {status}: {message}",
-            )
-        return None
+        return super().map_error(status, headers, body)
 
     async def _get(self, target: str) -> Any:
         return await self.http.request_json("GET", target, headers=self.attribution_headers())
@@ -162,7 +143,7 @@ class OpenRouterProvider(CloudProvider):
     async def submit_video(self, request: CloudRequest) -> CloudJob:
         body = await asyncio.to_thread(
             build_video_body, request, self.config.upstream_list(),
-            request.user_ref if self.config.send_user_hash else None,
+            request.user_ref or None,
         )
         payload = await self.http.request_json(
             "POST", "/videos", json=body, headers=self.attribution_headers(),
@@ -185,7 +166,7 @@ class OpenRouterProvider(CloudProvider):
         if is_video_spec(request.model):
             return await self.submit_video(request)
         body = await asyncio.to_thread(
-            build_body, request, self.config.upstream_list(), request.user_ref if self.config.send_user_hash else None
+            build_body, request, self.config.upstream_list(), request.user_ref or None
         )
         payload = await self.http.request_json(
             "POST", "/images", json=body, headers=self.attribution_headers(),
@@ -195,11 +176,6 @@ class OpenRouterProvider(CloudProvider):
         job_id = result.provider_job_id or f"openrouter-{request.client_reference or 'image'}"
         return CloudJob(job_id=job_id, result=result)
 
-    async def check(self) -> CloudHealth:
-        try:
-            await self._get("/images/models")
-        except CloudError as error:
-            if error.kind in ("auth", "credits", "refused"):
-                return CloudHealth(ok=False, message=error.user_message)
-            raise
+    async def probe(self) -> CloudHealth:
+        await self._get("/images/models")
         return CloudHealth(ok=True)

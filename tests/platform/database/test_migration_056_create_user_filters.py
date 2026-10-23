@@ -1,38 +1,12 @@
-import importlib.util
 import sqlite3
-import sys
-import tempfile
-import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+class TestMigration056CreateUserFilters(MigrationCase):
+    MIGRATION = "056_create_user_filters"
 
-
-class TestMigration056CreateUserFilters(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("056_create_user_filters", self.db)
+    def pre_state(self):
         with self.db.get_cursor() as cursor:
             cursor.execute("PRAGMA foreign_keys = ON")
             for user_id in ("u1", "u2"):
@@ -40,9 +14,6 @@ class TestMigration056CreateUserFilters(unittest.TestCase):
                     "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
                     (user_id, user_id, f"{user_id}@example.test"),
                 )
-
-    def tearDown(self):
-        Database._instance = None
 
     def _insert(self, filter_id, owner="u1", name="Ember"):
         with self.db.get_cursor() as cursor:
@@ -124,11 +95,3 @@ class TestMigration056CreateUserFilters(unittest.TestCase):
 
         with self.assertRaises(sqlite3.IntegrityError):
             self._insert("f2")
-
-    def test_down_drops_the_table_and_its_indexes(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        assert "user_filters" not in self._names("table")
-        assert not {"idx_user_filters_owner_name", "idx_user_filters_owner"} & self._names("index")

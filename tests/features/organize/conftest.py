@@ -17,6 +17,7 @@ from src.features.users.repository import UserRepository
 from src.platform.plugins.organize import OrganizeRegistry
 from src.platform.security.user import AccountType, User
 from src.platform.util.ids import generate_ulid
+from tests.fixtures.seed import seed_user
 
 
 class InlineExecutor:
@@ -75,10 +76,7 @@ class Seeder:
             cursor.execute(sql, params)
 
     def user(self, user_id, admin=False):
-        self._exec(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', ?)",
-            (user_id, user_id, f"{user_id}@example.test", "ADMIN" if admin else "USER"),
-        )
+        seed_user(self.db, user_id, account_type="ADMIN" if admin else "USER")
         return User(username=user_id, email=f"{user_id}@example.test", password_hash="x",
                     account_type=AccountType.ADMIN if admin else AccountType.USER, id=user_id)
 

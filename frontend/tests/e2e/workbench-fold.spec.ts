@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken } from './helpers';
+import { loginAsOwner, ownerToken, apiGet, apiPost } from './helpers';
+import { chooseLayout, presetOption } from './presetPreamble';
 
 // Folding the docked workbench pane (`toggle_workbench_panel` keybinding,
 // default `e`) mirrors the existing left generation-form fold
@@ -17,25 +18,9 @@ import { loginAsOwner, ownerToken } from './helpers';
 // AND mode are selected, so this installs and selects a real preset first,
 // the same way floating-workbench.spec.ts does.
 
-const JOURNEY = 'workbench-fold';
 // The collapsed rail is a header-style strip (w-8, 32px) with a label + chevron,
 // wide enough to click but still unambiguously a rail rather than an expanded pane.
 const RAIL_MAX_WIDTH_PX = 40;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('folding the docked workbench pane persists, frees space for prompts, and coexists with the floating overlay', async ({ page }) => {
 	await loginAsOwner(page);
@@ -68,15 +53,13 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
 
-	// Switch to the three-pane layout so the fold is the vertical rail.
-	await page.getByRole('button', { name: 'More view options' }).click();
-	await page.getByRole('option', { name: /Three panes/ }).click();
+	await chooseLayout(page, 'Three panes');
 
 	const workbenchPane = page.locator('[data-testid="workbench-pane"]');
 	const promptsPane = page.locator('[data-testid="prompts-pane"]');
@@ -95,6 +78,10 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 	const collapsedBox = await workbenchPane.boundingBox();
 	expect(collapsedBox).not.toBeNull();
 	expect(collapsedBox!.width).toBeLessThanOrEqual(RAIL_MAX_WIDTH_PX);
+	const railLabelSize = await page
+		.locator('.workbench-rail-label')
+		.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+	expect(railLabelSize).toBeGreaterThanOrEqual(12);
 
 	const promptsBoxAfter = await promptsPane.boundingBox();
 	expect(promptsBoxAfter).not.toBeNull();
@@ -103,7 +90,7 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 	// Reload: the fold is persisted per tab, so it survives.
 	await page.waitForTimeout(600); // let the debounced localStorage save flush
 	await page.reload();
-	await expect(page.getByRole('button', { name: 'More view options' })).toBeVisible({ timeout: 20000 });
+	await expect(page.getByTestId('context-bar')).toBeVisible({ timeout: 20000 });
 	await expect(workbenchPane).toBeVisible({ timeout: 10000 });
 	const reloadedBox = await workbenchPane.boundingBox();
 	expect(reloadedBox).not.toBeNull();

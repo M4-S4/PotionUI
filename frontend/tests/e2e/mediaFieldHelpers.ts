@@ -32,3 +32,21 @@ export async function pickFromSourceMenu(page: Page, scope: Locator, source: str
 	await expect(item).toBeVisible();
 	await item.click();
 }
+
+export function crc32(buf: Buffer): number {
+	let c = ~0;
+	for (const b of buf) {
+		c ^= b;
+		for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+	}
+	return ~c >>> 0;
+}
+
+export function chunk(type: string, data: Buffer): Buffer {
+	const head = Buffer.alloc(4);
+	head.writeUInt32BE(data.length);
+	const body = Buffer.concat([Buffer.from(type), data]);
+	const tail = Buffer.alloc(4);
+	tail.writeUInt32BE(crc32(body));
+	return Buffer.concat([head, body, tail]);
+}

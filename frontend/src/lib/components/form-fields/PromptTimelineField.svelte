@@ -1,5 +1,7 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { chipIndicatorColor } from '$lib/utils/chipIndicatorColor';
+	import { jsonEqual } from '$lib/utils/equal';
 	import {
 		sortByStart,
 		buildTicks,
@@ -71,7 +73,7 @@
 		if (
 			next.duration !== tv.duration ||
 			next.fps !== tv.fps ||
-			JSON.stringify(next.segments) !== JSON.stringify(tv.segments)
+			!jsonEqual(next.segments, tv.segments)
 		) {
 			tv = next;
 		}
@@ -234,9 +236,9 @@
 		<div class="pt-toolbar-right">
 			<!-- Zoom controls -->
 			<div class="pt-zoom">
-				<button type="button" class="pt-zoom-btn" on:click={zoomOut} title="Zoom out" aria-label="Zoom out">−</button>
+				<button type="button" class="pt-zoom-btn" on:click={zoomOut} use:tooltip={'Zoom out'} aria-label="Zoom out">−</button>
 				<span class="pt-zoom-label">{zoom}px/s</span>
-				<button type="button" class="pt-zoom-btn" on:click={zoomIn} title="Zoom in" aria-label="Zoom in">+</button>
+				<button type="button" class="pt-zoom-btn" on:click={zoomIn} use:tooltip={'Zoom in'} aria-label="Zoom in">+</button>
 			</div>
 			<!-- Add segment -->
 			<button type="button" class="pt-add-btn" on:click={addSegment} aria-label="Add segment">
@@ -264,7 +266,7 @@
 				</div>
 			{/each}
 			<!-- Duration end marker -->
-			<div class="pt-end-marker" style="left: {tv.duration * zoom}px;" title="End: {tv.duration}s"></div>
+			<div class="pt-end-marker" style="left: {tv.duration * zoom}px;" use:tooltip={`End: ${tv.duration}s`}></div>
 		</div>
 
 		<!-- Track lane -->
@@ -294,7 +296,7 @@
 					on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { selectedId = seg.id; e.preventDefault(); } }}
 					aria-label="Segment {colorIdx + 1}: {seg.text || 'empty'}"
 					aria-pressed={isSelected}
-					title="{seg.start.toFixed(2)}s – {seg.end.toFixed(2)}s"
+					use:tooltip={`${seg.start.toFixed(2)}s – ${seg.end.toFixed(2)}s`}
 				>
 					<!-- Left trim handle -->
 					<!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -352,7 +354,7 @@
 					class="pt-delete-btn"
 					on:click={deleteSelected}
 					aria-label="Delete segment"
-					title="Delete segment"
+					use:tooltip={'Delete segment'}
 				>
 					<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
 						<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

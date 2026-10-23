@@ -3,7 +3,7 @@ User Group DTOs for request/response models.
 """
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 # ========== Request DTOs ==========

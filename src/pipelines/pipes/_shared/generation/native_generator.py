@@ -42,10 +42,6 @@ def native_generator_class(family: str) -> type[NativeGenerator]:
 def build_native_generator(bundle, *, device: str = "cuda") -> NativeGenerator:
     """Build the family-correct generator for a loaded model ``bundle``.
 
-    ``bundle`` is any family model bundle exposing ``.dit`` / ``.te_encoder`` /
-    ``.vae`` / ``.spec`` (e.g. ``AnimaModelBundle``) -- the same shape the generator
-    pipes consume. The device plan is sized from the DiT so placement/eviction work
-    identically to the generator path.
     """
     device_plan = make_device_plan(preferred=device, dit_gb=bundle.dit.estimated_vram_gb)
     cls = native_generator_class(bundle.spec.family)

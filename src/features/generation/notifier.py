@@ -80,6 +80,23 @@ class GenerationNotifier:
         except Exception as e:
             logger.error(f"Failed to raise generation-failure notification for {generation_id}: {e}")
 
+    def notify_warning(self, generation_id: str, user_id: Optional[str], message: str) -> None:
+        try:
+            from src.platform.plugins.runtime_registries import get_global_notification_manager
+
+            get_global_notification_manager()(
+                level="warning",
+                title="Check your prompt",
+                message=message,
+                category="generation",
+                type="generation.warning",
+                user_id=user_id,
+                metadata={"generation_id": generation_id},
+                show_toast=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to raise generation warning for {generation_id}: {e}")
+
     def notify_completion(
         self,
         generation_id: str,

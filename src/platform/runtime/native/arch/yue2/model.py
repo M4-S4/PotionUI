@@ -18,58 +18,10 @@ import torch.nn.functional as F
 
 from ...attention import grouped_attention
 from ...base import NativeArchModule
-from ...text_encoders._functional import rms_norm
+from ...text_encoders._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device
 from .config import YuE2Config
 
 _TIMESTEP_FREQ_DIM = 256
-
-
-class RMSNorm(nn.Module):
-    """RMS norm with an owned weight."""
-
-    def __init__(self, dim: int, eps: float, device=None, dtype=None) -> None:
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.empty(dim, device=device, dtype=dtype))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return rms_norm(x, self.weight, self.eps)
-
-
-class GatedMLP(nn.Module):
-    """SwiGLU MLP shared (same math, independent weights) by every AR/NAR path."""
-
-    def __init__(self, hidden_size: int, intermediate_size: int, operations, device=None, dtype=None) -> None:
-        super().__init__()
-        self.gate_proj = operations.Linear(hidden_size, intermediate_size, bias=False, device=device, dtype=dtype)
-        self.up_proj = operations.Linear(hidden_size, intermediate_size, bias=False, device=device, dtype=dtype)
-        self.down_proj = operations.Linear(intermediate_size, hidden_size, bias=False, device=device, dtype=dtype)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
-
-
-def _rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2:]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def _apply_rope(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
-    org = q.dtype
-    q_out = (q * cos) + (_rotate_half(q) * sin)
-    k_out = (k * cos) + (_rotate_half(k) * sin)
-    return q_out.to(org), k_out.to(org)
-
-
-def _module_device(module: nn.Module) -> torch.device:
-    for p in module.parameters():
-        if p is not None:
-            return p.device
-    for b in module.buffers():
-        if b is not None:
-            return b.device
-    raise RuntimeError(f"{module.__class__.__name__} has no tensors to read a device from")
 
 
 class Attention(nn.Module):
@@ -95,7 +47,7 @@ class Attention(nn.Module):
         k = self.k_norm(self.k_proj(x).view(b, s, self.num_kv_heads, self.head_dim))
         v = self.v_proj(x).view(b, s, self.num_kv_heads, self.head_dim)
         rc, rs = cos[None, :, None, :].to(q.dtype), sin[None, :, None, :].to(q.dtype)
-        q, k = _apply_rope(q, k, rc, rs)
+        q, k = apply_rope_qk(q, k, rc, rs)
         return q, k, v
 
     def _attend(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
@@ -247,7 +199,7 @@ class Backbone(nn.Module):
         )
 
     def recompute_inv_freq(self) -> None:
-        device = _module_device(self)
+        device = module_device(self)
         self.inv_freq = 1.0 / (
             self.cfg.rope_theta ** (torch.arange(0, self.cfg.head_dim, 2, dtype=torch.float32, device=device) / self.cfg.head_dim)
         )
@@ -280,7 +232,7 @@ class YuE2Model(NativeArchModule):
         self.latent_pos_embed.recompute(self.lm_head.weight.device)
 
     def new_kv_cache(self, max_len: int, batch: int = 1, device=None, dtype: torch.dtype = torch.bfloat16) -> YuE2KVCache:
-        device = device or _module_device(self)
+        device = device or module_device(self)
         keys = [
             torch.zeros(batch, self.cfg.num_key_value_heads, max_len, self.cfg.head_dim, device=device, dtype=dtype)
             for _ in range(self.cfg.num_hidden_layers)

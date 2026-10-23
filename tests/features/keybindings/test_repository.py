@@ -167,61 +167,6 @@ class TestKeybindingRepository(PersistenceTestBase):
 
     # ========== Plugin Registration Tests ==========
 
-    def test_register_default(self):
-        """Test registering a new default keybinding"""
-        self.repo.register_default(
-            id='plugin_action',
-            key='p',
-            modifiers='ctrl+shift',
-            label='Plugin Action',
-            category='plugins',
-            context='global',
-            description='A plugin action',
-            source='my-plugin',
-            sort_order=100
-        )
-        defaults = self.repo.get_all_defaults()
-        plugin_action = next((d for d in defaults if d.id == 'plugin_action'), None)
-        self.assertIsNotNone(plugin_action)
-        self.assertEqual(plugin_action.key, 'p')
-        self.assertEqual(plugin_action.modifiers, 'ctrl+shift')
-        self.assertEqual(plugin_action.source, 'my-plugin')
-
-    def test_register_default_replaces_existing(self):
-        """Test that registering with same id replaces the existing one"""
-        self.repo.register_default(
-            id='show_help',
-            key='F1',
-            modifiers='',
-            label='Help (Replaced)',
-            source='plugin-override'
-        )
-        defaults = self.repo.get_all_defaults()
-        show_help = next(d for d in defaults if d.id == 'show_help')
-        self.assertEqual(show_help.key, 'F1')
-        self.assertEqual(show_help.label, 'Help (Replaced)')
-        self.assertEqual(show_help.source, 'plugin-override')
-
-    def test_unregister_defaults_by_source(self):
-        """Test unregistering all defaults from a specific source"""
-        self.repo.register_default(id='pa1', key='a', label='PA1', source='test-plugin')
-        self.repo.register_default(id='pa2', key='b', label='PA2', source='test-plugin')
-        self.repo.register_default(id='pa3', key='c', label='PA3', source='other-plugin')
-
-        count = self.repo.unregister_defaults_by_source('test-plugin')
-        self.assertEqual(count, 2)
-
-        defaults = self.repo.get_all_defaults()
-        ids = [d.id for d in defaults]
-        self.assertNotIn('pa1', ids)
-        self.assertNotIn('pa2', ids)
-        self.assertIn('pa3', ids)
-
-    def test_unregister_defaults_by_source_nonexistent(self):
-        """Test unregistering from a source with no defaults"""
-        count = self.repo.unregister_defaults_by_source('nonexistent-plugin')
-        self.assertEqual(count, 0)
-
     # ========== User Isolation Tests ==========
 
     def test_user_overrides_isolated_per_user(self):

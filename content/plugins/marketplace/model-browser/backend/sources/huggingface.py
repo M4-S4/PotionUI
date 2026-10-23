@@ -1,12 +1,8 @@
 import asyncio
 import hashlib
-import html
 import logging
-import math
 import posixpath
 import re
-import threading
-from collections import OrderedDict
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -32,6 +28,12 @@ from ..schema import (
 from ..security import sanitize_html
 from ..type_mapping import WEIGHT_EXTENSIONS, huggingface_mb_type
 from .base import SearchQuery
+from .coerce import clean_list as _clean_list
+from .coerce import int_value as _int
+from .coerce import sha256_hex
+from .coerce import strings as _strings
+from .coerce import text as _text
+from .markdown import RenderMemo, convert_markdown, paragraphs_html
 
 logger = logging.getLogger("plugins.model-browser")
 
@@ -108,14 +110,12 @@ _REPO_ID = re.compile(rf"(?:{_NAME}/)?{_NAME}")
 _NAMESPACED_REPO_ID = re.compile(rf"{_NAME}/{_NAME}")
 _ACCOUNT = re.compile(_NAME)
 _BASE_MODEL = re.compile(r"[A-Za-z0-9_.\-/:]{1,200}")
-_SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 _URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 _LINK_ENTRY = re.compile(r"<([^>]*)>((?:\s*;\s*[^;,]*)*)")
 _LINK_REL = re.compile(r'rel\s*=\s*"?([^";,]*)"?', re.I)
 _FRONTMATTER = re.compile(
     r"\A(?:\N{ZERO WIDTH NO-BREAK SPACE})?---[ \t]*\r?\n(?:.*?\r?\n)?(?:---|\.\.\.)[ \t]*(?:\r?\n|\Z)", re.S
 )
-_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
 _MARKDOWN_IMAGE = re.compile(r"!\[[^\]\n]{0,500}\]\(\s*<?([^\s)>]+)")
 _BLOB_PATH = re.compile(r"^/([^/]+/[^/]+)/blob/(.+)$")
 _TOKEN_SPLIT = re.compile(r"[^a-z0-9]+")
@@ -197,10 +197,6 @@ def next_cursor_from_link(link: Optional[str]) -> Optional[str]:
     return None
 
 
-def _clean_list(values: Iterable[Any]) -> List[str]:
-    return sorted({str(value).strip() for value in values or () if str(value).strip()})
-
-
 def _sort_value(sort: Optional[str]) -> str:
     key = sort or DEFAULT_SORT
     try:
@@ -231,28 +227,6 @@ def base_model_params(base_models: Iterable[str]) -> List[Tuple[str, str]]:
             raise SourceInvalidRequest(f"Invalid Hugging Face base model {name[:40]!r}")
         params.append(("filter", f"base_model:{name}"))
     return params
-
-
-def _int(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and math.isfinite(value):
-        return int(value)
-    return None
-
-
-def _text(value: Any) -> Optional[str]:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
-def _strings(values: Any) -> List[str]:
-    if not isinstance(values, list):
-        return []
-    return list(dict.fromkeys(value.strip() for value in values if isinstance(value, str) and value.strip()))
 
 
 def _card(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -462,7 +436,7 @@ def weight_files(repo: str, entries: Iterable[Any]) -> List[File]:
                 id=path,
                 name=path,
                 size_bytes=_entry_size(entry),
-                sha256=oid.lower() if isinstance(oid, str) and _SHA256.fullmatch(oid) else None,
+                sha256=sha256_hex(oid),
                 format=_FORMATS.get(extension),
                 precision=file_precision(path),
                 file_type=file_type_from_path(path),
@@ -520,17 +494,7 @@ def license_from(raw: Dict[str, Any], repo: str, file_paths: Iterable[str] = ())
     return License(summary=summary, url=license_url(repo, card.get("license_link"), file_paths))
 
 
-MARKDOWN_EXTRAS: Dict[str, Any] = {
-    "fenced-code-blocks": None,
-    "highlightjs-lang": None,
-    "tables": None,
-    "strike": None,
-    "cuddled-lists": None,
-    "middle-word-em": False,
-}
-_RENDER_MEMO_SIZE = 16
-_render_memo: "OrderedDict[str, Tuple[str, Tuple[str, ...]]]" = OrderedDict()
-_render_lock = threading.Lock()
+_render_memo: "RenderMemo[Tuple[str, Tuple[str, ...]]]" = RenderMemo(16)
 
 
 def strip_frontmatter(text: str) -> str:
@@ -559,9 +523,7 @@ def _img_srcs(markup: str) -> List[str]:
 
 
 def _plain_render(text: str) -> Tuple[str, List[str]]:
-    paragraphs = [part.strip() for part in _PARAGRAPH_BREAK.split(text) if part.strip()]
-    markup = "".join(f"<p>{html.escape(part)}</p>" for part in paragraphs)
-    return markup, [match.group(1) for match in _MARKDOWN_IMAGE.finditer(text)] + _img_srcs(text)
+    return paragraphs_html(text), [match.group(1) for match in _MARKDOWN_IMAGE.finditer(text)] + _img_srcs(text)
 
 
 _INDENTED_HEADING = re.compile(r"^ {1,3}(#{1,6}(?:[ \t]|$))")
@@ -587,30 +549,19 @@ def _outdent_headings(text: str) -> str:
 
 def _render(text: str) -> Tuple[str, List[str]]:
     text = _outdent_headings(text)
-    try:
-        import markdown2
-    except ImportError:
-        return _plain_render(text)
-    try:
-        rendered = str(markdown2.markdown(text, extras=dict(MARKDOWN_EXTRAS)))
-    except Exception:  # noqa: BLE001
-        logger.warning("[MODEL-BROWSER] Hugging Face: could not convert a README; showing it as text", exc_info=True)
+    rendered = convert_markdown(text, "Hugging Face: could not convert a README")
+    if rendered is None:
         return _plain_render(text)
     return sanitize_html(rendered), _img_srcs(rendered)
 
 
-def render_markdown(text: str) -> Tuple[str, List[str]]:
-    key = hashlib.md5(text.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
-    with _render_lock:
-        hit = _render_memo.get(key)
-        if hit is not None:
-            _render_memo.move_to_end(key)
-            return hit[0], list(hit[1])
+def _render_frozen(text: str) -> Tuple[str, Tuple[str, ...]]:
     markup, srcs = _render(text)
-    with _render_lock:
-        _render_memo[key] = (markup, tuple(srcs))
-        while len(_render_memo) > _RENDER_MEMO_SIZE:
-            _render_memo.popitem(last=False)
+    return markup, tuple(srcs)
+
+
+def render_markdown(text: str) -> Tuple[str, List[str]]:
+    markup, srcs = _render_memo.render(text, _render_frozen)
     return markup, list(srcs)
 
 

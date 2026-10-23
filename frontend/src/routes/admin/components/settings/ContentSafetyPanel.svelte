@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { DetailSection } from '$lib/components/detail';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { Alert, Badge, Button, SegmentedControl } from '$lib/components/ui';
 	import * as adminApi from '$lib/services/admin-api';
 	import { logger } from '$lib/utils/logger';
@@ -26,7 +27,9 @@
 	let statusError = $state(false);
 	let bannedText = $state(untrack(() => formatBannedWords(settings.content_banned_words)));
 	let testPrompt = $state('');
-	let poll: ReturnType<typeof setInterval> | null = null;
+	const poll = createVisiblePoll(() => {
+		if (status?.backfill.running || status?.tagger.downloading) return loadStatus();
+	}, 5000);
 
 	const policy = $derived<ContentPolicy>(
 		isContentPolicy(settings.content_policy_nsfw) ? settings.content_policy_nsfw : 'allowed'
@@ -77,13 +80,11 @@
 
 	onMount(() => {
 		void loadStatus();
-		poll = setInterval(() => {
-			if (status?.backfill.running || status?.tagger.downloading) void loadStatus();
-		}, 5000);
+		poll.start();
 	});
 
 	onDestroy(() => {
-		if (poll) clearInterval(poll);
+		poll.stop();
 	});
 
 	function onNumberInput(key: string, e: Event) {

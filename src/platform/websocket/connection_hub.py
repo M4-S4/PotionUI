@@ -1,37 +1,28 @@
 import json
-import logging
 from typing import Dict, List, Optional, Set
-from fastapi import WebSocket
 
-class ConnectionHub:
+from src.platform.websocket.base_connection_hub import BaseConnectionHub
+
+class ConnectionHub(BaseConnectionHub):
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}
+        super().__init__()
         self.generation_connections: Dict[str, List[str]] = {}  # generation_id -> [client_ids]
+        self._client_generations: Dict[str, Set[str]] = {}
         self.privileged_clients: Set[str] = set()
 
-    async def connect(self, websocket: WebSocket, client_id: str):
-        try:
-            logging.info(f"Attempting to accept WebSocket connection for client {client_id}")
-            await websocket.accept()
-            logging.info(f"WebSocket connection accepted for client {client_id}")
-            self.active_connections[client_id] = websocket
-            logging.info(f"Client {client_id} added to active connections. Total connections: {len(self.active_connections)}")
-            return True
-        except Exception as e:
-            logging.error(f"Failed to accept WebSocket connection for client {client_id}: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return False
-
     def disconnect(self, client_id: str):
-        if client_id in self.active_connections:
-            del self.active_connections[client_id]
+        super().disconnect(client_id)
         self.privileged_clients.discard(client_id)
 
         # Remove from generation connections
-        for clients in self.generation_connections.values():
+        for generation_id in self._client_generations.pop(client_id, ()):
+            clients = self.generation_connections.get(generation_id)
+            if clients is None:
+                continue
             if client_id in clients:
                 clients.remove(client_id)
+            if not clients:
+                del self.generation_connections[generation_id]
 
     async def subscribe_to_generation(self, client_id: str, generation_id: str, privileged: bool = False):
         # Verify client is in active connections
@@ -47,6 +38,7 @@ class ConnectionHub:
             self.generation_connections[generation_id] = []
         if client_id not in self.generation_connections[generation_id]:
             self.generation_connections[generation_id].append(client_id)
+        self._client_generations.setdefault(client_id, set()).add(generation_id)
         return True
 
     async def broadcast_to_generation(self, generation_id: str, message: dict, privileged_message: Optional[dict] = None):
@@ -82,11 +74,13 @@ class ConnectionHub:
         except Exception:
             return  # Cannot proceed if we can't create a valid JSON message
 
-        for client_id in client_ids:
-            if client_id in self.active_connections:
-                try:
-                    payload = privileged_json if privileged_json is not None and client_id in self.privileged_clients else json_message
-                    await self.active_connections[client_id].send_text(payload)
-                except Exception:
-                    # Connection is broken, remove it
-                    self.disconnect(client_id)
+        targets = {
+            client_id: self.active_connections[client_id]
+            for client_id in client_ids
+            if client_id in self.active_connections
+        }
+        await self._send_all(
+            targets,
+            lambda client_id: privileged_json if privileged_json is not None and client_id in self.privileged_clients else json_message,
+            "send generation update",
+        )

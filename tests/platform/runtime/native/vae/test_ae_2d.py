@@ -141,12 +141,6 @@ def test_bn_pixel_unshuffle_matches_the_reference_reshape_permute():
     assert torch.equal(torch.nn.functional.pixel_shuffle(packed, 2), reference_back)
 
 
-def test_post_load_is_safe_noop():
-    config = _tiny_config(vae_type="flux_ae", latent=16, has_quant_conv=False, has_batchnorm=False)
-    module = AutoEncoder2D.from_config(config, disable_weight_init)
-    module.post_load()  # must not raise; documented no-op for this arch
-
-
 @pytest.mark.requires_models
 @pytest.mark.skipif(not _FLUX_AE_PATH.exists(), reason="models/vae/ae.sft not present")
 def test_real_flux_ae_load_and_roundtrip():

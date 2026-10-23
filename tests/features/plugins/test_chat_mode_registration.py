@@ -244,6 +244,22 @@ class TestPluginChatExtensionRegistration(unittest.TestCase):
         self.assertFalse(self.registry.enable_plugin('escape-plugin'))
         self.assertIsNone(self.chat_mode_registry.get('escape'))
 
+    def test_prompt_file_in_a_sibling_directory_sharing_the_plugin_prefix_is_rejected(self):
+        self._create_plugin(
+            'prefix-plugin',
+            **self._full_sections(
+                mode_id='prefix',
+                prompt_source={'system_prompt_file': '../prefix-plugin-evil/mode.md'},
+            ),
+        )
+        evil_dir = self.marketplace_dir / 'prefix-plugin-evil'
+        evil_dir.mkdir()
+        (evil_dir / 'mode.md').write_text('stolen prompt', encoding='utf-8')
+
+        self.assertFalse(self.registry.enable_plugin('prefix-plugin'))
+        self.assertIn('escapes the plugin directory', self.registry.get_plugin_error('prefix-plugin'))
+        self.assertIsNone(self.chat_mode_registry.get('prefix'))
+
     def test_sections_without_registries_fail_gracefully(self):
         bare_registry = PluginRegistry(str(self.marketplace_dir), str(self.local_dir))
         self._create_plugin('needs-registries', tools=[{'class': 'chat_tools:PluginTool'}])

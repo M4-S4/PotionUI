@@ -27,15 +27,17 @@ class RecipeSlotVariants:
         download_queue: Any = None,
         gpu_profile_provider: Optional[Callable[[], GpuProfile]] = None,
         provider_registry_factory: Any = None,
+        digests: Any = None,
     ):
         self.recipe_catalog = recipe_catalog
         self.model_repository = model_repository
+        self._digests = digests
         self.download_queue = download_queue
         self._gpu_profile_provider = gpu_profile_provider or detect_gpu_profile
         self._provider_registry_factory = provider_registry_factory
 
     def _slot_view(self, recipe: Recipe, artifact: RecipeArtifact, gpu: GpuProfile) -> Dict[str, Any]:
-        slot, _, _ = describe_slot(self.model_repository, artifact, gpu)
+        slot, _, _ = describe_slot(self.model_repository, artifact, gpu, None, self._digests, "background")
         ideal = choose_variant(artifact, gpu)
         slot["recipe_id"] = recipe.id
         slot["recipe_name"] = recipe.name
@@ -96,7 +98,7 @@ class RecipeSlotVariants:
         if self.download_queue is None:
             raise VariantDownloadError("no_download_queue", "The download queue is not available on this instance.")
         resolved = artifact.resolve(variant_id)
-        if find_artifact_model(self.model_repository, resolved) is not None:
+        if find_artifact_model(self.model_repository, resolved, None, self._digests, "background") is not None:
             raise VariantDownloadError("already_installed", "This variant is already installed.")
         url, note = resolve_download_url(resolved, self._get_provider_registry)
         if not url:

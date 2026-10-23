@@ -5,6 +5,7 @@ from src.features.cloud.contracts import CloudModelSpec
 from src.features.cloud.records import CloudCatalogEntry, CloudCatalogState
 from src.features.cloud.spec_codec import SPEC_VERSION, spec_to_json
 from src.platform.filesystem.model_types import CLOUD_MODEL_TYPE
+from src.platform.database import get_cursor
 
 _ENTRY_SELECT = (
     "SELECT c.*, m.id AS model_id FROM cloud_catalog c "
@@ -18,9 +19,7 @@ def _placeholders(values: Iterable) -> str:
 
 class CloudCatalogRepository:
     def upsert_discovered(self, backend_id: str, slug: str, spec: CloudModelSpec, now: str) -> bool:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT 1 FROM cloud_catalog WHERE backend_id = ? AND slug = ?",
                 (backend_id, slug),
@@ -54,11 +53,9 @@ class CloudCatalogRepository:
         return not existed
 
     def mark_missing(self, backend_id: str, seen_slugs: Iterable[str], now: str) -> list[str]:
-        from src.platform.database.database import db
-
         seen = list(seen_slugs)
         clause = f" AND slug NOT IN ({_placeholders(seen)})" if seen else ""
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT slug FROM cloud_catalog WHERE backend_id = ? AND missing_since IS NULL{clause}",
                 (backend_id, *seen),
@@ -72,9 +69,7 @@ class CloudCatalogRepository:
         return vanished
 
     def provider_ids(self, backend_id: str) -> dict[str, str]:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT slug, provider_model_id FROM cloud_catalog WHERE backend_id = ?",
                 (backend_id,),
@@ -84,9 +79,8 @@ class CloudCatalogRepository:
     def entries_for_slug(self, slug: str, backend_ids: list[str]) -> list[CloudCatalogEntry]:
         if not backend_ids:
             return []
-        from src.platform.database.database import db
 
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"{_ENTRY_SELECT} WHERE c.slug = ? AND c.enabled = 1 AND c.missing_since IS NULL "
                 f"AND c.backend_id IN ({_placeholders(backend_ids)})",
@@ -97,9 +91,8 @@ class CloudCatalogRepository:
     def get_many(self, backend_id: str, slugs: list[str]) -> list[CloudCatalogEntry]:
         if not slugs:
             return []
-        from src.platform.database.database import db
 
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"{_ENTRY_SELECT} WHERE c.backend_id = ? AND c.slug IN ({_placeholders(slugs)})",
                 (CLOUD_MODEL_TYPE, backend_id, *slugs),
@@ -107,10 +100,8 @@ class CloudCatalogRepository:
             return [CloudCatalogEntry.from_row(row) for row in cursor.fetchall()]
 
     def mark_suggested(self, backend_id: str, provider_model_ids: Iterable[str]) -> None:
-        from src.platform.database.database import db
-
         wanted = list(dict.fromkeys(provider_model_ids))
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("UPDATE cloud_catalog SET suggested = 0 WHERE backend_id = ?", (backend_id,))
             if wanted:
                 cursor.execute(
@@ -122,9 +113,8 @@ class CloudCatalogRepository:
     def model_ids_for_tasks(self, backend_ids: list[str], tasks: list[str]) -> list[str]:
         if not backend_ids or not tasks:
             return []
-        from src.platform.database.database import db
 
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT DISTINCT m.id AS id FROM cloud_catalog c "
                 "JOIN models m ON m.model_type = ? AND m.filename = c.slug "
@@ -135,9 +125,7 @@ class CloudCatalogRepository:
             return [row["id"] for row in cursor.fetchall()]
 
     def list_enabled(self, backend_id: str) -> list[CloudCatalogEntry]:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"{_ENTRY_SELECT} WHERE c.backend_id = ? AND c.enabled = 1 AND c.missing_since IS NULL "
                 "ORDER BY c.slug",
@@ -157,8 +145,6 @@ class CloudCatalogRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[CloudCatalogEntry], int]:
-        from src.platform.database.database import db
-
         where = ["c.backend_id = ?"]
         params: list = [backend_id]
         if task:
@@ -181,7 +167,7 @@ class CloudCatalogRepository:
             )
             params.extend([needle, needle, needle])
         clause = " AND ".join(where)
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) AS n FROM cloud_catalog c WHERE {clause}", params)
             total = cursor.fetchone()["n"]
             cursor.execute(
@@ -193,9 +179,8 @@ class CloudCatalogRepository:
     def set_enabled(self, backend_id: str, slugs: list[str], enabled: bool, now: str) -> list[str]:
         if not slugs:
             return []
-        from src.platform.database.database import db
 
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT slug FROM cloud_catalog WHERE backend_id = ? AND enabled = ? AND slug IN ({_placeholders(slugs)})",
                 (backend_id, 0 if enabled else 1, *slugs),
@@ -210,9 +195,7 @@ class CloudCatalogRepository:
         return flipping
 
     def counts(self, backend_id: str) -> dict[str, int]:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) AS total, "
                 "COALESCE(SUM(enabled), 0) AS enabled, "
@@ -224,9 +207,7 @@ class CloudCatalogRepository:
             return {"total": row["total"], "enabled": row["enabled"], "missing": row["missing"]}
 
     def write_state(self, backend_id: str, refreshed_at: str, listed: int, skipped: list[dict]) -> None:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO cloud_catalog_state (backend_id, refreshed_at, listed, skipped) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(backend_id) DO UPDATE SET refreshed_at = excluded.refreshed_at, "
@@ -235,9 +216,7 @@ class CloudCatalogRepository:
             )
 
     def get_state(self, backend_id: str) -> Optional[CloudCatalogState]:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM cloud_catalog_state WHERE backend_id = ?", (backend_id,))
             row = cursor.fetchone()
             return CloudCatalogState.from_row(row) if row else None

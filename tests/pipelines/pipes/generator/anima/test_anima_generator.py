@@ -118,11 +118,6 @@ def _outputs(pipe, pi):
     return collected
 
 
-def test_name_and_outputs():
-    assert GeneratorAnimaPipe.name == "generator"
-    assert {o.name: o.io_type for o in GeneratorAnimaPipe.outputs()}["image"] == IOType.IMAGE
-
-
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
 @patch("src.pipelines.pipes.generator.anima.main.AnimaNativeGenerator", _FakeGenerator)
 def test_generate_one_builds_conditioning_and_emits_image():
@@ -191,7 +186,6 @@ def test_step_cache_defaults_to_none():
     pipe.process(_pipe_input(), lambda o: None)
     call = _FakeGenerator.instances[-1].sample_calls[0]
     assert call["step_cache_options"] is None
-
 
 
 # -- schedule / schedule_options (flat sigma-schedule knobs) ---------------

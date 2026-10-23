@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 from src.features.automation.context import NodeExecutionContext
 from src.features.automation.expr import render_template
+from src.features.automation.http_node import perform as perform_http_request
+from src.features.automation.http_request import DEFAULT_TIMEOUT_S, MAX_RETRIES, MAX_TIMEOUT_S, METHODS, HttpRequestError
 from src.features.automation.triggers.filesystem import CUSTOM_PATH_VALUE, list_app_directories, resolve_effective_directory
 from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE
 from src.platform.plugins.automation_nodes import NodeField, NodeResult, NodeTypeSpec, node_type_registry
@@ -701,6 +703,14 @@ async def _execute_backend_action(ctx: NodeExecutionContext) -> NodeResult:
     )
 
 
+async def _execute_http_request(ctx: NodeExecutionContext) -> NodeResult:
+    try:
+        output = await perform_http_request(ctx.config, ctx.template_context())
+    except HttpRequestError as exc:
+        raise RuntimeError(f"action.http_request: {exc}") from exc
+    return NodeResult(output=output)
+
+
 def register(registry=node_type_registry) -> None:
     registry.register(NodeTypeSpec(
         key="action.index_model",
@@ -1039,4 +1049,71 @@ def register(registry=node_type_registry) -> None:
             NodeField("reason", "string", "Reason", "Why nothing was added; null on success.", "no model_id"),
         ),
         execute=_execute_add_to_collection,
+    ))
+
+    registry.register(NodeTypeSpec(
+        key="action.http_request",
+        kind="action",
+        title="HTTP Request",
+        description=(
+            "Calls an external HTTP or HTTPS API and hands the response to later nodes. "
+            "Private and loopback addresses are blocked unless the node allows them."
+        ),
+        icon="globe",
+        category="integrations",
+        config_schema=[
+            {"name": "method", "type": "select", "title": "Method", "default": "GET",
+             "options": [{"label": m, "value": m} for m in METHODS]},
+            {"name": "url", "type": "string", "title": "URL", "default": "", "required": True, "templatable": True,
+             "placeholder": "https://api.example.com/items"},
+            {"name": "query", "type": "key_value_list", "title": "Query Parameters", "default": [],
+             "templatable": True},
+            {"name": "headers", "type": "key_value_list", "title": "Headers", "default": [],
+             "secret_toggle": True, "templatable": True,
+             "description": "Secret values are stored encrypted and never shown again."},
+            {"name": "body_mode", "type": "select", "title": "Body", "default": "none",
+             "options": [
+                 {"label": "None", "value": "none"},
+                 {"label": "JSON", "value": "json"},
+                 {"label": "Form", "value": "form"},
+                 {"label": "Text", "value": "text"},
+             ]},
+            {"name": "body", "type": "textbox", "title": "Body", "default": "", "templatable": True,
+             "input_type": "textarea", "mono": True, "visible": False,
+             "reactions": [
+                 {"when": {"field": "body_mode", "in": ["json", "text"]}, "then": {"set_visibility": True}},
+                 {"when": {"field": "body_mode", "not_in": ["json", "text"]}, "then": {"set_visibility": False}},
+             ]},
+            {"name": "body_form", "type": "key_value_list", "title": "Form Fields", "default": [],
+             "templatable": True, "visible": False,
+             "reactions": [
+                 {"when": {"field": "body_mode", "equals": "form"}, "then": {"set_visibility": True}},
+                 {"when": {"field": "body_mode", "not_equals": "form"}, "then": {"set_visibility": False}},
+             ]},
+            {"name": "expected_status", "type": "string", "title": "Expected Status", "default": "2xx",
+             "description": "e.g. 2xx, 200, 200-204 or 200,404. Anything else fails the node."},
+            {"name": "retries", "type": "number", "title": "Retries", "default": 0, "min": 0, "max": MAX_RETRIES,
+             "description": "Retries network errors and 5xx responses for GET, PUT and DELETE, with backoff."},
+            {"name": "timeout_s", "type": "number", "title": "Timeout (seconds)", "default": DEFAULT_TIMEOUT_S,
+             "min": 1, "max": MAX_TIMEOUT_S},
+            {"name": "follow_redirects", "type": "checkbox", "title": "Follow same-origin redirects", "default": False},
+            {"name": "allow_private_targets", "type": "checkbox", "title": "Allow private and loopback addresses",
+             "default": False,
+             "description": "Lets this node reach localhost, LAN hosts and link-local addresses."},
+            {"name": "response_pick", "type": "string", "title": "Pick From Response (optional)", "default": "",
+             "templatable": True, "placeholder": "{{ response.body.id }}",
+             "description": "Rendered once the response arrives; available to later nodes as `pick`."},
+        ],
+        outputs=(
+            NodeField("status", "number", "Status", "HTTP status code.", 200),
+            NodeField("ok", "boolean", "OK", "True when the status matched the expected status.", True),
+            NodeField("headers", "object", "Headers", "Response headers, lower-cased; credential headers are masked."),
+            NodeField("body", "any", "Body", "Parsed JSON for JSON responses, otherwise text."),
+            NodeField("truncated", "boolean", "Truncated", "True when the body was cut at the 1 MB cap.", False),
+            NodeField("url", "string", "URL", "Final URL after any redirects."),
+            NodeField("attempts", "number", "Attempts", "How many tries it took.", 1),
+            NodeField("pick", "string", "Pick", "Rendered Pick From Response value; null when unset."),
+        ),
+        execute=_execute_http_request,
+        requires_admin=True,
     ))

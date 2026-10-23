@@ -183,6 +183,41 @@ describe('PromptPickerBrowseModal — phrasebook value list previews', () => {
 		expect(rowFor('hard noon')?.classList.contains('sel')).toBe(true);
 	});
 
+	it('Enter in the viewer uses that value and keeps the modal open', () => {
+		const onInsertValue = vi.fn();
+		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1', onInsertValue });
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+		flushSync();
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+		flushSync();
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		flushSync();
+
+		expect(onInsertValue).not.toHaveBeenCalled();
+		expect(document.querySelector('.picker-preview-pane')).toBeNull();
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+		expect(rowFor('hard noon')?.classList.contains('sel')).toBe(true);
+	});
+
+	it('Esc closes only the viewer even when another overlay was already open', async () => {
+		const { default: dismiss } = await import('$lib/actions/dismiss');
+		const earlier = document.createElement('div');
+		document.body.appendChild(earlier);
+		const layer = dismiss(earlier, { onDismiss: () => {}, escape: false, outside: false });
+		const onClose = vi.fn();
+		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1', onClose });
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+		flushSync();
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+		flushSync();
+
+		expect(onClose).not.toHaveBeenCalled();
+		expect(document.querySelector('.picker-preview-pane')).toBeNull();
+		layer.destroy();
+	});
+
 	it('Esc closes the viewer only, not the whole modal', () => {
 		mountModal({ values: valuesWithMixedPreviews, initialSelectedId: 'v1' });
 

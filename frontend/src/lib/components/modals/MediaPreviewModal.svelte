@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	import { onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import portal from '$lib/actions/portal';
@@ -54,21 +55,7 @@
 		tabindex="-1"
 	>
 		<!-- Close button -->
-		<button
-			type="button"
-			class="absolute top-4 right-4 p-2 text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded transition-colors z-10"
-			on:click|stopPropagation={onClose}
-			aria-label="Close preview"
-		>
-			<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-				<path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					stroke-width="2"
-					d="M6 18L18 6M6 6l12 12"
-				/>
-			</svg>
-		</button>
+		<IconButton icon="close" label="Close preview" variant="overlay" onclick={(e) => { e.stopPropagation(); onClose(); }} class="absolute top-4 right-4 z-10" />
 
 		{#if label}
 			<p class="absolute top-4 left-4 max-w-[70%] truncate text-sm text-white/80">{label}</p>

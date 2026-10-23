@@ -10,46 +10,52 @@ awaiting a coroutine directly.
 import asyncio
 import json
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Set
 from fastapi import WebSocket
 
+from src.platform.websocket.base_connection_hub import BaseConnectionHub
 from src.platform.websocket.loop_dispatch import LoopDispatchMixin
 
 logger = logging.getLogger(__name__)
 
 
-class NotificationConnectionHub(LoopDispatchMixin):
+class NotificationConnectionHub(BaseConnectionHub, LoopDispatchMixin):
     """Manages WebSocket connections for the per-user notification channel."""
 
+    _CONNECTION_LABEL = "Notification client"
     _DISPATCH_LABEL = "notification send"
 
     def __init__(self):
-        # user_id -> {client_id: WebSocket}
-        self.connections: Dict[str, Dict[str, WebSocket]] = {}
+        super().__init__()
+        self._user_clients: Dict[str, Set[str]] = {}
+        self._client_users: Dict[str, str] = {}
         self._init_loop_dispatch()
 
-    async def connect(self, websocket: WebSocket, user_id: str, client_id: str) -> None:
+    async def connect(self, websocket: WebSocket, client_id: str, user_id: str) -> bool:
         """Accept a WebSocket connection and register it for the user."""
-        await websocket.accept()
-        self.connections.setdefault(user_id, {})[client_id] = websocket
+        if not await super().connect(websocket, client_id):
+            return False
+        self._user_clients.setdefault(user_id, set()).add(client_id)
+        self._client_users[client_id] = user_id
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
-        logger.debug(f"Notification client {client_id} connected for user {user_id}")
+        return True
 
-    def disconnect(self, user_id: str, client_id: str) -> None:
+    def disconnect(self, client_id: str) -> None:
         """Remove a client connection."""
-        user_conns = self.connections.get(user_id)
-        if not user_conns:
+        super().disconnect(client_id)
+        user_id = self._client_users.pop(client_id, None)
+        user_clients = self._user_clients.get(user_id)
+        if user_clients is None:
             return
-        user_conns.pop(client_id, None)
-        if not user_conns:
-            self.connections.pop(user_id, None)
-        logger.debug(f"Notification client {client_id} disconnected for user {user_id}")
+        user_clients.discard(client_id)
+        if not user_clients:
+            del self._user_clients[user_id]
 
     async def send_to_user(self, user_id: str, message: dict) -> None:
         """Send a message to all of a user's connected clients (all tabs)."""
-        user_conns = self.connections.get(user_id)
-        if not user_conns:
+        client_ids = self._user_clients.get(user_id)
+        if not client_ids:
             return
 
         try:
@@ -58,21 +64,12 @@ class NotificationConnectionHub(LoopDispatchMixin):
             logger.error(f"Failed to serialize notification message: {e}")
             return
 
-        disconnected = []
-        for client_id, websocket in list(user_conns.items()):
-            try:
-                await websocket.send_text(json_message)
-            except Exception as e:
-                logger.error(f"Failed to send notification to client {client_id}: {e}")
-                disconnected.append(client_id)
-
-        for client_id in disconnected:
-            self.disconnect(user_id, client_id)
-
-    async def broadcast(self, message: dict) -> None:
-        """Send a message to every connected user."""
-        for user_id in list(self.connections.keys()):
-            await self.send_to_user(user_id, message)
+        targets = {
+            client_id: self.active_connections[client_id]
+            for client_id in client_ids
+            if client_id in self.active_connections
+        }
+        await self._send_all(targets, json_message, "send notification")
 
     def schedule_send(self, user_id: Optional[str], message: dict) -> None:
         """Sync-to-async bridge: schedule a send from non-async code.

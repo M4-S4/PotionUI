@@ -159,7 +159,7 @@ class _Recorder:
         self.items.append(output)
 
 
-def _fake_decode(_ctx, latent, _seed):
+def _fake_decode(_vae, _device, latent, _seed):
     t_pix = (int(latent.shape[2]) - 1) * 8 + 1
     return np.zeros((t_pix, H_LAT * 32, W_LAT * 32, 3), dtype=np.uint8)
 
@@ -185,7 +185,7 @@ def _run(pipe, bundle, *, denoise=None, is_cancelled=None, **input_kw):
     """
     recorder = _Recorder()
     stack = [
-        patch(f"{_MOD}._decode_video", side_effect=_fake_decode),
+        patch(f"{_MOD}.decode_ltx_video", side_effect=_fake_decode),
         patch(f"{_MOD}.release_idle_te", return_value=0.0),
         patch(f"{_MOD}.place_dit_for_sequence", return_value=None),
         patch(f"{_MOD}.restore_dit_best_effort", return_value=None),
@@ -206,14 +206,6 @@ def _run(pipe, bundle, *, denoise=None, is_cancelled=None, **input_kw):
 
 
 # -- registration / IO --------------------------------------------------------
-
-def test_name_and_io():
-    assert GeneratorDfrLtxPipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorDfrLtxPipe.inputs()}
-    assert inputs["latent"].io_type == IOType.LATENT and inputs["latent"].required
-    assert inputs["audio"].io_type == IOType.AUDIO
-    outputs = {o.name: o for o in GeneratorDfrLtxPipe.outputs()}
-    assert set(outputs) == {"video", "latent", "audio"}
 
 
 def test_default_round_sigmas_are_the_distilled_tail():

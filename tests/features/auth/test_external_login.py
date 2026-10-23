@@ -92,6 +92,7 @@ class TestExternalLoginManager(unittest.TestCase):
     def tearDown(self):
         for patcher in reversed(self._patchers):
             patcher.stop()
+        Database.close_pool()
         for leftover in Path(self.temp_dir).rglob("*"):
             if leftover.is_file():
                 leftover.unlink()

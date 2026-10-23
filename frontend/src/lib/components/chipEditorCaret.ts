@@ -3,6 +3,7 @@
 // matching the original component methods.
 import type { ChipData } from '$lib/types/segments';
 import { encodePathForText } from './chipSegments';
+import { breakElementLength, endsWithLineBreak, startsWithLineBreak } from './chipEditorDom';
 
 /** Per-node contribution to the absolute char offset, matching how
  * `extractContentFromDOM` linearizes the editor's content. Shared by the
@@ -20,21 +21,29 @@ function nodeCharLength(node: Node, chips: Record<string, ChipData>): number {
 	if (el.dataset.chipId && chips[el.dataset.chipId]) {
 		return encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 	}
-	if (el.tagName === 'BR') return 1;
-	let sum = 0;
+	if (el.tagName === 'BR') return breakElementLength(el);
+	let sum = startsWithLineBreak(el) ? 1 : 0;
 	for (const child of Array.from(node.childNodes)) sum += nodeCharLength(child, chips);
+	return endsWithLineBreak(el) ? sum + 1 : sum;
+}
+
+function boundaryCharLength(container: Node, offset: number, chips: Record<string, ChipData>): number {
+	if (container.nodeType === Node.TEXT_NODE) return offset;
+	let sum = 0;
+	for (const child of Array.from(container.childNodes).slice(0, offset)) sum += nodeCharLength(child, chips);
 	return sum;
 }
 
 /** Absolute character offset of the caret in the text `extractContentFromDOM` would produce, or null if unavailable. */
 export function getCaretCharOffset(
 	editorRef: HTMLElement | undefined | null,
-	chips: Record<string, ChipData>
+	chips: Record<string, ChipData>,
+	at?: Range
 ): number | null {
 	const selection = window.getSelection();
-	if (!selection || !selection.rangeCount || !editorRef) return null;
-	const range = selection.getRangeAt(0);
-	if (!range.collapsed) return null;
+	const current = at ?? (selection?.rangeCount ? selection.getRangeAt(0) : null);
+	if (!current || !editorRef || !current.collapsed) return null;
+	const range = current;
 
 	// Range.setStartAfter() (what placeCaretAtCharOffset uses to land "just
 	// after" a chip/group/variable, and what the browser itself produces for
@@ -45,11 +54,7 @@ export function getCaretCharOffset(
 	// range's end boundary equals its start boundary by definition, so
 	// endContainer/endOffset never need separate handling here.
 	if (range.startContainer === editorRef) {
-		let offset = 0;
-		for (const child of Array.from(editorRef.childNodes).slice(0, range.startOffset)) {
-			offset += nodeCharLength(child, chips);
-		}
-		return offset;
+		return boundaryCharLength(editorRef, range.startOffset, chips);
 	}
 
 	let offset = 0;
@@ -58,7 +63,8 @@ export function getCaretCharOffset(
 	function walk(node: Node): boolean {
 		if (found) return true;
 		if (node === range.startContainer) {
-			offset += range.startOffset;
+			if (node.nodeType === Node.ELEMENT_NODE && startsWithLineBreak(node as HTMLElement)) offset += 1;
+			offset += boundaryCharLength(node, range.startOffset, chips);
 			found = true;
 			return true;
 		}
@@ -75,11 +81,13 @@ export function getCaretCharOffset(
 			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 			} else if (el.tagName === 'BR') {
-				offset += 1;
+				offset += breakElementLength(el);
 			} else {
+				if (startsWithLineBreak(el)) offset += 1;
 				for (const child of Array.from(node.childNodes)) {
 					if (walk(child)) return true;
 				}
+				if (endsWithLineBreak(el)) offset += 1;
 			}
 		}
 		return false;
@@ -90,6 +98,19 @@ export function getCaretCharOffset(
 	}
 
 	return found ? offset : null;
+}
+
+export function triggerCharOffset(
+	editorRef: HTMLElement | undefined | null,
+	chips: Record<string, ChipData>,
+	node: Text | null,
+	offset: number
+): number | null {
+	if (!editorRef || !node || offset < 0) return null;
+	const range = document.createRange();
+	range.setStart(node, Math.min(offset, node.length));
+	range.collapse(true);
+	return getCaretCharOffset(editorRef, chips, range);
 }
 
 /** Inverse of getCaretCharOffset: place the caret at an absolute char offset, landing just after an atomic (chip/group) container if the offset falls at its boundary. */
@@ -138,14 +159,19 @@ export function placeCaretAtCharOffset(
 				return null;
 			}
 			if (el.tagName === 'BR') {
+				if (breakElementLength(el) === 0) {
+					return remaining <= 0 ? { node: el.parentNode as Node, afterNode: false } : null;
+				}
 				if (remaining <= 1) return { node: el, afterNode: true };
 				remaining -= 1;
 				return null;
 			}
+			if (startsWithLineBreak(el)) remaining -= 1;
 			for (const child of Array.from(node.childNodes)) {
 				const result = walk(child);
 				if (result) return result;
 			}
+			if (endsWithLineBreak(el)) remaining -= 1;
 		}
 		return null;
 	}
@@ -161,7 +187,7 @@ export function placeCaretAtCharOffset(
 		if (result.afterNode) {
 			range.setStartAfter(result.node);
 		} else {
-			range.setStart(result.node, remaining);
+			range.setStart(result.node, Math.max(0, remaining));
 		}
 	} else {
 		range.selectNodeContents(editorRef);

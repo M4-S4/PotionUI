@@ -27,7 +27,3 @@ def up():
             cursor.execute(f"ALTER TABLE plugin_hooks ADD COLUMN {name} {ddl}")
             added.append(name)
     print(f"Migration 008_plugin_hooks_label_and_role: added {added or 'no'} column(s)")
-
-
-def down():
-    print("Migration 008_plugin_hooks_label_and_role: no-op (SQLite keeps the added columns)")

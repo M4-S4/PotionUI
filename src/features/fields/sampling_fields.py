@@ -71,12 +71,6 @@ class SamplerField(BaseField):
         schema["configuration"] = {"allow_empty": config.get("allow_empty", False)}
         return schema
 
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == "sampler"
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
-
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:
         return _configuration_specs()
@@ -131,12 +125,6 @@ class ScheduleField(BaseField):
         schema["options"] = [{"label": d.label, "value": d.key} for d in options]
         schema["configuration"] = {"allow_empty": config.get("allow_empty", False)}
         return schema
-
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == "schedule"
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
 
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:

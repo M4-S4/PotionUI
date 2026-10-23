@@ -27,9 +27,14 @@ export function cancelCloseTab(): void {
 	pending.set(null);
 }
 
+export function tabHasUnsavedVariables(tab: Tab): boolean {
+	return Object.keys(tab.variables ?? {}).length > 0 && !tab.selectedSessionId && !tab.sourcePromptId;
+}
+
 export function describeTabClose(tab: Tab): { title: string; message: string } {
 	const lines = [`“${tab.name}” will be closed.`];
 	if (tabIsRunning(tab)) lines.push('It has a generation running or queued.');
 	if (tabHasUnsavedWork(tab)) lines.push('It has unsaved changes.');
+	if (tabHasUnsavedVariables(tab)) lines.push("This tab's variables aren't saved anywhere else.");
 	return { title: 'Close tab?', message: lines.join('\n') };
 }

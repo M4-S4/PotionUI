@@ -32,20 +32,19 @@ different seeds (the AR loop's output depends on the sampled tokens).
 
 from __future__ import annotations
 
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import torch
 
-from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput, PipeOutputSpec, PipeConfigSpec, logger
+from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec, logger
 from src.pipelines.outputs import AudioGenerationOutput, GalleryGenerationOutput
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
+from src.pipelines.pipes._shared.generation.audio_output import release_lm, write_wav
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
-from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
 from src.platform.runtime.native.arch.minimax_music3 import ar_loop, flow
 from src.platform.runtime.native.optimizations.compile import maybe_compile_music3_ar
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 FPS = 25.0
 DEFAULT_DURATION = 60.0
@@ -112,20 +111,6 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
     description = "Native MiniMax-Music3 text-to-music generator"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "caption": "",
-            "lyrics": "",
-            "duration": DEFAULT_DURATION,
-            "steps": 30,
-            "seed": -1,
-            "ar_cfg_scale": 1.5,
-            "cfg_scale": 1.7,
-            "top_k": 50,
-            "device": "cuda",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("caption", str, "", "The song's caption -- genre/mood/instrumentation/vocals, "
@@ -149,7 +134,7 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
                            required=False, min_value=1.0, max_value=10.0),
             PipeConfigSpec("top_k", int, 50, "Top-k restriction for AR sampling",
                            required=False, min_value=1, max_value=1024),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
         ]
 
     @classmethod
@@ -190,6 +175,7 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
     # -- context ---------------------------------------------------------
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
+        self._models = pipe_input.input.get("MODELS")
         bundle = pipe_input.input["model"]
         if bundle.spec.family != "minimax_music3":
             raise ValueError(
@@ -221,7 +207,6 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
 
     def generate_one(
         self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter,
-        is_cancelled: Optional[callable] = None,
     ) -> AudioGenerationOutput:
         c: _Music3Ctx = ctx.extra
         bundle = c.bundle
@@ -246,7 +231,7 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
         generator = torch.Generator(device=c.device).manual_seed(int(seed))
 
         def cancelled() -> bool:
-            return bool(is_cancelled and is_cancelled())
+            return bool(ctx.is_cancelled())
 
         # -- AR stage: semantic + residual codes, one frame at a time --------
         last_emit = -_AR_PROGRESS_MIN_INTERVAL_FRAMES
@@ -283,7 +268,7 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
         # docstring). Offloading alone is not enough: `lm_model` staying in
         # scope for the rest of this call would keep the LM RAM-resident
         # right through the flow stage regardless of what the cache does.
-        self._release_lm(bundle, models)
+        release_lm(bundle, models)
         del lm_model
 
         # -- Flow-matching stage: windowed euler denoise ----------------------
@@ -309,7 +294,7 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
             dav_model.offload()
 
         sample_rate = int(dav_model.module.sample_rate)
-        audio_path = self._write_wav(waveform, sample_rate)
+        audio_path = write_wav(waveform, sample_rate)
         duration_seconds = num_frames / FPS
 
         return AudioGenerationOutput(
@@ -317,32 +302,6 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
             duration=duration_seconds, sample_rate=sample_rate,
             channels=int(waveform.shape[1]), guidance_scale=c.cfg_scale,
         )
-
-    @staticmethod
-    def _release_lm(bundle: Any, models: Any) -> None:
-        key = getattr(bundle, "lm_cache_key", None)
-        if not key or models is None:
-            return
-        evict = getattr(models, "evict_dead_weight", None)
-        if callable(evict):
-            evict(key)
-
-    @staticmethod
-    def _write_wav(waveform: torch.Tensor, sample_rate: int) -> Path:
-        """The first item of a `(B, 2, T)` float32 batch, as a .wav on disk.
-
-        `soundfile`, not `torchaudio.save` -- same rationale as the Stable
-        Audio 3 plugin pipe's `_write_wav` (torchaudio 2.11's save entry
-        point needs TorchCodec, which is not installed here).
-        """
-        import numpy as np
-        import soundfile as sf
-
-        samples = waveform[0].detach().to(device="cpu", dtype=torch.float32).clamp(-1.0, 1.0).numpy()
-        samples = np.ascontiguousarray(samples.T)  # (channels, T) -> (T, channels)
-        out_path = Path(tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name)
-        sf.write(str(out_path), samples, sample_rate)
-        return out_path
 
     # -- emission ----------------------------------------------------------
 
@@ -357,27 +316,3 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
 
     # -- process: overrides BaseGeneratorPipe's to thread `is_cancelled` into
     # `generate_one` (per-frame/per-step cancellation, not just between-seed) --
-
-    def process(
-        self, pipe_input: PipeInput, generation_outputs: callable,
-        is_cancelled: Optional[callable] = None,
-    ) -> PipeOutput:
-        ctx = self.build_context(pipe_input)
-        self._models = pipe_input.input.get("MODELS")
-        seeds = plan_seeds(ctx.input_seeds, int(self.config.get("seed", -1)), ctx.quantity)
-        progress = ProgressEmitter(generation_outputs, title=self.name)
-
-        results: List[Any] = []
-        used_seeds: List[int] = []
-        try:
-            for i, seed in enumerate(seeds):
-                if is_cancelled and is_cancelled():
-                    break
-                results.append(self.generate_one(ctx, i, seed, progress, is_cancelled))
-                used_seeds.append(seed)
-        except Exception:
-            self._release_gpu_on_error(ctx)
-            raise
-
-        self.emit_results(generation_outputs, results, used_seeds)
-        return PipeOutput(output=self.build_output(results))

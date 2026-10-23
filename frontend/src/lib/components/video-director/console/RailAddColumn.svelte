@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	// `.rail-add-col` from console.html -- one `+` per growable lane, aligned
 	// to that lane's height. Copies `stage-rail/Rail.svelte`'s own
 	// `addButton` snippet (lines 273-284) and its disabled-with-title gating
@@ -67,7 +68,7 @@
 			class="add-btn {!prompt.canAdd ? 'disabled' : ''}"
 			style="height:{PROMPT_H}px"
 			disabled={!prompt.canAdd}
-			title={!prompt.canAdd ? (prompt.addDisabledReason ?? 'Add prompt beat') : 'Add prompt beat'}
+			use:tooltip={!prompt.canAdd ? (prompt.addDisabledReason ?? 'Add prompt beat') : 'Add prompt beat'}
 			aria-label="Add prompt beat"
 			onclick={addBeat}
 		>
@@ -99,7 +100,7 @@
 			class="add-btn {!audio.canAdd ? 'disabled' : ''}"
 			style="height:{AUDIO_H}px"
 			disabled={!audio.canAdd}
-			title={!audio.canAdd ? "Adding audio isn't available for this shot" : 'Add audio'}
+			use:tooltip={!audio.canAdd ? "Adding audio isn't available for this shot" : 'Add audio'}
 			aria-label="Add audio"
 			onclick={onAddAudio}
 		>

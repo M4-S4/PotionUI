@@ -1,75 +1,25 @@
-"""`models.index` - rescan the models directory so files that are already on
-disk (e.g. dropped in manually, or left over from a previous install) become
-visible before `preset.ensure`/`pipeline.render` look for them.
-
-Uses the same `ModelScanner` instance the manual "reindex" action elsewhere in
-the app uses (the one `ModelIndexCollaborators.indexing` drives) - this is a
-full directory scan, independent of any particular backend/engine,
-so it needs no async backend round-trip (contrast with the per-backend
-`BackendModelIndexer` in `src.features.models.backend_indexer`, which asks a
-specific backend what it can load).
-
-A large models folder makes `index_models()` (it hashes every new file's full
-contents - see `ModelScanner.index_single_model`) take much longer than a
-request can wait on - this step is only safe to run because
-`RecipeRunner.drive_async` drives it off the request thread (see
-`runner.py`). This executor wires the scanner's
-`set_progress_callback` seam to `StepContext.report_progress` so the
-in-flight attempt row shows "N of M" files while the scan runs, throttled to
-roughly once a second (matching `artifacts_fetch.py`'s cadence) so a huge
-library doesn't turn into one DB write per file.
-"""
-
 from __future__ import annotations
 
-import logging
 import time
-from typing import Optional
 
-from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors.base import StepContext, StepResult
 
-logger = logging.getLogger(__name__)
-
-# Once-a-second throttle for progress writes - `index_single_model` reports
-# per completed file, which for a huge library would otherwise be one DB
-# write per file (see module docstring).
 _PROGRESS_MIN_INTERVAL_SECONDS = 1.0
 
 
 class ModelsIndexExecutor:
-    def __init__(self, model_scanner, backend_registry: Optional[object] = None, native_availability_projector=None):
-        self.model_scanner = model_scanner
-        self.backend_registry = backend_registry
-        if native_availability_projector is None:
-            from src.features.models.native_availability_reconciler import (
-                native_availability_projector as _default_projector,
-            )
-
-            native_availability_projector = _default_projector
-        self.native_availability_projector = native_availability_projector
+    def __init__(self, indexing_coordinator):
+        self.indexing_coordinator = indexing_coordinator
 
     def execute(self, context: StepContext) -> StepResult:
-        set_progress_callback = getattr(self.model_scanner, "set_progress_callback", None)
-        if callable(set_progress_callback):
-            set_progress_callback(self._progress_reporter(context))
-
         try:
-            result = self.model_scanner.index_models()
+            result = self.indexing_coordinator.run_and_wait(on_progress=self._progress_reporter(context))
         except Exception as exc:
             return StepResult.fail(
                 "MODEL_INDEX_FAILED",
                 f"Scanning for model files failed: {exc}",
                 suggested_repair="Check that the models directory exists and is readable, then retry.",
             )
-        finally:
-            if callable(set_progress_callback):
-                set_progress_callback(None)
-
-        try:
-            run_sync(self.native_availability_projector.reconcile(self.backend_registry))
-        except Exception as exc:
-            logger.warning(f"models.index: native availability reconcile failed: {exc}")
 
         return StepResult.ok(
             {
@@ -82,12 +32,6 @@ class ModelsIndexExecutor:
 
     @staticmethod
     def _progress_reporter(context: StepContext):
-        """A `ModelScanner.set_progress_callback` callback bound to this
-        step's `report_progress`, throttled so it isn't a DB write per file.
-        The very first tick (`current == 0`, the "Scanning..." message before
-        the file count is even known - see `ModelScanner.index_models`) and
-        the terminal tick (`current == total`) always get through, so the row
-        never gets stuck showing a stale mid-run count."""
         last_reported_at = {"t": 0.0}
 
         def _report(current: int, total: int, message: str) -> None:

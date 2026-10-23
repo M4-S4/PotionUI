@@ -1,5 +1,7 @@
 """Tests for PresetController - dispatches onto src.features.presets.operations."""
 
+import threading
+
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from fastapi import HTTPException
@@ -104,6 +106,17 @@ class TestPresetController:
 
         assert exc_info.value.status_code == 500
         assert "preset_list_failed" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_list_presets_runs_off_the_event_loop_thread(
+        self, controller, mock_preset_collaborators, mock_current_user
+    ):
+        threads = []
+        mock_preset_collaborators.list_presets.side_effect = lambda *args: threads.append(threading.get_ident()) or []
+
+        await controller.list_presets(mock_current_user)
+
+        assert threads and threads[0] != threading.get_ident()
 
     # ===== get_preset tests =====
 
@@ -565,6 +578,56 @@ class TestPresetControllerModelAccessFiltering:
             await controller_without_policy.get_preset_models("test-preset", current_user=regular_user)
 
         assert mock_models_for_engine.call_args.kwargs["user_allowed_model_ids"] is None
+
+
+class TestPresetControllerModelTypeOptions:
+    @pytest.fixture
+    def collaborators(self):
+        manager = Mock()
+        preset = Mock()
+        preset.engine = "native"
+        manager.preset_loader.load_preset_by_id = Mock(return_value=preset)
+        manager.model_index.locator.path_for_model = Mock(name="path_for_model")
+        return manager
+
+    @pytest.fixture
+    def controller(self, collaborators):
+        registry = Mock()
+        registry.get_backends_for_engine.return_value = []
+        return PresetController(collaborators, registry)
+
+    @pytest.fixture
+    def admin(self):
+        user = Mock()
+        user.id = "a"
+        user.account_type = AccountType.ADMIN
+        return user
+
+    async def call(self, controller, admin, **kwargs):
+        with patch("src.features.models.availability.models_for_engine") as models_for_engine, \
+             patch("src.features.models.availability_repository.model_availability_repo") as repo:
+            models_for_engine.return_value = []
+            repo.any_indexed.return_value = False
+            await controller.get_preset_models("test-preset", current_user=admin, **kwargs)
+        return models_for_engine.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_model_types_are_split_trimmed_and_forwarded(self, controller, admin):
+        kwargs = await self.call(controller, admin, model_types="diffusion_model, unet,,text_encoder")
+        assert kwargs["model_types"] == ["diffusion_model", "unet", "text_encoder"]
+
+    @pytest.mark.asyncio
+    async def test_absent_options_keep_the_single_type_call_unchanged(self, controller, admin):
+        kwargs = await self.call(controller, admin, model_type="lora")
+        assert kwargs["model_type"] == "lora"
+        assert kwargs["model_types"] is None
+        assert kwargs["unquantized_only"] is False
+
+    @pytest.mark.asyncio
+    async def test_unquantized_only_hands_over_the_locator(self, controller, collaborators, admin):
+        kwargs = await self.call(controller, admin, unquantized_only=True)
+        assert kwargs["unquantized_only"] is True
+        assert kwargs["path_for_model"] is collaborators.model_index.locator.path_for_model
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ from typing import List
 
 from src.features.plugins import operations as plugin_operations
 from src.platform.security.secrets import SecretKeyError, get_secret_cipher
+from src.platform.settings.records import ENCRYPTED_SETTING_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ def run_secret_preflight(
     backend_config_store,
     llm_config_repository=None,
     plugin_registry=None,
+    setting_repository=None,
 ) -> List[str]:
     """Encrypt what is still plaintext, then report what will not decrypt.
 
@@ -83,6 +85,12 @@ def run_secret_preflight(
         for row in llm_config_repository.iter_encrypted_api_keys():
             if not cipher.can_decrypt(row['api_key']):
                 undecryptable.append(f"llm_configurations:{row['id']}/api_key")
+
+    if setting_repository is not None:
+        for key in sorted(ENCRYPTED_SETTING_KEYS):
+            setting = setting_repository.get_setting_by_key(key)
+            if setting is not None and cipher.is_encrypted(setting.value) and not cipher.can_decrypt(setting.value):
+                undecryptable.append(f"settings:{key}")
 
     if undecryptable:
         logger.error(

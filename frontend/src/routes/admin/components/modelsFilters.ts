@@ -105,14 +105,14 @@ const FIELDS: readonly FilterFieldDescriptor<ModelsFilters>[] = [
 	{ kind: 'text', key: 'lastUsedTo', param: 'last_used_to', label: 'Last used to', chipLabel: (value) => `Last used to ${value}` }
 ];
 
-const codec = createFilterCodec<ModelsFilters>({
+export const modelsFilters = createFilterCodec<ModelsFilters>({
 	defaults: DEFAULT_MODELS_FILTERS,
 	fields: FIELDS,
 	sortValues: MODELS_SORT_VALUES
 });
 
 export function modelsFiltersFromSearchParams(params: URLSearchParams): ModelsFilters {
-	const filters = codec.fromSearchParams(params);
+	const filters = modelsFilters.fromSearchParams(params);
 	const used = filters.used;
 	return {
 		...filters,
@@ -124,28 +124,12 @@ export function modelsFiltersFromSearchParams(params: URLSearchParams): ModelsFi
 	};
 }
 
-export function modelsFiltersToSearchParams(filters: ModelsFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
 export function modelsFilterChips(filters: ModelsFilters, tags: readonly ModelTagRef[]): FilterChip[] {
-	return codec.chips(filters, { tags: (tagId: string) => tags.find((tag) => tag.id === tagId)?.name ?? tagId });
-}
-
-export function clearModelsFilterChip(filters: ModelsFilters, key: string): ModelsFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllModelsFilters(filters: ModelsFilters): ModelsFilters {
-	return codec.clearAll(filters);
-}
-
-export function modelsFilterActiveCount(filters: ModelsFilters): number {
-	return codec.activeCount(filters);
+	return modelsFilters.chips(filters, { tags: (tagId: string) => tags.find((tag) => tag.id === tagId)?.name ?? tagId });
 }
 
 export function modelsHasActiveFilters(filters: ModelsFilters): boolean {
-	return !!filters.q.trim() || codec.activeCount(filters) > 0;
+	return !!filters.q.trim() || modelsFilters.activeCount(filters) > 0;
 }
 
 export function withModelsUsage(filters: ModelsFilters, used: ModelsUsage): ModelsFilters {

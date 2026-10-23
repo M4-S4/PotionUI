@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 from src.features.models.access_policy import ModelAccessPolicy
 from src.features.models.exceptions import ModelAssignmentException
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.repository import ModelRepository
 from src.platform.plugins import PluginRegistry
@@ -56,15 +56,12 @@ class ModelAssignmentService:
         Fires model_index.before_assign (can block) and after_assign. Raises
         ModelAssignmentException (or the ModelAlreadyAssignedException subtype) on failure.
         """
-        hook_data, blocked = execute_hook(
+        run_veto_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_assign,
-            {"model_id": model_id, "user_id": user_id}
+            {"model_id": model_id, "user_id": user_id},
+            "Assignment blocked by plugin", error=ModelAssignmentException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Assignment blocked by plugin")
-            raise ModelAssignmentException(reason)
 
         if not model_id or not user_id:
             raise ModelAssignmentException(
@@ -93,15 +90,12 @@ class ModelAssignmentService:
         Fires model_index.before_unassign (can block) and after_unassign. Raises
         ModelAssignmentException if the assignment does not exist or is vetoed.
         """
-        hook_data, blocked = execute_hook(
+        run_veto_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_unassign,
-            {"model_id": model_id, "user_id": user_id}
+            {"model_id": model_id, "user_id": user_id},
+            "Unassignment blocked by plugin", error=ModelAssignmentException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Unassignment blocked by plugin")
-            raise ModelAssignmentException(reason)
 
         removed = self.model_repo.unassign_model_from_user(model_id, user_id)
         if not removed:

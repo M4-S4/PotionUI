@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onMount, onDestroy } from 'svelte';
 	import { keybindingsStore, isHelpOpen, keybindingsByCategory, formatKeyCombo, type KeybindingAction } from '$lib/stores/keybindings';
 	import { suppressKeyboard, resumeKeyboard } from '$lib/services/keyboard';
@@ -153,6 +154,7 @@
 				{#if searchQuery}
 					<button
 						type="button"
+						aria-label="Clear filter"
 						on:click={() => (searchQuery = '')}
 						class="absolute right-2 p-1 hover:bg-surface-3 rounded text-fg-subtle hover:text-fg-muted"
 					>
@@ -191,7 +193,7 @@
 								<!-- Custom indicator -->
 								<div class="w-2 flex-shrink-0">
 									{#if binding.isCustom}
-										<div class="w-2 h-2 rounded-full bg-signal" title="Customized"></div>
+										<div class="w-2 h-2 rounded-full bg-signal" use:tooltip={'Customized'}></div>
 									{/if}
 								</div>
 
@@ -227,7 +229,7 @@
 										class="p-1 rounded transition-colors {binding.enabled
 											? 'text-success hover:text-success/80 hover:bg-surface-3/50'
 											: 'text-fg-disabled hover:text-fg-muted hover:bg-surface-3/50'}"
-										title={binding.enabled ? 'Disable shortcut' : 'Enable shortcut'}
+										use:tooltip={binding.enabled ? 'Disable shortcut' : 'Enable shortcut'}
 									>
 										{#if binding.enabled}
 											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -246,8 +248,9 @@
 										type="button"
 										on:click={() => startRecording(binding.actionId)}
 										class="p-1 rounded text-fg-subtle hover:text-fg-muted hover:bg-surface-3/50 transition-colors"
-										title="Edit shortcut"
+										use:tooltip={'Edit shortcut'}
 										disabled={recordingActionId !== null}
+										aria-label="Edit shortcut"
 									>
 										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -260,7 +263,8 @@
 											type="button"
 											on:click={() => resetBinding(binding.actionId)}
 											class="p-1 rounded text-fg-subtle hover:text-fg-muted hover:bg-surface-3/50 transition-colors"
-											title="Reset to default"
+											use:tooltip={'Reset to default'}
+											aria-label="Reset to default"
 										>
 											<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

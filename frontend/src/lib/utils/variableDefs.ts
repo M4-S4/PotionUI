@@ -12,6 +12,17 @@
 
 import { serializeGroup, type ChoiceGroupSpec } from './choiceGroups';
 import { parseVariableUsageTokens } from './promptVariables';
+import {
+	MAX_NUMBER_GRID,
+	clampFormat,
+	formatGridIndex,
+	gridValues,
+	gridWire,
+	parseDecimal,
+	parseNumberGrid,
+	type NumberGrid,
+	type NumberGridIssue
+} from './numberGrid';
 
 export interface TextVariableDef {
 	type: 'text';
@@ -47,7 +58,17 @@ export interface ChoiceVariableDef {
 	linked?: boolean;
 }
 
-export type VariableDef = TextVariableDef | ChoiceVariableDef;
+export interface NumberVariableDef {
+	type: 'number';
+	mode: ChoiceVariableMode;
+	min: number;
+	max: number;
+	step: number;
+	value: number;
+	linked?: boolean;
+}
+
+export type VariableDef = TextVariableDef | ChoiceVariableDef | NumberVariableDef;
 
 /** Legacy shape: no `mode` field — mode was implied by whether `pinnedIndex`
  *  was set. normalizeVariableDef migrates a no-mode def to `shuffle`. */
@@ -153,7 +174,7 @@ export type VariablesMap = Record<string, StoredVariableDef>;
 export function normalizeVariableDef(stored: StoredVariableDef | undefined): VariableDef {
 	if (stored === undefined) return { type: 'text', value: '' };
 	if (typeof stored === 'string') return { type: 'text', value: stored };
-	if (stored.type === 'text') return stored;
+	if (stored.type === 'text' || stored.type === 'number') return stored;
 
 	// choice — migrate a def with no `mode`.
 	const mode: ChoiceVariableMode =
@@ -176,6 +197,138 @@ export function createChoiceVariable(options: VariableOption[] = ['', '']): Choi
 	return { type: 'choice', options, mode: 'shuffle', pinnedIndex: null };
 }
 
+export { MAX_NUMBER_GRID };
+
+export type NumberRange = Pick<NumberVariableDef, 'min' | 'max' | 'step'> & { value?: number };
+
+export function createNumberVariable(): NumberVariableDef {
+	return { type: 'number', mode: 'shuffle', min: 0, max: 100, step: 1, value: 50 };
+}
+
+export function decimalPlaces(n: number): number {
+	const parsed = parseDecimal(n);
+	return parsed ? Math.max(0, -parsed.exp) : 0;
+}
+
+export function numberGridOf(def: NumberRange): NumberGrid | null {
+	return parseNumberGrid(def).grid;
+}
+
+export function numberGridIssue(def: NumberRange): NumberGridIssue | null {
+	return parseNumberGrid(def).issue;
+}
+
+export function isNumberRangeValid(def: NumberRange): boolean {
+	return numberGridOf(def) !== null;
+}
+
+export function numberDecimals(def: NumberRange): number {
+	return numberGridOf(def)?.places ?? decimalPlaces(def.step);
+}
+
+export function numberGridSize(def: NumberRange): number {
+	const result = parseNumberGrid(def);
+	if (result.grid) return result.grid.count;
+	return result.issue === 'too-large' ? (result.count ?? 0) : 0;
+}
+
+export function numberGridValue(def: NumberRange, index: number): string {
+	const grid = numberGridOf(def);
+	return grid ? formatGridIndex(grid, index) : '';
+}
+
+export function numberGridValues(def: NumberRange, limit = MAX_NUMBER_GRID): string[] {
+	const grid = numberGridOf(def);
+	return grid ? gridValues(grid).slice(0, limit) : [];
+}
+
+export function clampNumberValue(def: NumberRange): string {
+	const grid = numberGridOf(def);
+	return grid ? clampFormat(grid, def.value) : String(def.value);
+}
+
+export function rollNumberValue(
+	def: NumberRange,
+	random: () => number = Math.random
+): { index: number; value: string } | null {
+	const grid = numberGridOf(def);
+	if (!grid) return null;
+	const index = Math.min(Math.floor(random() * grid.count), grid.count - 1);
+	return { index, value: formatGridIndex(grid, index) };
+}
+
+export function seededRandom(seed: number): () => number {
+	let state = seed >>> 0;
+	return () => {
+		state = (state + 0x6d2b79f5) >>> 0;
+		let t = state;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+export function buildNumberWireValue(def: NumberVariableDef): string {
+	const grid = numberGridOf(def);
+	if (!grid) return '';
+	if (def.mode === 'pin') return clampFormat(grid, def.value);
+	return gridWire(grid);
+}
+
+export function numberRangeLabel(def: NumberRange): string {
+	const grid = numberGridOf(def);
+	if (!grid) return `${def.min}\u2013${def.max}`;
+	return `${formatGridIndex(grid, 0)}\u2013${formatGridIndex(grid, grid.count - 1)}`;
+}
+
+export function numberChipLabel(def: NumberVariableDef): string {
+	if (def.mode === 'pin') return clampNumberValue(def);
+	if (def.mode === 'per-image') return 'per image';
+	return numberRangeLabel(def);
+}
+
+export function numberSummary(def: NumberVariableDef): string {
+	if (def.mode === 'pin') return `pinned: ${clampNumberValue(def)}`;
+	return def.mode === 'per-image' ? `${numberRangeLabel(def)} \u00b7 per image` : numberRangeLabel(def);
+}
+
+export interface VariableSummaryRow {
+	name: string;
+	kind: string;
+}
+
+export function variableSummaryRows(variables: VariablesMap): VariableSummaryRow[] {
+	return Object.entries(variables).map(([name, stored]) => {
+		const def = normalizeVariableDef(stored);
+		const kind =
+			def.type === 'choice'
+				? `${def.mode} \u00b7 ${def.options.length} option${def.options.length === 1 ? '' : 's'}`
+				: def.type === 'number'
+					? numberSummary(def)
+					: 'text';
+		return { name, kind };
+	});
+}
+
+export interface NumberTrackRange {
+	from: number;
+	to: number;
+	label: string;
+	align: 'start' | 'end';
+}
+
+export interface ConditionReader {
+	label: string;
+	segment?: string;
+	splits?: NumberTrackRange[];
+}
+
+export type ConditionReaders = Record<string, ConditionReader[]>;
+
+export function isReadByCondition(name: string, readers?: ConditionReaders): boolean {
+	return (readers?.[name]?.length ?? 0) > 0;
+}
+
 /**
  * The wire-format template string for one variable, WITHOUT rolling a
  * `shuffle`-mode choice — used for `text`, `pin`, and `per-image`, all
@@ -185,6 +338,7 @@ export function createChoiceVariable(options: VariableOption[] = ['', '']): Choi
  */
 export function buildVariableWireValue(def: VariableDef): string {
 	if (def.type === 'text') return def.value;
+	if (def.type === 'number') return buildNumberWireValue(def);
 
 	const validOptions = def.options.map((o) => optionText(o).trim()).filter((o) => o.length > 0);
 	if (validOptions.length === 0) return '';
@@ -241,16 +395,16 @@ export function isWhenTarget(name: string, variables: VariablesMap): boolean {
 	return dependents(name, variables, false).length > 0;
 }
 
-export function isVariableLinked(name: string, variables: VariablesMap): boolean {
+export function isVariableLinked(name: string, variables: VariablesMap, readers?: ConditionReaders): boolean {
 	const def = normalizeVariableDef(variables[name]);
-	if (def.type !== 'choice' || def.mode !== 'shuffle') return true;
-	return def.linked === true || isWhenTarget(name, variables);
+	if (def.type === 'text' || def.mode !== 'shuffle') return true;
+	return def.linked === true || isWhenTarget(name, variables) || isReadByCondition(name, readers);
 }
 
-export function usagesShareRoll(name: string, variables: VariablesMap): boolean {
+export function usagesShareRoll(name: string, variables: VariablesMap, readers?: ConditionReaders): boolean {
 	const def = normalizeVariableDef(variables[name]);
-	if (def.type === 'choice' && def.mode === 'per-image') return false;
-	return isVariableLinked(name, variables);
+	if (def.type !== 'text' && def.mode === 'per-image') return def.type === 'number' && isReadByCondition(name, readers);
+	return isVariableLinked(name, variables, readers);
 }
 
 export function usageRollKey(name: string, ordinal: number): string {
@@ -298,7 +452,8 @@ export interface IndependentUsagesResult<P extends { positive: string; negative:
 
 export function applyIndependentUsages<P extends { positive: string; negative: string }>(
 	prompts: P[],
-	variables: VariablesMap | undefined
+	variables: VariablesMap | undefined,
+	readers?: ConditionReaders
 ): IndependentUsagesResult<P> {
 	const usageCounts: Record<string, number> = {};
 	if (!variables) return { prompts, usageCounts };
@@ -314,7 +469,7 @@ export function applyIndependentUsages<P extends { positive: string; negative: s
 			for (const token of parseVariableUsageTokens(text)) {
 				if (token.type !== 'variable') continue;
 				const usage = usages[next++];
-				if (isVariableLinked(usage.name, variables)) continue;
+				if (isVariableLinked(usage.name, variables, readers)) continue;
 				usageCounts[usage.name] = Math.max(usageCounts[usage.name] ?? 1, usage.total);
 				result += text.slice(cursor, token.start) + `\${${usageRollKey(usage.name, usage.ordinal)}}`;
 				cursor = token.end;
@@ -347,6 +502,7 @@ export interface VariablesForSubmitOptions {
 	/** Injectable for deterministic tests; defaults to `Date.now`. */
 	now?: () => number;
 	usageCounts?: Record<string, number>;
+	readers?: ConditionReaders;
 }
 
 /**
@@ -377,6 +533,25 @@ export function buildVariablesForSubmit(
 			continue;
 		}
 
+		if (def.type === 'number') {
+			if (def.mode === 'shuffle') {
+				const usages = isVariableLinked(name, variables, options.readers)
+					? 1
+					: Math.min(Math.max(options.usageCounts?.[name] ?? 1, 1), MAX_INDEPENDENT_USAGES);
+				for (let ordinal = 1; ordinal <= usages; ordinal++) {
+					const pick = rollNumberValue(def, random);
+					if (!pick) break;
+					const key = usageRollKey(name, ordinal);
+					wireMap[key] = pick.value;
+					rolls[key] = { optionIndex: pick.index, value: pick.value, rolledAt: now() };
+				}
+				continue;
+			}
+			const numberValue = buildNumberWireValue(def);
+			if (numberValue) wireMap[name] = numberValue;
+			continue;
+		}
+
 		if (def.mode === 'shuffle') {
 			const validEntries = def.options
 				.map((o, i) => ({ option: o, index: i, text: optionText(o).trim() }))
@@ -393,7 +568,7 @@ export function buildVariablesForSubmit(
 				continue;
 			}
 
-			const usages = isVariableLinked(name, variables)
+			const usages = isVariableLinked(name, variables, options.readers)
 				? 1
 				: Math.min(Math.max(options.usageCounts?.[name] ?? 1, 1), MAX_INDEPENDENT_USAGES);
 			for (let ordinal = 1; ordinal <= usages; ordinal++) {

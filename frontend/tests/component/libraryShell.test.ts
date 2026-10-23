@@ -118,6 +118,18 @@ describe('LibraryShell', () => {
 		expect(target.querySelector('aside')?.className).toContain('w-60');
 	});
 
+	it('widens the sidebar only when a page opts in', () => {
+		mountShell({ persistKey: 'shell-width-default' });
+		expect(target.querySelector('aside')?.className).toContain('w-60');
+		unmount(component!);
+		component = null;
+		target.remove();
+		mountShell({ persistKey: 'shell-width-wide', wideSidebar: true });
+		const classes = (target.querySelector('aside') as HTMLElement).className.split(/\s+/);
+		expect(classes).toContain('w-[272px]');
+		expect(classes).not.toContain('w-60');
+	});
+
 	it('renders the toolbar slot, overflow menu and the primary action in grid mode', () => {
 		const toolbar = createRawSnippet(() => ({ render: () => `<div data-testid="toolbar">toolbar</div>` }));
 		const primary = createRawSnippet(() => ({ render: () => `<button type="button">New prompt</button>` }));

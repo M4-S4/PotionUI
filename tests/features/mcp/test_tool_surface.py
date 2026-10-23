@@ -9,7 +9,7 @@ from src.features.library.repository import LibraryRepository
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
 from src.features.tags.repository import TagRepository
-from src.features.llm.tools.base import BaseTool, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
@@ -25,11 +25,15 @@ from src.features.phrasebook.repository import PhrasebookCategoryRepository, Phr
 from src.features.prompt_database.records import Prompt
 from src.features.prompt_database.repository import PromptRepository
 from src.features.segments.dto import RichSegment, SavedSegment, SegmentCategory
+from src.features.tab_drafts.manager import TabDraftManager
+from src.features.tab_drafts.repository import TabDraftRepository
+from tests.fixtures.fake_tab_drafts import RecordingNotifier
 from src.features.segments.repository import (
     SavedSegmentRepository,
     SegmentCategoryRepository,
     SegmentTemplateRepository,
 )
+from tests.fixtures.seed import seed_user
 
 EXPECTED_TOOLS = {
     "list_segment_categories", "get_saved_segments", "get_segment_templates",
@@ -37,7 +41,7 @@ EXPECTED_TOOLS = {
     "create_saved_segment", "update_saved_segment", "delete_saved_segment",
     "create_segment_template", "update_segment_template", "delete_segment_template",
     "get_model_info", "get_preset_info", "list_presets",
-    "list_phrasebook_categories", "get_phrasebook_values", "list_phrasebook_values",
+    "list_phrasebook_categories", "get_phrasebook_values",
     "create_phrasebook_category", "update_phrasebook_category", "delete_phrasebook_category",
     "create_phrasebook_values", "remove_phrasebook_values", "update_phrasebook_values",
     "enhance_prompt", "search_model_prompts", "search_gallery",
@@ -45,6 +49,7 @@ EXPECTED_TOOLS = {
     "search_models", "list_library_items",
     "write_memory", "read_memory", "update_memory", "delete_memory",
     "manage_collections", "organize_gallery", "start_generation",
+    "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts", "write_condition",
 }
 
 
@@ -151,12 +156,8 @@ class _FakePresetDb:
 
 @pytest.fixture
 def world(mcp_db):
-    with mcp_db.get_cursor() as cursor:
-        for user_id in ("user-1", "user-2"):
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-                (user_id, user_id, f"{user_id}@example.com", "x"),
-            )
+    for user_id in ("user-1", "user-2"):
+        seed_user(mcp_db, user_id)
 
     categories = SegmentCategoryRepository()
     segments = SavedSegmentRepository()
@@ -202,6 +203,9 @@ def world(mcp_db):
         content_safety=None,
     )
 
+    notifier = RecordingNotifier()
+    drafts = TabDraftManager(TabDraftRepository(), notifier=notifier)
+
     registry = ToolRegistry()
     register_builtin_tools(registry)
     llm_repository = Mock()
@@ -209,30 +213,34 @@ def world(mcp_db):
     collaborators = McpToolCollaborators(
         tool_registry=registry,
         tool_governance_repository=ToolGovernanceRepository(),
-        llm_repository=llm_repository,
-        segment_category_repository=categories,
-        saved_segment_repository=segments,
-        segment_template_repository=SegmentTemplateRepository(),
-        model_index_manager=SimpleNamespace(
-            model_repo=model_repo, access=access,
-            catalog=ModelCatalog(model_repo, access, scanner=None),
+        services=ToolServices(
+            llm_repository=llm_repository,
+            segment_category_repository=categories,
+            saved_segment_repository=segments,
+            segment_template_repository=SegmentTemplateRepository(),
+            model_index_manager=SimpleNamespace(
+                model_repo=model_repo, access=access,
+                catalog=ModelCatalog(model_repo, access, scanner=None),
+            ),
+            preset_collaborators=SimpleNamespace(file_repo=_FakePresetFiles(), db_repo=_FakePresetDb()),
+            phrasebook_category_repository=phrase_categories,
+            phrasebook_value_repository=phrase_values,
+            prompt_database=prompt_database,
+            llm_memory_repository=memory,
+            media_indexer=indexer,
+            collection_repository=CollectionRepository(),
+            tag_repository=TagRepository(),
+            library_collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
+            generation_history_facade=history,
+            plugin_registry=_Registry(),
+            tab_drafts=drafts,
         ),
-        preset_collaborators=SimpleNamespace(file_repo=_FakePresetFiles(), db_repo=_FakePresetDb()),
-        phrasebook_category_repository=phrase_categories,
-        phrasebook_value_repository=phrase_values,
-        prompt_database=prompt_database,
-        llm_memory_repository=memory,
-        media_indexer=indexer,
-        collection_repository=CollectionRepository(),
-        tag_repository=TagRepository(),
-        library_collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
-        generation_history_facade=history,
-        plugin_registry=_Registry(),
     )
     return SimpleNamespace(
         collaborators=collaborators, registry=registry, segment=segment, category=category,
         prompt=prompt, model=model, history=history, indexer=indexer,
         segments=segments, phrase_categories=phrase_categories, memory=memory, upload=upload,
+        drafts=drafts, notifier=notifier,
     )
 
 
@@ -272,8 +280,7 @@ READ_CALLS = [
     ("list_library_items", {}),
     ("search_models", {"query": "m"}),
     ("list_phrasebook_categories", {}),
-    ("get_phrasebook_values", {"category_id": "pb-1"}),
-    ("list_phrasebook_values", {"category": "camera"}),
+    ("get_phrasebook_values", {"category": "pb-1"}),
     ("search_model_prompts", {"queries": ["fox"]}),
     ("search_gallery", {"queries": ["fox"]}),
     ("list_prompts", {}),
@@ -281,6 +288,7 @@ READ_CALLS = [
     ("manage_collections", {"operation": "list", "scope": "history"}),
     ("organize_gallery", {"operation": "list_recent"}),
     ("organize_gallery", {"operation": "list_tags"}),
+    ("write_condition", {"branches": [{"tests": [{"var": "age", "op": ">", "value": 65}], "text": "grey hair"}]}),
 ]
 
 
@@ -308,7 +316,7 @@ class TestReadToolsWithoutSessionContext:
     @pytest.mark.asyncio
     async def test_read_tools_return_the_seeded_rows(self, world):
         segments = _payload(await _call(world, "get_saved_segments", {}))
-        phrase_values = _payload(await _call(world, "get_phrasebook_values", {"category_id": "pb-1"}))
+        phrase_values = _payload(await _call(world, "get_phrasebook_values", {"category": "pb-1"}))
         presets = _payload(await _call(world, "list_presets", {}))
         searched = _payload(await _call(world, "search_model_prompts", {"queries": ["fox"]}))
         recent = _payload(await _call(world, "organize_gallery", {"operation": "list_recent"}))
@@ -406,3 +414,81 @@ class TestErrorScrubbing:
         assert result["isError"] is True
         assert "/srv/" not in result["content"][0]["text"]
         assert "cannot open" in result["content"][0]["text"]
+
+
+MOOD_OP = {"op": "set", "name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "pin", "pinned_index": 1}
+
+
+class TestTabDraftTools:
+    @pytest.mark.asyncio
+    async def test_manage_writes_the_draft_by_tab_id_and_pushes_it(self, world):
+        result = await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+
+        assert result["isError"] is False, result["content"][0]["text"]
+        payload = _payload(result)
+        assert (payload["status"], payload["tab_id"], payload["rev"], payload["applied_count"]) == ("applied", "tab-a", 1, 1)
+        [row] = payload["applied_changes"]
+        assert row["field_name"] == "${mood}" and row["old_value"] == "not set"
+        assert "sunlit" in row["new_value"]
+        assert payload["summary"].startswith("Applied 1 variable change.") and "${mood}" in payload["summary"]
+        assert world.drafts.variables("user-1", "tab-a")["mood"]["pinnedIndex"] == 1
+        [(pushed_to, message)] = world.notifier.sent
+        assert pushed_to == "user-1" and message["type"] == "tab_variables_changed" and message["tab_id"] == "tab-a"
+
+    @pytest.mark.asyncio
+    async def test_get_prompt_variables_reads_the_draft_by_tab_id(self, world):
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+
+        result = await _call(world, "get_prompt_variables", {"tab_id": "tab-a", "names": ["mood"]})
+
+        detail = _payload(result)["variables"][0]
+        assert detail["name"] == "mood" and detail["pinned_value"] == "sunlit"
+
+    @pytest.mark.asyncio
+    async def test_both_tools_need_a_tab_id_over_mcp(self, world):
+        for name, arguments in (
+            ("get_prompt_variables", {}),
+            ("manage_prompt_variables", {"operations": [MOOD_OP]}),
+        ):
+            result = await _call(world, name, arguments)
+            assert result["isError"] is True and "tab_id" in result["content"][0]["text"]
+        assert world.notifier.sent == []
+
+    @pytest.mark.asyncio
+    async def test_list_tab_drafts_returns_only_the_callers_tabs(self, world):
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-b", "operations": [MOOD_OP]}, user_id="user-2")
+
+        mine = _payload(await _call(world, "list_tab_drafts", {}))
+        theirs = _payload(await _call(world, "list_tab_drafts", {}, user_id="user-2"))
+
+        assert [t["tab_id"] for t in mine["tabs"]] == ["tab-a"]
+        assert [t["tab_id"] for t in theirs["tabs"]] == ["tab-b"]
+        assert mine["tabs"][0]["variable_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_second_user_cannot_read_or_change_the_first_users_tab(self, world):
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+
+        read = _payload(await _call(world, "get_prompt_variables", {"tab_id": "tab-a"}, user_id="user-2"))
+        await _call(
+            world,
+            "manage_prompt_variables",
+            {"tab_id": "tab-a", "operations": [{"op": "set", "name": "mood", "type": "text", "value": "mine"}]},
+            user_id="user-2",
+        )
+
+        assert read["variables"] == [] and read["total"] == 0
+        assert world.drafts.variables("user-1", "tab-a")["mood"]["type"] == "choice"
+        assert world.drafts.variables("user-2", "tab-a")["mood"] == {"type": "text", "value": "mine"}
+        assert [m["tab_id"] for _, m in world.notifier.sent if _ == "user-2"] == ["tab-a"]
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_operation_writes_and_pushes_nothing(self, world):
+        bad = {"op": "set", "name": "age", "type": "number", "min": 0, "max": 100000}
+
+        result = await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [bad]})
+
+        assert result["isError"] is True
+        assert world.drafts.find("user-1", "tab-a") is None
+        assert world.notifier.sent == []

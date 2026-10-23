@@ -5,6 +5,7 @@ import pytest
 
 from src.features.generation.failure import failure_from_output
 from src.features.generation.records import Generation
+from src.features.llm.tools.base import ToolServices
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
@@ -37,9 +38,11 @@ async def test_an_mcp_client_sees_only_the_safe_failure_of_a_generation(mcp_db):
     collaborators = McpToolCollaborators(
         tool_registry=registry,
         tool_governance_repository=ToolGovernanceRepository(),
-        llm_repository=llm_repository,
-        generation_history_facade=history_facade,
-        plugin_registry=Mock(),
+        services=ToolServices(
+            llm_repository=llm_repository,
+            generation_history_facade=history_facade,
+            plugin_registry=Mock(),
+        ),
     )
 
     result = await handle_method(

@@ -24,19 +24,13 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from ..hooks import StepLoop
+from ..noise import fresh_noise
 
 Tensor = torch.Tensor
 
 # (sigma_hi, sigma_low, n_steps) per restart segment.
 RestartSpec = tuple[float, float, int]
-
-
-def _fresh_noise(x: Tensor, generator: torch.Generator | None) -> Tensor:
-    if generator is None:
-        return torch.randn_like(x)
-    return torch.randn(x.shape, generator=generator, device=x.device, dtype=x.dtype)
 
 
 def _resolve_restarts(sampler_options: dict, total_main_steps: int) -> list[RestartSpec]:
@@ -96,24 +90,14 @@ def sample_euler_restart(
     total_main_steps = len(sigmas) - 1
     restarts = _resolve_restarts(opts, total_main_steps)
     total_steps = total_main_steps + sum(n for _, _, n in restarts)
-    run_hooks(hooks, "on_start", total_steps)
 
-    s_in = x.new_ones((x.shape[0],))
-    step_counter = 0
-    x0_est = x
-    # Restarts INTERLEAVE into the descent (arXiv:2306.14878): a restart with
-    # trigger level ``sigma_low`` fires the first time the main descent reaches a
-    # sigma at-or-below it, re-noising the current clean estimate up to
-    # ``sigma_hi`` and descending back to that same point, after which the main
-    # descent CONTINUES to 0. This is what makes the final latent clean;
-    # appending restart segments after the descent already reached 0 would leave
-    # a nonzero ``sigma_low`` segment returning a still-noisy latent, and would
-    # evaluate the re-noise model call on a clean sigma-0 state.
-    fired = [False] * len(restarts)
-    try:
+    with StepLoop(sigmas, hooks, is_cancelled, total_steps=total_steps) as loop:
+        s_in = x.new_ones((x.shape[0],))
+        step_counter = 0
+        x0_est = x
+        fired = [False] * len(restarts)
         for i in range(total_main_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=step_counter)
+            loop.check_cancelled(step_counter)
 
             sigma = sigmas[i]
             sigma_next = sigmas[i + 1]
@@ -122,8 +106,7 @@ def sample_euler_restart(
             x0_est = x - sigma * v
             x = x + (sigma_next - sigma) * v
 
-            x = apply_latent_filters(hooks, step_counter, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", step_counter, total_steps, x, float(sigma), x0_est)
+            x = loop.finish_step(x, step_counter, sigma, sigma_next, x0_est)
             step_counter += 1
 
             # Fire every not-yet-fired restart whose trigger level we have now
@@ -135,14 +118,13 @@ def sample_euler_restart(
                 if fired[ri] or reached > sigma_low + 1e-9:
                     continue
                 fired[ri] = True
-                eps_fresh = _fresh_noise(x, generator)
+                eps_fresh = fresh_noise(x, generator)
                 x = (1.0 - sigma_hi) * x0_est + sigma_hi * eps_fresh
                 seg_sigmas = torch.linspace(
                     sigma_hi, reached, n_steps + 1, device=x.device, dtype=x.dtype
                 )
                 for j in range(n_steps):
-                    if is_cancelled is not None and is_cancelled():
-                        raise SamplingCancelled(step_index=step_counter)
+                    loop.check_cancelled(step_counter)
 
                     seg_sigma = seg_sigmas[j]
                     seg_next = seg_sigmas[j + 1]
@@ -151,10 +133,7 @@ def sample_euler_restart(
                     x0_est = x - seg_sigma * v
                     x = x + (seg_next - seg_sigma) * v
 
-                    x = apply_latent_filters(hooks, step_counter, total_steps, x, float(seg_next))
-                    run_hooks(hooks, "on_step", step_counter, total_steps, x, float(seg_sigma), x0_est)
+                    x = loop.finish_step(x, step_counter, seg_sigma, seg_next, x0_est)
                     step_counter += 1
-    finally:
-        run_hooks(hooks, "on_end")
 
     return x

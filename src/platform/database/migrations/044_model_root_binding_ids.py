@@ -75,16 +75,6 @@ def up():
     print(f"Migration {_NAME}: bindings and locations are keyed by binding id, {dropped} orphan location(s) dropped")
 
 
-def down():
-    with db.get_cursor() as cursor:
-        if "id" not in _column_names(cursor, "model_root_bindings"):
-            return
-        _rebuild_backward(cursor)
-        if "layout_profile" in _column_names(cursor, "model_roots"):
-            cursor.execute("ALTER TABLE model_roots DROP COLUMN layout_profile")
-    print(f"Migration {_NAME}: bindings are back to one per root and type")
-
-
 def _rebuild_forward(cursor) -> int:
     cursor.execute("SELECT id, case_insensitive FROM model_roots")
     case_insensitive = {row["id"]: bool(row["case_insensitive"]) for row in cursor.fetchall()}
@@ -131,48 +121,6 @@ def _rebuild_forward(cursor) -> int:
     cursor.execute("ALTER TABLE model_locations_new RENAME TO model_locations")
     _create_location_indexes(cursor)
     return before - after
-
-
-def _rebuild_backward(cursor) -> None:
-    cursor.execute("DROP TABLE IF EXISTS model_root_bindings_old")
-    cursor.execute("DROP TABLE IF EXISTS model_locations_old")
-    cursor.execute("SELECT id, root_id, model_type, subdir, position, is_write, scan_headers FROM model_root_bindings")
-    keep = {}
-    for row in sorted(cursor.fetchall(), key=lambda r: (r["position"], r["id"])):
-        keep.setdefault((row["root_id"], row["model_type"]), row)
-    kept_ids = {row["id"] for row in keep.values()}
-
-    cursor.execute(_CREATE_OLD_BINDINGS)
-    cursor.executemany(
-        "INSERT INTO model_root_bindings_old (root_id, model_type, subdir, position, is_write, scan_headers) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [
-            (r["root_id"], r["model_type"], r["subdir"], r["position"], r["is_write"], r["scan_headers"])
-            for r in keep.values()
-        ],
-    )
-
-    cursor.execute(_CREATE_OLD_LOCATIONS)
-    cursor.execute(f"SELECT {_LOCATION_COLUMNS}, binding_id FROM model_locations")
-    locations = [row for row in cursor.fetchall() if row["binding_id"] in kept_ids]
-    names = [name.strip() for name in _LOCATION_COLUMNS.split(",")]
-    cursor.executemany(
-        f"INSERT INTO model_locations_old ({_LOCATION_COLUMNS}) VALUES ({', '.join('?' for _ in names)})",
-        [tuple(row[name] for name in names) for row in locations],
-    )
-
-    cursor.execute("DROP TABLE model_locations")
-    cursor.execute("DROP TABLE model_root_bindings")
-    cursor.execute("ALTER TABLE model_root_bindings_old RENAME TO model_root_bindings")
-    cursor.execute("ALTER TABLE model_locations_old RENAME TO model_locations")
-    cursor.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_binding_type_position ON model_root_bindings (model_type, position)"
-    )
-    cursor.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_binding_write_root ON model_root_bindings (model_type) "
-        "WHERE is_write = 1"
-    )
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_model_locations_model ON model_locations (model_id)")
 
 
 def _create_binding_indexes(cursor) -> None:

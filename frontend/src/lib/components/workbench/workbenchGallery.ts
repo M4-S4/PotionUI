@@ -92,11 +92,6 @@ export function galleryItemAt(batches: WorkbenchBatches, index: number): Gallery
 	return null;
 }
 
-/** First entry in the chain, or null when the generation produced nothing. */
-export function firstGalleryEntry(batches: WorkbenchBatches): GalleryEntry | null {
-	return galleryItemAt(batches, 0);
-}
-
 /** Full-size URL for a gallery item (the display URL is only a fallback). */
 export function galleryItemUrl(item: any): string | null {
 	if (!item || typeof item !== 'object') return null;

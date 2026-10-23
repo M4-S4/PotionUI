@@ -21,23 +21,21 @@ import pytest
 
 from scripts.preset_render import (
     FIXED_SEED,
-    _collect_named_fields,
+    GOLDEN_TAG,
     _fixture_timeline_document,
     _fixture_video_director_document,
-    _inject_unresolvable_defaults,
     _mode_references_timeline,
     _mode_references_video_director,
-    build_form_serializer,
     build_generation_data,
     build_processor,
     load_all_presets,
     relativize_media_placeholders,
 )
 from src.features.forms.binding import bind_form
+from src.features.presets.fixture_form import build_default_form_data
 from src.features.generation.engine import deep_update
 from src.features.generation.package_assembly import assemble_execution_package
 from src.features.generation.pipeline_builder import BuiltPipeline
-from src.features.presets.templates import default_form_name
 from src.pipelines.catalog import PipeCatalog
 from src.platform.worker_protocol import (
     ContentDigest,
@@ -55,18 +53,9 @@ MODEL_BUNDLE = ModelBundleManifestV1(
 )
 
 
-def _bound_form_data(serializer, preset, mode, storage_dir):
+def _bound_form_data(preset, mode, storage_dir):
     mode_data = preset.modes[mode]
-    form_name = default_form_name(mode_data)
-    form_data = {}
-
-    if form_name is not None:
-        form_template = next(f for f in mode_data.forms if f.name == form_name)
-        resolved = serializer._resolve_external_children(
-            form_template.fields, {"paths": {"preset": preset.path}}
-        )
-        _collect_named_fields(resolved, form_data)
-        _inject_unresolvable_defaults(resolved, form_data)
+    form_data, _ = build_default_form_data(preset, mode, GOLDEN_TAG)
 
     # The harness's media placeholders are absolute and outside any storage
     # root; a real submission is a path relative to it, which is what makes
@@ -98,14 +87,13 @@ def native_packages(tmp_path_factory, pipe_catalog):
     storage_dir = tmp_path_factory.mktemp("storage")
     presets, _errors = load_all_presets()
     processor = build_processor()
-    serializer = build_form_serializer()
 
     assembled = []
     for preset in sorted(presets, key=lambda p: p.id):
         if preset.engine != NATIVE_ENGINE:
             continue
         for mode in sorted(preset.modes.keys()):
-            form_data = _bound_form_data(serializer, preset, mode, storage_dir)
+            form_data = _bound_form_data(preset, mode, storage_dir)
             generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
             pipes = processor.process(preset, generation_data)
 
@@ -232,16 +220,7 @@ def test_input_asset_collection_strips_the_host_storage_root_from_the_wire(pipe_
     presets, _errors = load_all_presets()
     preset = next(p for p in presets if p.name == "SeedVR2")
     mode = "upscale"
-    mode_data = preset.modes[mode]
-    form_name = default_form_name(mode_data)
-    serializer = build_form_serializer()
-    form_template = next(f for f in mode_data.forms if f.name == form_name)
-    resolved = serializer._resolve_external_children(
-        form_template.fields, {"paths": {"preset": preset.path}}
-    )
-    form_data = {}
-    _collect_named_fields(resolved, form_data)
-    _inject_unresolvable_defaults(resolved, form_data)
+    form_data, _ = build_default_form_data(preset, mode, GOLDEN_TAG)
 
     with tempfile.TemporaryDirectory() as td:
         storage_dir = Path(td) / "storage"

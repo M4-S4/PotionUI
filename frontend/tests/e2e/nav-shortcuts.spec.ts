@@ -19,10 +19,9 @@ test('digit shortcuts navigate to their sidebar pages', async ({ page }) => {
 		.poll(
 			async () => {
 				await page.keyboard.press('2');
-				await page.waitForTimeout(300);
 				return new URL(page.url()).pathname;
 			},
-			{ timeout: 10000 }
+			{ timeout: 10000, intervals: [300] }
 		)
 		.toMatch(/\/history/);
 

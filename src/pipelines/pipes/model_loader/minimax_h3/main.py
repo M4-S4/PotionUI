@@ -32,7 +32,7 @@ extra VRAM/RAM cost when unset. ``latent_upscaler/minimax_h3`` reads
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from src.pipelines.outputs import (
     ModelGenerationOutput,
@@ -72,6 +72,7 @@ from src.pipelines.pipes.model_loader.minimax_h3 import vdn as _vdn
 from src.pipelines.pipes.model_loader.minimax_h3.bundle import MiniMaxH3ModelBundle
 from src.pipelines.pipes.model_loader.minimax_h3.clip import MiniMaxH3ClipTextEncoder
 from src.platform.runtime.native.text_encoders.qwen3 import MiniMaxH3TextEncoder
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 def _assert_h3_component(label: str, model: Any, expected_cls: type, path: str) -> None:
@@ -100,21 +101,6 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
     description = "Load a native MiniMax-H3 checkpoint set (DiT + Qwen3-VL-32B TE + video VAE + audio VAE)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "text_encoder": None,
-            "video_vae": None,
-            "audio_vae": None,
-            "upscale_model": None,
-            "loras": [],
-            "vdn_module": None,
-            "dense_time_embedder": None,
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("model", dict, None, "MiniMax-H3 DiT checkpoint (t2va/fl2va)", required=True),
@@ -122,7 +108,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             PipeConfigSpec("video_vae", dict, None, "MiniMax-H3 video VAE", required=True),
             PipeConfigSpec("audio_vae", dict, None, "MiniMax-H3 audio VAE (always loaded -- audio is inherent)", required=True),
             PipeConfigSpec("upscale_model", dict, None, "Optional MiniMax-H3 3D latent-upscaler checkpoint", required=False),
-            PipeConfigSpec("loras", list, [], "DiT LoRAs", required=False),
+            loras_config_spec("DiT LoRAs"),
             PipeConfigSpec("vdn_module", dict, None,
                            "Video-DeltaNet linear branch to attach to the DiT (turbo hybrid attention)",
                            required=False),
@@ -130,10 +116,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
                            "Full-checkpoint time_embedder tensors, needed only to translate an "
                            "adapter's AdaLN rows onto a pruned DiT",
                            required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

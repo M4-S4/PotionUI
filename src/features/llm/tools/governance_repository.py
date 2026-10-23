@@ -7,6 +7,7 @@ feeds.
 from typing import Dict, Iterable, Optional, Set, Tuple
 
 from src.platform.database.rows import now_iso
+from src.platform.database import get_cursor
 
 
 class ToolGovernanceRepository:
@@ -16,8 +17,7 @@ class ToolGovernanceRepository:
     def get_all_config(self, llm_config_id: str) -> Dict[str, Dict[str, bool]]:
         """Every governed tool's {enabled, locked} for one LLM config, keyed
         by tool name."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT tool_name, enabled, locked FROM tool_governance WHERE llm_config_id = ?",
                 (llm_config_id,),
@@ -28,8 +28,7 @@ class ToolGovernanceRepository:
             }
 
     def get_config(self, llm_config_id: str, tool_name: str) -> Optional[Dict[str, bool]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT enabled, locked FROM tool_governance "
                 "WHERE llm_config_id = ? AND tool_name = ?",
@@ -51,8 +50,7 @@ class ToolGovernanceRepository:
         if not names:
             return {}
         placeholders = ",".join("?" for _ in names)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT tool_name, enabled, locked FROM tool_governance "
                 f"WHERE llm_config_id = ? AND tool_name IN ({placeholders})",
@@ -77,8 +75,7 @@ class ToolGovernanceRepository:
         merged_enabled = existing["enabled"] if enabled is None else enabled
         merged_locked = existing["locked"] if locked is None else locked
         now = now_iso()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO tool_governance (llm_config_id, tool_name, enabled, locked, updated_at)
@@ -94,21 +91,18 @@ class ToolGovernanceRepository:
 
     def delete_config(self, llm_config_id: str) -> None:
         """Drop every governance row for a deleted LLM config."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM tool_governance WHERE llm_config_id = ?", (llm_config_id,))
 
     def get_user_disabled(self, user_id: str) -> Set[str]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT tool_name FROM user_disabled_tools WHERE user_id = ?", (user_id,)
             )
             return {row["tool_name"] for row in cursor.fetchall()}
 
     def set_user_disabled(self, user_id: str, tool_name: str, disabled: bool) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if disabled:
                 cursor.execute(
                     "INSERT OR IGNORE INTO user_disabled_tools (user_id, tool_name, created_at) "

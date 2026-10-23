@@ -21,4 +21,4 @@ fields:
         configuration:
           icon: "settings"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/edit/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"

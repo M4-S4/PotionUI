@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
 	deriveRailModel,
-	resolveKeyframeDrag,
 	resizeTimelineBlockEdge,
 	deriveShotLabel,
 	referenceNameResolver,
@@ -279,16 +278,6 @@ describe('deriveRailModel — MiniMax-H3 chain', () => {
 		expect(free.snappedToLabel).toBeNull();
 		expect(snapped.snapped).toBe(true);
 		expect(snapped.snappedToLabel).toBe('Join 1→2');
-	});
-
-	it('clamps a dragged free keyframe into [0, window] and snaps it near a boundary', () => {
-		const model = deriveRailModel(h3Doc(), h3Caps());
-		const past = resolveKeyframeDrag(999, model.snapTargets, model.totalSeconds);
-		expect(past).toBeCloseTo(model.totalSeconds, 5);
-		const negative = resolveKeyframeDrag(-5, model.snapTargets, model.totalSeconds);
-		expect(negative).toBe(0);
-		const nearJoin = resolveKeyframeDrag(5.83, model.snapTargets, model.totalSeconds);
-		expect(nearJoin).toBeCloseTo(5.8, 5);
 	});
 
 	it('keeps an audio clip that spans two shots exactly as authored', () => {

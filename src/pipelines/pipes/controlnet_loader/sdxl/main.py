@@ -19,14 +19,6 @@ class ControlNetLoaderSDXLPipe(BasePipe):
     description = "Load SDXL ControlNet models for guided generation"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "controlnets": [],  # List of ControlNet configurations
-            "device": "cuda",
-            "dtype": "float16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [

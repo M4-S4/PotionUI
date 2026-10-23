@@ -56,6 +56,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 from pydantic import BaseModel, Field
 
+from src.plugin_api.forms import core_field_type_names
+
 CATEGORIES = frozenset(
     {"loader", "sampler", "sampling", "latent", "image_input", "modifier", "lora", "output", "ignore"}
 )
@@ -86,19 +88,7 @@ TRANSFORMS = frozenset({"none", "strip_model_prefix", "seed"})
 
 HISTORY_FORMATS = frozenset({"model_name", "number", "wxh", "list", "as_is"})
 
-# Core field types an InputSpec may reference - see
-# src/features/fields/builtin.py's registered definitions. Layout/container
-# types (tabs, row, group, ...) are deliberately excluded: a catalog input
-# spec describes one leaf field, never a container.
-FIELD_TYPES = frozenset(
-    {
-        "string", "textbox", "number", "integer", "boolean", "checkbox", "slider", "stepper",
-        "seed", "resolution", "select", "checkbox_group", "model", "models", "lora_picker",
-        "image", "video", "audio", "media", "file", "carousel", "llm", "alert", "markdown",
-        "header", "section", "gate", "prompt_timeline", "camera_shot",
-    }
-)
-
+FIELD_TYPES = core_field_type_names()
 
 class InputSpec(BaseModel):
     role: str

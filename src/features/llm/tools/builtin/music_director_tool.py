@@ -22,17 +22,13 @@ and the frontend applies them to its own editor state.
 """
 
 import json
-import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import music_director_active
-from src.features.llm.tools.tool_call_rescue import decode_payload, demangle_quote_tokens
+from src.features.llm.tools.operation_args import operations_from
 from src.features.music_director import apply_preset_mode_overlay
-
-logger = logging.getLogger(__name__)
 
 # Mirrors MUSIC_MODE_ORDER in frontend/src/lib/types/musicDirector.ts exactly
 # -- deriveMusicDirectorMode's precedence checks this order.
@@ -76,6 +72,7 @@ _CALL_EXAMPLE = (
     f"{_OPERATIONS_EXAMPLE}"
     "}}</tool_call>"
 )
+_NO_OPERATIONS_ERROR = f"No operations provided. Specify at least one: {_CALL_EXAMPLE}"
 
 
 class _OperationError(ValueError):
@@ -121,30 +118,6 @@ def _normalize_op(raw_op: Any) -> Any:
                 k: (_as_number(v) if k in _NUMERIC_FIELDS else v) for k, v in value.items()
             }
     return op
-
-
-def coerce_operations(operations: Any) -> Tuple[Optional[List[Any]], Optional[str]]:
-    """The `operations` argument as a list, or `(None, <corrective error>)`.
-    Mirrors video_director_tool.coerce_operations exactly."""
-    if isinstance(operations, dict):
-        return [operations], None
-    if isinstance(operations, list):
-        return operations, None
-    if isinstance(operations, str):
-        decoded, problem = decode_payload(demangle_quote_tokens(operations))
-        if isinstance(decoded, list):
-            return decoded, None
-        if isinstance(decoded, dict):
-            return [decoded], None
-        return None, (
-            "'operations' must be an ARRAY of operation objects, not text. "
-            + (f"The text you sent could not be read: {problem}. " if problem else "")
-            + f"Send the whole call as JSON with double quotes: {_CALL_EXAMPLE}"
-        )
-    return None, (
-        f"'operations' must be an array of operation objects, got {type(operations).__name__}. "
-        f"The whole call looks like this: {_CALL_EXAMPLE}"
-    )
 
 
 def _truncate(text: Any, limit: int = 60) -> str:
@@ -702,26 +675,9 @@ class GetMusicDirectorTool(BaseTool):
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         return music_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "get_music_director"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the Music Director document on your generation form."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When the user asks about their song's lyrics, sections, references, or Music "
-            "Director settings -- call this first."
-            "{{#if update_music_director}} Use it before proposing changes with "
-            "update_music_director.{{/if}}"
-        )
+    name = "get_music_director"
+    group = "Form & segments"
+    user_description = "Reads the Music Director document on your generation form."
 
     @property
     def description(self) -> str:
@@ -760,27 +716,23 @@ class GetMusicDirectorTool(BaseTool):
                 ),
             )
 
-        try:
-            doc = md.get("doc") or {}
-            capabilities = apply_preset_mode_overlay(md.get("capabilities") or {}, form_state.get("mode"))
-            read = _read_doc(doc, capabilities)
+        doc = md.get("doc") or {}
+        capabilities = apply_preset_mode_overlay(md.get("capabilities") or {}, form_state.get("mode"))
+        read = _read_doc(doc, capabilities)
 
-            result = {
-                "mode": read["mode"],
-                "description": read["description"],
-                "instrumental": read["instrumental"],
-                "sections": read["sections"],
-                "references": read["references"],
-                "extend_source": read["extend_source"],
-                "repaint": read["repaint"],
-                "settings": read["settings"],
-                "capabilities": _capability_summary(capabilities, read["mode"]),
-                "how_to_edit": _how_to_edit(read["mode"], capabilities),
-            }
-            return ToolResult(success=True, data=json.dumps(result))
-        except Exception as e:
-            logger.error(f"Error reading music director from session metadata: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        result = {
+            "mode": read["mode"],
+            "description": read["description"],
+            "instrumental": read["instrumental"],
+            "sections": read["sections"],
+            "references": read["references"],
+            "extend_source": read["extend_source"],
+            "repaint": read["repaint"],
+            "settings": read["settings"],
+            "capabilities": _capability_summary(capabilities, read["mode"]),
+            "how_to_edit": _how_to_edit(read["mode"], capabilities),
+        }
+        return ToolResult(success=True, data=json.dumps(result))
 
 
 class UpdateMusicDirectorTool(BaseTool):
@@ -792,32 +744,10 @@ class UpdateMusicDirectorTool(BaseTool):
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         return music_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "update_music_director"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Changes the Music Director document on your generation form for you."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When the user asks to change their song's lyrics, sections, style description, "
-            "references, instrumental toggle, or settings on an active Music Director -- "
-            "propose changes with this tool."
-            "{{#if get_music_director}} Always call get_music_director first to see the "
-            "current document and which fields/kinds are valid before proposing "
-            "operations.{{/if}}"
-        )
+    name = "update_music_director"
+    group = "Form & segments"
+    user_description = "Changes the Music Director document on your generation form for you."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -881,14 +811,7 @@ class UpdateMusicDirectorTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        raw_operations = kwargs.get("operations")
-        if not raw_operations:
-            return ToolResult(
-                success=False,
-                data="",
-                error=f"No operations provided. Specify at least one: {_CALL_EXAMPLE}",
-            )
-        operations, problem = coerce_operations(raw_operations)
+        operations, problem = operations_from(kwargs.get("operations"), _CALL_EXAMPLE, _NO_OPERATIONS_ERROR)
         if problem:
             return ToolResult(success=False, data="", error=problem)
 
@@ -923,7 +846,7 @@ class UpdateMusicDirectorTool(BaseTool):
         return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        operations, problem = coerce_operations(kwargs.get("operations") or [])
+        operations, problem = operations_from(kwargs.get("operations"), _CALL_EXAMPLE, _NO_OPERATIONS_ERROR)
         if problem:
             return ToolResult(success=False, data="", error=problem)
 

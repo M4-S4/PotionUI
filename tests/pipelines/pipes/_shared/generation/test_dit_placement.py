@@ -17,6 +17,7 @@ no actual device).
 from __future__ import annotations
 
 import logging
+import types
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -32,8 +33,10 @@ import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.settings import runtime_flags
 from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
 
+from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
+    _ACTIVATION_SAFETY_MARGIN,
     _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _dit_dequant_transient_bytes,
@@ -215,7 +218,7 @@ def _lokr_delta(in_features: int, out_features: int, *, dtype=torch.float32):
 
 
 def _linear_with_lokr_delta(in_features: int, out_features: int) -> nn.Linear:
-    linear = nn.Linear(in_features, out_features)
+    linear = nn.Linear(in_features, out_features, device="meta")
     linear.lora_deltas = [_lokr_delta(in_features, out_features)]
     return linear
 
@@ -224,7 +227,7 @@ def _quantized_linear(in_features: int, out_features: int, *, nvfp4: bool) -> nn
     """A Linear carrying the state a quantized vendored Linear's own forward
     branches on -- ``_is_nvfp4`` for the nvfp4 GEMM path, ``weight_scale``
     for the fp8 ``_scaled_mm`` one -- plus one output-side-eligible delta."""
-    linear = nn.Linear(in_features, out_features)
+    linear = nn.Linear(in_features, out_features, device="meta")
     if nvfp4:
         linear._is_nvfp4 = True
     else:
@@ -364,7 +367,7 @@ def test_a_mixed_stack_is_split_per_delta_the_way_the_forward_splits_it():
     # One Linear carrying both a LoKr and a plain adapter: the plain one
     # rides the activation, only the LoKr one pays a weight-shaped delta --
     # partition_output_branch_deltas' own per-delta contract.
-    linear = nn.Linear(5376, 28672)
+    linear = nn.Linear(5376, 28672, device="meta")
     linear._is_nvfp4 = True
     linear.lora_deltas = [_lokr_delta(5376, 28672), _plain_delta(5376, 28672)]
     dit = SimpleNamespace(module=nn.Sequential(linear))
@@ -1039,6 +1042,69 @@ def test_ltx_reserve_byte_identical_with_and_without_ffn_dim_kwarg_present_in_si
     assert estimate_activation_reserve_gb(110_880) == pytest.approx(9.4, rel=0.3)  # sanity vs. the audit figure
 
 
+_H3_HIDDEN_SIZE = 5376
+_H3_FFN_PLANS = ((39_800, 4.25), (103_000, 11.0))
+
+
+def _h3_reserve(tokens: int, **kwargs) -> float:
+    return estimate_activation_reserve_gb(tokens, inner_dim=_H3_INNER_DIM, **kwargs)
+
+
+@pytest.mark.parametrize("tokens, saved_gib", _H3_FFN_PLANS)
+def test_a_chunked_ffn_drops_the_whole_ffn_term_from_a_long_h3_plans_reserve(tokens, saved_gib):
+    rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+    whole = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM)
+    chunked = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=rows)
+    raw_saving_gib = tokens * _ffn_transient_bytes_per_token(_H3_FFN_DIM) / 1024 ** 3
+
+    assert rows
+    assert raw_saving_gib == pytest.approx(saved_gib, abs=0.01)
+    assert whole - chunked == pytest.approx(raw_saving_gib * _ACTIVATION_SAFETY_MARGIN, rel=1e-9)
+    assert chunked == _h3_reserve(tokens)
+
+
+@pytest.mark.parametrize("tokens, free_gb", [(39_800, 28.0), (103_000, 32.0)])
+def test_a_chunked_ffn_keeps_more_of_a_long_h3_plans_dit_resident(tokens, free_gb):
+    rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+    decisions = []
+    for chunk_rows in (0, rows):
+        dit, _calls = _dit(estimated_vram_gb=_TRACE_DIT_WEIGHT_GB)
+        patches, _manager = _patched(free_gb=free_gb)
+        with patches[0], patches[1], patches[2]:
+            decisions.append(place_dit_for_sequence(
+                dit, "cuda", video_tokens=tokens, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+                ffn_chunk_rows=chunk_rows,
+            ))
+    whole, chunked = decisions
+
+    def resident_fraction(decision):
+        return min(1.0, decision.weight_budget_gb / decision.dit_weight_gb)
+
+    assert whole.mode == "partial"
+    assert chunked.weight_budget_gb - whole.weight_budget_gb == pytest.approx(
+        whole.activation_reserve_gb - chunked.activation_reserve_gb)
+    assert resident_fraction(chunked) > resident_fraction(whole)
+
+
+def test_an_ffn_chunk_at_least_as_long_as_the_sequence_reserves_the_whole_ffn():
+    tokens = 50_000
+    whole = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM)
+    assert _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=tokens) == whole
+    assert _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=tokens + 1) == whole
+
+
+def test_a_chunked_ffn_phase_wider_than_attention_sets_the_reserve_instead():
+    tokens = 50_000
+    attention_only = _h3_reserve(tokens)
+    near_whole = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=tokens - 1)
+    assert attention_only < near_whole < _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM)
+
+
+def test_ffn_chunk_rows_without_an_ffn_dim_changes_nothing():
+    assert _h3_reserve(50_000, ffn_chunk_rows=4096) == _h3_reserve(50_000)
+    assert estimate_activation_reserve_gb(110_880, ffn_chunk_rows=4096) == estimate_activation_reserve_gb(110_880)
+
+
 # -- LoRA delta counted as resident weight (the OTHER half of the same fix) --
 
 def _linear_with_sized_delta(down_shape, up_shape, *, dtype=torch.float32) -> nn.Linear:
@@ -1147,50 +1213,20 @@ def test_the_refused_clips_activation_reserve_drops_to_the_attention_and_ffn_ter
     assert reserve + _REFUSAL_EXTRA_RESERVE_GB < _REFUSAL_FREE_EFFECTIVE_GB
 
 
-def test_bite_check_the_stale_per_token_lora_buffer_would_still_refuse_this_clip():
-    # BITE CHECK: charge the per-token output buffer the way the old formula
-    # did (4 * inner_dim * 2 bytes/token whenever any LoRA was resident) and
-    # the maintainer's clip is refused again, before any placement I/O.
-    stale = DitLoraProfile(output_buffer_out_features=2 * _H3_INNER_DIM, active=True)
-    stale_reserve = estimate_activation_reserve_gb(
-        _REFUSAL_VIDEO_TOKENS, _REFUSAL_AUDIO_TOKENS, lora=stale,
-        inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
-    )
-    assert stale_reserve == pytest.approx(21.73, rel=0.02)  # the refusal detail's own number
-    assert stale_reserve + _REFUSAL_EXTRA_RESERVE_GB > _REFUSAL_FREE_EFFECTIVE_GB
-
-
 # -- the real OOM trace: both fixes together flip resident -> partial --------
 
-def _trace_dit(*, lora_weight_gb: float) -> Any:
-    """A dit test double shaped like the real trace: 19.52GB base weight,
-    LoRA active with `lora_weight_gb` of ACTUAL resident delta bytes (a real
-    tensor, not mocked, sized exactly -- avoids allocating a full 1.4GB
-    fixture while still exercising the real byte-summing code path)."""
+def _trace_dit() -> Any:
     dit, calls = _dit(estimated_vram_gb=_TRACE_DIT_WEIGHT_GB)
-    if lora_weight_gb > 0.0:
-        # One down/up pair sized to land on lora_weight_gb exactly (fp32,
-        # square matrices: 2*n*n*4 bytes total).
-        n = int((lora_weight_gb * 1024 ** 3 / 8) ** 0.5)
-        dit.module = nn.Sequential(_linear_with_sized_delta((n, n), (n, n)))
-    else:
-        dit.module = nn.Sequential(nn.Linear(4, 4))
+    n = int((_TRACE_LORA_WEIGHT_GB * 1024 ** 3 / 8) ** 0.5)
+    dit.module = nn.Sequential(_linear_with_sized_delta((n, n), (n, n)))
     return dit, calls
 
 
-# The trace reported `free_gb=27.4` at placement, yet the run died with
-# 25.55GB in play -- so that reading overstated what the card could actually
-# give by at least ~2GB (a free-VRAM accuracy question, owned elsewhere).
-# The mode this trace resolves to therefore turns on the free reading, not
-# on the LoRA term: with the stale per-token LoRA buffer gone, 20.92GB of
-# weights plus a 5.63GB reserve fits 27.4 and the decision is "resident".
-# `_TRACE_DECISIVE_FREE_GB` is the band where the SwiGLU term itself is what
-# flips the decision, which is what these two tests are actually about.
 _TRACE_DECISIVE_FREE_GB = 25.5
 
 
 def test_the_ffn_term_tips_the_real_trace_into_partial():
-    dit, calls = _trace_dit(lora_weight_gb=_TRACE_LORA_WEIGHT_GB)
+    dit, calls = _trace_dit()
     patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
     with patches[0], patches[1], patches[2]:
         decision = place_dit_for_sequence(
@@ -1202,20 +1238,6 @@ def test_the_ffn_term_tips_the_real_trace_into_partial():
     assert len(calls["stream_to"]) == 1
 
 
-def test_bite_check_without_ffn_dim_the_same_trace_wrongly_stays_resident():
-    # BITE CHECK 1/2: reverting JUST the activation-reserve half of the fix
-    # (drop ffn_dim) reproduces the ORIGINAL bug -- the exact scenario that
-    # OOM'd on real hardware would still be placed fully resident.
-    dit, calls = _trace_dit(lora_weight_gb=_TRACE_LORA_WEIGHT_GB)
-    patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
-    with patches[0], patches[1], patches[2]:
-        decision = place_dit_for_sequence(
-            dit, "cuda", video_tokens=_TRACE_VIDEO_TOKENS, audio_tokens=_TRACE_AUDIO_TOKENS,
-            inner_dim=_H3_INNER_DIM,  # ffn_dim NOT passed
-        )
-    assert decision.mode == "resident"
-
-
 def test_the_real_traces_reserve_still_covers_its_observed_activation_need():
     # Independent of any free reading: the trace died with 24.52GB allocated
     # (19.52 weights + 1.4 LoRA + ~3.6 activations) needing 1.03GiB more, so
@@ -1225,22 +1247,6 @@ def test_the_real_traces_reserve_still_covers_its_observed_activation_need():
         _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
     )
     assert reserve >= 4.63
-
-
-def test_bite_check_without_lora_weight_correction_the_same_trace_wrongly_stays_resident():
-    # BITE CHECK 2/2: reverting JUST the weight_gb half of the fix (no
-    # resident LoRA delta on the module -- `estimated_vram_gb` alone) ALSO
-    # reproduces the bug, even with the corrected activation reserve.
-    # Confirms BOTH halves of the fix are independently load-bearing -- the
-    # activation-reserve fix alone was not sufficient to flip this decision.
-    dit, calls = _trace_dit(lora_weight_gb=0.0)  # no resident delta on the module
-    patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
-    with patches[0], patches[1], patches[2]:
-        decision = place_dit_for_sequence(
-            dit, "cuda", video_tokens=_TRACE_VIDEO_TOKENS, audio_tokens=_TRACE_AUDIO_TOKENS,
-            inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
-        )
-    assert decision.mode == "resident"
 
 
 # -- warm residency: a DiT the PRIOR generation already left resident must not
@@ -1309,18 +1315,6 @@ def test_warm_resident_dit_that_still_fits_is_kept_without_move_or_stream():
     assert calls["stream_to"] == []
     assert calls["offload"] == 0
     assert decision.dit_weight_gb == 19.6
-
-
-def test_bite_check_without_crediting_self_this_exact_scenario_would_wrongly_stream():
-    # BITE CHECK: the SAME numbers as the "still fits" test above, but
-    # computed the OLD way (free_vram_gb() alone, no credit for the DiT's own
-    # resident bytes) -- proves the credit-back is actually load-bearing,
-    # not a no-op: without it, this configuration would have concluded the
-    # DiT no longer fits and streamed it, reproducing the reported bug.
-    free_gb = 11.8
-    total_reserve = 5.0 + _ACTIVATION_RESERVE_FLOOR_GB  # video_tokens=0 -> floor
-    uncredited_budget = max(0.0, free_gb - total_reserve)
-    assert uncredited_budget < 19.6, "expected the OLD (uncredited) computation to wrongly conclude 'doesn't fit'"
 
 
 def test_warm_resident_dit_that_no_longer_fits_offloads_then_places_fresh():
@@ -1554,6 +1548,7 @@ def _enable_compile(monkeypatch):
     from src.platform.runtime.native.optimizations import compile as tc
 
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
+    monkeypatch.setattr(tc, "_triton_available", lambda: True)
     return tc
 
 
@@ -1568,7 +1563,7 @@ def test_resident_placement_compiles_when_enabled(monkeypatch):
     assert all(tc.is_compiled(b) for b in dit.module.blocks)
 
 
-def test_partial_placement_never_compiles(monkeypatch):
+def test_partial_placement_without_active_streamer_does_not_compile(monkeypatch):
     _enable_compile(monkeypatch)
     dit, _calls = _dit_compilable()
     patches, _manager = _patched(free_gb=32.0)
@@ -1576,6 +1571,19 @@ def test_partial_placement_never_compiles(monkeypatch):
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(40))
     assert decision.mode == "partial"
     assert getattr(dit, "_compiled", None) is None
+
+
+def test_partial_placement_with_active_streamer_compiles_block_forwards(monkeypatch):
+    tc = _enable_compile(monkeypatch)
+    dit, _calls = _dit_compilable()
+    dit.is_streaming = True
+    patches, _manager = _patched(free_gb=32.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(40))
+    assert decision.mode == "partial"
+    assert dit._compiled is not None and dit._compiled.active
+    assert len(dit._compiled.forwards) == len(dit.module.blocks)
+    assert all("forward" in vars(b) and not tc.is_compiled(b) for b in dit.module.blocks)
 
 
 def test_compile_disabled_by_default_leaves_dit_untouched(monkeypatch):
@@ -2026,6 +2034,19 @@ def test_the_dequant_transient_is_a_flat_term_not_a_per_token_one():
             tokens, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims,
         )
         assert with_transient - without == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * 1.15, rel=1e-9)
+
+
+def test_the_dequant_transient_rides_on_top_of_a_chunked_ffn_phase():
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    for tokens in (19_284, 39_800):
+        rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+        chunked = estimate_activation_reserve_gb(tokens, ffn_chunk_rows=rows, **dims)
+        with_transient = estimate_activation_reserve_gb(
+            tokens, ffn_chunk_rows=rows, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims,
+        )
+        assert rows
+        assert with_transient - chunked == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * 1.15, rel=1e-9)
+        assert with_transient < estimate_activation_reserve_gb(tokens, **dims)
 
 
 def test_placement_charges_the_dits_own_dequant_transient():

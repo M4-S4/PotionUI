@@ -20,7 +20,3 @@ def up():
             return
         cursor.execute("ALTER TABLE generations ADD COLUMN routing_decision TEXT")
     print("Migration 009_generation_routing_decision: added routing_decision column")
-
-
-def down():
-    print("Migration 009_generation_routing_decision: no-op (SQLite keeps the added column)")

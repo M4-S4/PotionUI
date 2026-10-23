@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '../Icon.svelte';
-	import { tooltipDescription } from '../tooltipContext';
 
 	type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 	type Size = 'xs' | 'sm' | 'md' | 'lg';
@@ -18,10 +17,10 @@
 		type = 'button',
 		class: className = '',
 		onclick,
-		title,
 		initialFocus = false,
 		ariaExpanded,
 		ariaHaspopup,
+		ariaLabel,
 		children
 	}: {
 		variant?: Variant;
@@ -35,10 +34,10 @@
 		type?: 'button' | 'submit';
 		class?: string;
 		onclick?: (e: MouseEvent) => void;
-		title?: string;
 		initialFocus?: boolean;
 		ariaExpanded?: boolean;
 		ariaHaspopup?: 'dialog' | 'menu' | 'listbox' | 'true';
+		ariaLabel?: string;
 		children?: Snippet;
 	} = $props();
 
@@ -63,8 +62,6 @@
 		lg: 'w-4 h-4'
 	};
 
-	const describedBy = tooltipDescription();
-
 	let isDisabled = $derived(disabled || loading);
 	let classes = $derived(
 		`inline-flex items-center justify-center gap-1.5 rounded transition-colors duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${sizeClasses[size]} ${variantClasses[variant]} ${className}`
@@ -72,7 +69,7 @@
 </script>
 
 {#if href && !isDisabled}
-	<a {href} {target} {rel} class={classes} {title} role="button" aria-describedby={$describedBy}>
+	<a {href} {target} {rel} class={classes} role="button" aria-label={ariaLabel}>
 		{#if icon}<Icon name={icon} className={iconSizeClasses[size]} />{/if}
 		{@render children?.()}
 	</a>
@@ -81,11 +78,10 @@
 		{type}
 		class={classes}
 		disabled={isDisabled}
-		{title}
 		{onclick}
 		aria-expanded={ariaExpanded}
 		aria-haspopup={ariaHaspopup}
-		aria-describedby={$describedBy}
+		aria-label={ariaLabel}
 		data-autofocus={initialFocus ? '' : undefined}
 	>
 		{#if loading}

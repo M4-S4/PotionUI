@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, ownerToken, shotPath, waitForFormPublished } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { installAndSelectImagePreset, presetOption } from './presetPreamble';
 
 const JOURNEY = 'formulas-drawer';
 
@@ -97,7 +97,7 @@ test.describe('Formulas drawer', () => {
 		await saveSizeFormula(page, 'Wide frame');
 		await expect(drawer.locator('[data-highlight]')).toHaveCount(1);
 		await expect(page.locator('[data-testid="toast"], .toast')).toHaveCount(0);
-		await expect(button.locator('span.absolute')).toHaveText('1');
+		await expect(page.getByTestId('formulas-count')).toHaveText('1');
 		await page.screenshot({ path: shotPath(JOURNEY, 'list') });
 
 		await drawer.getByLabel('Search formulas').fill('zzz');
@@ -217,7 +217,6 @@ test.describe('Formulas drawer', () => {
 		await resolutionTrigger(page).click();
 		await page.getByRole('option').nth(1).click();
 		await expect(apply).toBeDisabled();
-		await page.waitForTimeout(600);
 		await expect(apply).toBeDisabled();
 
 		release();
@@ -273,7 +272,7 @@ test.describe('Formulas drawer', () => {
 		const sessions = page.getByRole('dialog', { name: 'Sessions' });
 		await button.click();
 		await expect(formulas).toBeVisible();
-		await page.locator('button[aria-label="Session"]').first().click();
+		await page.getByTestId('session-trigger').first().evaluate((el) => (el as HTMLElement).click());
 		await expect(sessions).toBeVisible();
 		await expect(formulas).toHaveCount(0);
 		await button.evaluate((el) => (el as HTMLElement).click());
@@ -285,6 +284,15 @@ test.describe('Formulas drawer', () => {
 		await loginAsOwner(page);
 		const first = await installAndSelectImagePreset(page);
 		expect(first).toBeTruthy();
+		await waitForFormPublished(page);
+		await expect
+			.poll(() =>
+				page.evaluate(
+					(id) => Object.entries(localStorage).some(([k, v]) => k.startsWith('potionui_tabs_state::') && v.includes(`"selectedPreset":"${id}"`)),
+					first!.id
+				)
+			)
+			.toBe(true);
 		const token = await ownerToken(page);
 		const headers = { Authorization: `Bearer ${token}` };
 		const list = await (await page.request.get('/api/presets?include_uninstalled=true', { headers })).json();
@@ -301,8 +309,8 @@ test.describe('Formulas drawer', () => {
 		const chooser = page.locator('button[aria-haspopup="dialog"]', { hasText: 'Choose a preset' });
 		if (await chooser.isVisible({ timeout: 5000 }).catch(() => false)) {
 			await chooser.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(first!.name, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, first!.name).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		}
 		await waitForFormPublished(page);
 		const button = page.getByTestId('formulas-button');
@@ -318,8 +326,8 @@ test.describe('Formulas drawer', () => {
 		await expect(page.getByTestId('formula-applied-bar')).toBeVisible();
 
 		await page.locator('button[aria-haspopup="dialog"]', { hasText: first!.name }).first().click();
-		await page.locator('[role="listbox"][aria-label="Presets"]').getByText(second.name, { exact: true }).click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, second.name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await waitForFormPublished(page);
 		await expect(page.getByTestId('formula-applied-bar')).toHaveCount(0);
 	});
@@ -418,7 +426,6 @@ test.describe('Formulas drawer on a phone', () => {
 
 		const button = page.getByTestId('formulas-button');
 		await expect(button).toBeVisible();
-		await page.waitForTimeout(500);
 		await page.screenshot({ path: shotPath(JOURNEY, 'phone-sheet') });
 		await button.click();
 

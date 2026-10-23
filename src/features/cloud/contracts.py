@@ -13,6 +13,7 @@ from pydantic import Field, field_validator, model_validator
 
 from src.features.backends.backend_config import BaseBackendConfig
 from src.pipelines.cloud import CLOUD_ERROR_KINDS, CloudErrorKind, CloudRunError
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 if TYPE_CHECKING:
     from src.features.cloud.http import CloudHttp
@@ -264,8 +265,15 @@ class CloudBackendConfig(BaseBackendConfig):
         description="Leave empty to use the standard address. Set it only to reach the provider through a proxy, for example https://proxy.example/v1.",
     )
 
+    send_user_hash: bool = Field(
+        default=False,
+        title="Send an anonymous user id",
+        description="Send an anonymous id per user so the provider can tell users apart without knowing who they are. It cannot be traced back to a person without this server's secret key.",
+    )
+
     engine_label: ClassVar[Optional[str]] = "Cloud"
     api_key_source: ClassVar[str] = ""
+    accepts_user_hash: ClassVar[bool] = False
 
     @field_validator("base_url")
     @classmethod
@@ -291,10 +299,15 @@ class CloudBackendConfig(BaseBackendConfig):
     @classmethod
     def engine_fields(cls) -> list[dict[str, Any]]:
         fields = super().engine_fields()
+        if not cls.accepts_user_hash:
+            fields = [spec for spec in fields if spec["name"] != "send_user_hash"]
         for spec in fields:
             if spec["name"] == "api_key" and cls.api_key_source:
                 spec["description"] = f"{cls.api_key_source} {spec['description']}"
         return fields
+
+
+HEALTH_FAILURE_KINDS = frozenset({"auth", "credits", "refused"})
 
 
 class CloudProvider(ABC):
@@ -302,6 +315,8 @@ class CloudProvider(ABC):
     label: ClassVar[str]
     config_class: ClassVar[type[CloudBackendConfig]]
     data_notice: ClassVar[str] = ""
+    error_brand: ClassVar[str] = ""
+    credits_hint: ClassVar[str] = ""
     supports_cancel: ClassVar[bool] = False
     idempotent_submit: ClassVar[bool] = False
     default_base_url: ClassVar[str] = ""
@@ -333,7 +348,9 @@ class CloudProvider(ABC):
         return None
 
     def map_error(self, status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
-        return None
+        from src.features.cloud.http import default_error_mapper
+
+        return default_error_mapper(status, headers, body, self.error_brand or self.label, self.credits_hint)
 
     @abstractmethod
     async def discover(self) -> list[CloudModelSpec]: ...
@@ -358,13 +375,21 @@ class CloudProvider(ABC):
     async def cancel(self, job: CloudJob) -> bool:
         return False
 
-    async def check(self) -> CloudHealth:
+    async def probe(self) -> CloudHealth:
         return CloudHealth(ok=True)
+
+    async def check(self) -> CloudHealth:
+        try:
+            return await self.probe()
+        except CloudError as error:
+            if error.kind in HEALTH_FAILURE_KINDS:
+                return CloudHealth(ok=False, message=error.user_message)
+            raise
 
 
 def load_catalog_file(path: Path) -> dict[str, Any]:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_yaml_file(path) or {}
     except (OSError, yaml.YAMLError):
         return {}
     return data if isinstance(data, dict) else {}

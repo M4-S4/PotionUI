@@ -11,6 +11,7 @@
 	fields, or immediately).
 -->
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
 	import { mergeTriggerWords } from '$lib/utils/triggerWords';
 	import { copyText } from '$lib/utils/clipboard';
@@ -117,7 +118,7 @@
 				<button
 					type="button"
 					class="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-3 text-fg text-xs rounded border border-line-strong hover:border-line-hover transition-colors"
-					title={copiedChip === chip ? 'Copied' : 'Click to copy'}
+					use:tooltip={copiedChip === chip ? 'Copied' : 'Click to copy'}
 					onclick={() => handleChipClick(chip)}
 				>
 					{#if copiedChip === chip}<Icon name="check" className="w-3 h-3" />{/if}

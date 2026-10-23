@@ -1,6 +1,8 @@
 // Compact relative timestamps for mono micro-labels ("35M AGO", "2H AGO", "JUL 3").
 // Output is intentionally uppercase-friendly — callers render it in tracked mono.
 
+import { startOfDay } from '$lib/utils/time';
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const HAS_TZ_DESIGNATOR = /(?:Z|[+-]\d{2}:?\d{2})$/i;
@@ -52,7 +54,6 @@ export function dayLabel(dateString: string, now: Date = new Date()): string {
 	const date = parseServerDate(dateString);
 	if (!date) return 'Unknown';
 
-	const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 	const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
 	if (dayDiff === 0) return 'Today';
 	if (dayDiff === 1) return 'Yesterday';

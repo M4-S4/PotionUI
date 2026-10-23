@@ -11,7 +11,9 @@ import type {
 	CreateAutomationInput,
 	ListRunsOptions,
 	NodeTypeDef,
+	HttpRequestTestResult,
 	RunAutomationInput,
+	TestHttpRequestInput,
 	UpdateAutomationInput,
 	ValidationIssue
 } from '$lib/types/automations';
@@ -66,6 +68,13 @@ export function createAutomationsApi(client: AxiosInstance) {
 
 		async validateGraph(graph: AutomationGraph): Promise<APIResponse<ValidationIssue[]>> {
 			const response = await client.post('/api/automations/validate', { graph });
+			return response.data;
+		},
+
+		async testHttpRequest(
+			input: TestHttpRequestInput
+		): Promise<APIResponse<HttpRequestTestResult>> {
+			const response = await client.post('/api/automations/http-request/test', input);
 			return response.data;
 		},
 

@@ -17,7 +17,7 @@ RECORDING_ESBUILD = """\
 const { appendFileSync } = require('fs');
 module.exports = {
 	build: async (options) => {
-		appendFileSync(process.env.BUILD_PLUGINS_TEST_LOG, JSON.stringify(options) + '\\n');
+		appendFileSync(process.env.BUILD_PLUGINS_TEST_LOG, JSON.stringify({ ...options, cwd: process.cwd() }) + '\\n');
 	}
 };
 """
@@ -74,14 +74,14 @@ def repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _run(repo: Path, *args: str) -> subprocess.CompletedProcess:
+def _run(repo: Path, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
     log = repo / "esbuild-calls.jsonl"
     log.unlink(missing_ok=True)
     env = {k: v for k, v in os.environ.items() if k != "PLUGIN_BUILD"}
     env["BUILD_PLUGINS_TEST_LOG"] = str(log)
     return subprocess.run(
         [NODE, str(repo / "scripts" / "build-plugins.mjs"), *args],
-        cwd=repo, env=env, capture_output=True, text=True,
+        cwd=cwd or repo, env=env, capture_output=True, text=True,
     )
 
 
@@ -90,8 +90,8 @@ def _entries(options: dict) -> list:
     return list(entry_points.values()) if isinstance(entry_points, dict) else entry_points
 
 
-def _esbuild_calls(repo: Path, *args: str) -> dict:
-    result = _run(repo, *args)
+def _esbuild_calls(repo: Path, *args: str, cwd: Path | None = None) -> dict:
+    result = _run(repo, *args, cwd=cwd)
     assert result.returncode == 0, result.stdout + result.stderr
     calls = {}
     for line in (repo / "esbuild-calls.jsonl").read_text(encoding="utf-8").splitlines():
@@ -143,6 +143,73 @@ def test_a_dangling_plugin_link_is_skipped_with_a_warning_and_the_rest_still_bui
     assert ids == {"plain-plugin", "linked-plugin"}
 
 
-def test_every_build_runs_from_the_repository_root_whatever_the_working_directory(repo):
-    for options in [o for calls in _esbuild_calls(repo).values() for o in calls]:
-        assert Path(options["absWorkingDir"]).resolve() == repo.resolve()
+def test_component_entries_are_built_from_any_manifest_section_and_split_into_shared_chunks(repo):
+    plugin = repo / "content" / "plugins" / "local" / "plain-plugin"
+    manifest = json.loads((plugin / "manifest.yml").read_text())
+    manifest["organize"] = {"facts": [{"component": "Fact.js"}], "actions": [{"component": "Action.svelte"}]}
+    (plugin / "manifest.yml").write_text(json.dumps(manifest))
+    for name in ("Fact", "Action"):
+        (plugin / "frontend" / "src" / f"{name}.svelte").write_text("<div></div>\n")
+
+    page_call, component_call = _esbuild_calls(repo, "plain-plugin")["plain-plugin"]
+
+    assert component_call["splitting"] is True
+    assert component_call["chunkNames"] == "chunk-[hash]"
+    assert {Path(entry).name for entry in component_call["entryPoints"]} == {"Widget.svelte", "Fact.svelte", "Action.svelte"}
+
+
+def _component_only_plugin(folder: Path, plugin_id: str) -> None:
+    src = folder / "frontend" / "src"
+    src.mkdir(parents=True)
+    (folder / "manifest.yml").write_text(json.dumps({"id": plugin_id, "sidebar_widgets": [{"component": "Widget.js"}]}))
+    (src / "Widget.svelte").write_text("<div></div>\n")
+
+
+@pytest.mark.parametrize("plugin_id", ["plain-plugin", "component-only"])
+def test_stale_chunks_are_removed_from_dist_and_other_files_are_kept(repo, plugin_id):
+    local = repo / "content" / "plugins" / "local"
+    if plugin_id == "component-only":
+        _component_only_plugin(local / plugin_id, plugin_id)
+    dist = local / plugin_id / "frontend" / "dist"
+    dist.mkdir(parents=True)
+    for name in ("chunk-ABC123.js", "chunk-ABC123.js.map", "Widget.js", "chunky.js", "notchunk-X.js"):
+        (dist / name).write_text("x")
+
+    result = _run(repo, plugin_id)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(p.name for p in dist.iterdir()) == ["Widget.js", "chunky.js", "notchunk-X.js"]
+
+
+def test_a_page_is_split_into_chunks_under_its_own_folder(repo):
+    plugin = repo / "content" / "plugins" / "local" / "plain-plugin"
+
+    page_call = _esbuild_calls(repo, "plain-plugin")["plain-plugin"][0]
+
+    assert page_call["entryPoints"] == {"Page": str(plugin / "frontend" / "src" / "index.js")}
+    assert (page_call["splitting"], page_call["entryNames"], page_call["chunkNames"]) == (True, "[name]", "chunks/[name]-[hash]")
+    assert Path(page_call["outdir"]) == plugin / "frontend" / "dist"
+    assert "outfile" not in page_call
+
+
+def test_a_page_build_replaces_its_chunks_folder_and_keeps_the_component_chunks_rule(repo):
+    dist = repo / "content" / "plugins" / "local" / "plain-plugin" / "frontend" / "dist"
+    (dist / "chunks").mkdir(parents=True)
+    (dist / "chunks" / "engine-OLD.js").write_text("x")
+    (dist / "Page.js").write_text("x")
+
+    result = _run(repo, "plain-plugin")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(p.name for p in dist.iterdir()) == ["Page.js"]
+
+
+@pytest.mark.parametrize("has_frontend", [True, False])
+def test_every_build_runs_from_the_frontend_folder_whatever_the_working_directory(repo, tmp_path, has_frontend):
+    if has_frontend:
+        (repo / "frontend").mkdir()
+    expected = (repo / "frontend" if has_frontend else repo).resolve()
+
+    for start in (repo, tmp_path):
+        calls = [o for options in _esbuild_calls(repo, cwd=start).values() for o in options]
+        assert calls and {Path(o["cwd"]).resolve() for o in calls} == {expected}

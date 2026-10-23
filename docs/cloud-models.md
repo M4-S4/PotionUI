@@ -456,10 +456,9 @@ class AcmeProvider(CloudProvider):
         "them immediately."
     )
     supports_cancel: ClassVar[bool] = True
-    idempotent_submit: ClassVar[bool] = False
     default_base_url: ClassVar[str] = "https://api.acme.example/v1"
 
-    async def check(self) -> CloudHealth:
+    async def probe(self) -> CloudHealth:
         await self.http.request_json("GET", "/account")
         return CloudHealth(ok=True)
 
@@ -504,8 +503,8 @@ What each method owes the platform:
 | `poll(job)` | Return a `CloudStatus` with `state` of `queued`, `running`, `succeeded`, `failed`, `cancelled` or `expired`. `progress` is 0 to 1 or `None`, and a success carries its `CloudResult`. States never go backwards. |
 | `fetch(artifact, dest, max_bytes=...)` | The default writes inline `data` or downloads `url` with the API origin's auth rules. Override it when a result needs special headers. |
 | `cancel(job)` | Try to stop the job and return whether the provider confirmed it. Leave `supports_cancel = False` when the API cannot cancel. |
-| `check()` | A cheap call for the backend's health; a `CloudHealth`. |
-| `map_error(status, headers, body)` | Optional: turn a provider error body into a `CloudError`. Return `None` to fall back to the default mapping. |
+| `probe()` | A cheap call for the backend's health; return a `CloudHealth`. `check()` calls it and turns an `auth`, `credits` or `refused` error into an unhealthy answer carrying the error's plain message; any other error propagates. Override `check()` itself only to change that. |
+| `map_error(status, headers, body)` | Optional: turn a provider error body into a `CloudError`. The default is the status mapping below worded with `error_brand` (default `label`), plus `credits_hint` on the out-of-credits message. Handle only the provider-specific cases, then `return super().map_error(status, headers, body)`. |
 | `default_base_url`, `auth_header` | Where the API lives when the config's `base_url` is empty, and the `(name, prefix)` of the header that carries the key (default `("Authorization", "Bearer ")`). Override the `api_base_url(config)` and `auth_headers(config)` class methods only when that is not enough. |
 | `catalog_file` | Optional path to a YAML file with a `suggested` list of model ids. Read it with `load_catalog_file(path)`; `valid_specs(specs, "TAG")` drops and logs the specs that fail `spec_problems`. |
 | `max_poll_s`, `timeout_message` | Longest wait between polls (default 30 seconds) and the text shown when the job's deadline passes. |
@@ -562,6 +561,12 @@ and capped. The kinds and what the platform does with them:
 | `expired` | The result is gone | raise it yourself |
 
 `CloudHttp` applies this mapping for you; `map_error` only has to cover provider-specific bodies.
+`default_error_mapper(status, headers, body, brand="", credits_hint="")` is the same mapping as a function.
+
+A config that forwards the anonymous per-user id to its provider sets `accepts_user_hash = True` on its
+`CloudBackendConfig` subclass. That shows the admin the `send_user_hash` switch (off by default); until it
+is on, core strips `user_ref` before the request reaches the provider, so the provider forwards
+`request.user_ref` whenever it is set and never checks the switch itself.
 
 **Retries never bill twice.** While submitting, a `rate_limited` error is retried (up to three
 attempts, waiting for `retry_after_s` or backing off). An `unavailable` error is retried only when

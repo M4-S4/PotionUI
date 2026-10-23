@@ -524,15 +524,6 @@ def _reference_clip(tmp_path, n_frames=9, size=64):
     return path
 
 
-def test_metadata():
-    assert GeneratorLtxVideoPipe.name == "generator"
-    inputs = {i.name: i.io_type for i in GeneratorLtxVideoPipe.inputs()}
-    assert inputs["image"] == IOType.IMAGE
-    assert inputs["video"] == IOType.VIDEO
-    assert inputs["audio"] == IOType.AUDIO
-    assert GeneratorLtxVideoPipe.outputs()[0].io_type == IOType.VIDEO
-
-
 def test_metadata_includes_audio_output_and_passthrough_choice():
     # The pipe emits a per-seed `audio` output (mux
     # hand-off for a stage-2 refine) and offers `audio_source="passthrough"`.
@@ -1183,8 +1174,8 @@ def test_initial_latent_no_conditions_wholesale_replaces_base_tokens_mask_stays_
     _pipe(resolution="64x64", frames=17, refine_sigmas="0.9, 0.0").process(pipe_input, lambda o: None)
 
     assert torch.all(captured["mask"] == 0)  # no position clamped clean
-    from src.pipelines.pipes.generator.video_ltx.conditioning import _pack
-    assert torch.equal(captured["prepared_clean"], _pack(seed_latent))
+    from src.pipelines.pipes.generator.video_ltx.conditioning import pack_tokens
+    assert torch.equal(captured["prepared_clean"], pack_tokens(seed_latent))
 
 
 def _bundle_with_encode_fill(fill: float):
@@ -1247,8 +1238,8 @@ def test_initial_latent_with_conditions_merges_masked_positions_keep_keyframe(mo
     assert mask_base.any() and not mask_base.all(), "first-frame overwrite must partially mask the base"
     m = mask_base.unsqueeze(-1)
 
-    from src.pipelines.pipes.generator.video_ltx.conditioning import _pack
-    packed_prior = _pack(seed_latent)
+    from src.pipelines.pipes.generator.video_ltx.conditioning import pack_tokens
+    packed_prior = pack_tokens(seed_latent)
 
     x_base = captured["x"][:, :s_base]
     # Masked (keyframe) positions: kept the re-encoded keyframe value.
@@ -1305,11 +1296,11 @@ def test_quantity_two_second_seeds_merge_uses_pristine_tokens_not_first_seeds_ou
     ).process(pipe_input, lambda o: None)
 
     assert len(captured) == 2
-    from src.pipelines.pipes.generator.video_ltx.conditioning import _pack
+    from src.pipelines.pipes.generator.video_ltx.conditioning import pack_tokens
     x1, mask1, s_base = captured[1]
     m = mask1[:, :s_base].unsqueeze(-1)
     assert m.max() == 0.5 and m.min() == 0, "expected a fractional (0.5) mask at some, but not all, base positions"
-    expected_1 = _pack(seed_latent_1) * (1.0 - m) + keyframe_fill * m
+    expected_1 = pack_tokens(seed_latent_1) * (1.0 - m) + keyframe_fill * m
     assert torch.allclose(x1[:, :s_base], expected_1, atol=1e-5), (
         "seed 1's merge must use the pristine keyframe tokens, not seed 0's own "
         "already-merged output"
@@ -1350,9 +1341,9 @@ def test_conditioning_built_at_own_resolution_matches_upsampled_latent_grid():
     t_lat, h_lat, w_lat = 3, 4, 4  # (17-1)//8+1, 128//32, 128//32
     assert p.base_tokens == t_lat * h_lat * w_lat
 
-    from src.pipelines.pipes.generator.video_ltx.conditioning import _pack
+    from src.pipelines.pipes.generator.video_ltx.conditioning import pack_tokens
     upsampled_latent = torch.zeros(1, 128, t_lat, h_lat, w_lat)
-    assert _pack(upsampled_latent).shape[1] == p.base_tokens
+    assert pack_tokens(upsampled_latent).shape[1] == p.base_tokens
 
 
 @patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
@@ -1506,7 +1497,7 @@ def test_initial_latent_falls_back_to_last_when_fewer_than_quantity():
 
 @patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
 @patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4")
-@patch("src.pipelines.pipes.generator.video_ltx.main._decode_video")
+@patch("src.pipelines.pipes.generator.video_ltx.main.decode_ltx_video")
 def test_decode_false_skips_decode_and_emits_latent_output(mock_decode, mock_encode):
     seed_latent = torch.full((1, 128, 3, 2, 2), 0.5)
     pipe_input = _pipe_input()
@@ -1528,7 +1519,7 @@ def test_decode_false_skips_decode_and_emits_latent_output(mock_decode, mock_enc
 
 @patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", lambda fwd, x, c, u, **k: x)
 @patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4")
-@patch("src.pipelines.pipes.generator.video_ltx.main._decode_video")
+@patch("src.pipelines.pipes.generator.video_ltx.main.decode_ltx_video")
 @patch("src.pipelines.pipes.generator.video_ltx.main.decode_generated_audio")
 def test_decode_false_still_decodes_generated_audio_for_stage2_handoff(mock_decode_audio, mock_decode_video, mock_encode):
     """A stage-1 call with decode=false (two-stage upscale) must still
@@ -2020,7 +2011,7 @@ def test_scoped_ic_lora_without_metadata_keeps_the_reference_at_target_size(tmp_
 
 
 @patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
-@patch("src.pipelines.pipes.generator.video_ltx.main._decode_video")
+@patch("src.pipelines.pipes.generator.video_ltx.main.decode_ltx_video")
 @patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised")
 def test_reference_tokens_start_clean_target_starts_from_noise_and_only_base_is_decoded(mock_denoise, mock_decode):
     captured = {}
@@ -2032,7 +2023,7 @@ def test_reference_tokens_start_clean_target_starts_from_noise_and_only_base_is_
         out[:, : fwd.s_base] = 0.25
         return out
 
-    def fake_decode(shim, latent, seed):
+    def fake_decode(vae, device, latent, seed):
         captured["decoded"] = latent.clone()
         return np.zeros((1, 64, 64, 3), dtype=np.uint8)
 

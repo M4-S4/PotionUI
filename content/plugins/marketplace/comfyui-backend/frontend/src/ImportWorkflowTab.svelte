@@ -1,26 +1,8 @@
 <script>
-	// Registered as this plugin's `admin_tabs[]` "Import workflow" tab (see
-	// manifest.yml) - mounted by the core admin plugin-detail tab strip
-	// (frontend/src/routes/admin/components/pluginDetailTabs.ts) with
-	// `{ pluginId, plugin }` props, neither of which this component needs
-	// (every endpoint below is this plugin's own, fixed path).
-	//
-	// A 5-step wizard: Source -> Form -> History -> Requirements -> Done, a
-	// numbered rail on the left tracking progress, Back/Continue in a fixed
-	// footer. Form is a two-pane designer (workflow inputs on the left,
-	// user-arranged tabs/items on the right); History is a table of the
-	// designed fields controlling what a generation's history card records,
-	// with a live preview. Plugin components can't import core Svelte
-	// components or $lib - every control below reproduces the Instrument
-	// tokens directly (see tokens.css).
-	//
-	// Edit entry point: the "Imported presets" tab's edit action (a
-	// SEPARATELY mounted plugin dist bundle) stashes a preset id under this
-	// same sessionStorage key and asks the host to switch here - see that
-	// component's own header comment for why sessionStorage/a window event
-	// rather than shared module state.
 	import { onMount, onDestroy } from 'svelte';
+	import HostUi from '../../../../sdk/HostUi.svelte';
 	import { floating } from './floating.js';
+	import { call, messageOf } from './api.js';
 
 	let { pluginId = 'comfyui-backend', plugin = null } = $props();
 
@@ -1552,17 +1534,11 @@
 		return String(raw ?? '');
 	}
 
-	function authHeaders() {
-		const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
-		return token ? { Authorization: `Bearer ${token}` } : {};
-	}
-
 	onMount(() => {
 		(async () => {
 			try {
-				const res = await fetch('/api/fields/types', { credentials: 'include', headers: authHeaders() });
-				if (res.ok) {
-					const payload = await res.json();
+				const { ok, payload } = await call('/api/fields/types');
+				if (ok) {
 					const list = (payload?.data ?? []).filter((t) => !t.container);
 					fieldTypeOptions = [...new Set(list.map((t) => t.type))].sort();
 					fieldTypeManifest = Object.fromEntries(list.map((t) => [t.type, t]));
@@ -1571,9 +1547,8 @@
 				// Best-effort - the select still works with whatever the field suggests.
 			}
 			try {
-				const res = await fetch(`${API_BASE}/presets/families`, { credentials: 'include', headers: authHeaders() });
-				if (res.ok) {
-					const payload = await res.json();
+				const { ok, payload } = await call(`${API_BASE}/presets/families`);
+				if (ok) {
 					families = payload?.families ?? [];
 				}
 			} catch (e) {
@@ -1602,11 +1577,10 @@
 		editLoading = true;
 		analyzeError = '';
 		try {
-			const res = await fetch(`${API_BASE}/presets/imported/${presetId}/source`, { credentials: 'include', headers: authHeaders() });
-			const payload = await res.json().catch(() => null);
+			const { ok, status, payload } = await call(`${API_BASE}/presets/imported/${presetId}/source`);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				analyzeError = payload?.detail || payload?.message || `Could not load this preset (${res.status})`;
+			if (!ok) {
+				analyzeError = messageOf(payload, `Could not load this preset (${status})`);
 				editPresetId = null;
 				return;
 			}
@@ -1722,16 +1696,14 @@
 		const token = sourceToken;
 		analyzing = true;
 		try {
-			const res = await fetch(`${API_BASE}/presets/import/analyze`, {
+			const { ok, status, payload } = await call(`${API_BASE}/presets/import/analyze`, {
 				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json', ...authHeaders() },
+				timeout: 0,
 				body: JSON.stringify({ workflow: parsed, workflow_text: rawText })
 			});
-			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				analyzeError = payload?.detail || payload?.message || `Analyze failed (${res.status})`;
+			if (!ok) {
+				analyzeError = messageOf(payload, `Analyze failed (${status})`);
 				return;
 			}
 			workflowJson = parsed;
@@ -1774,16 +1746,14 @@
 		requirementsLoading = true;
 		requirementsError = '';
 		try {
-			const res = await fetch(`${API_BASE}/presets/import/requirements`, {
+			const { ok, status, payload } = await call(`${API_BASE}/presets/import/requirements`, {
 				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json', ...authHeaders() },
+				timeout: 0,
 				body: JSON.stringify({ workflow: workflowJson, workflow_text: workflowText, form: dehydrateForm() })
 			});
-			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				requirementsError = payload?.detail || payload?.message || `Requirements check failed (${res.status})`;
+			if (!ok) {
+				requirementsError = messageOf(payload, `Requirements check failed (${status})`);
 				return;
 			}
 			requirementsResults = payload.results ?? [];
@@ -1811,10 +1781,9 @@
 		createError = '';
 		creating = true;
 		try {
-			const res = await fetch(`${API_BASE}/presets/import`, {
+			const { ok, status, payload } = await call(`${API_BASE}/presets/import`, {
 				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json', ...authHeaders() },
+				timeout: 0,
 				body: JSON.stringify({
 					workflow: workflowJson,
 					workflow_text: workflowText,
@@ -1832,10 +1801,9 @@
 					schema_object_info_used: analysis.object_info_used
 				})
 			});
-			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				createError = payload?.detail || payload?.message || `Import failed (${res.status})`;
+			if (!ok) {
+				createError = messageOf(payload, `Import failed (${status})`);
 				return;
 			}
 			createResult = payload;
@@ -1898,15 +1866,39 @@
 	<svg class="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><use href={`#i-${name}`}></use></svg>
 {/snippet}
 
+{#snippet hostIconBtn(iconName, label, onclick, action = undefined, extra = {})}
+	<span class="hk" data-action={action}>
+		<HostUi name="IconButton" props={{ icon: iconName, label, size: 'xs', onclick, ...extra }} />
+	</span>
+{/snippet}
+
+{#snippet hostBtn(label, onclick, props = {}, attrs = {})}
+	<span class="hk" {...attrs}>
+		<HostUi name="Button" props={{ size: 'sm', onclick, ...props }}>{label}</HostUi>
+	</span>
+{/snippet}
+
+{#snippet hostBadge(variant, text, attrs = {})}
+	<span class="hk" {...attrs}>
+		<HostUi name="Badge" props={{ variant, size: 'sm' }}>{text}</HostUi>
+	</span>
+{/snippet}
+
+{#snippet hostAlert(variant, text, attrs = {})}
+	<div class="hk-alert" {...attrs}>
+		<HostUi name="Alert" props={{ variant, density: 'compact', icon: variant !== 'success' }}>{text}</HostUi>
+	</div>
+{/snippet}
+
 {#snippet tabIcon(name, size = 13)}
 	<svg class="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><use href={`#ti-${name}`}></use></svg>
 {/snippet}
 
 {#snippet addMenu(items, isRoot = false)}
 	<div class="di-add-wrap" data-add-root={isRoot ? 'true' : undefined}>
-		<button type="button" class="di-add-field" onclick={(e) => toggleAddMenu(items, e.currentTarget)} data-action="open-add-menu">
-			{@render icon('plus')} Add
-		</button>
+		<span class="hk hk-block" data-action="open-add-menu">
+			<HostUi name="Button" props={{ variant: 'ghost', size: 'sm', icon: 'plus', class: 'w-full', onclick: (e) => toggleAddMenu(items, e.currentTarget) }}>Add</HostUi>
+		</span>
 		{#if addMenuOpenFor === items}
 			<div class="di-add-menu" use:floating={{ anchor: addMenuAnchorEl, onOutsideClick: () => (addMenuOpenFor = null) }}>
 				<button type="button" onclick={() => addItemToContainer(items, 'field')} data-add-kind="field">{@render icon('arrow-right')}Field<span class="type-tag">input</span></button>
@@ -1921,9 +1913,7 @@
 
 {#snippet moveToMenu(item, parentItems, index)}
 	{#if form.tabs.length > 1}
-		<button type="button" class="iconbtn" title="Move to tab" onclick={(e) => toggleMoveToPopover(item._id, e.currentTarget)} data-action="move-to-tab-menu">
-			{@render icon('more')}
-		</button>
+		{@render hostIconBtn('more', 'Move to tab', (e) => toggleMoveToPopover(item._id, e.currentTarget), 'move-to-tab-menu')}
 		{#if moveToPopoverId === item._id}
 			<div
 				class="tab-popover"
@@ -2044,10 +2034,10 @@
 				>
 					{@render icon('link')}
 				</button>
-				<button type="button" class="iconbtn" title="Move up" onclick={() => moveItemAt(parentItems, index, -1)} data-action="move-up">{@render icon('chevron-up')}</button>
-				<button type="button" class="iconbtn" title="Move down" onclick={() => moveItemAt(parentItems, index, 1)} data-action="move-down">{@render icon('chevron-down')}</button>
+				{@render hostIconBtn('chevron-up', 'Move up', () => moveItemAt(parentItems, index, -1), 'move-up')}
+				{@render hostIconBtn('chevron-down', 'Move down', () => moveItemAt(parentItems, index, 1), 'move-down')}
 				{@render moveToMenu(item, parentItems, index)}
-				<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
+				{@render hostIconBtn('close', 'Remove', () => removeItemAt(parentItems, index), 'remove')}
 			</div>
 		</div>
 		{#if item.mappings.length > 0}
@@ -2060,11 +2050,11 @@
 						{#each suggestions as c (candidateKey(c))}
 							<div class="di-suggest-row">
 								<span class="di-suggest-text">Matches workflow input <span class="mono">{c.node_id}.inputs.{c.input_name}</span></span>
-								<button type="button" class="di-suggest-map" onclick={() => toggleMapping(item, c, true)} data-action="apply-name-match">Map</button>
+								{@render hostBtn('Map', () => toggleMapping(item, c, true), { variant: 'secondary', size: 'xs' }, { 'data-action': 'apply-name-match' })}
 							</div>
 						{/each}
 					</div>
-					<button type="button" class="di-suggest-dismiss" onclick={() => dismissSuggestion(item._id)} aria-label="Dismiss suggestion" data-action="dismiss-name-match">{@render icon('x', 10)}</button>
+					{@render hostIconBtn('close', 'Dismiss suggestion', () => dismissSuggestion(item._id), 'dismiss-name-match')}
 				</div>
 			{/if}
 		{/if}
@@ -2079,7 +2069,7 @@
 							<div class="di-config-row" data-config-row={spec.name}>
 								<div class="di-config-head">
 									<span class="di-config-name mono">{spec.name}</span>
-									{#if spec.required}<span class="chip chip-warn">required</span>{/if}
+									{#if spec.required}{@render hostBadge('warning', 'required')}{/if}
 								</div>
 								<div class="di-config-control">
 									{@render configControl(item, spec)}
@@ -2101,7 +2091,7 @@
 							<input type="checkbox" {checked} disabled={mappedElsewhere} onchange={(e) => toggleMapping(item, c, e.currentTarget.checked)} />
 							<span class="di-mapedit-node mono">{c.node_id} · {c.class_type}</span>
 							<span class="di-mapedit-input mono">{c.input_name}</span>
-							{#if isNameMatch}<span class="chip chip-info" data-name-match-chip>name match</span>{/if}
+							{#if isNameMatch}{@render hostBadge('info', 'name match', { 'data-name-match-chip': '' })}{/if}
 							{#if mappedElsewhere}
 								<span class="di-mapedit-taken">mapped to {mappedFieldByKey.get(candidateKey(c)).label}</span>
 							{:else if checked}
@@ -2124,13 +2114,13 @@
 		class="di-header-card"
 	>
 		<span class="drag-handle" title="Drag to move to another tab" draggable="true" ondragstart={(e) => handleItemDragStart(e, item._id)} ondragend={handleItemDragEnd}>{@render icon('grip')}</span>
-		<span class="chip chip-warn">HEADER</span>
+		{@render hostBadge('warning', 'HEADER')}
 		<input class="di-header-input" type="text" bind:value={item.text} aria-label="Header text" />
 		<div class="di-container-actions">
-			<button type="button" class="iconbtn" title="Move up" onclick={() => moveItemAt(parentItems, index, -1)} data-action="move-up">{@render icon('chevron-up')}</button>
-			<button type="button" class="iconbtn" title="Move down" onclick={() => moveItemAt(parentItems, index, 1)} data-action="move-down">{@render icon('chevron-down')}</button>
+			{@render hostIconBtn('chevron-up', 'Move up', () => moveItemAt(parentItems, index, -1), 'move-up')}
+			{@render hostIconBtn('chevron-down', 'Move down', () => moveItemAt(parentItems, index, 1), 'move-down')}
 			{@render moveToMenu(item, parentItems, index)}
-			<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
+			{@render hostIconBtn('close', 'Remove', () => removeItemAt(parentItems, index), 'remove')}
 		</div>
 	</div>
 {/snippet}
@@ -2141,11 +2131,11 @@
 	{:else if item.kind === 'header'}
 		{@render headerCard(item, parentItems, index)}
 	{:else if item.kind === 'row'}
-		{@render containerCard(item, parentItems, index, 'ROW', 'chip-violet')}
+		{@render containerCard(item, parentItems, index, 'ROW', 'signal')}
 	{:else if item.kind === 'group'}
-		{@render containerCard(item, parentItems, index, 'GROUP', 'chip-mute')}
+		{@render containerCard(item, parentItems, index, 'GROUP', 'neutral')}
 	{:else if item.kind === 'section'}
-		{@render containerCard(item, parentItems, index, 'SECTION', 'chip-info')}
+		{@render containerCard(item, parentItems, index, 'SECTION', 'info')}
 	{/if}
 {/snippet}
 
@@ -2156,7 +2146,7 @@
 	{@render addMenu(items)}
 {/snippet}
 
-{#snippet containerCard(item, parentItems, index, chipLabel, chipClass)}
+{#snippet containerCard(item, parentItems, index, chipLabel, chipVariant)}
 	<div
 		class="di-container"
 		class:collapsed={item.kind === 'section' && item.collapsed}
@@ -2164,34 +2154,37 @@
 	>
 		<div class="di-container-head">
 			<span class="drag-handle" title="Drag to move to another tab" draggable="true" ondragstart={(e) => handleItemDragStart(e, item._id)} ondragend={handleItemDragEnd}>{@render icon('grip')}</span>
-			<span class="chip {chipClass}">{chipLabel}</span>
+			{@render hostBadge(chipVariant, chipLabel, { 'data-container-badge': chipLabel })}
 			{#if item.kind !== 'row'}
 				<input class="di-container-title" type="text" bind:value={item.title} aria-label="Container title" />
 			{/if}
 			{#if item.kind === 'section'}
-				<button type="button" class="iconbtn" onclick={() => (item.collapsed = !item.collapsed)} title="Toggle section" data-action="toggle-section">
-					<span class="di-chevron" class:collapsed={item.collapsed}>{@render icon('chevron-down')}</span>
-				</button>
+				{@render hostIconBtn(item.collapsed ? 'chevron-right' : 'chevron-down', 'Toggle section', () => (item.collapsed = !item.collapsed), 'toggle-section')}
 			{/if}
 			<div class="di-container-spacer"></div>
 			{#if item.kind === 'row'}
 				<div class="di-col-control">
-					<span class="lbl">Columns</span>
-					{#each [2, 3, 4] as n}
-						<button type="button" class="di-col-btn" class:active={item.columns === n} onclick={() => (item.columns = n)} data-columns={n}>{n}</button>
-					{/each}
-				</div>
+						<span class="lbl">Columns</span>
+						<HostUi
+							name="SegmentedControl"
+							props={{
+								variant: 'toggle',
+								ariaLabel: 'Columns',
+								items: [{ id: '2', label: '2' }, { id: '3', label: '3' }, { id: '4', label: '4' }],
+								selected: String(item.columns),
+								onSelect: (id) => (item.columns = Number(id))
+							}}
+						/>
+					</div>
 			{/if}
 			<div class="di-container-actions">
 				{#if item.kind === 'row' || item.kind === 'group'}
-					<button type="button" class="iconbtn" title={item.kind === 'row' ? 'Convert to Group' : 'Convert to Row'} onclick={() => convertContainer(item)} data-action="convert">
-						{@render icon('more')}
-					</button>
+					{@render hostIconBtn('more', item.kind === 'row' ? 'Convert to Group' : 'Convert to Row', () => convertContainer(item), 'convert')}
 				{/if}
-				<button type="button" class="iconbtn" title="Move up" onclick={() => moveItemAt(parentItems, index, -1)} data-action="move-up">{@render icon('chevron-up')}</button>
-				<button type="button" class="iconbtn" title="Move down" onclick={() => moveItemAt(parentItems, index, 1)} data-action="move-down">{@render icon('chevron-down')}</button>
+				{@render hostIconBtn('chevron-up', 'Move up', () => moveItemAt(parentItems, index, -1), 'move-up')}
+				{@render hostIconBtn('chevron-down', 'Move down', () => moveItemAt(parentItems, index, 1), 'move-down')}
 				{@render moveToMenu(item, parentItems, index)}
-				<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
+				{@render hostIconBtn('close', 'Remove', () => removeItemAt(parentItems, index), 'remove')}
 			</div>
 		</div>
 		<div class="di-container-body">
@@ -2297,26 +2290,28 @@
 	<div class="wiz-body">
 		<div class="wiz-content">
 			{#if editPresetId}
-				<div class="edit-banner" data-import-editing>
-					Editing <strong>{displayName || 'this preset'}</strong> — Continue updates it in place, it won't become a new preset.
-				</div>
+				<div class="hk-alert" data-import-editing>
+						<HostUi name="Alert" props={{ variant: 'info', density: 'compact', icon: true }}>
+							Editing <strong>{displayName || 'this preset'}</strong> — Continue updates it in place, it won't become a new preset.
+						</HostUi>
+					</div>
 			{/if}
 			{#if step === 1}
 				<h3>Choose a workflow</h3>
 				{#if editLoading}
-					<div class="req-loading"><span class="spinner" aria-hidden="true"></span>Loading the preset's source workflow…</div>
+					<div class="req-loading"><HostUi name="Spinner" props={{ size: 'sm' }} />Loading the preset's source workflow…</div>
 				{:else if editPresetId && analysis}
 					<p class="desc">This preset's stored workflow is already loaded - Continue to keep it, or load a different one.</p>
 					<div class="detected-strip" data-import-detected>
-						<span class="chip chip-info" data-import-format>{analysis.format}</span>
+						{@render hostBadge('info', analysis.format, { 'data-import-format': '' })}
 						<span class="dim">·</span>
 						<span class="mono">{analysis.node_count} nodes</span>
 						<span class="dim">·</span>
 						<span>Loaded from the existing preset</span>
-						<button type="button" class="link-btn strip-end" onclick={changeWorkflow}>Change workflow</button>
+						<span class="strip-end">{@render hostBtn('Change workflow', changeWorkflow, { variant: 'ghost', size: 'xs' })}</span>
 					</div>
 					{#if analyzeError}
-						<p class="message message-error" data-import-analyze-error>{analyzeError}</p>
+						{@render hostAlert('danger', analyzeError, { 'data-import-analyze-error': '' })}
 					{/if}
 				{:else}
 					<p class="desc">Paste or drop a ComfyUI Export (API) workflow JSON. In ComfyUI, enable Dev mode options in settings, then use Workflow → Export (API).</p>
@@ -2331,13 +2326,13 @@
 						></textarea>
 						<div class="dropzone-footer">
 							<span class="dim">or</span>
-							<button type="button" class="link-btn" onclick={() => fileInputEl?.click()}>choose a .json file</button>
+							{@render hostBtn('choose a .json file', () => fileInputEl?.click(), { variant: 'ghost', size: 'xs' })}
 							<input bind:this={fileInputEl} type="file" accept=".json,application/json" class="file-input-hidden" onchange={handleFileInput} />
 						</div>
 					</div>
 
 					{#if analyzeError}
-						<p class="message message-error" data-import-analyze-error>{analyzeError}</p>
+						{@render hostAlert('danger', analyzeError, { 'data-import-analyze-error': '' })}
 					{/if}
 				{/if}
 			{:else if step === 2}
@@ -2345,7 +2340,7 @@
 				<p class="desc">Pick which workflow inputs become fields, then arrange them into tabs. Anything left unmapped keeps the value baked into the workflow.</p>
 
 				<div class="detected-strip" data-import-detected>
-					<span class="chip chip-info" data-import-format>{analysis.format}</span>
+					{@render hostBadge('info', analysis.format, { 'data-import-format': '' })}
 					<span class="dim">·</span>
 					<span class="mono">{analysis.node_count} nodes</span>
 					{#if analysis.object_info_used}
@@ -2354,13 +2349,13 @@
 					{/if}
 					{#if analysis.lora_chain}
 						<span class="dim">·</span>
-						<span class="chip chip-info">LoRA chain found</span>
+						{@render hostBadge('info', 'LoRA chain found')}
 					{/if}
 					<span class="strip-end chat-hint-group">
 						{#if typeof window !== 'undefined' && window.__potionui?.chat}
 							<span class="dim" data-import-chat-hint>Ask the assistant to map inputs</span>
 						{/if}
-						<button type="button" class="link-btn" onclick={changeWorkflow}>Change workflow</button>
+						{@render hostBtn('Change workflow', changeWorkflow, { variant: 'ghost', size: 'xs' })}
 					</span>
 				</div>
 
@@ -2378,7 +2373,7 @@
 										<span class="di-row-value mono">{n.lora_name}</span>
 										<span class="dim mono">{n.strength_model}</span>
 										{#if isReplaced}
-											<span class="chip chip-info">→ picker</span>
+											{@render hostBadge('info', '→ picker', { 'data-lora-replaced': '' })}
 										{/if}
 										<div class="di-row-trail">
 											<button
@@ -2396,24 +2391,18 @@
 									</div>
 								{/each}
 								{#if loraSandwichError}
-									<p class="message message-error" data-lora-sandwich-error>
-										Kept LoRA node {loraSandwichError.nodeId} sits between replaced nodes {loraSandwichError.beforeId} and {loraSandwichError.afterId};
+									<div class="hk-alert" data-lora-sandwich-error>
+											<HostUi name="Alert" props={{ variant: 'danger', density: 'compact', icon: true }}>
+												Kept LoRA node {loraSandwichError.nodeId} sits between replaced nodes {loraSandwichError.beforeId} and {loraSandwichError.afterId};
 										keep all LoRAs above it fixed too, or replace it.
-									</p>
+											</HostUi>
+										</div>
 								{/if}
 								{#if loraAllKept}
 									<p class="lora-chain-help" data-lora-all-kept-hint>Picker LoRAs are added after the kept node(s)</p>
 								{/if}
 								<div class="lora-chain-actions">
-									<button
-										type="button"
-										class="link-btn"
-										onclick={convertLoraChainToPicker}
-										disabled={loraConverted || !!loraSandwichError}
-										data-action="convert-lora-picker"
-									>
-										{loraConverted ? 'Converted to LoRA picker' : 'Convert to LoRA picker'}
-									</button>
+									{@render hostBtn(loraConverted ? 'Converted to LoRA picker' : 'Convert to LoRA picker', convertLoraChainToPicker, { variant: 'ghost', size: 'xs', disabled: loraConverted || !!loraSandwichError }, { 'data-action': 'convert-lora-picker' })}
 								</div>
 							</div>
 						{:else if modelChainInfo}
@@ -2422,15 +2411,7 @@
 								<p class="dim lora-chain-empty-label">No LoRA nodes detected</p>
 								<p class="lora-chain-help" data-lora-no-chain-hint>Inserted before {modelChainInsertionLabel}</p>
 								<div class="lora-chain-actions">
-									<button
-										type="button"
-										class="link-btn"
-										onclick={addLoraPickerNoChain}
-										disabled={loraConverted}
-										data-action="add-lora-picker"
-									>
-										{loraConverted ? 'Added LoRA picker' : 'Add LoRA picker'}
-									</button>
+									{@render hostBtn(loraConverted ? 'Added LoRA picker' : 'Add LoRA picker', addLoraPickerNoChain, { variant: 'ghost', size: 'xs', disabled: loraConverted }, { 'data-action': 'add-lora-picker' })}
 								</div>
 							</div>
 						{/if}
@@ -2456,15 +2437,13 @@
 										<span class="di-row-value">{mappedField.label}</span>
 									{:else}
 										<span class="di-row-value mono">{String(c.current_value)}</span>
-										<span class="chip chip-info">{(c.value_type || c.suggested_field_type || '').toUpperCase()}</span>
+										{@render hostBadge('info', (c.value_type || c.suggested_field_type || '').toUpperCase())}
 									{/if}
 									<div class="di-row-trail">
 										{#if mappedField}
 											{@render icon('check', 13)}
 										{:else if !locked}
-											<button type="button" class="iconbtn di-add-arrow" title="Add to form" onclick={() => addCandidateToForm(c)} data-action="add-input">
-												{@render icon('arrow-right', 13)}
-											</button>
+											{@render hostIconBtn('arrow-right', 'Add to form', () => addCandidateToForm(c), 'add-input', { class: 'text-signal' })}
 										{/if}
 									</div>
 								</div>
@@ -2510,17 +2489,7 @@
 									{:else}
 										{tab.label}
 									{/if}
-									<span
-										class="kb"
-										role="button"
-										tabindex="0"
-										title="Tab options"
-										onclick={(e) => { e.stopPropagation(); toggleTabPopover(tab.id, e.currentTarget); }}
-										onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleTabPopover(tab.id, e.currentTarget); } }}
-										data-action="tab-menu"
-									>
-										{@render icon('more', 11)}
-									</span>
+									{@render hostIconBtn('more', 'Tab options', (e) => { e.stopPropagation(); toggleTabPopover(tab.id, e.currentTarget); }, 'tab-menu')}
 									{#if tabPopoverId === tab.id}
 										<div
 											class="tab-popover"
@@ -2561,7 +2530,9 @@
 									{/if}
 								</span>
 							{/each}
-							<span class="di-tab-add" role="button" tabindex="0" onclick={addTab} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addTab(); } }} data-action="add-tab">{@render icon('plus', 11)}Add tab</span>
+							<span class="hk" data-action="add-tab">
+								<HostUi name="Button" props={{ variant: 'ghost', size: 'xs', icon: 'plus', onclick: addTab }}>Add tab</HostUi>
+							</span>
 						</div>
 						<div class="di-field-list" data-import-form-items>
 							{#if activeTab.items.length === 0}
@@ -2614,8 +2585,8 @@
 								{@const f = fieldForRow(row)}
 								<div class="hist-row" class:off={!row.enabled} data-history-row={row.field_name}>
 									<div class="hist-reorder">
-										<button type="button" class="iconbtn" title="Move up" onclick={() => moveHistoryRow(index, -1)} data-action="move-up">{@render icon('chevron-up', 10)}</button>
-										<button type="button" class="iconbtn" title="Move down" onclick={() => moveHistoryRow(index, 1)} data-action="move-down">{@render icon('chevron-down', 10)}</button>
+										{@render hostIconBtn('chevron-up', 'Move up', () => moveHistoryRow(index, -1), 'move-up')}
+										{@render hostIconBtn('chevron-down', 'Move down', () => moveHistoryRow(index, 1), 'move-down')}
 									</div>
 									<input type="checkbox" bind:checked={row.enabled} data-action="toggle-emit" />
 									<div class="hist-field">
@@ -2643,7 +2614,7 @@
 						<div class="preview-card" data-history-preview>
 							<div class="preview-head">
 								<div class="t">{@render icon('sliders', 14)}Parameters</div>
-								<span class="chip chip-mute">#1</span>
+								{@render hostBadge('neutral', '#1')}
 							</div>
 							<div class="preview-grid">
 								<div class="preview-cell span2"><div class="preview-k">Prompt</div><div class="preview-v wrap">cinematic wide shot of a lighthouse at dusk</div></div>
@@ -2656,7 +2627,7 @@
 										<div class="preview-cell span2">
 											<div class="preview-k">{row.label}</div>
 											<div class="preview-chips">
-												{#each f.default as chipItem}<span class="chip chip-info">{typeof chipItem === 'object' ? chipItem?.name || JSON.stringify(chipItem) : chipItem}</span>{/each}
+												{#each f.default as chipItem}{@render hostBadge('info', typeof chipItem === 'object' ? chipItem?.name || JSON.stringify(chipItem) : chipItem)}{/each}
 											</div>
 										</div>
 									{:else}
@@ -2677,19 +2648,14 @@
 				<h3>Requirements</h3>
 				<p class="desc">What this preset will need to run, detected from the workflow's nodes and models.</p>
 
-				<div class="well">
-					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:rgb(var(--info, 91 157 255));margin-top:1px" aria-hidden="true">
-						<circle cx="12" cy="12" r="10" />
-						<line x1="12" y1="11" x2="12" y2="16.5" />
-						<circle cx="12" cy="7.5" r="0.75" fill="currentColor" stroke="none" />
-					</svg>
-					<span>You can still create the preset — it won't run until these are installed.</span>
+				<div class="hk-alert">
+					<HostUi name="Alert" props={{ variant: 'info', density: 'compact', icon: true }}>{"You can still create the preset — it won't run until these are installed."}</HostUi>
 				</div>
 
 				{#if requirementsLoading}
-					<div class="req-loading"><span class="spinner" aria-hidden="true"></span>Checking requirements…</div>
+					<div class="req-loading"><HostUi name="Spinner" props={{ size: 'sm' }} />Checking requirements…</div>
 				{:else if requirementsError}
-					<p class="message message-error">{requirementsError}</p>
+					{@render hostAlert('danger', requirementsError)}
 				{:else if requirementsResults}
 					{#if requirementsResults.length === 0}
 						<div class="req-empty">This workflow needs nothing beyond ComfyUI's own built-in nodes.</div>
@@ -2712,7 +2678,7 @@
 				{/if}
 
 				{#if createError}
-					<p class="message message-error" data-import-create-error>{createError}</p>
+					{@render hostAlert('danger', createError, { 'data-import-create-error': '' })}
 				{/if}
 			{:else if step === 5 && createResult}
 				<h3>Preset created</h3>
@@ -2724,21 +2690,21 @@
 				<div class="lint-block" data-import-lint>
 					<p class="lint-path">Preset created at <span class="mono">{createResult.path}</span></p>
 					{#if createResult.lint.errors.length > 0}
-						<div class="message message-error">
-							<p class="message-title">Lint errors</p>
-							<ul>{#each createResult.lint.errors as err}<li>{err}</li>{/each}</ul>
+						<div class="hk-alert">
+							<HostUi name="Alert" props={{ variant: 'danger', density: 'compact', icon: true, title: 'Lint errors' }}>
+								<ul>{#each createResult.lint.errors as err}<li>{err}</li>{/each}</ul>
+							</HostUi>
 						</div>
 					{/if}
 					{#if createResult.lint.warnings.length > 0}
 						{#each createResult.lint.warnings as warn}
-							<div class="lint-warn">
-								<div class="lint-warn-title">Lint warnings</div>
-								<div class="lint-warn-body">{warn}</div>
+							<div class="hk-alert">
+								<HostUi name="Alert" props={{ variant: 'warning', density: 'compact', icon: true, title: 'Lint warnings' }}>{warn}</HostUi>
 							</div>
 						{/each}
 					{/if}
 					{#if createResult.lint.errors.length === 0 && createResult.lint.warnings.length === 0}
-						<p class="message message-success">Lint clean - no issues found.</p>
+						{@render hostAlert('success', 'Lint clean - no issues found.')}
 					{/if}
 				</div>
 			{/if}
@@ -2746,26 +2712,24 @@
 
 		<div class="wiz-footer">
 			{#if step === 5}
-				<button type="button" class="btn btn-secondary" onclick={importAnother}>Import another</button>
+				{@render hostBtn('Import another', importAnother, { variant: 'secondary' })}
 				<div class="footer-spacer"></div>
-				<a class="btn btn-primary" href={`/admin?tab=presets&preset=${createResult?.preset_id ?? ''}`} data-import-open-preset>Open in Presets</a>
+				<span class="hk" data-import-open-preset>
+						<HostUi name="Button" props={{ variant: 'primary', size: 'sm', href: `/admin?tab=presets&preset=${createResult?.preset_id ?? ''}` }}>Open in Presets</HostUi>
+					</span>
 			{:else}
 				{#if step > 1}
-					<button type="button" class="btn btn-secondary" disabled={analyzing || creating} onclick={goBack}>Back</button>
+					{@render hostBtn('Back', goBack, { variant: 'secondary', disabled: analyzing || creating })}
 				{/if}
 				<div class="footer-spacer"></div>
 				{#if step === 1}
-					<button type="button" class="btn btn-primary" disabled={analyzing || editLoading || pendingFileRead || (!(analysis && workflowJson) && !rawText.trim())} onclick={handleSourceContinue} data-import-analyze>
-						{analyzing ? 'Analyzing…' : pendingFileRead ? 'Reading file…' : 'Continue'}
-					</button>
+					{@render hostBtn(analyzing ? 'Analyzing…' : pendingFileRead ? 'Reading file…' : 'Continue', handleSourceContinue, { variant: 'primary', disabled: analyzing || editLoading || pendingFileRead || (!(analysis && workflowJson) && !rawText.trim()) }, { 'data-import-analyze': '' })}
 				{:else if step === 2}
-					<button type="button" class="btn btn-primary" disabled={!canContinueForm} onclick={goToHistory} data-import-continue-form>Continue</button>
+					{@render hostBtn('Continue', goToHistory, { variant: 'primary', disabled: !canContinueForm }, { 'data-import-continue-form': '' })}
 				{:else if step === 3}
-					<button type="button" class="btn btn-primary" onclick={goToRequirementsStep} data-import-continue-history>Continue</button>
+					{@render hostBtn('Continue', goToRequirementsStep, { variant: 'primary' }, { 'data-import-continue-history': '' })}
 				{:else if step === 4}
-					<button type="button" class="btn btn-primary" disabled={creating} onclick={runCreate} data-import-create>
-						{creating ? (editPresetId ? 'Updating…' : 'Creating…') : editPresetId ? 'Update preset' : 'Continue'}
-					</button>
+					{@render hostBtn(creating ? (editPresetId ? 'Updating…' : 'Creating…') : editPresetId ? 'Update preset' : 'Continue', runCreate, { variant: 'primary', loading: creating, disabled: creating }, { 'data-import-create': '' })}
 				{/if}
 			{/if}
 		</div>
@@ -2773,23 +2737,22 @@
 </div>
 
 <style>
+	.hk {
+		display: inline-flex;
+	}
+	.hk-block {
+		display: flex;
+		width: 100%;
+	}
+	.hk-alert {
+		margin: 0 0 12px;
+	}
 	.dim {
 		color: rgb(var(--fg-subtle, 122 128 144));
 	}
 	.mono {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-variant-numeric: tabular-nums;
-	}
-	.link-btn {
-		padding: 0;
-		border: none;
-		background: transparent;
-		color: rgb(var(--signal, 91 157 255));
-		font-size: 12px;
-		cursor: pointer;
-	}
-	.link-btn:hover {
-		text-decoration: underline;
 	}
 
 	.wizard {
@@ -2892,19 +2855,6 @@
 		margin: 0 0 16px;
 		max-width: 640px;
 	}
-	.edit-banner {
-		padding: 8px 12px;
-		margin-bottom: 16px;
-		border-radius: 6px;
-		background: rgb(var(--signal, 91 157 255) / 0.08);
-		border: 1px solid rgb(var(--signal, 91 157 255) / 0.25);
-		color: rgb(var(--fg-muted, 169 174 184));
-		font-size: 12px;
-	}
-	.edit-banner strong {
-		color: rgb(var(--fg, 232 234 237));
-		font-weight: 600;
-	}
 	.wiz-footer {
 		border-top: 1px solid rgb(var(--line, 36 38 44));
 		padding: 12px 20px;
@@ -2976,48 +2926,6 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.chip {
-		font-size: 9.5px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		font-weight: 600;
-		padding: 2px 6px;
-		border-radius: 3px;
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		white-space: nowrap;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		flex-shrink: 0;
-	}
-	.chip-info {
-		background: rgb(var(--info, 91 157 255) / 0.13);
-		color: rgb(var(--info, 91 157 255));
-	}
-	.chip-mute {
-		background: rgb(var(--surface-3, 39 42 49));
-		color: rgb(var(--fg-subtle, 122 128 144));
-	}
-	.chip-warn {
-		background: rgb(var(--warning, 255 197 61) / 0.13);
-		color: rgb(var(--warning, 255 197 61));
-	}
-	.chip-violet {
-		background: rgb(var(--violet, 144 133 233) / 0.16);
-		color: rgb(var(--violet, 144 133 233));
-	}
-
-	.well {
-		background: rgb(var(--surface-2, 31 33 38));
-		border-radius: 6px;
-		padding: 12px 14px;
-		display: flex;
-		gap: 10px;
-		align-items: flex-start;
-		font-size: 12px;
-		color: rgb(var(--fg-muted, 169 174 184));
-		margin-bottom: 14px;
-	}
 
 	.req-list {
 		border: 1px solid rgb(var(--line, 36 38 44));
@@ -3076,19 +2984,6 @@
 		color: rgb(var(--fg-muted, 169 174 184));
 		font-size: 12px;
 	}
-	.spinner {
-		width: 13px;
-		height: 13px;
-		border-radius: 50%;
-		border: 2px solid rgb(var(--line-strong, 43 46 53));
-		border-top-color: rgb(var(--signal, 91 157 255));
-		animation: spin 0.7s linear infinite;
-	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
 
 	.lint-block {
 		border: 1px solid rgb(var(--line, 36 38 44));
@@ -3100,86 +2995,6 @@
 		font-size: 12px;
 		color: rgb(var(--fg-muted, 169 174 184));
 		margin: 0 0 12px;
-	}
-	.lint-warn {
-		border-left: 2px solid rgb(var(--warning, 255 197 61));
-		padding-left: 10px;
-		margin-bottom: 8px;
-	}
-	.lint-warn:last-child {
-		margin-bottom: 0;
-	}
-	.lint-warn-title {
-		font-size: 11.5px;
-		font-weight: 600;
-		color: rgb(var(--warning, 255 197 61));
-		margin-bottom: 2px;
-	}
-	.lint-warn-body {
-		font-size: 12px;
-		color: rgb(var(--fg-muted, 169 174 184));
-	}
-
-	.message {
-		padding: 10px 14px;
-		border-radius: 6px;
-		font-size: 12px;
-	}
-	.message ul {
-		margin: 4px 0 0;
-		padding-left: 18px;
-	}
-	.message-error {
-		margin: 0 0 12px;
-		color: rgb(var(--danger, 255 138 138));
-		background: rgb(var(--danger, 255 138 138) / 0.1);
-		border: 1px solid rgb(var(--danger, 255 138 138) / 0.25);
-	}
-	.message-success {
-		margin: 0;
-		color: rgb(var(--success, 61 214 140));
-		background: rgb(var(--success, 61 214 140) / 0.1);
-		border: 1px solid rgb(var(--success, 61 214 140) / 0.25);
-	}
-	.message-title {
-		margin: 0 0 4px;
-		font-weight: 600;
-	}
-
-	.btn {
-		height: 30px;
-		padding: 0 14px;
-		border-radius: 4px;
-		font-size: 12.5px;
-		font-weight: 600;
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		border: 1px solid transparent;
-		cursor: pointer;
-		white-space: nowrap;
-		font-family: inherit;
-		text-decoration: none;
-	}
-	.btn[disabled] {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-	.btn-primary {
-		background: rgb(var(--accent, 255 255 255));
-		color: rgb(var(--accent-contrast, 22 22 22));
-	}
-	.btn-primary:hover:not([disabled]) {
-		background: rgb(var(--accent-hover, 230 230 230));
-	}
-	.btn-secondary {
-		background: rgb(var(--surface-1, 22 24 28));
-		border-color: rgb(var(--line-strong, 43 46 53));
-		color: rgb(var(--fg-muted, 169 174 184));
-	}
-	.btn-secondary:hover:not([disabled]) {
-		color: rgb(var(--fg, 232 234 237));
-		background: rgb(var(--surface-2, 31 33 38));
 	}
 
 	.iconbtn {
@@ -3243,7 +3058,6 @@
 		border-color: rgb(var(--signal, 91 157 255));
 	}
 
-	/* ---- Form designer: two panes ---- */
 	.designer {
 		display: flex;
 		gap: 14px;
@@ -3332,9 +3146,6 @@
 		align-items: center;
 		justify-content: center;
 	}
-	.di-add-arrow {
-		color: rgb(var(--signal, 91 157 255));
-	}
 	.lora-chain-card {
 		border-bottom: 1px solid rgb(var(--line, 36 38 44));
 	}
@@ -3401,19 +3212,6 @@
 		box-shadow: inset 0 0 0 1px rgb(var(--signal, 91 157 255));
 		background: rgb(var(--signal, 91 157 255) / 0.08);
 	}
-	.di-tab .kb {
-		width: 16px;
-		height: 16px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		color: rgb(var(--fg-subtle, 122 128 144));
-		border-radius: 3px;
-	}
-	.di-tab .kb:hover {
-		background: rgb(var(--surface-3, 39 42 49));
-		color: rgb(var(--fg, 232 234 237));
-	}
 	.di-tab-rename {
 		height: 20px;
 		width: 90px;
@@ -3423,18 +3221,6 @@
 		color: rgb(var(--fg, 232 234 237));
 		font-size: 12px;
 		padding: 0 6px;
-	}
-	.di-tab-add {
-		padding: 7px 10px;
-		color: rgb(var(--fg-subtle, 122 128 144));
-		font-size: 12px;
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		cursor: pointer;
-	}
-	.di-tab-add:hover {
-		color: rgb(var(--fg, 232 234 237));
 	}
 
 	.di-field-list {
@@ -3534,63 +3320,11 @@
 		font-size: 10.5px;
 		color: rgb(var(--fg-subtle, 122 128 144));
 	}
-	.di-suggest-map {
-		flex-shrink: 0;
-		height: 20px;
-		padding: 0 8px;
-		border-radius: 4px;
-		border: 1px solid rgb(var(--line-strong, 43 46 53));
-		background: rgb(var(--surface-2, 31 33 38));
-		color: rgb(var(--fg, 232 234 237));
-		font-size: 10.5px;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.di-suggest-map:hover {
-		border-color: rgb(var(--line-hover, 58 62 70));
-		background: rgb(var(--surface-3, 39 42 49));
-	}
-	.di-suggest-dismiss {
-		flex-shrink: 0;
-		width: 18px;
-		height: 18px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		border-radius: 4px;
-		color: rgb(var(--fg-disabled, 92 98 112));
-		background: none;
-		border: none;
-		cursor: pointer;
-	}
-	.di-suggest-dismiss:hover {
-		color: rgb(var(--fg-muted, 169 174 184));
-		background: rgb(var(--surface-3, 39 42 49));
-	}
 
 	.di-add-wrap {
 		position: relative;
 	}
-	.di-add-field {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		height: 34px;
-		width: 100%;
-		border: 1px dashed rgb(var(--line-strong, 43 46 53));
-		border-radius: 6px;
-		font-size: 11.5px;
-		color: rgb(var(--fg-muted, 169 174 184));
-		background: none;
-		cursor: pointer;
-	}
-	.di-add-field:hover {
-		color: rgb(var(--fg, 232 234 237));
-	}
 	.di-add-menu {
-		/* Positioned by the `floating` action (position: fixed, inline top/left) -
-		   these are just its pre-mount fallback. */
 		position: absolute;
 		top: calc(100% + 4px);
 		left: 0;
@@ -3669,13 +3403,6 @@
 	.di-container.collapsed .di-container-body {
 		display: none;
 	}
-	.di-chevron {
-		display: inline-flex;
-		transition: transform 0.12s;
-	}
-	.di-chevron.collapsed {
-		transform: rotate(-90deg);
-	}
 	.di-row-cols {
 		display: grid;
 		gap: 8px;
@@ -3699,22 +3426,6 @@
 		font-size: 10px;
 		color: rgb(var(--fg-subtle, 122 128 144));
 		margin-right: 2px;
-	}
-	.di-col-btn {
-		width: 22px;
-		height: 22px;
-		border-radius: 4px;
-		border: 1px solid rgb(var(--line-strong, 43 46 53));
-		background: rgb(var(--surface-2, 31 33 38));
-		color: rgb(var(--fg-muted, 169 174 184));
-		font-size: 11px;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.di-col-btn.active {
-		background: rgb(var(--signal, 91 157 255) / 0.15);
-		color: rgb(var(--signal, 91 157 255));
-		border-color: rgb(var(--signal, 91 157 255) / 0.4);
 	}
 	.di-header-card {
 		display: flex;
@@ -3884,8 +3595,6 @@
 	}
 
 	.tab-popover {
-		/* Positioned by the `floating` action (position: fixed, inline top/left) -
-		   these are just its pre-mount fallback. */
 		position: absolute;
 		top: calc(100% + 4px);
 		left: 0;
@@ -3948,7 +3657,6 @@
 		opacity: 0.5;
 	}
 
-	/* ---- History step ---- */
 	.hist-designer {
 		display: flex;
 		gap: 14px;

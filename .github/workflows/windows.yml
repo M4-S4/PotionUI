@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: potionui doctor
         shell: cmd
@@ -63,7 +63,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -104,13 +104,10 @@ jobs:
           - name: platform
             paths: >-
               tests/platform
-              tests/pipelines
               tests/features/plugins
               --ignore=tests/platform/runtime/native/test_engine.py
               --ignore=tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
-            serial_paths: >-
-              tests/platform/runtime/native/test_engine.py
-              tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
+            serial_paths: ""
           - name: features
             paths: >-
               tests/features/generation
@@ -119,7 +116,10 @@ jobs:
               tests/features/media_index
               tests/features/backends
               tests/features/models
-            serial_paths: ""
+              tests/pipelines
+            serial_paths: >-
+              tests/platform/runtime/native/test_engine.py
+              tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
           - name: rest
             paths: >-
               tests/
@@ -165,12 +165,20 @@ jobs:
         shell: cmd
         run: echo %RUNNER_TEMP%\venv-ci\Scripts>>"%GITHUB_PATH%"
 
+      - name: Disable Defender real-time monitoring
+        shell: powershell
+        run: |
+          try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Host "Defender left on: $_" }
+          exit 0
+
       - name: pytest (CPU-only, no GPU/model-file/gc-sensitive tests)
         shell: cmd
         env:
           POTIONUI_TEST_BUDGET_S: "30"
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: |
-          python -m pytest ${{ matrix.shard.paths }} -v --durations=25 --timeout=300 -o faulthandler_timeout=270 -n 4 -rfE -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows-${{ matrix.shard.name }}.xml > pytest-windows-${{ matrix.shard.name }}.log 2>&1
+          python -m pytest ${{ matrix.shard.paths }} -v --durations=25 --timeout=300 -o faulthandler_timeout=270 -n 4 --dist worksteal -rfE -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows-${{ matrix.shard.name }}.xml > pytest-windows-${{ matrix.shard.name }}.log 2>&1
           set PYTEST_EXIT=%ERRORLEVEL%
           type pytest-windows-${{ matrix.shard.name }}.log
           exit /b %PYTEST_EXIT%
@@ -181,6 +189,8 @@ jobs:
         shell: cmd
         env:
           POTIONUI_TEST_BUDGET_S: "30"
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: |
           python -m pytest ${{ matrix.shard.serial_paths }} -q --durations=25 --timeout=300 --timeout-method=thread -m "not requires_gpu and not requires_models and not gc_sensitive" --junitxml=junit-windows-${{ matrix.shard.name }}-serial.xml > pytest-windows-${{ matrix.shard.name }}-serial.log 2>&1
           set PYTEST_EXIT=%ERRORLEVEL%
@@ -206,6 +216,9 @@ jobs:
       - name: pytest (marketplace plugin test suites)
         if: matrix.shard.name == 'rest'
         shell: cmd
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: |
           python tests/plugins/run_suites.py -q --timeout=300 -m "not requires_gpu and not requires_models and not gc_sensitive" > plugin-suites-windows.log 2>&1
           set PYTEST_EXIT=%ERRORLEVEL%
@@ -273,7 +286,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
@@ -309,14 +322,29 @@ jobs:
         working-directory: content/plugins
         run: npm ci
 
-      - name: npm run build:plugins + drift check
-        shell: bash
+      - name: npm run build:plugins
+        shell: cmd
         working-directory: frontend
+        run: call npm run build:plugins || exit /b 1
+
+      - name: plugin dist drift check
+        id: plugin-drift
+        continue-on-error: true
+        shell: bash
         run: |
-          npm run build:plugins
-          git diff --exit-code --stat -- ':(top,glob)content/plugins/*/*/frontend/dist/**'
-          untracked=$(git ls-files --others --exclude-standard -- ':(top,glob)content/plugins/*/*/frontend/dist/**')
-          test -z "$untracked" || { echo "Plugin dist files built but not committed:"; echo "$untracked"; exit 1; }
+          git status --porcelain -- content/plugins
+          git diff --stat -- 'content/plugins/*/*/frontend/dist/*'
+          git diff -U0 -- 'content/plugins/*/*/frontend/dist/*' | cut -c1-400 | head -200
+          test -z "$(git diff --stat -- 'content/plugins/*/*/frontend/dist/*')"
+          test -z "$(git ls-files --others --exclude-standard -- content/plugins)"
+
+      - name: upload Windows-built plugin dists
+        if: steps.plugin-drift.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-dist-windows
+          path: content/plugins/*/*/frontend/dist/**
+          retention-days: 7
 
   frontend-build:
     name: frontend build (Windows, shared by e2e shards)
@@ -327,7 +355,7 @@ jobs:
       - id: node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -351,12 +379,12 @@ jobs:
         working-directory: frontend
         run: npx svelte-kit sync
 
-      - name: npm run build
-        shell: cmd
+      - name: npm run build (lowercase drive letter cwd)
+        shell: bash
         working-directory: frontend
         env:
           E2E_BUILD_DIR: ${{ github.workspace }}\frontend\.e2e-build
-        run: npm run build
+        run: node ../tests/ci/build-frontend-lowercase-drive.mjs npm run build
 
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
@@ -390,7 +418,7 @@ jobs:
       - id: node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 

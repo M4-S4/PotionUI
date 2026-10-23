@@ -1,13 +1,3 @@
-"""Measures whether per-call SQLite connection setup (``sqlite3.connect`` plus
-the four PRAGMAs ``Database.get_connection`` applies on every open) is
-material against SQL execution time on the generation-history hot read paths.
-
-MEASURE-FIRST: this is the evidence a bounded connection-lifecycle change
-would be justified by. It asserts on connection-open *counts* (so a future
-change to the call graph is caught) and prints a timing table; it does not
-assert on absolute timings, which are noisy on a shared CI box.
-"""
-
 import statistics
 import sys
 import time
@@ -18,6 +8,7 @@ from unittest.mock import patch
 import sqlite3
 
 from tests.fixtures.persistence_base import PersistenceTestBase
+from src.platform.database.database import Database
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.history_query import GenerationHistoryQuery
@@ -40,7 +31,7 @@ class _RecordingConn:
     the instance or the class (see `tests/platform/database/test_database.py`
     for the same constraint) - so this wraps the instance instead. `__setattr__`
     forwards to the real connection so `conn.row_factory = sqlite3.Row`
-    (set by `Database.get_connection`) still takes effect on it, not on this
+    (set by `Database._open`) still takes effect on it, not on this
     proxy - otherwise every row read through this connection would come back
     as a plain tuple instead of a `sqlite3.Row`.
     """
@@ -72,6 +63,7 @@ class ConnectionSetupProbe:
 
     def __init__(self):
         self.opens = 0
+        self.checkouts = 0
         self.connect_time = 0.0
         self.pragma_time = 0.0
 
@@ -80,7 +72,7 @@ class ConnectionSetupProbe:
         return self.connect_time + self.pragma_time
 
     @contextmanager
-    def measure(self):
+    def measure(self, database=None):
         real_connect = sqlite3.connect
 
         def timed_connect(*args, **kwargs):
@@ -91,32 +83,37 @@ class ConnectionSetupProbe:
             return _RecordingConn(conn, self)
 
         with patch("src.platform.database.database.sqlite3.connect", side_effect=timed_connect):
-            yield self
+            if database is None:
+                yield self
+                return
+            real_get_connection = database.get_connection
+
+            def counted_get_connection():
+                self.checkouts += 1
+                return real_get_connection()
+
+            with patch.object(database, "get_connection", counted_get_connection):
+                yield self
 
 
-def _run_unit(fn, reps: int):
-    """Run `fn()` `reps` times, each under its own probe.
-
-    Returns (opens per call - constant, expected - , list of wall times,
-    list of setup times).
-    """
-    opens_per_call = None
+def _run_unit(fn, database, reps: int):
+    fn()
+    shape = None
     walls = []
-    setups = []
     for _ in range(reps):
         probe = ConnectionSetupProbe()
-        with probe.measure():
+        with probe.measure(database):
             t0 = time.perf_counter()
             fn()
             walls.append(time.perf_counter() - t0)
-        setups.append(probe.setup_time)
-        if opens_per_call is None:
-            opens_per_call = probe.opens
+        if shape is None:
+            shape = (probe.checkouts, probe.opens)
         else:
-            assert probe.opens == opens_per_call, (
-                f"connection-open count changed between reps: {opens_per_call} vs {probe.opens}"
+            assert (probe.checkouts, probe.opens) == shape, (
+                f"connection checkouts/opens changed between reps: {shape} vs "
+                f"{(probe.checkouts, probe.opens)}"
             )
-    return opens_per_call, walls, setups
+    return shape[0], shape[1], walls
 
 
 class TestConnectionSetupOverhead(PersistenceTestBase):
@@ -140,7 +137,7 @@ class TestConnectionSetupOverhead(PersistenceTestBase):
     def _seed(self, count: int) -> None:
         """Bulk-insert synthetic rows through one connection - this is fixture
         setup, not part of what's measured, so it deliberately bypasses the
-        per-row repository calls (and their per-call connection opens)."""
+        per-row repository calls (and their per-call connection checkouts)."""
         generation_ids = [generate_ulid() for _ in range(count)]
         file_ids = [
             generate_ulid()
@@ -214,45 +211,49 @@ class TestConnectionSetupOverhead(PersistenceTestBase):
         baseline_probe = ConnectionSetupProbe()
         with baseline_probe.measure():
             for _ in range(REPS * 4):
-                with self.db.get_connection():
-                    pass
+                Database._open(str(self.db.db_path)).close()
         baseline_setup_per_open = baseline_probe.setup_time / baseline_probe.opens
 
         rows = []
         for name, fn in units.items():
-            opens, walls, setups = _run_unit(fn, REPS)
+            checkouts, opens, walls = _run_unit(fn, self.db, REPS)
             median_wall = statistics.median(walls)
-            median_setup = statistics.median(setups)
-            share = median_setup / median_wall if median_wall else 0.0
-            rows.append((name, opens, median_wall, median_setup, share))
+            avoided = checkouts * baseline_setup_per_open
+            share = avoided / (median_wall + avoided) if median_wall else 0.0
+            rows.append((name, checkouts, opens, median_wall, avoided, share))
 
         self._print_table(baseline_setup_per_open, rows)
 
         # --- Assertions on the shape of the call graph, not on timings ---
-        opens_by_name = {name: opens for name, opens, *_ in rows}
+        checkouts_by_name = {name: checkouts for name, checkouts, *_ in rows}
         self.assertEqual(
-            opens_by_name["list page (get_history)"], 4,
-            "a history list page should open exactly 4 connections "
+            checkouts_by_name["list page (get_history)"], 4,
+            "a history list page should check out exactly 4 connections "
             "(get_all, files bulk, tags bulk, count_by_status) - "
             "if this changed, the units below and the PERF-05 decision "
             "need re-deriving from fresh numbers",
         )
-        self.assertEqual(opens_by_name["count_by_status"], 1)
-        self.assertEqual(opens_by_name["history_version"], 1)
+        self.assertEqual(checkouts_by_name["count_by_status"], 1)
+        self.assertEqual(checkouts_by_name["history_version"], 1)
         self.assertEqual(
-            opens_by_name["matching_generation_ids (1500-id batch)"], 1,
+            checkouts_by_name["matching_generation_ids (1500-id batch)"], 1,
             "matching_generation_ids batches ids under one connection already - "
-            "must stay one open even though 1500 ids span two _ID_FILTER_BATCH chunks",
+            "must stay one checkout even though 1500 ids span two _ID_FILTER_BATCH chunks",
+        )
+        self.assertEqual(
+            {name: opens for name, _, opens, *_ in rows},
+            {name: 0 for name in units},
+            "a warm pool must serve every checkout without opening a connection",
         )
 
     def _print_table(self, baseline_setup_per_open: float, rows) -> None:
         out = sys.stderr
         print(f"\n--- PERF-05 connection-setup measurement ({ROW_COUNT} rows, {REPS} reps, median) ---", file=out)
-        print(f"isolated per-open setup (connect + 4 PRAGMAs): {baseline_setup_per_open * 1000:.3f} ms", file=out)
-        print(f"{'unit':<40} {'opens':>6} {'wall ms':>10} {'setup ms':>10} {'share':>8}", file=out)
-        for name, opens, wall, setup, share in rows:
+        print(f"isolated per-open setup (connect + PRAGMAs): {baseline_setup_per_open * 1000:.3f} ms", file=out)
+        print(f"{'unit':<40} {'checkouts':>9} {'opens':>6} {'wall ms':>10} {'avoided ms':>10} {'share':>8}", file=out)
+        for name, checkouts, opens, wall, avoided, share in rows:
             print(
-                f"{name:<40} {opens:>6} {wall * 1000:>10.3f} {setup * 1000:>10.3f} {share * 100:>7.1f}%",
+                f"{name:<40} {checkouts:>9} {opens:>6} {wall * 1000:>10.3f} {avoided * 1000:>10.3f} {share * 100:>7.1f}%",
                 file=out,
             )
         print(f"materiality threshold: {MATERIALITY_THRESHOLD * 100:.0f}% of unit wall time", file=out)

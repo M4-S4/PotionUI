@@ -65,6 +65,7 @@ from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
 from ...cancellation import raise_if_cancelled
+from ...ops.padding import pad_to_patch
 from .config import ZImageConfig
 
 # vendor/gpl/comfyui/z_image/layers.py must not import src (layering guard) —
@@ -276,10 +277,7 @@ class ZImageDiT(NativeArchModule):
         p = self.patch_size
         # Circular-pad H/W up to a patch multiple (standard resolutions are already
         # divisible, so this is usually a no-op).
-        pad_h = (p - h % p) % p
-        pad_w = (p - w % p) % p
-        if pad_h or pad_w:
-            x = F.pad(x, (0, pad_w, 0, pad_h), mode="circular")
+        x = pad_to_patch(x, (p, p))
         _, _, ph, pw = x.shape
         h_tok, w_tok = ph // p, pw // p
         device = x.device

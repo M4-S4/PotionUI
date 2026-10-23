@@ -14,6 +14,7 @@ from src.features.generation.orchestrator import GenerationOrchestrator, _submis
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.status_tracker import GenerationStatusTracker
+from tests.fixtures.seed import seed_user
 
 
 @pytest.fixture(autouse=True)
@@ -30,11 +31,7 @@ def _bind_form_passthrough():
 class Harness:
     def __init__(self, db):
         for user_id in ("u1", "u2"):
-            with db.get_cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-                    (user_id, user_id, f"{user_id}@example.test"),
-                )
+            seed_user(db, user_id)
         self.repo = GenerationRepository()
         self.backend = Mock(backend_id="b1", engine="native", name="Local")
         self.backend.start_generation = AsyncMock()

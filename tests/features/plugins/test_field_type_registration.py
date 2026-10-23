@@ -51,7 +51,7 @@ class TestPluginFieldTypeRegistration(unittest.TestCase):
         (plugin_dir / "fields.py").write_text(
             "from src.features.fields.base_field import BaseField\n\n"
             "class CustomField(BaseField):\n"
-            "    def map_field(self, field, preset_id=None):\n"
+            "    def output(self, field, preset_id=None):\n"
             "        field_info = self.get_field_info(field)\n"
             "        return self.create_base_schema(field_info)\n\n"
             "def get_custom_options(config):\n"

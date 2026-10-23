@@ -25,10 +25,11 @@ from src.features.models.repository import ModelRepository
 from src.features.users.routes import build_router as build_users_router
 from src.platform.filesystem.file_store import FileStore
 from src.platform.security import current_user
-from src.platform.security.media_session import media_cookie_name
+from src.platform.security.media_session import media_cookie_name, partitioned_media_cookie_name
 from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
+from tests.fixtures.seed import seed_user
 
 PIXELS = b"\x89PNG-owner-pixels"
 
@@ -77,12 +78,8 @@ class World:
         self.other = _user("other")
         self.admin = _user("admin", AccountType.ADMIN)
         self.kid = _user("kid")
-        with db.get_cursor() as cursor:
-            for user in (self.owner, self.other, self.admin, self.kid):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, ?, ?)",
-                    (user.id, user.username, user.email, "h", user.account_type.value),
-                )
+        for user in (self.owner, self.other, self.admin, self.kid):
+            seed_user(db, user.id, username=user.username, email=user.email, account_type=user.account_type.value)
 
     def generation(self, user, status="completed", content=PIXELS):
         generation_id = generate_ulid()
@@ -238,6 +235,8 @@ def _get(client, url, token=None, via="cookie"):
     headers = {}
     if token and via == "cookie":
         client.cookies.set(media_cookie_name(), token)
+    elif token and via == "partitioned":
+        client.cookies.set(partitioned_media_cookie_name(), token)
     elif token:
         headers["Authorization"] = f"Bearer {token}"
     return client.get(url, headers=headers)
@@ -263,14 +262,15 @@ class TestSignedOut:
             response = _get(client, url)
             assert response.status_code == 401, name
 
-    def test_a_forged_cookie_is_not_a_session(self, client, world):
+    @pytest.mark.parametrize("via", ["cookie", "partitioned"])
+    def test_a_forged_cookie_is_not_a_session(self, client, world, via):
         _, routes = _owner_routes(world)
         for name, url in routes.items():
-            assert _get(client, url, "tok-forged").status_code == 401, name
+            assert _get(client, url, "tok-forged", via=via).status_code == 401, name
 
 
 class TestOwnership:
-    @pytest.mark.parametrize("via", ["cookie", "header"])
+    @pytest.mark.parametrize("via", ["cookie", "partitioned", "header"])
     def test_the_owner_gets_the_bytes(self, client, world, via):
         _, routes = _owner_routes(world)
         for name, url in routes.items():
@@ -310,6 +310,20 @@ class TestOwnership:
 
     def test_any_signed_in_user_sees_avatars(self, client, world):
         assert _get(client, "/api/users/avatars/someone.png", "tok-other").status_code == 200
+
+    def test_a_generation_tile_loads_its_generation_once(self, client, world, monkeypatch):
+        generation, routes = _owner_routes(world)
+        loaded = []
+        real_get_by_id = GenerationRepository.get_by_id
+
+        def counted_get_by_id(self, generation_id, *args, **kwargs):
+            loaded.append(generation_id)
+            return real_get_by_id(self, generation_id, *args, **kwargs)
+
+        monkeypatch.setattr(GenerationRepository, "get_by_id", counted_get_by_id)
+
+        assert _get(client, routes["generation"], "tok-owner").status_code == 200
+        assert loaded == [generation.id]
 
     def test_private_media_is_never_marked_publicly_cacheable(self, client, world):
         generation, routes = _owner_routes(world)

@@ -3,6 +3,7 @@ import type { Segment } from '$lib/types/segments';
 import type { PromptTabData, Tab } from '$lib/types/tabs';
 import type { DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
+import { conditionReadersFor } from '$lib/utils/conditionTags';
 import type { PredecessorOutputLike } from '$lib/utils/directorContinuation';
 import type { SegmentJoin } from '$lib/utils/richSegments';
 import { applyIndependentUsages, type VariableRoll } from '$lib/utils/variableDefs';
@@ -264,11 +265,13 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 	if (!tab.selectedPreset) return { ok: false, code: 'no_preset', reason: null };
 	if (!hasValidPrompt && !options.promptlessActive) return { ok: false, code: 'no_prompt', reason: null };
 
-	const independent = applyIndependentUsages(promptsArray, tab.variables);
+	const readers = conditionReadersFor(promptsArray.flatMap((p) => [p.positive, p.negative]));
+	const independent = applyIndependentUsages(promptsArray, tab.variables, readers);
 	const variablesResult = buildVariablesPayload(tab as Tab, {
 		random: options.random,
 		now: options.now,
-		usageCounts: independent.usageCounts
+		usageCounts: independent.usageCounts,
+		readers
 	});
 	const request = buildGenerationRequest(tab, {
 		tabId: options.tabId,

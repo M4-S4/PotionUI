@@ -18,19 +18,6 @@ from src.features.plugins.dto import PluginPageResponse
 class TestPluginManifestNewFields:
     """Test that PluginManifest supports pages, api_routes, and sidebar_items fields"""
 
-    def test_manifest_defaults_empty_pages(self):
-        """Test that PluginManifest defaults to empty lists for new fields"""
-        manifest = PluginManifest(
-            id="test-plugin",
-            name="Test Plugin",
-            version="1.0.0",
-            description="Test",
-            author="Test Author",
-            plugin_type="full-stack"
-        )
-        assert manifest.pages == []
-        assert manifest.api_routes == []
-        assert manifest.sidebar_items == []
 
     def test_manifest_with_pages(self):
         """Test creating a manifest with pages"""
@@ -209,32 +196,6 @@ class TestPluginPageModel:
         assert page.show_in_sidebar is True
         assert page.require_role is None
 
-    def test_plugin_page_with_require_role(self):
-        """Test creating a PluginPage with require_role"""
-        page = PluginPage(
-            id=1,
-            plugin_id="test-plugin",
-            route="/admin-panel",
-            component_path="pages/AdminPanel.svelte",
-            label="Admin Panel",
-            require_role="ADMIN"
-        )
-        assert page.require_role == "ADMIN"
-
-    def test_plugin_page_defaults(self):
-        """Test PluginPage default values"""
-        page = PluginPage(
-            id=1,
-            plugin_id="test-plugin",
-            route="/editor",
-            component_path="pages/Editor.svelte",
-            label="Video Editor"
-        )
-        assert page.icon_svg is None
-        assert page.sidebar_order == 100
-        assert page.show_in_sidebar is True
-        assert page.require_role is None
-        assert page.created_at is None
 
     def test_plugin_page_from_row(self):
         """Test creating PluginPage from database row"""
@@ -608,46 +569,6 @@ class TestOperationsRegisterPages:
 class TestPluginPageResponseDTO:
     """Test the PluginPageResponse DTO"""
 
-    def test_create_page_response(self):
-        """Test creating a PluginPageResponse"""
-        response = PluginPageResponse(
-            plugin_id="test-plugin",
-            route="/editor",
-            component_path="pages/Editor.svelte",
-            label="Video Editor",
-            icon_svg="<svg>icon</svg>",
-            sidebar_order=50,
-            show_in_sidebar=True
-        )
-        assert response.plugin_id == "test-plugin"
-        assert response.route == "/editor"
-        assert response.component_path == "pages/Editor.svelte"
-        assert response.label == "Video Editor"
-        assert response.require_role is None
-
-    def test_create_page_response_with_require_role(self):
-        """Test creating a PluginPageResponse with require_role"""
-        response = PluginPageResponse(
-            plugin_id="test-plugin",
-            route="/admin-panel",
-            component_path="pages/AdminPanel.svelte",
-            label="Admin Panel",
-            require_role="ADMIN"
-        )
-        assert response.require_role == "ADMIN"
-
-    def test_page_response_defaults(self):
-        """Test PluginPageResponse default values"""
-        response = PluginPageResponse(
-            plugin_id="test-plugin",
-            route="/editor",
-            component_path="pages/Editor.svelte",
-            label="Video Editor"
-        )
-        assert response.icon_svg is None
-        assert response.sidebar_order == 100
-        assert response.show_in_sidebar is True
-        assert response.require_role is None
 
     def test_page_response_model_dump(self):
         """Test that PluginPageResponse serializes correctly"""

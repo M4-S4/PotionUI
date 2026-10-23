@@ -3,9 +3,10 @@
 </script>
 
 <script lang="ts">
-	import { createEventDispatcher, tick } from 'svelte';
+	import { createEventDispatcher, tick, type Snippet } from 'svelte';
 	import { computeSelectMenuPlacement, dockInsetFor } from '$lib/utils/menuPosition';
 	import Icon from '$lib/components/Icon.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 
@@ -20,6 +21,20 @@
 	export let triggerDescription: boolean = true;
 	export let triggerIcon: boolean = true;
 	export let fill: boolean = false;
+	export let menuAlign: 'left' | 'right' = 'right';
+	export let trigger:
+		| Snippet<
+				[
+					{
+						open: boolean;
+						selected: (typeof options)[number] | undefined;
+						toggle: () => void;
+						keydown: (event: KeyboardEvent) => void;
+						disabled: boolean;
+					}
+				]
+		  >
+		| undefined = undefined;
 
 	const dispatch = createEventDispatcher<{
 		change: any;
@@ -65,7 +80,12 @@
 			gap
 		});
 		const menuWidth = Math.max(rect.width, Math.min(menuMinWidth, window.innerWidth - 16));
-		const menuLeft = menuWidth > rect.width ? Math.max(8, rect.right - menuWidth) : rect.left;
+		const menuLeft =
+			menuWidth <= rect.width
+				? rect.left
+				: menuAlign === 'left'
+					? Math.max(8, Math.min(rect.left, window.innerWidth - menuWidth - 8))
+					: Math.max(8, rect.right - menuWidth);
 		dropdownPosition = {
 			top: rect.bottom + gap,
 			bottom: window.innerHeight - rect.top + gap,
@@ -134,16 +154,9 @@
 		isDropdownOpen = false;
 	}
 
-	function handleWindowClick(event: MouseEvent) {
-		if (
-			containerRef &&
-			!containerRef.contains(event.target as Node) &&
-			dropdownRef &&
-			!dropdownRef.contains(event.target as Node)
-		) {
-			isDropdownOpen = false;
-			filterText = '';
-		}
+	function closeDropdown() {
+		isDropdownOpen = false;
+		filterText = '';
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
@@ -172,8 +185,6 @@
 	}
 </script>
 
-<svelte:window on:click={handleWindowClick} />
-
 <div class="relative w-full {fill ? 'h-full' : ''}" bind:this={containerRef}>
 	<div class="relative {fill ? 'h-full' : ''}" bind:this={inputRef}>
 		{#if searchable}
@@ -194,6 +205,27 @@
 					? 'border-signal'
 					: 'border-line-hover'} rounded text-fg placeholder-fg-subtle focus:outline-none focus:border-signal disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
 			/>
+			<button
+				type="button"
+				class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg transition-colors"
+				aria-label="Toggle options"
+				on:click={handleInputClick}
+				on:keydown={handleKeyDown}
+				disabled={disabled}
+			>
+				<svg
+					class="{iconSizeClasses[size]} transition-transform {isDropdownOpen
+						? 'rotate-180'
+						: ''}"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+				</svg>
+			</button>
+		{:else if trigger}
+			{@render trigger({ open: isDropdownOpen, selected: selectedOption, toggle: handleInputClick, keydown: handleKeyDown, disabled })}
 		{:else}
 			<button
 				type="button"
@@ -224,26 +256,26 @@
 					<span class="text-fg-subtle">{placeholder}</span>
 				{/if}
 			</button>
-		{/if}
-
-		<button
-			type="button"
-			class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg transition-colors"
-			on:click={handleInputClick}
-			on:keydown={handleKeyDown}
-			disabled={disabled}
-		>
-			<svg
-				class="{iconSizeClasses[size]} transition-transform {isDropdownOpen
-					? 'rotate-180'
-					: ''}"
-				fill="none"
-				stroke="currentColor"
-				viewBox="0 0 24 24"
+			<button
+				type="button"
+				class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg transition-colors"
+				aria-label="Toggle options"
+				on:click={handleInputClick}
+				on:keydown={handleKeyDown}
+				disabled={disabled}
 			>
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-			</svg>
-		</button>
+				<svg
+					class="{iconSizeClasses[size]} transition-transform {isDropdownOpen
+						? 'rotate-180'
+						: ''}"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+				</svg>
+			</button>
+		{/if}
 	</div>
 
 </div>
@@ -253,6 +285,7 @@
 		use:portal
 		use:overlayLayer
 		bind:this={dropdownRef}
+		use:dismiss={{ onDismiss: closeDropdown, ignore: [containerRef], escape: false }}
 		data-dropdown="true"
 		class="fixed z-overlay bg-surface-2 border border-line-hover rounded-xl shadow-overlay overflow-y-auto"
 		role="listbox"

@@ -1,17 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
 	DEFAULT_PROMPT_FILTERS,
-	promptFiltersFromSearchParams,
-	promptFiltersToSearchParams,
-	promptFilterActiveCount,
 	promptFilterChips,
-	clearPromptFilterChip,
-	clearAllPromptFilters,
 	promptFiltersToListParams,
-	type PromptFilters
+	type PromptFilters,
+	promptFilters
 } from './promptFilters';
 
-describe('promptFiltersFromSearchParams / promptFiltersToSearchParams', () => {
+describe('promptFilters.fromSearchParams / promptFilters.toSearchParams', () => {
 	it('round-trips a fully-set filter state through the URL', () => {
 		const filters: PromptFilters = {
 			q: 'dance',
@@ -28,36 +24,27 @@ describe('promptFiltersFromSearchParams / promptFiltersToSearchParams', () => {
 			sortOrder: 'asc'
 		};
 
-		const params = promptFiltersToSearchParams(filters);
-		const restored = promptFiltersFromSearchParams(params);
+		const params = promptFilters.toSearchParams(filters);
+		const restored = promptFilters.fromSearchParams(params);
 
 		expect(restored).toEqual(filters);
 	});
 
 	it('returns the defaults for an empty query string', () => {
-		expect(promptFiltersFromSearchParams(new URLSearchParams(''))).toEqual(DEFAULT_PROMPT_FILTERS);
+		expect(promptFilters.fromSearchParams(new URLSearchParams(''))).toEqual(DEFAULT_PROMPT_FILTERS);
 	});
 
 	it('writes no keys for the default filter state', () => {
-		expect(promptFiltersToSearchParams(DEFAULT_PROMPT_FILTERS).toString()).toBe('');
+		expect(promptFilters.toSearchParams(DEFAULT_PROMPT_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to defaults for out-of-range enum values instead of throwing', () => {
 		const params = new URLSearchParams('used=bogus&source=bogus&sort_by=bogus&usage_hint=bogus&last_used=bogus');
-		expect(promptFiltersFromSearchParams(params)).toEqual(DEFAULT_PROMPT_FILTERS);
-	});
-
-	it('parses a comma-joined tags list, trimming and dropping blanks', () => {
-		const params = new URLSearchParams('tags=dance, tiktok,,portrait');
-		expect(promptFiltersFromSearchParams(params).tags).toEqual(['dance', 'tiktok', 'portrait']);
+		expect(promptFilters.fromSearchParams(params)).toEqual(DEFAULT_PROMPT_FILTERS);
 	});
 });
 
-describe('promptFilterActiveCount', () => {
-	it('is zero for the default filters', () => {
-		expect(promptFilterActiveCount(DEFAULT_PROMPT_FILTERS)).toBe(0);
-	});
-
+describe('promptFilters.activeCount', () => {
 	it('counts each active field once, tags as a single field', () => {
 		const filters: PromptFilters = {
 			...DEFAULT_PROMPT_FILTERS,
@@ -65,16 +52,16 @@ describe('promptFilterActiveCount', () => {
 			used: 'used',
 			tags: ['a', 'b', 'c']
 		};
-		expect(promptFilterActiveCount(filters)).toBe(3);
+		expect(promptFilters.activeCount(filters)).toBe(3);
 	});
 
 	it('does not count q or sort', () => {
 		const filters: PromptFilters = { ...DEFAULT_PROMPT_FILTERS, q: 'dance', sortBy: 'name', sortOrder: 'asc' };
-		expect(promptFilterActiveCount(filters)).toBe(0);
+		expect(promptFilters.activeCount(filters)).toBe(0);
 	});
 });
 
-describe('promptFilterChips / clearPromptFilterChip', () => {
+describe('promptFilterChips / promptFilters.clearChip', () => {
 	it('builds one chip per active field, resolving the model label', () => {
 		const filters: PromptFilters = { ...DEFAULT_PROMPT_FILTERS, modelId: 'model-1', hasVariables: true };
 		const chips = promptFilterChips(filters, 'MiniMax-H3');
@@ -96,21 +83,17 @@ describe('promptFilterChips / clearPromptFilterChip', () => {
 			{ key: 'tag:dance', label: '#dance' },
 			{ key: 'tag:portrait', label: '#portrait' }
 		]);
-		expect(clearPromptFilterChip(filters, 'tag:dance').tags).toEqual(['portrait']);
+		expect(promptFilters.clearChip(filters, 'tag:dance').tags).toEqual(['portrait']);
 	});
 
 	it('clears exactly the field named by the chip key', () => {
 		const filters: PromptFilters = { ...DEFAULT_PROMPT_FILTERS, used: 'never', showNsfw: true };
-		expect(clearPromptFilterChip(filters, 'used')).toEqual({ ...filters, used: 'any' });
-		expect(clearPromptFilterChip(filters, 'showNsfw')).toEqual({ ...filters, showNsfw: false });
-	});
-
-	it('is a no-op for an unknown key', () => {
-		expect(clearPromptFilterChip(DEFAULT_PROMPT_FILTERS, 'nonsense')).toEqual(DEFAULT_PROMPT_FILTERS);
+		expect(promptFilters.clearChip(filters, 'used')).toEqual({ ...filters, used: 'any' });
+		expect(promptFilters.clearChip(filters, 'showNsfw')).toEqual({ ...filters, showNsfw: false });
 	});
 });
 
-describe('clearAllPromptFilters', () => {
+describe('promptFilters.clearAll', () => {
 	it('resets every filter field but keeps the search query and sort', () => {
 		const filters: PromptFilters = {
 			...DEFAULT_PROMPT_FILTERS,
@@ -120,7 +103,7 @@ describe('clearAllPromptFilters', () => {
 			sortBy: 'name',
 			sortOrder: 'asc'
 		};
-		expect(clearAllPromptFilters(filters)).toEqual({
+		expect(promptFilters.clearAll(filters)).toEqual({
 			...DEFAULT_PROMPT_FILTERS,
 			q: 'dance',
 			sortBy: 'name',

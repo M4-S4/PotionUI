@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
 
 // Bug report: "something is clearing the assigned tags when opening the
 // generation details modal". This journey uploads a real generation via the
@@ -22,21 +22,6 @@ const JOURNEY = 'tag-clear-repro';
 
 const TINY_PNG_BASE64 =
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function apiPut(page: Page, url: string, token: string, data?: unknown) {
 	const res = await page.request.put(url, {
@@ -100,8 +85,6 @@ test('FE tag-clear — opening the generation details modal drops previously-ass
 	const tagButton = page.getByRole('button', { name: 'Manage tags' });
 	await expect(tagButton).toBeVisible({ timeout: 20000 });
 
-	// Let the modal's detail fetch (segments/tags) resolve.
-	await page.waitForTimeout(1500);
 	await screenshot(page, JOURNEY, '01-modal-open-after-detail-fetch');
 
 	// Symptom (1): the tag badge on the button should read 2 (both tags
@@ -119,12 +102,10 @@ test('FE tag-clear — opening the generation details modal drops previously-ass
 	const optionA = page.getByRole('option').filter({ hasText: /repro-tag-a-/ });
 	if ((await optionA.count()) > 0) {
 		await optionA.first().click();
-		await page.waitForTimeout(800);
 	}
 
 	// Close the modal.
 	await page.keyboard.press('Escape');
-	await page.waitForTimeout(300);
 
 	const after = await apiGet(page, `/api/generations/${generationId}/tags`, token);
 	const afterIds = (after.data.tags || []).map((t: any) => t.id).sort();

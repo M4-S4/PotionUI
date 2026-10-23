@@ -31,7 +31,7 @@ fields:
         configuration:
           icon: "lora"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/enhance/tabs/lora.yml"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
       - type: "tab"
         label: "Advanced"
         audience: "advanced"

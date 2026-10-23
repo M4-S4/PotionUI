@@ -29,7 +29,7 @@
 				onclick={() => session.applyCrop()}
 			>
 				Apply crop
-				<span class="ml-1 max-md:hidden"><Kbd keys="Enter" size="md" /></span>
+				<span class="ml-1 max-md:hidden"><Kbd keys="Enter" /></span>
 			</Button>
 		</div>
 		<Button variant="secondary" size="sm" disabled={!state.cropRect} onclick={() => session.cancelCrop()}>

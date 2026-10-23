@@ -8,8 +8,9 @@
 	import { getRegistry } from '$lib/plugin-api/componentRegistry';
 	import { PageHeader, PageTitle } from '$lib/components/ui';
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
-	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
+	import { createHostFetchApi } from '$lib/plugin-api/hostApi';
 	import { createPluginApi, type PluginPageApi } from '$lib/plugin-api/pluginApi';
+	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -27,8 +28,10 @@
 		headerHidden = state.hidden;
 	});
 
+	const hostFetch = createHostFetchApi(api);
+
 	function pluginApiFor(pluginId: string): PluginPageApi {
-		return createPluginApi(pluginId, { baseUrl: api.getBaseURL(), getToken: () => api.getToken() });
+		return createPluginApi(pluginId, hostFetch, () => api.getToken());
 	}
 
 	function cleanupPlugin() {
@@ -55,13 +58,7 @@
 		pageInfo = null;
 
 		try {
-			const response = await fetch(`${api.getBaseURL()}/api/plugins/pages/${id}`, {
-				credentials: 'include',
-				headers: {
-					'Content-Type': 'application/json',
-					...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {})
-				}
-			});
+			const response = await hostFetch.fetch(`/api/plugins/pages/${id}`);
 
 			if (thisVersion !== loadVersion) return;
 

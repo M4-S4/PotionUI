@@ -7,6 +7,7 @@
 // anything else about the plugin set changed. These drive the real
 // `refreshPluginExtensions()` against a mounted workbench pane.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 const mockGet = vi.fn();
 
@@ -102,10 +103,6 @@ function completeLoad(asset: string, resolved: unknown) {
 	entry.resolve(resolved);
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let originalRO: unknown;
 let target: HTMLElement;
 let component: { $destroy: () => void; $set: (props: Record<string, unknown>) => void } | undefined;
@@ -140,6 +137,7 @@ function mountPane(tabId: string) {
 		target,
 		props: {
 			tab,
+			emptyLayout: 'pane',
 			onWorkbenchPrevious: () => {},
 			onWorkbenchNext: () => {},
 			onWorkbenchHeightChange: () => {},
@@ -166,7 +164,7 @@ async function showPluginAOutput(tabId: string, label: string) {
 	mountPane(tabId);
 	showTab(tabId);
 	completeLoad(ASSET, StubOutput);
-	await settle();
+	await settle(10);
 }
 
 beforeEach(async () => {
@@ -211,7 +209,7 @@ describe('refreshing plugin extensions around a live plugin output', () => {
 
 		await refreshPluginExtensions();
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual(['live']);
 	});
@@ -223,7 +221,7 @@ describe('refreshing plugin extensions around a live plugin output', () => {
 		serveSnapshot([RENDERER_A, RENDERER_B], { [PLUGIN_A]: 'rev-1', [PLUGIN_B]: 'rev-1' });
 		await refreshPluginExtensions();
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual(['live']);
 	});
@@ -238,7 +236,7 @@ describe('refreshing plugin extensions around a live plugin output', () => {
 		serveSnapshot([RENDERER_A], { [PLUGIN_A]: 'rev-1' });
 		await refreshPluginExtensions();
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual(['live']);
 	});
@@ -250,7 +248,7 @@ describe('refreshing plugin extensions around a live plugin output', () => {
 		serveSnapshot([], {});
 		await refreshPluginExtensions();
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual([]);
 		expect(tabAt(0).generation.pluginOutputs?.[MESSAGE_TYPE]).toBeUndefined();
@@ -262,19 +260,19 @@ describe('refreshing plugin extensions around a live plugin output', () => {
 		sendOutput('gen-1', 'live');
 		mountPane(tabId);
 		showTab(tabId);
-		await settle();
+		await settle(10);
 		expect(pending.has(ASSET)).toBe(true);
 
 		serveSnapshot([{ ...RENDERER_A, component: REVISED_ASSET }], { [PLUGIN_A]: 'rev-2' });
 		await refreshPluginExtensions();
 		showTab(tabId);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual([]);
 		expect(tabAt(0).generation.pluginOutputs?.[MESSAGE_TYPE]).toBeUndefined();
 
 		completeLoad(ASSET, StaleStub);
-		await settle();
+		await settle(10);
 
 		expect(renderedOutputs()).toEqual([]);
 		expect(target.querySelectorAll('.stub-plugin-component')).toHaveLength(0);

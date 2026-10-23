@@ -44,7 +44,7 @@ def test_scale_percent_100_long_side_fills_canvas_short_side():
     assert max(new_w, new_h) == 1000  # canvas short side
 
 
-def test_scale_percent_bite_check_uses_short_side_not_long_side():
+def test_scale_percent_uses_short_canvas_side():
     """A rectangular (non-square) canvas is the discriminator: using the
     LONG canvas side here would give a different, wrong, answer."""
     canvas_w, canvas_h = 1200, 600  # short side 600
@@ -79,13 +79,7 @@ def test_image_io_is_declared_as_an_array():
     assert outs["image"].is_array is True
 
 
-def test_two_image_list_returns_two_images_bite_check():
-    """Feed a two-image list with distinct sizes (forcing distinct scaled
-    sizes at the same scale_percent); both must come back placed
-    independently, in order. Bite-check: reverting to unwrapping `image[0]`
-    and returning a bare `PipeOutput(output={"image": result})` makes this
-    go red (a one-element result / a crash iterating a bare Image
-    downstream)."""
+def test_two_image_list_returns_two_images():
     image_a = _solid((100, 50))
     image_b = _solid((50, 100))
     pipe = CanvasFitPipe({"width": 200, "height": 200, "scale_percent": 50.0,
@@ -273,10 +267,6 @@ def _rgba_from_pixels(pixels, size=(4, 4)):
 
 
 def test_semitransparent_pixels_preserved_exactly_at_unchanged_scale():
-    """Bite check: reverting `canvas.paste(resized_rgba, (x, y))` back to
-    `canvas.paste(resized_rgba, (x, y), resized_rgba)` halves every
-    semitransparent alpha value here (0/64/128/255 -> 0/32/64/255) and
-    blends the RGB under it toward black."""
     source = _rgba_from_pixels({
         (0, 0): (10, 20, 30, 0),
         (1, 0): (40, 50, 60, 64),
@@ -308,15 +298,6 @@ def test_opaque_background_branch_still_blends_partial_alpha():
 
 
 def test_transparent_canvas_clips_and_preserves_alpha_under_resampling():
-    """Overflowing placement (scale_percent > 100) forces resampling AND
-    exercises PIL's paste clipping for an out-of-bounds box: the resized
-    image is wider than the canvas and offset so one edge is clipped off
-    and the other axis leaves a real transparent margin.
-
-    Bite check: with the old alpha-as-mask paste, the visible alpha would
-    be blended toward 0 (roughly halved) instead of landing near the
-    source's 90.
-    """
     source = _rgba_from_pixels({(x, y): (30, 200, 10, 90) for x in range(4) for y in range(2)}, size=(4, 2))
     canvas_w, canvas_h, scale_percent, anchor = 6, 12, 150.0, "left"
     pipe = CanvasFitPipe({"width": canvas_w, "height": canvas_h, "scale_percent": scale_percent,
@@ -347,9 +328,6 @@ def test_transparent_canvas_clips_and_preserves_alpha_under_resampling():
 
 
 def test_transparent_canvas_preserves_alpha_under_downscale_resampling():
-    """The common real-world path (thumbnailing, scale_percent < 100): no
-    clipping, but resampling still runs. Bite check: the old code halves
-    ~90 down toward ~32 here too."""
     source = _rgba_from_pixels({(x, y): (30, 200, 10, 90) for x in range(8) for y in range(8)}, size=(8, 8))
     pipe = CanvasFitPipe({"width": 20, "height": 20, "scale_percent": 50.0,
                           "anchor": "center", "fill": "transparent"})

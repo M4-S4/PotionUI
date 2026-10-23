@@ -8,9 +8,17 @@
 		resolveApprovalFieldValue
 	} from '$lib/chat/approvalPreview';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
+	import type { VariableRoll, VariablesMap } from '$lib/utils/variableDefs';
+	import type { NumberVariableSummary } from '$lib/chat/conditionText';
 	import ApprovalArgTree from './approval/ApprovalArgTree.svelte';
+	import ConditionText from './ConditionText.svelte';
+	import NumberVariableValue from './NumberVariableValue.svelte';
 
-	let { execution }: { execution: ToolExecution } = $props();
+	let {
+		execution,
+		variables = undefined,
+		rolls = undefined
+	}: { execution: ToolExecution; variables?: VariablesMap; rolls?: Record<string, VariableRoll> } = $props();
 
 	const ITEM_PREVIEW_COUNT = 5;
 	const CLAMP_TEXT_LENGTH = 220;
@@ -61,6 +69,10 @@
 	}
 </script>
 
+{#snippet variableValue(text: string, number: NumberVariableSummary | undefined)}
+	{#if number}<NumberVariableValue summary={number} />{:else}{text}{/if}
+{/snippet}
+
 <div class="action-preview" data-testid="action-preview">
 	{#if fields.length}
 		<table class="action-diff">
@@ -85,11 +97,11 @@
 		<div class="action-block">
 			<div class="action-block-label">{block.label}</div>
 			{#if block.old_text != null}
-				<div class="action-copy is-old">{block.old_text}</div>
-				<div class="action-copy">{block.text}</div>
+				<div class="action-copy is-old"><ConditionText text={block.old_text} {variables} {rolls} /></div>
+				<div class="action-copy"><ConditionText text={block.text} {variables} {rolls} /></div>
 			{:else}
 				<div class="action-copy" class:is-clamped={block.text.length > CLAMP_TEXT_LENGTH && !expandedBlocks[i]}>
-					{block.text}
+					<ConditionText text={block.text} {variables} {rolls} />
 				</div>
 				{#if block.text.length > CLAMP_TEXT_LENGTH}
 					<button type="button" class="action-more" onclick={() => toggleBlock(i)}>
@@ -146,8 +158,12 @@
 					<tr>
 						<td class="action-diff-key">{row.field}</td>
 						<td>
-							<span class="action-old mono">{row.oldValue}</span><span class="action-arrow" aria-hidden="true">→</span
-							><span class="action-new mono">{row.newValue}</span>
+							<span class="action-old" class:mono={!row.oldNumber}
+								>{@render variableValue(row.oldValue, row.oldNumber)}</span
+							><span class="action-arrow" aria-hidden="true">→</span
+							><span class="action-new" class:mono={!row.newNumber}
+								>{@render variableValue(row.newValue, row.newNumber)}</span
+							>
 							{#if row.reason}<div class="action-reason-note">{row.reason}</div>{/if}
 						</td>
 					</tr>

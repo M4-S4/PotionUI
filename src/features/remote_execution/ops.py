@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Any, List, Optional, Set, Tuple
 
 import httpx
 
@@ -26,7 +26,7 @@ from src.features.remote_execution.model_bundle_builder import (
     build_bundle_manifest,
     resolve_bundle_entry,
 )
-from src.features.remote_execution.transport import WorkerTransport, WorkerTransportError
+from src.features.remote_execution.transport import WorkerTransport
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.worker_protocol import ModelBundleEntryV1
 
@@ -121,6 +121,7 @@ async def sync_view(
 async def push_models(
     model_ids: List[str], *,
     model_repository: ModelRepository, transport: WorkerTransport, model_locator: ModelLocator,
+    digests: Optional[Any] = None,
 ) -> List[dict]:
     """Ensure a digest for each requested model (hashing on demand) and push
     it onto the worker's depot as a fire-and-forget upload - the worker's own
@@ -138,7 +139,7 @@ async def push_models(
             results.append({"model_id": model_id, "transfer_id": None, "error": "model not found"})
             continue
         try:
-            entry = await asyncio.to_thread(resolve_bundle_entry, model, model_repository, model_locator)
+            entry = await asyncio.to_thread(resolve_bundle_entry, model, model_repository, model_locator, digests)
             source_path = await asyncio.to_thread(model_locator.path_for_model, model.id)
         except (ModelBundleResolutionError, ModelFileUnavailable) as exc:
             results.append({"model_id": model_id, "transfer_id": None, "error": str(exc)})

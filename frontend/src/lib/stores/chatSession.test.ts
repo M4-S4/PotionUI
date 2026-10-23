@@ -85,6 +85,17 @@ describe('chatSession store', () => {
 		expect(s.messages[1].content).toBe('Hey');
 	});
 
+	it('applyStreamEvent routes thinking events by segment with the accumulated text', () => {
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+		chatSession.applyStreamEvent({ type: 'thinking', data: { segment: 0 } }, { accumulated: 'plan' });
+		chatSession.applyStreamEvent({ type: 'thinking', data: { segment: 0 } }, { accumulated: 'plan more' });
+		chatSession.applyStreamEvent({ type: 'thinking', data: { segment: 1 } }, { accumulated: 'again' });
+		const thinking = get(chatSession).messages[0].thinking!;
+		expect(thinking.map((segment) => segment.text)).toEqual(['plan more', 'again']);
+		expect(thinking[0].open).toBeUndefined();
+		expect(thinking[1].open).toBe(true);
+	});
+
 	it('applyStreamEvent routes tool_start/tool_end events', () => {
 		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
 		chatSession.applyStreamEvent({ type: 'tool_start', data: { tool_name: 'list_models' } });

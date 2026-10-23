@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.features.model_layouts.readers.base import MAX_CONFIG_BYTES
-from src.features.model_layouts.readers.registry import READERS, reader_kinds, run_reader
+from src.features.model_layouts.readers.registry import READERS, run_reader
 from src.features.model_layouts.readers.swarmui import parse_fds
 from src.features.model_layouts.readers.webui_args import extract_commandline_args, parse_args, tokenize
 from src.features.model_layouts.schema import READER_KINDS
@@ -24,10 +24,6 @@ def _write(path: Path, text: str) -> Path:
 
 def _under(base: Path, *parts: str) -> str:
     return posixpath.normpath(posixpath.join(str(base), *parts))
-
-
-def test_registry_matches_schema_reader_kinds():
-    assert set(reader_kinds()) == READER_KINDS == set(READERS)
 
 
 def test_unknown_kind_warns_and_never_raises(tmp_path):

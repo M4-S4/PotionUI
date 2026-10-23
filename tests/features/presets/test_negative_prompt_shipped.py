@@ -6,7 +6,6 @@ import pytest
 from scripts.preset_render import (
     ROOT,
     build_fixture_form_data,
-    build_form_serializer,
     build_generation_data,
     build_processor,
     load_all_presets,
@@ -24,13 +23,14 @@ EXPECTED = {
     ("Anima", "txt2img"),
     ("Flux1", "txt2img"), ("Flux1", "img2img"), ("Flux2", "txt2img"), ("Flux2", "img2img"),
     ("Flux3", "txt2img"), ("Flux3", "edit"),
+    ("MOSS-Image", "txt2img"),
 }
 
 
 @pytest.fixture(scope="module")
 def shipped():
     presets, _ = load_all_presets(presets_root=ROOT / "content" / "presets" / "marketplace", include_plugins=False)
-    return presets, build_processor(), build_form_serializer()
+    return presets, build_processor()
 
 
 def _declared_modes(presets):
@@ -56,15 +56,15 @@ def _grid(fixture, preset):
 
 
 def test_every_expected_mode_declares(shipped):
-    presets, _, _ = shipped
+    presets, _ = shipped
     assert set(_declared_modes(presets)) == EXPECTED
 
 
 def test_declaration_matches_what_the_encoder_does(shipped):
-    presets, processor, form_serializer = shipped
+    presets, processor = shipped
     checked = 0
     for (directory, mode), (preset, _) in sorted(_declared_modes(presets).items()):
-        fixture = build_fixture_form_data(form_serializer, preset, mode)
+        fixture = build_fixture_form_data(preset, mode)
         for overrides in _grid(fixture, preset):
             try:
                 values = dict(bind_form(

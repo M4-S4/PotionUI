@@ -5,7 +5,7 @@
 	// the tools popover's master toggle + grouped drill-down is real
 	// functionality the prototype's flat tool list never shows (additions
 	// idiom in chat-concept.css).
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import ChatChipInput from './ChatChipInput.svelte';
 	import ChatAttachPopover from './ChatAttachPopover.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -15,6 +15,7 @@
 	import type { LoraSelectionRow } from '$lib/stores/loraPickerSelections';
 	import type { FormImageEntry } from '$lib/chat/formMedia';
 	import { filterVisibleToolsByPreferences } from '$lib/chat/toolPreferences';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let value: string = '';
 	export let resources: Record<string, ResourceChipData> = {};
@@ -72,7 +73,6 @@
 	let drillGroup: string | null = null;
 
 	let toolsTriggerEl: HTMLButtonElement;
-	let toolsMenuEl: HTMLDivElement;
 	let attachTriggerEl: HTMLButtonElement;
 
 	$: if (!showToolsDropdown) drillGroup = null;
@@ -86,33 +86,6 @@
 		showAttachPopover = !showAttachPopover;
 		if (showAttachPopover) showToolsDropdown = false;
 	}
-
-	function handleOutsidePointerDown(e: PointerEvent) {
-		if (!showToolsDropdown) return;
-		const target = e.target as Node;
-		if (!toolsMenuEl?.contains(target) && !toolsTriggerEl?.contains(target)) {
-			showToolsDropdown = false;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || !showToolsDropdown) return;
-		showToolsDropdown = false;
-		// A document-level bubble listener runs before window's (capture goes
-		// window->document->target, bubble reverses that), so stopping here
-		// keeps GlobalChatPanel's <svelte:window on:keydown> from also
-		// closing the whole chat panel on this same Escape press.
-		e.stopPropagation();
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 
 	const prefersReducedMotion =
 		typeof window !== 'undefined' &&
@@ -195,7 +168,10 @@
 
 <div class="composer-wrap">
 	{#if showToolsDropdown}
-		<div class="tools-popover" bind:this={toolsMenuEl}>
+		<div
+			class="tools-popover"
+			use:dismiss={{ onDismiss: () => (showToolsDropdown = false), ignore: [toolsTriggerEl] }}
+		>
 			<div class="popover-head">
 				<strong>Tools for this conversation</strong>
 				<span>{enabledToolCount} of {totalToolCount} enabled</span>
@@ -227,7 +203,7 @@
 								>
 									<span>{group}</span>
 									<span class="tool-row-count" data-testid="tool-group-count">{enabled}/{total}</span>
-									<svg class="icon tool-row-chevron"><use href="#i-chevron" /></svg>
+									<Icon name="chat-chevron" className="icon tool-row-chevron" strokeWidth={1.8} />
 								</button>
 							</div>
 						{/each}
@@ -240,7 +216,7 @@
 							data-testid="tool-group-back"
 							on:click={() => (drillGroup = null)}
 						>
-							<svg class="icon"><use href="#i-chevron" /></svg>
+							<Icon name="chat-chevron" className="icon" strokeWidth={1.8} />
 							<span>{drillGroup}</span>
 						</button>
 						{#each activeGroupTools as tool (tool.name)}
@@ -273,7 +249,7 @@
 						onOpenToolPreferences?.();
 					}}
 				>
-					<svg class="icon"><use href="#i-info" /></svg>
+					<Icon name="chat-info" className="icon" strokeWidth={1.8} />
 					<span>Manage my tools&hellip;</span>
 				</button>
 			{/if}
@@ -312,7 +288,7 @@
 						aria-label="Remove attached image"
 						on:click={() => onRemoveImage?.()}
 					>
-						<svg class="icon"><use href="#i-close" /></svg>
+						<Icon name="chat-close" className="icon" strokeWidth={1.8} />
 					</button>
 				</span>
 			{/if}
@@ -345,7 +321,7 @@
 							aria-expanded={showAttachPopover}
 							on:click={toggleAttachPopover}
 						>
-							<svg class="icon"><use href="#i-plus" /></svg><span>Add</span>
+							<Icon name="chat-plus" className="icon" strokeWidth={1.8} /><span>Add</span>
 						</button>
 					</Tooltip>
 					<Tooltip text="Auto-attach last generated image: {alwaysAttachLastImage ? 'ON' : 'OFF'}">
@@ -356,7 +332,7 @@
 							aria-pressed={alwaysAttachLastImage}
 							on:click={onToggleAttachImage}
 						>
-							<svg class="icon"><use href="#i-image" /></svg>
+							<Icon name="chat-image" className="icon" strokeWidth={1.8} />
 							<span class="auto-label-full">Auto-attach last image</span>
 							<span class="auto-label-short">Auto image</span>
 							<span class="auto-state">{alwaysAttachLastImage ? 'ON' : 'OFF'}</span>
@@ -372,7 +348,7 @@
 						aria-expanded={showToolsDropdown}
 						on:click={toggleToolsDropdown}
 					>
-						<svg class="icon"><use href="#i-tools" /></svg><span>Tools</span>
+						<Icon name="chat-tools" className="icon" strokeWidth={1.8} /><span>Tools</span>
 						{#if totalToolCount > 0}<span class="tool-count">{enabledToolCount}</span>{/if}
 					</button>
 				</Tooltip>
@@ -385,7 +361,7 @@
 							aria-pressed={memoryOpen}
 							on:click={onOpenMemory}
 						>
-							<svg class="icon"><use href="#i-memory" /></svg><span>Memory</span>
+							<Icon name="chat-memory" className="icon" strokeWidth={1.8} /><span>Memory</span>
 							{#if memoryNoteCount != null}<span class="tool-count">{memoryNoteCount}</span>{/if}
 						</button>
 					</Tooltip>
@@ -410,7 +386,7 @@
 							on:click={handleSubmit}
 							disabled={isGenerating || !value.trim() || disabled}
 						>
-							<svg class="icon"><use href="#i-arrow-up" /></svg>
+							<Icon name="chat-arrow-up" className="icon" strokeWidth={1.8} />
 						</button>
 					</Tooltip>
 				{/if}

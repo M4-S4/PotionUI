@@ -3,14 +3,11 @@
 // toolchain/runtime interop break (Svelte 4 class API vs Svelte 5 function
 // components, dual-runtime mounts) fails here instead of in the live app.
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { stagePluginDist } from '../../../../tests/component/helpers/stagePluginDist';
 
 const REPO_ROOT = resolve(__dirname, '../../../../..');
-// Vite refuses to serve files outside the frontend root, so stage each dist
-// into node_modules (inside the root, gitignored) and import it from there.
-const STAGE_DIR = resolve(__dirname, '../../../../node_modules/.plugin-dist-under-test');
 
 const IMAGE_ACTION_PROPS = {
 	context: {
@@ -43,10 +40,7 @@ const DISTS = [
 
 describe.each(DISTS)('plugin dist $path', ({ path, props }) => {
 	it('mounts and destroys via the class API with props', async () => {
-		mkdirSync(STAGE_DIR, { recursive: true });
-		const staged = resolve(STAGE_DIR, basename(path));
-		copyFileSync(resolve(REPO_ROOT, path), staged);
-		const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+		const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, path)));
 		const Component = mod.default;
 		expect(Component).toBeTypeOf('function');
 

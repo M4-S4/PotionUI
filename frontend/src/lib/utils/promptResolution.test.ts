@@ -135,4 +135,15 @@ describe('alignTemplateToRendered', () => {
 		expect(() => alignTemplateToRendered('unterminated {broken', 'unterminated {broken')).not.toThrow();
 		expect(() => alignTemplateToRendered('$ not a variable, {not a group', '$ not a variable, {not a group')).not.toThrow();
 	});
+
+	it('treats literal $ and % as static text next to groups and variables', () => {
+		const dollar = alignTemplateToRendered(
+			'a $100 bill, {red|blue} dress, ${c} hat',
+			'a $100 bill, red dress, green hat'
+		);
+		expect(dollar?.rolled.map((r) => r.resolvedText)).toEqual(['red', 'green']);
+
+		const percent = alignTemplateToRendered('100% cotton {red|blue} $', '100% cotton blue $');
+		expect(percent?.rolled.map((r) => r.resolvedText)).toEqual(['blue']);
+	});
 });

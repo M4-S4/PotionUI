@@ -424,6 +424,15 @@ async def test_an_installed_file_is_assigned_rather_than_downloaded_again(core, 
     assert answer["pending"]["status"] == "indexed"
 
 
+async def test_the_installed_check_for_a_download_includes_the_files_size(core, civitai):
+    core.models_by_sha[SHA] = model("model-9")
+
+    await _start(principal())
+
+    ((sha256, size),) = core.calls_to("find_model_by_sha256")
+    assert sha256 == SHA and isinstance(size, int) and size > 0
+
+
 async def test_an_installed_file_is_handed_over_to_the_application_loop_at_once(core, civitai, scheduled):
     core.models_by_sha[SHA] = model("model-9")
 

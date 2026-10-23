@@ -1,40 +1,35 @@
 """Registry for chat modes."""
 
 import logging
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from src.features.chat.exceptions import UnknownChatModeException
 from src.features.chat.reply_contract import REPLY_CONTRACT_PROMPT_BLOCK
 from src.features.llm.tools.tool_conditionals import render_tool_conditionals
 from src.platform.plugins.chat_modes import ChatMode, DuplicateChatModeError
+from src.platform.plugins.sourced_registry import SourcedRegistry
 
 logger = logging.getLogger(__name__)
 
 
-class ChatModeRegistry:
+class ChatModeRegistry(SourcedRegistry[ChatMode]):
     """Registry of available chat modes.
 
     The builtin 'generation' mode is registered at startup; plugins register
     additional modes when enabled and unregister them (by source) on disable.
     """
 
-    def __init__(self):
-        self._modes: Dict[str, ChatMode] = {}
+    key_attr = "id"
+    label = "Chat mode"
+    duplicate_error = DuplicateChatModeError
 
-    def register(self, mode: ChatMode) -> None:
-        """Register a mode. Raises DuplicateChatModeError on id collision."""
-        if mode.id in self._modes:
-            raise DuplicateChatModeError(
-                f"Chat mode '{mode.id}' is already registered "
-                f"(by '{self._modes[mode.id].source}')"
-            )
-        self._modes[mode.id] = mode
-        logger.debug(f"Registered chat mode: {mode.id} (source: {mode.source})")
+    def _duplicate_message(self, key: str) -> str:
+        return f"Chat mode '{key}' is already registered (by '{self._entries[key].source}')"
 
     def unregister(self, mode_id: str) -> bool:
         """Unregister a mode by id. Returns True if it was found and removed."""
-        if mode_id in self._modes:
-            del self._modes[mode_id]
+        if mode_id in self._entries:
+            del self._entries[mode_id]
             logger.debug(f"Unregistered chat mode: {mode_id}")
             return True
         return False
@@ -44,24 +39,18 @@ class ChatModeRegistry:
 
         Returns the number of modes removed.
         """
-        to_remove = [m.id for m in self._modes.values() if m.source == source]
-        for mode_id in to_remove:
-            del self._modes[mode_id]
-        if to_remove:
-            logger.info(f"Unregistered chat modes {to_remove} for source '{source}'")
-        return len(to_remove)
-
-    def get(self, mode_id: str) -> Optional[ChatMode]:
-        """Get a mode by id, or None."""
-        return self._modes.get(mode_id)
+        removed = super().unregister_source(source)
+        if removed:
+            logger.info(f"Unregistered {removed} chat modes for source '{source}'")
+        return removed
 
     def get_all(self) -> List[ChatMode]:
         """Get all registered modes."""
-        return list(self._modes.values())
+        return self.all()
 
     def require(self, mode_id: str) -> ChatMode:
         """Get a mode by id or raise UnknownChatModeException."""
-        mode = self._modes.get(mode_id)
+        mode = self._entries.get(mode_id)
         if not mode:
             raise UnknownChatModeException(f"Unknown chat mode '{mode_id}'")
         return mode

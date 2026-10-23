@@ -13,6 +13,7 @@ from tests.fixtures.family_shape_fixtures import EXPECTED_FAMILY, family_shapes
 NATIVE_IMAGE_MODEL = {
     "flux": {"flux1": "flux", "flux2": "flux2"},
     "flux3": "flux3",
+    "moss_image": "moss_image",
     "krea2": "krea2",
     "qwen_image21": "qwen_image21",
     "qwen_image": "qwen_image",

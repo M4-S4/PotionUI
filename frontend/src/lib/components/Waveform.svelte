@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { onMount, onDestroy } from 'svelte';
 	import type { WaveformConfig } from '$lib/types/audio';
 	import {
@@ -55,7 +56,7 @@
 
 	// Resize observer
 	let resizeObserver: ResizeObserver | null = null;
-	let resizeTimeout: ReturnType<typeof setTimeout>;
+	const scheduleResize = debounce(() => updateCanvasSize(), 150);
 
 	// The <audio> element currently wired up with listeners. Tracked
 	// separately from the `audioElement` prop so re-attaching only happens
@@ -77,7 +78,7 @@
 
 	onDestroy(() => {
 		cleanup();
-		clearTimeout(resizeTimeout);
+		scheduleResize.cancel();
 		if (resizeObserver) {
 			resizeObserver.disconnect();
 		}
@@ -87,10 +88,7 @@
 		if (!mergedConfig.responsive || !container) return;
 
 		resizeObserver = new ResizeObserver(() => {
-			clearTimeout(resizeTimeout);
-			resizeTimeout = setTimeout(() => {
-				updateCanvasSize();
-			}, 150);
+			scheduleResize();
 		});
 
 		resizeObserver.observe(container);

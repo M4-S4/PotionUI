@@ -3,15 +3,10 @@ import type { RichSegment, SegmentTemplate } from '$lib/types/segments';
 import {
 	DEFAULT_TEMPLATE_FILTERS,
 	applyTemplateFilters,
-	clearAllTemplateFilters,
-	clearTemplateFilterChip,
-	templateFilterActiveCount,
-	templateFilterChips,
-	templateFiltersFromSearchParams,
-	templateFiltersToSearchParams,
 	templateSlotLabels,
 	templateTagVocabulary,
-	type TemplateFilters
+	type TemplateFilters,
+	templateFilters
 } from './templateFilters';
 
 function slot(name: string | null, content = ''): RichSegment {
@@ -31,7 +26,7 @@ function template(overrides: Partial<SegmentTemplate> = {}): SegmentTemplate {
 	};
 }
 
-describe('templateFiltersFromSearchParams / templateFiltersToSearchParams', () => {
+describe('templateFilters.fromSearchParams / templateFilters.toSearchParams', () => {
 	it('round-trips a fully-set filter state through the URL', () => {
 		const filters: TemplateFilters = {
 			q: 'portrait',
@@ -39,27 +34,27 @@ describe('templateFiltersFromSearchParams / templateFiltersToSearchParams', () =
 			slots: '2-3',
 			sortBy: 'created'
 		};
-		const params = templateFiltersToSearchParams(filters);
+		const params = templateFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('portrait');
 		expect(params.get('tags')).toBe('portrait,lighting');
 		expect(params.get('slots')).toBe('2-3');
 		expect(params.get('sort_by')).toBe('created');
-		expect(templateFiltersFromSearchParams(params)).toEqual(filters);
+		expect(templateFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('omits defaults from the URL so a clean grid has no query string', () => {
-		expect(templateFiltersToSearchParams(DEFAULT_TEMPLATE_FILTERS).toString()).toBe('');
+		expect(templateFilters.toSearchParams(DEFAULT_TEMPLATE_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to the defaults for unknown slot and sort values', () => {
 		const params = new URLSearchParams({ slots: '9-12', sort_by: 'usage' });
-		const filters = templateFiltersFromSearchParams(params);
+		const filters = templateFilters.fromSearchParams(params);
 		expect(filters.slots).toBe('');
 		expect(filters.sortBy).toBe('name');
 	});
 
 	it('drops blank entries from the tags list', () => {
-		const filters = templateFiltersFromSearchParams(new URLSearchParams({ tags: 'portrait, ,lighting' }));
+		const filters = templateFilters.fromSearchParams(new URLSearchParams({ tags: 'portrait, ,lighting' }));
 		expect(filters.tags).toEqual(['portrait', 'lighting']);
 	});
 });
@@ -120,25 +115,25 @@ describe('applyTemplateFilters', () => {
 describe('template filter chips', () => {
 	it('emits one chip per tag plus a slot chip, and clears them individually', () => {
 		const filters: TemplateFilters = { q: 'x', tags: ['portrait', 'film'], slots: '4+', sortBy: 'name' };
-		expect(templateFilterChips(filters)).toEqual([
+		expect(templateFilters.chips(filters)).toEqual([
 			{ key: 'slots', label: '4+ slots' },
 			{ key: 'tag:portrait', label: '#portrait' },
 			{ key: 'tag:film', label: '#film' }
 		]);
-		expect(clearTemplateFilterChip(filters, 'tag:portrait').tags).toEqual(['film']);
-		expect(clearTemplateFilterChip(filters, 'slots').slots).toBe('');
-		expect(clearTemplateFilterChip(filters, 'nothing')).toBe(filters);
+		expect(templateFilters.clearChip(filters, 'tag:portrait').tags).toEqual(['film']);
+		expect(templateFilters.clearChip(filters, 'slots').slots).toBe('');
+		expect(templateFilters.clearChip(filters, 'nothing')).toBe(filters);
 	});
 
 	it('singularises the slot chip for a one-slot filter', () => {
-		expect(templateFilterChips({ ...DEFAULT_TEMPLATE_FILTERS, slots: '1' })[0].label).toBe('1 slot');
+		expect(templateFilters.chips({ ...DEFAULT_TEMPLATE_FILTERS, slots: '1' })[0].label).toBe('1 slot');
 	});
 
 	it('counts tags as one active filter and keeps query and sort when clearing all', () => {
 		const filters: TemplateFilters = { q: 'keep me', tags: ['a', 'b'], slots: '1', sortBy: 'created' };
-		expect(templateFilterActiveCount(filters)).toBe(2);
-		expect(clearAllTemplateFilters(filters)).toEqual({ q: 'keep me', tags: [], slots: '', sortBy: 'created' });
-		expect(templateFilterActiveCount(DEFAULT_TEMPLATE_FILTERS)).toBe(0);
+		expect(templateFilters.activeCount(filters)).toBe(2);
+		expect(templateFilters.clearAll(filters)).toEqual({ q: 'keep me', tags: [], slots: '', sortBy: 'created' });
+		expect(templateFilters.activeCount(DEFAULT_TEMPLATE_FILTERS)).toBe(0);
 	});
 });
 

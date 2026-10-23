@@ -22,6 +22,8 @@
 	   surface-2/line-strong today; a deliberate seam, not a dupe. */
 	--field-bg: 31 33 38; /* #1F2126 */
 	--field-border: 43 46 53; /* #2B2E35 */
+	--control-fill: 31 33 38;
+	--control-fill-hover: 39 42 49;
 
 	/* Text — #FFFFFF is reserved for accent; fg tops out at #E8EAED */
 	--fg: 232 234 237; /* #E8EAED headings, values */
@@ -37,6 +39,8 @@
 
 	/* Signal — blue = "where you are / what's chosen". Never a white link. */
 	--signal: 91 157 255; /* #5B9DFF links, active nav, selection, progress */
+	--scrim: 0 0 0;
+	--on-scrim: 255 255 255;
 	--signal-solid: 61 127 232; /* #3D7FE8 solid fills needing white labels */
 
 	/* Status — text role (DEFAULT) + solid fills; tints via alpha utilities */
@@ -64,6 +68,7 @@
 
 	/* Layout */
 	--header-h: 69px;
+	--tab-bar-height: calc(4rem + env(safe-area-inset-bottom));
 
 	--z-overlay: 1000;
 	--z-toast: 10000;
@@ -101,6 +106,8 @@
 	   separation, so this just aliases the existing surface-2/line-strong. */
 	--field-bg: 241 241 241; /* #F1F1F1 */
 	--field-border: 214 214 214; /* #D6D6D6 */
+	--control-fill: 255 255 255;
+	--control-fill-hover: 241 241 241;
 
 	--fg: 23 23 23; /* #171717 */
 	--fg-muted: 85 85 85; /* #555555 */

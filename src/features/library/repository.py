@@ -21,6 +21,7 @@ from typing import List, Optional, Tuple
 
 from src.features.media.records import Upload
 from src.platform.database.collection_tree import membership_clause, unsorted_clause
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +113,7 @@ class LibraryRepository:
             include_descendants, unsorted, favorites_only,
         )
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT u.* FROM uploads u
                 WHERE {where}
@@ -123,8 +123,7 @@ class LibraryRepository:
             return [Upload.from_row(row) for row in cursor.fetchall()]
 
     def set_favorite(self, item_id: str, user_id: str, is_favorite: bool) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE uploads SET is_favorite = ? WHERE id = ? AND user_id = ?",
                 (1 if is_favorite else 0, item_id, user_id),
@@ -148,8 +147,7 @@ class LibraryRepository:
             include_descendants, unsorted, favorites_only,
         )
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) as count FROM uploads u WHERE {where}", params)
             row = cursor.fetchone()
             return row['count'] if row else 0
@@ -187,15 +185,13 @@ class LibraryRepository:
 
         query = "SELECT u.id FROM uploads u WHERE " + " AND ".join(conditions)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [row['id'] for row in cursor.fetchall()]
 
     def media_type_counts(self, user_id: str) -> dict:
         """How many items of each media type the user's library holds."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT media_type, COUNT(*) as count FROM uploads
                 WHERE user_id = ? AND purpose = 'user_upload'

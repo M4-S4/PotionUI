@@ -1,17 +1,9 @@
 import type { GridCell } from './types';
+import { TERMINAL_TYPES } from '$lib/generation/messages/wire';
 
 type Message = Record<string, any>;
 
-export const COMPARE_MESSAGE_TYPES = new Set([
-	'generation_status',
-	'workbench_update',
-	'gallery_update',
-	'generation_complete',
-	'generation_error',
-	'generation_cancelled'
-]);
-
-export const COMPARE_TERMINAL_TYPES = new Set(['generation_complete', 'generation_error', 'generation_cancelled']);
+export const COMPARE_MESSAGE_TYPES = new Set(['generation_status', 'workbench_update', 'gallery_update', ...TERMINAL_TYPES]);
 
 function mediaUrl(raw: unknown): string | null {
 	if (typeof raw !== 'string' || raw === '') return null;
@@ -42,13 +34,6 @@ function progressOf(message: Message): GridCell['progress'] {
 export function userFacingError(message: Message): string {
 	const raw = message.message ?? message.error ?? message.data?.message ?? message.data?.error;
 	return typeof raw === 'string' && raw.trim() !== '' ? raw : 'Generation failed';
-}
-
-export function generationIdOf(message: Message): string | undefined {
-	if (COMPARE_TERMINAL_TYPES.has(message.type)) {
-		return message.data?.id || message.data?.generation_id || message.generation_id;
-	}
-	return message.generation_id;
 }
 
 export function applyCellMessage(cell: GridCell, message: Message): GridCell {

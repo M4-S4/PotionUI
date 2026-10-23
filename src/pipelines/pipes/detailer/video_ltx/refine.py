@@ -62,8 +62,8 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import DECODE_NOISE_SEED_O
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
 # Constants + the CPU/GPU cond-move helper, imported (not copied) -- these are
 # stable module-level values/functions, not the generator pipe's own logic.
-from src.pipelines.pipes.generator.txt2vid_ltx.main import _SPATIAL_DOWNSCALE, _TEMPORAL_DOWNSCALE
-from src.pipelines.pipes.generator.txt2vid_wan22.main import _to_device
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_SPATIAL_DOWNSCALE, LTX_TEMPORAL_DOWNSCALE
+from src.pipelines.pipes._shared.video.video_common import to_device
 
 # Lightricks' STAGE_2_DISTILLED_SIGMA_VALUES tail (preset.vars.
 # ltx23_stage2_sigma_recipe) -- the descending SHAPE reused for the tube refine.
@@ -161,7 +161,7 @@ def strength_to_refine_sigmas(strength: str) -> torch.Tensor:
     return torch.tensor(values, dtype=torch.float32)
 
 
-def pad_pixels_to_temporal_grid(pixels: torch.Tensor, temporal_downscale: int = _TEMPORAL_DOWNSCALE) -> tuple[torch.Tensor, int]:
+def pad_pixels_to_temporal_grid(pixels: torch.Tensor, temporal_downscale: int = LTX_TEMPORAL_DOWNSCALE) -> tuple[torch.Tensor, int]:
     """Pad ``(1, 3, T, H, W)`` up to the next valid ``1 + k*td`` frame count by
     repeating the last frame (never truncates). Returns ``(padded, original_T)``
     so the caller can trim the decoded result back. Mirrors
@@ -222,7 +222,7 @@ def refine_tube_pixels(
     # the now-freed `padded` tensor's shape through, so this holds even if a
     # future caller skips the encode step (e.g. a latent-only entry point).
     decode_reserve_gb = estimate_decode_reserve_gb(
-        (t_lat - 1) * _TEMPORAL_DOWNSCALE + 1, h_lat * _SPATIAL_DOWNSCALE, w_lat * _SPATIAL_DOWNSCALE,
+        (t_lat - 1) * LTX_TEMPORAL_DOWNSCALE + 1, h_lat * LTX_SPATIAL_DOWNSCALE, w_lat * LTX_SPATIAL_DOWNSCALE,
     )
     placement = place_dit_for_sequence(
         bundle.dit, device, video_tokens=t_lat * h_lat * w_lat,
@@ -237,7 +237,7 @@ def refine_tube_pixels(
         # (a plain light refine).
         return dit_module([x], sigma, conditioning["context"], attention_mask=None, frame_rate=fps)
 
-    cond = _to_device(cond_model.embeds, device, dtype)
+    cond = to_device(cond_model.embeds, device, dtype)
     latent = latent.to(dtype=dtype)
     gen = torch.Generator(device=device).manual_seed(int(seed))
     noise = torch.randn(latent.shape, generator=gen, device=device, dtype=dtype)

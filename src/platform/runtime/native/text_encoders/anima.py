@@ -24,7 +24,7 @@ import logging
 
 import torch
 
-from .base import NativeTextEncoder, _module_to, _module_unload
+from .base import NativeTextEncoder
 from .prompt_weights import parse_a1111, strip_syntax
 from .qwen3 import Qwen3Model
 
@@ -55,14 +55,6 @@ class AnimaTextEncoder(NativeTextEncoder):
         self._device = torch.device(device)
         # Anima takes the LAST decoder layer's output (no final norm).
         self._last_layer = module.cfg.num_hidden_layers - 1
-
-    def to(self, device: str | torch.device) -> "AnimaTextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
 
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:

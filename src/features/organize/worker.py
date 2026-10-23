@@ -15,8 +15,10 @@ PRUNE_EVERY_S = 6 * 3600
 HOOK_EVENTS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "generation.after_complete": ("generation_completed", ("generation_id", "status")),
     "generation.after_update_tags": ("generation_tags_changed", ("generation_id",)),
+    "media_index.after_tags_written": ("generation_detected_tags_changed", ("generation_id",)),
     "media.after_record": ("upload_created", ("upload_id", "purpose")),
     "model_index.after_index": ("models_indexed", ()),
+    "model_index.after_digests": ("models_indexed", ()),
     "model_index.after_download": ("model_added", ("model_id",)),
     "model_index.after_assign": ("model_added", ("model_id", "user_id")),
     "model_index.after_update_tags": ("model_tags_changed", ("model_id",)),

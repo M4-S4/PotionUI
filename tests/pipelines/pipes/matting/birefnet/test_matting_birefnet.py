@@ -85,15 +85,6 @@ def _input_image(size=(16, 16), color=(50, 60, 70)):
 
 # -- config / IO contract -----------------------------------------------------
 
-def test_name_and_contract():
-    assert MattingBirefnetPipe.name == "matting/birefnet"
-    ins = {s.name: s for s in MattingBirefnetPipe.inputs()}
-    outs = {s.name: s for s in MattingBirefnetPipe.outputs()}
-    assert ins["image"].io_type == IOType.IMAGE
-    assert ins["MODELS"].io_type == IOType.SERVICE
-    assert set(outs) == {"image"}
-    assert outs["image"].io_type == IOType.IMAGE
-
 
 def test_image_io_is_declared_as_an_array():
     """The upstream producer (`media_loader`) always emits a LIST and the
@@ -129,11 +120,7 @@ def test_missing_image_input_raises():
 
 # -- array contract: process EVERY image, never just the first --------------
 
-def test_two_image_list_returns_two_images_bite_check():
-    """Feed a two-image list; both must come back distinct and in order.
-    Bite-check: reverting `process` to unwrap `image[0]` and return a bare
-    `PipeOutput(output={"image": result})` makes this go red (a one-element
-    result, or a crash iterating a bare Image downstream)."""
+def test_two_image_list_returns_both_images_in_order():
     model = _FakeMattingModel(raw_alpha=200)
     models = _FakeModels(model)
     pipe = MattingBirefnetPipe(_config())

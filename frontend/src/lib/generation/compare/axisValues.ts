@@ -1,3 +1,5 @@
+import { jsonEqual } from '$lib/utils/equal';
+
 import {
 	MAX_AXIS_VALUES,
 	type AxisOption,
@@ -105,7 +107,7 @@ export function seedAxisValues(seeds: number[]): CompareAxisValue[] {
 }
 
 export function sameValue(a: unknown, b: unknown): boolean {
-	return a === b || JSON.stringify(a) === JSON.stringify(b);
+	return a === b || jsonEqual(a, b);
 }
 
 export function chipOptionsFor(type: string, options: AxisOption[]): AxisOption[] {

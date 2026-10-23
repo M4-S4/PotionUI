@@ -23,8 +23,9 @@ torch = pytest.importorskip("torch")
 from src.platform.runtime.native.detect.te_detect import detect_te_config  # noqa: E402
 from vendor.gpl.comfyui.ops import disable_weight_init as ops  # noqa: E402
 from src.platform.runtime.native.text_encoders.gemma4 import (  # noqa: E402
-    Gemma4Model, _Gemma4RMSNorm, _rotate_half, is_global_layer,
+    Gemma4Model, _Gemma4RMSNorm, is_global_layer,
 )
+from src.platform.runtime.native.text_encoders._functional import rotate_half as _rotate_half
 from src.platform.runtime.native.text_encoders.loader import _SPECS, _build_config  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]

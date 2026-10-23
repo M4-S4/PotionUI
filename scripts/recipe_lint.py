@@ -23,8 +23,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-import yaml
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -33,6 +31,7 @@ from src.features.presets.templates import PresetTemplate  # noqa: E402
 from src.features.recipes.catalog import plugin_recipe_roots  # noqa: E402
 from src.features.recipes.schema import parse_recipe, validate_recipe_dict  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 
 def load_preset_index(
@@ -68,7 +67,7 @@ def lint_recipe_file(
 ) -> List[str]:
     """Validate one recipe file. Returns a list of issue strings (empty = OK)."""
     try:
-        data = yaml.safe_load(path.read_text()) or {}
+        data = load_yaml_file(path) or {}
     except Exception as exc:
         return [f"Could not parse YAML: {exc}"]
 

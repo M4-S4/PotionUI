@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
 from src.features.remote_execution.worker.assets import AssetStager
 from src.features.remote_execution.worker.executor import (

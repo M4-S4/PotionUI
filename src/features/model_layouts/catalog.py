@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
-import yaml
 
 from src.platform.plugins.manifest_roots import PluginManifestRoot, plugin_manifest_roots
 
@@ -17,6 +16,7 @@ from src.features.model_layouts.schema import (
     parse_layout,
     validate_layout_dict,
 )
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def read_layout_file(
     if size > MAX_FILE_BYTES:
         return None, [f"File is {size} bytes; the limit is {MAX_FILE_BYTES}"]
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_yaml_file(path) or {}
     except Exception as exc:
         return None, [f"Could not parse YAML: {exc}"]
     issues = validate_layout_dict(data)

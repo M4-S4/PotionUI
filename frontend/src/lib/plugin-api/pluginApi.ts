@@ -1,3 +1,11 @@
+import type { PluginFetchInit, PluginHostFetchApi } from './hostApi';
+import { createPluginPageApi } from './pluginPageApi';
+
+export interface PluginRequestInit extends RequestInit {
+	timeout?: number;
+	onUploadProgress?: (loaded: number, total: number) => void;
+}
+
 export interface PluginPageApi {
 	getToken(): string | null;
 	get(path: string): Promise<any>;
@@ -8,14 +16,9 @@ export interface PluginPageApi {
 	fetchFromApp(path: string): Promise<any>;
 	request(method: string, path: string, data?: unknown): Promise<any>;
 	patch(path: string, data: unknown): Promise<any>;
-	fetchRaw(path: string, init?: RequestInit): Promise<Response>;
+	fetchRaw(path: string, init?: PluginRequestInit): Promise<Response>;
+	fetchRawFromApp(path: string, init?: PluginRequestInit): Promise<Response>;
 	download(path: string, filename?: string): Promise<void>;
-}
-
-export interface PluginApiOptions {
-	baseUrl: string;
-	getToken: () => string | null;
-	fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
 export class PluginApiError extends Error {
@@ -71,25 +74,36 @@ function filenameFrom(res: Response, path: string): string {
 	return path.split('?')[0].split('/').filter(Boolean).pop() || 'download';
 }
 
-export function createPluginApi(pluginId: string, options: PluginApiOptions): PluginPageApi {
-	const fetchImpl = options.fetch ?? ((input: string, init?: RequestInit) => fetch(input, init));
-	const pluginUrl = (path: string) => `${options.baseUrl}/api/plugins/${pluginId}${path}`;
-	const bearer = (): Record<string, string> => {
-		const token = options.getToken();
-		return token ? { Authorization: `Bearer ${token}` } : {};
+function toFetchInit(init: PluginRequestInit): PluginFetchInit {
+	const headers = Object.fromEntries(new Headers(init.headers).entries());
+	const body = init.body ?? undefined;
+	if (body instanceof Blob && !('content-type' in headers)) {
+		headers['content-type'] = body.type || 'application/octet-stream';
+	}
+	return {
+		method: init.method,
+		headers,
+		body,
+		signal: init.signal ?? undefined,
+		timeout: init.timeout ?? 0,
+		onUploadProgress: init.onUploadProgress
 	};
-	const headers = () => ({ 'Content-Type': 'application/json', ...bearer() });
+}
 
-	const fetchRaw = (path: string, init: RequestInit = {}) => {
-		const merged = new Headers(init.headers);
-		for (const [name, value] of Object.entries(bearer())) merged.set(name, value);
-		return fetchImpl(pluginUrl(path), { credentials: 'include', ...init, headers: merged });
-	};
+export function createPluginApi(
+	pluginId: string,
+	host: PluginHostFetchApi,
+	getToken: () => string | null
+): PluginPageApi {
+	const page = createPluginPageApi(host, getToken, pluginId);
+	const fetchRawFromApp = (path: string, init: PluginRequestInit = {}) => host.fetch(path, toFetchInit(init));
+	const fetchRaw = (path: string, init?: PluginRequestInit) =>
+		fetchRawFromApp(`/api/plugins/${pluginId}${path}`, init);
 
 	const request = async (method: string, path: string, data?: unknown) => {
-		const init: RequestInit = { method: method.toUpperCase(), headers: bearer() };
+		const init: PluginRequestInit = { method: method.toUpperCase() };
 		if (data !== undefined) {
-			init.headers = headers();
+			init.headers = { 'Content-Type': 'application/json' };
 			init.body = JSON.stringify(data);
 		}
 		const res = await fetchRaw(path, init);
@@ -99,59 +113,11 @@ export function createPluginApi(pluginId: string, options: PluginApiOptions): Pl
 	};
 
 	return {
-		getToken: () => options.getToken(),
-		get: async (path) => {
-			const res = await fetchImpl(pluginUrl(path), {
-				headers: headers(),
-				credentials: 'include'
-			});
-			return res.json();
-		},
-		post: async (path, data) => {
-			const res = await fetchImpl(pluginUrl(path), {
-				method: 'POST',
-				headers: headers(),
-				credentials: 'include',
-				body: JSON.stringify(data)
-			});
-			return res.json();
-		},
-		put: async (path, data) => {
-			const res = await fetchImpl(pluginUrl(path), {
-				method: 'PUT',
-				headers: headers(),
-				credentials: 'include',
-				body: JSON.stringify(data)
-			});
-			return res.json();
-		},
-		delete: async (path) => {
-			const res = await fetchImpl(pluginUrl(path), {
-				method: 'DELETE',
-				headers: headers(),
-				credentials: 'include'
-			});
-			return res.json();
-		},
-		uploadFile: async (path, formData) => {
-			const res = await fetchImpl(pluginUrl(path), {
-				method: 'POST',
-				headers: bearer(),
-				credentials: 'include',
-				body: formData
-			});
-			return res.json();
-		},
-		fetchFromApp: async (path) => {
-			const res = await fetchImpl(`${options.baseUrl}${path}`, {
-				headers: headers(),
-				credentials: 'include'
-			});
-			return res.json();
-		},
+		...page,
 		request,
 		patch: (path, data) => request('PATCH', path, data),
 		fetchRaw,
+		fetchRawFromApp,
 		download: async (path, filename) => {
 			const res = await fetchRaw(path);
 			if (!res.ok) throw new PluginApiError(res.status, await readBody(res));

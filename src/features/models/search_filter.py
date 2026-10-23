@@ -139,6 +139,26 @@ def wildcard_like_pattern(wildcard: str) -> str:
     return "".join(translated)
 
 
+_LIKE_OPERATOR = "LIKE ? ESCAPE '\\'"
+_REGEXP_OPERATOR = "REGEXP ?"
+
+
+def _name_clause(operator: str, pattern: str, has_library: bool, filename_patterns: Optional[List[str]] = None) -> Tuple[str, List]:
+    filename_patterns = filename_patterns or [pattern]
+    alternatives = [f"m.filename {operator}" for _ in filename_patterns]
+    alternatives.append(f"EXISTS (SELECT 1 FROM providers pr WHERE pr.model_id = m.id AND pr.name {operator})")
+    params: List = [*filename_patterns, pattern]
+    if has_library:
+        alternatives.append(f"umm.custom_name {operator}")
+        params.append(pattern)
+    return "(" + " OR ".join(alternatives) + ")", params
+
+
+def substring_search_clause(text: str, has_library: bool) -> Tuple[str, List]:
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return _name_clause(_LIKE_OPERATOR, f"%{escaped}%", has_library)
+
+
 def search_filter_clauses(search_filter: Optional[ModelSearchFilter], has_library: bool) -> Tuple[List[str], List]:
     clauses: List[str] = []
     params: List = []
@@ -146,28 +166,15 @@ def search_filter_clauses(search_filter: Optional[ModelSearchFilter], has_librar
         return clauses, params
 
     if search_filter.regex:
-        alternatives = [
-            "m.filename REGEXP ?",
-            "EXISTS (SELECT 1 FROM providers pr WHERE pr.model_id = m.id AND pr.name REGEXP ?)",
-        ]
-        params.extend([search_filter.regex, search_filter.regex])
-        if has_library:
-            alternatives.append("umm.custom_name REGEXP ?")
-            params.append(search_filter.regex)
-        clauses.append("(" + " OR ".join(alternatives) + ")")
+        clause, clause_params = _name_clause(_REGEXP_OPERATOR, search_filter.regex, has_library)
+        clauses.append(clause)
+        params.extend(clause_params)
 
     if search_filter.wildcard:
         pattern = wildcard_like_pattern(search_filter.wildcard)
-        alternatives = [
-            "m.filename LIKE ? ESCAPE '\\'",
-            "m.filename LIKE ? ESCAPE '\\'",
-            "EXISTS (SELECT 1 FROM providers pr WHERE pr.model_id = m.id AND pr.name LIKE ? ESCAPE '\\')",
-        ]
-        params.extend([pattern, pattern + ".%", pattern])
-        if has_library:
-            alternatives.append("umm.custom_name LIKE ? ESCAPE '\\'")
-            params.append(pattern)
-        clauses.append("(" + " OR ".join(alternatives) + ")")
+        clause, clause_params = _name_clause(_LIKE_OPERATOR, pattern, has_library, [pattern, pattern + ".%"])
+        clauses.append(clause)
+        params.extend(clause_params)
 
     if search_filter.indexed_from:
         clauses.append("datetime(m.indexed_at) >= ?")

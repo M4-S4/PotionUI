@@ -9,6 +9,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Card } from '$lib/components/ui';
+	import { COMMUNITY_LINKS } from '$lib/community';
 	import MenuUsage from '$lib/plans/components/MenuUsage.svelte';
 	import { limits, storageUsed } from '$lib/plans/store';
 	import { accountsStore } from '$lib/stores/accounts';
@@ -233,6 +234,28 @@
 				</Card>
 			</section>
 		{/if}
+
+		<section role="group" aria-label="Community">
+			<p class={headerClass} data-section-header><span>Community</span></p>
+			<Card padding="none" class="!shadow-none p-1">
+				<div class="flex items-center justify-between" data-testid="user-menu-community">
+					{#each COMMUNITY_LINKS as link (link.id)}
+						<Tooltip text={link.label} position="top" wrapperClass="flex flex-1 justify-center">
+							<a
+								href={link.href}
+								target="_blank"
+								rel="noopener noreferrer"
+								aria-label={link.label}
+								data-testid="community-link-{link.id}"
+								class="inline-flex min-h-10 min-w-10 items-center justify-center rounded p-2 text-fg-muted transition-[color,background-color] duration-100 hover:bg-surface-3 hover:text-fg"
+							>
+								<Icon name={link.icon} className="h-5 w-5" />
+							</a>
+						</Tooltip>
+					{/each}
+				</div>
+			</Card>
+		</section>
 
 		<section role="group" aria-label="Session">
 			<p class={headerClass} data-section-header><span>Session</span></p>

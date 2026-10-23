@@ -40,7 +40,7 @@ class TestBasePipe(unittest.TestCase):
         """
         abstract_methods = BasePipe.__abstractmethods__
         expected_methods = {
-            'process', 'get_default_config',
+            'process',
             'inputs', 'outputs', 'configuration'
         }
         self.assertEqual(abstract_methods, expected_methods)

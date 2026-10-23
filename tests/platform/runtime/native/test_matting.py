@@ -12,7 +12,6 @@ and the one path that plugin's suite never exercised: `load_matting_model`/
 import pytest
 
 from src.platform.runtime.native.matting import (
-    MATTING_WRAPPER_PREFIXES,
     BackgroundMattingModel,
     load_matting_model,
     remap_matting_key,
@@ -36,9 +35,6 @@ class TestRemap:
     def test_state_dict_remap_applies_to_every_key(self):
         state = {"module.a": 1, "_orig_mod.b": 2, "c": 3}
         assert remap_matting_state_dict(state) == {"a": 1, "b": 2, "c": 3}
-
-    def test_wrapper_prefixes_are_the_documented_two(self):
-        assert MATTING_WRAPPER_PREFIXES == ("module.", "_orig_mod.")
 
 
 class TestLoadMattingModel:

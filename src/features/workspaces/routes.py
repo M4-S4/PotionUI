@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.errors import AccessDeniedError, NotFoundError
 from src.platform.security.current_user import get_current_active_user
 from src.features.workspaces.dto import SaveWorkspaceRequest, UpdateWorkspaceRequest
 from src.features.workspaces import operations
@@ -19,71 +20,35 @@ if TYPE_CHECKING:
 
 
 class WorkspaceController(BaseController):
-    """Controller for managing user workspaces."""
 
     def __init__(self, workspace_repository: WorkspaceRepository):
         super().__init__()
         self.repository = workspace_repository
 
     async def get_workspaces(self, user_id: str) -> APIResponse:
-        """Get all workspaces for the current user."""
-        try:
-            workspaces = self.repository.get_by_user(user_id)
-            return self.success_response(
-                data=[workspace_to_response(w).model_dump() for w in workspaces]
-            )
-        except Exception as e:
-            return self.error_api_response(
-                error="get_workspaces_failed",
-                message=f"Failed to get workspaces: {str(e)}"
-            )
+        def load():
+            return [workspace_to_response(w).model_dump() for w in self.repository.get_by_user(user_id)]
+        return await self.run("get_workspaces_failed", load, soft=True, message="Failed to get workspaces")
 
     async def get_workspace_by_id(self, workspace_id: str, user_id: str) -> APIResponse:
-        """Get a specific workspace by ID."""
-        try:
+        def load():
             workspace = self.repository.get_by_id(workspace_id)
-
             if not workspace:
-                raise ValueError("Workspace not found")
-
+                raise NotFoundError("workspace_not_found", "Workspace not found")
             if workspace.user_id != user_id:
-                raise ValueError("Access denied to this workspace")
-
-            return self.success_response(data=workspace_to_response(workspace).model_dump())
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_api_response(
-                    error="workspace_not_found",
-                    message=error_msg
-                )
-            elif "access denied" in error_msg.lower():
-                return self.error_api_response(
-                    error="workspace_access_denied",
-                    message=error_msg
-                )
-            return self.error_api_response(error="get_workspace_failed", message=error_msg)
-        except Exception as e:
-            return self.error_api_response(
-                error="get_workspace_failed",
-                message=f"Failed to get workspace: {str(e)}"
-            )
+                raise AccessDeniedError("workspace_access_denied", "Access denied to this workspace")
+            return workspace_to_response(workspace).model_dump()
+        return await self.run("get_workspace_failed", load, soft=True, message="Failed to get workspace")
 
     async def save_workspace(self, user_id: str, request: SaveWorkspaceRequest) -> APIResponse:
-        """Save a new workspace."""
-        try:
-            workspace = operations.save_workspace(self.repository, user_id, request)
-            return self.success_response(
-                data=workspace.model_dump(),
-                message=f"Workspace '{request.name}' saved successfully"
-            )
-        except ValueError as e:
-            return self.error_api_response(error="save_workspace_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(
-                error="save_workspace_failed",
-                message=f"Failed to save workspace: {str(e)}"
-            )
+        response = await self.run(
+            "save_workspace_failed", operations.save_workspace, self.repository, user_id, request,
+            soft=True, message="Failed to save workspace",
+        )
+        if response.success:
+            response.data = response.data.model_dump()
+            response.message = f"Workspace '{request.name}' saved successfully"
+        return response
 
     async def update_workspace(
         self,
@@ -91,55 +56,23 @@ class WorkspaceController(BaseController):
         user_id: str,
         request: UpdateWorkspaceRequest
     ) -> APIResponse:
-        """Update an existing workspace."""
-        try:
-            workspace = operations.update_workspace(self.repository, workspace_id, user_id, request)
-            return self.success_response(
-                data=workspace.model_dump(),
-                message="Workspace updated successfully"
-            )
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_api_response(
-                    error="workspace_not_found",
-                    message=error_msg
-                )
-            elif "access denied" in error_msg.lower():
-                return self.error_api_response(
-                    error="workspace_access_denied",
-                    message=error_msg
-                )
-            return self.error_api_response(error="update_workspace_failed", message=error_msg)
-        except Exception as e:
-            return self.error_api_response(
-                error="update_workspace_failed",
-                message=f"Failed to update workspace: {str(e)}"
-            )
+        response = await self.run(
+            "update_workspace_failed", operations.update_workspace, self.repository, workspace_id, user_id, request,
+            soft=True, message="Failed to update workspace",
+        )
+        if response.success:
+            response.data = response.data.model_dump()
+            response.message = "Workspace updated successfully"
+        return response
 
     async def delete_workspace(self, workspace_id: str, user_id: str) -> APIResponse:
-        """Delete a workspace."""
-        try:
-            message = operations.delete_workspace(self.repository, workspace_id, user_id)
-            return self.success_response(message=message)
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_api_response(
-                    error="workspace_not_found",
-                    message=error_msg
-                )
-            elif "access denied" in error_msg.lower():
-                return self.error_api_response(
-                    error="workspace_access_denied",
-                    message=error_msg
-                )
-            return self.error_api_response(error="delete_workspace_failed", message=error_msg)
-        except Exception as e:
-            return self.error_api_response(
-                error="delete_workspace_failed",
-                message=f"Failed to delete workspace: {str(e)}"
-            )
+        response = await self.run(
+            "delete_workspace_failed", operations.delete_workspace, self.repository, workspace_id, user_id,
+            soft=True, message="Failed to delete workspace",
+        )
+        if response.success:
+            response.message, response.data = response.data, None
+        return response
 
 
 def build_router(container: "AppContainer") -> APIRouter:

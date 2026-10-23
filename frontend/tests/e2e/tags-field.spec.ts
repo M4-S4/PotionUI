@@ -1,22 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'tags-field';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('tags field: pick, type, remove, and the joined string reaches the form', async ({ page }) => {
 	await loginAsOwner(page);
@@ -39,9 +25,8 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	const presetList = page.locator('[role="listbox"][aria-label="Presets"]');
 	await expect(presetList).toBeVisible({ timeout: 15000 });
-	await presetList.getByText(yue2!.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-
+	await presetOption(page, yue2!.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const styleField = page.locator('.field-card', { hasText: 'Style tags' });
 	await expect(styleField).toBeVisible({ timeout: 20000 });
@@ -86,7 +71,7 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 
 	await screenshot(page, JOURNEY, '04-after-remove');
 
-	await instrumentalSlot.locator('button[title="Add Instrumentation"]').click();
+	await instrumentalSlot.locator('button[aria-label="Add Instrumentation"]').click();
 	await expect(page.getByRole('dialog', { name: 'Instrumentation picker' })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Instrumentation picker' })).toHaveCount(0);

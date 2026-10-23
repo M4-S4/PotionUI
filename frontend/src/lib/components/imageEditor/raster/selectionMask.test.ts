@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { invertMask, maskBounds, rasterizePolygon } from './selectionMask';
+import { maskBounds, rasterizePolygon } from './selectionMask';
 
 function row(mask: Uint8ClampedArray, width: number, y: number) {
 	return Array.from(mask.slice(y * width, (y + 1) * width));
@@ -104,13 +104,5 @@ describe('mask helpers', () => {
 			height: 2
 		});
 		expect(maskBounds(new Uint8ClampedArray(100), 10, 10)).toBeNull();
-	});
-
-	it('inverts a mask', () => {
-		const mask = rectMask(0, 0, 2, 4, 4, 4);
-		const inverted = invertMask(mask);
-		expect(coverage(inverted)).toBe(8);
-		expect(inverted[0]).toBe(0);
-		expect(inverted[3]).toBe(255);
 	});
 });

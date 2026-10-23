@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Prompt } from '$lib/types/segments';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/api/index')>();
@@ -8,7 +9,6 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 		api: {
 			...actual.api,
 			listPrompts: vi.fn(),
-			searchPrompts: vi.fn(),
 			getModels: vi.fn(),
 			listPromptTags: vi.fn()
 		}
@@ -56,17 +56,15 @@ function mountModal() {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 async function waitDebounce() {
-	await new Promise((resolve) => setTimeout(resolve, 300));
+	await vi.advanceTimersByTimeAsync(300);
 	await settle();
 }
 
 function dialog(): HTMLElement {
-	const el = document.body.querySelector('[role="dialog"][aria-label="Apply Prompt"]');
+	const el = Array.from(document.body.querySelectorAll('[role="dialog"][aria-labelledby]')).find(
+		(node) => document.getElementById(node.getAttribute('aria-labelledby') ?? '')?.textContent === 'Apply Prompt'
+	);
 	if (!el) throw new Error('Apply Prompt dialog not mounted');
 	return el as HTMLElement;
 }
@@ -92,11 +90,11 @@ function key(el: Element, keyName: string) {
 let mounted: ReturnType<typeof mountModal> | undefined;
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	vi.mocked(api.listPrompts).mockResolvedValue({
 		success: true,
 		data: { items: [prompt(), rooftop], total: 2, limit: 48, offset: 0 }
 	} as never);
-	vi.mocked(api.searchPrompts).mockResolvedValue({ success: true, data: [rooftop] } as never);
 	vi.mocked(api.getModels).mockResolvedValue({ success: true, data: { models: [] } } as never);
 	vi.mocked(api.listPromptTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
 });
@@ -106,6 +104,7 @@ afterEach(() => {
 	mounted = undefined;
 	document.body.innerHTML = '';
 	vi.clearAllMocks();
+	vi.useRealTimers();
 });
 
 describe('SegmentListApplyModal prompt library', () => {
@@ -119,24 +118,24 @@ describe('SegmentListApplyModal prompt library', () => {
 		expect(varSpan?.className).toContain('text-signal');
 		expect(rows()[0].textContent).toContain('used 12×');
 		expect(vi.mocked(api.listPrompts).mock.calls[0][0]).toMatchObject({ limit: 48, offset: 0, nsfw: 'exclude', sort_by: 'last_used_at' });
-		expect(api.searchPrompts).not.toHaveBeenCalled();
+		expect(vi.mocked(api.listPrompts).mock.calls[0][0]?.semantic).toBeUndefined();
 	});
 
-	it('runs the semantic and plain searches for a typed query and shows the semantic hint', async () => {
+	it('asks for semantic matches with a typed query and shows the semantic hint', async () => {
 		mounted = mountModal();
 		await settle();
 		vi.mocked(api.listPrompts).mockResolvedValue({
 			success: true,
-			data: { items: [prompt()], total: 1, limit: 48, offset: 0 }
+			data: { items: [prompt(), rooftop], total: 2, limit: 48, offset: 0, semantic_hits: 1 }
 		} as never);
 		const input = searchInput();
 		input.value = 'dancer';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
 		await waitDebounce();
-		expect(api.searchPrompts).toHaveBeenCalledWith(expect.objectContaining({ q: 'dancer', limit: 48 }));
-		expect(vi.mocked(api.listPrompts).mock.calls.at(-1)?.[0]).toMatchObject({ q: 'dancer', offset: 0 });
+		expect(vi.mocked(api.listPrompts).mock.calls.at(-1)?.[0]).toMatchObject({ q: 'dancer', offset: 0, semantic: true });
 		expect(dialog().textContent).toContain('semantic · 1 hits');
-		expect(rows()[0].textContent).toContain('Afrobeats waist wind');
+		expect(rows()[0].textContent).toContain('Dancing girl factory');
+		expect(rows()[1].textContent).toContain('Afrobeats waist wind');
 	});
 
 	it('counts a changed filter on the Filters button and lists it as a chip', async () => {
@@ -196,5 +195,80 @@ describe('SegmentListApplyModal prompt library', () => {
 		expect(vi.mocked(api.listPrompts).mock.calls.at(-1)?.[0]).toMatchObject({ offset: 2, limit: 48 });
 		expect(rows()).toHaveLength(3);
 		expect(rows()[2].textContent).toContain('Third');
+	});
+});
+
+describe('SegmentListApplyModal filters popover dismissal', () => {
+	const filtersTrigger = () => findButton(dialog(), (text) => text.startsWith('Filters'))!;
+	const popover = () => dialog().querySelector<HTMLElement>('[role="dialog"]');
+	const pickerOpen = () => document.body.textContent?.includes('Filter prompts by model') ?? false;
+
+	function pointerdown(el: Element) {
+		el.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+	}
+
+	function escape() {
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+	}
+
+	async function openPopover() {
+		mounted = mountModal();
+		await settle();
+		pointerdown(filtersTrigger());
+		filtersTrigger().click();
+		await settle();
+		expect(popover()).not.toBeNull();
+	}
+
+	it('closes on Escape', async () => {
+		await openPopover();
+		escape();
+		await settle();
+		expect(popover()).toBeNull();
+	});
+
+	it('ends closed when the trigger is pressed while open', async () => {
+		await openPopover();
+		pointerdown(filtersTrigger());
+		filtersTrigger().click();
+		await settle();
+		expect(popover()).toBeNull();
+	});
+
+	it('closes on an outside press', async () => {
+		await openPopover();
+		pointerdown(searchInput());
+		await settle();
+		expect(popover()).toBeNull();
+	});
+
+	it('keeps the popover and dialog when Escape closes the nested model picker', async () => {
+		await openPopover();
+		findButton(popover()!, (text) => text.includes('Any'))!.click();
+		await settle();
+		expect(pickerOpen()).toBe(true);
+
+		escape();
+		await settle();
+
+		expect(pickerOpen()).toBe(false);
+		expect(popover()).not.toBeNull();
+		expect(dialog()).toBeTruthy();
+	});
+
+	it('keeps the popover open on a press inside the model picker', async () => {
+		await openPopover();
+		findButton(popover()!, (text) => text.includes('Any'))!.click();
+		await settle();
+		expect(pickerOpen()).toBe(true);
+
+		const heading = Array.from(document.body.querySelectorAll('*')).find(
+			(el) => el.children.length === 0 && el.textContent === 'Filter prompts by model'
+		)!;
+		pointerdown(heading);
+		await settle();
+
+		expect(popover()).not.toBeNull();
+		expect(pickerOpen()).toBe(true);
 	});
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
 	import type { NodeTypeDef } from '$lib/types/automations';
 	import { PALETTE_DRAG_MIME } from './paletteDrag';
@@ -18,7 +19,7 @@
 	ondragstart={handleDragStart}
 	role="button"
 	tabindex="0"
-	title={nodeType.description || nodeType.title}
+	use:tooltip={nodeType.description || nodeType.title}
 >
 	<Icon name={nodeType.icon || 'cube'} className="w-4 h-4 text-fg-muted flex-shrink-0 mt-0.5" />
 	<div class="min-w-0 flex-1">

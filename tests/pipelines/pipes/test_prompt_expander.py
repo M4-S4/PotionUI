@@ -7,62 +7,6 @@ from src.pipelines.contracts import PipeInput, PipeOutput, IOType
 
 class TestPromptExpanderPipe:
 
-    def test_init(self):
-        """Test pipe initialization"""
-        config = PromptExpanderPipe.get_default_config()
-        pipe = PromptExpanderPipe(config)
-
-        assert pipe.name == "prompt_expander"
-        assert pipe.description == "Expands prompts using configured LLM service"
-
-    def test_get_default_config(self):
-        """Test default configuration"""
-        config = PromptExpanderPipe.get_default_config()
-
-        assert config["llm_id"] is None
-        assert config["command_id"] is None
-        assert config["style_id"] is None
-        assert config["prompt"] == "Expand this prompt with creative details"
-        assert config["p_prompt_input"] == ""
-        assert config["n_prompt_input"] == ""
-        assert config["p_prompt_output"] == "[[__expanded_p_prompt__]]"
-        assert config["n_prompt_output"] == "[[__expanded_n_prompt__]]"
-
-    def test_configuration_specs(self):
-        """Test configuration specifications"""
-        specs = PromptExpanderPipe.configuration()
-
-        spec_names = [spec.name for spec in specs]
-        assert "llm_id" in spec_names
-        assert "command_id" in spec_names
-        assert "style_id" in spec_names
-        assert "prompt" in spec_names
-        assert "p_prompt_input" in spec_names
-        assert "n_prompt_input" in spec_names
-        assert "p_prompt_output" in spec_names
-        assert "n_prompt_output" in spec_names
-
-        # Check that llm_id is required
-        llm_spec = next(s for s in specs if s.name == "llm_id")
-        assert llm_spec.param_type == str
-
-    def test_inputs_outputs(self):
-        """Test input and output specifications"""
-        inputs = PromptExpanderPipe.inputs()
-        outputs = PromptExpanderPipe.outputs()
-
-        # Should require LLM service
-        assert len(inputs) == 1
-        assert inputs[0].name == "LLM"
-        assert inputs[0].io_type == IOType.SERVICE
-        assert inputs[0].required is True
-
-        # Two text outputs
-        assert len(outputs) == 2
-        assert outputs[0].name == "p_prompt"
-        assert outputs[0].io_type == IOType.TEXT
-        assert outputs[1].name == "n_prompt"
-        assert outputs[1].io_type == IOType.TEXT
 
     @pytest.mark.asyncio
     async def test_expand_prompt_async_empty(self):

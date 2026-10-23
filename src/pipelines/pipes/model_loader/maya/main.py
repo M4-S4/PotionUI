@@ -8,7 +8,7 @@ This pipe loads the Maya text-to-speech model components:
 """
 
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import List
 import logging
 
 from src.platform.assets import asset_subdir
@@ -24,15 +24,6 @@ logger = logging.getLogger(__name__)
 class ModelLoaderMayaPipe(BaseModelLoaderPipe):
     name = "model_loader"
     description = "Load Maya text-to-speech model components (Model, Tokenizer, SNAC Codec)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model_id": "maya-research/maya1",
-            "snac_model": "hubertsiuzdak/snac_24khz",
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

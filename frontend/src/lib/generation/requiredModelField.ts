@@ -12,6 +12,18 @@ export interface PublishedMissingModel {
 	missing: MissingModelField | null;
 }
 
+function isEmptyTagsValue(value: unknown): boolean {
+	if (value == null) return true;
+	if (typeof value === 'string') return value.trim() === '';
+	if (Array.isArray(value)) return value.length === 0;
+	if (typeof value === 'object') {
+		return Object.values(value as Record<string, unknown>).every(
+			(entry) => !Array.isArray(entry) || entry.length === 0
+		);
+	}
+	return false;
+}
+
 export function missingRequiredModelField(
 	fields: FieldConfig[],
 	formData: Record<string, unknown> | null | undefined
@@ -24,6 +36,12 @@ export function missingRequiredModelField(
 		if (field.name && field.type === 'model' && field.required && !field.readonly) {
 			const wireValue = fromComponentValue(field.type, data[field.name]);
 			if (typeof wireValue !== 'string' || wireValue.trim() === '') {
+				return { name: field.name, label: field.title || field.name };
+			}
+		}
+
+		if (field.name && field.type === 'tags' && field.required && !field.readonly) {
+			if (isEmptyTagsValue(data[field.name])) {
 				return { name: field.name, label: field.title || field.name };
 			}
 		}

@@ -110,6 +110,7 @@ httptools==0.8.0
 httpx==0.28.1
 huggingface_hub==1.22.0
 idna==3.18
+imageio-ffmpeg==0.6.0
 ImageIO==2.37.3
 importlib_metadata==9.0.0
 importlib_resources==7.1.0

@@ -28,7 +28,7 @@
 		DEFAULT_STATUS_FILTER,
 		MAX_RENDERED_SYNC_ROWS
 	} from './backendModelsSync';
-	import { createVisiblePoll } from './visiblePoll';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 
 	/**
 	 * Shown on a `native.remote` backend's Models tab - lets an admin push

@@ -55,7 +55,7 @@ describe('vramShortfall', () => {
 	});
 
 	it('warns when detected VRAM is below the minimum', () => {
-		expect(vramShortfall({ min_vram_gb: 12 }, 8)).toBe('needs 12 GB — this machine has 8 GB');
+		expect(vramShortfall({ min_vram_gb: 12 }, 8)).toBe('needs 12 GB · this GPU 8 GB');
 	});
 });
 

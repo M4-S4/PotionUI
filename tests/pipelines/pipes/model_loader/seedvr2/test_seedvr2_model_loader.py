@@ -53,12 +53,6 @@ def _run(pipe):
     return models, out, loader
 
 
-def test_name_and_single_model_output():
-    assert ModelLoaderSeedVR2Pipe.name == "model_loader"
-    out_names = {o.name: o.io_type for o in ModelLoaderSeedVR2Pipe.outputs()}
-    assert out_names == {"model": IOType.MODEL}  # no clip output
-
-
 def test_config_has_no_te_or_loras():
     names = {s.name for s in ModelLoaderSeedVR2Pipe.configuration()}
     assert "text_encoder" not in names

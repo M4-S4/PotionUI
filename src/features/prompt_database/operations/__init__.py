@@ -24,7 +24,7 @@ from src.features.prompt_database.operations.mutations import (
     replace_prompt,
 )
 from src.features.prompt_database.operations.embedding import embed_pending, embed_prompt
-from src.features.prompt_database.operations.search import find_duplicates, search
+from src.features.prompt_database.operations.search import find_duplicates, search, semantic_ids
 from src.features.prompt_database.operations.importing import ImportOutcome, export_styles_csv, import_prompts
 
 __all__ = [
@@ -39,6 +39,7 @@ __all__ = [
     "embed_prompt",
     "find_duplicates",
     "search",
+    "semantic_ids",
     "ImportOutcome",
     "export_styles_csv",
     "import_prompts",

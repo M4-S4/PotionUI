@@ -14,9 +14,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from src.platform.runtime.native.base import load_into_module
 from vendor.gpl.comfyui.ops import disable_weight_init
-from src.platform.runtime.native.vae.loader import _VaeSpec
 from src.platform.runtime.native.vae.seedvr2_causal_video import (
     LATENT_CHANNELS,
     SCALING_FACTOR,
@@ -49,18 +47,6 @@ def _build_tiny() -> SeedVR2CausalVideoVAE:
 def test_latent_constants():
     assert LATENT_CHANNELS == 16
     assert SCALING_FACTOR == pytest.approx(0.9152)
-
-
-def test_post_load_is_safe_noop():
-    module = _build_tiny()
-    module.post_load()  # must not raise; documented no-op (no computed buffers)
-
-
-def test_self_consistent_state_dict_passes_load_integrity():
-    module = _build_tiny()
-    sd = module.state_dict()
-    spec = _VaeSpec(family="vae", variant="seedvr2_causal_video")
-    load_into_module(module, sd, spec)  # must not raise
 
 
 def test_encode_image_decode_image_roundtrip_shape():

@@ -15,10 +15,8 @@ import pytest
 
 from src.features.generation.engine import validate_pipe_configuration
 from src.platform.runtime.native.sampling.registry import sampler_registry
-from src.pipelines.pipes.generator.txt2vid_ltx.main import (
-    GeneratorLtxTxt2VidPipe,
-    validate_ltx_schedule_config,
-)
+from src.pipelines.pipes.generator.txt2vid_ltx.main import GeneratorLtxTxt2VidPipe
+from src.pipelines.pipes._shared.video.ltx_common import validate_ltx_schedule_config
 from src.pipelines.pipes.generator.video_ltx.main import GeneratorLtxVideoPipe
 
 
@@ -136,7 +134,7 @@ def test_refine_sigmas_valid_descending_passes():
 def test_refine_sigmas_does_not_force_head_to_one_unlike_manual_sigmas():
     # Sanity pin: refine_sigmas is validated (non-numeric/length/monotonic)
     # but NOT rewritten -- confirm the parsed tensor keeps its own sigma[0].
-    from src.pipelines.pipes.generator.txt2vid_ltx.main import parse_explicit_sigmas
+    from src.pipelines.pipes._shared.video.ltx_common import parse_explicit_sigmas
     sigmas = parse_explicit_sigmas("0.909375, 0.725, 0.421875, 0.0")
     assert sigmas[0].item() == pytest.approx(0.909375)
 

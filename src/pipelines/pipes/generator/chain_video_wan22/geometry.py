@@ -87,16 +87,6 @@ _TEMPORAL_DOWNSCALE = 4
 
 
 def _snap_frame_count(frames: int, temporal_downscale: int = _TEMPORAL_DOWNSCALE) -> int:
-    """Snap `frames` to the nearest `1 + k*temporal_downscale` (ties round
-    down, floor of one frame) -- the SAME algorithm as
-    `src.platform.runtime.native.resolution.snap_frame_count` (what
-    `chain_video_wan22/main.py`'s own `_snap_geometry` actually calls),
-    reimplemented locally rather than imported: that module's package
-    (`src.platform.runtime.native`) pulls torch on import, which would defeat
-    this module's whole point -- being callable from `compile.py` (and a
-    plain test) with no model/torch dependency, exactly like
-    `video_minimax_h3/geometry.py`'s own lattice arithmetic.
-    """
     td = max(1, int(temporal_downscale))
     k = max(0, math.ceil((frames - 1) / td - 0.5))
     return 1 + k * td

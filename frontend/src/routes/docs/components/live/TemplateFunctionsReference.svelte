@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { api } from '$lib/services/api/index';
 	import { Badge } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -134,7 +135,8 @@
 														<button
 															on:click={() => copyToClipboard(example.code)}
 															class="ml-2 p-1 hover:bg-surface-2 rounded transition-colors"
-															title="Copy to clipboard"
+															use:tooltip={'Copy to clipboard'}
+															aria-label="Copy to clipboard"
 														>
 															<Icon name="copy" className="w-4 h-4 text-fg-subtle hover:text-fg" />
 														</button>

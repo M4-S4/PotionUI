@@ -7,9 +7,6 @@ generation. Both the buffered (`send_message`) and streaming
 (`send_message_stream`) paths live here, plus the learning-loop feedback
 recorder and the title/pre-chat helpers they share.
 
-Extracted from the ChatRuntime coordinator; it drives the other chat
-collaborators (context builder) and reads its dependencies through the
-manager so the composition root's late binding keeps working.
 """
 
 import asyncio
@@ -33,10 +30,14 @@ from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
 from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
+from src.features.chat.thinking import (
+    THINKING, TEXT, ThinkingCapture, config_shows_thinking, visible_text, without_streamed_thinking,
+)
 from src.features.chat.tool_transcript import tool_metadata
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.trace_repository import chat_call_trace_repository
 from src.features.llm.tools.base import ToolExecution
+from src.features.llm.tools.use_tools import use_tools_schema
 from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.platform.plugins.hooks import await_hook_blocking_waits
 from src.platform.util.imaging import convert_image_to_base64
@@ -54,7 +55,7 @@ class ConversationRunner:
     """Orchestrates a chat turn end-to-end for both send and stream paths."""
 
     _TOOL_ACTION_CONTENT_RE = re.compile(
-        r'<tool_action\s+type="update_(?:director_)?segment"[^>]*>([\s\S]*?)</tool_action>'
+        r'<tool_action\s+type="(?:update_(?:director_)?|add_|delete_)segment"[^>]*>([\s\S]*?)</tool_action>'
     )
 
     def __init__(self, manager):
@@ -171,10 +172,14 @@ class ConversationRunner:
         if not user_message:
             raise MessageCreationFailedException("Failed to save user message")
 
-        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"),
+        await self._prime_context_window(session)
+        tool_tier = self._tool_tier(session)
+        form_state = (context_metadata or {}).get("form_state")
+        tool_scope = self._m._context.resolve_tool_scope(session, form_state)
+        system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
+            session, form_state=form_state, tool_tier=tool_tier, scope=tool_scope,
         )
-        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
+        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
         conversation_history = self._m.chat_repository.get_conversation_history(
             session_id, include_tool_transcript=tools_enabled,
@@ -197,7 +202,7 @@ class ConversationRunner:
         # the model narrates using a tool it was never given. Computed even when
         # some tools ARE allowed so a partial set doesn't get promised either.
         withheld_tools = self._m._context.withheld_tools_for_session(
-            session, form_state=(context_metadata or {}).get("form_state"),
+            session, form_state=form_state, scope=tool_scope,
         )
         if withheld_tools:
             step_records.append({"step": "tools", "duration_ms": 0})
@@ -223,13 +228,19 @@ class ConversationRunner:
         await self._m._context.inject_contributor_block(conversation_history, session, context_metadata, user_id)
         self._m._context.inject_resource_block(conversation_history, resolved_resources)
 
-        workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
-        self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
-        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
+        offered_tool_names = set(allowed_tools or ()).union(*(deferred_tools or {}).values())
+        workspace_result = self._m._context.inject_workspace_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+        )
+        self._m._context.inject_prompt_state_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+            variable_reader=self._m._context.prompt_state_variable_reader(user_id, context_metadata),
+        )
+        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
-        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
+        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
+        budget_accounting = self._resolve_budget_inputs(session, mode)
         try:
             context_ledger = self._build_context_ledger(
                 system_prompt, tool_schemas, memory_result, conversation_history,
@@ -266,12 +277,12 @@ class ConversationRunner:
                     llm_id=session.llm_config_id,
                     system_message=system_prompt or "",
                     tool_context=tool_context,
-                    mode=mode.id,
                     image_data=image_base64,
                     max_iterations=_MAX_TOOL_ROUNDS,
                     allowed_tools=allowed_tools,
                     llm_options=mode.llm_options or None,
                     iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
+                    deferred_tools=deferred_tools,
                 )
             transcript = self._list_or_empty(getattr(llm_response, "tool_transcript", None))
             rounds_used = self._int_or_zero(getattr(llm_response, "rounds_used", 0))
@@ -283,7 +294,6 @@ class ConversationRunner:
                     llm_id=session.llm_config_id,
                     image_data=image_base64,
                     custom_system_message=system_prompt or None,
-                    mode=mode.id,
                     options_override=mode.llm_options or None,
                 )
         # No distinct "answering" phase to time on the buffered path — the whole
@@ -323,6 +333,8 @@ class ConversationRunner:
                 tool_failures=getattr(llm_response, "tool_failures", None),
                 thinking_mode=getattr(llm_response, "thinking_mode", None),
                 completion=getattr(llm_response, "completion", None),
+                tool_tier=tool_tier,
+                tools_deferred=deferred_tools,
             ),
         }
 
@@ -504,10 +516,15 @@ class ConversationRunner:
             if not user_message:
                 raise MessageCreationFailedException("Failed to save user message")
 
-        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"),
+        await self._prime_context_window(session)
+        tool_tier = self._tool_tier(session)
+        form_state = (context_metadata or {}).get("form_state")
+        tool_scope = self._m._context.resolve_tool_scope(session, form_state)
+        system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
+            session, form_state=form_state, tool_tier=tool_tier, scope=tool_scope,
+            loaded_groups=continuation.loaded_groups if continuation else (),
         )
-        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
+        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
         conversation_history = self._m.chat_repository.get_conversation_history(
             session_id, include_tool_transcript=tools_enabled,
@@ -529,7 +546,7 @@ class ConversationRunner:
         # the model narrates using a tool it was never given. Computed even when
         # some tools ARE allowed so a partial set doesn't get promised either.
         withheld_tools = self._m._context.withheld_tools_for_session(
-            session, form_state=(context_metadata or {}).get("form_state"),
+            session, form_state=form_state, scope=tool_scope,
         )
         if withheld_tools:
             step_records.append({"step": "tools", "duration_ms": 0})
@@ -580,15 +597,21 @@ class ConversationRunner:
         await self._m._context.inject_contributor_block(conversation_history, session, context_metadata, user_id)
         self._m._context.inject_resource_block(conversation_history, resolved_resources)
 
-        workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
-        self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
-        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
+        offered_tool_names = set(allowed_tools or ()).union(*(deferred_tools or {}).values())
+        workspace_result = self._m._context.inject_workspace_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+        )
+        self._m._context.inject_prompt_state_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+            variable_reader=self._m._context.prompt_state_variable_reader(user_id, context_metadata),
+        )
+        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
         if continuation is not None:
-            conversation_history.append(approval_continuation_message())
+            conversation_history.append(approval_continuation_message(continuation.tool_name, continuation.tool_call_id))
 
-        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
+        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
+        budget_accounting = self._resolve_budget_inputs(session, mode)
         try:
             context_ledger = self._build_context_ledger(
                 system_prompt, tool_schemas, memory_result, conversation_history,
@@ -637,9 +660,36 @@ class ConversationRunner:
         turn_completion: Optional[Dict[str, Any]] = None
         usage_data: Dict[str, Any] = {}
 
+        show_thinking = config_shows_thinking(self._m.llm_service, session.llm_config_id)
+        thinking = ThinkingCapture(show_thinking)
+
         _thinking_start = time.monotonic()
-        yield {"event": "status", "data": {"step": "thinking", "state": "started"}}
+        yield {
+            "event": "status",
+            "data": {
+                "step": "thinking", "state": "started",
+                **({"detail": {"thinking_visible": True}} if show_thinking else {}),
+            },
+        }
         _answering_started = False
+        _answering_start = _thinking_start
+
+        def _release(pieces):
+            nonlocal full_content, _answering_started, _answering_start
+            for piece in pieces:
+                if piece.kind == THINKING:
+                    yield {"event": "thinking", "data": {"content": piece.text, "segment": piece.segment}}
+                elif piece.kind == TEXT:
+                    if not _answering_started:
+                        _answering_start = time.monotonic()
+                        step_records.append({
+                            "step": "thinking",
+                            "duration_ms": int((_answering_start - _thinking_start) * 1000),
+                        })
+                        yield {"event": "status", "data": {"step": "answering", "state": "started"}}
+                        _answering_started = True
+                    full_content += piece.text
+                    yield {"event": "token", "data": {"content": piece.text}}
 
         try:
             if tools_enabled:
@@ -657,32 +707,35 @@ class ConversationRunner:
                         llm_id=session.llm_config_id,
                         system_message=system_prompt or "",
                         tool_context=tool_context,
-                        mode=mode.id,
                         image_data=image_base64,
                         max_iterations=max(0, _MAX_TOOL_ROUNDS - base_rounds),
                         allowed_tools=allowed_tools,
                         llm_options=mode.llm_options or None,
                         iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
                         applied_calls=continuation.applied_calls if continuation else None,
+                        deferred_tools=deferred_tools,
                     )) as agen:
                         async for event in agen:
                             if event["type"] in ("tool_start", "tool_end"):
+                                if event["type"] == "tool_start":
+                                    for released in _release(thinking.flush()):
+                                        yield released
                                 logger.debug(f"[ChatRuntime] Yielding SSE event: {event['type']} - {event['data'].get('tool_name', '')}")
                                 yield {"event": event["type"], "data": event["data"]}
                             elif event["type"] == "status":
                                 yield {"event": "status", "data": event["data"]}
+                            elif event["type"] == "thinking":
+                                for released in _release(thinking.on_thinking(event["data"]["content"])):
+                                    yield released
+                            elif event["type"] == "thinking_end":
+                                for released in _release(thinking.flush()):
+                                    yield released
                             elif event["type"] == "token":
-                                if not _answering_started:
-                                    _answering_start = time.monotonic()
-                                    step_records.append({
-                                        "step": "thinking",
-                                        "duration_ms": int((_answering_start - _thinking_start) * 1000),
-                                    })
-                                    yield {"event": "status", "data": {"step": "answering", "state": "started"}}
-                                    _answering_started = True
-                                full_content += event["data"]["content"]
-                                yield {"event": "token", "data": event["data"]}
+                                for released in _release(thinking.on_token(event["data"]["content"])):
+                                    yield released
                             elif event["type"] == "done":
+                                for released in _release(thinking.flush()):
+                                    yield released
                                 tool_executions = event["data"]["tool_executions"]
                                 transcript = self._list_or_empty(event["data"].get("tool_transcript"))
                                 rounds_used = self._int_or_zero(event["data"].get("rounds_used"))
@@ -692,6 +745,8 @@ class ConversationRunner:
                                 turn_completion = event["data"].get("completion")
                                 if not full_content:
                                     full_content = event["data"].get("full_content", "")
+                                    if show_thinking:
+                                        full_content = visible_text(full_content)
                                 # Extract token usage from done event
                                 usage_data = {
                                     "tokens_used": event["data"].get("tokens_used"),
@@ -730,13 +785,15 @@ class ConversationRunner:
                         llm_id=session.llm_config_id,
                         image_data=image_base64,
                         custom_system_message=system_prompt or None,
-                        mode=mode.id,
                         options_override=mode.llm_options or None,
                     )) as agen:
                         async for event in agen:
-                            if event["type"] == "token":
-                                full_content += event["content"]
-                                yield {"event": "token", "data": {"content": event["content"]}}
+                            if event["type"] == "thinking":
+                                for released in _release(thinking.on_thinking(event["content"])):
+                                    yield released
+                            elif event["type"] == "token":
+                                for released in _release(thinking.on_token(event["content"])):
+                                    yield released
                             elif event["type"] == "usage":
                                 usage_data = {
                                     "tokens_used": event.get("tokens_used"),
@@ -745,6 +802,8 @@ class ConversationRunner:
                                 }
                                 thinking_mode = event.get("thinking_mode")
                                 turn_completion = event.get("completion")
+                for released in _release(thinking.flush()):
+                    yield released
 
             step_records.append({
                 "step": "answering",
@@ -778,8 +837,15 @@ class ConversationRunner:
                     tool_failures=tool_failures,
                     thinking_mode=thinking_mode,
                     completion=turn_completion,
+                    tool_tier=tool_tier,
+                    tools_deferred=deferred_tools,
+                    thinking_visible=show_thinking,
                 ),
             }
+
+            captured_thinking = thinking.segments()
+            if captured_thinking:
+                assistant_metadata['thinking'] = {"segments": captured_thinking}
 
             # Include token usage data in metadata
             if usage_data:
@@ -839,7 +905,7 @@ class ConversationRunner:
             yield {
                 "event": "done",
                 "data": {
-                    "assistant_message": assistant_message.model_dump(),
+                    "assistant_message": without_streamed_thinking(assistant_message.model_dump()),
                     "user_message": user_message.model_dump() if user_message else None,
                     "resolved_message": resolved_message,
                 }
@@ -903,7 +969,7 @@ class ConversationRunner:
     def _history_token_budget(self) -> int:
         """Read the `chat_history_token_budget` setting; 0 or unset/unparsable = unlimited."""
         try:
-            value = self._m.settings.get_setting(
+            value = self._m.tool_services.settings.get_setting(
                 'chat_history_token_budget', _DEFAULT_HISTORY_TOKEN_BUDGET
             )
             if value is not None:
@@ -912,11 +978,35 @@ class ConversationRunner:
             logger.debug("Could not read chat_history_token_budget setting", exc_info=True)
         return _DEFAULT_HISTORY_TOKEN_BUDGET
 
+    async def _prime_context_window(self, session: SessionResponse) -> None:
+        llm_config_id = getattr(session, "llm_config_id", None)
+        if not llm_config_id:
+            return
+        try:
+            config = self._m.llm_service.repository.get_configuration(llm_config_id)
+            if config is not None:
+                await self._m.llm_service.ensure_context_window(config)
+        except Exception:
+            logger.debug("Could not prime LLM context window", exc_info=True)
+
+    def _tool_tier(self, session: SessionResponse) -> str:
+        llm_config_id = getattr(session, "llm_config_id", None)
+        if not llm_config_id:
+            return context_budget.TOOL_TIER_STANDARD
+        try:
+            config = self._m.llm_service.repository.get_configuration(llm_config_id)
+            if config is None:
+                return context_budget.TOOL_TIER_STANDARD
+            capacity = self._m.llm_service.context_capacity_for(config)
+            return context_budget.tool_tier(capacity)
+        except Exception:
+            logger.debug("Could not resolve the tool tier for the context window", exc_info=True)
+            return context_budget.TOOL_TIER_STANDARD
+
     def _resolve_budget_inputs(
         self,
         session: SessionResponse,
         mode: Optional[ChatMode],
-        tool_schemas: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[context_budget.ContextProfile]:
         llm_config_id = getattr(session, "llm_config_id", None)
         if not llm_config_id:
@@ -931,7 +1021,7 @@ class ConversationRunner:
             if config is None:
                 return None
             mode_options = (mode.llm_options or {}) if mode else {}
-            inputs = self._m.llm_service.context_profile_for(config, mode_options or None, tool_schemas)
+            inputs = self._m.llm_service.context_profile_for(config, mode_options or None)
             int(inputs.reserve_tokens)  # validate now — a non-numeric test double degrades below, not mid-ledger
             return inputs
         except Exception:
@@ -996,14 +1086,16 @@ class ConversationRunner:
                 chars += len(json.dumps(msg["tool_calls"], default=str))
         return chars
 
-    def _resolve_tool_schemas_for_ledger(self, allowed_tools: Optional[List[str]]) -> List[Dict[str, Any]]:
+    def _resolve_tool_schemas_for_ledger(
+        self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,
+    ) -> List[Dict[str, Any]]:
         """Fetch the resolved tool schemas the executor would actually send this turn.
 
         Best-effort like the rest of the trace plumbing — a registry lookup
         failure (or a test double that doesn't model ``get_schemas``) yields
         an empty list rather than breaking the send.
         """
-        if not allowed_tools:
+        if not allowed_tools and not deferred_tools:
             return []
         try:
             registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
@@ -1015,7 +1107,9 @@ class ConversationRunner:
             schemas = registry.get_schemas(allowed_tools)
         except Exception:
             return []
-        return schemas if isinstance(schemas, list) else []
+        if not isinstance(schemas, list):
+            return []
+        return [*schemas, use_tools_schema(deferred_tools)] if deferred_tools else schemas
 
     @staticmethod
     def _build_context_ledger(
@@ -1128,6 +1222,9 @@ class ConversationRunner:
         tool_failures: Optional[Any] = None,
         thinking_mode: Optional[Dict[str, Any]] = None,
         completion: Optional[Dict[str, Any]] = None,
+        tool_tier: Optional[str] = None,
+        tools_deferred: Optional[Dict[str, List[str]]] = None,
+        thinking_visible: bool = False,
     ) -> Dict[str, Any]:
         """Assemble the persisted per-message behavior-trace manifest.
 
@@ -1176,6 +1273,8 @@ class ConversationRunner:
             "tools_used": [te.tool_name for te in tool_executions],
             "tools_offered": list(tools_offered or []),
             "tools_withheld": tools_withheld or {},
+            "tool_tier": tool_tier,
+            "tools_deferred": {group: list(names) for group, names in (tools_deferred or {}).items()},
             "rescues": rescues,
             "tool_failures": tool_failures,
             "thinking_mode": thinking_mode,
@@ -1191,6 +1290,8 @@ class ConversationRunner:
             trace["history"] = history_info
         if context_ledger is not None:
             trace["context_ledger"] = context_ledger
+        if thinking_visible:
+            trace["thinking_visible"] = True
         return trace
 
     async def record_prompt_feedback(
@@ -1220,7 +1321,7 @@ class ConversationRunner:
         if verdict not in ("approved", "rejected"):
             raise MessageCreationFailedException(f"Invalid verdict '{verdict}'")
 
-        if not self._m.prompt_enhancement_manager:
+        if not self._m.tool_services.prompt_enhancement_manager:
             raise MessageCreationFailedException("Prompt enhancement not available")
 
         message = self._m.chat_repository.get_message(message_id)
@@ -1245,7 +1346,7 @@ class ConversationRunner:
 
         prompt_text = candidates[action_index]
         result = await prompt_enhancement_operations.record_feedback(
-            self._m.prompt_enhancement_manager,
+            self._m.tool_services.prompt_enhancement_manager,
             user_id=user_id,
             session_id=session_id,
             message_id=message_id,

@@ -681,51 +681,6 @@ def prepare_keyframe_condition_rows(
     return torch.cat(rows, dim=0)
 
 
-def prepare_reference_condition_rows(
-    images: list, *, vae_module: Any, canvas_multiple: int, patch_size: tuple[int, int, int],
-    device: Any, dtype: torch.dtype, latents_mean: Any, latents_std: Any, generator: torch.Generator,
-    short_edge: int = REFERENCE_IMAGE_SHORT_EDGE, max_pixels: int = REFERENCE_IMAGE_MAX_PIXELS,
-) -> tuple[list[Tensor], Tensor]:
-    """`ref2va` image references -> own-resolution fit -> VAE-encode -> noise
-    to `t = KEYFRAME_NOISE_AUG` -> patchify, in reference (packed) order.
-
-    Shares `encode_keyframe_condition`'s recipe with `fl2va` keyframes
-    (`prepare_keyframe_condition_rows`); the only difference is the fit
-    (`normalize_reference_image` instead of `fit_keyframe_to_canvas`) --
-    every reference keeps its OWN resolution rather than the target canvas,
-    so unlike that function this one cannot concatenate the patched rows
-    without first individually noising/patchifying each one, and it also
-    returns the clean, un-patchified latent of each reference: that shape
-    (not the target's) is what `layout.build_ref2va_packed_sequence` reads
-    every reference block's geometry from.
-
-    `short_edge` and `max_pixels` default to `REFERENCE_IMAGE_SHORT_EDGE`
-    and `REFERENCE_IMAGE_MAX_PIXELS`; exposed as parameters (like
-    `normalize_reference_image`'s own) purely so a test can shrink them --
-    every real caller leaves them at the default.
-
-    One noise draw per reference from `generator`, in order -- same "one
-    generator, three draws, in order" contract `prepare_keyframe_condition_
-    rows` documents; callers MUST draw this BEFORE the request's own
-    video/audio noise. Returns `([], (0, video_patch_dim))` for `images=[]`.
-    """
-    condition_latents: list[Tensor] = []
-    packed_rows: list[Tensor] = []
-    for image in images:
-        fitted = normalize_reference_image(
-            image, canvas_multiple=canvas_multiple, short_edge=short_edge, max_pixels=max_pixels,
-        )
-        latent, packed = _encode_and_pack_visual_reference(
-            vae_module, _pixels_from_image(fitted, device), patch_size=patch_size, device=device, dtype=dtype,
-            latents_mean=latents_mean, latents_std=latents_std, generator=generator,
-        )
-        condition_latents.append(latent)
-        packed_rows.append(packed)
-    if not packed_rows:
-        return condition_latents, _empty_condition_rows(patch_size, device, dtype)
-    return condition_latents, torch.cat(packed_rows, dim=0)
-
-
 def _empty_condition_rows(patch_size: tuple[int, int, int], device: Any, dtype: torch.dtype) -> Tensor:
     return torch.zeros(
         (0, 24 * patch_size[0] * patch_size[1] * patch_size[2]), device=device, dtype=dtype,

@@ -51,6 +51,7 @@ from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cancellation import raise_if_cancelled
 from ...nag import apply_nag
+from ...ops.padding import pad_to_patch
 from vendor.gpl.comfyui.flux.layers import EmbedND
 from vendor.gpl.comfyui.flux.math_ops import apply_rope1, rope
 from .config import WanParams
@@ -68,16 +69,6 @@ def sinusoidal_embedding_1d(dim: int, position: torch.Tensor) -> torch.Tensor:
     position = position.type(torch.float32)
     sinusoid = torch.outer(position, torch.pow(10000, -torch.arange(half).to(position).div(half)))
     return torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
-
-
-def _pad_to_patch_size(img: torch.Tensor, patch_size, padding_mode: str = "circular") -> torch.Tensor:
-    """Pad the trailing (T,H,W) dims up to a multiple of ``patch_size``."""
-    pad = ()
-    for i in range(img.ndim - 2):
-        pad = (0, (patch_size[i] - img.shape[i + 2] % patch_size[i]) % patch_size[i]) + pad
-    if all(p == 0 for p in pad):
-        return img
-    return torch.nn.functional.pad(img, pad, mode=padding_mode)
 
 
 def _cast(t: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
@@ -480,11 +471,11 @@ class WanModel(NativeArchModule):
         # path as before SLG existed. Threaded like ``riflex``: consumed here,
         # not forwarded via ``**kwargs`` past ``_forward_orig``.
         bs, c, t, h, w = x.shape
-        x = _pad_to_patch_size(x, self.patch_size)
+        x = pad_to_patch(x, self.patch_size)
 
         t_len = t
         if time_dim_concat is not None:
-            time_dim_concat = _pad_to_patch_size(time_dim_concat, self.patch_size)
+            time_dim_concat = pad_to_patch(time_dim_concat, self.patch_size)
             x = torch.cat([x, time_dim_concat], dim=2)
             t_len = x.shape[2]
         if self.ref_conv is not None and "reference_latent" in kwargs:

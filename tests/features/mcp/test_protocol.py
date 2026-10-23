@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.llm.tools.base import BaseTool, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.mcp.protocol import (
@@ -22,6 +22,7 @@ from src.features.mcp.protocol import (
     handle_method,
     parse_jsonrpc_request,
 )
+from tests.fixtures.seed import seed_user
 
 
 class _EchoTool(BaseTool):
@@ -127,7 +128,9 @@ def protocol(mcp_db):
     collaborators = McpToolCollaborators(
         tool_registry=registry,
         tool_governance_repository=governance_repo,
-        llm_repository=_no_default_config(),
+        services=ToolServices(
+            llm_repository=_no_default_config(),
+        ),
     )
     return collaborators, registry, governance_repo
 
@@ -232,7 +235,11 @@ class TestListTools:
         llm_repository = Mock()
         llm_repository.get_default_configuration.return_value = SimpleNamespace(id="cfg-default")
         collaborators = McpToolCollaborators(
-            tool_registry=registry, tool_governance_repository=governance_repo, llm_repository=llm_repository,
+            tool_registry=registry,
+            tool_governance_repository=governance_repo,
+            services=ToolServices(
+                llm_repository=llm_repository,
+            ),
         )
         result = await handle_method(collaborators, "tools/list", {}, "user-1")
         assert result["tools"] == []
@@ -244,7 +251,11 @@ class TestListTools:
         governance_repo = ToolGovernanceRepository()
         governance_repo.set_user_disabled("user-1", "echo", True)
         collaborators = McpToolCollaborators(
-            tool_registry=registry, tool_governance_repository=governance_repo, llm_repository=_no_default_config(),
+            tool_registry=registry,
+            tool_governance_repository=governance_repo,
+            services=ToolServices(
+                llm_repository=_no_default_config(),
+            ),
         )
         mine = await handle_method(collaborators, "tools/list", {}, "user-1")
         theirs = await handle_method(collaborators, "tools/list", {}, "user-2")
@@ -320,8 +331,10 @@ class TestRealOrganizationToolsOverMcp:
         collaborators = McpToolCollaborators(
             tool_registry=registry,
             tool_governance_repository=governance_repo,
-            llm_repository=_no_default_config(),
-            collection_repository=collection_repository,
+            services=ToolServices(
+                llm_repository=_no_default_config(),
+                collection_repository=collection_repository,
+            ),
         )
         return collaborators, collection_repository
 
@@ -372,13 +385,8 @@ class TestModelVisibilityOverMcp:
             sha256="a" * 64,
             model_type="checkpoint",
         ))
-        with mcp_db.get_cursor() as cursor:
-            for user_id, account_type in (("user-1", "USER"), ("admin-1", "ADMIN")):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (user_id, user_id, f"{user_id}@x.com", "hash", account_type),
-                )
+        for user_id, account_type in (("user-1", "USER"), ("admin-1", "ADMIN")):
+            seed_user(mcp_db, user_id, account_type=account_type)
 
         registry = ToolRegistry()
         register_builtin_tools(registry)
@@ -392,8 +400,10 @@ class TestModelVisibilityOverMcp:
         collaborators = McpToolCollaborators(
             tool_registry=registry,
             tool_governance_repository=governance_repo,
-            llm_repository=_no_default_config(),
-            model_index_manager=model_index_manager,
+            services=ToolServices(
+                llm_repository=_no_default_config(),
+                model_index_manager=model_index_manager,
+            ),
         )
         return collaborators, model, model_repo
 
@@ -460,19 +470,17 @@ class TestPromptReadTools:
         registry = ToolRegistry()
         registry.register(GetPromptTool())
         registry.register(ListPromptsTool())
-        with mcp_db.get_cursor() as cursor:
-            for user_id in ("user-1", "user-2"):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-                    (user_id, user_id, f"{user_id}@example.com", "x"),
-                )
+        for user_id in ("user-1", "user-2"):
+            seed_user(mcp_db, user_id)
         repository = PromptRepository()
         saved = repository.create(Prompt(user_id="user-1", name="Study", segments=[RichSegment(content="a fox")]))
         collaborators = McpToolCollaborators(
             tool_registry=registry,
             tool_governance_repository=ToolGovernanceRepository(),
-            llm_repository=_no_default_config(),
-            prompt_database=SimpleNamespace(repository=repository),
+            services=ToolServices(
+                llm_repository=_no_default_config(),
+                prompt_database=SimpleNamespace(repository=repository),
+            ),
         )
 
         listed = await handle_method(collaborators, "tools/list", {}, "user-1")

@@ -1,48 +1,24 @@
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.platform.database.database import Database
 from src.platform.util.ids import generate_ulid
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration036NativeAvailabilityLogicalRefs(unittest.TestCase):
+class TestMigration036NativeAvailabilityLogicalRefs(MigrationCase):
+    MIGRATION = "036_native_availability_logical_refs"
+    PREREQUISITES = ("001_baseline", "035_model_roots")
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.repo_root = Path(tempfile.mkdtemp())
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-
-        self.cwd_patch = patch("pathlib.Path.cwd", return_value=self.repo_root)
-        self.cwd_patch.start()
-
-        _load_migration("035_model_roots", self.db).up()
-        self.migration = _load_migration("036_native_availability_logical_refs", self.db)
-
-    def tearDown(self):
-        self.cwd_patch.stop()
-        Database._instance = None
+        repo = tempfile.TemporaryDirectory()
+        self.addCleanup(repo.cleanup)
+        self.repo_root = Path(repo.name)
+        cwd_patch = patch("pathlib.Path.cwd", return_value=self.repo_root)
+        cwd_patch.start()
+        self.addCleanup(cwd_patch.stop)
+        super().setUp()
 
     def _cursor(self):
         return self.db.get_cursor()
@@ -166,17 +142,6 @@ class TestMigration036NativeAvailabilityLogicalRefs(unittest.TestCase):
         self.migration.up()
 
         self.assertEqual(self._ref(availability_id), "loras/h.safetensors")
-
-    def test_down_restores_a_physical_form(self):
-        backend_id = self._insert_backend()
-        model_id = self._insert_model("lora", "i.safetensors", "models/loras/i.safetensors")
-        self._insert_location(model_id, "lora", "i.safetensors")
-        availability_id = self._insert_availability(model_id, backend_id, "models/loras/i.safetensors")
-        self.migration.up()
-
-        self.migration.down()
-
-        self.assertEqual(self._ref(availability_id), "models/loras/i.safetensors")
 
 
 if __name__ == "__main__":

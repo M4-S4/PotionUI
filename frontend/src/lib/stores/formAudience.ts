@@ -1,30 +1,17 @@
-import { writable, get } from 'svelte/store';
-import { browser } from '$app/environment';
+import { get } from 'svelte/store';
 import type { FormAudience } from '$lib/utils/audienceFilter';
+import { persistedStore } from './persistedStore';
 
-const STORAGE_KEY = 'potionui-form-audience';
+const store = persistedStore<FormAudience>(
+	'potionui-form-audience',
+	(raw) => (raw === 'advanced' ? 'advanced' : 'simple'),
+	'simple'
+);
 
-function load(): FormAudience {
-	if (!browser) return 'simple';
-	const stored = localStorage.getItem(STORAGE_KEY);
-	return stored === 'advanced' ? 'advanced' : 'simple';
-}
-
-function createFormAudienceStore() {
-	const store = writable<FormAudience>(load());
-
-	function setAudience(value: FormAudience) {
-		if (browser) localStorage.setItem(STORAGE_KEY, value);
-		store.set(value);
+export const formAudienceStore = {
+	subscribe: store.subscribe,
+	set: store.set,
+	toggle() {
+		store.set(get(store) === 'simple' ? 'advanced' : 'simple');
 	}
-
-	return {
-		subscribe: store.subscribe,
-		set: setAudience,
-		toggle() {
-			setAudience(get(store) === 'simple' ? 'advanced' : 'simple');
-		}
-	};
-}
-
-export const formAudienceStore = createFormAudienceStore();
+};

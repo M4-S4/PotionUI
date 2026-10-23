@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from src.features.media.records import Upload
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 class UploadRepository:
@@ -20,8 +21,7 @@ class UploadRepository:
         if not upload.id:
             upload.id = generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO uploads (
                     id, user_id, filename, original_filename, media_type, mime_type,
@@ -59,8 +59,7 @@ class UploadRepository:
         Same contract as `get_by_filename`: None covers both "no such id" and
         "not yours", so a caller cannot tell the two apart.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM uploads WHERE id = ? AND user_id = ?",
                 (upload_id, user_id)
@@ -75,8 +74,7 @@ class UploadRepository:
         belongs to a different user - callers must not distinguish the two
         (GenerationPolicy precedent: 404, never 403).
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM uploads WHERE filename = ? AND user_id = ?",
                 (filename, user_id)
@@ -87,8 +85,7 @@ class UploadRepository:
     def get_by_filename_unscoped(self, filename: str) -> Optional[Upload]:
         """Look up one upload by filename with no owner check.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM uploads WHERE filename = ?", (filename,))
             row = cursor.fetchone()
             return Upload.from_row(row) if row else None
@@ -96,8 +93,7 @@ class UploadRepository:
     def find_by_hash(self, user_id: str, content_hash: str, purpose: str) -> Optional[Upload]:
         """Newest upload of this user with the same bytes and purpose; the caller
         still checks the file exists."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT * FROM uploads
@@ -124,8 +120,7 @@ class UploadRepository:
         The asynchronous video path and the regeneration job both land here -
         image thumbnails on a fresh upload go in with `create()`.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE uploads
@@ -143,8 +138,7 @@ class UploadRepository:
 
     def count_thumbnail_bearing(self) -> dict:
         """How many image and video uploads carry a thumbnail set."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT media_type, COUNT(*) AS total FROM uploads "
                 f"WHERE {self._THUMBNAIL_BEARING} GROUP BY media_type"
@@ -154,8 +148,7 @@ class UploadRepository:
 
     def count_stale_thumbnails(self, profile_hash: str) -> int:
         """Uploads whose thumbnails predate `profile_hash`."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT COUNT(*) AS total FROM uploads WHERE {self._THUMBNAIL_BEARING} "
                 f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?)",
@@ -165,8 +158,7 @@ class UploadRepository:
 
     def list_stale_thumbnails(self, profile_hash: str) -> List[Upload]:
         """Every upload whose thumbnails predate `profile_hash`."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM uploads WHERE {self._THUMBNAIL_BEARING} "
                 f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?) "
@@ -193,8 +185,7 @@ class UploadRepository:
         query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [Upload.from_row(row) for row in cursor.fetchall()]
 
@@ -207,8 +198,7 @@ class UploadRepository:
             query += " AND media_type = ?"
             params.append(media_type)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             row = cursor.fetchone()
             return row['count'] if row else 0
@@ -236,8 +226,7 @@ class UploadRepository:
         Returns the updated row, or None if no row with this id belongs to this
         user - callers must not distinguish "no such id" from "not yours".
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE uploads
                    SET filename = ?,
@@ -268,8 +257,7 @@ class UploadRepository:
 
     def delete(self, filename: str, user_id: str) -> bool:
         """Delete one upload row, scoped to its owner. Returns whether a row was removed."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM uploads WHERE filename = ? AND user_id = ?",
                 (filename, user_id)

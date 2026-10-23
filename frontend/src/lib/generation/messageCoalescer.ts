@@ -1,3 +1,5 @@
+import { TERMINAL_TYPES } from '$lib/generation/messages/wire';
+
 /**
  * Minimal shape a message must have to be coalesced: `type` decides the
  * coalescing rule, `generation_id` scopes last-wins/dedup to one generation
@@ -16,15 +18,6 @@ export interface CoalescableMessage {
  * queued in a frame is worth applying.
  */
 const COALESCED_TYPES = new Set(['generation_status', 'workbench_update', 'timer_update']);
-
-/**
- * A terminal event ends a generation — its buffer must drain immediately so
- * a subscriber reading `generation_complete`/`generation_error`/
- * `generation_cancelled` never races a still-buffered status for the same
- * generation (status is always flushed before the terminal message that
- * follows it, since both are drained from the same FIFO queue).
- */
-const TERMINAL_TYPES = new Set(['generation_complete', 'generation_error', 'generation_cancelled']);
 
 /**
  * Fields excluded when comparing a `generation_status` message to the last

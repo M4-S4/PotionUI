@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 import json
 
+from src.features.automation.header_secrets import mask_graph
 from src.platform.database.rows import dt_column, dt_iso
 
 
@@ -43,7 +44,7 @@ class Automation:
             'name': self.name,
             'description': self.description,
             'enabled': self.enabled,
-            'graph': self.graph,
+            'graph': mask_graph(self.graph),
             'version': self.version,
             'user_id': self.user_id,
             'created_at': dt_iso(self.created_at),

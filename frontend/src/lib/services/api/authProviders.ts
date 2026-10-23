@@ -4,6 +4,7 @@ export interface LoginProvider {
 	id: string;
 	label: string;
 	start_path: string;
+	auto_redirect?: boolean;
 }
 
 export interface ExternalLoginToken {

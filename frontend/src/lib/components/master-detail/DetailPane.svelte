@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import type { Snippet } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
 
@@ -38,7 +39,8 @@
 				type="button"
 				class="p-2 text-fg-muted hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
 				on:click={() => dispatch('delete')}
-				title="Delete"
+				use:tooltip={'Delete'}
+				aria-label="Delete"
 			>
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path

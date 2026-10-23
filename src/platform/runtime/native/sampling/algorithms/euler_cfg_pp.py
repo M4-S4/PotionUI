@@ -8,18 +8,16 @@ UNCONDITIONAL prediction instead of the guided one -- see
 of the eps/x0 formulation this reuses (identical algebra, ``eta`` fixed at
 ``0.0`` here instead of user-configurable).
 
-Provenance: this file is a straight specialization of THIS codebase's own
-``euler_ancestral_cfg_pp.py`` (already an in-repo re-derivation from the CFG++
-paper, not a port of any ComfyUI/GPL sampler -- see that module's docstring
-for the citation and the ComfyUI-consultation disclosure) at ``eta=0.0``: no
-fresh-noise draw ever happens, so there is no ancestral/stochastic component
-and no ``generator``/``eta`` knob to configure. Kept as a separate module
-(rather than a thin call into the ancestral one with ``sampler_options={"eta":
-0.0}`` baked in) so it appears as its own registered sampler --
-distinguishing "the deterministic recipe" from "the ancestral recipe with eta
-forced to 0" matters for callers picking a sampler by name (e.g. the LTX-2.3
-distilled speed profile, whose first-party recipe is deterministic -- see
-``docs/models/ltx.md``).
+Provenance: this is the ``eta=0.0`` case of THIS codebase's own
+``euler_ancestral_cfg_pp.py`` (an in-repo re-derivation from the CFG++ paper,
+not a port of any ComfyUI/GPL sampler -- see that module's docstring for the
+citation and the ComfyUI-consultation disclosure). :func:`sample_euler_cfg_pp`
+delegates to it with ``eta`` pinned to ``0.0``: no fresh-noise draw ever happens,
+so there is no ancestral/stochastic component and no ``generator``/``eta`` knob
+to configure. It stays a separately REGISTERED sampler (``euler_cfg_pp``) so
+callers picking a sampler by name can distinguish "the deterministic recipe" from
+"the ancestral recipe with eta forced to 0" (e.g. the LTX-2.3 distilled speed
+profile, whose first-party recipe is deterministic -- see ``docs/models/ltx.md``).
 
 Target/direction split, per step (``sigma`` -> ``sigma_next``):
 
@@ -54,8 +52,7 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from .euler_ancestral_cfg_pp import sample_euler_ancestral_cfg_pp
 
 Tensor = torch.Tensor
 
@@ -76,60 +73,17 @@ def sample_euler_cfg_pp(
     docstring for the formula and the ``cfg=1.0`` <-> plain-Euler equivalence.
 
     Same signature as :func:`~.euler.sample_euler`; ``sampler_options`` is
-    part of the uniform sampler contract (:mod:`~..registry`) and is
-    accepted but ignored -- there is no per-step randomness to seed and no
-    other knob this sampler reads.
+    part of the uniform sampler contract (:mod:`~..registry`); ``eta`` is
+    pinned to ``0.0`` and nothing else is read.
     """
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
-
-    # Mirrors euler_ancestral_cfg_pp's own S9 guard: during a TrueCFG
-    # zero-init window the guidance call returns a deliberate zero velocity
-    # without running an uncond forward this step, so `last_uncond_v` would
-    # still hold a STALE value from a prior step. Route those steps around
-    # the CFG++ split entirely (v_cfg IS v_uncond IS 0, so this is a pure
-    # no-op vs. treating it as "no split available").
-    zero_init_steps = getattr(guidance, "zero_init_steps", 0)
-
-    s_in = x.new_ones((x.shape[0],))
-    try:
-        for i in range(total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
-
-            v_cfg = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
-            x0_est = x - sigma * v_cfg
-
-            no_split = True
-            if i < zero_init_steps:
-                v_dir = v_cfg
-            else:
-                v_dir = getattr(guidance, "last_uncond_v", None)
-                if v_dir is None:
-                    v_dir = v_cfg
-                else:
-                    no_split = False
-
-            if sigma_next == 0:
-                # Terminal step: the (1-sigma_next)/sigma_next split zeroes
-                # the eps term regardless of the split, so this is exact.
-                x = x0_est
-            elif no_split:
-                # No genuine CFG++ split active: take the exact same
-                # shortcut euler.py uses, so this sampler is BIT-IDENTICAL
-                # to it whenever the guidance strategy exposes no uncond
-                # branch -- in particular, always at cfg=1.0.
-                x = x + (sigma_next - sigma) * v_cfg
-            else:
-                eps = x + (1.0 - sigma) * v_dir
-                x = (1.0 - sigma_next) * x0_est + sigma_next * eps
-
-            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0_est)
-    finally:
-        run_hooks(hooks, "on_end")
-
-    return x
+    return sample_euler_ancestral_cfg_pp(
+        model_fn,
+        x,
+        sigmas,
+        guidance,
+        cond,
+        uncond,
+        hooks=hooks,
+        is_cancelled=is_cancelled,
+        sampler_options={**(sampler_options or {}), "eta": 0.0},
+    )

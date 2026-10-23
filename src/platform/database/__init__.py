@@ -5,12 +5,13 @@ schema up to date at startup. Both are singletons: the rest of the app reaches
 for them rather than constructing its own.
 """
 
-from .database import Database, get_database_connection
+from .database import Database, get_cursor, get_database_connection
 from .migration_runner import MigrationRunner, migration_runner
 
 __all__ = [
     "Database",
     "db",
+    "get_cursor",
     "get_database_connection",
     "MigrationRunner",
     "migration_runner",

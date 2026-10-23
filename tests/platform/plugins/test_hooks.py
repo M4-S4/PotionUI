@@ -366,30 +366,6 @@ class TestHookChain(unittest.TestCase):
         self.assertTrue(results[2].success)
         self.assertIsNotNone(results[1].error)
 
-    def test_clear_handlers_specific(self):
-        """Test clearing handlers for specific hook"""
-        handler = MagicMock(return_value=HookContext("test", "plugin", {}))
-
-        self.chain.register("hook1", "plugin-1", handler)
-        self.chain.register("hook2", "plugin-1", handler)
-
-        self.chain.clear_handlers("hook1")
-
-        self.assertFalse(self.chain._handlers.get("hook1"))
-        self.assertTrue(self.chain._handlers.get("hook2"))
-
-    def test_clear_all_handlers(self):
-        """Test clearing all handlers"""
-        handler = MagicMock(return_value=HookContext("test", "plugin", {}))
-
-        self.chain.register("hook1", "plugin-1", handler)
-        self.chain.register("hook2", "plugin-1", handler)
-
-        self.chain.clear_handlers()
-
-        self.assertFalse(self.chain._handlers.get("hook1"))
-        self.assertFalse(self.chain._handlers.get("hook2"))
-
 
 class TestExecuteHook(unittest.TestCase):
     """Test the module-level execute_hook helper shared by every manager."""

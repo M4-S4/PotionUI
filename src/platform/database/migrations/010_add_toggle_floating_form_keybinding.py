@@ -31,14 +31,3 @@ def up():
         f"Migration 010_add_toggle_floating_form_keybinding: seeded "
         f"'{_ACTION_ID}' default keybinding"
     )
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "DELETE FROM keybinding_defaults WHERE id = ?", (_ACTION_ID,)
-        )
-    print(
-        f"Migration 010_add_toggle_floating_form_keybinding: removed "
-        f"'{_ACTION_ID}' default keybinding"
-    )

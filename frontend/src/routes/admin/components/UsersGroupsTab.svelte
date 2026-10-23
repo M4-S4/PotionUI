@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { createUrlState } from '$lib/utils/urlState';
 	import { Button, EmptyState, LoadErrorState, Spinner } from '$lib/components/ui';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
@@ -37,26 +37,20 @@
 		USER_ACCOUNT_TYPE_OPTIONS,
 		USERS_SORT_OPTIONS,
 		applyUsersFilters,
-		clearAllUsersFilters,
-		clearUsersFilterChip,
-		usersFilterActiveCount,
-		usersFilterChips,
 		usersFiltersFromSearchParams,
-		usersFiltersToSearchParams,
 		type UserAccountTypeFilter,
 		type UserSortBy,
-		type UsersFilters
+		type UsersFilters,
+		usersFilters
 	} from './usersFilters';
 	import {
 		GROUPS_SORT_OPTIONS,
 		applyGroupsFilters,
-		clearAllGroupsFilters,
-		clearGroupsFilterChip,
-		groupsFilterChips,
 		groupsFiltersFromSearchParams,
 		groupsFiltersToSearchParams,
 		type GroupSortBy,
-		type GroupsFilters
+		type GroupsFilters,
+		groupsFilters
 	} from './groupsFilters';
 
 	let { currentUser }: { currentUser: any } = $props();
@@ -69,8 +63,8 @@
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const detailOpen = $derived(!!viewId);
 
-	const usersFilters = $derived(usersFiltersFromSearchParams($page.url.searchParams));
-	const groupsFilters = $derived(groupsFiltersFromSearchParams($page.url.searchParams));
+	const currentUsersFilters = $derived(usersFiltersFromSearchParams($page.url.searchParams));
+	const currentGroupsFilters = $derived(groupsFiltersFromSearchParams($page.url.searchParams));
 	const plansFilters = $derived(plansFiltersFromSearchParams($page.url.searchParams));
 
 	let createUserModal = $state<{ open: () => void }>();
@@ -88,9 +82,9 @@
 	});
 
 	onDestroy(() => {
-		clearTimeout(usersFiltersDebounce);
-		clearTimeout(groupsFiltersDebounce);
-		clearTimeout(plansFiltersDebounce);
+		usersUrl.cancel();
+		groupsUrl.cancel();
+		plansUrl.cancel();
 	});
 
 	function buildUrl(overrides: { view?: SubView; id?: string | null } = {}): string {
@@ -105,8 +99,10 @@
 		return `${url.pathname}?${url.searchParams.toString()}`;
 	}
 
+	const urlState = createUrlState({ href: buildUrl });
+
 	function navigate(overrides: { view?: SubView; id?: string | null } = {}) {
-		void goto(buildUrl(overrides), { keepFocus: true, noScroll: true });
+		void urlState.go(overrides, { keepFocus: true, noScroll: true });
 	}
 
 	function setSubView(next: SubView) {
@@ -118,39 +114,33 @@
 		navigate({ view: next, id: null });
 	}
 
-	let usersFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
+	function filtersHref(clearKeys: string[], params: URLSearchParams): string {
+		const url = new URL($page.url);
+		for (const key of clearKeys) url.searchParams.delete(key);
+		for (const [key, value] of params) url.searchParams.set(key, value);
+		return `${url.pathname}?${url.searchParams.toString()}`;
+	}
+
+	const usersUrl = createUrlState<UsersFilters>({
+		href: (next) => filtersHref(['q', 'account_type', 'sort_by'], usersFilters.toSearchParams(next))
+	});
+	const groupsUrl = createUrlState<GroupsFilters>({
+		href: (next) => filtersHref(['group_q', 'group_sort_by'], groupsFiltersToSearchParams(next))
+	});
+	const plansUrl = createUrlState<PlansFilters>({
+		href: (next) => filtersHref(['plan_q'], plansFiltersToSearchParams(next))
+	});
+
 	function updateUsersFilters(next: UsersFilters) {
-		clearTimeout(usersFiltersDebounce);
-		usersFiltersDebounce = setTimeout(() => {
-			const url = new URL($page.url);
-			for (const key of ['q', 'account_type', 'sort_by']) url.searchParams.delete(key);
-			for (const [key, value] of usersFiltersToSearchParams(next)) url.searchParams.set(key, value);
-			usersPage = 1;
-			void goto(`${url.pathname}?${url.searchParams.toString()}`, { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		usersUrl.debounced(next, () => (usersPage = 1));
 	}
 
-	let groupsFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
 	function updateGroupsFilters(next: GroupsFilters) {
-		clearTimeout(groupsFiltersDebounce);
-		groupsFiltersDebounce = setTimeout(() => {
-			const url = new URL($page.url);
-			for (const key of ['group_q', 'group_sort_by']) url.searchParams.delete(key);
-			for (const [key, value] of groupsFiltersToSearchParams(next)) url.searchParams.set(key, value);
-			groupsPage = 1;
-			void goto(`${url.pathname}?${url.searchParams.toString()}`, { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		groupsUrl.debounced(next, () => (groupsPage = 1));
 	}
 
-	let plansFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
 	function updatePlansFilters(next: PlansFilters) {
-		clearTimeout(plansFiltersDebounce);
-		plansFiltersDebounce = setTimeout(() => {
-			const url = new URL($page.url);
-			url.searchParams.delete('plan_q');
-			for (const [key, value] of plansFiltersToSearchParams(next)) url.searchParams.set(key, value);
-			void goto(`${url.pathname}?${url.searchParams.toString()}`, { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		plansUrl.debounced(next);
 	}
 
 	const activeUser = $derived(subView === 'users' && viewId ? (directory.users.find((u) => u.id === viewId) ?? null) : null);
@@ -162,30 +152,30 @@
 		...(directory.planKindsInUse.length ? usageSortOptions(directory.planKindsInUse) : [])
 	]);
 	const filteredUsers = $derived.by(() => {
-		const rows = applyUsersFilters(directory.users, usersFilters);
-		return isUsageSort(usersFilters.sortBy) ? sortByUsage(rows, directory.usageByUser, usersFilters.sortBy) : rows;
+		const rows = applyUsersFilters(directory.users, currentUsersFilters);
+		return isUsageSort(currentUsersFilters.sortBy) ? sortByUsage(rows, directory.usageByUser, currentUsersFilters.sortBy) : rows;
 	});
-	const filteredGroups = $derived(applyGroupsFilters(directory.groups, groupsFilters));
+	const filteredGroups = $derived(applyGroupsFilters(directory.groups, currentGroupsFilters));
 	const filteredPlans = $derived(applyPlansFilters(directory.plans, plansFilters));
 
-	const userFilterChips = $derived(usersFilterChips(usersFilters));
-	const activeUserFilterCount = $derived(usersFilterActiveCount(usersFilters));
-	const groupFilterChips = $derived(groupsFilterChips(groupsFilters));
+	const userFilterChips = $derived(usersFilters.chips(currentUsersFilters));
+	const activeUserFilterCount = $derived(usersFilters.activeCount(currentUsersFilters));
+	const groupFilterChips = $derived(groupsFilters.chips(currentGroupsFilters));
 
 	function clearUserFilters() {
-		updateUsersFilters(clearAllUsersFilters(usersFilters));
+		updateUsersFilters(usersFilters.clearAll(currentUsersFilters));
 	}
 	function removeUserFilterChip(key: string) {
-		updateUsersFilters(clearUsersFilterChip(usersFilters, key));
+		updateUsersFilters(usersFilters.clearChip(currentUsersFilters, key));
 	}
 	function toggleAccountTypeFilter(type: UserAccountTypeFilter) {
-		updateUsersFilters({ ...usersFilters, accountType: usersFilters.accountType === type ? 'all' : type });
+		updateUsersFilters({ ...currentUsersFilters, accountType: currentUsersFilters.accountType === type ? 'all' : type });
 	}
 	function clearGroupFilters() {
-		updateGroupsFilters(clearAllGroupsFilters(groupsFilters));
+		updateGroupsFilters(groupsFilters.clearAll(currentGroupsFilters));
 	}
 	function removeGroupFilterChip(key: string) {
-		updateGroupsFilters(clearGroupsFilterChip(groupsFilters, key));
+		updateGroupsFilters(groupsFilters.clearChip(currentGroupsFilters, key));
 	}
 
 	const closeDetail = () => navigate({ id: null });
@@ -215,13 +205,13 @@
 					<PaneRow
 						title="Administrators"
 						count={typeCounts.ADMIN}
-						selected={usersFilters.accountType === 'ADMIN'}
+						selected={currentUsersFilters.accountType === 'ADMIN'}
 						onclick={() => toggleAccountTypeFilter('ADMIN')}
 					/>
 					<PaneRow
 						title="Regular users"
 						count={typeCounts.USER}
-						selected={usersFilters.accountType === 'USER'}
+						selected={currentUsersFilters.accountType === 'USER'}
 						onclick={() => toggleAccountTypeFilter('USER')}
 					/>
 				</div>
@@ -232,12 +222,12 @@
 	{#snippet toolbar()}
 		{#if subView === 'users'}
 			<LibraryFilterBar
-				q={usersFilters.q}
-				onQueryChange={(value) => updateUsersFilters({ ...usersFilters, q: value })}
+				q={currentUsersFilters.q}
+				onQueryChange={(value) => updateUsersFilters({ ...currentUsersFilters, q: value })}
 				searchPlaceholder="Search by name or email…"
-				sortBy={usersFilters.sortBy}
+				sortBy={currentUsersFilters.sortBy}
 				sortOptions={usersSortOptions}
-				onSortChange={(value) => updateUsersFilters({ ...usersFilters, sortBy: value as UserSortBy })}
+				onSortChange={(value) => updateUsersFilters({ ...currentUsersFilters, sortBy: value as UserSortBy })}
 				filterCount={activeUserFilterCount}
 			>
 				{#snippet popover(close: () => void)}
@@ -245,8 +235,8 @@
 						<SegmentedFilterGroup
 							label="Account type"
 							options={USER_ACCOUNT_TYPE_OPTIONS}
-							value={usersFilters.accountType}
-							onChange={(accountType: UserAccountTypeFilter) => updateUsersFilters({ ...usersFilters, accountType })}
+							value={currentUsersFilters.accountType}
+							onChange={(accountType: UserAccountTypeFilter) => updateUsersFilters({ ...currentUsersFilters, accountType })}
 						/>
 					</FilterPopoverFrame>
 				{/snippet}
@@ -259,12 +249,12 @@
 			/>
 		{:else}
 			<LibraryFilterBar
-				q={groupsFilters.q}
-				onQueryChange={(value) => updateGroupsFilters({ ...groupsFilters, q: value })}
+				q={currentGroupsFilters.q}
+				onQueryChange={(value) => updateGroupsFilters({ ...currentGroupsFilters, q: value })}
 				searchPlaceholder="Search by name or description…"
-				sortBy={groupsFilters.sortBy}
+				sortBy={currentGroupsFilters.sortBy}
 				sortOptions={GROUPS_SORT_OPTIONS}
-				onSortChange={(value) => updateGroupsFilters({ ...groupsFilters, sortBy: value as GroupSortBy })}
+				onSortChange={(value) => updateGroupsFilters({ ...currentGroupsFilters, sortBy: value as GroupSortBy })}
 			/>
 		{/if}
 	{/snippet}
@@ -339,7 +329,7 @@
 	{:else if subView === 'users'}
 		<UsersTable
 			rows={filteredUsers}
-			filters={usersFilters}
+			filters={currentUsersFilters}
 			activeFilterCount={activeUserFilterCount}
 			bind:selected={selectedUserIds}
 			bind:page={usersPage}
@@ -351,7 +341,7 @@
 	{:else}
 		<GroupsTable
 			rows={filteredGroups}
-			filters={groupsFilters}
+			filters={currentGroupsFilters}
 			bind:selected={selectedGroupIds}
 			bind:page={groupsPage}
 			bind:pageSize={groupsPageSize}

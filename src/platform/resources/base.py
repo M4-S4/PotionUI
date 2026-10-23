@@ -91,6 +91,7 @@ class ResourceContext:
     # (``context_metadata.form_state``): ``{"preset", "mode", "form_data"}``.
     # Present when a message is being resolved; absent for autocomplete.
     form_state: Optional[dict] = None
+    prompt_variables: Optional[Any] = None
 
 
 class BaseResourceProvider(ABC):

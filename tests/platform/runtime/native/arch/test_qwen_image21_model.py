@@ -28,6 +28,7 @@ from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from vendor.gpl.comfyui.ops import pick_operations
 
 import pytest
+from .._native_ops import fp32_ops
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -50,12 +51,8 @@ TINY = {
 }
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build_ready(config) -> QwenImage21DiT:
-    m = QwenImage21DiT.from_config(config, _fp32_ops())
+    m = QwenImage21DiT.from_config(config, fp32_ops())
     sd = {}
     for k, v in m.state_dict().items():
         if k.endswith(".weight") and "norm" in k:
@@ -262,7 +259,7 @@ def test_detect_real_shapes_exact_config():
 
 def test_detect_spec_from_config_roundtrip():
     with torch.device("meta"):
-        seed = QwenImage21DiT.from_config(TINY, _fp32_ops())
+        seed = QwenImage21DiT.from_config(TINY, fp32_ops())
     sd = {k: torch.empty(tuple(v.shape), device="meta") for k, v in seed.state_dict().items()}
     config = detect_unet_config(sd)
     assert config["image_model"] == "qwen_image21"
@@ -274,7 +271,7 @@ def test_detect_spec_from_config_roundtrip():
     assert spec.vae_target == "qwen_image21"
     assert spec.clip_targets == ["qwen3vl_8b"]
     with torch.device("meta"):
-        rebuilt = QwenImage21DiT.from_config(config, _fp32_ops())
+        rebuilt = QwenImage21DiT.from_config(config, fp32_ops())
     assert set(rebuilt.state_dict().keys()) == set(seed.state_dict().keys())
 
 
@@ -353,7 +350,7 @@ def test_config_rejects_wrong_image_model():
 
 def test_is_native_arch_module_and_post_load_noop():
     with torch.device("meta"):
-        m = QwenImage21DiT.from_config(TINY, _fp32_ops())
+        m = QwenImage21DiT.from_config(TINY, fp32_ops())
     assert isinstance(m, NativeArchModule)
     assert m.post_load() is None
 

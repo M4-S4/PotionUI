@@ -49,6 +49,7 @@ class ClaimForDispatchConcurrencyTest(unittest.TestCase):
     def tearDown(self):
         for p in self._patchers:
             p.stop()
+        Database.close_pool()
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
         for leftover in Path(self.temp_dir).iterdir():

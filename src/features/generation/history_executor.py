@@ -21,9 +21,9 @@ await and drops the result, but the thread it started is uninterruptible and
 still owns a database connection, so its slot is only released when it is
 genuinely done.
 
-Safe on worker threads because `Database.get_connection()` opens a fresh
-`sqlite3.connect(..., check_same_thread=False)` per call and closes it in the
-same `with` block - no connection is shared across the boundary.
+Safe on worker threads because `Database.get_connection()` checks a
+`check_same_thread=False` connection out of its pool for one `with` block and
+returns it at the end - no connection is used by two threads at once.
 """
 
 import asyncio

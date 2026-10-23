@@ -17,7 +17,7 @@ import pytest
 from tests.conftest import TestDatabase
 
 from src.features.chat.context_builder import ChatContextBuilder
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.tools.governance import ToolGovernanceRepository
 
 
@@ -39,12 +39,6 @@ def governance_db():
     test_database.close()
 
 
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
-
-
 def _session(user_id="user-1", llm_config_id="cfg-a", mode="generation", metadata=None):
     session = Mock()
     session.mode = mode
@@ -64,7 +58,7 @@ def _make_builder(governance_repo):
     tool_registry.register(GetActiveModelsTool())
 
     manager = Mock()
-    manager.chat_mode_registry = _mode_registry()
+    manager.chat_mode_registry = mode_registry()
     tool_executor = Mock()
     tool_executor.tool_registry = tool_registry
     manager.tool_executor = tool_executor
@@ -78,7 +72,7 @@ class TestGovernanceFiltersTheToolSet:
         repo.upsert_config("cfg-a", "get_active_models", enabled=False)
         builder = _make_builder(repo)
 
-        _prompt, allowed, _mode = builder.resolve_session_prompt_and_tools(_session())
+        _prompt, allowed, _mode, _ = builder.resolve_session_prompt_and_tools(_session())
 
         assert allowed == ["get_form_state"]
 
@@ -87,8 +81,8 @@ class TestGovernanceFiltersTheToolSet:
         repo.set_user_disabled("user-1", "get_active_models", True)
         builder = _make_builder(repo)
 
-        _prompt, allowed_1, _ = builder.resolve_session_prompt_and_tools(_session(user_id="user-1"))
-        _prompt, allowed_2, _ = builder.resolve_session_prompt_and_tools(_session(user_id="user-2"))
+        _prompt, allowed_1, _, _ = builder.resolve_session_prompt_and_tools(_session(user_id="user-1"))
+        _prompt, allowed_2, _, _ = builder.resolve_session_prompt_and_tools(_session(user_id="user-2"))
 
         assert "get_active_models" not in allowed_1
         assert "get_active_models" in allowed_2
@@ -99,7 +93,7 @@ class TestGovernanceFiltersTheToolSet:
         repo.set_user_disabled("user-1", "get_active_models", True)
         builder = _make_builder(repo)
 
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(_session(user_id="user-1"))
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(_session(user_id="user-1"))
 
         assert "get_active_models" in allowed
 
@@ -110,7 +104,7 @@ class TestGovernanceFiltersTheToolSet:
         # and must not filter anything.
         builder = _make_builder(governance_repo=Mock())
 
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(_session())
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(_session())
 
         assert set(allowed) == {"get_form_state", "get_active_models"}
 
@@ -121,7 +115,7 @@ class TestGovernanceFiltersTheToolSet:
         repo.upsert_config("cfg-a", "get_active_models", enabled=False)
         builder = _make_builder(repo)
 
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id=None))
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id=None))
 
         assert "get_active_models" in allowed
 
@@ -130,7 +124,7 @@ class TestGovernanceFiltersTheToolSet:
         repo.set_user_disabled("user-1", "get_active_models", True)
         builder = _make_builder(repo)
 
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(
             _session(user_id="user-1", llm_config_id=None)
         )
 
@@ -144,8 +138,8 @@ class TestGovernanceIsScopedToTheSessionsConfig:
         repo.upsert_config("cfg-b", "get_active_models", enabled=True)
         builder = _make_builder(repo)
 
-        _prompt, allowed_a, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-a"))
-        _prompt, allowed_b, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-b"))
+        _prompt, allowed_a, _, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-a"))
+        _prompt, allowed_b, _, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-b"))
 
         assert "get_active_models" not in allowed_a
         assert "get_active_models" in allowed_b
@@ -156,10 +150,10 @@ class TestGovernanceIsScopedToTheSessionsConfig:
         repo.set_user_disabled("user-1", "get_active_models", True)
         builder = _make_builder(repo)
 
-        _prompt, allowed_a, _ = builder.resolve_session_prompt_and_tools(
+        _prompt, allowed_a, _, _ = builder.resolve_session_prompt_and_tools(
             _session(user_id="user-1", llm_config_id="cfg-a")
         )
-        _prompt, allowed_b, _ = builder.resolve_session_prompt_and_tools(
+        _prompt, allowed_b, _, _ = builder.resolve_session_prompt_and_tools(
             _session(user_id="user-1", llm_config_id="cfg-b")
         )
 
@@ -180,12 +174,12 @@ class TestGovernanceCacheKeyBites:
         builder = _make_builder(repo)
         session = _session()
 
-        _prompt, before, _ = builder.resolve_session_prompt_and_tools(session)
+        _prompt, before, _, _ = builder.resolve_session_prompt_and_tools(session)
         assert "get_active_models" in before
 
         repo.upsert_config("cfg-a", "get_active_models", enabled=False)
 
-        _prompt, after, _ = builder.resolve_session_prompt_and_tools(session)
+        _prompt, after, _, _ = builder.resolve_session_prompt_and_tools(session)
 
         assert "get_active_models" not in after
 
@@ -194,12 +188,12 @@ class TestGovernanceCacheKeyBites:
         builder = _make_builder(repo)
         session = _session(user_id="user-1")
 
-        _prompt, before, _ = builder.resolve_session_prompt_and_tools(session)
+        _prompt, before, _, _ = builder.resolve_session_prompt_and_tools(session)
         assert "get_active_models" in before
 
         repo.set_user_disabled("user-1", "get_active_models", True)
 
-        _prompt, after, _ = builder.resolve_session_prompt_and_tools(session)
+        _prompt, after, _, _ = builder.resolve_session_prompt_and_tools(session)
 
         assert "get_active_models" not in after
 
@@ -208,8 +202,8 @@ class TestGovernanceCacheKeyBites:
         repo.upsert_config("cfg-a", "get_active_models", enabled=False)
         builder = _make_builder(repo)
 
-        _prompt, allowed_a, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-a"))
-        _prompt, allowed_b, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-b"))
+        _prompt, allowed_a, _, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-a"))
+        _prompt, allowed_b, _, _ = builder.resolve_session_prompt_and_tools(_session(llm_config_id="cfg-b"))
 
         assert "get_active_models" not in allowed_a
         assert "get_active_models" in allowed_b

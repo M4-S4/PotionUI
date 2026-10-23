@@ -34,7 +34,6 @@ Returns velocity ``[B, out_channels, R, R, R]``.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import torch
@@ -43,6 +42,7 @@ import torch.nn.functional as F
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...ops.embedding import sinusoidal_embedding
 from .config import SSFlowConfig
 
 Tensor = torch.Tensor
@@ -108,20 +108,8 @@ class _TimestepEmbedder(nn.Module):
         )
         self.frequency_embedding_size = frequency_embedding_size
 
-    @staticmethod
-    def _timestep_embedding(t: Tensor, dim: int, max_period: int = 10000) -> Tensor:
-        half = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device) / half
-        )
-        args = t[:, None].float() * freqs[None]
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-        if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
-        return embedding
-
     def forward(self, t: Tensor) -> Tensor:
-        embedding = self._timestep_embedding(t, self.frequency_embedding_size)
+        embedding = sinusoidal_embedding(t, self.frequency_embedding_size)
         return self.mlp(embedding.to(self.mlp[0].weight.dtype))
 
 

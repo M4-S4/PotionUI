@@ -41,35 +41,15 @@ const FIELDS: readonly FilterFieldDescriptor<SegmentFilters>[] = [
 	{ kind: 'tags', key: 'tags', param: 'tags', label: 'Tags' }
 ];
 
-const codec = createFilterCodec<SegmentFilters>({
+export const segmentFilters = createFilterCodec<SegmentFilters>({
 	defaults: DEFAULT_SEGMENT_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'created']
 });
 
-export function segmentFiltersFromSearchParams(params: URLSearchParams): SegmentFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function segmentFiltersToSearchParams(filters: SegmentFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function segmentFilterActiveCount(filters: SegmentFilters): number {
-	return codec.activeCount(filters);
-}
-
 export function segmentFilterChips(filters: SegmentFilters, categories: readonly SegmentCategory[]): FilterChip[] {
 	const categoryName = categories.find((category) => category.id === filters.category)?.name ?? filters.category;
-	return codec.chips(filters, { category: () => `category = ${categoryName}` });
-}
-
-export function clearSegmentFilterChip(filters: SegmentFilters, key: string): SegmentFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllSegmentFilters(filters: SegmentFilters): SegmentFilters {
-	return codec.clearAll(filters);
+	return segmentFilters.chips(filters, { category: () => `category = ${categoryName}` });
 }
 
 function segmentTimestamp(segment: SavedSegment): number {

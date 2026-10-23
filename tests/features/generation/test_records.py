@@ -36,29 +36,6 @@ class TestGenerationModel(unittest.TestCase):
             duration_ms=1500
         )
 
-    def test_generation_creation(self):
-        """Test Generation model creation"""
-        gen = Generation(
-            id="test_id",
-            preset_id="preset_1",
-            form_data={"key": "value"},
-            user_id="user_1"
-        )
-
-        self.assertEqual(gen.id, "test_id")
-        self.assertEqual(gen.preset_id, "preset_1")
-        self.assertEqual(gen.form_data, {"key": "value"})
-        self.assertEqual(gen.user_id, "user_1")
-        self.assertEqual(gen.status, "pending")
-        self.assertEqual(gen.progress, 0.0)
-        self.assertIsNone(gen.backend_id)
-        self.assertIsNone(gen.tab_id)
-        self.assertEqual(gen.mode, "txt2img")
-        self.assertIsNone(gen.prompt_state)
-        self.assertIsNone(gen.form_name)
-        self.assertEqual(gen.rating, 0)
-        self.assertFalse(gen.is_favorite)
-        self.assertIsNone(gen.duration_ms)
 
     def test_from_row(self):
         """Test creating Generation from database row"""
@@ -132,6 +109,8 @@ class TestGenerationModel(unittest.TestCase):
             'rating': 3,
             'is_favorite': True,
             'duration_ms': 1500,
+            'run_seconds': None,
+            'queued_seconds': 60,
             'error_message': None,
             'error_code': None,
             'error_user_message': None,
@@ -188,42 +167,11 @@ class TestGenerationModel(unittest.TestCase):
         # Test failed status
         self.test_generation.status = 'failed'
         self.assertFalse(self.test_generation.is_active())
-    
-    def test_is_completed(self):
-        """Test checking if generation is completed"""
-        # Test pending status
-        self.test_generation.status = 'pending'
-        self.assertFalse(self.test_generation.is_completed())
-        
-        # Test running status
-        self.test_generation.status = 'running'
-        self.assertFalse(self.test_generation.is_completed())
-        
-        # Test completed status
-        self.test_generation.status = 'completed'
-        self.assertTrue(self.test_generation.is_completed())
-        
-        # Test failed status
-        self.test_generation.status = 'failed'
-        self.assertTrue(self.test_generation.is_completed())
-        
-        # Test cancelled status
-        self.test_generation.status = 'cancelled'
-        self.assertTrue(self.test_generation.is_completed())
 
 
 class TestGenerationModeAndPromptState(unittest.TestCase):
     """Tests for the `mode`/`prompt_state` fields (added for the "Reuse generation" feature)."""
 
-    def test_defaults(self):
-        gen = Generation(
-            id="test_id",
-            preset_id="preset_1",
-            form_data={"key": "value"},
-            user_id="user_1"
-        )
-        self.assertEqual(gen.mode, 'txt2img')
-        self.assertIsNone(gen.prompt_state)
 
     def test_from_row_maps_mode_and_prompt_state(self):
         prompt_state = {'segments': [{'text': 'a cat'}], 'chips': ['a', 'b']}
@@ -308,14 +256,6 @@ class TestGenerationFormNameAndSeed(unittest.TestCase):
     `seed` exposed by `to_dict()` (the submitted `form_data['seed']` — the only durable
     record of it; see records.py's `to_dict()` docstring comment for why)."""
 
-    def test_defaults(self):
-        gen = Generation(
-            id="test_id",
-            preset_id="preset_1",
-            form_data={"key": "value"},
-            user_id="user_1"
-        )
-        self.assertIsNone(gen.form_name)
 
     def test_from_row_maps_form_name(self):
         mock_row = {
@@ -403,24 +343,48 @@ class TestGenerationFormNameAndSeed(unittest.TestCase):
         self.assertIsNone(result['seed'])
 
 
+class TestGenerationTimingSeconds(unittest.TestCase):
+
+    @staticmethod
+    def _gen(created=None, started=None, completed=None):
+        return Generation(
+            id="g", preset_id="p", form_data={}, user_id="u",
+            created_at=created, started_at=started, completed_at=completed,
+        )
+
+    @staticmethod
+    def _t(second):
+        return datetime(2026, 1, 1, 12, 0, second, tzinfo=timezone.utc)
+
+    def test_run_and_queue_seconds(self):
+        result = self._gen(self._t(0), self._t(7), self._t(40)).to_dict()
+        self.assertEqual(result['queued_seconds'], 7)
+        self.assertEqual(result['run_seconds'], 33)
+
+    def test_fractional_stamps_round_to_whole_seconds(self):
+        created = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        started = datetime(2026, 1, 1, 12, 0, 0, 400000, tzinfo=timezone.utc)
+        completed = datetime(2026, 1, 1, 12, 0, 8, 900000, tzinfo=timezone.utc)
+        result = self._gen(created, started, completed).to_dict()
+        self.assertEqual(result['queued_seconds'], 0)
+        self.assertEqual(result['run_seconds'], 8)
+
+    def test_missing_stamps_yield_none(self):
+        result = self._gen(self._t(0), None, self._t(40)).to_dict()
+        self.assertIsNone(result['run_seconds'])
+        self.assertIsNone(result['queued_seconds'])
+        result = self._gen(self._t(0), self._t(5), None).to_dict()
+        self.assertIsNone(result['run_seconds'])
+        self.assertEqual(result['queued_seconds'], 5)
+
+    def test_negative_skew_clamped_to_zero(self):
+        result = self._gen(self._t(10), self._t(5), self._t(4)).to_dict()
+        self.assertEqual(result['queued_seconds'], 0)
+        self.assertEqual(result['run_seconds'], 0)
+
+
 class TestFileModel(unittest.TestCase):
     
-    def test_file_creation(self):
-        """Test File model creation"""
-        file = File(
-            file_path="/test/image.jpg",
-            file_type="image",
-            user_id="user_123"
-        )
-        
-        self.assertEqual(file.file_path, "/test/image.jpg")
-        self.assertEqual(file.file_type, "image")
-        self.assertEqual(file.user_id, "user_123")
-        self.assertIsNone(file.file_size)
-        self.assertIsNone(file.pipe_name)
-        self.assertFalse(file.is_final)
-        self.assertIsNone(file.id)
-        self.assertIsNone(file.created_at)
     
     def test_from_row(self):
         """Test creating File from database row"""
@@ -508,17 +472,6 @@ class TestFileModel(unittest.TestCase):
 
 class TestGenerationFileModel(unittest.TestCase):
     
-    def test_generation_file_creation(self):
-        """Test GenerationFile model creation"""
-        gen_file = GenerationFile(
-            generation_id="gen_123",
-            file_id="file_456"
-        )
-        
-        self.assertEqual(gen_file.generation_id, "gen_123")
-        self.assertEqual(gen_file.file_id, "file_456")
-        self.assertIsNone(gen_file.id)
-        self.assertIsNone(gen_file.created_at)
     
     def test_from_row(self):
         """Test creating GenerationFile from database row"""

@@ -252,3 +252,70 @@ def test_flux3_shift_is_the_constant_shift_curve_at_693():
             fixed_mu=settings.get("fixed_mu"),
         )
         assert torch.allclose(built, expected, atol=1e-6)
+
+
+def _moss_reference_sigmas(steps, shift=5.0, training_shift=1.0, total=1000):
+    from diffusers import FlowMatchEulerDiscreteScheduler
+
+    class Reference(FlowMatchEulerDiscreteScheduler):
+        def set_timesteps(self, num_inference_steps, device=None):
+            def grid(count, grid_shift):
+                lower = grid_shift / (total + grid_shift - 1)
+                values = torch.linspace(1, lower, count)
+                return grid_shift * values / (1 + (grid_shift - 1) * values)
+
+            sigmas = grid(num_inference_steps, shift)
+            training = grid(total, training_shift).flip(0)
+            upper = torch.searchsorted(training, sigmas).clamp(max=total - 1)
+            lower = (upper - 1).clamp(min=0)
+            nearest = torch.where((sigmas - training[lower]).abs() <= (training[upper] - sigmas).abs(), lower, upper)
+            sigmas = torch.unique_consecutive(training[nearest])
+            self._shift = 1.0
+            super().set_timesteps(device=device, sigmas=sigmas.tolist())
+
+    scheduler = Reference(num_train_timesteps=total, shift=1.0)
+    scheduler.set_timesteps(steps)
+    return scheduler.sigmas, scheduler.timesteps
+
+
+@pytest.mark.parametrize("steps", [1, 8, 28, 50, 100])
+def test_moss_grid_equals_the_reference_scheduler_set_timesteps(steps):
+    expected, timesteps = _moss_reference_sigmas(steps)
+    built = build_sigmas(steps, shift=5.0, schedule="moss_grid")
+    assert built.shape == (steps + 1,)
+    assert built[0] == 1.0
+    assert built[-1] == 0.0
+    torch.testing.assert_close(built, expected.float(), atol=0, rtol=0)
+    torch.testing.assert_close(built[:-1] * 1000.0, timesteps.float(), atol=0, rtol=0)
+
+
+def test_moss_grid_stops_at_the_snapped_grid_not_the_plain_shift_terminal():
+    built = build_sigmas(50, shift=5.0, schedule="moss_grid")
+    plain = build_sigmas(50, shift=5.0)
+    assert float(built[-2]) == pytest.approx(0.0244, abs=1e-3)
+    assert float(plain[-2]) > 0.09
+    assert bool((built[1:] < built[:-1]).all())
+
+
+def test_moss_grid_follows_the_shift_override_and_defaults_to_five():
+    custom = build_sigmas(28, shift=3.0, schedule="moss_grid")
+    expected, _ = _moss_reference_sigmas(28, shift=3.0)
+    torch.testing.assert_close(custom, expected.float(), atol=0, rtol=0)
+    torch.testing.assert_close(
+        build_sigmas(28, schedule="moss_grid"), build_sigmas(28, shift=5.0, schedule="moss_grid"), atol=0, rtol=0
+    )
+
+
+def test_moss_grid_options_change_the_training_grid():
+    coarse = build_sigmas(
+        10, shift=5.0, schedule="moss_grid", schedule_options={"num_train_timesteps": 50},
+    )
+    expected, _ = _moss_reference_sigmas(10, total=50)
+    torch.testing.assert_close(coarse, expected.float(), atol=0, rtol=0)
+
+
+def test_moss_grid_is_scoped_to_its_family():
+    from src.platform.plugins.sampling import schedule_registry
+
+    definition = schedule_registry.get("moss_grid")
+    assert definition.families == ("moss_image",)

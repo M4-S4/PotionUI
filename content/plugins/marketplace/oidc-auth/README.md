@@ -46,6 +46,15 @@ Configure these in Admin -> Plugins -> OIDC Login.
 | Scopes | no | Space-separated OAuth2 scopes. Defaults to `openid profile email`. |
 | Button Label | no | Text on the login page button, shown as "Continue with `<label>`". Defaults to `SSO`. Changing this takes effect after PotionUI restarts (or the plugin is disabled and re-enabled) - it is only read when the button is registered, not per-request. |
 | Redirect URI Override | no | Overrides the callback URL sent to the issuer. Leave blank to derive it from the incoming request (honouring `X-Forwarded-Proto`/`X-Forwarded-Host`); **set this explicitly in any deployment behind a reverse proxy** rather than relying on those headers being forwarded correctly. Whatever value is in effect must be registered at the issuer as an exact-match redirect URI - never a wildcard or prefix match, since the issuer's own redirect-URI check is what stops an attacker from redirecting the authorization code somewhere else. |
+| Sign in with the identity provider automatically | no | Off by default. When on (and the plugin is configured), a signed-out visitor is sent straight to the issuer and the PotionUI login page shows no username/password form. Takes effect immediately. See "Single sign-on first" below. |
+
+### Single sign-on first
+
+With the automatic sign-in setting on, `/login` redirects to the issuer and, after sign-in, the visitor lands on the page they were originally heading to (only same-site paths are honoured).
+
+The local username/password form is never removed, only hidden. **Recovery: open `/login?local=1`** to get it back, for example when the issuer is down or the plugin is misconfigured. That address is deliberately not linked from anywhere; keep it somewhere an administrator can find it. It grants nothing by itself: local sign-in goes through the same checks as always.
+
+The redirect is skipped, and the page shows its message instead, after a failed single sign-on (`?error=external_login`), after signing out (a signed-out notice with a "Continue with" button), when a session has expired, when adding another account, and when a redirect already started within the last 30 seconds in the same browser tab. That keeps an issuer that returns to `/login` from causing a redirect loop.
 
 ### Redirect URI to register at your issuer
 

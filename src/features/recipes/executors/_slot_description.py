@@ -21,12 +21,19 @@ def found_as(model: Any, expected_filename: str) -> Optional[str]:
 
 
 def describe_slot(
-    model_repository: Any, artifact: RecipeArtifact, gpu: GpuProfile, type_manager: Optional[Any] = None
+    model_repository: Any,
+    artifact: RecipeArtifact,
+    gpu: GpuProfile,
+    type_manager: Optional[Any] = None,
+    digests: Optional[Any] = None,
+    hash_candidates: str = "never",
 ) -> Tuple[Dict[str, Any], VariantChoice, Dict[str, Any]]:
     installed: Dict[str, Any] = {}
     if artifact.variants:
         for variant in artifact.variants:
-            model = find_artifact_model(model_repository, artifact.resolve(variant.id), type_manager)
+            model = find_artifact_model(
+                model_repository, artifact.resolve(variant.id), type_manager, digests, hash_candidates
+            )
             if model is not None:
                 installed[variant.id] = model
         choice = choose_variant(artifact, gpu, installed.keys())
@@ -40,7 +47,7 @@ def describe_slot(
             for variant in artifact.variants
         ]
     else:
-        model = find_artifact_model(model_repository, artifact, type_manager)
+        model = find_artifact_model(model_repository, artifact, type_manager, digests, hash_candidates)
         if model is not None:
             installed[artifact.id] = model
         choice = VariantChoice(

@@ -25,11 +25,11 @@
 	<div class="min-w-0">
 		<h1 class="text-sm font-semibold text-fg truncate">{title}</h1>
 		{#if description}
-			<p class="hidden sm:block text-xs text-fg-muted truncate">{description}</p>
+			<p class="hidden sm:block text-sm text-fg-muted truncate">{description}</p>
 		{/if}
 	</div>
 	{#if count !== undefined}
-		<span class="font-mono tabular-nums text-xs uppercase tracking-[0.07em] text-fg-subtle whitespace-nowrap">
+		<span class="font-mono tabular-nums text-sm uppercase tracking-[0.07em] text-fg-subtle whitespace-nowrap">
 			{count}{#if countLabel}{' '}{countLabel}{/if}
 		</span>
 	{/if}

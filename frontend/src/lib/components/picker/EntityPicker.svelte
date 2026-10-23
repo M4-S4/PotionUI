@@ -1,5 +1,6 @@
 <script lang="ts" generics="Row">
 	import { untrack, type Snippet } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 		import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
@@ -93,7 +94,7 @@
 	let remoteLoading = $state(false);
 	let remoteError = $state<string | null>(null);
 	let remoteToken = 0;
-	let remoteTimer: ReturnType<typeof setTimeout> | undefined;
+	const scheduleRemote = debounce(() => untrack(() => loadRemote(true)), 250);
 
 	$effect(() => {
 		if (!isOpen) return;
@@ -289,9 +290,8 @@
 		void filters;
 		void sort;
 		void activeView;
-		clearTimeout(remoteTimer);
-		remoteTimer = setTimeout(() => untrack(() => loadRemote(true)), 250);
-		return () => clearTimeout(remoteTimer);
+		scheduleRemote();
+		return scheduleRemote.cancel;
 	});
 
 	const shownLoading = $derived(remote ? remoteLoading && remoteRows.length === 0 : loading);

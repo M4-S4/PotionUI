@@ -29,14 +29,16 @@ instead, pointed at the plugin's own preset files.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 
 @pytest.fixture(scope="module")
@@ -46,10 +48,10 @@ def fluxklein_template():
     )
     loader.load_presets()
     template = next(
-        (p for p in loader.presets if "FluxKlein9b" in str(p.path)), None
+        (p for p in loader.presets if "FluxKlein9b" in Path(p.path).as_posix()), None
     )
     if template is None:
-        pytest.skip("FluxKlein9b preset not present")
+        pytest.fail("FluxKlein9b preset not present")
     return template
 
 
@@ -74,14 +76,11 @@ def _process(fluxklein_template, mode, form_over=None):
         form_data["megapixels"] = 1.0
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        fluxklein_template, mode, form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
+    form_data = bound_form_data(fluxklein_template, mode, form_data)
     generation_data = {
         "prompts": [{"positive": "a cat", "negative": "blurry"}],
         "mode": mode,
-        "form_data": dict(bound.values),
+        "form_data": form_data,
     }
     return processor.process(fluxklein_template, generation_data)
 

@@ -68,9 +68,6 @@ class PendingProvider(MarketplaceProviderBase):
     async def test_connection(self) -> bool:
         return True
 
-    def get_settings_schema(self) -> Dict[str, Any]:
-        return {"type": "object", "properties": {}, "required": []}
-
     def get_download_headers(self) -> Dict[str, str]:
         return {}
 
@@ -104,8 +101,8 @@ class PendingProvider(MarketplaceProviderBase):
 def build_model_info(
     row: pending.PendingRow,
     *,
-    max_level: int = plugin_settings.DEFAULTS["nsfw_max_level"],
-    hide_poi: bool = plugin_settings.DEFAULTS["hide_poi"],
+    max_level: int,
+    hide_poi: bool,
 ) -> Optional[ProviderModelInfo]:
     info = row.info if isinstance(row.info, dict) else {}
     raw_model = info.get("model")
@@ -175,7 +172,7 @@ def preview_policy() -> Tuple[int, bool]:
         return int(plugin_settings.get_setting("nsfw_max_level")), bool(plugin_settings.get_setting("hide_poi"))
     except Exception as exc:
         logger.debug("[MODEL-BROWSER] Plugin settings unreadable, using the defaults: %s", exc)
-        return int(plugin_settings.DEFAULTS["nsfw_max_level"]), bool(plugin_settings.DEFAULTS["hide_poi"])
+        return 2, False
 
 
 def model_page_url(provider_model_id: Any, provider_version_id: Any = None) -> Optional[str]:

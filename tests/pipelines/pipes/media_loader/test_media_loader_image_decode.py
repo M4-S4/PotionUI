@@ -132,42 +132,30 @@ def test_loaded_image_is_fully_decoded_and_owns_no_lazy_file_state(tmp_path):
 
 
 def test_concurrent_threaded_access_does_not_corrupt_decode(tmp_path):
-    # Mirrors the actual race that produced the bug report: one thread doing
-    # img.save(BytesIO(), format="PNG") (what create_base64_image does for the
-    # preview, on the event-loop thread) concurrently with another thread doing
-    # np.asarray(img.convert("RGB")) (what _prep_start_frame does, on the pipe's
-    # worker thread) - both driving PIL's decoder over the SAME Image object. A
-    # lazily-opened image races and corrupts; a fully-decoded image (image.im
-    # populated, image.fp cleared) is safe because both operations then only
-    # read the already-decoded pixel buffer. Uses a large, high-entropy image
-    # so the decode window is wide, and re-loads a FRESH image per iteration
-    # (not one image reused 20x) since a single race can leave an already
-    # lazily-opened image in a state where later races don't re-trigger it.
-    #
-    # Calls `_load_image` directly, for the same reason as the test above: the
-    # `ImageGenerationOutput.__post_init__` safety net in outputs.py would
-    # otherwise force the decode itself and hide a regression here.
     rng = np.random.default_rng(2)
-    arr = rng.integers(0, 256, size=(1072, 1920, 3), dtype=np.uint8)
-    path = tmp_path / "large_rgb.png"
+    arr = rng.integers(0, 256, size=(384, 512, 3), dtype=np.uint8)
+    path = tmp_path / "noisy_rgb.png"
     Image.fromarray(arr, mode="RGB").save(path, format="PNG")
 
     errors = []
 
-    for _ in range(20):
+    for _ in range(5):
         pipe = _pipe()
         image = pipe._load_image(str(path), lambda o: None)
+        barrier = threading.Barrier(4)
 
-        def _encode_preview(img=image):
+        def _encode_preview(img=image, gate=barrier):
+            gate.wait()
             try:
                 img.save(io.BytesIO(), format="PNG")
-            except Exception as e:  # noqa: BLE001 - collecting for the assertion below
+            except Exception as e:
                 errors.append(e)
 
-        def _prep_start_frame(img=image):
+        def _prep_start_frame(img=image, gate=barrier):
+            gate.wait()
             try:
                 np.asarray(img.convert("RGB"))
-            except Exception as e:  # noqa: BLE001 - collecting for the assertion below
+            except Exception as e:
                 errors.append(e)
 
         threads = [

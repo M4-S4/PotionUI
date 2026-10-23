@@ -1,6 +1,5 @@
 """Aggregate prompt API contracts."""
 
-from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -65,19 +64,6 @@ class PromptRequest(PromptMetadata):
         if errors:
             raise ValueError("; ".join(errors))
         return value
-
-
-class PromptResponse(PromptMetadata):
-    id: str
-    user_id: str
-    name: Optional[str] = None
-    display_name: str
-    flattened_text: str
-    usage_hint: Optional[Literal["positive", "negative"]] = None
-    segments: List[RichSegment]
-    embedded: bool = False
-    created_at: datetime
-    updated_at: datetime
 
 
 class PromptBulkDeleteRequest(BaseModel):

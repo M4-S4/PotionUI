@@ -31,6 +31,7 @@ const { default: Page } = await import('./fixtures/DirectorCheckedLoopPage.svelt
 const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector');
 
 import type { VideoDirectorValue, ChainSegment } from '$lib/types/videoDirector';
+import { settleFlush } from './helpers/settle';
 
 const H3_REFS_PRESET_RAW = {
 	preset_modes: ['video', 'refs'],
@@ -96,11 +97,6 @@ function doc(): VideoDirectorValue {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 afterEach(() => {
 	cleanup?.();
@@ -125,7 +121,7 @@ describe('ShotConsole checked-set mirror through the legacy page chain', () => {
 			flushSync();
 		}).not.toThrow();
 		cleanup = () => instance?.$destroy();
-		await settle();
+		await settleFlush();
 
 		const count = () => target.querySelector('[data-testid="preview-count"]')!.textContent;
 		const mirrorCalls = () => Number(target.querySelector('[data-testid="mirror-calls"]')!.textContent);
@@ -137,13 +133,13 @@ describe('ShotConsole checked-set mirror through the legacy page chain', () => {
 		const select = target.querySelector<HTMLButtonElement>('button[aria-label="Select for generation"]');
 		expect(select).not.toBeNull();
 		select!.click();
-		await settle();
+		await settleFlush();
 		expect(count()).toBe('1');
 		expect(mirrorCalls()).toBe(mountMirrorCalls + 1);
 
 		// Unrelated page-state churn must not re-fire the mirror.
 		instance!.$set({ formData: { references: [] } });
-		await settle();
+		await settleFlush();
 		expect(mirrorCalls()).toBe(mountMirrorCalls + 1);
 	});
 });

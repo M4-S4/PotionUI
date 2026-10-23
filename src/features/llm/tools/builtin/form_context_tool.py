@@ -8,7 +8,8 @@ from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.presets import operations
-from src.platform.resources.prompt_variables import render_prompt_variable_lines
+from src.features.llm.tools.builtin.prompt_variables_tool import NO_TAB_OPEN_MESSAGE, active_draft_variables
+from src.platform.resources.prompt_variables import render_prompt_variable_summary
 
 logger = logging.getLogger(__name__)
 
@@ -59,25 +60,9 @@ class GetCurrentSegmentsTool(BaseTool):
         # of a shot.
         return not video_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "get_current_segments"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the prompt segments currently in your editor."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When the user asks about their current prompt or wants edits — "
-            "call this to read their prompt segments. Use the returned segment_index "
-            "and segment_id to propose changes via <tool_action> tags."
-        )
+    name = "get_current_segments"
+    group = "Form & segments"
+    user_description = "Reads the prompt segments currently in your editor."
 
     @property
     def description(self) -> str:
@@ -94,19 +79,45 @@ class GetCurrentSegmentsTool(BaseTool):
             "Use this tool to understand what the user has already written before suggesting "
             "edits, additions, or improvements to their prompt. "
             "The per-turn PROMPT STATE system block is only a truncated view of these segments — "
-            "call this tool to read their full, untruncated content."
+            "call this tool to read their full, untruncated content. "
+            "Use each segment's index and id in update_segment tags."
         )
 
     @property
     def parameters(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "prompt_index": {
+                    "type": "integer",
+                    "description": "Index of another prompt in the batch to read; omit for the active prompt.",
+                },
+            },
             "required": [],
         }
 
+    @staticmethod
+    def _prompt_segments(session_metadata: Dict[str, Any], prompt_index: Any) -> Optional[list]:
+        batch = session_metadata.get("prompt_batch")
+        prompts = batch.get("prompts") if isinstance(batch, dict) else None
+        if not isinstance(prompts, list):
+            return None
+        for entry in prompts:
+            if isinstance(entry, dict) and entry.get("index") == prompt_index:
+                return entry.get("segments") or []
+        return None
+
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        prompt_index = kwargs.get("prompt_index")
         segments_raw = context.session_metadata.get("segments")
+        if prompt_index is not None:
+            segments_raw = self._prompt_segments(context.session_metadata, prompt_index)
+            if segments_raw is None:
+                return ToolResult(
+                    success=False,
+                    data="",
+                    error=f"No prompt at index {prompt_index}.",
+                )
 
         if segments_raw is None:
             return ToolResult(
@@ -118,33 +129,31 @@ class GetCurrentSegmentsTool(BaseTool):
                 ),
             )
 
-        try:
-            result_segments = []
-            for idx, seg in enumerate(segments_raw):
-                entry = {
-                    "index": idx,
-                    "id": seg.get("id", ""),
-                    "content": seg.get("content", ""),
-                    "name": seg.get("name", ""),
-                    "type": seg.get("type", ""),
-                    "enabled": seg.get("enabled", not seg.get("isDisabled", False)),
-                }
-                template = seg.get("template")
-                if template:
-                    entry["template"] = template
-                result_segments.append(entry)
+        result_segments = []
+        for idx, seg in enumerate(segments_raw):
+            entry = {
+                "index": idx,
+                "id": seg.get("id", ""),
+                "content": seg.get("content", ""),
+                "name": seg.get("name", ""),
+                "type": seg.get("type", ""),
+                "enabled": seg.get("enabled", not seg.get("isDisabled", False)),
+            }
+            template = seg.get("template")
+            if template:
+                entry["template"] = template
+            result_segments.append(entry)
 
-            return ToolResult(
-                success=True,
-                data=json.dumps({
-                    "segments": result_segments,
-                    "count": len(result_segments),
-                    "instruction": _SEGMENT_UPDATE_INSTRUCTION,
-                }),
-            )
-        except Exception as e:
-            logger.error(f"Error reading current segments from session metadata: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        return ToolResult(
+            success=True,
+            data=json.dumps({
+                "segments": result_segments,
+                "count": len(result_segments),
+                **({"prompt_index": prompt_index} if prompt_index is not None else {}),
+                "instruction": _SEGMENT_UPDATE_INSTRUCTION
+                + (f' Add prompt="{prompt_index}" to each tag to edit this prompt.' if prompt_index is not None else ""),
+            }),
+        )
 
 
 class GetFormStateTool(BaseTool):
@@ -153,25 +162,9 @@ class GetFormStateTool(BaseTool):
     modes = ["generation"]
     icon = "clipboard-list"
 
-    @property
-    def name(self) -> str:
-        return "get_form_state"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the current values of your generation form."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Call early in most conversations to understand the user's setup. "
-            "Also call when the user asks about settings, wants recommendations, "
-            "or before proposing form changes."
-        )
+    name = "get_form_state"
+    group = "Form & segments"
+    user_description = "Reads the current values of your generation form."
 
     @property
     def description(self) -> str:
@@ -181,10 +174,11 @@ class GetFormStateTool(BaseTool):
             "(label, type, model_type, etc.). Each field entry shows both its schema info "
             "and current value. For model fields (type 'model'), the value contains a modelPath "
             "that can be used with get_model_info to get model details like description. "
-            "If the prompt uses ${name} variables, a 'prompt_variables' list describes each in "
-            "plain language (its options and whether it shuffles, is pinned, or re-rolls per "
-            "image), noting any option's condition ('(when $other = value)') and, when a "
-            "variable depends on another, a 'resolves after $other' prefix."
+            "If the prompt uses ${name} variables, a 'prompt_variables' list summarizes each "
+            "(type, whether it shuffles, is pinned, or re-rolls per image, and for a choice its "
+            "option count with the first few options; for a number its range and step)."
+            "{{#if get_prompt_variables}} Use get_prompt_variables for the full options."
+            "{{/if}}"
         )
 
     @property
@@ -217,7 +211,11 @@ class GetFormStateTool(BaseTool):
 
             # Prompt variables (${name} placeholders) as compact plain-language
             # lines, e.g. "mood: one of noir, sunlit — shuffles each generation".
-            variable_lines = render_prompt_variable_lines(form_state.get("variables"))
+            variable_lines = (
+                render_prompt_variable_summary(active_draft_variables(context), form_state.get("variable_rolls"))
+                if form_state.get("tab_id")
+                else [NO_TAB_OPEN_MESSAGE]
+            )
             if variable_lines:
                 result["prompt_variables"] = variable_lines
 

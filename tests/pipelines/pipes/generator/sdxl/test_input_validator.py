@@ -4,7 +4,6 @@ Tests for SDXL Input Validator
 Tests validation and preprocessing logic for SDXL generation inputs.
 """
 
-import numpy as np
 import pytest
 import torch
 from PIL import Image
@@ -15,41 +14,22 @@ from src.pipelines.pipes.generator.sdxl.input_validator import SDXLInputValidato
 class TestResolutionValidation:
     """Tests for resolution validation"""
 
-    def test_valid_resolutions(self):
-        """Test that valid resolutions (divisible by 8) pass validation"""
-        valid_resolutions = [
-            (512, 512),
-            (768, 768),
-            (1024, 1024),
-            (1024, 768),
-            (768, 1024),
-            (1536, 1024),
-            (2048, 2048),
-            (512, 768),
-            (1280, 720),  # 720p is divisible by 8
-        ]
+    @pytest.mark.parametrize(
+        "width,height",
+        [(512, 512), (768, 768), (1024, 1024), (1024, 768), (768, 1024), (1536, 1024), (2048, 2048), (512, 768), (1280, 720)],
+    )
+    def test_valid_resolutions(self, width, height):
+        SDXLInputValidator.validate_resolution(width, height)
 
-        for width, height in valid_resolutions:
-            # Should not raise any exception
+    @pytest.mark.parametrize(
+        "width,height",
+        [(513, 512), (512, 513), (1023, 1024), (1024, 1023), (1001, 1001), (100, 100)],
+    )
+    def test_invalid_resolutions(self, width, height):
+        with pytest.raises(ValueError, match="Resolution must be divisible by 8"):
             SDXLInputValidator.validate_resolution(width, height)
 
-    def test_invalid_resolutions(self):
-        """Test that invalid resolutions (not divisible by 8) raise ValueError"""
-        invalid_resolutions = [
-            (513, 512),  # Width not divisible by 8
-            (512, 513),  # Height not divisible by 8
-            (1023, 1024),  # Width not divisible by 8
-            (1024, 1023),  # Height not divisible by 8
-            (1001, 1001),  # Neither divisible by 8
-            (100, 100),  # Small but not divisible by 8
-        ]
-
-        for width, height in invalid_resolutions:
-            with pytest.raises(ValueError, match="Resolution must be divisible by 8"):
-                SDXLInputValidator.validate_resolution(width, height)
-
     def test_error_message_includes_dimensions(self):
-        """Test that error message includes the invalid dimensions"""
         with pytest.raises(ValueError, match="got 1023x1024"):
             SDXLInputValidator.validate_resolution(1023, 1024)
 
@@ -296,25 +276,18 @@ class TestMaskPreprocessing:
         expected = 128.0 / 255.0
         assert torch.allclose(tensor, torch.full_like(tensor, expected), atol=1e-3)
 
-    def test_resize_to_latent_dimensions(self):
-        """Test that mask is resized to latent dimensions"""
+    @pytest.mark.parametrize(
+        "latent_shape,expected_shape",
+        [
+            ((1, 4, 128, 128), (1, 1, 128, 128)),
+            ((1, 4, 256, 256), (1, 1, 256, 256)),
+            ((1, 4, 64, 64), (1, 1, 64, 64)),
+        ],
+    )
+    def test_resize_to_latent_dimensions(self, latent_shape, expected_shape):
         mask = Image.new("L", (2048, 2048), color=255)
-
-        # Different latent shapes
-        test_cases = [
-            ((1, 4, 128, 128), (1, 1, 128, 128)),  # 1024x1024 image
-            ((1, 4, 256, 256), (1, 1, 256, 256)),  # 2048x2048 image
-            ((1, 4, 64, 64), (1, 1, 64, 64)),      # 512x512 image
-        ]
-
-        for latent_shape, expected_shape in test_cases:
-            tensor = SDXLInputValidator.preprocess_mask(
-                mask,
-                latent_shape,
-                torch.device("cpu"),
-                torch.float32
-            )
-            assert tensor.shape == expected_shape
+        tensor = SDXLInputValidator.preprocess_mask(mask, latent_shape, torch.device("cpu"), torch.float32)
+        assert tensor.shape == expected_shape
 
     def test_nearest_neighbor_interpolation(self):
         """Test that nearest-neighbor interpolation preserves mask edges"""
@@ -484,266 +457,109 @@ class TestConditioningValidation:
         SDXLInputValidator.validate_conditioning(conditioning)
 
 
+def _validate(**override):
+    kwargs = dict(
+        prompt="a cat",
+        prompt_2="a cat",
+        height=1024,
+        width=1024,
+        callback_steps=10,
+    )
+    kwargs.update(override)
+    SDXLInputValidator.validate_pipeline_inputs(
+        ["latents", "prompt_embeds", "negative_prompt_embeds"], **kwargs
+    )
+
+
+def _embeds(*dims):
+    return torch.randn(*dims)
+
+
 class TestPipelineInputValidation:
-    """Tests for validate_pipeline_inputs method"""
+    @pytest.mark.parametrize(
+        "override",
+        [
+            pytest.param({}, id="basic"),
+            pytest.param({"callback_on_step_end_tensor_inputs": ["latents"]}, id="callback_tensor_inputs"),
+            pytest.param({"callback_steps": None}, id="none_callback_steps"),
+            pytest.param({"prompt": ["a cat", "a dog"], "prompt_2": ["a cat", "a dog"]}, id="prompt_list"),
+            pytest.param(
+                {
+                    "prompt": None,
+                    "prompt_2": None,
+                    "prompt_embeds": _embeds(1, 77, 2048),
+                    "negative_prompt_embeds": _embeds(1, 77, 2048),
+                    "pooled_prompt_embeds": _embeds(1, 1280),
+                    "negative_pooled_prompt_embeds": _embeds(1, 1280),
+                },
+                id="with_embeds",
+            ),
+        ],
+    )
+    def test_valid_inputs_pass(self, override):
+        _validate(**override)
 
-    @pytest.fixture
-    def callback_tensor_inputs(self):
-        """Valid callback tensor input names"""
-        return ["latents", "prompt_embeds", "negative_prompt_embeds"]
-
-    def test_valid_basic_inputs(self, callback_tensor_inputs):
-        """Test that valid basic inputs pass validation"""
-        SDXLInputValidator.validate_pipeline_inputs(
-            callback_tensor_inputs,
-            prompt="a cat",
-            prompt_2="a cat",
-            height=1024,
-            width=1024,
-            callback_steps=10
-        )
-
-    def test_invalid_height_not_divisible_by_8(self, callback_tensor_inputs):
-        """Test that height not divisible by 8 raises ValueError"""
-        with pytest.raises(ValueError, match="have to be divisible by 8"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1023,
-                width=1024,
-                callback_steps=10
-            )
-
-    def test_invalid_width_not_divisible_by_8(self, callback_tensor_inputs):
-        """Test that width not divisible by 8 raises ValueError"""
-        with pytest.raises(ValueError, match="have to be divisible by 8"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1023,
-                callback_steps=10
-            )
-
-    def test_invalid_callback_steps_not_integer(self, callback_tensor_inputs):
-        """Test that non-integer callback_steps raises ValueError"""
-        with pytest.raises(ValueError, match="has to be a positive integer"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10.5
-            )
-
-    def test_invalid_callback_steps_negative(self, callback_tensor_inputs):
-        """Test that negative callback_steps raises ValueError"""
-        with pytest.raises(ValueError, match="has to be a positive integer"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=-1
-            )
-
-    def test_invalid_callback_tensor_inputs(self, callback_tensor_inputs):
-        """Test that invalid callback tensor inputs raise ValueError"""
-        with pytest.raises(ValueError, match="callback_on_step_end_tensor_inputs"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                callback_on_step_end_tensor_inputs=["invalid_tensor"]
-            )
-
-    def test_both_prompt_and_prompt_embeds(self, callback_tensor_inputs):
-        """Test that both prompt and prompt_embeds raises ValueError"""
-        with pytest.raises(ValueError, match="Cannot forward both"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                prompt_embeds=torch.randn(1, 77, 2048)
-            )
-
-    def test_both_prompt_2_and_prompt_embeds(self, callback_tensor_inputs):
-        """Test that both prompt_2 and prompt_embeds raises ValueError"""
-        with pytest.raises(ValueError, match="Cannot forward both"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt=None,
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                prompt_embeds=torch.randn(1, 77, 2048),
-                pooled_prompt_embeds=torch.randn(1, 1280)
-            )
-
-    def test_neither_prompt_nor_prompt_embeds(self, callback_tensor_inputs):
-        """Test that neither prompt nor prompt_embeds raises ValueError"""
-        with pytest.raises(ValueError, match="Provide either"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt=None,
-                prompt_2=None,
-                height=1024,
-                width=1024,
-                callback_steps=10
-            )
-
-    def test_prompt_not_str_or_list(self, callback_tensor_inputs):
-        """Test that prompt not str or list raises ValueError"""
-        with pytest.raises(ValueError, match="has to be of type"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt=123,
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10
-            )
-
-    def test_prompt_2_not_str_or_list(self, callback_tensor_inputs):
-        """Test that prompt_2 not str or list raises ValueError"""
-        with pytest.raises(ValueError, match="has to be of type"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2=123,
-                height=1024,
-                width=1024,
-                callback_steps=10
-            )
-
-    def test_both_negative_prompt_and_negative_prompt_embeds(self, callback_tensor_inputs):
-        """Test that both negative_prompt and negative_prompt_embeds raises ValueError"""
-        with pytest.raises(ValueError, match="Cannot forward both"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                negative_prompt="ugly",
-                negative_prompt_embeds=torch.randn(1, 77, 2048)
-            )
-
-    def test_both_negative_prompt_2_and_negative_prompt_embeds(self, callback_tensor_inputs):
-        """Test that both negative_prompt_2 and negative_prompt_embeds raises ValueError"""
-        with pytest.raises(ValueError, match="Cannot forward both"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                negative_prompt_2="ugly",
-                negative_prompt_embeds=torch.randn(1, 77, 2048)
-            )
-
-    def test_mismatched_prompt_embeds_shape(self, callback_tensor_inputs):
-        """Test that mismatched prompt_embeds shapes raise ValueError"""
-        with pytest.raises(ValueError, match="must have the same shape"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt=None,
-                prompt_2=None,
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                prompt_embeds=torch.randn(1, 77, 2048),
-                negative_prompt_embeds=torch.randn(1, 77, 1024),
-                pooled_prompt_embeds=torch.randn(1, 1280)
-            )
-
-    def test_prompt_embeds_without_pooled(self, callback_tensor_inputs):
-        """Test that prompt_embeds without pooled_prompt_embeds raises ValueError"""
-        with pytest.raises(ValueError, match="pooled_prompt_embeds"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt=None,
-                prompt_2=None,
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                prompt_embeds=torch.randn(1, 77, 2048)
-            )
-
-    def test_negative_prompt_embeds_without_pooled(self, callback_tensor_inputs):
-        """Test that negative_prompt_embeds without negative_pooled_prompt_embeds raises ValueError"""
-        with pytest.raises(ValueError, match="negative_pooled_prompt_embeds"):
-            SDXLInputValidator.validate_pipeline_inputs(
-                callback_tensor_inputs,
-                prompt="a cat",
-                prompt_2="a cat",
-                height=1024,
-                width=1024,
-                callback_steps=10,
-                negative_prompt_embeds=torch.randn(1, 77, 2048)
-            )
-
-    def test_valid_with_embeds(self, callback_tensor_inputs):
-        """Test that valid inputs with embeddings pass validation"""
-        SDXLInputValidator.validate_pipeline_inputs(
-            callback_tensor_inputs,
-            prompt=None,
-            prompt_2=None,
-            height=1024,
-            width=1024,
-            callback_steps=10,
-            prompt_embeds=torch.randn(1, 77, 2048),
-            negative_prompt_embeds=torch.randn(1, 77, 2048),
-            pooled_prompt_embeds=torch.randn(1, 1280),
-            negative_pooled_prompt_embeds=torch.randn(1, 1280)
-        )
-
-    def test_valid_callback_tensor_inputs(self, callback_tensor_inputs):
-        """Test that valid callback tensor inputs pass validation"""
-        SDXLInputValidator.validate_pipeline_inputs(
-            callback_tensor_inputs,
-            prompt="a cat",
-            prompt_2="a cat",
-            height=1024,
-            width=1024,
-            callback_steps=10,
-            callback_on_step_end_tensor_inputs=["latents"]
-        )
-
-    def test_none_callback_steps(self, callback_tensor_inputs):
-        """Test that None callback_steps is allowed"""
-        SDXLInputValidator.validate_pipeline_inputs(
-            callback_tensor_inputs,
-            prompt="a cat",
-            prompt_2="a cat",
-            height=1024,
-            width=1024,
-            callback_steps=None
-        )
-
-    def test_prompt_list(self, callback_tensor_inputs):
-        """Test that prompt as list is valid"""
-        SDXLInputValidator.validate_pipeline_inputs(
-            callback_tensor_inputs,
-            prompt=["a cat", "a dog"],
-            prompt_2=["a cat", "a dog"],
-            height=1024,
-            width=1024,
-            callback_steps=10
-        )
+    @pytest.mark.parametrize(
+        "override,match",
+        [
+            pytest.param({"height": 1023}, "have to be divisible by 8", id="height_not_divisible_by_8"),
+            pytest.param({"width": 1023}, "have to be divisible by 8", id="width_not_divisible_by_8"),
+            pytest.param({"callback_steps": 10.5}, "has to be a positive integer", id="callback_steps_not_integer"),
+            pytest.param({"callback_steps": -1}, "has to be a positive integer", id="callback_steps_negative"),
+            pytest.param(
+                {"callback_on_step_end_tensor_inputs": ["invalid_tensor"]},
+                "callback_on_step_end_tensor_inputs",
+                id="invalid_callback_tensor_inputs",
+            ),
+            pytest.param({"prompt_embeds": _embeds(1, 77, 2048)}, "Cannot forward both", id="prompt_and_prompt_embeds"),
+            pytest.param(
+                {
+                    "prompt": None,
+                    "prompt_embeds": _embeds(1, 77, 2048),
+                    "pooled_prompt_embeds": _embeds(1, 1280),
+                },
+                "Cannot forward both",
+                id="prompt_2_and_prompt_embeds",
+            ),
+            pytest.param({"prompt": None, "prompt_2": None}, "Provide either", id="neither_prompt_nor_prompt_embeds"),
+            pytest.param({"prompt": 123}, "has to be of type", id="prompt_not_str_or_list"),
+            pytest.param({"prompt_2": 123}, "has to be of type", id="prompt_2_not_str_or_list"),
+            pytest.param(
+                {"negative_prompt": "ugly", "negative_prompt_embeds": _embeds(1, 77, 2048)},
+                "Cannot forward both",
+                id="negative_prompt_and_negative_prompt_embeds",
+            ),
+            pytest.param(
+                {"negative_prompt_2": "ugly", "negative_prompt_embeds": _embeds(1, 77, 2048)},
+                "Cannot forward both",
+                id="negative_prompt_2_and_negative_prompt_embeds",
+            ),
+            pytest.param(
+                {
+                    "prompt": None,
+                    "prompt_2": None,
+                    "prompt_embeds": _embeds(1, 77, 2048),
+                    "negative_prompt_embeds": _embeds(1, 77, 1024),
+                    "pooled_prompt_embeds": _embeds(1, 1280),
+                },
+                "must have the same shape",
+                id="mismatched_prompt_embeds_shape",
+            ),
+            pytest.param(
+                {"prompt": None, "prompt_2": None, "prompt_embeds": _embeds(1, 77, 2048)},
+                "pooled_prompt_embeds",
+                id="prompt_embeds_without_pooled",
+            ),
+            pytest.param(
+                {"negative_prompt_embeds": _embeds(1, 77, 2048)},
+                "negative_pooled_prompt_embeds",
+                id="negative_prompt_embeds_without_pooled",
+            ),
+        ],
+    )
+    def test_invalid_inputs_raise(self, override, match):
+        with pytest.raises(ValueError, match=match):
+            _validate(**override)
 
 
 class TestEdgeCases:
@@ -799,23 +615,8 @@ class TestEdgeCases:
         assert tensor.shape == (1, 3, 1024, 768)
         assert tensor.dtype == torch.float32
 
-    def test_latent_shape_with_batch_size(self):
-        """Test mask preprocessing with different batch sizes"""
+    @pytest.mark.parametrize("latent_shape", [(1, 4, 128, 128), (2, 4, 128, 128), (4, 4, 128, 128)])
+    def test_latent_shape_with_batch_size(self, latent_shape):
         mask = Image.new("L", (1024, 1024), color=255)
-
-        # Batch size doesn't affect mask preprocessing (always batch=1)
-        latent_shapes = [
-            (1, 4, 128, 128),   # Batch size 1
-            (2, 4, 128, 128),   # Batch size 2 (but mask still (1, 1, 128, 128))
-            (4, 4, 128, 128),   # Batch size 4
-        ]
-
-        for latent_shape in latent_shapes:
-            tensor = SDXLInputValidator.preprocess_mask(
-                mask,
-                latent_shape,
-                torch.device("cpu"),
-                torch.float32
-            )
-            # Mask always has batch size 1
-            assert tensor.shape == (1, 1, latent_shape[2], latent_shape[3])
+        tensor = SDXLInputValidator.preprocess_mask(mask, latent_shape, torch.device("cpu"), torch.float32)
+        assert tensor.shape == (1, 1, latent_shape[2], latent_shape[3])

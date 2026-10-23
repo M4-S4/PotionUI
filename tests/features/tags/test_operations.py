@@ -190,6 +190,7 @@ class TestUpdateTag:
         result = operations.update_tag(mock_repository, mock_plugin_registry, "tag-456", request, "user-123")
 
         assert result.name == "Updated Favorites"
+        mock_repository.update_tag.assert_called_once_with("tag-456", "Updated Favorites")
 
     def test_update_generation_tag_other_user_fails(self, mock_repository, mock_plugin_registry, sample_generation_tag):
         """Test updating another user's GENERATION tag fails."""

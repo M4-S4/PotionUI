@@ -7,6 +7,7 @@ from src.features.generation.grids.dto import Axis
 from src.features.generation.records import Generation
 from src.platform.database.rows import dt_column, dt_iso, json_column, now_iso
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 @dataclass
@@ -76,9 +77,8 @@ class GridRepository:
         base_request: Dict[str, Any],
         seeds: Dict[str, int],
     ) -> GridRecord:
-        from src.platform.database.database import db
         grid_id = generate_ulid()
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO generation_grids (id, user_id, preset_id, tab_id, x_axis, y_axis, lock_seed, "
                 "base_request, seeds, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -98,8 +98,7 @@ class GridRepository:
         return self.get(grid_id)
 
     def get(self, grid_id: str) -> Optional[GridRecord]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM generation_grids WHERE id = ?", (grid_id,))
             row = cursor.fetchone()
         return GridRecord.from_row(row) if row else None
@@ -107,27 +106,19 @@ class GridRepository:
     def get_many(self, grid_ids: List[str]) -> Dict[str, GridRecord]:
         if not grid_ids:
             return {}
-        from src.platform.database.database import db
         placeholders = ",".join("?" * len(grid_ids))
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(f"SELECT * FROM generation_grids WHERE id IN ({placeholders})", list(grid_ids))
             rows = cursor.fetchall()
         return {row["id"]: GridRecord.from_row(row) for row in rows}
 
-    def update_seeds(self, grid_id: str, seeds: Dict[str, int]) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("UPDATE generation_grids SET seeds = ? WHERE id = ?", (json.dumps(seeds), grid_id))
-
     def delete(self, grid_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM generation_grids WHERE id = ?", (grid_id,))
             return cursor.rowcount > 0
 
     def cells(self, grid_id: str) -> List[Generation]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM generations WHERE grid_id = ? ORDER BY grid_y, grid_x, created_at DESC, id DESC",
                 (grid_id,),
@@ -137,9 +128,8 @@ class GridRepository:
     def representative_ids(self, grid_ids: List[str]) -> Dict[str, str]:
         if not grid_ids:
             return {}
-        from src.platform.database.database import db
         placeholders = ",".join("?" * len(grid_ids))
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT g.grid_id AS grid_id, g.id AS id FROM generations g WHERE g.grid_id IN ({placeholders}) "
                 "AND g.id = (SELECT r0.id FROM generations r0 WHERE r0.grid_id = g.grid_id "

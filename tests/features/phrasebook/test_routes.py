@@ -6,7 +6,7 @@ established pattern)."""
 
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from src.features.phrasebook import routes as routes_module
 from src.features.phrasebook.dto import (
     BatchRequest,
+    GeneratePreviewRequest,
+    PhrasebookCategoryRequest,
     PhrasebookCategory,
     PhrasebookFindMode,
     PhrasebookFindScope,
@@ -36,6 +38,7 @@ from src.features.phrasebook.repository import (
     PhrasebookValueRepository,
 )
 from src.features.phrasebook.routes import PhrasebookController
+from src.platform.security.user import AccountType
 
 
 @pytest.fixture
@@ -228,6 +231,49 @@ async def test_find_reports_failure(controller, mock_operations, user):
 
     assert not result.success
     assert result.error == "find_failed"
+
+
+async def test_find_failure_text_is_hidden_from_users_and_scrubbed_for_admins(controller, mock_operations, user):
+    mock_operations.parse_fields.return_value = ["label", "value"]
+    mock_operations.find_phrasebook.side_effect = RuntimeError("secret /srv/app/data.db")
+    admin = SimpleNamespace(id="admin-1", account_type=AccountType.ADMIN)
+
+    regular_result = await controller.find(user, "dog")
+    admin_result = await controller.find(admin, "dog")
+
+    assert regular_result.error == admin_result.error == "find_failed"
+    assert "secret" not in regular_result.message
+    assert "secret <server path>" in admin_result.message
+    assert "/srv/app" not in admin_result.message
+
+
+@pytest.mark.parametrize("call, code", [
+    ("create_category", "create_category_failed"),
+    ("import_yaml", "import_failed"),
+    ("generate_previews", "generate_previews_failed"),
+])
+async def test_soft_handlers_return_value_error_text_under_their_own_code(
+    controller, mock_operations, monkeypatch, user, call, code
+):
+    mock_operations.create_category.side_effect = ValueError("msg")
+    monkeypatch.setattr(
+        routes_module, "phrasebook_import_manager", Mock(import_yaml=Mock(side_effect=ValueError("msg")))
+    )
+    controller.preview_generator.generate_previews = AsyncMock(side_effect=ValueError("msg"))
+    upload = SimpleNamespace(filename="words.yaml", read=AsyncMock(return_value=b"a: 1"))
+    category = PhrasebookCategoryRequest(name="n", path="p")
+    preview = GeneratePreviewRequest(session_id="s", prompt_template="<< value >>", mode="txt2img")
+    invocations = {
+        "create_category": lambda: controller.create_category(category, user),
+        "import_yaml": lambda: controller.import_yaml(upload, None, user),
+        "generate_previews": lambda: controller.generate_previews("cat-1", preview, user),
+    }
+
+    result = await invocations[call]()
+
+    assert result.success is False
+    assert result.error == code
+    assert result.message == "msg"
 
 
 async def test_find_results_hook_can_rewrite_hits(

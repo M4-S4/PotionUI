@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	// `.prompt-lane` from console.html: real prompt beats (`.beat-b`) plus,
 	// wherever a beat doesn't cover the shot, a dashed `.global-fill` gap
 	// filler (the deriveShotRail contract folds the gap into `beats` too,
@@ -9,8 +10,11 @@
 	// per-beat add) -- see PLAN.md D3 -- so the hover cue and click-to-add
 	// simply don't activate; nothing here needs to know *why*.
 	import type { RailBeat } from './shotRailModel';
-	import type { ConsoleSelection } from './consoleSelection';
-	import { attachPointerDrag, tryCapturePointer, tryReleasePointer, clamp } from '../timelineCore';
+	import { clamp } from '../timelineCore';
+	import { consoleSelectionMatches, type ConsoleSelection } from './consoleSelection';
+	import { beginLaneDrag, insertFraction } from './laneInsert';
+
+	const BEAT_SELECTOR = '.beat-b, .beat-edge';
 
 	let {
 		shotId,
@@ -54,32 +58,11 @@
 	}
 
 	function isSelected(id: string): boolean {
-		return selection?.shotId === shotId && selection.kind === 'beat' && selection.id === id;
-	}
-
-	function fractionFromClientX(clientX: number): number | null {
-		if (!laneEl) return null;
-		const rect = laneEl.getBoundingClientRect();
-		if (rect.width <= 0) return null;
-		return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-	}
-
-	// Maintainer bug (09-04): the hover insert-cue tracked the pointer over
-	// existing beats too, sitting visually on top of (and, before this fix,
-	// occasionally the click target instead of) the block underneath. The
-	// cue now hides entirely whenever the pointer sits over a real beat --
-	// `pointer-events: none` on the cue itself already keeps IT out of hit
-	// testing, so `e.target` here is always the real element beneath it.
-	function isOverBeat(e: Event): boolean {
-		return (e.target as HTMLElement).closest('.beat-b, .beat-edge') != null;
+		return consoleSelectionMatches(selection, shotId, 'beat', id);
 	}
 
 	function handlePointerMove(e: PointerEvent) {
-		if (dragging || !canAdd || isOverBeat(e)) {
-			hoverFraction = null;
-			return;
-		}
-		hoverFraction = fractionFromClientX(e.clientX);
+		hoverFraction = dragging || !canAdd ? null : insertFraction(e, laneEl, BEAT_SELECTOR);
 	}
 
 	function handlePointerLeave() {
@@ -87,11 +70,8 @@
 	}
 
 	function handleLaneClick(e: MouseEvent) {
-		// Belt-and-suspenders: `selectBeat`'s own `stopPropagation()` already
-		// keeps a beat click from reaching here, but the insert must never
-		// fire off a beat regardless of how the click got here.
-		if (!canAdd || isOverBeat(e)) return;
-		const fraction = fractionFromClientX(e.clientX);
+		if (!canAdd) return;
+		const fraction = insertFraction(e, laneEl, BEAT_SELECTOR);
 		if (fraction == null) return;
 		onAdd(snapFraction(fraction));
 	}
@@ -121,30 +101,20 @@
 	}
 
 	function startEdgeDrag(id: string, edge: 'start' | 'end', originSeconds: number, e: PointerEvent) {
-		e.stopPropagation();
-		e.preventDefault();
-		if (!laneEl) return;
 		hoverFraction = null;
-		const target = e.currentTarget as Element;
-		const pointerId = e.pointerId;
-		tryCapturePointer(target, pointerId);
-		liveEdge = { id, edge, atSeconds: originSeconds };
-		attachPointerDrag(
-			(move) => {
-				const fraction = fractionFromClientX(move.clientX);
-				if (fraction == null) return;
+		const started = beginLaneDrag(e, laneEl, {
+			onMove: (fraction) => {
 				liveEdge = { id, edge, atSeconds: clamp(fraction * durationSeconds, 0, durationSeconds) };
 			},
-			() => {
-				tryReleasePointer(target, pointerId);
+			onCommit: () => {
 				if (liveEdge) onResizeBeat(liveEdge.id, liveEdge.edge, liveEdge.atSeconds);
 				liveEdge = null;
 			},
-			() => {
-				tryReleasePointer(target, pointerId);
+			onCancel: () => {
 				liveEdge = null;
 			}
-		);
+		});
+		if (started) liveEdge = { id, edge, atSeconds: originSeconds };
 	}
 
 	let hoverSeconds = $derived(hoverFraction != null ? snapFraction(hoverFraction) : null);
@@ -157,7 +127,7 @@
 	class="prompt-lane {canAdd ? 'can-add' : ''}"
 	bind:this={laneEl}
 	role="presentation"
-	title={!canAdd && addDisabledReason ? addDisabledReason : undefined}
+	use:tooltip={!canAdd && addDisabledReason ? addDisabledReason : undefined}
 	onpointermove={handlePointerMove}
 	onpointerleave={handlePointerLeave}
 	onclick={handleLaneClick}

@@ -5,11 +5,11 @@
 	import * as adminApi from '$lib/services/admin-api';
 	import type { AdminGenerationDetailResult, AdminGenerationListItem } from '$lib/services/admin-api';
 	import type { User } from '$lib/stores/auth';
-	import { debounce } from '$lib/stores/tabPersistence';
+	import { debounce } from '$lib/utils/time';
 	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
@@ -27,15 +27,11 @@
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import {
 		GENERATION_SORT_OPTIONS,
-		clearAllGenerationsFilters,
-		clearGenerationsFilterChip,
-		generationsFilterActiveCount,
 		generationsFilterChips,
-		generationsFiltersFromSearchParams,
-		generationsFiltersToSearchParams,
 		generationsSortParams,
 		type GenerationSortBy,
-		type GenerationsFilters
+		type GenerationsFilters,
+		generationsFilters
 	} from './generationsFilters';
 
 	const FILTER_PARAM_KEYS = ['q', 'status', 'category', 'user', 'from', 'to', 'sort_by'];
@@ -71,9 +67,9 @@
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const detailOpen = $derived(!!viewId);
 
-	const filters = $derived(generationsFiltersFromSearchParams($page.url.searchParams));
+	const filters = $derived(generationsFilters.fromSearchParams($page.url.searchParams));
 	const filtersKey = $derived(JSON.stringify(filters));
-	const activeFilterCount = $derived(generationsFilterActiveCount(filters));
+	const activeFilterCount = $derived(generationsFilters.activeCount(filters));
 	const chips = $derived(generationsFilterChips(filters, (userId) => usersById.get(userId)?.username ?? userId));
 	const section = $derived(sectionFromStatus(filters.status));
 	const sort = $derived(sortStateFromSortBy(filters.sortBy));
@@ -133,7 +129,7 @@
 				listError = response.message || 'Failed to load generations';
 			}
 		} catch (e: any) {
-			listError = e?.response?.data?.message || e?.message || 'Failed to load generations';
+			listError = getApiErrorMessage(e, 'Failed to load generations');
 		} finally {
 			listLoading = false;
 		}
@@ -153,7 +149,7 @@
 			}
 		} catch (e: any) {
 			if (version !== detailRequestVersion || id !== viewId) return;
-			detailError = e?.response?.data?.message || e?.message || 'Failed to load generation detail';
+			detailError = getApiErrorMessage(e, 'Failed to load generation detail');
 		} finally {
 			if (version === detailRequestVersion && id === viewId) detailLoading = false;
 		}
@@ -173,7 +169,7 @@
 	function applyFilters(next: GenerationsFilters) {
 		const url = new URL($page.url);
 		for (const key of FILTER_PARAM_KEYS) url.searchParams.delete(key);
-		for (const [key, value] of generationsFiltersToSearchParams(next)) url.searchParams.set(key, value);
+		for (const [key, value] of generationsFilters.toSearchParams(next)) url.searchParams.set(key, value);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
@@ -196,11 +192,11 @@
 	}
 
 	function onRemoveChip(key: string) {
-		applyFilters(clearGenerationsFilterChip(filters, key));
+		applyFilters(generationsFilters.clearChip(filters, key));
 	}
 
 	function onClearAllFilters() {
-		applyFilters(clearAllGenerationsFilters(filters));
+		applyFilters(generationsFilters.clearAll(filters));
 	}
 
 	function selectSection(id: GenerationSection) {
@@ -259,7 +255,7 @@
 			}
 		} catch (e: any) {
 			logger.error('Failed to bulk delete generations:', e);
-			toasts.error(e?.response?.data?.message || e?.message || 'Failed to delete generations');
+			toasts.error(getApiErrorMessage(e, 'Failed to delete generations'));
 		} finally {
 			bulkDeleting = false;
 			selected = new Set();

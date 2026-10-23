@@ -150,7 +150,7 @@ describe('authStore with several accounts', () => {
 		expect(accounts.currentRegistry().activeId).toBeNull();
 		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::alice`)).toBeNull();
 		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::bob`)).toBe('bob-tabs');
-		expect(location.assign).toHaveBeenCalledWith('/login');
+		expect(location.assign).toHaveBeenCalledWith('/login?signedout=1');
 		expect(get(authStore).isAuthenticated).toBe(false);
 	});
 
@@ -194,7 +194,7 @@ describe('authStore with several accounts', () => {
 		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::alice`)).toBeNull();
 		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::bob`)).toBeNull();
 		expect(localStorage.getItem('theme')).toBe('dark');
-		expect(location.assign).toHaveBeenCalledWith('/login');
+		expect(location.assign).toHaveBeenCalledWith('/login?signedout=1');
 	});
 
 	it('a 401 on the active account goes to login with expired=1, keeps its tabs and does not switch', async () => {

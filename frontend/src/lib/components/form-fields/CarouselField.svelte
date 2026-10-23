@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onMount } from 'svelte';
 	import { isMobile } from '$lib/stores/viewport';
 	import { api } from '$lib/services/api/index';
@@ -118,7 +119,7 @@
 					}}
 					role="button"
 					tabindex="0"
-					title={item.description || item.label}
+					use:tooltip={item.description || item.label}
 					style="height: {$isMobile ? Math.min(itemHeight, 120) : itemHeight}px;"
 				>
 					<!-- Image -->
@@ -205,7 +206,7 @@
 						}}
 						role="button"
 						tabindex="0"
-						title={item.description || item.label}
+						use:tooltip={item.description || item.label}
 						style="width: {itemWidth}px; height: {itemHeight}px;"
 					>
 						<!-- Image -->

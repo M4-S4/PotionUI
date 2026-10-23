@@ -1,16 +1,19 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	// Header: rail toggle · title (+ inline rename) · mode chip · context meter ·
 	// model button · more menu · close. Markup ported verbatim from the mock's
 	// .chat-header (chat-rework BRIEF2); the three dropdowns are plain
 	// position:absolute children (mock's .floating-menu, positioned against
 	// .conversation) — no portal, no computed fixed coordinates.
-	import { onMount, tick } from 'svelte';
+	import { tick } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { chatModes } from '$lib/stores/chatModes';
 	import { chatSession, modeLocked } from '$lib/stores/chatSession';
 	import ChatModeSelector from '$lib/components/chat/ChatModeSelector.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { formatTokenCount } from '$lib/utils/chat';
+	import Icon from '$lib/components/Icon.svelte';
 
 	// Provider+Model (LLM config) selection
 	export let llmConfigs: any[] = [];
@@ -48,11 +51,9 @@
 
 	let showModelDropdown = false;
 	let modelTriggerEl: HTMLButtonElement;
-	let modelMenuEl: HTMLDivElement;
 
 	let showMoreMenu = false;
 	let moreTriggerEl: HTMLButtonElement;
-	let moreMenuEl: HTMLDivElement;
 
 	let renaming = false;
 	let renameDraft = '';
@@ -102,8 +103,6 @@
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			cancelRename();
-			// Same reasoning as the dropdown handlers below — don't let this
-			// Escape also bubble up into GlobalChatPanel's close handler.
 			e.stopPropagation();
 		}
 	}
@@ -122,56 +121,22 @@
 		showDeleteConfirm = false;
 		onDeleteConversation();
 	}
-
-	function handleOutsidePointerDown(e: PointerEvent) {
-		const target = e.target as Node;
-		if (showModelDropdown && !modelMenuEl?.contains(target) && !modelTriggerEl?.contains(target)) {
-			showModelDropdown = false;
-		}
-		if (showMoreMenu && !moreMenuEl?.contains(target) && !moreTriggerEl?.contains(target)) {
-			showMoreMenu = false;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape') return;
-		if (!showModelDropdown && !showMoreMenu) return;
-		showModelDropdown = false;
-		showMoreMenu = false;
-		// A document-level bubble listener runs before window's, so stopping
-		// here keeps GlobalChatPanel's <svelte:window on:keydown> from also
-		// closing the whole chat panel on this same Escape press.
-		e.stopPropagation();
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 </script>
 
 <header class="chat-header">
 	<Tooltip text={railCollapsed ? 'Show history' : 'Hide history'} position="bottom">
-		<button
-			type="button"
-			aria-pressed={!railCollapsed}
-			aria-label={railCollapsed ? 'Show history' : 'Hide history'}
-			class="icon-button"
-			on:click={onToggleRail}
-		>
-			<svg class="icon"><use href="#i-menu" /></svg>
-		</button>
+		<IconButton
+			icon="chat-menu"
+			label={railCollapsed ? 'Show history' : 'Hide history'}
+			size="sm"
+			ariaPressed={!railCollapsed}
+			onclick={onToggleRail}
+		/>
 	</Tooltip>
 
 	{#if onNewChat}
 		<Tooltip text="New chat" position="bottom">
-			<button type="button" aria-label="New chat" class="icon-button" on:click={onNewChat}>
-				<svg class="icon"><use href="#i-plus" /></svg>
-			</button>
+			<IconButton icon="chat-plus" label="New chat" size="sm" onclick={onNewChat} />
 		</Tooltip>
 	{/if}
 
@@ -228,7 +193,7 @@
 				>
 					<span class="model-dot"></span>
 					<span>{selectedModelName || 'Model'}</span>
-					<svg class="icon chevron"><use href="#i-chevron" /></svg>
+					<Icon name="chat-chevron" className="icon chevron" strokeWidth={1.8} />
 				</button>
 			</Tooltip>
 		{/if}
@@ -242,22 +207,24 @@
 				aria-expanded={showMoreMenu}
 				on:click={toggleMoreMenu}
 			>
-				<svg class="icon"><use href="#i-more" /></svg>
+				<Icon name="chat-more" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 
 		{#if onClose}
 			<div class="header-divider"></div>
 			<Tooltip text="Close" kbd="Esc" position="bottom">
-				<button type="button" aria-label="Close chat" class="icon-button" on:click={onClose}>
-					<svg class="icon"><use href="#i-close" /></svg>
-				</button>
+				<IconButton icon="chat-close" label="Close chat" size="sm" onclick={onClose} />
 			</Tooltip>
 		{/if}
 	</div>
 
 	{#if showModelDropdown && llmConfigs.length > 0}
-		<div class="floating-menu" bind:this={modelMenuEl} data-testid="chat-header-model-menu">
+		<div
+			class="floating-menu"
+			use:dismiss={{ onDismiss: () => (showModelDropdown = false), ignore: [modelTriggerEl] }}
+			data-testid="chat-header-model-menu"
+		>
 			<div class="menu-label">Choose a model</div>
 			{#each llmConfigs as config}
 				<button
@@ -275,7 +242,7 @@
 						<small>{config.model}</small>
 					</span>
 					{#if config.id === selectedConfigId}
-						<svg class="icon check"><use href="#i-check" /></svg>
+						<Icon name="chat-check" className="icon check" strokeWidth={1.8} />
 					{/if}
 				</button>
 			{/each}
@@ -283,15 +250,18 @@
 	{/if}
 
 	{#if showMoreMenu}
-		<div class="floating-menu conversation-menu" bind:this={moreMenuEl}>
+		<div
+			class="floating-menu conversation-menu"
+			use:dismiss={{ onDismiss: () => (showMoreMenu = false), ignore: [moreTriggerEl] }}
+		>
 			<button type="button" disabled={!hasSession} on:click={startRename}>
-				<svg class="icon"><use href="#i-edit" /></svg>Rename conversation
+				<Icon name="chat-edit" className="icon" strokeWidth={1.8} />Rename conversation
 			</button>
 			<button type="button" disabled={!hasSession} on:click={handleExport}>
-				<svg class="icon"><use href="#i-file" /></svg>Export transcript
+				<Icon name="chat-file" className="icon" strokeWidth={1.8} />Export transcript
 			</button>
 			<button type="button" class="danger-option" disabled={!hasSession} on:click={openDeleteConfirm}>
-				<svg class="icon"><use href="#i-trash" /></svg>Delete conversation
+				<Icon name="chat-trash" className="icon" strokeWidth={1.8} />Delete conversation
 			</button>
 		</div>
 	{/if}

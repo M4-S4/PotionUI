@@ -28,16 +28,18 @@ def test_create_model_tag_denied_for_non_admin():
     tag_repository.create_tag.assert_not_called()
 
 
+@patch("src.platform.plugins.hooks.execute_hook", return_value=({}, False))
 @patch("src.features.tags.operations.crud.execute_hook", return_value=({}, False))
-def test_create_model_tag_allowed_for_admin(mock_execute_hook):
+def test_create_model_tag_allowed_for_admin(mock_execute_hook, mock_veto_hook):
     tag_repository, plugin_registry = _collaborators()
     tag_repository.create_tag.return_value = _tag(TagType.MODEL)
     operations.create_tag(tag_repository, plugin_registry, CreateTagRequest(name="anime", type=TagType.MODEL), "u1", is_admin=True)
     tag_repository.create_tag.assert_called_once()
 
 
+@patch("src.platform.plugins.hooks.execute_hook", return_value=({}, False))
 @patch("src.features.tags.operations.crud.execute_hook", return_value=({}, False))
-def test_create_generation_tag_allowed_for_non_admin(mock_execute_hook):
+def test_create_generation_tag_allowed_for_non_admin(mock_execute_hook, mock_veto_hook):
     tag_repository, plugin_registry = _collaborators()
     tag_repository.create_tag.return_value = _tag(TagType.GENERATION, user_id="u1")
     operations.create_tag(tag_repository, plugin_registry, CreateTagRequest(name="fav", type=TagType.GENERATION), "u1", is_admin=False)

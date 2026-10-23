@@ -36,6 +36,11 @@ DEFAULT_RULE_CAP = 50
 DEFAULT_HOURLY_LIMIT = 200
 BACKFILL_CHUNK = 500
 PREVIEW_SCAN_CAP = 5000
+GENERATION_EVENT_TRIGGERS = {
+    "generation_completed": "item_created",
+    "generation_tags_changed": "tags_changed",
+    "generation_detected_tags_changed": "detected_tags_changed",
+}
 SAMPLE_SIZE = 12
 OPTIONS_TIMEOUT_S = 2.0
 
@@ -130,6 +135,7 @@ class OrganizeManager:
                 "source": f.source,
                 "component": f.component,
                 "previewable": f.sql is not None,
+                "triggers": list(f.triggers),
             }
             for f in self.c.registry.facts(subject)
         ]
@@ -644,6 +650,8 @@ class OrganizeManager:
         if self.is_paused_for(user_id):
             return 0
         rules = [r for r in self.c.rules.live_rules(user_id, subject) if not r.paused_reason]
+        if trigger == "item_created":
+            rules = [r for r in rules if not self._awaits_event(r)]
         if not rules or (trigger != "item_created" and not any(self._listens_to(r, trigger) for r in rules)):
             return 0
         is_admin = GenerationPolicy.is_admin(self.c.users.get_by_id(user_id))
@@ -691,6 +699,13 @@ class OrganizeManager:
 
         return get
 
+    def _awaits_event(self, rule: Rule) -> bool:
+        for condition in rule.conditions:
+            fact = self.c.registry.fact(condition.get("fact", ""))
+            if fact is not None and "item_created" not in fact.triggers:
+                return True
+        return False
+
     def _listens_to(self, rule: Rule, trigger: str) -> bool:
         for condition in rule.conditions:
             fact = self.c.registry.fact(condition.get("fact", ""))
@@ -699,13 +714,13 @@ class OrganizeManager:
         return False
 
     def handle_event(self, kind: str, payload: Dict[str, Any]) -> None:
-        if kind in ("generation_completed", "generation_tags_changed"):
+        if kind in ("generation_completed", "generation_tags_changed", "generation_detected_tags_changed"):
             if kind == "generation_completed" and payload.get("status") != "completed":
                 return
             generation_id = payload.get("generation_id")
             owner = self.c.items.generation_owner(generation_id) if generation_id else None
             if owner:
-                trigger = "item_created" if kind == "generation_completed" else "tags_changed"
+                trigger = GENERATION_EVENT_TRIGGERS[kind]
                 self.process_item("generation", owner, generation_id, trigger)
         elif kind == "upload_created":
             upload_id = payload.get("upload_id")

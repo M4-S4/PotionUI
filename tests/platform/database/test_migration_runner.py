@@ -41,6 +41,7 @@ class TestMigrationRunner(unittest.TestCase):
     def tearDown(self):
         """Clean up temporary files"""
         # Clean up database
+        Database.close_pool()
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
         os.rmdir(self.temp_dir)
@@ -65,11 +66,12 @@ class TestMigrationRunner(unittest.TestCase):
         db._initialized = True  # Mark as initialized to avoid conflicts
         
         # Monkey patch the global db instance used by migration manager
-        import src.platform.database.database
-        import src.platform.database.migration_runner
-        src.platform.database.database.db = db
-        src.platform.database.migration_runner.db = db
-        
+        import importlib
+        for module_name in ("src.platform.database.database", "src.platform.database.migration_runner"):
+            module = importlib.import_module(module_name)
+            self.addCleanup(setattr, module, "db", module.db)
+            module.db = db
+
         return db
     
     def _patch_migration_runner_db(self):
@@ -228,6 +230,75 @@ def up():
             result = cursor.fetchone()
             self.assertIsNotNone(result)
     
+    def test_a_run_that_creates_an_index_collects_planner_statistics(self):
+        self._create_test_migration("001_indexed_table", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+        cursor.executemany("INSERT INTO items (kind) VALUES (?)", [("a",), ("a",), ("b",), ("b",)])
+        cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+""")
+
+        with patch('builtins.print'):
+            self.migration_runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT stat FROM sqlite_stat1 WHERE idx = 'idx_items_kind'")
+            self.assertEqual(cursor.fetchone()[0], "4 2")
+
+    def test_a_run_that_redefines_an_index_under_its_old_name_collects_planner_statistics(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+            cursor.executemany("INSERT INTO items (kind) VALUES (?)", [("a",), ("a",), ("b",), ("b",)])
+            cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+        self._create_test_migration("001_widen_items_kind", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("DROP INDEX idx_items_kind")
+        cursor.execute("CREATE INDEX idx_items_kind ON items (kind, id)")
+""")
+
+        with patch('builtins.print'):
+            self.migration_runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT stat FROM sqlite_stat1 WHERE idx = 'idx_items_kind'")
+            self.assertEqual(cursor.fetchone()[0], "4 2 1")
+
+    def test_a_run_that_collects_planner_statistics_recycles_pooled_connections(self):
+        self._create_test_migration("001_indexed_table", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+        cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+""")
+
+        with patch('builtins.print'), patch.object(Database, "close_pool") as close_pool:
+            self.migration_runner.run_migrations()
+
+        close_pool.assert_called_once_with()
+
+    def test_a_run_that_only_changes_rows_collects_no_planner_statistics(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+            cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+        self._create_test_migration("001_seed_items", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("INSERT INTO items (kind) VALUES ('a')")
+""")
+
+        with patch('builtins.print'):
+            self.migration_runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT name FROM sqlite_master WHERE name = 'sqlite_stat1'")
+            self.assertIsNone(cursor.fetchone())
+
     def test_run_migration_without_up_function(self):
         """Test running migration that doesn't have up function"""
         # Create migration without up function
@@ -339,6 +410,60 @@ def up():
             for call in mock_print.call_args_list:
                 self.assertNotIn("Running", str(call))
                 self.assertNotIn("Applying migration", str(call))
+
+
+class TestEncryptS3SecretKeyThroughRunner(unittest.TestCase):
+
+    def setUp(self):
+        import importlib
+        import shutil
+        from src.platform.security.secrets import SecretCipher, configure_secret_cipher, generate_key
+
+        self.temp_dir = Path(tempfile.mkdtemp())
+        Database._instance = None
+        self.db = Database()
+        self.db.db_path = self.temp_dir / "test.sqlite"
+        self.db._initialized = True
+        for module_name in ("src.platform.database.database", "src.platform.database.migration_runner"):
+            module = importlib.import_module(module_name)
+            self.addCleanup(setattr, module, "db", module.db)
+            module.db = self.db
+        self.cipher = SecretCipher([generate_key()])
+        configure_secret_cipher(self.cipher)
+        self.addCleanup(configure_secret_cipher, None)
+        self.addCleanup(shutil.rmtree, self.temp_dir, True)
+        self.addCleanup(setattr, Database, "_instance", None)
+        self.addCleanup(Database.close_pool)
+
+        source = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
+        self.source = source
+        self.migrations_dir = self.temp_dir / "migrations"
+        self.migrations_dir.mkdir()
+        shutil.copy(source / "001_baseline.py", self.migrations_dir / "001_baseline.py")
+        self.runner = MigrationRunner()
+        self.runner.migrations_dir = self.migrations_dir
+
+    def test_pending_migration_encrypts_a_plaintext_secret(self):
+        import shutil
+
+        with patch("builtins.print"):
+            self.runner.run_migrations()
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE settings SET value = 'plain-secret' WHERE key = 's3_secret_key'")
+
+        shutil.copy(
+            self.source / "061_encrypt_s3_secret_key.py",
+            self.migrations_dir / "061_encrypt_s3_secret_key.py",
+        )
+        with patch("builtins.print"):
+            self.runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT value FROM settings WHERE key = 's3_secret_key'")
+            stored = cursor.fetchone()[0]
+        self.assertNotEqual(stored, "plain-secret")
+        self.assertEqual(self.cipher.decrypt(stored, context="test"), "plain-secret")
+        self.assertIn("061_encrypt_s3_secret_key", self.runner.get_applied_migrations())
 
 
 if __name__ == '__main__':

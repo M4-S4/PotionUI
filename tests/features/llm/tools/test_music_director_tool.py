@@ -5,6 +5,7 @@ import pytest
 
 from src.features.llm.tools.base import ToolContext
 from src.features.llm.tools.builtin.music_director_tool import (
+    _CALL_EXAMPLE,
     GetMusicDirectorTool,
     UpdateMusicDirectorTool,
 )
@@ -100,11 +101,6 @@ class TestGetMusicDirectorToolSchema:
     def test_name(self):
         assert GetMusicDirectorTool().name == "get_music_director"
 
-    def test_hint_is_nonempty(self):
-        assert len(GetMusicDirectorTool().hint) > 0
-
-    def test_description_is_nonempty(self):
-        assert len(GetMusicDirectorTool().description) > 0
 
     def test_requires_no_approval(self):
         assert GetMusicDirectorTool().requires_approval is False
@@ -672,3 +668,56 @@ class TestMusicDirectorToolsIsAvailable:
     def test_available_when_active(self, tool_cls):
         form_state = make_form_state(make_doc(), make_music3_capabilities(), active=True)
         assert tool_cls().is_available(form_state) is True
+
+
+class TestUpdateMusicDirectorOperationShapes:
+    def _context(self):
+        return make_context(session_metadata={"form_state": make_form_state(make_doc(), make_music3_capabilities())})
+
+    @pytest.mark.asyncio
+    async def test_a_json_string_array_is_previewed(self):
+        operations = json.dumps([{"op": "set_description", "description": "warm 90s boom-bap"}])
+        result = await UpdateMusicDirectorTool().execute(self._context(), operations=operations)
+        assert result.success is True
+        assert json.loads(result.data)["operation_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_json_string_object_is_applied_as_one_operation(self):
+        operations = json.dumps({"op": "set_description", "description": "warm 90s boom-bap"})
+        result = await UpdateMusicDirectorTool().execute_confirmed(self._context(), operations=operations)
+        assert result.success is True
+        assert json.loads(result.data)["operations"] == [
+            {"op": "set_description", "description": "warm 90s boom-bap"}
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["execute", "execute_confirmed"])
+    @pytest.mark.parametrize("value", [None, [], {}, "", "[]"])
+    async def test_nothing_to_apply_is_the_no_operations_error(self, method, value):
+        result = await getattr(UpdateMusicDirectorTool(), method)(self._context(), operations=value)
+        assert result.success is False
+        assert result.error.startswith("No operations provided")
+        assert result.error.count('"name": "update_music_director"') == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["execute", "execute_confirmed"])
+    @pytest.mark.parametrize("value", ["make it moodier", '[{"op": "set_description"', "42", 7, True])
+    async def test_unreadable_operations_get_one_error_carrying_the_example(self, method, value):
+        result = await getattr(UpdateMusicDirectorTool(), method)(self._context(), operations=value)
+        assert result.success is False
+        assert "No operations provided" not in result.error
+        assert result.error.count('"name": "update_music_director"') == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method", ["execute", "execute_confirmed"])
+    async def test_the_call_example_is_a_working_call_for_this_tool(self, method):
+        body = _CALL_EXAMPLE.removeprefix("<tool_call>").removesuffix("</tool_call>")
+        call = json.loads(body)
+        result = await getattr(UpdateMusicDirectorTool(), method)(self._context(), **call["arguments"])
+        assert call["name"] == UpdateMusicDirectorTool().name
+        assert result.success is True
+        assert [op["op"] for op in json.loads(result.data)["operations"]] == [
+            "set_description",
+            "upsert_section",
+            "upsert_section",
+        ]

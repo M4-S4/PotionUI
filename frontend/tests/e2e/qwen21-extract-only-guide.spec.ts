@@ -2,29 +2,14 @@ import { test, expect, type Page, type Locator } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { chunk } from './mediaFieldHelpers';
+import { presetOption } from './presetPreamble';
 
+const TABS_SAVE_DEBOUNCE_MS = 700;
 const JOURNEY = 'qwen21-extract-only-guide';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
 const TABS_STORAGE_KEY = 'potionui_tabs_state';
 const LABEL = 'Guide: Canny';
-
-function crc32(buf: Buffer): number {
-	let c = ~0;
-	for (const b of buf) {
-		c ^= b;
-		for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-	}
-	return ~c >>> 0;
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-	const head = Buffer.alloc(4);
-	head.writeUInt32BE(data.length);
-	const body = Buffer.concat([Buffer.from(type), data]);
-	const tail = Buffer.alloc(4);
-	tail.writeUInt32BE(crc32(body));
-	return Buffer.concat([head, body, tail]);
-}
 
 function edgeMapPng(size: number): Buffer {
 	const rows: Buffer[] = [];
@@ -105,21 +90,19 @@ finally:
 async function openControlTab(page: Page, name: string): Promise<Locator> {
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await page.getByTestId('preset-header-mode').getByRole('button').first().click();
 	await page.getByRole('option', { name: /^Control/ }).first().click();
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();
 	await expect(tab).toBeVisible({ timeout: 20000 });
 	await tab.click();
 	await expect(page.getByText('Guide', { exact: true }).first()).toBeVisible();
-	await page.waitForTimeout(400);
 	return page.locator('body');
 }
 
 async function shoot(page: Page, label: string) {
 	await page.mouse.move(page.viewportSize()!.width - 2, 2);
-	await page.waitForTimeout(600);
 	await screenshot(page, JOURNEY, label);
 }
 
@@ -174,6 +157,7 @@ test('only extracting the guide needs no prompt and saves a labelled map', async
 	await only.evaluate((el) => el.scrollIntoView({ block: 'center' }));
 	await shoot(page, '02-only-extract-no-prompt-needed');
 
+	await page.waitForTimeout(TABS_SAVE_DEBOUNCE_MS);
 	await page.evaluate(
 		({ key, genId }) => {
 			const raw = localStorage.getItem(key);

@@ -134,6 +134,5 @@ class TestGetActiveModelsToolPromptingGuidance:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_hint_mentions_prompting_guidance_consultation(self):
-        hint = GetActiveModelsTool().hint
-        assert "prompting_guidance" in hint or "prompt" in hint.lower()
+    async def test_description_tells_the_model_to_weave_in_guidance(self):
+        assert "trigger_words and prompting_guidance" in GetActiveModelsTool().description

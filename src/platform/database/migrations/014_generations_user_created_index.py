@@ -27,9 +27,3 @@ def up():
             "ON generations (user_id, created_at DESC, id DESC)"
         )
     print(f"Migration 014_generations_user_created_index: created '{_INDEX}'")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute(f"DROP INDEX IF EXISTS {_INDEX}")
-    print(f"Migration 014_generations_user_created_index: dropped '{_INDEX}'")

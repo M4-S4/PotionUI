@@ -3,17 +3,12 @@ import type { PresetInfo } from '$lib/types/api';
 import {
 	DEFAULT_PRESET_FILTERS,
 	applyPresetFilters,
-	clearAllPresetFilters,
-	clearPresetFilterChip,
 	presetEngineCounts,
 	presetEngines,
-	presetFilterActiveCount,
-	presetFilterChips,
-	presetFiltersFromSearchParams,
-	presetFiltersToSearchParams,
 	presetSectionCounts,
 	presetVramLabel,
-	type PresetFilters
+	type PresetFilters,
+	presetFilters
 } from './presetFilters';
 
 function preset(overrides: Partial<PresetInfo> = {}): PresetInfo {
@@ -31,7 +26,7 @@ function preset(overrides: Partial<PresetInfo> = {}): PresetInfo {
 	};
 }
 
-describe('presetFiltersFromSearchParams / presetFiltersToSearchParams', () => {
+describe('presetFilters.fromSearchParams / presetFilters.toSearchParams', () => {
 	it('round-trips a fully-set filter state through the URL', () => {
 		const filters: PresetFilters = {
 			q: 'qwen',
@@ -41,23 +36,23 @@ describe('presetFiltersFromSearchParams / presetFiltersToSearchParams', () => {
 			assignment: 'unassigned',
 			sortBy: 'vram'
 		};
-		const params = presetFiltersToSearchParams(filters);
+		const params = presetFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('qwen');
 		expect(params.get('engine')).toBe('native');
 		expect(params.get('install')).toBe('installed');
 		expect(params.get('requirements')).toBe('missing');
 		expect(params.get('assignment')).toBe('unassigned');
 		expect(params.get('sort_by')).toBe('vram');
-		expect(presetFiltersFromSearchParams(params)).toEqual(filters);
+		expect(presetFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('omits defaults from the URL so a clean grid has no query string', () => {
-		expect(presetFiltersToSearchParams(DEFAULT_PRESET_FILTERS).toString()).toBe('');
+		expect(presetFilters.toSearchParams(DEFAULT_PRESET_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to the defaults for unknown install/requirements/assignment/sort values', () => {
 		const params = new URLSearchParams({ install: 'pending', requirements: 'broken', assignment: 'mine', sort_by: 'usage' });
-		const filters = presetFiltersFromSearchParams(params);
+		const filters = presetFilters.fromSearchParams(params);
 		expect(filters.install).toBe('all');
 		expect(filters.requirements).toBe('all');
 		expect(filters.assignment).toBe('any');
@@ -136,15 +131,15 @@ describe('preset filter chips', () => {
 			assignment: 'unassigned',
 			sortBy: 'vram'
 		};
-		expect(presetFilterChips(filters)).toEqual([
+		expect(presetFilters.chips(filters)).toEqual([
 			{ key: 'engine', label: 'engine: native' },
 			{ key: 'install', label: 'Installed' },
 			{ key: 'requirements', label: 'Unknown requirements' },
 			{ key: 'assignment', label: 'Unassigned' }
 		]);
-		expect(clearPresetFilterChip(filters, 'engine').engine).toBe('');
-		expect(clearPresetFilterChip(filters, 'install').install).toBe('all');
-		expect(clearPresetFilterChip(filters, 'nothing')).toBe(filters);
+		expect(presetFilters.clearChip(filters, 'engine').engine).toBe('');
+		expect(presetFilters.clearChip(filters, 'install').install).toBe('all');
+		expect(presetFilters.clearChip(filters, 'nothing')).toBe(filters);
 	});
 
 	it('counts each active field as one filter and keeps query and sort when clearing all', () => {
@@ -156,9 +151,9 @@ describe('preset filter chips', () => {
 			assignment: 'unassigned',
 			sortBy: 'vram'
 		};
-		expect(presetFilterActiveCount(filters)).toBe(4);
-		expect(clearAllPresetFilters(filters)).toEqual({ ...DEFAULT_PRESET_FILTERS, q: 'keep me', sortBy: 'vram' });
-		expect(presetFilterActiveCount(DEFAULT_PRESET_FILTERS)).toBe(0);
+		expect(presetFilters.activeCount(filters)).toBe(4);
+		expect(presetFilters.clearAll(filters)).toEqual({ ...DEFAULT_PRESET_FILTERS, q: 'keep me', sortBy: 'vram' });
+		expect(presetFilters.activeCount(DEFAULT_PRESET_FILTERS)).toBe(0);
 	});
 });
 

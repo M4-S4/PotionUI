@@ -1,39 +1,8 @@
-import importlib.util
-import sys
-import tempfile
-import unittest
-from pathlib import Path
-
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration040RenameNsfwSetting(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("040_rename_nsfw_setting", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration040RenameNsfwSetting(MigrationCase):
+    MIGRATION = "040_rename_nsfw_setting"
 
     def _row(self, key):
         with self.db.get_cursor() as cursor:
@@ -93,10 +62,3 @@ class TestMigration040RenameNsfwSetting(unittest.TestCase):
 
         self.assertIsNone(self._row("nsfw_filter"))
         self.assertEqual(self._row("nsfw")["value"], "true")
-
-    def test_down_restores_legacy_key(self):
-        self.migration.up()
-        self.migration.down()
-
-        self.assertIsNotNone(self._row("nsfw_filter"))
-        self.assertIsNone(self._row("nsfw"))

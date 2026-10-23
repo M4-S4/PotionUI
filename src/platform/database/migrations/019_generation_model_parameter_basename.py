@@ -69,10 +69,3 @@ def up():
             f"Migration 019_generation_model_parameter_basename: rewrote "
             f"{len(updates)} leaked 'model' parameter path(s) to their basename"
         )
-
-
-def down():
-    print(
-        "Migration 019_generation_model_parameter_basename: no-op (the original "
-        "path is not recoverable from the basename alone)"
-    )

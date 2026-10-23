@@ -233,14 +233,17 @@ class TemplateFunctionsDocumenter:
                 {
                     "name": "runtime",
                     "alias": None,
-                    "signature": "runtime.settings.<allowlisted_key>",
+                    "signature": "runtime.settings.<allowlisted_key> | runtime.user.is_admin",
                     "description": (
                         "A pre-resolved snapshot of allowlisted settings (resolved once per build "
                         "with the authenticated user), NOT a live settings-manager call. The main "
-                        "allowlisted key is file_storage_directory."
+                        "allowlisted key is file_storage_directory. `runtime.user.is_admin` is true "
+                        "only when the authenticated user is an administrator; it is resolved by the "
+                        "server, never from form data, so a pipe can trust it to gate admin-only work."
                     ),
                     "parameters": [
                         {"name": "settings", "type": "dict", "description": "Snapshot of allowlisted settings, e.g. file_storage_directory"},
+                        {"name": "user", "type": "dict", "description": "The requesting user: `is_admin` (bool)"},
                     ],
                     "return_type": "native value",
                     "examples": [

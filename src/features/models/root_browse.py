@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from src.platform.filesystem.model_roots import InvalidRelPathError, validate_rel_path
 from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS
+from src.platform.util.path_resolution import is_within
 
 BROWSE_BUDGET_SECONDS = 3.0
 MAX_SUB_DEPTH = 8
@@ -29,15 +30,6 @@ class _Budget:
 
     def spent(self) -> bool:
         return self.clock() >= self.deadline
-
-
-def _inside(base: str, target: str) -> bool:
-    anchor = os.path.normcase(os.path.normpath(base))
-    other = os.path.normcase(os.path.normpath(target))
-    try:
-        return os.path.commonpath([anchor, other]) == anchor
-    except ValueError:
-        return False
 
 
 def _has_models(directory: str, budget: _Budget) -> bool:
@@ -89,7 +81,7 @@ def browse_subfolders(
         target = os.path.realpath(os.path.join(real_root, cleaned)) if cleaned else real_root
     except OSError as error:
         raise BrowseError(f"Can't read that folder: {error}", 404)
-    if not _inside(real_root, target):
+    if not is_within(real_root, target):
         raise BrowseError("The subfolder leaves the folder through a link.")
     if not os.path.isdir(target):
         raise BrowseError("That subfolder doesn't exist.", 404)
@@ -116,7 +108,7 @@ def browse_subfolders(
             break
         child = os.path.join(target, name)
         child_real = os.path.realpath(child)
-        if not _inside(real_root, child_real):
+        if not is_within(real_root, child_real):
             continue
         folders.append(
             {

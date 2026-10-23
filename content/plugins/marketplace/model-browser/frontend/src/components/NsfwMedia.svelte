@@ -114,7 +114,7 @@
 				<Icon name="play" class="h-3.5 w-3.5" />
 			</span>
 		{:else}
-			<img {src} {alt} class="h-full w-full object-cover" loading="lazy" decoding="async" onerror={onImageError} />
+			<img {src} {alt} class="h-full w-full object-cover" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror={onImageError} />
 		{/if}
 		{#if onOpen}
 			<button

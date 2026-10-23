@@ -27,18 +27,7 @@ from src.platform.filesystem.model_roots import (
 )
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.settings.repository import SettingRepository
-
-
-class FakeIndexingCoordinator:
-    def __init__(self):
-        self.calls = []
-
-    def cancel_and_restart(self, trigger="location_change"):
-        self.calls.append(trigger)
-        return {"state": "idle"}
-
-    def status(self):
-        return {"state": "idle"}
+from tests.features.models.fakes import FakeIndexingCoordinator
 
 
 @pytest.fixture
@@ -264,6 +253,18 @@ class TestReorder:
         assert lora_type["order"][0] == lib_b["id"]
         assert lora_type["order"][1] == lib_a["id"]
 
+    def test_reordering_refreshes_availability_without_restarting_the_scan(self, manager, library_dir, tmp_path):
+        lib_a = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+        other_dir = tmp_path / "other"
+        (other_dir / "loras").mkdir(parents=True)
+        lib_b = manager.create_root(str(other_dir), bindings=[BindingSpec("lora", "loras")])
+        restarts_before = list(manager.coordinator.calls)
+
+        manager.reorder("lora", [lib_b["id"], lib_a["id"], HOME_ROOT_ID])
+
+        assert manager.coordinator.calls == restarts_before
+        assert manager.coordinator.reprojected == ["roots_change"]
+
     def test_duplicate_root_ids_refused(self, manager, library_dir):
         created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
 
@@ -276,6 +277,15 @@ class TestReorder:
 
 
 class TestSetWriteRoot:
+    def test_changing_the_write_root_does_not_restart_the_scan(self, manager, library_dir):
+        created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
+        restarts_before = list(manager.coordinator.calls)
+
+        manager.set_write_root("lora", created["id"])
+
+        assert manager.coordinator.calls == restarts_before
+        assert manager.coordinator.reprojected == ["roots_change"]
+
     def test_sets_write_root(self, manager, library_dir):
         created = manager.create_root(str(library_dir), bindings=[BindingSpec("lora", "loras")])
 

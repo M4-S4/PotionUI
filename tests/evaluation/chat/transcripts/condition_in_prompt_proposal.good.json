@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "scenario": "condition_in_prompt_proposal",
+  "capture": "replay",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Add a condition so that when age is above 65 she gets grey hair."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "get_form_state",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_form_state",
+      "content": "{\"preset_id\": \"sdxl/base\", \"mode\": \"txt2img\", \"prompt_variables\": [\"age: number from 18 to 90 in steps of 1 \\u2014 shuffles each generation\"]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "Here is a version with the condition. It reads the existing number variable $age and falls back to auburn hair otherwise.\n\n<tool_action type=\"update_segment\" segment_index=\"1\" segment_id=\"seg1\">portrait of a woman, <<if $age > 65>>grey hair<<else>>auburn hair<<end>></tool_action>\n\nApply it from the card."
+    }
+  ]
+}

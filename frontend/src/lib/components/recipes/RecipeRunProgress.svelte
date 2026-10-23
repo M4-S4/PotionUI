@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import type { SetupConsentProvider, SetupRun } from '$lib/services/api/setup';
 	import type { RecipeRunActions } from './runActions';
@@ -123,7 +124,7 @@
 	let credentialSaved = $state<Record<string, boolean>>({});
 
 	function errorText(err: any, fallback: string): string {
-		return err?.response?.data?.detail || err?.message || fallback;
+		return getApiErrorMessage(err, fallback);
 	}
 
 	async function saveProviderCredential(provider: SetupConsentProvider) {

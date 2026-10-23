@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Crop & frame.
 	 *
@@ -316,7 +317,7 @@
 					{#each ORIENTATION_TOOLS as tool (tool.key)}
 						<button
 							type="button"
-							title={tool.label}
+							use:tooltip={tool.label}
 							aria-label={tool.label}
 							class="flex-1 h-8 inline-flex items-center justify-center rounded border border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg transition-colors"
 							on:click={() => runOrientation(tool.key)}

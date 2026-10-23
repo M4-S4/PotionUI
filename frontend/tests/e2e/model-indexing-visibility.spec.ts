@@ -1,11 +1,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson } from './helpers';
 
 const JOURNEY = 'model-indexing-visibility';
-
-async function fulfillJson(route: Route, data: unknown) {
-	await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
-}
 
 function homeRoot(overrides: Record<string, unknown> = {}) {
 	return {
@@ -258,7 +254,6 @@ test.describe('model indexing visibility - wizard', () => {
 		await expect(toggle).toBeVisible({ timeout: 10000 });
 		await toggle.click();
 		await page.getByText('broken-checkpoint-file').hover();
-		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, 'wizard-failed-files-expanded');
 	});
 
@@ -369,7 +364,6 @@ test.describe('model indexing visibility - admin panel', () => {
 		const failedRow = page.getByText('broken-checkpoint-file');
 		await failedRow.scrollIntoViewIfNeeded();
 		await failedRow.hover();
-		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, 'admin-failed-files-expanded');
 	});
 });

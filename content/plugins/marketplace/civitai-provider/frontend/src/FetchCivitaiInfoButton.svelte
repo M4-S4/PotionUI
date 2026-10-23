@@ -21,13 +21,9 @@
     fetching = true;
 
     const run = async () => {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch('/api/models/info/fetch', {
+      const response = await window.__potionui.api.fetch('/api/models/info/fetch', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
+        timeout: 0,
         body: JSON.stringify({
           provider: 'civitai',
           model_ids: [model.id],

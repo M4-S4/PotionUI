@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { get } from 'svelte/store';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { api } from '$lib/services/api';
 	import { Button, EmptyState, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -18,15 +19,10 @@
 	import {
 		TEMPLATE_SORT_OPTIONS,
 		applyTemplateFilters,
-		clearAllTemplateFilters,
-		clearTemplateFilterChip,
-		templateFilterActiveCount,
-		templateFilterChips,
-		templateFiltersFromSearchParams,
-		templateFiltersToSearchParams,
 		templateTagVocabulary,
 		type TemplateFilters,
-		type TemplateSortBy
+		type TemplateSortBy,
+		templateFilters
 	} from './templateFilters';
 	import type { Segment, SegmentTemplate } from '$lib/types/segments';
 	import {
@@ -36,6 +32,7 @@
 		toRichSegment
 	} from '$lib/utils/richSegments';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
+	import { libraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 
@@ -59,7 +56,7 @@
 	let editorSegments = $state<Segment[]>([createBlankEditorSegment()]);
 	let baseline = $state<FormSnapshot>({ name: '', description: '', tags: '', segments: '' });
 
-	const filters = $derived(templateFiltersFromSearchParams($page.url.searchParams));
+	const filters = $derived(templateFilters.fromSearchParams($page.url.searchParams));
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const viewIsNew = $derived($page.url.searchParams.get('new') === '1');
 	const detailOpen = $derived(viewIsNew || !!viewId);
@@ -67,8 +64,8 @@
 	const mode = $derived<'create' | 'edit'>(viewIsNew || !activeTemplate ? 'create' : 'edit');
 	const visible = $derived(applyTemplateFilters(templates, filters));
 	const tagVocabulary = $derived(templateTagVocabulary(templates));
-	const chips = $derived(templateFilterChips(filters));
-	const activeFilterCount = $derived(templateFilterActiveCount(filters));
+	const chips = $derived(templateFilters.chips(filters));
+	const activeFilterCount = $derived(templateFilters.activeCount(filters));
 	const narrowed = $derived(activeFilterCount > 0 || filters.q.trim().length > 0);
 
 	const currentSnapshot = $derived(snapshotOf(name, description, tagsText, editorSegments));
@@ -103,22 +100,19 @@
 	function buildUrl(
 		overrides: { id?: string | null; isNew?: boolean; filters?: TemplateFilters } = {}
 	): string {
-		const params = withSection(templateFiltersToSearchParams(overrides.filters ?? filters), 'templates');
+		const params = withSection(templateFilters.toSearchParams(overrides.filters ?? filters), 'templates');
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		const isNew = overrides.isNew !== undefined ? overrides.isNew : viewIsNew;
 		if (id) params.set('id', id);
 		if (isNew) params.set('new', '1');
-		const query = params.toString();
-		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+		return hrefWithQuery($page.url.pathname, params);
 	}
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
 
 	function updateFilters(next: TemplateFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ filters: next });
 	}
 
 	onMount(load);
@@ -176,15 +170,15 @@
 	});
 
 	function openTemplate(template: SegmentTemplate) {
-		void goto(buildUrl({ id: template.id, isNew: false }));
+		void urlState.go({ id: template.id, isNew: false });
 	}
 
 	function backToGrid() {
-		void goto(buildUrl({ id: null, isNew: false }));
+		void urlState.go({ id: null, isNew: false });
 	}
 
 	function newTemplate() {
-		void goto(buildUrl({ id: null, isNew: true }));
+		void urlState.go({ id: null, isNew: true });
 	}
 
 	function toggleSelect(template: SegmentTemplate) {
@@ -250,7 +244,7 @@
 			await load();
 			lastRouteKey = `edit:${savedId}`;
 			enterEdit(savedId);
-			await goto(buildUrl({ id: savedId, isNew: false }), { replaceState: true, noScroll: true });
+			await urlState.go({ id: savedId, isNew: false }, { replace: true, noScroll: true });
 		} catch (error) {
 			toasts.error(error instanceof Error ? error.message : 'Failed to save template');
 		} finally {
@@ -278,7 +272,7 @@
 			if (openAfter) {
 				lastRouteKey = `edit:${newId}`;
 				enterEdit(newId);
-				await goto(buildUrl({ id: newId, isNew: false }));
+				await urlState.go({ id: newId, isNew: false });
 			}
 		} catch (error) {
 			toasts.error(error instanceof Error ? error.message : 'Failed to duplicate template');
@@ -360,8 +354,8 @@
 	count={visible.length}
 	{detailOpen}
 	filterChips={chips}
-	onRemoveChip={(key) => updateFilters(clearTemplateFilterChip(filters, key))}
-	onClearFilters={() => updateFilters(clearAllTemplateFilters(filters))}
+	onRemoveChip={(key) => updateFilters(templateFilters.clearChip(filters, key))}
+	onClearFilters={() => updateFilters(templateFilters.clearAll(filters))}
 	loadedCount={visible.length}
 	total={templates.length}
 >
@@ -406,6 +400,7 @@
 				onDelete={() => activeTemplate && void removeTemplate(activeTemplate, true)}
 				onDuplicate={() => activeTemplate && void duplicate(activeTemplate, true)}
 				onApply={applyFromDetail}
+				tabVariables={$libraryTabVariables}
 			/>
 		{/if}
 	{:else}
@@ -425,7 +420,7 @@
 					>
 						{#snippet actions()}
 							{#if narrowed}
-								<Button size="sm" variant="ghost" onclick={() => updateFilters(clearAllTemplateFilters(filters))}>
+								<Button size="sm" variant="ghost" onclick={() => updateFilters(templateFilters.clearAll(filters))}>
 									Clear filters
 								</Button>
 							{:else}

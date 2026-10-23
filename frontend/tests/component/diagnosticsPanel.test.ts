@@ -1,24 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
+import { mountComponent } from './helpers/mount';
 
 const { default: DiagnosticsPanel } = await import(
 	'../../src/routes/admin/components/settings/DiagnosticsPanel.svelte'
 );
-const { createClassComponent } = await import('svelte/legacy');
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function mount(settings: Record<string, unknown>) {
-	const target = document.createElement('div');
-	document.body.appendChild(target);
 	const onSettingChange = vi.fn();
-	const instance = createClassComponent({
-		component: DiagnosticsPanel as never,
-		target,
-		props: { onSettingChange, settings } as Record<string, unknown>
-	}) as unknown as { $set: (props: Record<string, unknown>) => void };
-	return { target, onSettingChange, instance };
+	const view = mountComponent(DiagnosticsPanel, { onSettingChange, settings });
+	return { target: view.target, onSettingChange, rerender: view.rerender };
 }
 
 function switchIn(target: HTMLElement, key: string): HTMLInputElement {
@@ -28,7 +18,6 @@ function switchIn(target: HTMLElement, key: string): HTMLInputElement {
 }
 
 afterEach(() => {
-	document.body.innerHTML = '';
 	vi.clearAllMocks();
 });
 
@@ -64,8 +53,8 @@ describe('DiagnosticsPanel', () => {
 	});
 
 	it('re-enables the census when the profiling setting turns on', async () => {
-		const { target, instance } = mount({ profiling_enabled: false });
-		instance.$set({ settings: { profiling_enabled: true } });
+		const { target, rerender } = mount({ profiling_enabled: false });
+		rerender({ settings: { profiling_enabled: true } });
 		await settle();
 		expect(switchIn(target, 'profiling_census').disabled).toBe(false);
 	});

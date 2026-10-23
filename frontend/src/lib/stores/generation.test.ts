@@ -76,6 +76,22 @@ describe('dispatchGenerationMessage', () => {
 		expect(tab.generation.currentProgress).toMatchObject({ type: 'generation_status', progress: 0.5 });
 	});
 
+	it('keeps the last bar fraction when a text-only status arrives for the same generation', () => {
+		const tabId = defaultTabId();
+		setCurrentGeneration(tabId, { generation_id: 'gen-3' });
+		const status = (progress: number | null, current_step: string) =>
+			dispatchGenerationMessage(
+				{ type: 'generation_status', generation_id: 'gen-3', progress, current_step } as any,
+				{ unsubscribe: vi.fn() }
+			);
+
+		status(0.5, 'EDIT');
+		status(null, 'Loading (2 of 2)');
+
+		const tab = get(tabsStore).tabs.find((t) => t.id === tabId)!;
+		expect(tab.generation.currentProgress).toMatchObject({ progress: 0.5, current_step: 'Loading (2 of 2)' });
+	});
+
 	it('extracts the generation id from data.id for completion messages (the id-extraction quirk)', () => {
 		const tabId = defaultTabId();
 		setCurrentGeneration(tabId, { generation_id: 'gen-2' });

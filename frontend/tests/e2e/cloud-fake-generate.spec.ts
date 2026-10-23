@@ -1,16 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'cloud-fake-generate';
 const BACKEND_NAME = 'E2E Fake Cloud';
 const PRESET_NAME = 'Fake Studio';
-const BEAT = 400;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function backendId(page: Page, token: string): Promise<string> {
 	const list = await apiGet(page, '/api/backends', token);
@@ -37,8 +31,8 @@ async function openFakeStudio(page: Page) {
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(PRESET_NAME, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, PRESET_NAME).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
 }
@@ -48,13 +42,11 @@ async function pickModel(page: Page, label: string) {
 	if (await swap.isVisible().catch(() => false)) await swap.click();
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
-	await page.waitForTimeout(BEAT);
 }
 
 async function choose(page: Page, name: string, option: string) {
 	await field(page, name).locator('button[aria-haspopup="listbox"]').click();
 	await page.getByRole('option', { name: option, exact: true }).click();
-	await page.waitForTimeout(BEAT);
 }
 
 async function expectChosen(page: Page) {
@@ -66,7 +58,6 @@ async function typePrompt(page: Page, text: string) {
 	const editor = page.locator('[contenteditable="true"]').first();
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(BEAT);
 }
 
 async function latestGeneration(page: Page, token: string) {
@@ -94,6 +85,14 @@ test.describe('cloud generation against the fake provider', () => {
 		await expect(row('Fake Image')).toBeVisible({ timeout: 20000 });
 		await expect(row('Fake Image')).toContainText('$0.04 / image');
 		await expect(row('Fake Lite')).toContainText('$0.01 / image');
+
+		for (const label of ['Fake Image', 'Fake Lite']) {
+			const toggle = row(label).getByRole('switch');
+			if (await toggle.isChecked()) await toggle.click();
+		}
+		await expect(row('Fake Image').getByRole('switch')).not.toBeChecked();
+		await expect(row('Fake Lite').getByRole('switch')).not.toBeChecked();
+		await expect(page.getByTestId('catalog-summary')).toContainText('0 enabled', { timeout: 10000 });
 
 		await row('Fake Image').getByRole('switch').click();
 		await expect(row('Fake Image').getByRole('switch')).toBeChecked();
@@ -166,7 +165,6 @@ test.describe('cloud generation against the fake provider', () => {
 		await expectChosen(page);
 		await screenshot(page, JOURNEY, 'generating-1440');
 		await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible({ timeout: 60000 });
-		await page.waitForTimeout(BEAT);
 		await expectChosen(page);
 		const generation = await latestGeneration(page, token);
 		expect(generation.status).toBe('completed');
@@ -237,6 +235,41 @@ test.describe('cloud generation against the fake provider', () => {
 		}
 	});
 
+	test('the calm notice still shows when the cancel response lands before the socket messages', async ({ page }) => {
+		test.setTimeout(180000);
+		await loginAsOwner(page);
+		token = await ownerToken(page);
+		id = await backendId(page, token);
+		let socketDelayMs = 0;
+		await page.routeWebSocket(/\/ws\/generation/, (ws) => {
+			const server = ws.connectToServer();
+			ws.onMessage((message) => server.send(message));
+			server.onMessage((message) => {
+				setTimeout(() => ws.send(message), socketDelayMs);
+			});
+		});
+		await setKnob(page, token, id, { duration_seconds: 120, supports_cancel: false });
+		try {
+			await openFakeStudio(page);
+			await pickModel(page, 'Fake Image');
+			await typePrompt(page, 'a late tide');
+			await page.getByRole('button', { name: 'Generate', exact: true }).click();
+			const cancel = page.getByRole('button', { name: 'Cancel generation' });
+			await expect(cancel).toBeVisible({ timeout: 15000 });
+			await page.waitForTimeout(2000);
+			socketDelayMs = 1500;
+			await cancel.click();
+			const notice = page.getByTestId('cancel-notice');
+			await expect(notice).toContainText('Stopped waiting. The provider may still finish this job and bill it.', { timeout: 15000 });
+			await expect(notice.getByRole('alert')).toHaveCount(0);
+			await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+			await page.waitForTimeout(2500);
+			await expect(notice).toContainText('Stopped waiting.');
+		} finally {
+			await setKnob(page, token, id, { duration_seconds: 2, supports_cancel: true });
+		}
+	});
+
 	test('the admin sees the cost of the completed generation', async ({ page }) => {
 		test.setTimeout(120000);
 		await loginAsOwner(page);
@@ -263,15 +296,14 @@ test.describe('cloud form on a phone', () => {
 		const needsPreset = await trigger.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 		if (needsPreset) {
 			await trigger.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(PRESET_NAME, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, PRESET_NAME).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 			await expect(page.getByRole('button', { name: /Use this preset|Keep selected/ })).toHaveCount(0);
 		}
 		await page.keyboard.press('Escape');
 		await expect(sheet).toBeHidden({ timeout: 5000 });
 		await page.getByRole('button', { name: 'Settings', exact: true }).click();
 		await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(1200);
 		await pickModel(page, 'Fake Lite');
 		await expect(field(page, 'quality')).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'form-fake-lite-390');

@@ -29,9 +29,3 @@ def up():
             )
         """)
     print(f"Migration 015_history_revisions: created '{_TABLE}'")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute(f"DROP TABLE IF EXISTS {_TABLE}")
-    print(f"Migration 015_history_revisions: dropped '{_TABLE}'")

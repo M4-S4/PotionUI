@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import type { ChatMode } from '$lib/types/chat';
 	import { deriveModeScopeMismatch } from '$lib/chat/modeScopeNotice';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let modes: ChatMode[] = [];
 	export let selected: string;
@@ -15,7 +16,6 @@
 
 	let open = false;
 	let triggerEl: HTMLButtonElement;
-	let menuEl: HTMLDivElement;
 
 	$: selectedMode = modes.find((m) => m.id === selected);
 	$: scopeMismatch = deriveModeScopeMismatch(selected, pageModeId, modes, locked);
@@ -28,32 +28,6 @@
 	function toggleOpen() {
 		open = !open;
 	}
-
-	function handleOutsidePointerDown(e: PointerEvent) {
-		if (!open) return;
-		const target = e.target as Node;
-		if (!menuEl?.contains(target) && !triggerEl?.contains(target)) {
-			open = false;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || !open) return;
-		open = false;
-		// A document-level bubble listener runs before window's, so stopping
-		// here keeps GlobalChatPanel's <svelte:window on:keydown> from also
-		// closing the whole chat panel on this same Escape press.
-		e.stopPropagation();
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 </script>
 
 <div class="relative">
@@ -67,10 +41,10 @@
 			aria-expanded={open}
 			on:click={toggleOpen}
 		>
-			<svg class="icon"><use href="#i-sparkles" /></svg>
+			<Icon name="chat-sparkles" className="icon" strokeWidth={1.8} />
 			<span>{selectedMode?.name || selected}</span>
 			{#if locked}
-				<svg class="icon lock"><use href="#i-lock" /></svg>
+				<Icon name="chat-lock" className="icon lock" strokeWidth={1.8} />
 			{/if}
 		</button>
 	</Tooltip>
@@ -93,7 +67,10 @@
 	{/if}
 </div>
 {#if open && !locked}
-	<div class="floating-menu mode-menu" bind:this={menuEl} data-testid="chat-mode-selector-menu">
+	<div
+		class="floating-menu mode-menu"
+		use:dismiss={{ onDismiss: () => (open = false), ignore: [triggerEl] }}
+		data-testid="chat-mode-selector-menu">
 		<div class="menu-label">Assistant mode</div>
 		{#each modes as mode}
 			<button type="button" class="model-option" class:selected={mode.id === selected} on:click={() => choose(mode.id)}>
@@ -102,7 +79,7 @@
 					{#if mode.description}<small>{mode.description}</small>{/if}
 				</span>
 				{#if mode.id === selected}
-					<svg class="icon check"><use href="#i-check" /></svg>
+					<Icon name="chat-check" className="icon check" strokeWidth={1.8} />
 				{/if}
 			</button>
 		{/each}

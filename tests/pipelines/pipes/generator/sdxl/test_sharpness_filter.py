@@ -15,17 +15,6 @@ from src.pipelines.pipes._shared.models.sdxl.kdiff_math import alpha_for_timeste
 class TestAnisotropicSharpnessBasics:
     """Test basic initialization and configuration."""
 
-    def test_init_default(self):
-        """Test default initialization."""
-        filter = AnisotropicSharpness()
-        assert filter.strength == 0.0
-        assert filter.base_multiplier == 0.001
-
-    def test_init_with_strength(self):
-        """Test initialization with custom strength."""
-        filter = AnisotropicSharpness(strength=5.0)
-        assert filter.strength == 5.0
-        assert filter.base_multiplier == 0.001
 
     def test_is_enabled_when_disabled(self):
         """Test is_enabled returns False when strength is 0."""

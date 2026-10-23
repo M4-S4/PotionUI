@@ -30,7 +30,7 @@ composited onto that colour.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from PIL import Image
 
@@ -132,16 +132,6 @@ def compute_scaled_size(orig_w: int, orig_h: int, canvas_w: int, canvas_h: int,
 class CanvasFitPipe(BasePipe):
     name = "canvas_fit"
     description = "Scale an image (aspect-preserved) and place it on a fixed canvas"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "width": 1024,
-            "height": 1024,
-            "scale_percent": 100.0,
-            "anchor": "center",
-            "fill": "transparent",
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

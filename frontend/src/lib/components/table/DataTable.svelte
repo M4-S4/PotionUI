@@ -6,6 +6,8 @@
 	import { clearPage, pageSelectionState, selectPage, toggleRow, type PageSelectionState } from './selection';
 	import SelectableGrid from './SelectableGrid.svelte';
 
+	const NARROW_MAX = 640;
+
 	let {
 		columns,
 		rows,
@@ -81,6 +83,8 @@
 	const colsFull = $derived(gridTemplateColumns(shownColumns, { narrow: false, selectable, trailing: !!rowActions }));
 	const colsNarrow = $derived(gridTemplateColumns(shownColumns, { narrow: true, selectable, trailing: !!rowActions }));
 	const rowIds = $derived(rows.map(getRowId));
+	let rootWidth = $state(0);
+	const narrow = $derived(forceNarrow ?? (rootWidth > 0 && rootWidth <= NARROW_MAX));
 	const headState = $derived(selected ? pageSelectionState(rowIds, selected) : 'none');
 
 	function handleSort(column: DataTableColumn<Row>) {
@@ -147,64 +151,70 @@
 <div
 	class="dt-root rounded-lg border border-line-strong bg-surface-1 {className}"
 	style="--dt-cols-full: {colsFull}; --dt-cols-narrow: {colsNarrow};"
+	data-unmeasured={forceNarrow === undefined && rootWidth === 0 ? '' : undefined}
+	bind:clientWidth={rootWidth}
 >
 	<div class="dt-scroll">
-		<div class="dt-row dt-row--head sticky top-0 z-[1] min-h-8 items-center gap-2.5 rounded-t-lg border-b border-line bg-surface-2 px-2.5 font-mono text-xs uppercase tracking-[0.06em] text-fg-subtle">
-			{#if selectable}
-				<span class="flex items-center justify-center">
-					<button
-						type="button"
-						role="checkbox"
-						aria-checked={headState === 'all' ? 'true' : headState === 'some' ? 'mixed' : 'false'}
-						aria-label="Select all rows on this page"
-						class="flex h-4 w-4 items-center justify-center rounded border border-line-strong bg-surface-2 {headState !== 'none' ? 'border-signal bg-signal' : ''}"
-						onclick={handleHeaderCheckbox}
-					>
-						{#if headState === 'all'}
-							<Icon name="check" className="h-2.5 w-2.5 text-canvas" strokeWidth={3} />
-						{:else if headState === 'some'}
-							<span class="h-0.5 w-2 rounded-full bg-canvas" aria-hidden="true"></span>
-						{/if}
-					</button>
-				</span>
-			{/if}
-			{#each shownColumns as column (column.key)}
-				<span class="dt-col {(column.priority ?? 0) === 1 ? 'dt-col--p1' : ''} flex items-center {alignClass(column.align)}">
-					{#if column.sortable}
+		{#if !narrow}
+			<div class="dt-row dt-row--head sticky top-0 z-[1] min-h-8 items-center gap-2.5 rounded-t-lg border-b border-line bg-surface-2 px-2.5 font-mono text-xs uppercase tracking-[0.06em] text-fg-subtle">
+				{#if selectable}
+					<span class="flex items-center justify-center">
 						<button
 							type="button"
-							class="inline-flex items-center gap-1 {sort?.key === column.key ? 'text-signal' : ''}"
-							onclick={() => handleSort(column)}
+							role="checkbox"
+							aria-checked={headState === 'all' ? 'true' : headState === 'some' ? 'mixed' : 'false'}
+							aria-label="Select all rows on this page"
+							class="flex h-4 w-4 items-center justify-center rounded border border-line-strong bg-surface-2 {headState !== 'none' ? 'border-signal bg-signal' : ''}"
+							onclick={handleHeaderCheckbox}
 						>
-							{column.label}
-							<Icon
-								name={sort?.key === column.key && sort.dir === 'desc' ? 'chevron-down' : 'chevron-up'}
-								className="h-2.5 w-2.5 {sort?.key === column.key ? 'opacity-100' : 'opacity-0'}"
-							/>
+							{#if headState === 'all'}
+								<Icon name="check" className="h-2.5 w-2.5 text-canvas" strokeWidth={3} />
+							{:else if headState === 'some'}
+								<span class="h-0.5 w-2 rounded-full bg-canvas" aria-hidden="true"></span>
+							{/if}
 						</button>
-					{:else}
-						{column.label}
-					{/if}
-				</span>
-			{/each}
-			{#if rowActions}<span class="dt-col"></span>{/if}
-		</div>
+					</span>
+				{/if}
+				{#each shownColumns as column (column.key)}
+					<span class="dt-col {(column.priority ?? 0) === 1 ? 'dt-col--p1' : ''} flex items-center {alignClass(column.align)}">
+						{#if column.sortable}
+							<button
+								type="button"
+								class="inline-flex items-center gap-1 {sort?.key === column.key ? 'text-signal' : ''}"
+								onclick={() => handleSort(column)}
+							>
+								{column.label}
+								<Icon
+									name={sort?.key === column.key && sort.dir === 'desc' ? 'chevron-down' : 'chevron-up'}
+									className="h-2.5 w-2.5 {sort?.key === column.key ? 'opacity-100' : 'opacity-0'}"
+								/>
+							</button>
+						{:else}
+							{column.label}
+						{/if}
+					</span>
+				{/each}
+				{#if rowActions}<span class="dt-col"></span>{/if}
+			</div>
+		{/if}
 
 		{#if loading}
-			{#each Array(loadingRowCount) as _, i (i)}
-				<div class="dt-row min-h-[42px] items-center gap-2.5 border-b border-line px-2.5">
-					{#if selectable}<span></span>{/if}
-					{#each shownColumns as column, ci (column.key)}
-						<span class="dt-col {(column.priority ?? 0) === 1 ? 'dt-col--p1' : ''} flex items-center">
-							<span
-								class="h-2.5 animate-pulse rounded bg-surface-3"
-								style="width: {ci === 0 ? '70%' : '50px'};"
-							></span>
-						</span>
-					{/each}
-					{#if rowActions}<span class="dt-col"></span>{/if}
-				</div>
-			{/each}
+			{#if !narrow}
+				{#each Array(loadingRowCount) as _, i (i)}
+					<div class="dt-row min-h-[42px] items-center gap-2.5 border-b border-line px-2.5">
+						{#if selectable}<span></span>{/if}
+						{#each shownColumns as column, ci (column.key)}
+							<span class="dt-col {(column.priority ?? 0) === 1 ? 'dt-col--p1' : ''} flex items-center">
+								<span
+									class="h-2.5 animate-pulse rounded bg-surface-3"
+									style="width: {ci === 0 ? '70%' : '50px'};"
+								></span>
+							</span>
+						{/each}
+						{#if rowActions}<span class="dt-col"></span>{/if}
+					</div>
+				{/each}
+			{/if}
 		{:else if rows.length === 0}
 			<div class="flex flex-col items-center gap-2.5 px-5 py-11 text-center">
 				{#if isFiltered && filteredEmptyState}
@@ -212,6 +222,35 @@
 				{:else if emptyState}
 					{@render emptyState()}
 				{/if}
+			</div>
+		{:else if narrow}
+			<div class="dt-mobile">
+				{#each rows as row (getRowId(row))}
+					<div
+						class="flex items-start gap-2.5 border-b border-line px-3.5 py-3 {onRowClick ? 'cursor-pointer' : ''}"
+						role="row"
+						tabindex={onRowClick ? 0 : -1}
+						onclick={() => handleRowActivate(row)}
+						onkeydown={(event) => handleRowKeydown(event, row)}
+					>
+						<div class="min-w-0 flex-1">
+							{#if card}
+								{@render card(row)}
+							{:else if shownColumns[0]}
+								<div class="truncate text-sm font-semibold text-fg">
+									{#if shownColumns[0].cell}
+										{@render shownColumns[0].cell(row)}
+									{:else}
+										{shownColumns[0].accessor?.(row) ?? '—'}
+									{/if}
+								</div>
+							{/if}
+						</div>
+						{#if onRowClick}
+							<Icon name="chevron-right" className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
+						{/if}
+					</div>
+				{/each}
 			</div>
 		{:else}
 			{#each rows as row (getRowId(row))}
@@ -265,37 +304,6 @@
 				</div>
 			{/each}
 		{/if}
-
-		<div class="dt-mobile hidden">
-			{#if !loading}
-				{#each rows as row (getRowId(row))}
-					<div
-						class="flex items-start gap-2.5 border-b border-line px-3.5 py-3 {onRowClick ? 'cursor-pointer' : ''}"
-						role="row"
-						tabindex={onRowClick ? 0 : -1}
-						onclick={() => handleRowActivate(row)}
-						onkeydown={(event) => handleRowKeydown(event, row)}
-					>
-						<div class="min-w-0 flex-1">
-							{#if card}
-								{@render card(row)}
-							{:else if shownColumns[0]}
-								<div class="truncate text-sm font-semibold text-fg">
-									{#if shownColumns[0].cell}
-										{@render shownColumns[0].cell(row)}
-									{:else}
-										{shownColumns[0].accessor?.(row) ?? '—'}
-									{/if}
-								</div>
-							{/if}
-						</div>
-						{#if onRowClick}
-							<Icon name="chevron-right" className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
-						{/if}
-					</div>
-				{/each}
-			{/if}
-		</div>
 	</div>
 </div>
 {/if}
@@ -322,12 +330,8 @@
 	}
 
 	@container data-table (max-width: 40rem) {
-		.dt-scroll > .dt-row {
+		.dt-root[data-unmeasured] .dt-scroll > .dt-row {
 			display: none;
-		}
-
-		.dt-mobile {
-			display: block !important;
 		}
 	}
 

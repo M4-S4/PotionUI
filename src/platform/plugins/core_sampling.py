@@ -206,6 +206,23 @@ CORE_SCHEDULES = (
         description="LTX-2.5's resolution-dependent shift: mu interpolated from the packed "
                     "video token count.",
     ),
+    ScheduleDefinition(
+        "moss_grid", _schedule("_build_moss_grid_schedule"), "MOSS-Image grid",
+        families=("moss_image",),
+        options=(
+            OptionSpec(
+                "training_shift", "float", 1.0,
+                "Shift of the training timestep grid the sigmas are snapped onto.",
+                min_value=0.0,
+            ),
+            OptionSpec(
+                "num_train_timesteps", "int", 1000,
+                "Size of the training timestep grid.", min_value=2,
+            ),
+        ),
+        description="MOSS-Image's reference schedule: a shifted ramp snapped to the nearest "
+                    "point of the training grid.",
+    ),
 )
 
 for _definition in CORE_SAMPLERS:

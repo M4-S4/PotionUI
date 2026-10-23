@@ -12,11 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import Mock
 
-import pytest
 import yaml
 
 from src.features.forms.binding import bind_form
-from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 
@@ -34,26 +32,6 @@ _SLA_ON = {
 }
 
 _KEYS = ("sparse_attn", "sol_attn_tau", "sla_sparsity", "sla_block_size", "sparse_attn_dense_last_steps")
-
-
-# Matched by id, not by a path substring: `MiniMax-H3-VDN` also contains
-# "MiniMax-H3", and PresetTemplateLoader walks `rglob("preset.yml")` in
-# filesystem order, so a substring match picks an arbitrary member of the
-# family. Asserted rather than skipped -- these files were silently skipping
-# every test in them for weeks after the content/ restructure.
-_H3_PRESET_ID = "01KX47H3MINIMAX000000000VA"
-
-
-@pytest.fixture(scope="module")
-def h3_template():
-    loader = PresetTemplateLoader(["content/presets"])
-    loader.load_presets()
-    template = next((p for p in loader.presets if p.id == _H3_PRESET_ID), None)
-    assert template is not None, (
-        f"MiniMax-H3 preset {_H3_PRESET_ID} not loaded from content/presets "
-        f"(loaded: {sorted(p.id for p in loader.presets)})"
-    )
-    return template
 
 
 def _process(h3_template, form_over: dict | None = None):

@@ -3,13 +3,8 @@ import type { AttributeDefinition } from '$lib/types/models';
 import {
 	DEFAULT_ATTRIBUTES_FILTERS,
 	applyAttributesFilters,
-	attributesFilterActiveCount,
-	attributesFilterChips,
-	attributesFiltersFromSearchParams,
-	attributesFiltersToSearchParams,
-	clearAllAttributesFilters,
-	clearAttributesFilterChip,
-	type AttributesFilters
+	type AttributesFilters,
+	attributesFilters
 } from './attributesFilters';
 
 function definition(overrides: Partial<AttributeDefinition> = {}): AttributeDefinition {
@@ -59,31 +54,31 @@ describe('applyAttributesFilters', () => {
 	});
 });
 
-describe('attributesFiltersFromSearchParams / attributesFiltersToSearchParams', () => {
+describe('attributesFilters.fromSearchParams / attributesFilters.toSearchParams', () => {
 	it('round-trips a non-default filter set', () => {
 		const filters: AttributesFilters = { q: 'trigger', sortBy: 'label' };
-		const params = attributesFiltersToSearchParams(filters);
+		const params = attributesFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('trigger');
 		expect(params.get('sort_by')).toBe('label');
-		expect(attributesFiltersFromSearchParams(params)).toEqual(filters);
+		expect(attributesFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('serializes the default filters to an empty query string', () => {
-		expect(attributesFiltersToSearchParams(DEFAULT_ATTRIBUTES_FILTERS).toString()).toBe('');
+		expect(attributesFilters.toSearchParams(DEFAULT_ATTRIBUTES_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to defaults for an unknown sort_by', () => {
 		const params = new URLSearchParams('sort_by=bogus');
-		expect(attributesFiltersFromSearchParams(params)).toEqual(DEFAULT_ATTRIBUTES_FILTERS);
+		expect(attributesFilters.fromSearchParams(params)).toEqual(DEFAULT_ATTRIBUTES_FILTERS);
 	});
 });
 
 describe('attributes filter chips', () => {
 	it('has no popover fields to chip or clear beyond search and sort', () => {
 		const filters: AttributesFilters = { q: 'keep me', sortBy: 'label' };
-		expect(attributesFilterChips(filters)).toEqual([]);
-		expect(attributesFilterActiveCount(filters)).toBe(0);
-		expect(clearAttributesFilterChip(filters, 'nothing')).toBe(filters);
-		expect(clearAllAttributesFilters(filters)).toEqual({ q: 'keep me', sortBy: 'label' });
+		expect(attributesFilters.chips(filters)).toEqual([]);
+		expect(attributesFilters.activeCount(filters)).toBe(0);
+		expect(attributesFilters.clearChip(filters, 'nothing')).toBe(filters);
+		expect(attributesFilters.clearAll(filters)).toEqual({ q: 'keep me', sortBy: 'label' });
 	});
 });

@@ -77,13 +77,11 @@ class TestDatabase:
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        """Get a database connection with automatic cleanup"""
-        try:
-            yield self._connection
-        finally:
-            # Don't close the connection for in-memory database
-            # as it would lose all data
-            pass
+        with self._guard:
+            connection = self._connection
+            if connection is None:
+                raise sqlite3.ProgrammingError("test database is closed")
+            yield connection
 
     @contextmanager
     def get_cursor(self) -> Generator[sqlite3.Cursor, None, None]:
@@ -100,10 +98,10 @@ class TestDatabase:
                 cursor.close()
 
     def close(self):
-        """Close the database connection"""
-        if self._connection:
-            self._connection.close()
-            self._connection = None
+        with self._guard:
+            if self._connection:
+                self._connection.close()
+                self._connection = None
 
     @classmethod
     def from_template(cls) -> "TestDatabase":
@@ -145,6 +143,16 @@ def _restore_runtime_flags():
             if saved_ops_dict is not (flags_module.runtime_flag_values() if flags_module else None):
                 saved_ops_dict.clear()
                 saved_ops_dict.update(saved_ops_values)
+
+
+@pytest.fixture(autouse=True)
+def _close_database_pool():
+    import sys
+
+    yield
+    database_module = sys.modules.get("src.platform.database.database")
+    if database_module is not None:
+        database_module.Database.close_pool()
 
 
 @pytest.fixture(autouse=True)
@@ -339,8 +347,6 @@ def mock_settings():
 
 # Import all fixtures from fixture modules so they're available to tests
 pytest_plugins = [
-    'tests.fixtures.generation_fixtures',
-    'tests.fixtures.user_fixtures',
     'tests.fixtures.preset_fixtures',
     'tests.fixtures.image_fixtures',
     'tests.fixtures.mesh_fixtures',

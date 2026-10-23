@@ -9,14 +9,6 @@ if TYPE_CHECKING:
     from src.features.generation.dto import GenerationRequest
 
 
-class GenerationResult:
-    """Result of a generation request"""
-    def __init__(self, generation_id: str, status: str, outputs: Dict[str, Any] = None):
-        self.generation_id = generation_id
-        self.status = status
-        self.outputs = outputs or {}
-
-
 # The coarse, class-level tag every backend implementation carries (see
 # `BaseBackend.execution_device` below): "this_host_gpu" for a backend whose
 # CLASS is capable of running inference on this process's own GPU,
@@ -199,35 +191,6 @@ class BaseBackend(ABC):
         """
         pass
 
-    async def download_generation_files(self, generation_id: str, local_path: str) -> bool:
-        """
-        Download generated files from the backend to local storage
-        This is mainly for remote backends - local backends don't need to implement this
-
-        Args:
-            generation_id: The generation ID
-            local_path: Local path to save files
-
-        Returns:
-            bool: True if download was successful
-        """
-        # Default implementation for local backends
-        return True
-
-    async def upload_input_files(self, files: Dict[str, Any]) -> Dict[str, str]:
-        """
-        Upload input files to the backend
-        This is mainly for remote backends - local backends don't need to implement this
-
-        Args:
-            files: Dictionary of files to upload
-
-        Returns:
-            Dict mapping original file paths to backend file paths
-        """
-        # Default implementation for local backends
-        return files
-
     def resolve_ref(self, ref: str) -> str:
         return ref
 
@@ -270,15 +233,6 @@ class BaseBackend(ABC):
             bool: True if available
         """
         return self.config.enabled
-
-    def get_timeout_seconds(self) -> int:
-        """
-        Get the timeout for generation requests
-
-        Returns:
-            int: Timeout in seconds
-        """
-        return self.config.timeout_seconds
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(id={self.backend_id}, name={self.name}, engine={self.engine})"

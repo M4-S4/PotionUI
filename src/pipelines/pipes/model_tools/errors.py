@@ -1,0 +1,2 @@
+class ModelToolsRefused(ValueError):
+    pass

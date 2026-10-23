@@ -2,6 +2,7 @@
 	import { slide } from 'svelte/transition';
 	import type { ToolExecution } from '$lib/types/chat';
 	import { chatModes } from '$lib/stores/chatModes';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let executions: ToolExecution[] = [];
 
@@ -34,10 +35,10 @@
 	     Markup ported verbatim from the mock's .tool-run (chat-rework BRIEF2). -->
 	<details class="tool-run" class:failed={anyFailed} open={anyFailed}>
 		<summary>
-			<span class="tool-run-status"><svg class="icon"><use href={anyFailed ? '#i-close' : '#i-check'} /></svg></span>
+			<span class="tool-run-status"><Icon name={anyFailed ? 'chat-close' : 'chat-check'} className="icon" strokeWidth={1.8} /></span>
 			<strong>{visible.length} tool{visible.length === 1 ? '' : 's'} used</strong>
 			<span class="tool-run-names">{namesLine}</span>
-			<svg class="icon tool-run-chevron"><use href="#i-chevron" /></svg>
+			<Icon name="chat-chevron" className="icon tool-run-chevron" strokeWidth={1.8} />
 		</summary>
 		<div class="tool-run-details" transition:slide={{ duration: 150 }}>
 			{#each visible as execution}
@@ -48,11 +49,11 @@
 					{#if running}
 						<span class="tool-execution-spinner" role="status" aria-label="Running"></span>
 					{:else if failed}
-						<svg class="icon"><use href="#i-close" /></svg>
+						<Icon name="chat-close" className="icon" strokeWidth={1.8} />
 					{:else if skipped}
-						<svg class="icon"><use href="#i-chevron" /></svg>
+						<Icon name="chat-chevron" className="icon" strokeWidth={1.8} />
 					{:else}
-						<svg class="icon"><use href="#i-check" /></svg>
+						<Icon name="chat-check" className="icon" strokeWidth={1.8} />
 					{/if}
 					<strong>{toolLabel(execution)}</strong>
 					<span>{skipped ? 'Not run' : formatDuration(execution.duration_ms)}</span>

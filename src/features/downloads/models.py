@@ -121,28 +121,6 @@ class Download:
             'created_by': self.created_by
         }
 
-    def get_eta_seconds(self) -> Optional[float]:
-        """Calculate estimated time remaining in seconds"""
-        if not self.speed_bytes_per_sec or self.speed_bytes_per_sec <= 0:
-            return None
-        if not self.total_bytes:
-            return None
-        remaining_bytes = self.total_bytes - self.downloaded_bytes
-        if remaining_bytes <= 0:
-            return 0
-        return remaining_bytes / self.speed_bytes_per_sec
-
-    def get_human_readable_size(self) -> str:
-        """Get human readable file size"""
-        if not self.total_bytes:
-            return "Unknown"
-
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if self.total_bytes < 1024:
-                return f"{self.total_bytes:.2f} {unit}"
-            self.total_bytes /= 1024
-        return f"{self.total_bytes:.2f} PB"
-
 
 @dataclass
 class DownloadSettings:

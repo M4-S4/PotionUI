@@ -5,6 +5,7 @@ import pytest
 from src.features.models.catalog import ModelCatalog
 from src.platform.filesystem.model_roots import NoWriteRootError
 from src.platform.security.user import AccountType
+from tests.fixtures.seed import seed_user
 
 
 def _catalog(matched=None):
@@ -61,11 +62,7 @@ def library_catalog(tmp_path, mock_db):
     from src.features.models.repository import model_repo
     from tests.fixtures.model_index_fixtures import FLUX, LORA, Library
 
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) "
-            "VALUES ('u1', 'user', 'user@example.test', 'x', 'USER')"
-        )
+    seed_user(mock_db, "u1", username="user", email="user@example.test")
     lib = Library(tmp_path)
     lib.put(lib.checkpoints, "flux.safetensors", FLUX)
     lib.put(lib.checkpoints, "mystery.safetensors", LORA)

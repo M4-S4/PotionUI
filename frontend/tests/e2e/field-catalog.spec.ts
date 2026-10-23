@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Visual evidence — the Field Catalog restyle (3a tabs + 2a cards).
 // Captures the decisive states of the redesigned form fields on a real native
@@ -8,22 +9,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // resolution default and the tablist rendering), everything else is evidence.
 
 const JOURNEY = 'field-catalog';
-const BEAT = 400;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('field catalog restyle — visual capture on a native image preset', async ({ page }) => {
 	await loginAsOwner(page);
@@ -56,12 +41,11 @@ test('field catalog restyle — visual capture on a native image preset', async 
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(imagePreset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, imagePreset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	await screenshot(page, JOURNEY, '01-generate-form-full');
 	await tablist.screenshot({ path: shotPath(JOURNEY, '02-tab-bar') });
@@ -72,7 +56,6 @@ test('field catalog restyle — visual capture on a native image preset', async 
 	const tabCount = await tabs.count();
 	for (let i = 0; i < tabCount && i < 8; i++) {
 		await tabs.nth(i).click();
-		await page.waitForTimeout(BEAT);
 		const label = ((await tabs.nth(i).getAttribute('aria-label')) || `tab-${i}`)
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, '-')
@@ -86,7 +69,7 @@ test('field catalog restyle — visual capture on a native image preset', async 
 		if (label.includes('advanced')) {
 			const activePanel = page.locator('[role="tabpanel"][aria-hidden="false"]');
 			const cfgValueButton = activePanel
-				.locator('button[title="Click to type a value"]')
+				.locator('button.cursor-text')
 				.filter({ hasText: '4' })
 				.first();
 			if ((await cfgValueButton.count()) > 0) {
@@ -94,7 +77,6 @@ test('field catalog restyle — visual capture on a native image preset', async 
 				const editInput = activePanel.locator('input[type="text"]').first();
 				await editInput.fill('12.5');
 				await editInput.press('Enter');
-				await page.waitForTimeout(BEAT);
 			}
 		}
 
@@ -113,12 +95,10 @@ test('field catalog restyle — visual capture on a native image preset', async 
 				const modelSection = sectionButtons.filter({ hasText: 'Model' }).first();
 				if ((await modelSection.count()) > 0) {
 					await modelSection.click();
-					await page.waitForTimeout(BEAT);
 					await screenshot(page, JOURNEY, '41-section-collapsed');
 
 					// Restore expanded state so later steps in this tab aren't affected.
 					await modelSection.click();
-					await page.waitForTimeout(BEAT);
 				} else {
 					console.log(`[${JOURNEY}] no "Model" section button found — skipping 41-section-collapsed.`);
 				}
@@ -130,7 +110,7 @@ test('field catalog restyle — visual capture on a native image preset', async 
 
 	// Resolution: the boxes grid is the designed default. Find its card via the
 	// view-toggle it renders; assert chips (not the dropdown trigger) show.
-	const resolutionToggle = page.locator('button[title*="resolution" i], button[aria-label*="resolution view" i]');
+	const resolutionToggle = page.locator('button[aria-label*="resolution view" i]');
 	if ((await resolutionToggle.count()) > 0) {
 		const card = resolutionToggle.first().locator('xpath=ancestor::*[contains(@class, "field-card")][1]');
 		if ((await card.count()) > 0) {
@@ -146,7 +126,6 @@ test('field catalog restyle — visual capture on a native image preset', async 
 	const modeButtons = page.locator('button', { hasText: /inpaint|img2img|image.to.image/i });
 	if ((await modeButtons.count()) > 0) {
 		await modeButtons.first().click();
-		await page.waitForTimeout(BEAT);
 
 		const dropHint = page.getByText(/Drop (an image|a video|an audio file|a file|media) or/i).first();
 		if ((await dropHint.count()) > 0 && (await dropHint.isVisible())) {
@@ -190,7 +169,6 @@ test('field catalog restyle — visual capture on a native image preset', async 
 	// it won't see the assign made via page.request above until refetched.
 	await page.reload();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	const newTabButton = page.getByRole('button', { name: 'New tab' });
 	if ((await newTabButton.count()) === 0) {
@@ -198,18 +176,15 @@ test('field catalog restyle — visual capture on a native image preset', async 
 		return;
 	}
 	await newTabButton.click();
-	await page.waitForTimeout(BEAT);
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(videoPreset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(BEAT);
+	await presetOption(page, videoPreset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	// The modeless Stage & Rail editor has no mode tabs to switch into — a
 	// fresh document's default (first, auto-selected) shot shows its leading
 	// media well directly whenever the preset's capabilities make one legal
 	// there (e.g. Wan's first_only keyframes), the same compact call site the
 	// old i2v mode's SimpleComposer used.
-	await page.waitForTimeout(BEAT);
 
 	const compactDropHint = page.getByText(/Paste or drop image/i).first();
 	if ((await compactDropHint.count()) === 0 || !(await compactDropHint.isVisible())) {

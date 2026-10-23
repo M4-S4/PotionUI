@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
 	import FormulasDrawer from './FormulasDrawer.svelte';
 	import { formulaLists, formulasKey, getFormulaDeclaration, loadFormulas } from '$lib/stores/formulas';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
@@ -14,14 +13,14 @@
 		presetVersion,
 		modeLabel,
 		onApplied,
-		grouped = false
+		layout
 	}: {
 		tab: Tab;
 		presetName: string;
 		presetVersion: string;
 		modeLabel: string;
 		onApplied?: () => void;
-		grouped?: boolean;
+		layout: 'rail' | 'sheet';
 	} = $props();
 
 	let loaded = $state.raw<{ key: string; value: FormulaDeclaration | null } | null>(null);
@@ -77,22 +76,23 @@
 </script>
 
 {#if declaration}
-	<Tooltip text="Formulas" position="bottom" delay={150} wrapperClass={grouped ? 'flex h-full' : undefined}>
-		<button
-			type="button"
-			class="relative flex flex-shrink-0 items-center justify-center text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg {grouped ? 'h-full w-7' : 'h-9 w-9 rounded border border-line-strong bg-surface-2 hover:border-line-hover'}"
-			aria-label="Formulas"
-			aria-haspopup="dialog"
-			aria-expanded={open}
-			data-testid="formulas-button"
-			onclick={toggle}
-		>
-			<Icon name="book" className="h-4 w-4" />
-			{#if count > 0}
-				<span class="absolute {grouped ? 'right-0 top-0' : '-right-1 -top-1'} inline-flex h-4 min-w-[16px] items-center justify-center rounded border border-line-strong bg-surface-3 px-1 font-mono text-xs tabular-nums text-fg">{count}</span>
-			{/if}
-		</button>
-	</Tooltip>
+	<button
+		type="button"
+		class="flex flex-shrink-0 items-center justify-center gap-1.5 rounded text-sm transition-colors {layout === 'rail'
+			? `h-8 border px-2.5 ${open ? 'border-line-hover bg-control-fill-hover text-fg' : 'border-line bg-control-fill text-fg hover:border-line-hover hover:bg-control-fill-hover'}`
+			: `h-[42px] flex-1 border px-3 ${open ? 'border-line-hover bg-surface-3 text-fg' : 'border-line bg-surface-2 text-fg hover:border-line-hover hover:bg-surface-3'}`}"
+		aria-label="Formulas"
+		aria-haspopup="dialog"
+		aria-expanded={open}
+		data-testid="formulas-button"
+		onclick={toggle}
+	>
+		<Icon name="book" className="h-4 w-4 flex-shrink-0 {layout === 'rail' ? '' : 'text-fg-muted'}" />
+		<span>Formulas</span>
+		{#if count > 0}
+			<span class="font-mono text-sm tabular-nums text-fg-subtle" data-testid="formulas-count">{count}</span>
+		{/if}
+	</button>
 
 	{#if open}
 		<FormulasDrawer {tab} {declaration} {presetName} {presetVersion} {modeLabel} onClose={close} {onApplied} />

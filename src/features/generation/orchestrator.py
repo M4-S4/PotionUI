@@ -68,7 +68,7 @@ from src.features.generation.prompt_batch_split_repository import PromptBatchSpl
 from src.features.generation.output_bridge import OutputBridge
 from src.features.generation.queue import QueuedGeneration
 from src.features.generation.queue_dispatcher import CancelledBeforeStart, QueueDispatcher
-from src.features.generation.scheduling import SchedulingPolicy
+from src.features.generation.scheduling import FAIR, SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.grids.repository import grid_repo
@@ -93,7 +93,7 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.features.generation.routing.contracts import RoutingRequest
 from src.features.models.form_refs import collect_model_ids, is_model_ref, model_id_of, resolve_form_model_refs
 from src.features.models.exceptions import ModelAccessDeniedException
-from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, ProgressGenerationOutput
+from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
 from src.features.generation.dto import GenerationStatus
@@ -599,6 +599,7 @@ class GenerationOrchestrator:
 
         self.status_tracker = status_tracker or GenerationStatusTracker()
 
+        self._scheduling_policy_for = scheduling_policy_for or (lambda backend_id: SchedulingPolicy())
         self._queue_dispatcher = QueueDispatcher(
             status_tracker=self.status_tracker,
             dispatch=self._start_generation,
@@ -742,7 +743,7 @@ class GenerationOrchestrator:
         field_overrides: Optional[Dict[str, Any]],
         backend: Any = None,
     ):
-        capabilities = getattr(self, "cloud_capabilities", None)
+        capabilities = self.cloud_capabilities
         cloud_args = {}
         if capabilities is not None and preset_template.engine == CLOUD_ENGINE:
             backend_id = backend.backend_id if backend is not None else None
@@ -759,7 +760,7 @@ class GenerationOrchestrator:
         )
 
     def _director_model_overlay(self, preset_template) -> Optional[Callable[[Any], Optional[Dict[str, Any]]]]:
-        capabilities = getattr(self, "cloud_capabilities", None)
+        capabilities = self.cloud_capabilities
         if capabilities is None or preset_template.engine != CLOUD_ENGINE:
             return None
         driver = getattr(preset_template, "driver", None)
@@ -823,7 +824,7 @@ class GenerationOrchestrator:
             user_id, storage_dir, field_overrides,
         )
 
-        router = getattr(self, "router", None)
+        router = self.router
         if router is not None:
             decision = await router.route(RoutingRequest(
                 engine=engine,
@@ -976,6 +977,81 @@ class GenerationOrchestrator:
             'queue_position': None,
         }
 
+    async def _route(self, engine: str, preset_template, form_data, user_id: str):
+        if self.router is None:
+            backend = self.backend_registry.select_backend_for_generation(engine=engine)
+            return backend, None, None
+        decision = await self.router.route(RoutingRequest(
+            engine=engine,
+            preset=preset_template,
+            form_data=form_data or {},
+            user_id=user_id,
+        ))
+        return decision.chosen, decision, decision.summary()
+
+    def _persist_side_records(
+        self,
+        request,
+        generation_id: str,
+        user_id: str,
+        decision,
+        routing_summary: Optional[Dict[str, Any]],
+        generation_origins,
+    ) -> None:
+        if decision is not None:
+            try:
+                trace = decision.to_trace_dict()
+                trace['chosen']['reason'] = routing_summary['reason'] if routing_summary else None
+                generation_repo.update_routing_decision(generation_id, trace)
+            except Exception as e:
+                logger.warning(f"Failed to persist routing decision for {generation_id}: {e}")
+
+        if generation_origins:
+            from src.features.generation.source_repository import generation_source_repo
+            try:
+                generation_source_repo.create_for_generation(generation_id, generation_origins)
+                logger.debug(
+                    f"Persisted {len(generation_origins)} source link(s) for generation {generation_id}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to persist source links for generation {generation_id}: {e}")
+
+        if request.tag_ids:
+            from src.features.tags.repository import TagRepository
+            tag_repo = TagRepository()
+            for tag_id in request.tag_ids:
+                try:
+                    tag_repo.add_tag_to_generation(generation_id, tag_id)
+                except Exception as e:
+                    logger.warning(f"Failed to apply auto-tag {tag_id} to generation {generation_id}: {e}")
+            logger.debug(f"Applied {len(request.tag_ids)} auto-tag(s) to generation {generation_id}")
+
+        collection_ids = getattr(request, 'collection_ids', None)
+        if isinstance(collection_ids, (list, tuple)) and collection_ids:
+            from src.features.collections import operations as collection_operations
+            from src.features.collections.repository import CollectionRepository
+            collection_repository = CollectionRepository()
+            for collection_id in collection_ids:
+                try:
+                    collection_operations.add_members(collection_repository, collection_id, [generation_id], user_id, "history")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to apply auto-collection {collection_id} "
+                        f"to generation {generation_id}: {e}"
+                    )
+            logger.debug(
+                f"Applied {len(collection_ids)} auto-collection(s) "
+                f"to generation {generation_id}"
+            )
+
+        if request.segments:
+            from src.features.generation.segment_repository import generation_segment_repo
+            try:
+                generation_segment_repo.create_for_generation(generation_id, request.segments)
+                logger.debug(f"Persisted {len(request.segments)} segment(s) for generation {generation_id}")
+            except Exception as e:
+                logger.warning(f"Failed to persist segments for generation {generation_id}: {e}")
+
     async def _submit_generation(
         self,
         request,
@@ -1094,32 +1170,15 @@ class GenerationOrchestrator:
             if generation_origins:
                 _validate_generation_origins(generation_origins, user_id)
 
-            # Select backend for this generation - see
-            # `src.features.generation.routing` and docs/generation-routing.md.
-            # `self.router` is `None` in most existing tests and any
-            # deployment that hasn't wired one: fall back to the plain,
-            # unnarrowed pick (exactly `select_backend_for_generation`'s own
-            # behavior always was) rather than skip backend selection.
-            router = getattr(self, "router", None)
-            if router is not None:
-                decision = await router.route(RoutingRequest(
-                    engine=engine,
-                    preset=preset_template,
-                    form_data=request.form_data or {},
-                    user_id=user_id,
-                ))
-                backend = decision.chosen
-                routing_summary = decision.summary()
-            else:
-                decision = None
-                backend = self.backend_registry.select_backend_for_generation(engine=engine)
-                routing_summary = None
+            backend, decision, routing_summary = await self._route(
+                engine, preset_template, request.form_data, user_id
+            )
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")
 
             check_prompt_batch(request, backend)
 
-            if engine == CLOUD_ENGINE and getattr(self, "cloud_capabilities", None) is not None:
+            if engine == CLOUD_ENGINE and self.cloud_capabilities is not None:
                 bound = self._bind(
                     preset_template, mode, bound.form_name, request.form_data,
                     user_id, storage_dir, field_overrides, backend=backend,
@@ -1186,7 +1245,7 @@ class GenerationOrchestrator:
                 # Update request with potentially modified (and re-validated) form_data
                 request.form_data = form_data
 
-            cloud_policy = getattr(self, "cloud_policy", None)
+            cloud_policy = self.cloud_policy
             if cloud_policy is not None and engine == CLOUD_ENGINE:
                 cloud_policy.check(preset_template, mode, bound, backend)
 
@@ -1210,7 +1269,7 @@ class GenerationOrchestrator:
                 request.form_data or {}, backend, self.model_locator
             )
 
-            if getattr(self, "limit_guard", None) is not None:
+            if self.limit_guard is not None:
                 await asyncio.to_thread(self.limit_guard.admit, AdmissionRequest(
                     point="submit",
                     user_id=user_id,
@@ -1256,70 +1315,9 @@ class GenerationOrchestrator:
             # the persisted record above already captured the form-contract version.
             request.form_data = resolved_form_data
 
-            # Persist the router's decision trace for the history detail
-            # "Routing" section. `decision` is only set when a router is
-            # wired (see backend selection above) - most existing tests and
-            # any deployment without one never reach this.
-            if decision is not None:
-                try:
-                    trace = decision.to_trace_dict()
-                    trace['chosen']['reason'] = routing_summary['reason'] if routing_summary else None
-                    generation_repo.update_routing_decision(generation_id, trace)
-                except Exception as e:
-                    logger.warning(f"Failed to persist routing decision for {generation_id}: {e}")
-
-            # Persist the provenance links validated above, now that
-            # generation_id exists for them to point at.
-            if generation_origins:
-                from src.features.generation.source_repository import generation_source_repo
-                try:
-                    generation_source_repo.create_for_generation(generation_id, generation_origins)
-                    logger.debug(
-                        f"Persisted {len(generation_origins)} source link(s) for generation {generation_id}"
-                    )
-                except Exception as e:
-                    logger.warning(f"Failed to persist source links for generation {generation_id}: {e}")
-
-            # Apply auto-tags if provided
-            if request.tag_ids:
-                from src.features.tags.repository import TagRepository
-                tag_repo = TagRepository()
-                for tag_id in request.tag_ids:
-                    try:
-                        tag_repo.add_tag_to_generation(generation_id, tag_id)
-                    except Exception as e:
-                        logger.warning(f"Failed to apply auto-tag {tag_id} to generation {generation_id}: {e}")
-                logger.debug(f"Applied {len(request.tag_ids)} auto-tag(s) to generation {generation_id}")
-
-            # Add the new generation to any auto-collections selected by the
-            # originating tab. operations.add_members verifies that each
-            # target is owned by this user before creating the membership.
-            collection_ids = getattr(request, 'collection_ids', None)
-            if isinstance(collection_ids, (list, tuple)) and collection_ids:
-                from src.features.collections import operations as collection_operations
-                from src.features.collections.repository import CollectionRepository
-                collection_repository = CollectionRepository()
-                for collection_id in collection_ids:
-                    try:
-                        collection_operations.add_members(collection_repository, collection_id, [generation_id], user_id, "history")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to apply auto-collection {collection_id} "
-                            f"to generation {generation_id}: {e}"
-                        )
-                logger.debug(
-                    f"Applied {len(collection_ids)} auto-collection(s) "
-                    f"to generation {generation_id}"
-                )
-
-            # Persist the detached rich segment metadata and resolved phrasebook values.
-            if request.segments:
-                from src.features.generation.segment_repository import generation_segment_repo
-                try:
-                    generation_segment_repo.create_for_generation(generation_id, request.segments)
-                    logger.debug(f"Persisted {len(request.segments)} segment(s) for generation {generation_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to persist segments for generation {generation_id}: {e}")
+            self._persist_side_records(
+                request, generation_id, user_id, decision, routing_summary, generation_origins
+            )
 
             # Create status tracking record (creation itself is already
             # reflected in the DB row created above with status='pending';
@@ -1343,7 +1341,11 @@ class GenerationOrchestrator:
                 backend_id=backend.backend_id,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
-                model_key=self._resolve_model_key(bound, preset_template, mode, user_id),
+                model_key=(
+                    self._resolve_model_key(bound, preset_template, mode, user_id)
+                    if self._scheduling_policy_for(backend.backend_id).name == FAIR
+                    else None
+                ),
                 payload={
                     'request': request,
                     'backend': backend,
@@ -1384,11 +1386,21 @@ class GenerationOrchestrator:
         generation_id: str,
         request,  # GenerationRequest type
         prompts: Optional[List[Dict[str, str]]],
+        user_id: Optional[str] = None,
     ) -> Optional[List[Dict[str, str]]]:
         """Expand the authored prompt template into one realization per image.
 
         Delegates to PromptExpander; see prompt_expansion.py."""
-        return self._prompt_expander.expand_per_image(generation_id, request, prompts)
+        warned = []
+
+        def on_warning(message: str) -> None:
+            if not warned:
+                warned.append(True)
+                self._notifier.notify_warning(generation_id, user_id, message)
+
+        return self._prompt_expander.expand_per_image(
+            generation_id, request, prompts, on_warning=on_warning
+        )
 
     async def _start_generation(
         self,
@@ -1424,7 +1436,9 @@ class GenerationOrchestrator:
             prompts = [{'positive': p.positive, 'negative': p.negative} if hasattr(p, 'positive') else p for p in prompts]
 
         batch = PromptBatch.plan(request)
-        prompts = self._expand_prompts_per_image(generation_id, request, prompts)
+        prompts = self._expand_prompts_per_image(
+            generation_id, request, prompts, db_generation.user_id
+        )
         if batch is not None:
             batch.settle(request, prompts)
             self._prompt_batches[generation_id] = batch
@@ -1626,11 +1640,8 @@ class GenerationOrchestrator:
             prompt_batch.stamp(output)
 
         if output_type_registry.is_server_only(output):
-            generation = generation_repo.get_by_id(generation_id)
             try:
-                await self.output_processor.process_output(
-                    generation_id, output, generation.user_id if generation else None
-                )
+                await self.output_processor.process_output(generation_id, output, record.user_id)
             except Exception as e:
                 logger.error(f"Error recording server-only output {type(output).__name__}: {str(e)}", exc_info=True)
             return
@@ -1640,7 +1651,12 @@ class GenerationOrchestrator:
             apply_failure(output, failure)
             await self._record_failure(generation_id, failure)
         else:
-            self.status_tracker.update_from_output(generation_id, output)
+            effective = self.status_tracker.update_from_output(generation_id, output)
+            if isinstance(output, ProgressGenerationOutput):
+                if not output.bar:
+                    output.progress = None
+                elif effective is not None and effective > self.status_tracker._calculate_progress(output.progress):
+                    output.progress = Progress(round(effective * 10000), 10000)
 
         gate_outcome = None
         if self.content_safety is not None and not isinstance(output, ErrorGenerationOutput):
@@ -1663,13 +1679,10 @@ class GenerationOrchestrator:
             output = gate_outcome.output
 
         # Process output through OutputProcessor (handles file saving, etc.)
-        generation = generation_repo.get_by_id(generation_id)
-        user_id = generation.user_id if generation else None
-
         handler_metadata: Optional[Dict[str, Any]] = None
         try:
             handler_metadata = await self.output_processor.process_output(
-                generation_id, output, user_id
+                generation_id, output, record.user_id
             )
             if prompt_batch is not None and handler_metadata.get('processed'):
                 prompt_batch.record_saved(output)

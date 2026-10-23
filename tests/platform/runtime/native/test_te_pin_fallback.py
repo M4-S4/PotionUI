@@ -128,10 +128,10 @@ def _fail_when_pinning(monkeypatch, target, errors: list):
     pending = list(errors)
 
     def guarded(real):
-        def wrapper(module, device, *, pin):
+        def wrapper(module, device, *, pin, **kwargs):
             if module is target and pin and pending:
                 raise pending.pop(0)
-            return real(module, device, pin=pin)
+            return real(module, device, pin=pin, **kwargs)
 
         return wrapper
 

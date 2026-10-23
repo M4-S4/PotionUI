@@ -25,13 +25,6 @@ class File(BaseField):
             schema['max_size'] = configuration['max_size']
         
         return schema
-    
-    
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'file'
-    
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
 
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:

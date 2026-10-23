@@ -29,7 +29,7 @@ import {
 	formMediaOptionKeys,
 	dereferenceFormMediaRefs
 } from './videoDirector';
-import type { ChainSegment, DirectorTimelineDoc, DirectorTimelineShot, VideoDirectorValue, VideoDirectorWireDoc } from '$lib/types/videoDirector';
+import type { ChainSegment, DirectorTimelineShot, VideoDirectorValue, VideoDirectorWireDoc } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
 
 // The `director` mode is capability-shaped. Two fixtures mirror the two real
@@ -530,27 +530,6 @@ function chainSegment(overrides: Partial<ChainSegment> = {}): ChainSegment {
 		steps: null,
 		cfg: null,
 		...overrides
-	};
-}
-
-/** A one-shot `DirectorTimelineDoc` -- the shape `normalizeDirectorValue`
- * lifts every legacy/fresh timeline document into. `shotOverrides` patches
- * the one shot; pass `shots` directly to test a real multi-shot document. */
-function timelineDoc(shotOverrides: Partial<DirectorTimelineShot> = {}, fps = 24): DirectorTimelineDoc {
-	return {
-		fps,
-		shots: [
-			{
-				id: 'shot-1',
-				duration: 5,
-				continue_from_previous: false,
-				segments: [],
-				keyframes: [],
-				audio: [],
-				ic_lora: [],
-				...shotOverrides
-			}
-		]
 	};
 }
 

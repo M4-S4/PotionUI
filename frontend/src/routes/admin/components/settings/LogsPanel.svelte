@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { logger } from '$lib/utils/logger';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { LogLevel, LogTail } from '$lib/services/admin-api';
 	import { Alert, Button, CopyButton, EmptyState, IconButton, SegmentedControl, Spinner, Switch } from '$lib/components/ui';
@@ -39,37 +40,16 @@
 	let hasNewSincePause = $state(false);
 
 	let listEl = $state<HTMLDivElement | undefined>();
-	let pollHandle: ReturnType<typeof setInterval> | undefined;
+	const poll = createVisiblePoll(load, POLL_MS);
 
-	onMount(() => {
-		load();
-		syncPolling();
-		document.addEventListener('visibilitychange', syncPolling);
-	});
+	onMount(() => void load());
 
-	onDestroy(() => {
-		stopPolling();
-		document.removeEventListener('visibilitychange', syncPolling);
-	});
+	onDestroy(() => poll.stop());
 
 	$effect(() => {
-		autoFollow;
-		syncPolling();
+		if (autoFollow) poll.start();
+		else poll.stop();
 	});
-
-	function syncPolling() {
-		stopPolling();
-		if (autoFollow && document.visibilityState === 'visible') {
-			pollHandle = setInterval(load, POLL_MS);
-		}
-	}
-
-	function stopPolling() {
-		if (pollHandle !== undefined) {
-			clearInterval(pollHandle);
-			pollHandle = undefined;
-		}
-	}
 
 	async function load() {
 		error = null;
@@ -88,7 +68,7 @@
 			}
 		} catch (e: any) {
 			logger.error('Failed to load the log tail:', e);
-			error = e.response?.data?.message || e.message || 'Failed to load the log tail.';
+			error = getApiErrorMessage(e, 'Failed to load the log tail.');
 		} finally {
 			loading = false;
 		}

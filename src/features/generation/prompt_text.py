@@ -1,6 +1,7 @@
-from typing import Any, List
+from typing import Any, List, Tuple
 
 PROMPT_COLUMNS = ("form_data", "prompt_state")
+PROMPT_SEPARATOR = "\x1f"
 
 
 def prompt_texts(data: Any) -> List[str]:
@@ -38,3 +39,14 @@ def prompt_contains_sql(alias: str = "g") -> str:
 
 def prompt_contains_params(needle: str) -> List[str]:
     return [needle] * len(PROMPT_COLUMNS)
+
+
+def prompt_search_sql(needle: str, alias: str = "g") -> Tuple[str, List[str]]:
+    prefix = f"{alias}." if alias else ""
+    if PROMPT_SEPARATOR in needle:
+        return f"({prompt_contains_sql(alias)})", prompt_contains_params(needle)
+    return (
+        f"{prefix}id IN (SELECT pt.generation_id FROM generation_prompt_text pt "
+        "WHERE instr(LOWER(pt.text), LOWER(?)) > 0)",
+        [needle],
+    )

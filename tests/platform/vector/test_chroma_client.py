@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from src.platform.vector.chroma_client import ChromaClientProvider
+from src.platform.vector.chroma_client import ChromaClientProvider, ChromaCollectionStore
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -223,3 +223,70 @@ def test_importing_bootstrap_app_does_not_import_chromadb():
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "False", result.stderr
+
+
+class _Collection:
+    def __init__(self, count=0, fail=False):
+        self._count = count
+        self._fail = fail
+        self.deleted = []
+
+    def count(self):
+        if self._fail:
+            raise RuntimeError("boom")
+        return self._count
+
+    def delete(self, ids):
+        if self._fail:
+            raise RuntimeError("boom")
+        self.deleted.append(ids)
+
+
+class _Client:
+    def __init__(self, collection):
+        self.collection = collection
+        self.names = []
+
+    def get_or_create_collection(self, name, metadata):
+        self.names.append(name)
+        return self.collection
+
+
+class _PrefixedStore(ChromaCollectionStore):
+    collection_prefix = "pre_"
+
+
+def _store(collection):
+    store = _PrefixedStore(embedder_slug="slug")
+    store._client = _Client(collection)
+    return store
+
+
+def test_collection_name_is_prefix_user_and_embedder():
+    store = _store(_Collection())
+
+    store.get_collection("u1")
+
+    assert store.client.names == ["pre_u1__slug"]
+
+
+def test_is_collection_empty_reflects_count_and_defaults_false_on_error(caplog):
+    assert _store(_Collection(count=0)).is_collection_empty("u1") is True
+    assert _store(_Collection(count=2)).is_collection_empty("u1") is False
+    with caplog.at_level("ERROR"):
+        assert _store(_Collection(fail=True)).is_collection_empty("u1") is False
+    assert "pre_u1" in caplog.text
+
+
+def test_bulk_delete_skips_empty_ids_and_swallows_errors(caplog):
+    collection = _Collection()
+    store = _store(collection)
+
+    store.bulk_delete("u1", [])
+    store.bulk_delete("u1", ["a", "b"])
+
+    assert collection.deleted == [["a", "b"]]
+    assert store.client.names == ["pre_u1__slug"]
+    with caplog.at_level("ERROR"):
+        _store(_Collection(fail=True)).bulk_delete("u1", ["a"])
+    assert "pre_u1" in caplog.text

@@ -66,9 +66,10 @@ def build_default_executor_registry(
     file_repository: Optional[Any] = None,
     backend_model_indexer: Optional[Any] = None,
     step_kind_registry: Optional[Any] = None,
-    model_scanner: Optional[Any] = None,
+    indexing_coordinator: Optional[Any] = None,
     type_manager: Optional[Any] = None,
     app_loop: Optional[Callable[[], Any]] = None,
+    digests: Optional[Any] = None,
 ) -> RecipeExecutorRegistry:
     """Wire the built-in step executors onto a fresh registry.
 
@@ -88,18 +89,19 @@ def build_default_executor_registry(
         "plugins.ensure": PluginsEnsureExecutor(plugin_registry),
         "backend.ensure": BackendEnsureExecutor(backend_registry),
         "backend.detect": BackendDetectExecutor(backend_registry),
-        "models.index": ModelsIndexExecutor(model_scanner=model_scanner, backend_registry=backend_registry),
+        "models.index": ModelsIndexExecutor(indexing_coordinator),
         "models.index_backend": ModelsIndexBackendExecutor(backend_registry, backend_model_indexer),
         "preset.ensure": PresetEnsureExecutor(preset_collaborators, user_repository),
         "pipeline.render": PipelineRenderExecutor(
             preset_template_loader, template_processor, pipeline_builder
         ),
         "artifacts.plan": ArtifactsPlanExecutor(
-            model_repository, provider_registry_factory=provider_registry_factory, type_manager=type_manager
+            model_repository, provider_registry_factory=provider_registry_factory, type_manager=type_manager,
+            digests=digests,
         ),
         "artifacts.fetch": ArtifactsFetchExecutor(
             download_queue, model_repository, provider_registry_factory=provider_registry_factory,
-            type_manager=type_manager,
+            type_manager=type_manager, digests=digests,
         ),
     }
     if generation_orchestrator is not None:

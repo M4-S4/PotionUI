@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Resolution picker rework: box mode is now a sunken trigger that opens a
 // floating, searchable, tier-grouped panel (the old flat "aspect grid + tier
@@ -9,22 +10,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // removal of the old List/Grid toggle.
 
 const JOURNEY = 'resolution-tiers';
-const BEAT = 300;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('resolution picker — search panel, tier sections, custom entry', async ({ page }) => {
 	await loginAsOwner(page);
@@ -55,14 +40,13 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const generationTab = page.getByRole('tab', { name: 'Generation' });
 	if ((await generationTab.count()) > 0) {
 		await generationTab.click();
 	}
-	await page.waitForTimeout(BEAT);
 
 	const resolutionCard = page
 		.locator('.field-card')
@@ -92,7 +76,6 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 	// Search by a resolution fragment every family's list carries (the Full
 	// tier's Square entry, 1024x1024).
 	await searchInput.fill('1024');
-	await page.waitForTimeout(BEAT);
 	const fragmentFilteredCount = await rows.count();
 	expect(fragmentFilteredCount, 'searching "1024" should narrow the row list').toBeGreaterThan(0);
 	expect(fragmentFilteredCount, 'searching "1024" should narrow the row list').toBeLessThanOrEqual(unfilteredCount);
@@ -101,7 +84,6 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 	// Search by ratio ("16:9") - Flux ships literal 16:9 entries; SDXL's own
 	// ratio set doesn't, so only assert the narrowing when it's present.
 	await searchInput.fill('16:9');
-	await page.waitForTimeout(BEAT);
 	const ratioFilteredCount = await rows.count();
 	if (ratioFilteredCount > 0) {
 		expect(ratioFilteredCount, 'searching "16:9" should narrow the row list').toBeLessThanOrEqual(unfilteredCount);
@@ -109,7 +91,6 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 	} else {
 		console.log(`[${JOURNEY}] preset "${preset.name}" has no literal 16:9 ratio entry - ratio search left 0 rows as expected.`);
 		await searchInput.fill('1024');
-		await page.waitForTimeout(BEAT);
 	}
 
 	// Pick the first visible row; the trigger should reflect the new value.

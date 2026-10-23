@@ -64,11 +64,6 @@ def _tiny_module() -> Qwen3Model:
     return m
 
 
-def test_krea2_layers_are_twelve_outputs():
-    assert KREA2_LAYERS == (1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34)
-    assert len(KREA2_LAYERS) == 12
-
-
 def test_capture_output_matches_manual_run():
     m = _tiny_module()
     ids = torch.tensor([[5, 6, 7]])

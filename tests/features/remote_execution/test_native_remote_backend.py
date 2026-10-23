@@ -22,6 +22,7 @@ import asyncio
 import hashlib
 import json
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -99,6 +100,17 @@ class ImagePipe:
         image = Image.new("RGB", (3, 3), color=(1, 2, 3))
         generation_outputs(ImageGenerationOutput(image=image, temporary=False))
         return PipeOutput(output={"image": image})
+
+
+class GatedImagePipe(ImagePipe):
+    name = "image/gated"
+    release = threading.Event()
+
+    def process(self, pipe_input, generation_outputs):
+        output = super().process(pipe_input, generation_outputs)
+        if not type(self).release.wait(timeout=30.0):
+            raise TimeoutError("gate never released")
+        return output
 
 
 class AssetAwarePipe:
@@ -350,6 +362,7 @@ class FlagProbePipe:
         return []
 
     def process(self, pipe_input, generation_outputs):
+        import src.platform.runtime.native
         from src.platform.settings.runtime_flags import runtime_flag
         from vendor.gpl.comfyui import ops
 
@@ -364,6 +377,7 @@ class FlagProbePipe:
 _CLASSES = {
     "flag_probe/fake": FlagProbePipe,
     "image/fake": ImagePipe,
+    "image/gated": GatedImagePipe,
     "asset/fake": AssetAwarePipe,
     "model_aware/fake": ModelAwarePipe,
     "cancelable/fake": CancelAwarePipe,
@@ -437,6 +451,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
     def tearDown(self):
         for p in self._patchers:
             p.stop()
+        Database.close_pool()
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
         for leftover in Path(self.temp_dir).iterdir():
@@ -849,13 +864,14 @@ class TestCorruptedArtifactDownload(NativeRemoteBackendTestCase):
         backend = self._backend(self.worker_app)
         pipeline_data = {
             "generation_id": "gen-corrupt", "preset_id": "preset-1",
-            "pipes": [{"name": "image/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+            "pipes": [{"name": "image/gated", "id": "p1", "enabled": True, "config": {}, "input": []}],
         }
         self._plant_generation_row("gen-corrupt")
 
         outputs = []
         done = asyncio.Event()
         corrupted = {"done": False}
+        GatedImagePipe.release.clear()
 
         def emit(output):
             outputs.append(output)
@@ -864,26 +880,31 @@ class TestCorruptedArtifactDownload(NativeRemoteBackendTestCase):
 
         async def scenario():
             generation_id = await backend.start_generation(pipeline_data, emit)
-
-            # As soon as the worker has produced (and journaled) the artifact,
-            # corrupt the bytes it will actually serve - simulating on-disk
-            # corruption / a misbehaving worker, not a fabricated digest.
-            for _ in range(200):
-                record = self.worker_container.coordinator.record_for(generation_id)
-                if record and any(e.kind == "output" for e in record.events) and not corrupted["done"]:
-                    artifact = next(e.artifacts[0] for e in record.events if e.kind == "output" and e.artifacts)
+            try:
+                deadline = time.monotonic() + 30.0
+                while not corrupted["done"]:
+                    self.assertLess(time.monotonic(), deadline, "worker never journaled the artifact")
+                    record = self.worker_container.coordinator.record_for(generation_id)
+                    artifact = next(
+                        (e.artifacts[0] for e in (record.events if record else ()) if e.kind == "output" and e.artifacts),
+                        None,
+                    )
+                    if artifact is None:
+                        await asyncio.sleep(0.01)
+                        continue
                     path = self.worker_container.coordinator.artifact_path(artifact.artifact_id)
-                    path.write_bytes(b"corrupted bytes, not the real PNG")
+                    original = bytearray(path.read_bytes())
+                    original[-1] ^= 0xFF
+                    path.write_bytes(bytes(original))
                     corrupted["done"] = True
-                if record and record.is_terminal:
-                    break
-                await asyncio.sleep(0.01)
+            finally:
+                GatedImagePipe.release.set()
 
             await asyncio.wait_for(done.wait(), timeout=60.0)
             return generation_id
 
         generation_id = self._run(scenario())
-        self.assertTrue(corrupted["done"], "test never got a chance to corrupt the artifact")
+        self.assertTrue(corrupted["done"])
 
         row = self.repo.get_by_id(generation_id)
         self.assertEqual(row.state, S.FAILED)

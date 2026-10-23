@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { jsonEqual } from '$lib/utils/equal';
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { page } from '$app/stores';
@@ -50,7 +51,7 @@
 
 	let dirtyKeys = $derived.by(() => {
 		const before = JSON.parse(snapshot) as Record<string, any>;
-		return USER_CONFIGURABLE_KEYS.filter((k) => JSON.stringify(settings[k]) !== JSON.stringify(before[k]));
+		return USER_CONFIGURABLE_KEYS.filter((k) => !jsonEqual(settings[k], before[k]));
 	});
 	let dirtyGroups = $derived(computeDirtyGroups(dirtyKeys));
 	let unsavedChanges = $derived(dirtyKeys.length > 0);

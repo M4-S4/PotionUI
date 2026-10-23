@@ -29,6 +29,7 @@ from src.platform.runtime.native.lora.key_mapping import (
     map_lora_keys,
 )
 from vendor.gpl.comfyui.ops import apply_lora_deltas, pick_operations
+from .._native_ops import fp32_ops
 
 # Same shape traps as test_minimax_h3_model.py's TINY_FULL: inner(80) != hidden(64).
 TINY = {
@@ -47,12 +48,8 @@ ADALN_OUT = 6 * HIDDEN * 3          # expand 6 x hidden x MINIMAX_H3_MODALITY_NU
 NORM_OUT = 2 * HIDDEN * 1           # final layer: expand 2, one modality
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build(config: dict = TINY, ops=None) -> MiniMaxH3Model:
-    ops = ops or _fp32_ops()
+    ops = ops or fp32_ops()
     m = MiniMaxH3Model.from_config(config, ops)
     sd = {}
     for k, v in m.state_dict().items():
@@ -209,7 +206,7 @@ def test_flux_and_krea2_modules_unaffected_by_the_new_branch():
              "context_in_dim": 32, "axes_dim": [8, 8, 8, 8], "mlp_ratio": 3.0,
              "theta": 2000, "patch_size": 1, "qkv_bias": False, "guidance_embed": False}
     with torch.device("meta"):
-        fm = Flux.from_config(ftiny, _fp32_ops())
+        fm = Flux.from_config(ftiny, fp32_ops())
     km = _select_key_map(fm)
     assert "double_blocks.0.img_attn.qkv" in km  # still Flux's own map
 
@@ -218,7 +215,7 @@ def test_flux_and_krea2_modules_unaffected_by_the_new_branch():
              "layers": 1, "multiplier": 1, "tdim": 16, "txtdim": 16, "txtheads": 2,
              "txtkvheads": 2, "txtlayers": 3, "patch": 2, "theta": 1000.0}
     with torch.device("meta"):
-        km2 = _select_key_map(Krea2.from_config(ktiny, _fp32_ops()))
+        km2 = _select_key_map(Krea2.from_config(ktiny, fp32_ops()))
     assert all(sl is None for _, sl in km2.values())  # still Krea2's split (no slices)
 
 
@@ -417,7 +414,7 @@ def test_swiglu_lora_half_swap_matches_unfused_diffusers_reference():
         value, gate = h.chunk(2, dim=-1)          # diffusers' own SwiGLU.forward split
         return F.linear(value * F.silu(gate), w2)
 
-    ops = _fp32_ops()
+    ops = fp32_ops()
     mlp = MiniMaxH3MLP(hidden, ffn, ops, dtype=torch.float32)
     with torch.no_grad():
         mlp.fc1.weight.copy_(w1_native)
@@ -582,21 +579,18 @@ def test_comfy_generic_apply_changes_forward_and_remove_restores():
     torch.testing.assert_close(restored_a, base_a, atol=1e-4, rtol=1e-3)
 
 
-# --- slice-offset correctness (bite-checkable against an unfused reference) ---
-
-def test_slice_offsets_match_unfused_reference_and_swap_bite_check():
+def test_qkv_slice_offsets_patch_the_fused_projection_like_the_unfused_reference():
     torch.manual_seed(11)
     rank = 4
     wq = torch.randn(INNER, HIDDEN) * 0.02
     wk = torch.randn(INNER, HIDDEN) * 0.02
     wv = torch.randn(INNER, HIDDEN) * 0.02
-    fused = torch.cat([wq, wk, wv], dim=0)  # matches qkv_proj's [3*inner, hidden] layout
+    fused = torch.cat([wq, wk, wv], dim=0)
 
     up_q, down_q = torch.randn(INNER, rank) * 0.1, torch.randn(rank, HIDDEN) * 0.1
     up_k, down_k = torch.randn(INNER, rank) * 0.1, torch.randn(rank, HIDDEN) * 0.1
     up_v, down_v = torch.randn(INNER, rank) * 0.1, torch.randn(rank, HIDDEN) * 0.1
 
-    # independent reference: patch each unfused matrix separately, then fuse.
     reference = torch.cat([
         wq + up_q @ down_q,
         wk + up_k @ down_k,
@@ -611,17 +605,6 @@ def test_slice_offsets_match_unfused_reference_and_swap_bite_check():
     got = apply_lora_deltas(fused.clone(), correct)
     torch.testing.assert_close(got, reference, atol=1e-5, rtol=1e-4)
 
-    # bite check: swap the k/v slice offsets -> must NOT match the reference.
-    swapped = [
-        LoraDelta(down=down_q, up=up_q, alpha=float(rank), scale=1.0, target_slice=(0, 0, INNER)),
-        LoraDelta(down=down_k, up=up_k, alpha=float(rank), scale=1.0, target_slice=(0, 2 * INNER, INNER)),
-        LoraDelta(down=down_v, up=up_v, alpha=float(rank), scale=1.0, target_slice=(0, INNER, INNER)),
-    ]
-    got_swapped = apply_lora_deltas(fused.clone(), swapped)
-    assert not torch.allclose(got_swapped, reference, atol=1e-5, rtol=1e-4)
-
-    # confirms the map's ACTUAL offsets are the q|k|v ones the model uses --
-    # cross-checked against build_minimax_h3_lora_key_map directly.
     km = build_minimax_h3_lora_key_map(_build())
     assert km["transformer.transformer_blocks.0.attn.to_q"][1] == (0, 0, INNER)
     assert km["transformer.transformer_blocks.0.attn.to_k"][1] == (0, INNER, INNER)

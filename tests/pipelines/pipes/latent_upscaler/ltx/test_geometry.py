@@ -24,7 +24,7 @@ from src.pipelines.pipes.latent_upscaler.ltx.geometry import (
     nearest_achievable_resolution,
     required_axis_divisor,
 )
-from src.pipelines.pipes.generator.txt2vid_ltx.main import _SPATIAL_DOWNSCALE
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_SPATIAL_DOWNSCALE
 
 
 class TestRequiredAxisDivisor:
@@ -96,7 +96,7 @@ class TestSweepAgainstRealSimulation:
     def test_divisor_rule_matches_simulation_exactly(self, scale):
         divisor = required_axis_divisor(scale)
         mismatches = []
-        for pixel in range(_SPATIAL_DOWNSCALE, _SPATIAL_DOWNSCALE * 64 + 1, _SPATIAL_DOWNSCALE):
+        for pixel in range(LTX_SPATIAL_DOWNSCALE, LTX_SPATIAL_DOWNSCALE * 64 + 1, LTX_SPATIAL_DOWNSCALE):
             g = compute_two_stage_geometry(pixel, pixel, scale)
             predicted_ok = (pixel % divisor == 0)
             if predicted_ok != g.ok:
@@ -104,7 +104,7 @@ class TestSweepAgainstRealSimulation:
         assert mismatches == []
 
     def test_2_0x_is_always_achievable_on_the_32px_grid(self):
-        for pixel in range(_SPATIAL_DOWNSCALE, _SPATIAL_DOWNSCALE * 64 + 1, _SPATIAL_DOWNSCALE):
+        for pixel in range(LTX_SPATIAL_DOWNSCALE, LTX_SPATIAL_DOWNSCALE * 64 + 1, LTX_SPATIAL_DOWNSCALE):
             assert compute_two_stage_geometry(pixel, pixel, 2.0).ok
 
     def test_video_yml_resolution_picker_entries(self):

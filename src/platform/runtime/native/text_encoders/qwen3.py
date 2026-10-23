@@ -30,8 +30,8 @@ from src.platform.settings.runtime_flags import runtime_flag
 
 from ..base import NativeArchModule
 from ..errors import NativeEngineUnsupportedError
-from ._functional import optimized_attention, rms_norm
-from .base import NativeTextEncoder, _module_to, _module_unload
+from ._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device, optimized_attention
+from .base import NativeTextEncoder
 from .embed_cache import VisionEmbedCache, image_content_fingerprint
 from .qwen_vl_vision import qwen25vl_mrope_position_ids
 from .qwen3_vl_vision import (
@@ -48,6 +48,7 @@ from .qwen3_vl_vision import (
     VISION_SPATIAL_MERGE_SIZE,
     VISION_TEMPORAL_PATCH_SIZE,
     Qwen3VLVisionTower,
+    splice_vision_inputs,
     preprocess_qwen3_vl_image,
     preprocess_qwen3_vl_video,
 )
@@ -227,19 +228,6 @@ class Qwen3Config:
         )
 
 
-def _rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def _apply_rope(xq: torch.Tensor, xk: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
-    org = xq.dtype
-    q = (xq * cos) + (_rotate_half(xq) * sin)
-    k = (xk * cos) + (_rotate_half(xk) * sin)
-    return q.to(org), k.to(org)
-
-
 def _interleave_mrope_freqs(freqs: torch.Tensor, mrope_section: tuple[int, ...] = KREA2_VL_MROPE_SECTION) -> torch.Tensor:
     """``freqs`` ``[3, ..., head_dim//2]`` (T/H/W axes) -> ``[..., head_dim//2]``.
 
@@ -297,18 +285,6 @@ def _deepstack_inject(x: torch.Tensor, visual_pos_mask: torch.Tensor, visual_emb
     return x
 
 
-class _RMSNorm(nn.Module):
-    """RMS norm with an owned weight (Qwen3 layernorms / q_norm / k_norm)."""
-
-    def __init__(self, dim: int, eps: float, device=None, dtype=None) -> None:
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.empty(dim, device=device, dtype=dtype))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return rms_norm(x, self.weight, self.eps)
-
-
 class _Attention(nn.Module):
     def __init__(self, cfg: Qwen3Config, operations, device=None, dtype=None) -> None:
         super().__init__()
@@ -320,8 +296,8 @@ class _Attention(nn.Module):
         self.k_proj = operations.Linear(cfg.hidden_size, self.num_kv_heads * self.head_dim, bias=False, device=device, dtype=dtype)
         self.v_proj = operations.Linear(cfg.hidden_size, self.num_kv_heads * self.head_dim, bias=False, device=device, dtype=dtype)
         self.o_proj = operations.Linear(inner, cfg.hidden_size, bias=False, device=device, dtype=dtype)
-        self.q_norm = _RMSNorm(self.head_dim, cfg.rms_norm_eps, device=device, dtype=dtype)
-        self.k_norm = _RMSNorm(self.head_dim, cfg.rms_norm_eps, device=device, dtype=dtype)
+        self.q_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps, device=device, dtype=dtype)
+        self.k_norm = RMSNorm(self.head_dim, cfg.rms_norm_eps, device=device, dtype=dtype)
 
     def forward(self, x, cos, sin, mask):
         b, s, _ = x.shape
@@ -330,62 +306,25 @@ class _Attention(nn.Module):
         xv = self.v_proj(x).view(b, s, self.num_kv_heads, self.head_dim).transpose(1, 2)
         xq = self.q_norm(xq)
         xk = self.k_norm(xk)
-        xq, xk = _apply_rope(xq, xk, cos, sin)
+        xq, xk = apply_rope_qk(xq, xk, cos, sin)
         xk = xk.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
         xv = xv.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
         out = optimized_attention(xq, xk, xv, self.num_heads, mask=mask, skip_reshape=True)
         return self.o_proj(out)
 
 
-class _MLP(nn.Module):
-    def __init__(self, cfg: Qwen3Config, operations, device=None, dtype=None) -> None:
-        super().__init__()
-        self.gate_proj = operations.Linear(cfg.hidden_size, cfg.intermediate_size, bias=False, device=device, dtype=dtype)
-        self.up_proj = operations.Linear(cfg.hidden_size, cfg.intermediate_size, bias=False, device=device, dtype=dtype)
-        self.down_proj = operations.Linear(cfg.intermediate_size, cfg.hidden_size, bias=False, device=device, dtype=dtype)
-
-    def forward(self, x):
-        return self.down_proj(torch.nn.functional.silu(self.gate_proj(x)) * self.up_proj(x))
-
-
 class _Block(nn.Module):
     def __init__(self, cfg: Qwen3Config, operations, device=None, dtype=None) -> None:
         super().__init__()
         self.self_attn = _Attention(cfg, operations, device=device, dtype=dtype)
-        self.mlp = _MLP(cfg, operations, device=device, dtype=dtype)
-        self.input_layernorm = _RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
-        self.post_attention_layernorm = _RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
+        self.mlp = GatedMLP(cfg.hidden_size, cfg.intermediate_size, operations, device=device, dtype=dtype)
+        self.input_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
+        self.post_attention_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
 
     def forward(self, x, cos, sin, mask):
         x = x + self.self_attn(self.input_layernorm(x), cos, sin, mask)
         x = x + self.mlp(self.post_attention_layernorm(x))
         return x
-
-
-def _module_device(module: nn.Module) -> torch.device:
-    """The device a module's real tensors live on, tolerant of a quantized
-    submodule whose ``.weight`` was cleared to ``None`` after load.
-
-    A quantized ``Embedding``/``Linear`` (int8-tensorwise, nvfp4 —
-    vendor/gpl/comfyui/ops.py) frees its empty float ``.weight`` once its
-    dequant state is loaded into other buffers instead (``_int8_weight``,
-    ``nvfp4_packed``, ...), so reading ``embed_tokens.weight.device``
-    unconditionally AttributeErrors on a checkpoint whose embedding is
-    quantized (e.g. MiniMax-H3's real nvfp4_awq TE, whose `embed_tokens` is
-    int8 — see the port report addendum). Every loaded tensor in a module
-    sits on the same device at any given moment (``post_load`` runs on the
-    freshly-loaded, still-CPU module, before the loader's later
-    ``.to(device)``), so the first non-None parameter or buffer anywhere in
-    the tree gives the right answer regardless of which submodule happens to
-    be quantized.
-    """
-    for p in module.parameters():
-        if p is not None:
-            return p.device
-    for b in module.buffers():
-        if b is not None:
-            return b.device
-    raise RuntimeError(f"{module.__class__.__name__} has no tensors to read a device from")
 
 
 class _Qwen3Transformer(nn.Module):
@@ -409,7 +348,7 @@ class _Qwen3Transformer(nn.Module):
         # variant-hardcoded, so it stays correct for any current or future
         # checkpoint shape without special-casing H3 by name here.
         if cfg.has_final_norm:
-            self.norm = _RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
+            self.norm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
         # Non-persistent: never in the checkpoint, recomputed in post_load.
         self.register_buffer("inv_freq", torch.empty(cfg.head_dim // 2), persistent=False)
         # Krea-2 vision tower (Qwen3-VL-4B) — attached HERE, not on `Qwen3Model`
@@ -423,7 +362,7 @@ class _Qwen3Transformer(nn.Module):
 
     def recompute_inv_freq(self) -> None:
         half = torch.arange(0, self.cfg.head_dim, 2, dtype=torch.float32)
-        self.inv_freq = (1.0 / (self.cfg.rope_theta ** (half / self.cfg.head_dim))).to(_module_device(self))
+        self.inv_freq = (1.0 / (self.cfg.rope_theta ** (half / self.cfg.head_dim))).to(module_device(self))
 
     def _rope(self, seq_len: int, device, dtype):
         pos = torch.arange(seq_len, device=device, dtype=torch.float32)
@@ -559,14 +498,6 @@ class Qwen3TextEncoder(NativeTextEncoder):
         self.role = variant
         self._device = torch.device(device)
 
-    def to(self, device: str | torch.device) -> "Qwen3TextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
-
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:
         ids, mask = self.tokenizer(texts, device=self._device)
@@ -650,14 +581,6 @@ class Qwen3VLTextEncoder(NativeTextEncoder):
         self._device = torch.device(device)
         self._has_vision = hasattr(module.model, "visual")
 
-    def to(self, device: str | torch.device) -> "Qwen3VLTextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
-
     @torch.inference_mode()
     def encode(
         self, texts: list[str], images: list[torch.Tensor] | None = None,
@@ -700,58 +623,14 @@ class Qwen3VLTextEncoder(NativeTextEncoder):
         ids, mask, prefix_len = self.tokenizer.tokenize_with_images(
             texts[0], num_images=len(images), device=self._device, system_prompt=system_prompt,
         )
-        pad_positions = (ids[0] == _KREA2VL_IMAGE_PAD_TOKEN).nonzero(as_tuple=True)[0].tolist()
-        if len(pad_positions) != len(images):
-            raise ValueError(
-                f"template has {len(pad_positions)} <|image_pad|> slot(s) but got {len(images)} image(s)"
-            )
-
-        text_embeds = self.module.model.embed_tokens(ids).to(torch.float32)  # [1, S, H]
-        visual: Qwen3VLVisionTower = self.module.model.visual
-
-        embed_pieces: list[torch.Tensor] = []
-        mask_pieces: list[torch.Tensor] = []
-        image_spans: list[tuple[int, int, torch.Tensor]] = []
-        deepstack_pieces: list[list[torch.Tensor]] = [[] for _ in visual.deepstack_indexes]
-        cursor = 0
-        for pad_pos, image in zip(pad_positions, images):
-            embed_pieces.append(text_embeds[:, cursor:pad_pos])
-            mask_pieces.append(mask[:, cursor:pad_pos])
-
-            patches, grid_thw = preprocess_qwen3_vl_image(
-                image.to(self._device), grounding_px=grounding_px,
-                patch_size=visual.patch_size,
-                temporal_patch_size=visual.patch_embed.temporal_patch_size,
-                merge_size=visual.spatial_merge_size,
-            )
-            merged, deepstack_feats = visual(patches.to(self._device, dtype=torch.float32), grid_thw)
-            start = sum(p.shape[1] for p in embed_pieces)
-            embed_pieces.append(merged.unsqueeze(0).to(text_embeds.dtype))
-            mask_pieces.append(torch.ones((mask.shape[0], merged.shape[0]), dtype=mask.dtype, device=mask.device))
-            image_spans.append((start, merged.shape[0], grid_thw))
-            for j, feat in enumerate(deepstack_feats):
-                deepstack_pieces[j].append(feat)
-
-            cursor = pad_pos + 1
-        embed_pieces.append(text_embeds[:, cursor:])
-        mask_pieces.append(mask[:, cursor:])
-
-        embeds = torch.cat(embed_pieces, dim=1)
-        new_mask = torch.cat(mask_pieces, dim=1)
-        # Position-id CONSTRUCTION is shared with Qwen2.5-VL (see this module's
-        # header docstring) — only the rotary COMBINATION (interleaved, in
-        # `_Qwen3Transformer._mrope`) differs.
-        position_ids = qwen25vl_mrope_position_ids(image_spans, embeds.shape[1], embeds.device)
-
-        visual_pos_mask = new_mask.new_zeros(new_mask.shape, dtype=torch.bool)
-        for start, size, _grid in image_spans:
-            visual_pos_mask[:, start:start + size] = True
-        deepstack_embeds = [torch.cat(pieces, dim=0) for pieces in deepstack_pieces]
+        inputs, new_mask, _image_spans = splice_vision_inputs(
+            self.module, ids, mask, images, device=self._device, grounding_px=grounding_px,
+            image_pad_token=_KREA2VL_IMAGE_PAD_TOKEN,
+        )
 
         stacked = self.module(
             None, attention_mask=new_mask, layers_to_extract=KREA2_LAYERS, capture="output",
-            inputs_embeds=embeds, position_ids=position_ids,
-            deepstack_embeds=deepstack_embeds, visual_pos_mask=visual_pos_mask,
+            **inputs,
         )
         # Splicing only ever inserts tokens AFTER the prefix boundary (every
         # <|image_pad|> sits inside the user turn, past the system+"user\n"
@@ -816,14 +695,6 @@ class ZImageTextEncoder(NativeTextEncoder):
         # Penultimate layer (ComfyUI layer_idx=-2), derived from the checkpoint depth.
         self._layer = module.cfg.num_hidden_layers - 2
 
-    def to(self, device: str | torch.device) -> "ZImageTextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
-
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:
         ids, mask = self.tokenizer(texts, device=self._device)
@@ -847,14 +718,6 @@ class Flux3TextEncoder(NativeTextEncoder):
         self.tokenizer = tokenizer
         self.role = variant
         self._device = torch.device(device)
-
-    def to(self, device: str | torch.device) -> "Flux3TextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
 
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:
@@ -1040,14 +903,9 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
             max_entries=vision_cache_max_entries, max_bytes=vision_cache_max_bytes,
         )
 
-    def to(self, device: str | torch.device) -> "MiniMaxH3TextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
     def unload(self) -> None:
         self._vision_cache.clear()
-        _module_unload(self.module)
+        super().unload()
 
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:

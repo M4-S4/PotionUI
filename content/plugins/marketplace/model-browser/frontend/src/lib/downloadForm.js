@@ -1,8 +1,8 @@
 import { allowedTypes, exceedsSizeLimit, sizeLimitBytes } from './capabilities.js';
 import { formatBytes } from './format.js';
 
-export const MAX_SUBDIR_LENGTH = 255;
-export const MAX_FILENAME_LENGTH = 255;
+const MAX_SUBDIR_LENGTH = 255;
+const MAX_FILENAME_LENGTH = 255;
 
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/;

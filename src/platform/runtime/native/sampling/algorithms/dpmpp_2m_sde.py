@@ -46,16 +46,10 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from ..hooks import StepLoop
+from ..noise import fresh_noise
 
 Tensor = torch.Tensor
-
-
-def _fresh_noise(x: Tensor, generator: torch.Generator | None) -> Tensor:
-    if generator is None:
-        return torch.randn_like(x)
-    return torch.randn(x.shape, generator=generator, device=x.device, dtype=x.dtype)
 
 
 @torch.no_grad()
@@ -94,21 +88,12 @@ def sample_dpmpp_2m_sde(
     generator = opts.get("generator")
     discontinuity_steps = frozenset(opts.get("discontinuity_steps") or ())
 
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
-
-    s_in = x.new_ones((x.shape[0],))
-    old_x0 = None
-    try:
-        for i in range(total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
+    with StepLoop(sigmas, hooks, is_cancelled) as loop:
+        s_in = x.new_ones((x.shape[0],))
+        old_x0 = None
+        for i, _, sigma, sigma_next in loop:
             if i in discontinuity_steps:
                 old_x0 = None
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
 
             v = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
             x0 = x - sigma * v
@@ -126,12 +111,9 @@ def sample_dpmpp_2m_sde(
                     x = x + 0.5 * coeff * (1.0 / r) * (x0 - old_x0)
                 if eta > 0:
                     var = (1.0 - ratio ** (2.0 * eta)).clamp(min=0.0)
-                    x = x + _fresh_noise(x, generator) * sigma_next * var.sqrt() * s_noise
+                    x = x + fresh_noise(x, generator) * sigma_next * var.sqrt() * s_noise
 
             old_x0 = x0
-            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
-    finally:
-        run_hooks(hooks, "on_end")
+            x = loop.finish_step(x, i, sigma, sigma_next, x0)
 
     return x

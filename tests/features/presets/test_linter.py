@@ -42,6 +42,21 @@ modes:
     return preset_dir
 
 
+def _has_issue(issues, level, *contains, excludes=(), equals=None, startswith=None):
+    return any(
+        i.level == level
+        and all(part in i.message for part in contains)
+        and not any(part in i.message for part in excludes)
+        and (equals is None or i.message == equals)
+        and (startswith is None or i.message.startswith(startswith))
+        for i in issues
+    )
+
+
+def _lacks(issues, fragment):
+    return not any(fragment in i.message for i in issues)
+
+
 class TestPresetLinter:
     def test_clean_preset_has_no_issues(self, tmp_path):
         _write_preset(tmp_path, "presets/native/Foo/std", "01AAAAAAAAAAAAAAAAAAAAAAAAA", ["txt2img"])
@@ -365,83 +380,44 @@ class TestLintAlertFieldConfig:
         form_file.parent.mkdir(parents=True, exist_ok=True)
         form_file.write_text(form_yaml)
 
-    def test_variant_and_content_is_clean(self, tmp_path):
+    @pytest.mark.parametrize("configuration_yaml", [
+        pytest.param('      variant: warning\n      content: "Heads up"\n', id="variant_and_content_is_clean"),
+        pytest.param('      content: "Heads up"\n', id="content_only_is_clean"),
+    ])
+    def test_declared_keys_are_clean(self, tmp_path, configuration_yaml):
         preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01ALERTLINTOKAAAAAAAAAAAAAA", ["txt2img"])
-        self._write_form(preset_dir, "txt2img", """name: custom
-fields:
-  - type: alert
-    configuration:
-      variant: warning
-      content: "Heads up"
-""")
+        self._write_form(
+            preset_dir, "txt2img",
+            "name: custom\nfields:\n  - type: alert\n    configuration:\n" + configuration_yaml,
+        )
         issues = [i for i in PresetLinter([str(tmp_path)]).lint() if "alert field" in i.message]
         assert issues == []
 
-    def test_content_only_is_clean(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01ALERTLINTCONTENTAAAAAAAAA", ["txt2img"])
-        self._write_form(preset_dir, "txt2img", """name: custom
-fields:
-  - type: alert
-    configuration:
-      content: "Heads up"
-""")
-        issues = [i for i in PresetLinter([str(tmp_path)]).lint() if "alert field" in i.message]
-        assert issues == []
-
-    def test_missing_variant_and_content_is_error(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01ALERTLINTEMPTYAAAAAAAAAAA", ["txt2img"])
-        self._write_form(preset_dir, "txt2img", """name: custom
-fields:
-  - type: alert
-    configuration:
-      title: "Notice"
-""")
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "neither 'variant' nor 'content'" in i.message
-            for i in issues
-        )
-
-    def test_message_key_is_error(self, tmp_path):
-        """The exact shape of the original bug: `message:` instead of
-        `content:` - silently dropped by `alert.py`, so this must be a hard
-        error, not a warning."""
-        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01ALERTLINTMSGAAAAAAAAAAAAA", ["txt2img"])
-        self._write_form(preset_dir, "txt2img", """name: custom
-fields:
-  - name: bad_alert
-    type: alert
-    configuration:
-      variant: warning
-      message: "Careful with this setting."
-""")
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "bad_alert" in i.message and "'message'" in i.message
-            for i in issues
-        )
-
-    def test_inner_type_key_is_error(self, tmp_path):
-        """The other half of the original bug: `configuration.type` colliding
-        with the field's own outer `type: alert` discriminator."""
-        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01ALERTLINTTYPEAAAAAAAAAAAA", ["txt2img"])
-        self._write_form(preset_dir, "txt2img", """name: custom
-fields:
-  - name: bad_alert
-    type: alert
-    configuration:
-      type: warning
-      content: "Careful with this setting."
-""")
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "bad_alert" in i.message and "'type'" in i.message
-            for i in issues
-        )
+    @pytest.mark.parametrize("field_yaml,parts", [
+        pytest.param(
+            '  - type: alert\n    configuration:\n      title: "Notice"\n',
+            ("neither 'variant' nor 'content'",),
+            id="missing_variant_and_content_is_error",
+        ),
+        pytest.param(
+            '  - name: bad_alert\n    type: alert\n    configuration:\n'
+            '      variant: warning\n      message: "Careful with this setting."\n',
+            ("bad_alert", "'message'"),
+            id="message_key_is_error",
+        ),
+        pytest.param(
+            '  - name: bad_alert\n    type: alert\n    configuration:\n'
+            '      type: warning\n      content: "Careful with this setting."\n',
+            ("bad_alert", "'type'"),
+            id="inner_type_key_is_error",
+        ),
+    ])
+    def test_undeclared_keys_are_errors(self, tmp_path, field_yaml, parts):
+        preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01ALERTLINTBADAAAAAAAAAAAAA", ["txt2img"])
+        self._write_form(preset_dir, "txt2img", "name: custom\nfields:\n" + field_yaml)
+        assert _has_issue(PresetLinter([str(tmp_path)]).lint(), "error", *parts)
 
     def test_original_bug_shape_is_error(self, tmp_path):
-        """Bite-check in test form: the exact pre-fix shape (`type:` + `message:`,
-        no `variant:`/`content:` at all) must trip both checks."""
         preset_dir = _write_preset(tmp_path, "presets/native/Foo/std", "01ALERTLINTFULLBUGAAAAAAAAA", ["txt2img"])
         self._write_form(preset_dir, "txt2img", """name: custom
 fields:
@@ -817,17 +793,24 @@ modes:
             for i in issues
         )
 
-    def test_referenced_via_get_speed_profile_call_is_not_flagged(self, tmp_path):
-        self._write(
-            tmp_path, "01LLLLLLLLLLLLLLLLLLLLLLLLL",
-            "speed_profiles:\n  draft:\n    steps: 6\n",
-            pipeline_yaml=(
-                "pipeline:\n  - name: generator\n    configuration:\n"
-                "      steps: \"{{ get_speed_profile('draft')['steps'] }}\"\n"
-            ),
+    DRAFT_PROFILE = "speed_profiles:\n  draft:\n    steps: 6\n"
+
+    @staticmethod
+    def _pipeline(steps_expr):
+        return (
+            "pipeline:\n  - name: generator\n    configuration:\n"
+            f"      steps: \"{steps_expr}\"\n"
         )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("no form field or pipeline.yml" in i.message for i in issues)
+
+    @pytest.mark.parametrize("steps_expr", [
+        pytest.param("{{ get_speed_profile('draft')['steps'] }}", id="referenced_via_get_speed_profile_call_is_not_flagged"),
+        pytest.param("{{ preset.speed_profiles.draft.steps }}", id="referenced_via_direct_jinja_dot_access_is_not_flagged"),
+        pytest.param("{{ preset.speed_profiles['draft'].steps }}", id="referenced_via_direct_jinja_subscript_access_is_not_flagged"),
+        pytest.param("{{ generation.profile.steps }}", id="referenced_via_generation_profile_is_not_flagged"),
+    ])
+    def test_pipeline_reference_is_not_flagged(self, tmp_path, steps_expr):
+        self._write(tmp_path, "01LLLLLLLLLLLLLLLLLLLLLLLLL", self.DRAFT_PROFILE, pipeline_yaml=self._pipeline(steps_expr))
+        assert _lacks(PresetLinter([str(tmp_path)]).lint(), "no form field or pipeline.yml")
 
     def test_referenced_via_literal_profile_name_in_form_is_not_flagged(self, tmp_path):
         self._write(
@@ -844,66 +827,15 @@ modes:
                 "        - { value: \"standard\", label: \"Standard\" }\n"
             ),
         )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("no form field or pipeline.yml" in i.message for i in issues)
-
-    def test_referenced_via_direct_jinja_dot_access_is_not_flagged(self, tmp_path):
-        # P9 regression: preset.speed_profiles.draft (a direct Jinja lookup on
-        # the manifest object, no get_speed_profile() call and no quoted
-        # profile-name literal) must still be recognized as a reference.
-        self._write(
-            tmp_path, "01NNNNNNNNNNNNNNNNNNNNNNNNN",
-            "speed_profiles:\n  draft:\n    steps: 6\n",
-            pipeline_yaml=(
-                "pipeline:\n  - name: generator\n    configuration:\n"
-                "      steps: \"{{ preset.speed_profiles.draft.steps }}\"\n"
-            ),
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("no form field or pipeline.yml" in i.message for i in issues)
-
-    def test_referenced_via_direct_jinja_subscript_access_is_not_flagged(self, tmp_path):
-        self._write(
-            tmp_path, "01OOOOOOOOOOOOOOOOOOOOOOOOO",
-            "speed_profiles:\n  draft:\n    steps: 6\n",
-            pipeline_yaml=(
-                "pipeline:\n  - name: generator\n    configuration:\n"
-                "      steps: \"{{ preset.speed_profiles['draft'].steps }}\"\n"
-            ),
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("no form field or pipeline.yml" in i.message for i in issues)
+        assert _lacks(PresetLinter([str(tmp_path)]).lint(), "no form field or pipeline.yml")
 
     def test_direct_jinja_dot_access_also_gets_the_deleted_context_error(self, tmp_path):
-        # `preset.speed_profiles` recognized as a reference (previous test)
-        # does NOT mean it's clean - direct dot access is itself a hard
-        # build error under `_lint_pipeline_templates`'s deleted-context check.
         self._write(
-            tmp_path, "01QQQQQQQQQQQQQQQQQQQQQQQQQ",
-            "speed_profiles:\n  draft:\n    steps: 6\n",
-            pipeline_yaml=(
-                "pipeline:\n  - name: generator\n    configuration:\n"
-                "      steps: \"{{ preset.speed_profiles.draft.steps }}\"\n"
-            ),
+            tmp_path, "01QQQQQQQQQQQQQQQQQQQQQQQQQ", self.DRAFT_PROFILE,
+            pipeline_yaml=self._pipeline("{{ preset.speed_profiles.draft.steps }}"),
         )
         issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "deleted template context" in i.message
-            and "preset.speed_profiles" in i.message
-            for i in issues
-        )
-
-    def test_referenced_via_generation_profile_is_not_flagged(self, tmp_path):
-        self._write(
-            tmp_path, "01PPPPPPPPPPPPPPPPPPPPPPPPP",
-            "speed_profiles:\n  draft:\n    steps: 6\n",
-            pipeline_yaml=(
-                "pipeline:\n  - name: generator\n    configuration:\n"
-                "      steps: \"{{ generation.profile.steps }}\"\n"
-            ),
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("no form field or pipeline.yml" in i.message for i in issues)
+        assert _has_issue(issues, "error", "deleted template context", "preset.speed_profiles")
 
 
 class TestLintSegmentTemplates:
@@ -918,9 +850,8 @@ class TestLintSegmentTemplates:
             tmp_path, "presets/native/Foo/std", preset_id, list(modes), extra_yaml=vars_yaml
         )
 
-    def test_valid_flat_declaration_has_no_issues(self, tmp_path):
-        self._write(
-            tmp_path, "01RAAAAAAAAAAAAAAAAAAAAAAAA",
+    @pytest.mark.parametrize("vars_yaml", [
+        pytest.param(
             "vars:\n"
             "  prompt:\n"
             "    segment_templates:\n"
@@ -931,13 +862,9 @@ class TestLintSegmentTemplates:
             "          - name: \"Scene description\"\n"
             "            prefix: \"integrated_multimodal_description: \"\n"
             "            content: \"\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("segment_templates" in i.message or "vars.prompt.modes" in i.message for i in issues)
-
-    def test_valid_per_mode_declaration_has_no_issues(self, tmp_path):
-        self._write(
-            tmp_path, "01RBBBBBBBBBBBBBBBBBBBBBBBB",
+            id="valid_flat_declaration_has_no_issues",
+        ),
+        pytest.param(
             "vars:\n"
             "  prompt:\n"
             "    modes:\n"
@@ -947,166 +874,96 @@ class TestLintSegmentTemplates:
             "            segments:\n"
             "              - name: \"Subject\"\n"
             "                content: \"\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("segment_templates" in i.message or "vars.prompt.modes" in i.message for i in issues)
-
-    def test_declared_mode_with_empty_list_is_not_flagged(self, tmp_path):
-        self._write(
-            tmp_path, "01RCCCCCCCCCCCCCCCCCCCCCCCC",
+            id="valid_per_mode_declaration_has_no_issues",
+        ),
+        pytest.param(
             "vars:\n"
             "  prompt:\n"
             "    modes:\n"
             "      txt2img:\n"
             "        segment_templates: []\n",
-        )
+            id="declared_mode_with_empty_list_is_not_flagged",
+        ),
+    ])
+    def test_valid_declaration_has_no_issues(self, tmp_path, vars_yaml):
+        self._write(tmp_path, "01RAAAAAAAAAAAAAAAAAAAAAAAA", vars_yaml)
         issues = PresetLinter([str(tmp_path)]).lint()
         assert not any("segment_templates" in i.message or "vars.prompt.modes" in i.message for i in issues)
 
-    def test_segment_templates_not_a_list_is_warning(self, tmp_path):
-        preset_dir = self._write(
-            tmp_path, "01RDDDDDDDDDDDDDDDDDDDDDDDD",
+    @pytest.mark.parametrize("vars_yaml,check", [
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates: \"not-a-list\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning" and i.message.startswith("vars.prompt.segment_templates: must be a list")
-            for i in issues
-        )
-
-    def test_entry_not_a_mapping_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01REEEEEEEEEEEEEEEEEEEEEEEE",
+            {"startswith": "vars.prompt.segment_templates: must be a list"},
+            id="segment_templates_not_a_list_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates:\n      - \"not-a-mapping\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning" and "vars.prompt.segment_templates[0]: must be a mapping" in i.message
-            for i in issues
-        )
-
-    def test_entry_missing_name_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RFFFFFFFFFFFFFFFFFFFFFFFF",
+            {"contains": ("vars.prompt.segment_templates[0]: must be a mapping",)},
+            id="entry_not_a_mapping_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates:\n"
             "      - segments:\n          - name: \"Subject\"\n            content: \"\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning" and "vars.prompt.segment_templates[0]: missing 'name'" in i.message
-            for i in issues
-        )
-
-    def test_entry_missing_segments_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RGGGGGGGGGGGGGGGGGGGGGGGG",
+            {"contains": ("vars.prompt.segment_templates[0]: missing 'name'",)},
+            id="entry_missing_name_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates:\n      - name: \"Refs\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning"
-            and "vars.prompt.segment_templates[0]: 'segments' must be a non-empty list" in i.message
-            for i in issues
-        )
-
-    def test_entry_empty_segments_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RHHHHHHHHHHHHHHHHHHHHHHHH",
+            {"contains": ("vars.prompt.segment_templates[0]: 'segments' must be a non-empty list",)},
+            id="entry_missing_segments_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates:\n      - name: \"Refs\"\n        segments: []\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning"
-            and "vars.prompt.segment_templates[0]: 'segments' must be a non-empty list" in i.message
-            for i in issues
-        )
-
-    def test_segment_not_a_mapping_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RIIIIIIIIIIIIIIIIIIIIIIII",
+            {"contains": ("vars.prompt.segment_templates[0]: 'segments' must be a non-empty list",)},
+            id="entry_empty_segments_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates:\n"
             "      - name: \"Refs\"\n        segments:\n          - \"not-a-mapping\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning"
-            and "vars.prompt.segment_templates[0].segments[0]: must be a mapping" in i.message
-            for i in issues
-        )
-
-    def test_segment_with_chips_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RJJJJJJJJJJJJJJJJJJJJJJJJ",
+            {"contains": ("vars.prompt.segment_templates[0].segments[0]: must be a mapping",)},
+            id="segment_not_a_mapping_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates:\n"
             "      - name: \"Refs\"\n        segments:\n"
             "          - name: \"Subject\"\n            content: \"\"\n            chips: {}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning"
-            and "vars.prompt.segment_templates[0].segments[0]: 'chips' is not allowed" in i.message
-            for i in issues
-        )
-
-    def test_segment_invalid_type_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RKKKKKKKKKKKKKKKKKKKKKKKK",
+            {"contains": ("vars.prompt.segment_templates[0].segments[0]: 'chips' is not allowed",)},
+            id="segment_with_chips_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    segment_templates:\n"
             "      - name: \"Refs\"\n        segments:\n"
             "          - name: \"Subject\"\n            content: \"\"\n            type: \"weird\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning"
-            and "vars.prompt.segment_templates[0].segments[0]: type must be 'content'" in i.message
-            for i in issues
-        )
-
-    def test_modes_not_a_mapping_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RLLLLLLLLLLLLLLLLLLLLLLLL",
+            {"contains": ("vars.prompt.segment_templates[0].segments[0]: type must be 'content'",)},
+            id="segment_invalid_type_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    modes: \"not-a-mapping\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning" and i.message == "vars.prompt.modes: must be a mapping"
-            for i in issues
-        )
-
-    def test_undeclared_mode_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RMMMMMMMMMMMMMMMMMMMMMMMM",
+            {"equals": "vars.prompt.modes: must be a mapping"},
+            id="modes_not_a_mapping_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    modes:\n      img2img:\n        segment_templates: []\n",
-            modes=("txt2img",),
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning"
-            and "vars.prompt.modes.img2img: mode 'img2img' is not declared in preset.yml modes:" in i.message
-            for i in issues
-        )
-
-    def test_mode_entry_not_a_mapping_is_warning(self, tmp_path):
-        self._write(
-            tmp_path, "01RNNNNNNNNNNNNNNNNNNNNNNNN",
+            {"contains": ("vars.prompt.modes.img2img: mode 'img2img' is not declared in preset.yml modes:",)},
+            id="undeclared_mode_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    modes:\n      txt2img: \"not-a-mapping\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning" and i.message == "vars.prompt.modes.txt2img: must be a mapping"
-            for i in issues
-        )
-
-    def test_mode_segment_templates_errors_use_mode_path(self, tmp_path):
-        self._write(
-            tmp_path, "01ROOOOOOOOOOOOOOOOOOOOOOOO",
+            {"equals": "vars.prompt.modes.txt2img: must be a mapping"},
+            id="mode_entry_not_a_mapping_is_warning",
+        ),
+        pytest.param(
             "vars:\n  prompt:\n    modes:\n      txt2img:\n        segment_templates:\n          - \"not-a-mapping\"\n",
-        )
+            {"contains": ("vars.prompt.modes.txt2img.segment_templates[0]: must be a mapping",)},
+            id="mode_segment_templates_errors_use_mode_path",
+        ),
+    ])
+    def test_malformed_declaration_is_warning(self, tmp_path, vars_yaml, check):
+        self._write(tmp_path, "01RDDDDDDDDDDDDDDDDDDDDDDDD", vars_yaml)
         issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning"
-            and "vars.prompt.modes.txt2img.segment_templates[0]: must be a mapping" in i.message
-            for i in issues
+        assert _has_issue(
+            issues, "warning", *check.get("contains", ()),
+            equals=check.get("equals"), startswith=check.get("startswith"),
         )
 
 
@@ -1207,186 +1064,90 @@ class TestLintTestsYml:
     docstring for why each needs sibling-case or cross-file context)."""
 
     VALID_SHA = "a" * 64
-    OTHER_VALID_SHA = "b" * 64
+
+    @staticmethod
+    def _lint(tmp_path, tests_yaml):
+        preset_dir = _write_preset(tmp_path, "p", "tests_yml_case", ["txt2img"], with_tests_yml=False)
+        (preset_dir / "tests.yml").write_text(tests_yaml)
+        return PresetLinter([str(tmp_path)]).lint()
 
     def test_missing_tests_yml_is_informational_warning(self, tmp_path):
         _write_preset(tmp_path, "p", "no_tests_yml", ["txt2img"], with_tests_yml=False)
         issues = PresetLinter([str(tmp_path)]).lint()
         assert any(i.level == "warning" and "no tests.yml" in i.message for i in issues)
 
-    def test_present_but_empty_tests_yml_has_no_warning(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "empty_tests_yml", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text("schema: 1\ncases: []\n")
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert issues == []
-
-    def test_malformed_yaml_is_error(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "bad_yaml", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text("schema: 1\ncases: [\n")  # unterminated flow seq
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(i.level == "error" and "tests.yml" in i.message for i in issues)
-
-    def test_schema_validation_error_is_reported(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "bad_case", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
-            "schema: 1\ncases:\n  - name: no-seed\n    mode: txt2img\n"
-        )  # seed is required
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(i.level == "error" and "no-seed" in i.message and "seed" in i.message for i in issues)
-
-    def test_duplicate_case_names_is_error(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "dup_names", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
+    @pytest.mark.parametrize("tests_yaml,level,parts", [
+        pytest.param("schema: 1\ncases: [\n", "error", ("tests.yml",), id="malformed_yaml_is_error"),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: no-seed\n    mode: txt2img\n",
+            "error", ("no-seed", "seed"), id="schema_validation_error_is_reported",
+        ),
+        pytest.param(
             "schema: 1\ncases:\n"
             "  - name: fast-case\n    mode: txt2img\n    seed: 1\n"
-            "  - name: fast-case\n    mode: txt2img\n    seed: 2\n"
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "duplicates the name" in i.message and "fast-case" in i.message
-            for i in issues
-        )
+            "  - name: fast-case\n    mode: txt2img\n    seed: 2\n",
+            "error", ("duplicates the name", "fast-case"), id="duplicate_case_names_is_error",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: wrong-mode\n    mode: img2img\n    seed: 1\n",
+            "error", ("wrong-mode", "img2img"), id="mode_not_declared_is_error",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: colliding-case\n    mode: txt2img\n    seed: 1\n"
+            "    form:\n      diffusion_model: \"some/literal/path.safetensors\"\n"
+            "    models:\n      diffusion_model:\n        sha256: \"" + "a" * 64 + "\"\n",
+            "error", ("colliding-case", "diffusion_model"), id="form_key_colliding_with_models_key_is_error",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: bad-sha-case\n    mode: txt2img\n    seed: 1\n"
+            "    models:\n      diffusion_model:\n        sha256: \"not-a-real-hash\"\n",
+            "error", ("bad-sha-case", "64 hex"), id="malformed_sha256_is_error",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: placeholder-case\n    mode: txt2img\n    seed: 1\n"
+            "    models:\n      diffusion_model:\n        sha256: \"" + "0" * 64 + "\"\n",
+            "warning", ("placeholder sha256", "needs-model"), id="placeholder_sha_without_needs_model_tag_is_warning",
+        ),
+    ])
+    def test_invalid_tests_yml_is_reported(self, tmp_path, tests_yaml, level, parts):
+        assert _has_issue(self._lint(tmp_path, tests_yaml), level, *parts)
 
-    def test_unique_case_names_is_clean(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "unique_names", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
+    @pytest.mark.parametrize("tests_yaml,fragment", [
+        pytest.param("schema: 1\ncases: []\n", None, id="present_but_empty_tests_yml_has_no_warning"),
+        pytest.param(
             "schema: 1\ncases:\n"
             "  - name: fast-case-a\n    mode: txt2img\n    seed: 1\n"
-            "  - name: fast-case-b\n    mode: txt2img\n    seed: 2\n"
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("duplicates the name" in i.message for i in issues)
-
-    def test_mode_not_declared_is_error(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "bad_mode", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
-            "schema: 1\ncases:\n  - name: wrong-mode\n    mode: img2img\n    seed: 1\n"
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "wrong-mode" in i.message and "img2img" in i.message
-            for i in issues
-        )
-
-    def test_declared_mode_is_clean(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "good_mode", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
-            "schema: 1\ncases:\n  - name: right-mode\n    mode: txt2img\n    seed: 1\n"
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert issues == []
-
-    def test_form_key_colliding_with_models_key_is_error(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "collide", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
-            f"""schema: 1
-cases:
-  - name: colliding-case
-    mode: txt2img
-    seed: 1
-    form:
-      diffusion_model: "some/literal/path.safetensors"
-    models:
-      diffusion_model:
-        sha256: "{self.VALID_SHA}"
-"""
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "colliding-case" in i.message and "diffusion_model" in i.message
-            for i in issues
-        )
-
-    def test_non_colliding_form_and_models_keys_is_clean(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "no_collide", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
-            f"""schema: 1
-cases:
-  - name: clean-case
-    mode: txt2img
-    seed: 1
-    form:
-      steps: 8
-    models:
-      diffusion_model:
-        sha256: "{self.VALID_SHA}"
-"""
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert issues == []
-
-    def test_malformed_sha256_is_error(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "bad_sha", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
-            """schema: 1
-cases:
-  - name: bad-sha-case
-    mode: txt2img
-    seed: 1
-    models:
-      diffusion_model:
-        sha256: "not-a-real-hash"
-"""
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "bad-sha-case" in i.message and "64 hex" in i.message
-            for i in issues
-        )
-
-    def test_valid_sha256_is_clean(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "good_sha", ["txt2img"], with_tests_yml=False)
-        (preset_dir / "tests.yml").write_text(
-            f"""schema: 1
-cases:
-  - name: good-sha-case
-    mode: txt2img
-    seed: 1
-    models:
-      diffusion_model:
-        sha256: "{self.VALID_SHA}"
-"""
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert issues == []
-
-    def test_placeholder_sha_without_needs_model_tag_is_warning(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "placeholder_untagged", ["txt2img"], with_tests_yml=False)
-        placeholder = "0" * 64
-        (preset_dir / "tests.yml").write_text(
-            f"""schema: 1
-cases:
-  - name: placeholder-case
-    mode: txt2img
-    seed: 1
-    models:
-      diffusion_model:
-        sha256: "{placeholder}"
-"""
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "warning" and "placeholder sha256" in i.message and "needs-model" in i.message
-            for i in issues
-        )
-
-    def test_placeholder_sha_with_needs_model_tag_is_clean(self, tmp_path):
-        preset_dir = _write_preset(tmp_path, "p", "placeholder_tagged", ["txt2img"], with_tests_yml=False)
-        placeholder = "0" * 64
-        (preset_dir / "tests.yml").write_text(
-            f"""schema: 1
-cases:
-  - name: placeholder-case
-    mode: txt2img
-    seed: 1
-    tags: ["fast", "needs-model"]
-    models:
-      diffusion_model:
-        sha256: "{placeholder}"
-"""
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("placeholder sha256" in i.message for i in issues)
+            "  - name: fast-case-b\n    mode: txt2img\n    seed: 2\n",
+            "duplicates the name", id="unique_case_names_is_clean",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: right-mode\n    mode: txt2img\n    seed: 1\n",
+            None, id="declared_mode_is_clean",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: clean-case\n    mode: txt2img\n    seed: 1\n"
+            "    form:\n      steps: 8\n"
+            "    models:\n      diffusion_model:\n        sha256: \"" + "a" * 64 + "\"\n",
+            None, id="non_colliding_form_and_models_keys_is_clean",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: good-sha-case\n    mode: txt2img\n    seed: 1\n"
+            "    models:\n      diffusion_model:\n        sha256: \"" + "a" * 64 + "\"\n",
+            None, id="valid_sha256_is_clean",
+        ),
+        pytest.param(
+            "schema: 1\ncases:\n  - name: placeholder-case\n    mode: txt2img\n    seed: 1\n"
+            "    tags: [\"fast\", \"needs-model\"]\n"
+            "    models:\n      diffusion_model:\n        sha256: \"" + "0" * 64 + "\"\n",
+            "placeholder sha256", id="placeholder_sha_with_needs_model_tag_is_clean",
+        ),
+    ])
+    def test_valid_tests_yml_is_clean(self, tmp_path, tests_yaml, fragment):
+        issues = self._lint(tmp_path, tests_yaml)
+        if fragment is None:
+            assert issues == []
+        else:
+            assert _lacks(issues, fragment)
 
 
 class TestLintPipelineTemplates:
@@ -1413,89 +1174,66 @@ class TestLintPipelineTemplates:
             tab_path.write_text(content)
         return preset_dir
 
-    # --- (a) enabled: exact-expression contract -------------------------------
-
-    def test_string_enabled_not_exact_expression_is_error(self, tmp_path):
-        self._write_mode(
-            tmp_path, "enb_mixed",
+    @pytest.mark.parametrize("pipeline_yaml,form_yaml,parts", [
+        pytest.param(
             "pipeline:\n  - name: upscaler\n"
             "    enabled: \"{{ form.a }} and {{ form.b }}\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(
-            i.level == "error" and "enabled:" in i.message and "not an exact" in i.message
-            for i in issues
-        )
-
-    def test_string_enabled_statement_tag_is_error(self, tmp_path):
-        self._write_mode(
-            tmp_path, "enb_stmt",
+            None, ("enabled:", "not an exact"),
+            id="string_enabled_not_exact_expression_is_error",
+        ),
+        pytest.param(
             "pipeline:\n  - name: upscaler\n"
             "    enabled: \"{% if form.x %}true{% else %}false{% endif %}\"\n",
-            form_yaml="name: custom\nfields:\n  - {type: checkbox, name: x, default: false}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(i.level == "error" and "enabled:" in i.message for i in issues)
-
-    def test_exact_expression_enabled_is_clean(self, tmp_path):
-        self._write_mode(
-            tmp_path, "enb_ok",
-            "pipeline:\n  - name: upscaler\n"
-            "    enabled: \"{{ form.x | default(false) }}\"\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("enabled:" in i.message for i in issues)
-
-    def test_yaml_bool_enabled_is_clean(self, tmp_path):
-        self._write_mode(
-            tmp_path, "enb_bool",
-            "pipeline:\n  - name: upscaler\n    enabled: false\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("enabled:" in i.message for i in issues)
-
-    # --- (c) @loop items exact-expression contract ----------------------------
-
-    def test_loop_items_string_template_is_error(self, tmp_path):
-        self._write_mode(
-            tmp_path, "loop_bad",
+            "name: custom\nfields:\n  - {type: checkbox, name: x, default: false}\n", ("enabled:",),
+            id="string_enabled_statement_tag_is_error",
+        ),
+        pytest.param(
             "pipeline:\n  - name: loader\n"
             "    configuration:\n"
             "      loras:\n"
             "        \"@loop\":\n"
             "          items: \"count is {{ form.n }}\"\n"
             "          template: {file_path: \"{{ item.model }}\"}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(i.level == "error" and "@loop.items" in i.message for i in issues)
+            None, ("@loop.items",),
+            id="loop_items_string_template_is_error",
+        ),
+    ])
+    def test_non_exact_template_contract_is_error(self, tmp_path, pipeline_yaml, form_yaml, parts):
+        self._write_mode(tmp_path, "tmpl_bad", pipeline_yaml, form_yaml=form_yaml)
+        assert _has_issue(PresetLinter([str(tmp_path)]).lint(), "error", *parts)
 
-    def test_loop_items_literal_list_is_clean(self, tmp_path):
-        # _resolve_loop_items accepts a native YAML list as-is - only a string
-        # value must be an exact expression.
-        self._write_mode(
-            tmp_path, "loop_literal",
+    @pytest.mark.parametrize("pipeline_yaml,fragment", [
+        pytest.param(
+            "pipeline:\n  - name: upscaler\n"
+            "    enabled: \"{{ form.x | default(false) }}\"\n",
+            "enabled:", id="exact_expression_enabled_is_clean",
+        ),
+        pytest.param(
+            "pipeline:\n  - name: upscaler\n    enabled: false\n",
+            "enabled:", id="yaml_bool_enabled_is_clean",
+        ),
+        pytest.param(
             "pipeline:\n  - name: loader\n"
             "    configuration:\n"
             "      loras:\n"
             "        \"@loop\":\n"
             "          items: [1, 2, 3]\n"
             "          template: {v: \"{{ item }}\"}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("@loop.items" in i.message for i in issues)
-
-    def test_loop_items_exact_expression_is_clean(self, tmp_path):
-        self._write_mode(
-            tmp_path, "loop_ok",
+            "@loop.items", id="loop_items_literal_list_is_clean",
+        ),
+        pytest.param(
             "pipeline:\n  - name: loader\n"
             "    configuration:\n"
             "      loras:\n"
             "        \"@loop\":\n"
             "          items: \"{{ form.loras | default([]) }}\"\n"
             "          template: {file_path: \"{{ item.model }}\"}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert not any("@loop.items" in i.message for i in issues)
+            "@loop.items", id="loop_items_exact_expression_is_clean",
+        ),
+    ])
+    def test_exact_template_contract_is_clean(self, tmp_path, pipeline_yaml, fragment):
+        self._write_mode(tmp_path, "tmpl_ok", pipeline_yaml)
+        assert _lacks(PresetLinter([str(tmp_path)]).lint(), fragment)
 
     # --- (d) deleted-context migration guard ----------------------------------
 
@@ -1667,29 +1405,14 @@ class TestLintFieldDefaults:
         tab.write_text(tab_content)
         return preset_dir
 
-    def test_quoted_number_default_in_tab_is_error(self, tmp_path):
-        self._write_with_tab(
-            tmp_path, "tab_num",
-            "fields:\n  - {type: slider, name: steps, default: \"30\"}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(i.level == "error" and "steps" in i.message and "number" in i.message for i in issues)
-
-    def test_quoted_bool_default_in_tab_is_error(self, tmp_path):
-        self._write_with_tab(
-            tmp_path, "tab_bool",
-            "fields:\n  - {type: checkbox, name: flag, default: \"true\"}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(i.level == "error" and "flag" in i.message and "bool" in i.message for i in issues)
-
-    def test_jinja_default_in_tab_is_error(self, tmp_path):
-        self._write_with_tab(
-            tmp_path, "tab_jinja",
-            "fields:\n  - {type: string, name: s, default: \"{{ form.x }}\"}\n",
-        )
-        issues = PresetLinter([str(tmp_path)]).lint()
-        assert any(i.level == "error" and "Jinja is not rendered" in i.message for i in issues)
+    @pytest.mark.parametrize("field_yaml,parts", [
+        pytest.param("{type: slider, name: steps, default: \"30\"}", ("steps", "number"), id="quoted_number_default_in_tab_is_error"),
+        pytest.param("{type: checkbox, name: flag, default: \"true\"}", ("flag", "bool"), id="quoted_bool_default_in_tab_is_error"),
+        pytest.param("{type: string, name: s, default: \"{{ form.x }}\"}", ("Jinja is not rendered",), id="jinja_default_in_tab_is_error"),
+    ])
+    def test_badly_typed_default_in_tab_is_error(self, tmp_path, field_yaml, parts):
+        self._write_with_tab(tmp_path, "tab_bad", f"fields:\n  - {field_yaml}\n")
+        assert _has_issue(PresetLinter([str(tmp_path)]).lint(), "error", *parts)
 
     def test_well_typed_defaults_in_tab_are_clean(self, tmp_path):
         self._write_with_tab(
@@ -2054,63 +1777,36 @@ class TestLintPipeConfigKeys:
 
 
 class TestLintConfigExactExpression:
-    def test_bool_config_string_not_exact_expression_is_error(self, tmp_path):
+    @staticmethod
+    def _lint(tmp_path, preset_id, config_yaml):
         _write_pipeline_mode(
-            tmp_path, "cfgexpr_bad_bool",
-            'pipeline:\n  - name: "fake/consumer"\n'
-            '    configuration:\n      flag: "yes and {{ form.x }}"\n',
+            tmp_path, preset_id,
+            'pipeline:\n  - name: "fake/consumer"\n    configuration:\n' + config_yaml,
         )
         catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
-        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert any(
-            i.level == "error" and "configuration.flag" in i.message and "not a bool/list" not in i.message
-            and "renders to a string, not a bool" in i.message
-            for i in issues
-        )
+        return PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
 
-    def test_list_config_string_not_exact_expression_is_error(self, tmp_path):
-        _write_pipeline_mode(
-            tmp_path, "cfgexpr_bad_list",
-            'pipeline:\n  - name: "fake/consumer"\n'
-            '    configuration:\n      items: "prefix {{ form.x }}"\n',
-        )
-        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
-        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert any(
-            i.level == "error" and "configuration.items" in i.message and "renders to a string, not a list" in i.message
-            for i in issues
-        )
+    @pytest.mark.parametrize("config_yaml,key,kind", [
+        pytest.param(
+            '      flag: "yes and {{ form.x }}"\n', "configuration.flag", "bool",
+            id="bool_config_string_not_exact_expression_is_error",
+        ),
+        pytest.param(
+            '      items: "prefix {{ form.x }}"\n', "configuration.items", "list",
+            id="list_config_string_not_exact_expression_is_error",
+        ),
+    ])
+    def test_non_exact_expression_is_error(self, tmp_path, config_yaml, key, kind):
+        issues = self._lint(tmp_path, "cfgexpr_bad", config_yaml)
+        assert _has_issue(issues, "error", key, f"renders to a string, not a {kind}", excludes=("not a bool/list",))
 
-    def test_bool_config_exact_expression_is_clean(self, tmp_path):
-        _write_pipeline_mode(
-            tmp_path, "cfgexpr_ok",
-            'pipeline:\n  - name: "fake/consumer"\n'
-            '    configuration:\n      flag: "{{ form.x | default(false) }}"\n',
-        )
-        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
-        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert not any("renders to a string" in i.message for i in issues)
-
-    def test_bool_config_yaml_literal_is_clean(self, tmp_path):
-        _write_pipeline_mode(
-            tmp_path, "cfgexpr_literal",
-            'pipeline:\n  - name: "fake/consumer"\n    configuration:\n      flag: true\n',
-        )
-        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
-        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert not any("renders to a string" in i.message for i in issues)
-
-    def test_str_config_key_is_not_checked(self, tmp_path):
-        # `label` is declared `str` - the exact-expression contract only
-        # applies to bool/list keys (a str param_type is fine either way).
-        _write_pipeline_mode(
-            tmp_path, "cfgexpr_str_skip",
-            'pipeline:\n  - name: "fake/consumer"\n'
-            '    configuration:\n      label: "prefix {{ form.x }} suffix"\n',
-        )
-        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
-        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert not any("configuration.label" in i.message for i in issues)
+    @pytest.mark.parametrize("config_yaml,fragment", [
+        pytest.param('      flag: "{{ form.x | default(false) }}"\n', "renders to a string", id="bool_config_exact_expression_is_clean"),
+        pytest.param("      flag: true\n", "renders to a string", id="bool_config_yaml_literal_is_clean"),
+        pytest.param('      label: "prefix {{ form.x }} suffix"\n', "configuration.label", id="str_config_key_is_not_checked"),
+    ])
+    def test_valid_or_unchecked_config_is_clean(self, tmp_path, config_yaml, fragment):
+        assert _lacks(self._lint(tmp_path, "cfgexpr_ok", config_yaml), fragment)
 
 
 class TestLintPipelineWiring:
@@ -2272,35 +1968,22 @@ class TestLintGuardDefaultMismatch:
         )
         return preset_dir
 
-    def test_guard_literal_mismatches_default_is_warning(self, tmp_path):
-        self._write_guard_preset(
-            tmp_path, "guard_mismatch",
-            "{{ form.speed_profile | default('quality') }}", "'turbo'",
-        )
+    @pytest.mark.parametrize("guard_expr,default_yaml,warns", [
+        pytest.param("{{ form.speed_profile | default('quality') }}", "'turbo'", True, id="guard_literal_mismatches_default_is_warning"),
+        pytest.param("{{ form.speed_profile | default('turbo') }}", "'turbo'", False, id="guard_literal_matches_default_is_clean"),
+        pytest.param(
+            "{{ form.speed_profile | default(preset.vars.default_profile) }}", "'turbo'", False,
+            id="guard_expression_default_is_skipped",
+        ),
+    ])
+    def test_guard_literal_against_field_default(self, tmp_path, guard_expr, default_yaml, warns):
+        self._write_guard_preset(tmp_path, "guard_case", guard_expr, default_yaml)
         catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
         issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert any(
-            i.level == "warning" and "default('quality')" in i.message and "'turbo'" in i.message
-            for i in issues
-        )
-
-    def test_guard_literal_matches_default_is_clean(self, tmp_path):
-        self._write_guard_preset(
-            tmp_path, "guard_match",
-            "{{ form.speed_profile | default('turbo') }}", "'turbo'",
-        )
-        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
-        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert not any("does not match the field's own default" in i.message for i in issues)
-
-    def test_guard_expression_default_is_skipped(self, tmp_path):
-        self._write_guard_preset(
-            tmp_path, "guard_expr",
-            "{{ form.speed_profile | default(preset.vars.default_profile) }}", "'turbo'",
-        )
-        catalog = _FakeCatalog({"fake/consumer": _FakeConsumerPipe})
-        issues = PresetLinter([str(tmp_path)], pipe_catalog=catalog).lint()
-        assert not any("does not match the field's own default" in i.message for i in issues)
+        if warns:
+            assert _has_issue(issues, "warning", "default('quality')", "'turbo'")
+        else:
+            assert _lacks(issues, "does not match the field's own default")
 
     def test_guard_field_without_default_is_skipped(self, tmp_path):
         pipeline_yaml = (

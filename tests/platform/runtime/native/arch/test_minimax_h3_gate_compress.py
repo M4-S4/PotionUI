@@ -19,7 +19,7 @@ from src.platform.runtime.native.arch.minimax_h3.config import MiniMaxH3Config
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 TINY_COMMON = {
     "image_model": "minimax_h3", "hidden_size": 64, "num_layers": 2, "num_refiner_layers": 1,
@@ -28,10 +28,6 @@ TINY_COMMON = {
 }
 TINY_PRUNED = dict(TINY_COMMON, pruned=True, time_embed_dim=6, adaln_curve_grid=5)
 TINY_PRUNED_GATED = dict(TINY_PRUNED, gate_compress=True)
-
-
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
 
 
 def _tiny_layout(text_n: int = 2, video_n: int = 3, audio_n: int = 2) -> dict[str, torch.Tensor]:
@@ -65,7 +61,7 @@ def _forward(m: MiniMaxH3Model, config: dict, layout: dict, timestep: torch.Tens
 
 def test_gate_compress_module_built_when_flag_true():
     with torch.device("meta"):
-        m = MiniMaxH3Model.from_config(TINY_PRUNED_GATED, _fp32_ops())
+        m = MiniMaxH3Model.from_config(TINY_PRUNED_GATED, fp32_ops())
     inner_dim = TINY_COMMON["num_attention_heads"] * TINY_COMMON["attention_head_dim"]
     for block in m.blocks:
         assert hasattr(block.attn, "to_gate_compress")
@@ -77,7 +73,7 @@ def test_gate_compress_module_built_when_flag_true():
 
 def test_gate_compress_module_absent_when_flag_false():
     with torch.device("meta"):
-        m = MiniMaxH3Model.from_config(TINY_PRUNED, _fp32_ops())
+        m = MiniMaxH3Model.from_config(TINY_PRUNED, fp32_ops())
     for block in m.blocks:
         assert not hasattr(block.attn, "to_gate_compress")
 
@@ -88,7 +84,7 @@ def test_gate_compress_weights_load_from_a_header_shaped_state_dict():
     """Build a state dict shaped exactly like a real FastH3 header entry
     (``blocks.N.attn.to_gate_compress.weight`` present, real key spelling) and
     drive it through the production ``load_into_module`` path."""
-    m = MiniMaxH3Model(MiniMaxH3Config.from_detect_config(TINY_PRUNED_GATED), _fp32_ops())
+    m = MiniMaxH3Model(MiniMaxH3Config.from_detect_config(TINY_PRUNED_GATED), fp32_ops())
     sd = {}
     for k, v in m.state_dict().items():
         sd[k] = torch.ones_like(v) if ".norm" in k else torch.randn_like(v) * 0.02
@@ -108,14 +104,14 @@ def test_forward_unchanged_with_gate_compress_present():
     weighted) ``to_gate_compress`` and one not -- since no forward path reads
     it, both must produce byte-identical output on the same input."""
     torch.manual_seed(0)
-    base = MiniMaxH3Model(MiniMaxH3Config.from_detect_config(TINY_PRUNED), _fp32_ops())
+    base = MiniMaxH3Model(MiniMaxH3Config.from_detect_config(TINY_PRUNED), fp32_ops())
     base_sd = {}
     for k, v in base.state_dict().items():
         base_sd[k] = torch.ones_like(v) if ".norm" in k else torch.randn_like(v) * 0.02
     load_into_module(base, base_sd, match_model_spec(TINY_PRUNED))
     base.eval()
 
-    gated = MiniMaxH3Model(MiniMaxH3Config.from_detect_config(TINY_PRUNED_GATED), _fp32_ops())
+    gated = MiniMaxH3Model(MiniMaxH3Config.from_detect_config(TINY_PRUNED_GATED), fp32_ops())
     gated_sd = dict(base_sd)
     inner_dim = TINY_COMMON["num_attention_heads"] * TINY_COMMON["attention_head_dim"]
     for i in range(TINY_COMMON["num_layers"]):

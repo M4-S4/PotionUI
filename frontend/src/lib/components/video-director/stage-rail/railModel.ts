@@ -11,7 +11,6 @@
 import type {
 	VideoDirectorValue,
 	DirectorCapabilities,
-	DirectorModeCapability,
 	DirectorReferencesCapability,
 	ChainKeyframe,
 	DirectorKeyframe,
@@ -21,8 +20,6 @@ import type {
 } from '$lib/types/videoDirector';
 import {
 	chainEdgeKeyframeId,
-	chainKeyframeWindow,
-	chainSegmentEdgeAllowances,
 	deriveChainSegmentSubType,
 	deriveDirectorMode,
 	resolveDirectorEdgeAllowances,
@@ -298,21 +295,6 @@ function resolveKeyframeSnap(
 	}
 	if (best && bestDist <= epsilonSeconds) return { snapped: true, label: best.label };
 	return { snapped: false, label: null };
-}
-
-/** Interactive helper for dragging a keyframe on the rail: snaps to the
- * nearest target within `epsilonSeconds`, otherwise clamps into [0, windowSeconds]. */
-export function resolveKeyframeDrag(
-	proposedSeconds: number,
-	targets: RailSnapTarget[],
-	windowSeconds: number,
-	epsilonSeconds: number = SNAP_EPSILON_SECONDS
-): number {
-	const clamped = clamp(proposedSeconds, 0, Math.max(0, windowSeconds));
-	const { snapped, label } = resolveKeyframeSnap(clamped, targets, epsilonSeconds);
-	if (!snapped || label == null) return clamped;
-	const target = targets.find((t) => t.label === label);
-	return target ? target.atSeconds : clamped;
 }
 
 /** Interactive helper for dragging an LTX block's start/end edge: clamps
@@ -711,7 +693,6 @@ function deriveChainRail(
 		{ label: 'End', atSeconds: totalSeconds }
 	];
 
-	const keyframeWindow = chainKeyframeWindow(chain);
 	const placedKeyframes: RailKeyframe[] = chain.keyframes.map((kf: ChainKeyframe) => {
 		const { snapped, label } = resolveKeyframeSnap(kf.at, snapTargets);
 		return {

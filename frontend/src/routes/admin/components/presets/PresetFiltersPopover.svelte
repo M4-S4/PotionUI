@@ -6,11 +6,11 @@
 		PRESET_ASSIGNMENT_OPTIONS,
 		PRESET_INSTALL_OPTIONS,
 		PRESET_REQUIREMENTS_OPTIONS,
-		clearAllPresetFilters,
 		type PresetAssignmentFilter,
 		type PresetFilters,
 		type PresetInstallFilter,
-		type PresetRequirementsFilter
+		type PresetRequirementsFilter,
+		presetFilters
 	} from './presetFilters';
 
 	let {
@@ -35,7 +35,7 @@
 	]);
 </script>
 
-<FilterPopoverFrame label="Preset filters" onClearAll={() => onChange(clearAllPresetFilters(filters))} {onClose}>
+<FilterPopoverFrame label="Preset filters" onClearAll={() => onChange(presetFilters.clearAll(filters))} {onClose}>
 	<SelectFilterField label="Engine" value={filters.engine} options={engineOptions} onChange={(engine) => set({ engine })} />
 	<SegmentedFilterGroup
 		label="Status"

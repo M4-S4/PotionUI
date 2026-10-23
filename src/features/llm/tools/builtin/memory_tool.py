@@ -1,16 +1,13 @@
 """Memory tools: write, read, and delete persistent LLM memory notes."""
 
 import json
-import logging
 from typing import Any, Dict, Optional
 
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import ApprovalTool, BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import resolve_active_model_id, resolve_active_preset_id
 from src.features.llm.tools.errors import unexpected
 from src.features.llm_memory import operations as memory_operations
 from src.features.presets import operations as preset_operations
-
-logger = logging.getLogger(__name__)
 
 
 def _truncate(text: str, limit: int = 200) -> str:
@@ -83,39 +80,36 @@ def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
 
 
 def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
-    """Resolve the note an update_memory call targets, by note_id or by
-    (scope, key). Returns (note, error) -- exactly one is None.
-    """
     note_id = kwargs.get("note_id")
     if note_id:
         try:
             note = memory_operations.get_note(context.llm_memory_repository, user_id=context.user_id, note_id=note_id)
         except Exception as e:
-            return None, unexpected("update_memory", "fetch note", e, context.is_admin)
+            raise ValueError(unexpected("update_memory", "fetch note", e, context.is_admin)) from None
         if note is None:
-            return None, f"Memory note with id '{note_id}' not found"
-        return note, None
+            raise ValueError(f"Memory note with id '{note_id}' not found")
+        return note
 
     scope = kwargs.get("scope")
     key = kwargs.get("key")
     if not scope or not key:
-        return None, "Provide either note_id, or both scope and key, to address the note"
+        raise ValueError("Provide either note_id, or both scope and key, to address the note")
 
     scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
     if scope == "session" and not scope_ref:
-        return None, _no_session_error(context)
+        raise ValueError(_no_session_error(context))
     try:
         note = memory_operations.get_note_by_key(
             context.llm_memory_repository, user_id=context.user_id, key=key, scope=scope, scope_ref=scope_ref,
         )
-    except ValueError as e:
-        return None, str(e)
+    except ValueError:
+        raise
     except Exception as e:
-        return None, unexpected("update_memory", "fetch note", e, context.is_admin)
+        raise ValueError(unexpected("update_memory", "fetch note", e, context.is_admin)) from None
     if note is None:
         ref_desc = f" (scope_ref='{scope_ref}')" if scope_ref else ""
-        return None, f"No memory note found with key '{key}' at scope '{scope}'{ref_desc}"
-    return note, None
+        raise ValueError(f"No memory note found with key '{key}' at scope '{scope}'{ref_desc}")
+    return note
 
 
 def _mentions(name: Any, content: str) -> bool:
@@ -166,71 +160,21 @@ class WriteMemoryTool(BaseTool):
 
     icon = "brain"
 
-    @property
-    def name(self) -> str:
-        return "write_memory"
-
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Saves a note about you the assistant can recall in later chats."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Remember the PATTERN, not the instance — something true of the user's next ten "
-            "generations, not just this one. The moments to call this: the user corrects you "
-            "('no, I always want...'), repeats a request you've now seen twice, or states a "
-            "preference outright. Check the notes already in context first — if one "
-            "covers this topic, call update_memory with its scope and key instead of a new "
-            "one. "
-            "scope is REQUIRED and decides where the note surfaces again — pick the narrowest "
-            "scope the fact is actually true at. Decision rule: if the fact names or only applies "
-            "to one preset, model, or chat mode, it MUST be scoped to it; 'global' is only for "
-            "facts true everywhere, in every mode, on every preset and every model. Contrast: "
-            "{\"scope\": \"global\", \"content\": \"prefers painterly fantasy scenes, dislikes "
-            "photorealism\"} (true no matter what preset is open — global is correct); "
-            "{\"scope\": \"preset\", \"content\": \"on Krea-2 Turbo, cfg 1 washes out reds — keep "
-            "cfg above 2\"} (only true on that preset — scope_ref auto-resolves to the active "
-            "session preset, omit it); {\"scope\": \"model\", \"scope_ref\": \"<model id>\", "
-            "\"content\": \"responds well to cfg 3.5 with short prompts\"} (only true for that "
-            "checkpoint); {\"scope\": \"mode\", \"content\": \"always wants captions under 20 "
-            "words\"} (only true in this chat mode's own workflow — scope_ref auto-resolves to "
-            "the session's mode, omit it). A preset's image/video mode is finer than 'preset' "
-            "scope but there is no separate scope for that — name it in the content instead, e.g. "
-            "\"in video mode, keep duration under 4s to avoid OOM\" at scope='preset'. "
-            "The subject of a generation request — what was asked for THIS time — is never a "
-            "preference by itself, no matter the scope: do not save "
-            "{\"content\": \"likes generating a knight in silver armor\"} just because that's what "
-            "the user asked for once; save it only if they said it's a standing preference, or the "
-            "same request came up again on its own in a later message. "
-            "Bad — do not save these: {\"content\": \"generated a castle at seed 1234\"} (one "
-            "generation, not a pattern); {\"content\": \"user asked for a dragon\"} (a single "
-            "request, not a preference). If it won't hold next week, don't save it. "
-            "Saves immediately, no approval needed."
-        )
+    name = "write_memory"
+    group = "Memory"
+    user_description = "Saves a note about you the assistant can recall in later chats."
+    requires_approval = False
 
     @property
     def description(self) -> str:
         return (
-            "Save a persistent memory note that will be available across chat sessions. "
-            "Content must describe a lasting pattern (a preference, a quirk, a habit) rather "
-            "than a fact about one generation — seeds and generation ids are rejected outright, "
-            "and at global scope a bare parameter dump with no descriptive text is rejected too. "
-            "Notes are identified by a key and MUST be explicitly scoped: globally (true on every "
-            "preset, model, and mode), to the active preset, to the active model, or to the "
-            "active chat mode — pick 'global' only when the fact holds regardless of what "
-            "preset/model is open or what mode the chat is in; a fact that names or only applies "
-            "to one preset/model/mode must use that scope instead. Writing to an existing key "
-            "updates the note. Saves immediately — no user approval required."
+            "Save a persistent note later chats see: a standing preference, a preset or model "
+            "quirk, a trigger word. Never the subject of one request; seeds, generation ids "
+            "and bare parameter dumps are rejected. "
+            "Good: {\"scope\": \"preset\", \"content\": \"cfg 1 washes out reds here; keep cfg above 2\"}. "
+            "Bad: {\"scope\": \"global\", \"content\": \"user asked for a dragon\"}. "
+            "Writing an existing key updates that note. Saves immediately, no approval."
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return False
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -257,7 +201,8 @@ class WriteMemoryTool(BaseTool):
                         "omit it. 'mode' is for anything tied to this chat mode's own workflow (not "
                         "the Generate form) -- scope_ref auto-resolves to the session's mode, omit "
                         "it. " + SESSION_SCOPE_TEXT + " If the note names or only applies to one "
-                        "preset/model/mode/session, it MUST use that scope."
+                        "preset/model/mode/session, it MUST use that scope. A preset's image/video "
+                        "mode has no scope of its own; name it in the content."
                     ),
                 },
                 "scope_ref": {
@@ -327,35 +272,17 @@ class WriteMemoryTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"write_memory failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("write_memory", "save", e, context.is_admin))
 
 
 class ReadMemoryTool(BaseTool):
     """Reads persistent memory notes to recall information from previous sessions."""
 
     icon = "brain"
+    context_group = "memory_maintenance"
 
-    @property
-    def name(self) -> str:
-        return "read_memory"
-
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads notes the assistant saved in earlier chats."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Relevant memory is already injected into context automatically at the start of "
-            "each conversation — call this for a scope not shown there, an explicit refresh, "
-            "or to check existing notes before saving."
-        )
+    name = "read_memory"
+    group = "Memory"
+    user_description = "Reads notes the assistant saved in earlier chats."
 
     @property
     def description(self) -> str:
@@ -366,7 +293,8 @@ class ReadMemoryTool(BaseTool):
             "tab, 'all' returns global notes plus the notes for that tab's preset, model, mode and "
             "saved session; with no open tab (e.g. an MCP client) 'all' returns every note the user "
             "has, each with its scope and scope_ref. 'session' means a saved Generate session, not "
-            "a chat conversation. Returns all matching notes."
+            "a chat conversation. Returns all matching notes. Notes for the open tab are "
+            "already in your context; call this only for another scope or to refresh."
         )
 
     @property
@@ -410,94 +338,81 @@ class ReadMemoryTool(BaseTool):
         if scope == "session" and not session_ref:
             return ToolResult(success=False, data="", error=_no_session_error(context))
 
-        try:
-            if scope == "all" and not has_tab and not scope_ref:
-                all_notes = memory_operations.read_notes(context.llm_memory_repository, user_id=context.user_id)
-            elif scope == "all":
-                all_notes = memory_operations.read_notes(
+        if scope == "all" and not has_tab and not scope_ref:
+            all_notes = memory_operations.read_notes(context.llm_memory_repository, user_id=context.user_id)
+        elif scope == "all":
+            all_notes = memory_operations.read_notes(
+                context.llm_memory_repository,
+                user_id=context.user_id,
+                scope="global",
+            )
+            if preset_ref:
+                all_notes += memory_operations.read_notes(
                     context.llm_memory_repository,
                     user_id=context.user_id,
-                    scope="global",
+                    scope="preset",
+                    scope_ref=preset_ref,
                 )
-                if preset_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="preset",
-                        scope_ref=preset_ref,
-                    )
-                if model_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="model",
-                        scope_ref=model_ref,
-                    )
-                if mode_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="mode",
-                        scope_ref=mode_ref,
-                    )
-                if session_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="session",
-                        scope_ref=session_ref,
-                    )
-            else:
-                resolved_ref = (
-                    preset_ref if scope == "preset"
-                    else model_ref if scope == "model"
-                    else mode_ref if scope == "mode"
-                    else session_ref if scope == "session"
-                    else None
+            if model_ref:
+                all_notes += memory_operations.read_notes(
+                    context.llm_memory_repository,
+                    user_id=context.user_id,
+                    scope="model",
+                    scope_ref=model_ref,
                 )
-                filter_kwargs = {"user_id": context.user_id, "scope": scope}
-                if resolved_ref:
-                    filter_kwargs["scope_ref"] = resolved_ref
-                all_notes = memory_operations.read_notes(context.llm_memory_repository, **filter_kwargs)
-
-            notes_data = [note.to_dict() for note in all_notes]
-            payload: Dict[str, Any] = {
-                "notes": notes_data,
-                "count": len(notes_data),
-                "scope_filter": scope,
-            }
-            if not has_tab:
-                payload["context"] = (
-                    "No open Generate tab: every note you have was returned, each with its scope and scope_ref."
-                    if scope == "all" and not scope_ref else
-                    "No open Generate tab: only the scope_ref you passed was used to filter."
+            if mode_ref:
+                all_notes += memory_operations.read_notes(
+                    context.llm_memory_repository,
+                    user_id=context.user_id,
+                    scope="mode",
+                    scope_ref=mode_ref,
                 )
-            return ToolResult(success=True, data=json.dumps(payload))
-        except Exception as e:
-            logger.error(f"read_memory failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("read_memory", "read", e, context.is_admin))
+            if session_ref:
+                all_notes += memory_operations.read_notes(
+                    context.llm_memory_repository,
+                    user_id=context.user_id,
+                    scope="session",
+                    scope_ref=session_ref,
+                )
+        else:
+            resolved_ref = (
+                preset_ref if scope == "preset"
+                else model_ref if scope == "model"
+                else mode_ref if scope == "mode"
+                else session_ref if scope == "session"
+                else None
+            )
+            filter_kwargs = {"user_id": context.user_id, "scope": scope}
+            if resolved_ref:
+                filter_kwargs["scope_ref"] = resolved_ref
+            all_notes = memory_operations.read_notes(context.llm_memory_repository, **filter_kwargs)
+
+        notes_data = [note.to_dict() for note in all_notes]
+        payload: Dict[str, Any] = {
+            "notes": notes_data,
+            "count": len(notes_data),
+            "scope_filter": scope,
+        }
+        if not has_tab:
+            payload["context"] = (
+                "No open Generate tab: every note you have was returned, each with its scope and scope_ref."
+                if scope == "all" and not scope_ref else
+                "No open Generate tab: only the scope_ref you passed was used to filter."
+            )
+        return ToolResult(success=True, data=json.dumps(payload))
 
 
-class DeleteMemoryTool(BaseTool):
-    """Removes a persistent memory note."""
-
+class _MemoryApprovalTool(ApprovalTool):
     icon = "brain"
+    context_group = "memory_maintenance"
+    group = "Memory"
+    repositories = ("llm_memory_repository",)
+    unavailable_error = "Memory manager not available"
 
-    @property
-    def name(self) -> str:
-        return "delete_memory"
 
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Deletes one of the assistant's saved memory notes."
-
-    @property
-    def hint(self) -> str:
-        return "When the user wants to remove a previously saved memory note"
+class DeleteMemoryTool(_MemoryApprovalTool):
+    name = "delete_memory"
+    user_description = "Deletes one of the assistant's saved memory notes."
 
     @property
     def description(self) -> str:
@@ -505,10 +420,6 @@ class DeleteMemoryTool(BaseTool):
             "Delete a persistent memory note by its ID. "
             "Returns a preview of the note that will be deleted for user approval."
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -523,30 +434,19 @@ class DeleteMemoryTool(BaseTool):
             "required": ["note_id"],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Proposal phase: fetch note and show preview for confirmation."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
-
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         note_id = kwargs.get("note_id")
         if not note_id:
-            return ToolResult(success=False, data="", error="note_id is required")
+            raise ValueError("note_id is required")
 
-        try:
-            note = memory_operations.get_note(
-                context.llm_memory_repository,
-                user_id=context.user_id,
-                note_id=note_id,
-            )
-        except Exception as e:
-            logger.error(f"delete_memory fetch failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("delete_memory", "fetch note", e, context.is_admin))
+        note = memory_operations.get_note(
+            context.llm_memory_repository,
+            user_id=context.user_id,
+            note_id=note_id,
+        )
 
         if note is None:
-            return ToolResult(
-                success=False, data="",
-                error=f"Memory note with id '{note_id}' not found",
-            )
+            raise ValueError(f"Memory note with id '{note_id}' not found")
 
         proposal = {
             "note_id": note_id,
@@ -563,74 +463,34 @@ class DeleteMemoryTool(BaseTool):
             summary=_truncate(note.content),
         )
 
+        return self._proposal(preview, proposal, "The following memory note will be permanently deleted. Please confirm.")
+
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        note_id = kwargs.get("note_id")
+        if not note_id:
+            raise ValueError("note_id is required")
+
+        success = memory_operations.delete_note(
+            context.llm_memory_repository,
+            user_id=context.user_id,
+            note_id=note_id,
+        )
+        if not success:
+            raise ValueError(f"Memory note with id '{note_id}' could not be deleted (not found)")
         return ToolResult(
             success=True,
             data=json.dumps({
                 "action": "delete_memory",
-                "proposal": proposal,
-                "message": "The following memory note will be permanently deleted. Please confirm.",
+                "success": True,
+                "note_id": note_id,
+                "message": f"Memory note {note_id} deleted successfully.",
             }),
-            preview=preview,
         )
 
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Mutation phase: permanently delete the note."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
 
-        note_id = kwargs.get("note_id")
-        if not note_id:
-            return ToolResult(success=False, data="", error="note_id is required")
-
-        try:
-            success = memory_operations.delete_note(
-                context.llm_memory_repository,
-                user_id=context.user_id,
-                note_id=note_id,
-            )
-            if not success:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"Memory note with id '{note_id}' could not be deleted (not found)",
-                )
-            return ToolResult(
-                success=True,
-                data=json.dumps({
-                    "action": "delete_memory",
-                    "success": True,
-                    "note_id": note_id,
-                    "message": f"Memory note {note_id} deleted successfully.",
-                }),
-            )
-        except Exception as e:
-            logger.error(f"delete_memory delete failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("delete_memory", "delete", e, context.is_admin))
-
-
-class UpdateMemoryTool(BaseTool):
-    """Edits an existing persistent memory note's key/content in place."""
-
-    icon = "brain"
-
-    @property
-    def name(self) -> str:
-        return "update_memory"
-
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Edits one of the assistant's saved memory notes."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Address the note by the scope and key you already see in context — no need to "
-            "read_memory first. Prefer this over delete_memory + write_memory when correcting "
-            "or refining an existing note. The user approves before anything changes."
-        )
+class UpdateMemoryTool(_MemoryApprovalTool):
+    name = "update_memory"
+    user_description = "Edits one of the assistant's saved memory notes."
 
     @property
     def description(self) -> str:
@@ -640,11 +500,8 @@ class UpdateMemoryTool(BaseTool):
             "every note already injected into your context) — no need to call read_memory first. "
             "At least one of 'new_key' or 'content' must be given. Requires user approval, "
             "showing the note's current values alongside the proposed change."
+            "{{#if delete_memory}} Prefer it over delete_memory plus write_memory.{{/if}}"
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -694,22 +551,13 @@ class UpdateMemoryTool(BaseTool):
             "required": [],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Proposal phase: fetch the note and show an old -> new preview for confirmation."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
-
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         new_key = kwargs.get("new_key")
         new_content = kwargs.get("content")
         if not new_key and not new_content:
-            return ToolResult(
-                success=False, data="",
-                error="At least one of 'new_key' or 'content' must be given to update the note",
-            )
+            raise ValueError("At least one of 'new_key' or 'content' must be given to update the note")
 
-        note, error = _resolve_target_note(context, kwargs)
-        if error:
-            return ToolResult(success=False, data="", error=error)
+        note = _resolve_target_note(context, kwargs)
 
         resolved_key = new_key or note.key
         resolved_content = new_content or note.content
@@ -739,43 +587,25 @@ class UpdateMemoryTool(BaseTool):
             preview=preview,
         )
 
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Mutation phase: apply the confirmed key/content update."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        note = _resolve_target_note(context, kwargs)
 
-        note, error = _resolve_target_note(context, kwargs)
-        if error:
-            return ToolResult(success=False, data="", error=error)
-
-        new_key = kwargs.get("new_key") or note.key
-        new_content = kwargs.get("content") or note.content
-
-        try:
-            updated = memory_operations.update_note(
-                context.llm_memory_repository,
-                user_id=context.user_id,
-                note_id=note.id,
-                key=new_key,
-                content=new_content,
-            )
-            if updated is None:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"Memory note with id '{note.id}' could not be updated (not found)",
-                )
-            return ToolResult(
-                success=True,
-                data=json.dumps({
-                    "action": "update_memory",
-                    "success": True,
-                    "note_id": note.id,
-                    "key": updated.key,
-                    "message": f"Memory note {note.id} updated successfully.",
-                }),
-            )
-        except ValueError as e:
-            return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"update_memory update failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("update_memory", "update", e, context.is_admin))
+        updated = memory_operations.update_note(
+            context.llm_memory_repository,
+            user_id=context.user_id,
+            note_id=note.id,
+            key=kwargs.get("new_key") or note.key,
+            content=kwargs.get("content") or note.content,
+        )
+        if updated is None:
+            raise ValueError(f"Memory note with id '{note.id}' could not be updated (not found)")
+        return ToolResult(
+            success=True,
+            data=json.dumps({
+                "action": "update_memory",
+                "success": True,
+                "note_id": note.id,
+                "key": updated.key,
+                "message": f"Memory note {note.id} updated successfully.",
+            }),
+        )

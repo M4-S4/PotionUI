@@ -74,15 +74,13 @@ def _is_type_checking_test(test: ast.expr) -> bool:
     return False
 
 
-def _runtime_src_imports(text: str) -> list[str]:
+def _runtime_src_imports(text: str, tree: ast.Module | None) -> list[str]:
     """Return the ``src.*`` modules imported at *runtime*.
 
     Imports guarded by ``if TYPE_CHECKING:`` are excluded — a type-only import
     creates no runtime dependency and so cannot violate a layering contract.
     """
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
+    if tree is None:
         return IMPORT_RE.findall(text)
 
     modules: list[str] = []
@@ -111,8 +109,8 @@ def _runtime_src_imports(text: str) -> list[str]:
 _USER_PLUGIN_ROOT = Path("content/plugins/local")
 
 
-def _py_files(base: Path):
-    for f in base.rglob("*.py"):
+def _py_files(index, base: Path):
+    for f in index.py_files(base):
         if any(part in SKIP_DIRS for part in f.parts):
             continue
         try:
@@ -128,28 +126,28 @@ def _matches(module: str, prefix: str) -> bool:
 
 
 @pytest.mark.parametrize("scope,banned", sorted(FORBIDDEN.items()))
-def test_layer_does_not_import_forbidden(scope: str, banned: tuple[str, ...]):
+def test_layer_does_not_import_forbidden(source_index, scope: str, banned: tuple[str, ...]):
     base = ROOT / scope
     assert base.is_dir(), f"expected package directory {scope} to exist"
 
     violations: list[str] = []
-    for f in _py_files(base):
-        for mod in _runtime_src_imports(f.read_text(encoding="utf-8")):
+    for f in _py_files(source_index, base):
+        for mod in _runtime_src_imports(source_index.text(f), source_index.tree(f)):
             if any(_matches(mod, b) for b in banned):
                 violations.append(f"{f.relative_to(ROOT)} imports {mod}")
 
     assert not violations, "forbidden cross-layer imports:\n" + "\n".join(violations)
 
 
-def test_no_from_src_import_platform():
+def test_no_from_src_import_platform(source_index):
     """`src.platform` shadows the stdlib; it must be imported by full path."""
     violations: list[str] = []
     for scope in ("src", "tests", "content/plugins", "scripts"):
         base = ROOT / scope
         if not base.is_dir():
             continue
-        for f in _py_files(base):
-            if FROM_SRC_PLATFORM_RE.search(f.read_text(encoding="utf-8")):
+        for f in _py_files(source_index, base):
+            if FROM_SRC_PLATFORM_RE.search(source_index.text(f)):
                 violations.append(str(f.relative_to(ROOT)))
 
     assert not violations, "`from src import platform` (stdlib shadow risk):\n" + "\n".join(
@@ -157,14 +155,14 @@ def test_no_from_src_import_platform():
     )
 
 
-def test_dissolved_packages_have_no_importers():
+def test_dissolved_packages_have_no_importers(source_index):
     violations: list[str] = []
     for scope in ("src", "tests", "content/plugins", "scripts"):
         base = ROOT / scope
         if not base.is_dir():
             continue
-        for f in _py_files(base):
-            for mod in IMPORT_RE.findall(f.read_text(encoding="utf-8")):
+        for f in _py_files(source_index, base):
+            for mod in IMPORT_RE.findall(source_index.text(f)):
                 if any(_matches(mod, p) for p in DISSOLVED_PREFIXES):
                     violations.append(f"{f.relative_to(ROOT)} imports {mod}")
                     break

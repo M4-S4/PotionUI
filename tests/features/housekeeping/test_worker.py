@@ -12,6 +12,7 @@ from src.features.housekeeping.worker import (
     HousekeepingRunning,
     HousekeepingTask,
     HousekeepingWorker,
+    build_tasks,
 )
 
 
@@ -101,6 +102,35 @@ class TestPreview:
         worker = HousekeepingWorker(_settings(), [_task(preview=explode)])
 
         assert worker.preview() == {"tmp": {"files": 0, "bytes": 0}}
+
+
+class TestDatabaseStatisticsTask:
+
+    def _statistics_task(self):
+        tasks = build_tasks(Mock(), Mock(), Mock(), Mock(), Mock())
+        return next(task for task in tasks if task.name == "database_statistics")
+
+    async def test_every_pass_refreshes_the_statistics_whatever_the_windows(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "src.features.housekeeping.worker.refresh_database_statistics",
+            lambda: calls.append("refresh") or {"duration_ms": 3, "errors": []},
+        )
+        worker = HousekeepingWorker(
+            _settings(tmp_retention_days=0, run_report_retention_days=0, llm_trace_retention_days=0),
+            [self._statistics_task()],
+        )
+
+        summary = await worker.run_now()
+
+        assert calls == ["refresh"]
+        assert summary["tasks"]["database_statistics"] == {"duration_ms": 3, "errors": []}
+        assert summary["errors"] == []
+
+    def test_the_statistics_refresh_has_nothing_to_preview(self):
+        worker = HousekeepingWorker(_settings(tmp_retention_days=3), [_task(), self._statistics_task()])
+
+        assert worker.preview() == {"tmp": {"files": 3, "bytes": 30}}
 
 
 class TestSchedule:

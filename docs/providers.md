@@ -81,12 +81,27 @@ hooks:
       handler: "hooks.provider_hooks.register_provider"
 ```
 
+`register_provider(context, provider_id, label, load)` from `src.plugin_api.providers` does the same
+registration and logs a failed import instead of raising, so a hook file is a short `_load` function plus a
+one-line handler.
+
+A provider that talks to a plain JSON-over-HTTP API can subclass `HttpMarketplaceProvider` instead. It owns
+the lazy `aiohttp` session (built on the shared TLS connector), the `rate_limit_delay` throttle, the
+`api_key` bearer header, `shutdown()` and `matches_download_url()` (set `DOWNLOAD_HOST`). Set `BASE_URL`,
+`DEFAULT_RATE_LIMIT_DELAY` and `EXTRA_HEADERS` as class attributes. `await self._get_json(url, what=...,
+params=..., headers=..., timeout=...)` returns `(status, payload)`: the decoded JSON for a 200, the body
+text for any other status, a `ProviderRateLimitError` (with `retry_after`) for a 429, and a
+`ProviderConnectionError` for a timeout or `aiohttp.ClientError`. Each caller decides what 404 or 5xx means.
+`retry_after_from_headers(headers)` reads `Retry-After` as seconds or an HTTP date and falls back to 60.
+
 Declare what you support via `ProviderCapability`: `HASH_LOOKUP`, `SEARCH`, `DOWNLOAD_URL`,
 `MODEL_INFO`, `MEDIA_DOWNLOAD`, `API_KEY_REQUIRED`.
 
 The methods that matter: `initialize(settings)`, `get_model_by_hash(sha256)`,
 `search_models(...)`, `get_download_url(...)`, `get_download_headers()`,
-`test_connection()`, and `get_settings_schema()`.
+and `test_connection()`.
+A provider declares no settings schema of its own: core reads secret keys and builds
+`GET /api/providers/{id}/settings/schema` from the manifest `settings:` section.
 
 Override `get_model_page_url(provider_model_id, provider_version_id)` to return this
 provider's own web page for a model — pure string construction, no network call. It

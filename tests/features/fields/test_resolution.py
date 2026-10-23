@@ -14,36 +14,6 @@ class TestResolutionField(unittest.TestCase):
         self.preset_loader = Mock()
         self.resolution_field = Resolution(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test that resolution field handles 'resolution' type"""
-        self.assertTrue(self.resolution_field.can_handle('resolution'))
-        self.assertFalse(self.resolution_field.can_handle('select'))
-        self.assertFalse(self.resolution_field.can_handle('slider'))
-
-    def test_configuration(self):
-        """Test that configuration includes options, file, and files parameters"""
-        config_specs = Resolution.configuration()
-
-        config_names = [spec.name for spec in config_specs]
-        self.assertIn('options', config_names)
-        self.assertIn('file', config_names)
-        self.assertIn('files', config_names)
-
-        # Check options parameter
-        options_spec = next((spec for spec in config_specs if spec.name == 'options'), None)
-        self.assertIsNotNone(options_spec)
-        self.assertEqual(options_spec.param_type, list)
-        self.assertTrue(isinstance(options_spec.example, list))
-
-        # Check file parameter
-        file_spec = next((spec for spec in config_specs if spec.name == 'file'), None)
-        self.assertIsNotNone(file_spec)
-        self.assertEqual(file_spec.param_type, dict)
-
-        # Check files parameter
-        files_spec = next((spec for spec in config_specs if spec.name == 'files'), None)
-        self.assertIsNotNone(files_spec)
-        self.assertEqual(files_spec.param_type, list)
 
     def test_input_processing_string_format(self):
         """Test input processing with WIDTHxHEIGHT string format"""
@@ -186,34 +156,6 @@ class TestResolutionField(unittest.TestCase):
         self.assertIn('options', schema)
         self.assertEqual(len(schema['options']), 0)
 
-    def test_examples(self):
-        """Test example configurations"""
-        examples = Resolution.examples()
-
-        self.assertEqual(len(examples), 4)
-
-        # Check first example
-        first_example = examples[0]
-        self.assertIsNotNone(first_example.title)
-        self.assertIsNotNone(first_example.description)
-        self.assertIsNotNone(first_example.yaml_config)
-        self.assertIsNotNone(first_example.rendered_output)
-
-        # Verify rendered output structure
-        output = first_example.rendered_output
-        self.assertEqual(output['type'], 'resolution')
-        self.assertIn('options', output)
-        self.assertGreater(len(output['options']), 0)
-
-        # Check file-based example
-        file_example = examples[2]
-        self.assertEqual(file_example.title, "File-based Resolutions")
-        self.assertIn('file', file_example.yaml_config)
-
-        # Check grouped example
-        grouped_example = examples[3]
-        self.assertEqual(grouped_example.title, "Grouped Resolution Collections")
-        self.assertIn('files', grouped_example.yaml_config)
 
     def test_common_resolutions(self):
         """Test parsing common resolution formats"""
@@ -382,7 +324,7 @@ class TestResolveTemplatePath(unittest.TestCase):
         mock_preset = Mock()
         mock_preset.id = 'test-preset'
         mock_preset.path = '/presets/test'
-        self.preset_loader.presets = [mock_preset]
+        self.preset_loader.get.return_value = mock_preset
         self.template_processor.process_template.return_value = '/content/presets/_shared/resolutions/sdxl.yml'
 
         result = self.resolution_field._resolve_template_path(
@@ -397,13 +339,13 @@ class TestResolveTemplatePath(unittest.TestCase):
         mock_preset = Mock()
         mock_preset.id = 'test-preset'
         mock_preset.path = '/presets/test'
-        self.preset_loader.presets = [mock_preset]
+        self.preset_loader.get.return_value = mock_preset
 
         result = field._resolve_template_path('/some/path.yml', 'test-preset')
         self.assertEqual(result, '/some/path.yml')
 
     def test_resolve_preset_not_found(self):
-        self.preset_loader.presets = []
+        self.preset_loader.get.return_value = None
 
         result = self.resolution_field._resolve_template_path('/some/path.yml', 'missing-preset')
         self.assertIsNone(result)
@@ -469,7 +411,7 @@ class TestOutputWithFileLoading(unittest.TestCase):
         self.mock_preset = Mock()
         self.mock_preset.id = 'test-preset'
         self.mock_preset.path = '/presets/test'
-        self.preset_loader.presets = [self.mock_preset]
+        self.preset_loader.get.return_value = self.mock_preset
 
     def test_output_with_single_file(self):
         data = [

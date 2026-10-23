@@ -34,7 +34,3 @@ def up():
     print(
         f"Migration 016_workbench_single_result_gallery: setting {'seeded' if seeded else 'already present'}"
     )
-
-
-def down():
-    print("Migration 016_workbench_single_result_gallery: no-op (SQLite keeps the seeded row)")

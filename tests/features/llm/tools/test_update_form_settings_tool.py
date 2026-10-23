@@ -55,11 +55,6 @@ class TestUpdateFormSettingsToolSchema:
     def test_name(self):
         assert UpdateFormSettingsTool().name == "update_form_settings"
 
-    def test_hint_is_nonempty(self):
-        assert len(UpdateFormSettingsTool().hint) > 0
-
-    def test_description_is_nonempty(self):
-        assert len(UpdateFormSettingsTool().description) > 0
 
     def test_requires_approval(self):
         assert UpdateFormSettingsTool().requires_approval is True
@@ -69,9 +64,6 @@ class TestUpdateFormSettingsToolSchema:
         assert "changes" in schema["properties"]
         assert "changes" in schema["required"]
 
-    def test_parameters_changes_is_array(self):
-        schema = UpdateFormSettingsTool().parameters
-        assert schema["properties"]["changes"]["type"] == "array"
 
     def test_change_items_require_field_name_and_value(self):
         schema = UpdateFormSettingsTool().parameters
@@ -426,8 +418,6 @@ class TestUpdateFormSettingsToolExecuteConfirmed:
 # ---------------------------------------------------------------------------
 
 class TestApprovalContract:
-    def test_requires_approval_is_true(self):
-        assert UpdateFormSettingsTool().requires_approval is True
 
     @pytest.mark.asyncio
     async def test_execute_confirmed_is_callable(self):

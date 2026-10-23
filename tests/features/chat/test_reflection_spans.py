@@ -1,3 +1,4 @@
+from dataclasses import replace
 """Tests for the bounded-span reflection mechanism: a char-budget span with a
 resumable {message_id, offset} cursor, per-session single-flight triggering
 with one coalesced follow-up, and monotonic cursor bookkeeping that survives
@@ -18,16 +19,10 @@ from src.features.chat.reflection import (
 )
 from src.features.chat.repository import ChatRepository
 from src.features.chat.runtime import ChatRuntime
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.persistence_base import PersistenceTestBase
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def _message(role: str, content: str, msg_id: str, metadata: dict = None) -> Mock:
@@ -95,7 +90,7 @@ def _manager_with_mock_repo(monkeypatch, memory_reflection: bool = True) -> Mock
     manager = Mock()
     manager.llm_service = _FakeLLMService(memory_reflection=memory_reflection)
     manager.chat_repository = Mock()
-    manager.llm_memory_repository = Mock()
+    manager.tool_services.llm_memory_repository = Mock()
     manager._reflection_tasks = set()
     mock_ops = Mock()
     monkeypatch.setattr("src.features.chat.reflection.memory_operations", mock_ops)
@@ -311,9 +306,9 @@ class TestReflectionConcurrencyAndBookkeeping(PersistenceTestBase):
             llm_service=llm_service,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
-        runtime.llm_memory_repository = Mock()
+        runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         return runtime, llm_service
 
     def _create_session_with_messages(self, turns) -> str:
@@ -640,7 +635,7 @@ class TestReflectionConcurrencyAndBookkeeping(PersistenceTestBase):
             # from B's form_state, not A's - a stale A context would make
             # `_validate_scope` reject "preset-B" and fall back to global.
             mock_ops.write_note.assert_called_once_with(
-                runtime.llm_memory_repository,
+                runtime.tool_services.llm_memory_repository,
                 user_id=self.user_id, key="k",
                 content="always wants dark fantasy lighting with this preset",
                 scope="preset", scope_ref="preset-B",
@@ -727,9 +722,9 @@ class TestReflectionSmallCapacityBudget(PersistenceTestBase):
             llm_service=llm,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
-        runtime.llm_memory_repository = Mock()
+        runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         session_id = self._session_with_messages([
             ("user", "q0"), ("assistant", "a0"),
             ("user", "q1"), ("assistant", "a1"),
@@ -759,9 +754,9 @@ class TestReflectionSmallCapacityBudget(PersistenceTestBase):
             llm_service=llm,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
-        runtime.llm_memory_repository = Mock()
+        runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         session_id = self._session_with_messages([
             ("user", "q0"), ("assistant", "a0"),
             ("user", "q1"), ("assistant", "a1"),
@@ -875,9 +870,9 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
             llm_service=gateway,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
-        runtime.llm_memory_repository = Mock()
+        runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         session = self.chat_repo.create_session(user_id=self.user_id, llm_config_id="llm-1")
         for role, content in turns:
             self.chat_repo.add_message(session_id=session.id, role=role, content=content)

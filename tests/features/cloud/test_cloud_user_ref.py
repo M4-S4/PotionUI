@@ -4,14 +4,7 @@ from src.platform.security.secrets import SecretCipher, generate_key
 from src.platform.security.user_ref import cloud_user_ref
 from src.features.cloud.testing.fake import FakeBehaviour
 from tests.features.cloud.cloud_generation_harness import USER_ID, CloudGeneration
-
-
-def add_user(db):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (USER_ID, USER_ID, f"{USER_ID}@example.test"),
-        )
+from tests.fixtures.seed import seed_user
 
 
 def cipher():
@@ -51,9 +44,9 @@ def test_the_subkey_is_derived_per_purpose_and_is_never_the_raw_key():
     assert key.derive_subkey("cloud-user-ref") == SecretCipher([raw]).derive_subkey("cloud-user-ref")
 
 
-async def run_twice(mock_db, tmp_path):
-    add_user(mock_db)
-    run = await CloudGeneration(tmp_path, FakeBehaviour(mode="sync")).start()
+async def run_twice(mock_db, tmp_path, send_user_hash=True):
+    seed_user(mock_db, USER_ID)
+    run = await CloudGeneration(tmp_path, FakeBehaviour(mode="sync"), send_user_hash=send_user_hash).start()
     await run.run()
     run.collected.done.clear()
     await run.submit("gen-2")
@@ -71,6 +64,16 @@ async def test_the_ref_reaches_the_pipe_config_and_the_provider_request(mock_db,
     ]
     assert [config["user_ref"] for config in cloud_config] == [expected, expected]
     assert [request.user_ref for request in run.behaviour.requests] == [expected, expected]
+
+
+async def test_no_ref_reaches_the_pipe_config_or_the_provider_unless_the_admin_turns_it_on(mock_db, tmp_path):
+    run = await run_twice(mock_db, tmp_path, send_user_hash=False)
+
+    assert all(
+        "user_ref" not in next(pipe for pipe in prepared if pipe["name"] == "cloud_generate")["config"]["cloud"]
+        for prepared in run.prepared
+    )
+    assert [request.user_ref for request in run.behaviour.requests] == ["", ""]
 
 
 async def test_the_raw_user_id_never_reaches_the_pipe_config_or_the_provider(mock_db, tmp_path):

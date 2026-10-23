@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 import httpx
 
 from src.platform.filesystem.model_roots import ModelRootResolver
+from src.platform.http.tls import client_ssl_context
 from src.platform.filesystem.model_weights import weights_status
 
 if TYPE_CHECKING:
@@ -62,7 +63,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         Uses POST {base_url}/api/embed with {"model": model, "input": texts}
         Returns list of embedding vectors.
         """
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=60.0, verify=client_ssl_context()) as client:
             response = await client.post(
                 f"{self.base_url}/api/embed",
                 json={"model": self.model, "input": texts},
@@ -74,7 +75,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     async def is_available(self) -> bool:
         """Check if Ollama is running and model is available."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=5.0, verify=client_ssl_context()) as client:
                 response = await client.get(f"{self.base_url}/api/tags")
                 if response.status_code != 200:
                     return False

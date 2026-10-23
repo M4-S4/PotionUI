@@ -145,7 +145,7 @@ describe('the header action cluster', () => {
 		openMenu(enabled, 'More actions for');
 		await Promise.resolve();
 		expect(menuItemLabels()).toEqual(
-			expect.arrayContaining(['Duplicate', 'Disable', 'Details', 'Save'])
+			expect.arrayContaining(['Duplicate', 'Disable', 'Details…', 'Save as Segment…'])
 		);
 
 		document.body.innerHTML = '';
@@ -187,7 +187,7 @@ describe('the header action cluster', () => {
 		openMenu(card, 'More actions for');
 		await Promise.resolve();
 		const details = Array.from(document.querySelectorAll('[role="menuitem"]')).find(
-			(el) => (el.textContent || '').trim() === 'Details'
+			(el) => (el.textContent || '').trim() === 'Details…'
 		) as HTMLButtonElement | undefined;
 		details?.click();
 		await Promise.resolve();
@@ -282,9 +282,9 @@ describe('the content card overflow menu', () => {
 			expect.arrayContaining([
 				'Move up',
 				'Move down',
-				'Details',
-				'Save',
-				'Replace from saved',
+				'Details…',
+				'Save as Segment…',
+				'Replace from saved…',
 				'Duplicate',
 				'Disable'
 			])

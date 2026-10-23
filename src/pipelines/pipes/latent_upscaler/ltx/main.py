@@ -1,86 +1,8 @@
-"""LTX-2.3/2.5 latent upsampler pipe (spatial or temporal).
-
-Pure latent-space upsample: un-normalize (the VAE's own
-``per_channel_statistics``) -> the loaded ``LTXLatentUpsampler`` arch forward
--> re-normalize -- the same recipe as ComfyUI's ``LTXVLatentUpsampler`` node
-and Lightricks' own ``upsample_video`` helper. No sampling loop, no LoRA, no
-DiT -- cheap relative to a generation pass.
-
-``mode`` picks which of the model bundle's two upsampler slots to run:
-
-* ``spatial`` (default) -- ``model_loader/ltx``'s ``upscale_model``, an
-  x1.5/x2.0 spatial checkpoint. Frame count unchanged.
-* ``temporal`` -- ``model_loader/ltx``'s ``temporal_upscale_model``, the
-  LTX-2.5 temporal x2 checkpoint. **Changes the frame count**: ``T -> 2T - 1``
-  latent frames (``geometry.temporal_upsample_out_frames``), because the arch
-  pixel-shuffles the frame axis by 2 and then drops the first frame. Nothing
-  downstream has to be told: ``generator/video_ltx``'s ``build_context``
-  already derives a stage-2 refine's frame count from the latent it is handed
-  rather than from configuration. Note that at an unchanged playback fps this
-  doubles the clip's duration; a preset wanting the same duration at double
-  the frame rate has to double its own fps.
-
-The two are separate slots rather than one slot with a mode because a
-pipeline can need both files at once. ``mode`` is cross-checked against what
-was actually loaded -- a temporal request against a spatial checkpoint (or
-the reverse) is a hard error, not a silently wrong frame count.
-
-Two entry shapes:
-
-* ``latent`` input -- an already-generated (or already-upsampled) latent,
-  chained directly from a generator pipe's raw ``latent`` output (the in-flow
-  two-stage recipe: stage 1 generates with ``decode: false``, this pipe
-  upsamples x factor, stage 2 refines).
-* ``video`` input -- an existing video FILE (the standalone "upscale" mode):
-  VAE-encoded here first, then upsampled the same way. Reuses
-  `generator/video_ltx`'s frame loading / resize helpers.
-
-Requires whichever bundle component ``mode`` selects to actually be loaded --
-raises a clear error rather than silently no-op'ing when it isn't.
-
-Frame padding: an uploaded video's frame count is almost never on the causal
-VAE's ``1 + 8k`` lattice (``encode()`` crashes on e.g. T=120).
-``_pad_frames_to_temporal_grid`` rounds a source count UP to the next valid
-value, padding by REPEATING THE LAST FRAME -- rounding down (unlike
-``snap_frame_count``, used for *target* counts) would drop existing trailing
-content. Worst case adds a <= 7-frame freeze at the tail, so the output is up
-to 7 frames longer than the source.
-
-VRAM: this pipe runs right after a DiT stage whose warm-start
-(``dit_restore.py``) parks the ~23GB DiT back on the GPU.
-``_free_room_for_upscale`` offloads the DiT if resident and evicts foreign
-GPU-resident components (``dit_placement.py``'s eviction idiom) before this
-pipe's own VAE-encode + upsampler-forward work. Always safe: the refine
-generator that follows re-places the DiT itself via ``place_dit_for_sequence``;
-this pipe never runs the DiT. Called once in ``process()`` so the freed window
-covers both the encode and the upsampler forward.
-
-Host RAM: ``_unload_idle_te`` also fully unloads the TE's MODELS cache entry
-(the ~22GB Gemma3-12B is dead weight in RAM by the time this pipe runs; see
-``release_idle_te``'s docstring in ``generator/txt2vid_ltx/main.py`` for the
-shared safety argument). This pipe's own call is now typically a no-op
-fallback rather than the primary trigger: ``generator/video_ltx`` and
-``generator/txt2vid_ltx`` both call the SAME shared helper from their own
-``build_context`` (before this pipe ever runs, in both the in-flow two-stage
-video pipeline and the standalone-upscale pipeline), so by the time this
-pipe's own call fires the TE is usually already gone -- kept here as a
-belt-and-suspenders release for any pipeline shape that reaches this pipe
-without going through one of those two generators first.
-
-Encode OOM ladder (``_encode_with_oom_retry``): whole-clip encode is only
-ATTEMPTED when an activation-size estimate plausibly fits free VRAM; otherwise
-(or on a real OOM after one eviction retry) it falls back to
-``bundle.vae.module.tiled_encode`` (LTX-2/2.3's own spatial+temporal tiled
-encoder, ``vae/ltx_tiling.py``). Only if the tiled encode itself OOMs does this
-raise. The ladder lives in ``_shared/vae/ltx_tiled_encode.py``
-(``encode_with_oom_retry``); the ``_`` functions below are thin wrappers kept
-for call-site and test-import stability.
-"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import torch
 
@@ -102,10 +24,11 @@ from src.platform.runtime.native.resolution import snap_resolution
 from src.platform.runtime.native.vae.ltx_tiling import LtxTilingConfig
 from src.pipelines.pipes._shared.vae.ltx_latent_upsample import upsample_ltx_latent
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
-from src.pipelines.pipes.generator.txt2vid_ltx.main import _SPATIAL_DOWNSCALE, _TEMPORAL_DOWNSCALE, release_idle_te
-from src.pipelines.pipes.generator.video_ltx.conditioning import _resize_cover_center_crop
-from src.pipelines.pipes.generator.video_ltx.main import _load_video_frames
+from src.pipelines.pipes._shared.video.frames import load_video_frames, resize_cover_center_crop
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_SPATIAL_DOWNSCALE, LTX_TEMPORAL_DOWNSCALE
 from src.pipelines.pipes.latent_upscaler.ltx.geometry import temporal_upsample_out_frames
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 logger = logging.getLogger(__name__)
 
@@ -166,21 +89,6 @@ def _resolve_upsampler(bundle: Any, mode: str) -> Any:
 
 
 def _unload_idle_te(bundle: Any, models: Any) -> float:
-    """Fully unload the TE's MODELS cache entry -- thin wrapper over the
-    shared ``release_idle_te`` (``generator/txt2vid_ltx/main.py``; see its
-    docstring for the full safety argument). Kept as a call-site-stable
-    function here since ``_free_room_for_upscale`` below already threads
-    ``te_unloaded_gb`` through its own profiler mark.
-
-    By the time THIS pipe runs, the two LTX generator pipes' own
-    ``build_context`` have usually already evicted the TE (see the module
-    docstring) -- this call is then a fast no-op (``evict_dead_weight``
-    reports ``False`` for an absent key, ``release_idle_te`` returns 0.0).
-    It still fires unconditionally as a fallback for any pipeline shape that
-    reaches this pipe without going through one of those two generators
-    first (e.g. a future preset wiring this pipe directly after
-    ``prompt_encoder``).
-    """
     return release_idle_te(bundle, models, "LTX_UPSCALE")
 
 
@@ -280,13 +188,9 @@ class LatentUpscalerLtxPipe(BasePipe):
                    "or temporally (x2 frames) -- via the model's optional upscaler checkpoints")
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {"device": "cuda", "max_frames": 1001, "mode": "spatial"}
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
             PipeConfigSpec("mode", str, "spatial",
                            "Which upscaler to run: 'spatial' (model_loader/ltx's upscale_model, x1.5/x2.0, "
                            "frame count unchanged) or 'temporal' (its temporal_upscale_model, LTX-2.5 x2, "
@@ -365,38 +269,14 @@ class LatentUpscalerLtxPipe(BasePipe):
     # -- helpers -------------------------------------------------------------
 
     def _encode_video(self, bundle: Any, video_path: str, device: str) -> Tuple[torch.Tensor, int]:
-        """Standalone-mode entry: read an existing video file, snap it to the
-        LTX VAE's spatial/temporal granularity, and VAE-encode it to a raw
-        latent -- ready for :meth:`_upsample`.
-
-        Spatial (H/W) is snapped to the nearest 32px grid via
-        ``_resize_cover_center_crop``'s resize+crop -- a scaling operation, so
-        rounding to nearest loses at most a few px of margin, never content.
-        Temporal (frame count) is padded UP via ``_pad_frames_to_temporal_grid``
-        (repeats the last frame) rather than snapped to nearest -- see the
-        module docstring for why truncation is wrong here.
-
-        The source frames are moved to ``device`` immediately after load,
-        BEFORE the pad/resize/crop below, to keep the fp32 transients (a
-        1080p/121-frame upload is ~3GB, and each op adds another copy) off the
-        headroom-starved CPU. ``_pad_frames_to_temporal_grid`` and
-        ``_resize_cover_center_crop`` are device-agnostic, so moving the
-        transfer earlier does not change any numbers. `del` calls below release
-        each intermediate buffer as soon as it's no longer needed.
-
-        Returns ``(latent, n0)`` -- ``n0`` is the frame count BEFORE temporal
-        padding, surfaced via this pipe's own ``source_frame_count`` output so
-        a downstream refine generator can trim the padded duplicate tail
-        frames back out of its decoded result before mux.
-        """
         max_frames = int(self.config.get("max_frames", 1001))
-        frames = _load_video_frames(video_path, max_frames)
+        frames = load_video_frames(video_path, max_frames)
         n0, h0, w0 = int(frames.shape[0]), int(frames.shape[1]), int(frames.shape[2])
-        width, height = snap_resolution(w0, h0, _SPATIAL_DOWNSCALE, 1)
+        width, height = snap_resolution(w0, h0, LTX_SPATIAL_DOWNSCALE, 1)
 
         frames = frames.to(device=device)
-        frames = _pad_frames_to_temporal_grid(frames, _TEMPORAL_DOWNSCALE)
-        pixels = _resize_cover_center_crop(frames, height, width)
+        frames = _pad_frames_to_temporal_grid(frames, LTX_TEMPORAL_DOWNSCALE)
+        pixels = resize_cover_center_crop(frames, height, width)
         del frames
 
         bundle.vae.move_to(device)

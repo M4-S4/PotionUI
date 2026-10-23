@@ -548,6 +548,34 @@ class TestPromptRepository(PersistenceTestBase):
         without_only = self.repository.get_all(user_id=self.user_1, has_variables=False)
         self.assertEqual([p.id for p in without_only], [without_vars.id])
 
+    def test_get_all_has_variables_treats_an_empty_map_as_no_variables(self):
+        empty_vars = self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, variables={},
+            segments=[RichSegment(content="a")],
+        ))
+
+        self.assertEqual(self.repository.get_all(user_id=self.user_1, has_variables=True), [])
+        self.assertEqual(
+            [p.id for p in self.repository.get_all(user_id=self.user_1, has_variables=False)],
+            [empty_vars.id],
+        )
+
+    def test_get_all_restricts_to_ids_and_excludes_text_matches(self):
+        women = self.repository.create(Prompt(
+            id=generate_ulid(), user_id=self.user_1, name="Women",
+            segments=[RichSegment(content="portrait")],
+        ))
+        unnamed = self._create_prompt("a woman reading")
+        other = self._create_prompt("a fox")
+        outside = self._create_prompt("a cat")
+
+        results = self.repository.get_all(
+            user_id=self.user_1, ids=[women.id, unnamed.id, other.id], exclude_text="women",
+        )
+
+        self.assertEqual({p.id for p in results}, {unnamed.id, other.id})
+        self.assertNotIn(outside.id, {p.id for p in results})
+
     def test_get_all_nsfw_excluded_by_default_and_included_on_request(self):
         clean = self._create_prompt("clean")
         flagged = self.repository.create(Prompt(

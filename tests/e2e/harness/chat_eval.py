@@ -701,6 +701,9 @@ def _run_scenario_live(
     session_id = session["data"]["id"]
 
     context_metadata = scenario.get("live_context_metadata")
+    for draft_tab_id, draft_doc in (scenario.get("live_tab_drafts") or {}).items():
+        seeded = _http_json("PUT", f"{base_url}/api/tab-drafts/{draft_tab_id}", token, {"doc": draft_doc})
+        _check_success(seeded, f"PUT /api/tab-drafts/{draft_tab_id}")
     all_messages: List[Dict[str, Any]] = []
     all_executions: List[Dict[str, Any]] = []
     turns_evidence: List[Dict[str, Any]] = []

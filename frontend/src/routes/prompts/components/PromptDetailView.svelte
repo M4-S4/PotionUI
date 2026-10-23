@@ -8,7 +8,7 @@
 	import { Badge, Button, IconButton, Input, Spinner } from '$lib/components/ui';
 	import AddToCollectionMenu from '$lib/components/collections/AddToCollectionMenu.svelte';
 	import PromptModelField from './PromptModelField.svelte';
-	import { normalizeVariableDef } from '$lib/utils/variableDefs';
+	import VariablesListSection from '$lib/components/VariablesListSection.svelte';
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
 	import type { Prompt, PromptUsageHint, Segment } from '$lib/types/segments';
 	import type { GenerationHistoryItem } from '$lib/types/history';
@@ -80,15 +80,6 @@
 	const title = $derived(mode === 'create' ? 'New prompt' : prompt?.display_name || 'Untitled');
 	const memberships = $derived(prompt?.collections ?? []);
 	const variablesSummary = $derived(summarizePromptVariables(editorVariables));
-	const variableRows = $derived(
-		Object.entries(editorVariables).map(([varName, stored]) => {
-			const def = normalizeVariableDef(stored);
-			return {
-				name: varName,
-				kind: def.type === 'choice' ? `${def.mode} · ${def.options.length} option${def.options.length === 1 ? '' : 's'}` : 'text'
-			};
-		})
-	);
 
 	function openGeneration(generation: GenerationHistoryItem, fileIndex: number) {
 		selectedGeneration = generation;
@@ -207,23 +198,11 @@
 			{/snippet}
 
 			{#snippet aside()}
-				<DetailSection label="Variables">
-					{#if variableRows.length === 0}
-						<p class="text-xs text-fg-subtle">No variables used in this prompt.</p>
-					{:else}
-						<ul class="space-y-2">
-							{#each variableRows as row (row.name)}
-								<li class="flex items-center justify-between gap-2 text-xs">
-									<span class="truncate font-mono text-signal">${row.name}</span>
-									<span class="flex-shrink-0 text-fg-subtle">{row.kind}</span>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-					<div class="mt-3">
-						<Button size="xs" variant="secondary" onclick={onOpenVariableManager}>Manage variables</Button>
-					</div>
-				</DetailSection>
+				<VariablesListSection
+					variables={editorVariables}
+					emptyText="No variables used in this prompt."
+					onManage={onOpenVariableManager}
+				/>
 
 				{#if mode === 'edit'}
 					<DetailSection label="Collections">

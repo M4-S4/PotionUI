@@ -218,6 +218,21 @@ describe('prepareRequest', () => {
 		expect(result.request.prompt_state!.variables).toBe(variables);
 	});
 
+	it('rolls a shuffle number once when a condition reads it, and per usage otherwise', () => {
+		const variables = { age: { type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1, value: 18 } };
+		const plain = prepare(baseTab({ variables, prompt: '${age} and ${age}' }), { random: sequence(0, 0.5) });
+		expect(plain.ok && plain.request.variables).toEqual({ age: '18', 'age-2': '49' });
+
+		const read = prepare(
+			baseTab({ variables, prompt: '${age} and <<if $age > 65>>grey<<else>>dark<<end>> and ${age}' }),
+			{ random: sequence(0, 0.5) }
+		);
+		expect(read.ok).toBe(true);
+		if (!read.ok) return;
+		expect(read.request.variables).toEqual({ age: '18' });
+		expect(read.request.prompts?.[0].positive).toBe('${age} and <<if $age > 65>>grey<<else>>dark<<end>> and ${age}');
+	});
+
 	it('refuses silently without a preset or a prompt, unless the mode needs no prompt', () => {
 		expect(prepare(baseTab({ selectedPreset: null }))).toEqual({ ok: false, code: 'no_preset', reason: null });
 		expect(prepare(baseTab({ prompt: '   ' }))).toEqual({ ok: false, code: 'no_prompt', reason: null });

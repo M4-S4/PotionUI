@@ -149,6 +149,7 @@
 		<Tooltip text="Roll a random seed" position="top" wrapperClass="h-9 flex items-stretch">
 			<button
 				type="button"
+				aria-label="Roll a random seed"
 				on:click={handleRandomize}
 				class="flex items-center justify-center w-9 h-9 border-l border-line-strong text-fg-muted hover:text-fg hover:bg-surface-3 transition-colors"
 			>

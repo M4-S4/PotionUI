@@ -98,6 +98,7 @@ class PersistenceTestBase(unittest.TestCase):
         self._restore_patched_db()
 
         self.close_database_keeper()
+        Database.close_pool()
 
         shared = getattr(getattr(self, "db", None), "_shared_connection", None)
         if shared is not None:

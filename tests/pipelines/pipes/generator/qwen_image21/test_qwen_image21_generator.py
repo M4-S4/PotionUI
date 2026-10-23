@@ -106,14 +106,6 @@ def setup_function(_):
     _FakeGenerator.instances.clear()
 
 
-def test_name_inputs_outputs():
-    assert GeneratorQwenImage21Pipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorQwenImage21Pipe.inputs()}
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["model"].io_type == IOType.MODEL
-    assert GeneratorQwenImage21Pipe.outputs()[0].io_type == IOType.IMAGE
-
-
 def test_default_steps_and_guidance():
     cfg = GeneratorQwenImage21Pipe.get_default_config()
     assert cfg["steps"] == 40
@@ -310,6 +302,20 @@ def test_edit_mode_image_slots_forced_identical_on_cond_and_uncond():
 
     conditioning = _FakeGenerator.instances[-1].sample_calls[0]["conditioning"]
     assert conditioning.cond["image_slots"] == [2]
+    assert conditioning.uncond["image_slots"] == [2]
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_edit_mode_copies_image_slots_onto_an_uncond_that_lacks_them():
+    src = Image.new("RGB", (64, 64), color=(1, 2, 3))
+    pipe = _make_pipe(mode="edit")
+    pipe_input = _edit_pipe_input(image=src, with_negative=True, image_slots=[2])
+    for cond_model in pipe_input.input["conditioning"]:
+        cond_model.n_embeds.pop("image_slots")
+    pipe.process(pipe_input, lambda o: None)
+
+    conditioning = _FakeGenerator.instances[-1].sample_calls[0]["conditioning"]
     assert conditioning.uncond["image_slots"] == [2]
 
 

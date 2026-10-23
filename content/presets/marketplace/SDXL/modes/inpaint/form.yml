@@ -29,7 +29,7 @@ fields:
         configuration:
           icon: "embedding"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/inpaint/tabs/embeddings.yml"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/embeddings.yml"
 
       - type: "tab"
         label: "Advanced"

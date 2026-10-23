@@ -1,11 +1,13 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Spinner, Alert } from '$lib/components/ui';
 	import { confidenceDisplay, digestConflictTooltip } from '$lib/utils/modelAvailability';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import type { ModelAvailabilityResponse } from '$lib/types/models';
-	import { formatBytes, formatDate } from './formatters';
+	import { formatBytes } from '$lib/utils/format';
+	import { formatDate } from './formatters';
 	import { DETAIL_INSET_CLASS } from '$lib/components/detail';
 
 	export let availability: ModelAvailabilityResponse | null = null;
@@ -57,7 +59,7 @@
 					{@const cd = confidenceDisplay(entry.confidence)}
 					<div class={entryClass}>
 						<div class="flex items-center justify-between gap-2">
-							<span class="font-medium text-fg truncate" title={entry.backend_name}>
+							<span class="font-medium text-fg truncate" use:tooltip={{ text: entry.backend_name, truncateOnly: true }}>
 								{entry.backend_name}
 							</span>
 							<div class="flex items-center gap-1 flex-shrink-0">
@@ -80,7 +82,7 @@
 						</div>
 						<div
 							class="font-mono text-2xs text-fg-muted truncate"
-							title={entry.ref}
+							use:tooltip={{ text: entry.ref, truncateOnly: true }}
 						>
 							{entry.ref}
 						</div>
@@ -89,7 +91,7 @@
 								{entry.size ? formatBytes(entry.size) : 'Unknown size'}
 							</span>
 							{#if entry.indexed_at}
-								<span class="font-mono tabular-nums" title={formatDate(entry.indexed_at)}>
+								<span class="font-mono tabular-nums" use:tooltip={formatDate(entry.indexed_at)}>
 									Indexed {timeAgo(entry.indexed_at)}
 								</span>
 							{/if}

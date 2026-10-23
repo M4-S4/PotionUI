@@ -17,26 +17,10 @@ import {
 	isZoomGestureEvent,
 	MIN_ZOOM,
 	MAX_ZOOM,
-	DEFAULT_ZOOM,
 	MIN_SEG_DURATION,
 	MIN_TIMELINE_WIDTH,
-	ZOOM_STEP,
-	RULER_H,
-	LANE_H,
-	GUTTER_W
+	ZOOM_STEP
 } from './timelineCore';
-
-describe('geometry constants', () => {
-	it('match RelayTimeline.svelte values', () => {
-		expect(RULER_H).toBe(26);
-		expect(LANE_H).toBe(46);
-		expect(GUTTER_W).toBe(76);
-		expect(MIN_ZOOM).toBe(10);
-		expect(MAX_ZOOM).toBe(400);
-		expect(DEFAULT_ZOOM).toBe(80);
-		expect(MIN_SEG_DURATION).toBe(0.25);
-	});
-});
 
 describe('clamp', () => {
 	it('clamps within bounds', () => {

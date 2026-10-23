@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetFormSchema: vi.fn() }
@@ -24,10 +25,6 @@ const SCHEMA = {
 		}
 	}
 };
-
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 let destroy: (() => void) | undefined;
 
@@ -66,18 +63,18 @@ describe('A form without capability bindings', () => {
 			form.$destroy();
 			target.remove();
 		};
-		await settle();
+		await settle(10);
 		const first = log[log.length - 1];
 		expect(first.prompt).toBe('first');
 
 		const input = target.querySelector<HTMLInputElement>('[data-field-name="prompt"] input')!;
 		input.value = 'second';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settle(10);
 		expect(log[log.length - 1].prompt).toBe('second');
 
 		form.$set({ initialData: first });
-		await settle();
+		await settle(10);
 
 		expect(log[log.length - 1].prompt).toBe('first');
 		expect(target.querySelector<HTMLInputElement>('[data-field-name="prompt"] input')!.value).toBe('first');

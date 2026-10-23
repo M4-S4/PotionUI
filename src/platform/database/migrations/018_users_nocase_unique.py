@@ -16,9 +16,3 @@ def up():
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_nocase ON users (email COLLATE NOCASE)"
         )
     print("Migration 018_users_nocase_unique: case-insensitive unique username/email")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP INDEX IF EXISTS idx_users_username_nocase")
-        cursor.execute("DROP INDEX IF EXISTS idx_users_email_nocase")

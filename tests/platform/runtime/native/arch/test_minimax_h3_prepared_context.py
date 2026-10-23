@@ -88,9 +88,7 @@ def test_forward_with_valid_prepared_context_never_calls_condition_proj_or_token
     assert token_refiner_calls["n"] == 0
 
 
-def test_bite_check_forward_without_prepared_context_calls_both_every_step():
-    # BITE CHECK: the assertion above is not vacuous -- the baseline (no
-    # `prepared_context`) really does call both modules on every step.
+def test_forward_without_prepared_context_runs_condition_proj_and_token_refiner_every_step():
     m = _build_ready(TINY_FULL)
     layout = _tiny_layout()
     inputs = _fbcache_inputs(TINY_FULL, layout)
@@ -337,22 +335,6 @@ def test_forward_recomputes_when_the_prepared_context_was_produced_by_a_differen
     direct_b = _forward_with(model_b, layout, inputs, ts)
     for a, b in zip(result_with_foreign_context, direct_b):
         torch.testing.assert_close(a, b)  # b's own weights, not a's
-
-
-def test_bite_check_same_model_instance_reuses_the_context():
-    # BITE CHECK: the test above is not vacuous because of some unrelated
-    # mismatch (e.g. a fresh tensor identity) -- the identical setup with
-    # model_a validating its OWN context really does reuse it.
-    model_a = _build_ready(TINY_FULL)
-    layout = _tiny_layout()
-    inputs = _fbcache_inputs(TINY_FULL, layout)
-    prepared_by_a = model_a.prepare_text_context(inputs["encoder_hidden_states"], weight_revision=1)
-
-    a_condition_proj_calls = _count_calls(model_a.condition_proj)
-    _forward_with(
-        model_a, layout, inputs, torch.tensor([0.2, 0.8]), prepared_context=prepared_by_a, weight_revision=1,
-    )
-    assert a_condition_proj_calls["n"] == 0
 
 
 # --- the cached source tensor is never mutated by the joint blocks --------

@@ -1,40 +1,9 @@
-import importlib.util
-import sys
-import tempfile
-import unittest
-from pathlib import Path
-
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration041ContentSafetyPolicy(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        _load_migration("040_rename_nsfw_setting", self.db).up()
-        self.migration = _load_migration("041_content_safety_policy", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration041ContentSafetyPolicy(MigrationCase):
+    MIGRATION = "041_content_safety_policy"
+    PREREQUISITES = ("001_baseline", "040_rename_nsfw_setting")
 
     def _one(self, sql, params=()):
         with self.db.get_cursor() as cursor:
@@ -124,16 +93,3 @@ class TestMigration041ContentSafetyPolicy(unittest.TestCase):
 
         assert self._one("SELECT COUNT(*) AS c FROM settings WHERE key = 'content_policy_nsfw'")["c"] == 1
         assert self._one("SELECT COUNT(*) AS c FROM user_groups WHERE id = 'restricted_content'")["c"] == 1
-
-    def test_down_removes_everything_and_restores_the_legacy_setting(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        assert self._setting("content_policy_nsfw") is None
-        assert self._one("SELECT 1 FROM user_groups WHERE id = 'restricted_content'") is None
-        assert self._one("SELECT name FROM sqlite_master WHERE name = 'content_ratings'") is None
-        assert self._setting("nsfw") is not None
-        with self.db.get_cursor() as cursor:
-            cursor.execute("PRAGMA table_info(user_groups)")
-            assert "content_policy" not in {row["name"] for row in cursor.fetchall()}

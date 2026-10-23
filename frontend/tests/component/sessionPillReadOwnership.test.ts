@@ -10,6 +10,7 @@
 // presenter the user actually sees.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -82,10 +83,6 @@ function mountPill(tabId: string) {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let mounted: ReturnType<typeof mountPill> | undefined;
 let tabId: string;
 
@@ -114,20 +111,20 @@ describe('SessionPill session-read ownership', () => {
 		vi.mocked(api.getSessionById).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		mounted.openMenu();
-		await settle();
+		await settle(10);
 		mounted.clickSession(PICKED);
-		await settle();
+		await settle(10);
 
 		mounted.component.$set({ presetId: OTHER_PRESET_ID });
-		await settle();
+		await settle(10);
 
 		// The backend finally answers the pick, with a session belonging to the
 		// preset the user has already left.
 		pending.resolve({ success: true, data: makeSession(PICKED) });
-		await settle();
+		await settle(10);
 
 		expect(mounted.sessionName()).not.toContain(`Session ${PICKED}`);
 		expect(mounted.sessionName()).toContain('No saved session');

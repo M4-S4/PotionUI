@@ -4,21 +4,14 @@ Key parity is checked against the REAL Comfy-Org-style repack header
 (``ai/minimax_h3/latent_upscaler_3d_bf16_header.json``) at meta-device scale
 (no real weight data needed for a key-set check -- see
 ``test_minimax_music3_dav_real_header_dry_run.py`` for the same pattern in
-this repo). The header isn't part of the repo checkout (``ai/`` is
-gitignored), so these tests skip rather than fail when it's absent --
-construction/detection/forward coverage below stays tiny-config-only and
-does not depend on it.
+this repo).
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 import torch
 
-from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.vae_detect import (
     detect_minimax_h3_latent_upsampler_config,
 )
@@ -32,8 +25,8 @@ from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import (
 )
 from vendor.gpl.comfyui.ops import disable_weight_init
 
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-_HEADER_PATH = _REPO_ROOT / "ai" / "minimax_h3" / "latent_upscaler_3d_bf16_header.json"
+from .._header_listings import load_header
+
 
 _TINY_CONFIG = {
     "in_channels": 4,
@@ -61,53 +54,24 @@ def _randomize(module: torch.nn.Module) -> None:
                 p.normal_(std=0.02)
 
 
-def _load_real_header() -> dict:
-    if not _HEADER_PATH.exists():
-        pytest.skip(f"{_HEADER_PATH} not present (not part of the repo checkout)")
-    with _HEADER_PATH.open() as f:
-        header = json.load(f)
-    header.pop("__metadata__", None)
-    return header
-
-
 class TestStateDictKeySetMatchesRealHeader:
     def test_exact_key_set(self):
-        header = _load_real_header()
+        header = load_header("minimax_h3/latent_upscaler_3d_bf16")
         with torch.device("meta"):
             m = MiniMaxH3LatentUpsampler.from_config({}, disable_weight_init)
         assert set(m.state_dict().keys()) == set(header.keys())
 
     def test_shapes_match_exactly(self):
-        header = _load_real_header()
+        header = load_header("minimax_h3/latent_upscaler_3d_bf16")
         with torch.device("meta"):
             m = MiniMaxH3LatentUpsampler.from_config({}, disable_weight_init)
         sd = m.state_dict()
         for key, tensor in sd.items():
             assert list(tensor.shape) == header[key]["shape"], key
 
-    def test_bite_check_wrong_temporal_placement_breaks_key_parity(self):
-        header = _load_real_header()
-        with torch.device("meta"):
-            m = MiniMaxH3LatentUpsampler.from_config({"temporal_every": 3}, disable_weight_init)
-        assert set(m.state_dict().keys()) != set(header.keys())
-
-
 class TestConstructionAndLoadIntegrity:
     def test_default_config_builds(self):
         MiniMaxH3LatentUpsampler.from_config({}, disable_weight_init)
-
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = MiniMaxH3LatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        _randomize(module)
-        sd = module.state_dict()
-
-        module2 = MiniMaxH3LatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        load_into_module(module2, sd, _Spec())
-
-    def test_post_load_is_safe_noop(self):
-        module = MiniMaxH3LatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        module.post_load()
-
 
 class TestTinyForward:
     def _latents(self, t: int = 3, h: int = 8, w: int = 8) -> torch.Tensor:

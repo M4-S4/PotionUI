@@ -93,6 +93,110 @@ export interface IndexingStatus {
 	roots?: IndexingRootStatus[];
 	conflicts?: ModelConflictEntry[];
 	duplicates?: ModelDuplicateEntry[];
+	digests?: IndexingDigests;
+}
+
+export type IndexingLevel = 'low' | 'normal' | 'max';
+
+export type IndexingPolicy = 'unset' | 'background' | 'on_demand';
+
+export type IndexingPauseReason = 'generation';
+
+export interface IndexingLevelProfile {
+	id: IndexingLevel;
+	workers: number;
+	rate_bps: number | null;
+	pauses_for_generation: boolean;
+}
+
+export interface IndexingDigestCurrent {
+	model_id: string;
+	filename: string;
+	size: number;
+	done: number;
+}
+
+export interface IndexingDigestFailure {
+	path: string;
+	error: string;
+}
+
+export interface IndexingDigestPlan {
+	awaiting_choice: boolean;
+	files: number;
+	bytes: number;
+	min_files: number;
+	min_bytes: number;
+}
+
+export interface IndexingDigests {
+	policy: IndexingPolicy;
+	level: IndexingLevel;
+	levels: IndexingLevelProfile[];
+	paused: boolean;
+	pause_reason: IndexingPauseReason | null;
+	busy: boolean;
+	workers: number;
+	pending_total: number;
+	queued: number;
+	deferred: number;
+	ready: number;
+	ready_bytes: number;
+	pending_bytes: number;
+	queued_bytes: number;
+	current: IndexingDigestCurrent[];
+	throughput_bps: number | null;
+	eta_seconds: number | null;
+	duplicate_checks: number;
+	failed: IndexingDigestFailure[];
+	plan: IndexingDigestPlan;
+	version: number;
+}
+
+export interface IndexingSettingsPayload {
+	level?: IndexingLevel;
+	policy?: IndexingPolicy;
+}
+
+export interface IndexingSettingsResult {
+	level: IndexingLevel;
+	policy?: IndexingPolicy;
+}
+
+export interface IndexingPendingParams {
+	query?: string;
+	model_type?: string;
+	offset?: number;
+	limit?: number;
+}
+
+export interface IndexingPendingItem {
+	model_id: string;
+	location_id: string;
+	filename: string;
+	model_type: string;
+	size: number;
+	root_label: string;
+	rel_path: string;
+	queued: boolean;
+}
+
+export interface IndexingPendingPage {
+	items: IndexingPendingItem[];
+	total: number;
+	total_bytes: number;
+	by_type: Record<string, number>;
+}
+
+export type IndexingDigestRequest =
+	| { mode: 'all' }
+	| { mode: 'selected'; model_ids: string[] }
+	| { mode: 'matching'; query?: string; model_type?: string; exclude_model_ids?: string[] };
+
+export interface ModelDigestRequestResult {
+	state: 'ready' | 'queued' | 'failed';
+	eta_seconds: number | null;
+	merged_into?: string;
 }
 
 export interface ModelsLocationConfig {
@@ -413,6 +517,8 @@ export function createModelsApi(client: AxiosInstance) {
 				tagIds?: string;
 				anyTagIds?: string;
 				favoritesOnly?: boolean;
+				modelTypes?: string;
+				unquantizedOnly?: boolean;
 			},
 			signal?: AbortSignal
 		): Promise<APIResponse<{ engine: string; models: any[]; total: number; indexed: boolean }>> {
@@ -424,6 +530,8 @@ export function createModelsApi(client: AxiosInstance) {
 			if (opts?.tagIds) searchParams.append('tag_ids', opts.tagIds);
 			if (opts?.anyTagIds) searchParams.append('any_tag_ids', opts.anyTagIds);
 			if (opts?.favoritesOnly) searchParams.append('favorites_only', 'true');
+			if (opts?.modelTypes) searchParams.append('model_types', opts.modelTypes);
+			if (opts?.unquantizedOnly) searchParams.append('unquantized_only', 'true');
 			const queryString = searchParams.toString();
 			const response = await client.get(
 				`/api/presets/${presetId}/models${queryString ? `?${queryString}` : ''}`,
@@ -709,6 +817,43 @@ export function createModelsApi(client: AxiosInstance) {
 
 		async startModelIndex(): Promise<APIResponse<IndexingStatus>> {
 			const response = await client.post('/api/models/index');
+			return response.data;
+		},
+
+		async setIndexingSettings(payload: IndexingSettingsPayload): Promise<APIResponse<IndexingSettingsResult>> {
+			const response = await client.put('/api/models/indexing/settings', payload);
+			return response.data;
+		},
+
+		async pauseIndexing(): Promise<APIResponse<unknown>> {
+			const response = await client.post('/api/models/indexing/pause');
+			return response.data;
+		},
+
+		async resumeIndexing(): Promise<APIResponse<unknown>> {
+			const response = await client.post('/api/models/indexing/resume');
+			return response.data;
+		},
+
+		async listPendingIndexing(params: IndexingPendingParams = {}): Promise<APIResponse<IndexingPendingPage>> {
+			const response = await client.get('/api/models/indexing/pending', { params });
+			return response.data;
+		},
+
+		async queueIndexingDigests(payload: IndexingDigestRequest): Promise<APIResponse<unknown>> {
+			const response = await client.post('/api/models/indexing/digests', payload);
+			return response.data;
+		},
+
+		async requestModelDigest(
+			modelId: string,
+			options: { retry?: boolean } = {}
+		): Promise<APIResponse<ModelDigestRequestResult>> {
+			const response = await client.post(
+				`/api/models/${modelId}/digest`,
+				undefined,
+				options.retry ? { params: { retry: true } } : undefined
+			);
 			return response.data;
 		},
 

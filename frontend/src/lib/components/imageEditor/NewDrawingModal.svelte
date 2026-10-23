@@ -1,11 +1,5 @@
 <script lang="ts">
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import {
-		createConfirmSettlementGate,
-		getConfirmKeyboardAction,
-		settleIfEligible
-	} from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import { SegmentedControl } from '$lib/components/ui';
 	import { clampSide } from './geometry';
 	import { drawSizeChoices, penForBackground, type DrawBackground, type DrawConfig } from './drawConfig';
@@ -22,26 +16,7 @@
 	let background: DrawBackground = defaultBackground;
 	let start: 'scribble' | 'plain' = 'scribble';
 
-	const settlementGate = createConfirmSettlementGate();
-	$: if (isOpen) settlementGate.reset();
-
 	$: choices = drawSizeChoices(presetSize);
-
-	function handleCancel() {
-		settleIfEligible(settlementGate, true, onClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, true, create);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
-	}
 
 	function create() {
 		onCreate({
@@ -54,9 +29,7 @@
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal {isOpen} title="New drawing" size="sm" handleEscapeKey={false} on:close={handleCancel}>
+<ConfirmDialog {isOpen} title="New drawing" size="sm" confirmLabel="Start drawing" onConfirm={create} onCancel={onClose}>
 	<div class="flex flex-col gap-4 p-4">
 		<div class="flex flex-col gap-2">
 			<p class="font-mono text-xs uppercase tracking-[0.08em] text-fg-subtle">Size</p>
@@ -131,8 +104,4 @@
 			</p>
 		</div>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter confirmLabel="Start drawing" onCancel={handleCancel} onConfirm={handleConfirm} />
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

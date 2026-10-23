@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from src.platform.database import get_cursor
 
 _CHUNK = 500
 
@@ -28,9 +29,8 @@ class ModelTypeRepository:
         unique = sorted({sha for sha in shas if sha})
         if not unique:
             return {}
-        from src.platform.database.database import db
         found: Dict[str, Dict[str, Any]] = {}
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" for _ in chunk)
                 cursor.execute(
@@ -64,8 +64,7 @@ class ModelTypeRepository:
         reason: Optional[str],
         classified_at: str,
     ) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"""
                 INSERT OR REPLACE INTO model_header_verdicts ({_VERDICT_COLUMNS})
@@ -78,8 +77,7 @@ class ModelTypeRepository:
             )
 
     def get_assertion_rows(self, sha256: str) -> Dict[str, Dict[str, Any]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT sha256, model_type, source, set_by, set_at FROM model_type_assertions WHERE sha256 = ?",
                 (sha256,),
@@ -90,9 +88,8 @@ class ModelTypeRepository:
         unique = sorted({sha for sha in shas if sha})
         if not unique:
             return {}
-        from src.platform.database.database import db
         found: Dict[str, Dict[str, Any]] = {}
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" for _ in chunk)
                 cursor.execute(
@@ -109,8 +106,7 @@ class ModelTypeRepository:
         return found
 
     def put_assertion(self, sha256: str, model_type: str, source: str, set_by: Optional[str], set_at: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO model_type_assertions (sha256, model_type, source, set_by, set_at) "
                 "VALUES (?, ?, ?, ?, ?) "
@@ -120,8 +116,7 @@ class ModelTypeRepository:
             )
 
     def delete_assertion(self, sha256: str, source: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM model_type_assertions WHERE sha256 = ? AND source = ?", (sha256, source))
             return cursor.rowcount > 0
 
@@ -129,9 +124,8 @@ class ModelTypeRepository:
         unique = sorted({model_id for model_id in model_ids if model_id})
         if not unique:
             return []
-        from src.platform.database.database import db
         rows: List[Dict[str, Any]] = []
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" for _ in chunk)
                 cursor.execute(
@@ -146,9 +140,8 @@ class ModelTypeRepository:
         unique = sorted({model_id for model_id in model_ids if model_id})
         if not unique:
             return []
-        from src.platform.database.database import db
         rows: List[Dict[str, Any]] = []
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" for _ in chunk)
                 cursor.execute(
@@ -168,9 +161,8 @@ class ModelTypeRepository:
         unique = sorted({name for name in filenames if name})
         if not unique:
             return {}
-        from src.platform.database.database import db
         found: Dict[Tuple[str, str], str] = {}
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" for _ in chunk)
                 cursor.execute(
@@ -184,21 +176,18 @@ class ModelTypeRepository:
     def apply_types(self, updates: Sequence[Tuple[str, str, str]]) -> None:
         if not updates:
             return
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.executemany(
                 "UPDATE models SET model_type = ?, type_source = ? WHERE id = ?",
                 [(model_type, source, model_id) for model_id, model_type, source in updates],
             )
 
     def count_needs_type(self) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) AS n FROM models WHERE model_type = 'undefined'")
             return cursor.fetchone()["n"]
 
     def count_header_classified(self) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) AS n FROM models WHERE type_source = 'header'")
             return cursor.fetchone()["n"]

@@ -3,6 +3,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync } from 'svelte';
 import type { Writable } from 'svelte/store';
 import type { PresetInfo } from '$lib/types/api';
+import { settle } from './helpers/settle';
+import { presetInfo } from './presetFixtures';
 
 type PageStore = Writable<{ url: URL }>;
 
@@ -24,23 +26,6 @@ vi.mock('$lib/services/admin-api', () => ({
 	installPreset: vi.fn(),
 	uninstallPreset: vi.fn()
 }));
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		invalidate: async () => {},
-		invalidateAll: async () => {},
-		preloadData: async () => {},
-		preloadCode: async () => {},
-		afterNavigate: () => {},
-		beforeNavigate: () => {},
-		pushState: () => {},
-		replaceState: () => {}
-	};
-});
 
 const api = await import('$lib/services/api/index');
 const page = (await import('$app/stores')).page as unknown as PageStore;
@@ -48,17 +33,7 @@ const { default: PresetsTab } = await import('../../src/routes/admin/components/
 const { createClassComponent } = await import('svelte/legacy');
 
 function preset(overrides: Partial<PresetInfo> = {}): PresetInfo {
-	return {
-		id: 'preset-a',
-		name: 'Preset A',
-		version: '1.0.0',
-		description: 'list description',
-		tags: [],
-		category: 'image',
-		engine: 'native',
-		installed: false,
-		...overrides
-	};
+	return presetInfo({ id: 'preset-a', name: 'Preset A', description: 'list description', ...overrides });
 }
 
 function deferred<T>() {
@@ -82,10 +57,6 @@ function mount() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mount> | undefined;

@@ -26,6 +26,7 @@ from urllib.parse import urlparse, unquote
 from src.features.downloads.exceptions import (
     DownloadException,
     DownloadNotFoundException,
+    DownloadDestinationInvalid,
     DownloadQueueException,
     DownloadOperationException,
     InvalidStatusException,
@@ -40,7 +41,8 @@ from src.features.downloads.persistent_loop import PersistentLoop
 from src.features.downloads.hooks import DOWNLOAD_HOOKS
 from src.features.downloads.utils import safe_download_name, url_path_name
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
+from src.platform.util.path_resolution import is_within
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
 if TYPE_CHECKING:
@@ -104,6 +106,7 @@ class DownloadQueue:
         self.backend_model_indexer = backend_model_indexer
         self.resolver = resolver
         self.local_model_indexer: Optional[Callable[[str], Dict[str, Any]]] = None
+        self.verify_throttle: Optional[Callable[[], Any]] = None
         self.settings = DownloadSettings()
         self._load_settings()
         self.worker: Optional[DownloadWorker] = None
@@ -155,6 +158,7 @@ class DownloadQueue:
             backend_model_indexer=self.backend_model_indexer,
             resolver=self.resolver,
             local_model_indexer=self.local_model_indexer,
+            verify_throttle=self.verify_throttle,
             plugin_registry=self.plugins,
         )
         self._worker_loop = self._persistent_loop.ensure_running()
@@ -361,10 +365,8 @@ class DownloadQueue:
         layout no longer explains. `label` names the path in the refusal when
         the caller has a more meaningful spelling of it than the joined result.
         """
-        root_abs = os.path.abspath(str(root))
-        candidate_abs = os.path.abspath(str(candidate))
-        if candidate_abs != root_abs and os.path.commonpath([root_abs, candidate_abs]) != root_abs:
-            raise DownloadQueueException(
+        if not is_within(os.path.abspath(str(root)), os.path.abspath(str(candidate))):
+            raise DownloadDestinationInvalid(
                 f"Destination directory '{label if label is not None else candidate}' "
                 f"escapes the configured directory '{root}'"
             )
@@ -401,7 +403,7 @@ class DownloadQueue:
             except DownloadQueueException:
                 continue
 
-        raise DownloadQueueException(
+        raise DownloadDestinationInvalid(
             f"Destination directory '{destination_dir}' escapes the configured directory '{home}'"
         )
 
@@ -409,17 +411,17 @@ class DownloadQueue:
         """`backend_id` names a `native.remote` backend that's fully
         configured, or `DownloadQueueException`."""
         if self.backend_registry is None:
-            raise DownloadQueueException("Remote destinations are not available")
+            raise DownloadDestinationInvalid("Remote destinations are not available")
 
         from src.features.remote_execution.ops import RemoteModelsBackendError, resolve_remote_backend_config
 
         try:
             config = resolve_remote_backend_config(self.backend_registry, backend_id)
         except RemoteModelsBackendError as exc:
-            raise DownloadQueueException(str(exc))
+            raise DownloadDestinationInvalid(str(exc))
 
         if not config.is_configured():
-            raise DownloadQueueException(f"Backend '{backend_id}' is not fully configured")
+            raise DownloadDestinationInvalid(f"Backend '{backend_id}' is not fully configured")
 
     @staticmethod
     def _filename_from_url(url: str, fallback_prefix: str) -> str:
@@ -450,6 +452,31 @@ class DownloadQueue:
         return path
 
     # ========== Queue Operations ==========
+
+    async def _enqueue_created(self, created_download: Download, url: str, kind: str, filename: str) -> Download:
+        await self._ensure_worker_ready()
+        await self._call_on_worker(self.worker.enqueue(created_download.id))
+
+        position = self.worker.get_queue_position() if self.worker else 0
+
+        await self.conn.send_download_queued(
+            created_download.id,
+            filename,
+            position
+        )
+
+        execute_hook(self.plugins,
+            DOWNLOAD_HOOKS.after_queue,
+            {
+                "download_id": created_download.id,
+                "url": url,
+                "type": kind,
+                "filename": filename
+            }
+        )
+
+        logger.info(f"Queued {kind} download: {filename}")
+        return created_download
 
     async def queue_model_download(
         self,
@@ -507,7 +534,7 @@ class DownloadQueue:
                 would escape the configured depot
         """
         # Execute before_queue hook
-        hook_data, blocked = execute_hook(self.plugins,
+        hook_data = run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_queue,
             {
                 "url": url,
@@ -519,13 +546,9 @@ class DownloadQueue:
                 "provider_id": provider_id,
                 "created_by": created_by,
                 "model_type": model_type,
-            }
+            },
+            "Download queue blocked", error=DownloadQueueException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Download queue blocked")
-            logger.warning(f"Model download queue blocked by plugin: {reason}")
-            raise DownloadQueueException(reason)
 
         # Allow hooks to modify data
         url = hook_data.get("url", url)
@@ -538,7 +561,7 @@ class DownloadQueue:
             self._validate_destination_backend(destination_backend_id)
 
         if subdir and (os.path.isabs(subdir) or any(part == '..' for part in Path(subdir).parts)):
-            raise DownloadQueueException(
+            raise DownloadDestinationInvalid(
                 f"Subfolder '{subdir}' must be a relative path with no '..' segments"
             )
 
@@ -586,35 +609,7 @@ class DownloadQueue:
 
         created_download = self.repo.create(download)
 
-        # Queue for processing. Self-healing: a worker whose persistent loop
-        # died gets replaced with a fresh one here rather than silently
-        # enqueuing into a dead consumer.
-        await self._ensure_worker_ready()
-        await self._call_on_worker(self.worker.enqueue(created_download.id))
-
-        # Get queue position
-        position = self.worker.get_queue_position() if self.worker else 0
-
-        # Notify via WebSocket
-        await self.conn.send_download_queued(
-            created_download.id,
-            filename,
-            position
-        )
-
-        # Execute after_queue hook
-        execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.after_queue,
-            {
-                "download_id": created_download.id,
-                "url": url,
-                "type": "model",
-                "filename": filename
-            }
-        )
-
-        logger.info(f"Queued model download: {filename}")
-        return created_download
+        return await self._enqueue_created(created_download, url, "model", filename)
 
     async def queue_media_download(
         self,
@@ -642,7 +637,7 @@ class DownloadQueue:
             DownloadQueueException: If queueing fails or is blocked
         """
         # Execute before_queue hook
-        hook_data, blocked = execute_hook(self.plugins,
+        hook_data = run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_queue,
             {
                 "url": url,
@@ -650,13 +645,9 @@ class DownloadQueue:
                 "destination_dir": destination_dir,
                 "filename": filename,
                 "created_by": created_by
-            }
+            },
+            "Download queue blocked", error=DownloadQueueException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Download queue blocked")
-            logger.warning(f"Media download queue blocked by plugin: {reason}")
-            raise DownloadQueueException(reason)
 
         # Allow hooks to modify data
         url = hook_data.get("url", url)
@@ -692,33 +683,7 @@ class DownloadQueue:
 
         created_download = self.repo.create(download)
 
-        # Queue for processing (self-healing, see queue_model_download)
-        await self._ensure_worker_ready()
-        await self._call_on_worker(self.worker.enqueue(created_download.id))
-
-        # Get queue position
-        position = self.worker.get_queue_position() if self.worker else 0
-
-        # Notify via WebSocket
-        await self.conn.send_download_queued(
-            created_download.id,
-            filename,
-            position
-        )
-
-        # Execute after_queue hook
-        execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.after_queue,
-            {
-                "download_id": created_download.id,
-                "url": url,
-                "type": "media",
-                "filename": filename
-            }
-        )
-
-        logger.info(f"Queued media download: {filename}")
-        return created_download
+        return await self._enqueue_created(created_download, url, "media", filename)
 
     async def queue_batch_downloads(
         self,
@@ -900,7 +865,7 @@ class DownloadQueue:
         trusted = trusted_destination_dir is not None
         requested_dir = trusted_destination_dir if trusted else destination_dir
 
-        hook_data, blocked = execute_hook(self.plugins,
+        hook_data = run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_queue,
             {
                 "url": repo_url,
@@ -908,12 +873,9 @@ class DownloadQueue:
                 "destination_dir": requested_dir,
                 "filename": repo_id,
                 "created_by": created_by,
-            }
+            },
+            "Download queue blocked", error=DownloadQueueException,
         )
-        if blocked:
-            reason = hook_data.get("block_reason", "Download queue blocked")
-            logger.warning(f"HF repo download queue blocked by plugin: {reason}")
-            raise DownloadQueueException(reason)
 
         destination_dir = hook_data.get("destination_dir", requested_dir)
         if destination_dir != requested_dir:
@@ -1238,59 +1200,45 @@ class DownloadQueue:
             return None
         return self.repo.get_children(download.id)
 
-    async def pause_download(self, download_id: str) -> Download:
-        """Pause an active download (all active children, for a grouped one).
-
-        Executes hooks:
-        - download.before_pause: Can block
-        - download.after_pause: Notification
-
-        Args:
-            download_id: ID of download to pause
-
-        Returns:
-            Updated Download object
-
-        Raises:
-            DownloadNotFoundException: If download not found
-            DownloadOperationException: If pause fails or is blocked
-        """
+    async def _apply_control(
+        self,
+        download_id: str,
+        verb: str,
+        before_hook: str,
+        after_hook: str,
+        worker_method: str,
+        failure: str,
+    ) -> Download:
         download = self.get_download(download_id)
 
-        # Execute before_pause hook
-        hook_data, blocked = execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.before_pause,
+        run_veto_hook(self.plugins,
+            before_hook,
             {
                 "download_id": download_id,
                 "filename": download.filename
-            }
+            },
+            f"{verb.capitalize()} blocked", error=DownloadOperationException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Pause blocked")
-            logger.warning(f"Download pause blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
 
         if not self.worker:
             raise DownloadOperationException("Download worker not running")
 
+        act = getattr(self.worker, worker_method)
         children = self._group_children(download)
         if children is not None:
-            paused_any = False
+            applied_any = False
             for child in children:
-                if await self._call_on_worker(self.worker.pause(child.id)):
-                    paused_any = True
-            if not paused_any:
-                raise DownloadOperationException("Download cannot be paused (not active)")
+                if await self._call_on_worker(act(child.id)):
+                    applied_any = True
+            if not applied_any:
+                raise DownloadOperationException(failure)
             self.repo.refresh_group(download.id)
         else:
-            success = await self._call_on_worker(self.worker.pause(download_id))
-            if not success:
-                raise DownloadOperationException("Download cannot be paused (not active)")
+            if not await self._call_on_worker(act(download_id)):
+                raise DownloadOperationException(failure)
 
-        # Execute after_pause hook
         execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.after_pause,
+            after_hook,
             {
                 "download_id": download_id,
                 "filename": download.filename
@@ -1298,128 +1246,24 @@ class DownloadQueue:
         )
 
         return self.get_download(download_id)
+
+    async def pause_download(self, download_id: str) -> Download:
+        return await self._apply_control(
+            download_id, "pause", DOWNLOAD_HOOKS.before_pause, DOWNLOAD_HOOKS.after_pause,
+            "pause", "Download cannot be paused (not active)",
+        )
 
     async def resume_download(self, download_id: str) -> Download:
-        """Resume a paused download (all paused/failed children, for a grouped one).
-
-        Executes hooks:
-        - download.before_resume: Can block
-        - download.after_resume: Notification
-
-        Args:
-            download_id: ID of download to resume
-
-        Returns:
-            Updated Download object
-
-        Raises:
-            DownloadNotFoundException: If download not found
-            DownloadOperationException: If resume fails or is blocked
-        """
-        download = self.get_download(download_id)
-
-        # Execute before_resume hook
-        hook_data, blocked = execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.before_resume,
-            {
-                "download_id": download_id,
-                "filename": download.filename
-            }
+        return await self._apply_control(
+            download_id, "resume", DOWNLOAD_HOOKS.before_resume, DOWNLOAD_HOOKS.after_resume,
+            "resume", "Download cannot be resumed (not paused/failed)",
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Resume blocked")
-            logger.warning(f"Download resume blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
-
-        if not self.worker:
-            raise DownloadOperationException("Download worker not running")
-
-        children = self._group_children(download)
-        if children is not None:
-            resumed_any = False
-            for child in children:
-                if await self._call_on_worker(self.worker.resume(child.id)):
-                    resumed_any = True
-            if not resumed_any:
-                raise DownloadOperationException("Download cannot be resumed (not paused/failed)")
-            self.repo.refresh_group(download.id)
-        else:
-            success = await self._call_on_worker(self.worker.resume(download_id))
-            if not success:
-                raise DownloadOperationException("Download cannot be resumed (not paused/failed)")
-
-        # Execute after_resume hook
-        execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.after_resume,
-            {
-                "download_id": download_id,
-                "filename": download.filename
-            }
-        )
-
-        return self.get_download(download_id)
 
     async def cancel_download(self, download_id: str) -> Download:
-        """Cancel an active or pending download (all children, for a grouped one).
-
-        Executes hooks:
-        - download.before_cancel: Can block
-        - download.after_cancel: Notification
-
-        Args:
-            download_id: ID of download to cancel
-
-        Returns:
-            Updated Download object
-
-        Raises:
-            DownloadNotFoundException: If download not found
-            DownloadOperationException: If cancel fails or is blocked
-        """
-        download = self.get_download(download_id)
-
-        # Execute before_cancel hook
-        hook_data, blocked = execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.before_cancel,
-            {
-                "download_id": download_id,
-                "filename": download.filename
-            }
+        return await self._apply_control(
+            download_id, "cancel", DOWNLOAD_HOOKS.before_cancel, DOWNLOAD_HOOKS.after_cancel,
+            "cancel", "Download cannot be cancelled (already completed/cancelled)",
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Cancel blocked")
-            logger.warning(f"Download cancel blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
-
-        if not self.worker:
-            raise DownloadOperationException("Download worker not running")
-
-        children = self._group_children(download)
-        if children is not None:
-            cancelled_any = False
-            for child in children:
-                if await self._call_on_worker(self.worker.cancel(child.id)):
-                    cancelled_any = True
-            if not cancelled_any:
-                raise DownloadOperationException("Download cannot be cancelled (already completed/cancelled)")
-            self.repo.refresh_group(download.id)
-        else:
-            success = await self._call_on_worker(self.worker.cancel(download_id))
-            if not success:
-                raise DownloadOperationException("Download cannot be cancelled (already completed/cancelled)")
-
-        # Execute after_cancel hook
-        execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.after_cancel,
-            {
-                "download_id": download_id,
-                "filename": download.filename
-            }
-        )
-
-        return self.get_download(download_id)
 
     async def retry_download(self, download_id: str) -> Download:
         """Retry a download (every retryable child, for a grouped one) -
@@ -1479,18 +1323,14 @@ class DownloadQueue:
         download = self.get_download(download_id)
 
         # Execute before_delete hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_delete,
             {
                 "download_id": download_id,
                 "filename": download.filename
-            }
+            },
+            "Delete blocked", error=DownloadOperationException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Delete blocked")
-            logger.warning(f"Download delete blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
 
         # Cancel if active
         if self.worker:
@@ -1516,85 +1356,33 @@ class DownloadQueue:
 
         logger.info(f"Deleted download: {download.filename}")
 
-    def clear_completed(self) -> int:
-        """Clear all completed downloads from history.
-
-        Executes hooks:
-        - download.before_clear: Can block
-        - download.after_clear: Notification
-
-        Returns:
-            Number of downloads cleared
-
-        Raises:
-            DownloadOperationException: If clear is blocked
-        """
-        # Execute before_clear hook
-        hook_data, blocked = execute_hook(self.plugins,
+    def _clear(self, clear_type: str, delete: Callable[[], int]) -> int:
+        run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_clear,
             {
-                "clear_type": "completed"
-            }
+                "clear_type": clear_type
+            },
+            "Clear blocked", error=DownloadOperationException,
         )
 
-        if blocked:
-            reason = hook_data.get("block_reason", "Clear blocked")
-            logger.warning(f"Clear completed blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
+        count = delete()
 
-        count = self.repo.delete_completed()
-
-        # Execute after_clear hook
         execute_hook(self.plugins,
             DOWNLOAD_HOOKS.after_clear,
             {
-                "clear_type": "completed",
+                "clear_type": clear_type,
                 "count": count
             }
         )
 
-        logger.info(f"Cleared {count} completed downloads")
+        logger.info(f"Cleared {count} {clear_type} downloads")
         return count
+
+    def clear_completed(self) -> int:
+        return self._clear("completed", self.repo.delete_completed)
 
     def clear_cancelled(self) -> int:
-        """Clear all cancelled downloads from history.
-
-        Executes hooks:
-        - download.before_clear: Can block
-        - download.after_clear: Notification
-
-        Returns:
-            Number of downloads cleared
-
-        Raises:
-            DownloadOperationException: If clear is blocked
-        """
-        # Execute before_clear hook
-        hook_data, blocked = execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.before_clear,
-            {
-                "clear_type": "cancelled"
-            }
-        )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Clear blocked")
-            logger.warning(f"Clear cancelled blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
-
-        count = self.repo.delete_cancelled()
-
-        # Execute after_clear hook
-        execute_hook(self.plugins,
-            DOWNLOAD_HOOKS.after_clear,
-            {
-                "clear_type": "cancelled",
-                "count": count
-            }
-        )
-
-        logger.info(f"Cleared {count} cancelled downloads")
-        return count
+        return self._clear("cancelled", self.repo.delete_cancelled)
 
     # ========== Settings Operations ==========
 

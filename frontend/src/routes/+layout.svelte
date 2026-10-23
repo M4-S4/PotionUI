@@ -6,7 +6,8 @@
 	import { authStore } from '$lib/stores/auth';
 	import { installLimitsWatcher, refreshLimits, resetLimitsState } from '$lib/plans/store';
 	import { keybindingsStore } from '$lib/stores/keybindings';
-	import { chatPanelStore } from '$lib/stores/chatPanel';
+	import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
+	import { isMobile } from '$lib/stores/viewport';
 	import { init as initKeyboard, destroy as destroyKeyboard } from '$lib/services/keyboard';
 	import { registerComponent } from '$lib/plugin-api/componentRegistry';
 	import { initHostApi } from '$lib/plugin-api/host';
@@ -16,14 +17,18 @@
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
+	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
 	import { initCrossTab } from '$lib/stores/accounts';
 	import { notifications } from '$lib/stores/notifications';
+	import { tabDraftSync } from '$lib/stores/tabDraftSync';
 	import { notificationsWebSocket } from '$lib/services/notificationsWebsocket';
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
+	import { installInputModality } from '$lib/utils/inputModality';
 	import { resolveAuthLayoutMode } from '$lib/utils/authLayout';
-	import { Spinner } from '$lib/components/ui';
+	import { loginUrlWithReturn } from '$lib/utils/returnPath';
+	import { Spinner, IconButton } from '$lib/components/ui';
 	import '../app.css';
 
 	let mounted = false;
@@ -35,17 +40,22 @@
 	let SidebarComponent: any = null;
 	let MobileTabBarComponent: any = null;
 	let GlobalChatPanelComponent: any = null;
+	let ChatSheetComponent: any = null;
 	let KeyboardShortcutsModalComponent: any = null;
 	let NotificationPanelComponent: any = null;
 
 	onMount(() => {
 		mounted = true;
 		const stopCrossTab = initCrossTab();
+		const stopInputModality = installInputModality();
 		printStartupBanner();
 		themeStore.init();
 		initPwaInstall();
 		installDismissed = localStorage.getItem('potionui-install-dismissed') === '1';
-		return stopCrossTab;
+		return () => {
+			stopCrossTab();
+			stopInputModality();
+		};
 	});
 
 	function dismissInstallPrompt() {
@@ -67,6 +77,7 @@
 			sidebar,
 			mobileTabBar,
 			globalChatPanel,
+			chatSheet,
 			keyboardModal,
 			notificationPanel,
 			historyModal,
@@ -84,6 +95,7 @@
 			import('$lib/components/Sidebar.svelte'),
 			import('$lib/components/MobileTabBar.svelte'),
 			import('$lib/components/GlobalChatPanel.svelte'),
+			import('$lib/components/ChatSheet.svelte'),
 			import('$lib/components/KeyboardShortcutsModal.svelte'),
 			import('$lib/components/notifications/NotificationPanel.svelte'),
 			import('$lib/components/modals/GenerationHistoryModal.svelte'),
@@ -102,6 +114,7 @@
 		SidebarComponent = sidebar.default;
 		MobileTabBarComponent = mobileTabBar.default;
 		GlobalChatPanelComponent = globalChatPanel.default;
+		ChatSheetComponent = chatSheet.default;
 		KeyboardShortcutsModalComponent = keyboardModal.default;
 		NotificationPanelComponent = notificationPanel.default;
 
@@ -156,6 +169,16 @@
 		notificationsWebSocket.disconnect();
 		notifications.reset();
 		resetLimitsState();
+	}
+
+	let tabDraftSyncStarted = false;
+	$: if (mounted && $authStore.isAuthenticated && !tabDraftSyncStarted) {
+		tabDraftSyncStarted = true;
+		tabDraftSync.start();
+	}
+	$: if (mounted && !$authStore.isAuthenticated && tabDraftSyncStarted) {
+		tabDraftSyncStarted = false;
+		tabDraftSync.stop();
 	}
 
 	function registerCoreHandlers() {
@@ -235,7 +258,7 @@
 
 	// Redirect to login if not authenticated and not on public route
 	$: if (mounted && !$authStore.loading && !$authStore.isAuthenticated && !isPublicRoute) {
-		goto('/login');
+		goto(loginUrlWithReturn($page.url));
 	}
 
 	// Redirect to generate if authenticated and on public auth page
@@ -254,7 +277,7 @@
 			<div class="hidden md:block">
 				{#if SidebarComponent}<svelte:component this={SidebarComponent} />{/if}
 			</div>
-		<main class="md:ml-14 min-h-dvh overflow-y-auto overflow-x-hidden pb-[calc(4rem_+_env(safe-area-inset-bottom))] md:pb-0">
+		<main class="md:ml-14 min-h-dvh overflow-y-auto overflow-x-hidden pb-[var(--tab-bar-height)] md:pb-0">
 			{#if authenticatedRuntimeReady}
 				<slot />
 			{:else}
@@ -265,9 +288,10 @@
 		</main>
 		{#if MobileTabBarComponent}<svelte:component this={MobileTabBarComponent} />{/if}
 		{#if $canInstall && !installDismissed}
-			<!-- z-30: must sit BELOW the generate page's transport bar (z-40) so it
-				can never cover the Generate button. -->
-			<div class="fixed bottom-[calc(4rem_+_env(safe-area-inset-bottom))] left-0 right-0 z-30 px-3 pb-2 md:hidden">
+			<div
+				class="fixed bottom-[calc(var(--tab-bar-height)_+_var(--tab-bar-lift,0px))] left-0 right-0 z-[var(--install-banner-z,30)] px-3 pb-2 md:hidden"
+				data-install-banner
+			>
 				<div class="bg-surface-2 border border-line-strong rounded-xl p-3 flex items-center gap-3 shadow-floating">
 					<div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
 						<svg class="w-5 h-5 text-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -284,25 +308,17 @@
 					>
 						Install
 					</button>
-					<button
-						on:click={dismissInstallPrompt}
-						class="p-1 text-fg-subtle hover:text-fg-muted flex-shrink-0"
-						aria-label="Dismiss install prompt"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-						</svg>
-					</button>
+					<IconButton icon="close" label="Dismiss install prompt" size="xs" onclick={dismissInstallPrompt} class="flex-shrink-0" />
 				</div>
 			</div>
 		{/if}
-		<div class="hidden md:block">
-			{#if GlobalChatPanelComponent}<svelte:component this={GlobalChatPanelComponent} />{/if}
-		</div>
+		{#if !$isMobile && GlobalChatPanelComponent}<svelte:component this={GlobalChatPanelComponent} />{/if}
+		{#if $isMobile && $isChatPanelOpen && ChatSheetComponent}<svelte:component this={ChatSheetComponent} />{/if}
 		{#if KeyboardShortcutsModalComponent}<svelte:component this={KeyboardShortcutsModalComponent} />{/if}
 		{#if NotificationPanelComponent}<svelte:component this={NotificationPanelComponent} />{/if}
 		<ToastContainer />
 		<ConfirmHost />
+		<IndexingChoiceModal />
 		<AccountSwitchOverlay />
 	</div>
 {:else}

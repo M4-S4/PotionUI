@@ -18,7 +18,6 @@ const { default: SaveSegmentModal } = await import('$lib/components/modals/SaveS
 const { createClassComponent } = await import('svelte/legacy');
 
 let target: HTMLDivElement;
-let component: ReturnType<typeof createClassComponent> | undefined;
 
 const specs: PromptResourceSpec[] = [{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' }];
 
@@ -36,7 +35,7 @@ function baseSegment(overrides: Partial<Segment> = {}): Segment {
 function mount(props: Record<string, unknown>) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = createClassComponent({ component: SaveSegmentModal as never, target, props: { isOpen: true, ...props } });
+	createClassComponent({ component: SaveSegmentModal as never, target, props: { isOpen: true, ...props } });
 	flushSync();
 }
 
@@ -86,7 +85,7 @@ describe('SaveSegmentModal resource-reference conversion', () => {
 		categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
 		flushSync();
 
-		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('Save Segment'))!;
+		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith('Save'))!;
 		saveButton.click();
 		await new Promise((r) => setTimeout(r, 0));
 
@@ -117,7 +116,7 @@ describe('SaveSegmentModal resource-reference conversion', () => {
 		categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
 		flushSync();
 
-		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('Save Segment'))!;
+		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith('Save'))!;
 		saveButton.click();
 		await new Promise((r) => setTimeout(r, 0));
 

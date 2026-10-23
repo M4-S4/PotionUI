@@ -22,7 +22,7 @@ never just the first - a media_loader step upstream can hand over more than
 one file.
 """
 
-from typing import Any, Dict, List, Tuple
+from typing import List, Tuple
 
 from PIL import Image
 
@@ -43,13 +43,6 @@ from src.pipelines.pipes._shared.imaging.io import as_image_list
 class CropSubjectPipe(BasePipe):
     name = "crop_subject"
     description = "Crop to the alpha bounding box (plus margin); passes through unchanged when an image has no opaque subject"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "margin": 0,
-            "alpha_threshold": 16,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

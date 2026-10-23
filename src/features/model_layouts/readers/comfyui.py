@@ -11,6 +11,7 @@ from src.features.model_layouts.readers.base import (
     find_child_ci,
     read_bounded_text,
 )
+from src.platform.filesystem.yaml_io import load_yaml
 
 DEFAULT_FILE = "extra_model_paths.yaml"
 
@@ -41,7 +42,7 @@ def read(ctx: ReaderContext, file: Optional[str], result: ReaderResult) -> None:
     if text is None:
         return
     try:
-        config = yaml.safe_load(text)
+        config = load_yaml(text)
     except (yaml.YAMLError, RecursionError) as exc:
         result.warnings.append(f"{path.name} is not valid YAML: {exc}")
         return

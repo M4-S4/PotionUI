@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher } from 'svelte';
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
@@ -6,8 +7,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
-	import { modeLabel } from '$lib/utils/modeLabel.svelte';
-	import { hasIcon } from '$lib/utils/IconLibrary';
+	import { presetModeOptions } from '$lib/utils/presetModeOptions';
 
 	export let presets: PresetInfo[] = [];
 	export let selectedPreset: string = '';
@@ -41,14 +41,7 @@
 	const NARROW_PANEL_PX = 340;
 	$: narrow = panelWidth > 0 && panelWidth < NARROW_PANEL_PX;
 	$: hasModeSelect = availableModes.length > 1;
-	$: modeOptions = availableModes.map((mode) => ({
-		value: mode.id,
-		label: modeLabel(mode.id, mode.label),
-		icon: mode.icon && hasIcon(mode.icon) ? mode.icon : undefined,
-		description: mode.description || undefined,
-		marker: mode.sourcePlugin ? '\u2022' : undefined,
-		markerLabel: mode.sourcePlugin ? `contributed by ${mode.sourcePlugin}` : undefined
-	}));
+	$: modeOptions = presetModeOptions(availableModes);
 
 	$: currentModeVariants = sortVariants(
 		availableModes.find((mode) => mode.id === selectedMode)?.variants
@@ -109,21 +102,15 @@
 				/>
 			</div>
 		{/if}
-
-		<div
-			class="flex flex-shrink-0 divide-x divide-line-strong overflow-hidden empty:hidden rounded border border-line-strong bg-surface-2"
-			role="group"
-			aria-label="Preset actions"
-			data-testid="preset-header-actions"
-		>
-			<slot name="mode-actions" />
-		</div>
 	</div>
 
 	{#if variantOptions.length > 1}
 		{#if variantOptions.length <= 3}
 			<div
 				class="grid gap-0.5 rounded-lg bg-surface-2 p-0.5"
+				role="group"
+				aria-label="Preset variant"
+				data-testid="preset-variant-switch"
 				style="grid-template-columns: repeat({variantOptions.length}, minmax(0, 1fr));"
 			>
 				{#each variantOptions as opt}
@@ -145,7 +132,7 @@
 							class="w-full min-w-0 rounded-md px-3 py-1.5 text-xs font-medium transition-all {selectedVariant === opt.value
 								? 'bg-signal/10 text-signal shadow-sm'
 								: 'text-fg-muted hover:text-fg hover:bg-surface-3/50'}"
-							title={opt.label}
+							use:tooltip={opt.label}
 							on:click={() => handleVariantChange(opt.value)}
 						>
 							<span class="block truncate">{opt.label}</span>

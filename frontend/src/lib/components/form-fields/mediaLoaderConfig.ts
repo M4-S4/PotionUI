@@ -195,13 +195,6 @@ const KIND_NOUNS: Record<MediaKind, { singular: string; plural: string }> = {
 	audio: { singular: 'an audio file', plural: 'audio' }
 };
 
-/** "images", "images and videos", "images, videos and audio". */
-export function describeKinds(kinds: MediaKind[]): string {
-	const nouns = kinds.map((k) => KIND_NOUNS[k].plural);
-	if (nouns.length <= 1) return nouns[0] ?? '';
-	return `${nouns.slice(0, -1).join(', ')} and ${nouns[nouns.length - 1]}`;
-}
-
 /** "Drop an image here" / "Drop an image or a video here". */
 export function describeDropTarget(kinds: MediaKind[]): string {
 	const nouns = kinds.map((k) => KIND_NOUNS[k].singular);

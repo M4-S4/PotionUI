@@ -224,6 +224,7 @@ def test_an_oracle_model_is_an_upscaler_with_its_primary_hash():
         "stats": {"downloads": None, "likes": None, "rating": None},
         "source_url": "https://openmodeldb.info/models/16x-ESRGAN",
         "primary_sha256": "8701acac21c4c412a3e05242b389700c1248ff52314380793c045326f4c61dfb",
+        "primary_size_bytes": 67249159,
         "installed": None,
     }
 

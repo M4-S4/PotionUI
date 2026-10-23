@@ -183,12 +183,13 @@ function fakeFetch(reply) {
 }
 
 async function withFetch(fetch, run) {
-	const saved = globalThis.fetch;
-	globalThis.fetch = fetch.impl;
+	const saved = globalThis.__potionui;
+	globalThis.__potionui = { api: { fetch: fetch.impl } };
 	try {
 		return await run();
 	} finally {
-		globalThis.fetch = saved;
+		if (saved === undefined) delete globalThis.__potionui;
+		else globalThis.__potionui = saved;
 	}
 }
 
@@ -204,41 +205,32 @@ function response(status, body, headers = {}) {
 	};
 }
 
-test('setNsfwMode PUTs the core setting with the token in the header only', async () => {
+test('setNsfwMode PUTs the core setting through the host api', async () => {
 	const fetch = fakeFetch(response(200, { success: true, data: { key: 'media_nsfw_filter_mode', value: 'show' } }));
-	const api = fakeHostApi(() => null, 'tok-123');
-	const result = await withFetch(fetch, () => setNsfwMode(api, 'show', 'media_nsfw_filter_mode'));
+	const result = await withFetch(fetch, () => setNsfwMode('show', 'media_nsfw_filter_mode'));
 	assert.equal(result.ok, true);
 	const [url, init] = fetch.calls[0];
 	assert.equal(url, '/api/settings/media_nsfw_filter_mode');
 	assert.equal(init.method, 'PUT');
-	assert.equal(init.headers.Authorization, 'Bearer tok-123');
 	assert.equal(init.headers['Content-Type'], 'application/json');
 	assert.deepEqual(JSON.parse(init.body), { value: 'show' });
-	assert.ok(!url.includes('tok-123'));
 });
 
 test('setNsfwMode uses the key from /me and reports failures', async () => {
 	const fetch = fakeFetch(response(403, { detail: 'Not allowed' }));
-	const result = await withFetch(fetch, () => setNsfwMode(fakeHostApi(() => null), 'hide', 'custom_key'));
+	const result = await withFetch(fetch, () => setNsfwMode('hide', 'custom_key'));
 	assert.equal(fetch.calls[0][0], '/api/settings/custom_key');
 	assert.deepEqual(result, { ok: false, error: { status: 403, code: 'forbidden', message: 'Not allowed', retryAfter: null } });
 
 	const softFailure = fakeFetch(response(200, { success: false, error: 'invalid_value', message: 'Unknown mode' }));
-	const soft = await withFetch(softFailure, () => setNsfwMode(fakeHostApi(() => null), 'hide', 'custom_key'));
+	const soft = await withFetch(softFailure, () => setNsfwMode('hide', 'custom_key'));
 	assert.equal(soft.ok, false);
 	assert.equal(soft.error.message, 'Unknown mode');
 
 	const down = fakeFetch(() => {
 		throw new TypeError('Failed to fetch');
 	});
-	assert.equal((await withFetch(down, () => setNsfwMode(fakeHostApi(() => null), 'hide', 'custom_key'))).error.code, 'network_error');
-});
-
-test('a core call without a token sends no Authorization header', async () => {
-	const fetch = fakeFetch(response(200, { success: true, data: [] }));
-	await withFetch(fetch, () => listRemoteBackends(fakeHostApi(() => null, null)));
-	assert.equal(fetch.calls[0][1].headers.Authorization, undefined);
+	assert.equal((await withFetch(down, () => setNsfwMode('hide', 'custom_key'))).error.code, 'network_error');
 });
 
 test('listRemoteBackends keeps the enabled native.remote backends', async () => {
@@ -254,7 +246,7 @@ test('listRemoteBackends keeps the enabled native.remote backends', async () => 
 			]
 		})
 	);
-	const result = await withFetch(fetch, () => listRemoteBackends(fakeHostApi(() => null)));
+	const result = await withFetch(fetch, () => listRemoteBackends());
 	assert.deepEqual(result, {
 		ok: true,
 		data: [
@@ -268,7 +260,7 @@ test('listRemoteBackends keeps the enabled native.remote backends', async () => 
 
 test('a core answer that is not JSON is reported from its status', async () => {
 	const fetch = fakeFetch(response(502, undefined, { 'Retry-After': '9' }));
-	const result = await withFetch(fetch, () => listRemoteBackends(fakeHostApi(() => null)));
+	const result = await withFetch(fetch, () => listRemoteBackends());
 	assert.deepEqual(result.error, {
 		status: 502,
 		code: 'source_unavailable',

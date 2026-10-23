@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -31,12 +31,17 @@ function mountEditor(props: Record<string, unknown> = {}) {
 	return component as unknown as EditorInstance;
 }
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	component?.$destroy();
 	component = undefined;
 	target?.remove();
 	document.body.innerHTML = '';
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 describe('AutocompleteDropdown restyle (segment-composer)', () => {
@@ -65,7 +70,7 @@ describe('AutocompleteDropdown restyle (segment-composer)', () => {
 		sel.addRange(range);
 		document.querySelector('.inline-chip-editor')!.dispatchEvent(new Event('input', { bubbles: true }));
 		flushSync();
-		await new Promise((r) => setTimeout(r, 210));
+		await vi.advanceTimersByTimeAsync(210);
 		flushSync();
 
 		expect(document.querySelector('.picker-query')!.textContent).toContain('li');
@@ -103,7 +108,7 @@ describe('AutocompleteDropdown restyle (segment-composer)', () => {
 		const editor = mountEditor();
 		editor.insertPhrasebookTrigger();
 		flushSync();
-		await new Promise((r) => setTimeout(r, 210));
+		await vi.advanceTimersByTimeAsync(210);
 		flushSync();
 
 		const rows = Array.from(document.querySelectorAll<HTMLElement>('.picker-row.phrase-value'));
@@ -130,7 +135,7 @@ describe('AutocompleteDropdown restyle (segment-composer)', () => {
 		const editor = mountEditor();
 		editor.insertPhrasebookTrigger();
 		flushSync();
-		await new Promise((r) => setTimeout(r, 210));
+		await vi.advanceTimersByTimeAsync(210);
 		flushSync();
 
 		const editorEl = document.querySelector('.inline-chip-editor')!;
@@ -156,7 +161,7 @@ describe('AutocompleteDropdown restyle (segment-composer)', () => {
 		const editor = mountEditor();
 		editor.insertPhrasebookTrigger();
 		flushSync();
-		await new Promise((r) => setTimeout(r, 0));
+		await vi.advanceTimersByTimeAsync(0);
 		flushSync();
 
 		const editorEl = document.querySelector('.inline-chip-editor')!;
@@ -166,7 +171,7 @@ describe('AutocompleteDropdown restyle (segment-composer)', () => {
 
 		expect(tabEvent.defaultPrevented).toBe(true);
 		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-		expect(document.querySelector('.picker-chip')!.textContent).toBe('#');
+		expect(document.querySelector('[data-segment-modal-mark]')!.textContent?.trim()).toBe('#');
 		expect(document.querySelector('.phrasebook-picker')).toBeNull();
 	});
 });

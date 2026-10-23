@@ -37,7 +37,6 @@ import src.platform.plugins.runtime_registries as _rr
 
 from src.features.generation.engine import GenerationEngine
 from src.features.generation.history_facade import GenerationHistoryFacade
-from src.features.media.image import ImageWriter
 from src.platform.templating import TemplateProcessor
 from src.platform.runtime.gpu import GpuMonitor
 from src.platform.observability.system_probe import SystemMonitor
@@ -145,101 +144,166 @@ from src.features.llm.gateway import LLMGateway
 from src.bootstrap.composition import ChatDeps, build_chat
 from src.bootstrap.composition.chat import register_session_memory_cleanup
 
+from src.platform.filesystem.storage_settings import StorageSettings
+from src.platform.settings.runtime_flags import configure_runtime_flags, warn_ignored_env_vars
+from src.features.llm import trace_collector as _chat_trace_collector
+from src.features.llm.trace_recorder import ChatCallTraceRecorder
+from src.features.llm.tools.registry import ToolRegistry
+from src.features.llm.tools.builtin import register_builtin_tools
+from src.features.chat.modes import (
+    ChatModeRegistry,
+    build_generation_mode,
+    build_history_mode,
+    build_models_mode,
+    build_phrasebook_mode,
+    build_prompts_mode,
+)
+from src.platform.resources import ResourceRegistry
+from src.platform.resources.builtin import register_builtin_resource_providers
+from src.platform.plugins.automation_templates import AutomationTemplateRegistry
+from src.features.automation.templates import register_builtin_templates
+from src.features.phrasebook.operations.core_ops import register_core_batch_operations
+from src.features.plans.components import build_plans
+from src.features.content_safety.policy import ContentPolicyResolver
+from src.features.llm.tools.governance import ToolGovernanceRepository, ToolGovernanceEditor
+from src.features.auth.repository import ExternalIdentityRepository
+from src.features.phrasebook import operations as phrasebook_operations
+from src.features.provisioning.monitor import ComputeStatusMonitor
+from src.features.provisioning.operations import ComputeProvisioningJobs
+from src.features.provisioning.registry import ComputeProvisionerRegistry
+from src.features.provisioning.repository import ProvisionedComputeRepository
+from src.features.provisioning.routes import ProvisioningController
+from src.features.system_monitor.routes import SystemMonitorController
+from src.features.plugins.routes import PluginController
+from src.features.llm.routes import LLMController
+from src.features.users.routes import UserController
+from src.features.notifications import NotificationCollaborators, operations as notification_operations
+from src.features.notifications.routes import NotificationController
+from src.features.notifications.admin_alerts import (
+    HANDLER_ID as _ADMIN_ALERTS_ID,
+    GenerationFailureAdminAlerts,
+)
+from src.features.llm_memory.repository import LLMMemoryRepository
+from src.features.llm.tools.executor import ToolExecutor
+from src.features.llm.tools.governance_routes import ToolGovernanceController
+from src.features.developer.output_types_documenter import OutputTypesDocumenter
+from src.features.developer.pipes_documenter import PipesDocumenter
+from src.features.developer.template_functions_documenter import TemplateFunctionsDocumenter
+from src.features.developer.routes import DeveloperController
+from src.features.forms.routes import FormController
+from src.features.fields.routes import FieldController
+from src.platform.websocket.connection_hub import ConnectionHub
+from src.features.presets.file_repository import FilePresetRepository
+from src.features.models.access_policy import ModelAccessPolicy
+from src.features.cloud.capabilities import CloudCapabilities
+from src.features.cloud.policy import CloudGenerationPolicy
+from src.features.cloud.repository import CloudCatalogRepository
+from src.features.cloud.cost_repository import GenerationCostRepository
+from src.features.cloud.scope_repository import ModelPresetScopeRepository
+from src.features.media_index.repository import MediaIndexRepository
+from src.features.media_index.indexer import MediaIndexer
+from src.features.media_index.tagger import build_tagger_provider
+from src.features.media_index.vision_embedder import build_vision_embedder
+from src.features.media_index.gallery_vector_store import GalleryVectorStore
+from src.features.media_index.gallery_prompt_vector_store import GalleryPromptVectorStore
+from src.features.media_index.routes import MediaIndexController
+from src.platform.vector.chroma_client import ChromaClientProvider
+from src.features.prompt_database.embedding import build_embedding_provider
+from src.features.content_safety.gate import ContentGate
+from src.features.content_safety.ledger_repository import ContentLedger
+from src.features.content_safety.manager import ContentSafetyManager
+from src.features.phrasebook.routes import PhrasebookController
+from src.features.segments.routes import SegmentController
+from src.features.models.routes import ModelController
+from src.features.model_library.routes import ModelCollectionController
+from src.features.cloud.catalog import CloudCatalog
+from src.features.cloud.scopes import CloudModelScopes
+from src.features.tags.routes import TagController
+from src.features.collections.routes import CollectionController
+from src.features.automation.context import AutomationServices
+from src.features.automation.engine import AutomationEngine
+from src.features.automation.runtime import AutomationRuntime
+from src.features.automation.routes import AutomationController
+from src.features.media import (
+    MediaStore,
+    MediaTypeResolver,
+    FilePathResolver,
+    ImageProcessor,
+    UploadRepository,
+)
+from src.features.media.routes import MediaController
+from src.features.media.access import MediaAccess
+from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
+from src.features.tab_drafts.manager import TabDraftManager
+from src.features.tab_drafts.repository import TabDraftRepository
+from src.features.tab_drafts.routes import TabDraftController
+from src.features.housekeeping.worker import HousekeepingWorker, build_tasks
+from src.features.backup.admin import BackupRuns
+from src.features.backup.settings import repo_root as backup_repo_root
+from src.features.media.preset_prerender import PresetMediaPrerenderQueue
+from src.features.media.editing.editor import MediaEditor
+from src.features.media.editing.routes import MediaEditController
+from src.features.library import LibraryCollaborators, LibraryRepository
+from src.features.library.routes import LibraryController
+from src.features.inspirations import InspirationCollaborators, InspirationRepository
+from src.features.inspirations.routes import InspirationController
+from src.features.presets.routes import PresetController
+from src.features.plugins.setup import PluginSetup
+from src.features.presets import operations as preset_operations
+from src.features.recipes.executors import build_default_executor_registry
+from src.features.setup import WorkspaceActivateExecutor
+from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
+from src.features.prompt_database.vector_store import PromptVectorStore
+from src.features.prompt_database.routes import PromptDatabaseController
+from src.features.prompt_enhancement import PromptEnhancementCollaborators
+from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
+from src.features.llm.tools.base import ToolServices
+from src.features.mcp.repository import McpTokenRepository
+from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
+from src.features.docs.routes import DocsController
+from src.features.sessions.routes import SessionController
+from src.features.sessions.version_repository import SessionVersionRepository
+from src.features.formulas.collaborators import FormulaCollaborators
+from src.features.formulas.repository import FormulaRepository
+from src.features.formulas.routes import FormulaController
+from src.features.formulas.sources import ModelRepositoryRefChecker, PresetFormSource
+from src.features.filters.catalog import FilterCatalog
+from src.features.filters.collaborators import FilterCollaborators
+from src.features.filters.repository import UserFilterRepository
+from src.features.filters.routes import FilterController
+from src.features.organize.components import build_organize
+from src.features.workspaces.repository import WorkspaceRepository
+from src.features.workspaces.routes import WorkspaceController
+from src.features.user_groups.routes import UserGroupController
+from src.features.auth.external_login import ExternalLoginManager
+
 if TYPE_CHECKING:
     # Types constructed inside build_container via lazy imports; referenced only
     # by the AppContainer field annotations (never evaluated at runtime thanks
     # to `from __future__ import annotations`).
-    from src.features.llm.tools.registry import ToolRegistry
-    from src.features.llm.tools.executor import ToolExecutor
-    from src.features.chat.modes import ChatModeRegistry
-    from src.platform.resources import ResourceRegistry
     from src.features.notifications.repository import NotificationRepository
-    from src.features.llm_memory.repository import LLMMemoryRepository
-    from src.features.llm.trace_recorder import ChatCallTraceRecorder
-    from src.platform.websocket.connection_hub import ConnectionHub
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
-    from src.features.cloud.capabilities import CloudCapabilities
-    from src.features.cloud.catalog import CloudCatalog
-    from src.features.cloud.cost_repository import GenerationCostRepository
-    from src.features.cloud.scopes import CloudModelScopes
     from src.features.models.repository import ModelRepository
     from src.features.tags.repository import TagRepository
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
     from src.features.collections.repository import CollectionRepository
-    from src.features.automation.engine import AutomationEngine
-    from src.features.automation.runtime import AutomationRuntime
-    from src.platform.plugins.automation_templates import AutomationTemplateRegistry
-    from src.features.media import MediaStore, MediaTypeResolver, FilePathResolver, ImageProcessor
-    from src.features.backup.admin import BackupRuns
-    from src.features.housekeeping.worker import HousekeepingWorker
-    from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
-    from src.features.presets.file_repository import FilePresetRepository
     from src.features.presets.repository import DatabasePresetRepository
-    from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
     from src.features.prompt_database.repository import PromptRepository
-    from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
-    from src.features.prompt_enhancement import PromptEnhancementCollaborators
-    from src.features.media_index.repository import MediaIndexRepository
-    from src.features.media_index.indexer import MediaIndexer
-    from src.features.media_index.routes import MediaIndexController
-    from src.features.content_safety.policy import ContentPolicyResolver
-    from src.features.content_safety.manager import ContentSafetyManager
     from src.features.stats.repository import StatsRepository
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
     from src.features.sessions.repository import SessionRepository
-    from src.features.sessions.version_repository import SessionVersionRepository
-    from src.features.workspaces.repository import WorkspaceRepository
     from src.features.user_groups.repository import UserGroupRepository
-    from src.features.auth.external_login import ExternalLoginManager
-    from src.features.auth.repository import ExternalIdentityRepository
-    from src.features.system_monitor.routes import SystemMonitorController
-    from src.features.provisioning.monitor import ComputeStatusMonitor
-    from src.features.provisioning.operations import ComputeProvisioningJobs
-    from src.features.provisioning.registry import ComputeProvisionerRegistry
-    from src.features.provisioning.repository import ProvisionedComputeRepository
-    from src.features.provisioning.routes import ProvisioningController
-    from src.features.plugins.routes import PluginController
-    from src.features.plugins.setup import PluginSetup
-    from src.features.llm.routes import LLMController
-    from src.features.llm.tools.governance import ToolGovernanceEditor, ToolGovernanceRepository
-    from src.features.llm.tools.governance_routes import ToolGovernanceController
-    from src.features.users.routes import UserController
-    from src.features.notifications.routes import NotificationController
     from src.features.chat.routes import ChatController
     from src.features.chat.turns import ChatTurnRegistry
-    from src.features.developer.routes import DeveloperController
-    from src.features.docs.routes import DocsController
-    from src.features.forms.routes import FormController
-    from src.features.fields.routes import FieldController
-    from src.features.phrasebook.routes import PhrasebookController
-    from src.features.segments.routes import SegmentController
-    from src.features.models.routes import ModelController
-    from src.features.model_library.routes import ModelCollectionController
-    from src.features.tags.routes import TagController
-    from src.features.collections.routes import CollectionController
-    from src.features.automation.routes import AutomationController
-    from src.features.media.routes import MediaController
-    from src.features.media.access import MediaAccess
-    from src.features.media.editing.editor import MediaEditor
-    from src.features.media.editing.routes import MediaEditController
-    from src.features.library import LibraryCollaborators, LibraryRepository
-    from src.features.library.routes import LibraryController
-    from src.features.presets.routes import PresetController
-    from src.features.prompt_database.routes import PromptDatabaseController
     from src.features.stats.routes import StatsController
-    from src.features.sessions.routes import SessionController
-    from src.features.formulas.routes import FormulaController
-    from src.features.filters.catalog import FilterCatalog
-    from src.features.filters.routes import FilterController
     from src.features.organize.manager import OrganizeManager
     from src.features.organize.routes import OrganizeController
     from src.features.organize.worker import OrganizeWorker
     from src.features.plans.components import PlansComponents
     from src.features.plans.guard import LimitGuard
     from src.features.plans.routes import PlansController
-    from src.features.workspaces.routes import WorkspaceController
-    from src.features.user_groups.routes import UserGroupController
+    from src.features.mcp.protocol import McpToolCollaborators
 
 
 @dataclass
@@ -284,14 +348,11 @@ class AppContainer:
     preset_template_loader: PresetTemplateLoader
     preset_processor: PresetProcessor
     template_processor: TemplateProcessor
-    image_writer: ImageWriter
     backend_registry: BackendRegistry
     field_factory: FieldFactory
 
     # Compute provisioning
-    compute_provisioner_registry: "ComputeProvisionerRegistry"
     provisioned_compute_repository: "ProvisionedComputeRepository"
-    compute_provisioning_jobs: "ComputeProvisioningJobs"
     compute_status_monitor: "ComputeStatusMonitor"
     provisioning_controller: "ProvisioningController"
 
@@ -307,7 +368,6 @@ class AppContainer:
     plugin_setup: "PluginSetup"
     llm_controller: "LLMController"
     tool_governance_repository: "ToolGovernanceRepository"
-    tool_governance_editor: "ToolGovernanceEditor"
     tool_governance_controller: "ToolGovernanceController"
     mcp_token_repository: "McpTokenRepository"
     mcp_tool_collaborators: "McpToolCollaborators"
@@ -317,9 +377,7 @@ class AppContainer:
     instance_claim_repository: InstanceClaimRepository
     migration_runner: MigrationRunner
     claim_token_store: ClaimTokenStore
-    auth_config: AuthConfig
     password_hasher: PasswordHasher
-    token_codec: TokenCodec
     auth: Auth
     login_handoff: LoginHandoffStore
     external_identity_repository: "ExternalIdentityRepository"
@@ -346,7 +404,6 @@ class AppContainer:
     # Phrasebook
     phrasebook_category_repo: PhrasebookCategoryRepository
     phrasebook_value_repo: PhrasebookValueRepository
-    phrasebook_preview_generator: PhrasebookPreviewGenerator
 
     # Chat
     chat_repository: ChatRepository
@@ -405,13 +462,11 @@ class AppContainer:
     collection_controller: "CollectionController"
 
     # Automation
-    automation_engine: "AutomationEngine"
     automation_runtime: "AutomationRuntime"
     automation_controller: "AutomationController"
     automation_template_registry: "AutomationTemplateRegistry"
 
     # Media
-    media_type_resolver: "MediaTypeResolver"
     file_resolver: "FilePathResolver"
     image_processor: "ImageProcessor"
     media_store: "MediaStore"
@@ -420,7 +475,6 @@ class AppContainer:
     backup_runs: "BackupRuns"
     media_controller: "MediaController"
     media_access: "MediaAccess"
-    media_editor: "MediaEditor"
     media_edit_controller: "MediaEditController"
 
     # Library
@@ -468,7 +522,6 @@ class AppContainer:
     session_version_repository: "SessionVersionRepository"
     session_controller: "SessionController"
     formula_controller: "FormulaController"
-    filter_catalog: "FilterCatalog"
     filter_controller: "FilterController"
     organize_registry: OrganizeRegistry
     organize_manager: "OrganizeManager"
@@ -482,6 +535,9 @@ class AppContainer:
     # Workspaces
     workspace_repository: "WorkspaceRepository"
     workspace_controller: "WorkspaceController"
+
+    tab_draft_manager: "TabDraftManager"
+    tab_draft_controller: "TabDraftController"
 
     # User groups
     user_group_repository: "UserGroupRepository"
@@ -543,14 +599,12 @@ def build_container() -> AppContainer:
     # output shares (FileStore, OutputProcessor, MediaStore, the generation
     # history archive, the phrasebook preview generator, ...) - none of them
     # build their own.
-    from src.platform.filesystem.storage_settings import StorageSettings
 
     storage_settings = StorageSettings(settings)
     storage_driver = storage_settings.build_driver(
         settings.get_file_storage_directory()
     )
 
-    from src.platform.settings.runtime_flags import configure_runtime_flags, warn_ignored_env_vars
     configure_runtime_flags(settings)
     warn_ignored_env_vars()
 
@@ -558,8 +612,6 @@ def build_container() -> AppContainer:
     # provider clients call trace_collector.record() unconditionally; it is a
     # no-op until this recorder is installed and stays gated by the
     # chat_llm_call_tracing setting from here on.
-    from src.features.llm import trace_collector as _chat_trace_collector
-    from src.features.llm.trace_recorder import ChatCallTraceRecorder
     from src.features.llm.trace_repository import chat_call_trace_repository
     chat_call_trace_recorder = ChatCallTraceRecorder(chat_call_trace_repository, settings)
     _chat_trace_collector.set_recorder(chat_call_trace_recorder)
@@ -602,17 +654,6 @@ def build_container() -> AppContainer:
     # plugins enabled at startup (_sync_enabled_plugins below) can register
     # their tools/chat_modes/resources into them. Builtins are registered
     # first so a plugin colliding with a builtin fails plugin enable.
-    from src.features.llm.tools.registry import ToolRegistry
-    from src.features.llm.tools.builtin import register_builtin_tools
-    from src.features.chat.modes import (
-        ChatModeRegistry,
-        build_generation_mode,
-        build_history_mode,
-        build_models_mode,
-        build_phrasebook_mode,
-        build_prompts_mode,
-    )
-    from src.platform.resources import ResourceRegistry
 
     tool_registry = ToolRegistry()
     _rr._global_tool_registry = tool_registry
@@ -634,7 +675,6 @@ def build_container() -> AppContainer:
     )
 
     resource_registry = ResourceRegistry()
-    from src.platform.resources.builtin import register_builtin_resource_providers
     register_builtin_resource_providers(resource_registry)
 
     # Automation module node-type registry (src.platform.plugins.automation_nodes) -
@@ -642,8 +682,6 @@ def build_container() -> AppContainer:
     # `automation_nodes:` entries can be registered during
     # `_sync_enabled_plugins` below.
     from src.platform.plugins.automation_nodes import node_type_registry as automation_node_type_registry
-    from src.platform.plugins.automation_templates import AutomationTemplateRegistry
-    from src.features.automation.templates import register_builtin_templates
 
     automation_template_registry = AutomationTemplateRegistry()
     register_builtin_templates(automation_template_registry)
@@ -656,7 +694,6 @@ def build_container() -> AppContainer:
 
     # Phrasebook batch tools - core's replace/set_active/move/delete register
     # first so a plugin colliding with one of them fails its enable.
-    from src.features.phrasebook.operations.core_ops import register_core_batch_operations
 
     phrasebook_operation_registry = _shared_phrasebook_operation_registry
     register_core_batch_operations(phrasebook_operation_registry)
@@ -720,7 +757,6 @@ def build_container() -> AppContainer:
     plugin_repository = PluginRepository()
     _sync_enabled_plugins(plugin_registry, plugin_repository)
 
-    from src.features.plans.components import build_plans
 
     plans = build_plans(limit_kind_registry, settings, plugin_registry)
     limit_guard = plans.guard
@@ -752,19 +788,18 @@ def build_container() -> AppContainer:
     model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings, roots=model_roots)
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry)
     pipe_install_runner = PipeInstallRunner(pipe_catalog, PipeInstaller(pipe_catalog))
-    from src.features.content_safety.policy import ContentPolicyResolver
-    from src.features.user_groups.repository import UserGroupRepository as _UserGroupRepositoryForContent
+    from src.features.user_groups.repository import UserGroupRepository
 
-    content_policy_resolver = ContentPolicyResolver(settings, _UserGroupRepositoryForContent())
+    user_group_repository = UserGroupRepository()
+    content_policy_resolver = ContentPolicyResolver(settings, user_group_repository)
     preset_processor = PresetProcessor(
-        template_processor, settings, preset_template_loader, content_policy=content_policy_resolver
+        template_processor, settings, preset_template_loader, content_policy=content_policy_resolver,
+        user_resolver=lambda user_id: user_repository.get_by_id(user_id),
     )
-    image_writer = ImageWriter(template_processor, settings)
 
     # Initialize LLM components
     llm_repository = LLMRepository()
     llm_service = LLMGateway(llm_repository=llm_repository, model_lifecycle=model_lifecycle, model_roots=model_roots)
-    from src.features.llm.tools.governance import ToolGovernanceRepository
 
     tool_governance_repository = ToolGovernanceRepository()
 
@@ -786,7 +821,6 @@ def build_container() -> AppContainer:
         claim_tokens=claim_token_store,
         settings=settings,
     )
-    from src.features.auth.repository import ExternalIdentityRepository
 
     login_handoff = LoginHandoffStore()
     external_identity_repository = ExternalIdentityRepository()
@@ -808,7 +842,6 @@ def build_container() -> AppContainer:
     )
 
     # Initialize phrasebook components
-    from src.features.phrasebook import operations as phrasebook_operations
 
     phrasebook_category_repo = PhrasebookCategoryRepository()
     phrasebook_value_repo = PhrasebookValueRepository()
@@ -866,11 +899,6 @@ def build_container() -> AppContainer:
     # see docs/remote-native.md). Provisioners are collected from plugins via
     # the compute.register hook, mirroring BackendRegistry's own plugin-engine
     # discovery, one line above.
-    from src.features.provisioning.monitor import ComputeStatusMonitor
-    from src.features.provisioning.operations import ComputeProvisioningJobs
-    from src.features.provisioning.registry import ComputeProvisionerRegistry
-    from src.features.provisioning.repository import ProvisionedComputeRepository
-    from src.features.provisioning.routes import ProvisioningController
     from src.platform.websocket.admin_connection_hub import admin_connection_hub
 
     compute_provisioner_registry = ComputeProvisionerRegistry(plugin_registry=plugin_registry)
@@ -902,14 +930,12 @@ def build_container() -> AppContainer:
     )
 
     # Initialize system monitor controller
-    from src.features.system_monitor.routes import SystemMonitorController
     system_monitor_controller = SystemMonitorController(system_monitor_coordinator)
 
     # Initialize plugin components
     # Wire the preset loader + pipe catalog so enabling/disabling a
     # plugin rescans both live (plugin-shipped presets, plugin-contributed
     # modes, and plugin-shipped pipes appear/disappear without a restart).
-    from src.features.plugins.routes import PluginController
     plugin_controller = PluginController(
         plugin_repository=plugin_repository,
         plugin_registry=plugin_registry,
@@ -920,7 +946,6 @@ def build_container() -> AppContainer:
     )
 
     # Initialize LLM controller
-    from src.features.llm.routes import LLMController
     llm_controller = LLMController(
         llm_repository=llm_repository,
         llm_service=llm_service,
@@ -932,7 +957,6 @@ def build_container() -> AppContainer:
     )
 
     # Initialize user components
-    from src.features.users.routes import UserController
     user_controller = UserController(
         user_repository=user_repository,
         password_hasher=password_hasher,
@@ -946,9 +970,6 @@ def build_container() -> AppContainer:
     # imported at module scope.
     from src.features.notifications.repository import NotificationRepository
     from src.platform.websocket.notification_connection_hub import notification_connection_hub
-    from src.features.notifications import NotificationCollaborators
-    from src.features.notifications import operations as notification_operations
-    from src.features.notifications.routes import NotificationController
 
     notification_repository = NotificationRepository()
     notification_collaborators = NotificationCollaborators(
@@ -967,7 +988,6 @@ def build_container() -> AppContainer:
     notification_controller = NotificationController(notification_collaborators)
 
     from src.features.generation.hooks import GENERATION_HOOKS
-    from src.features.notifications.admin_alerts import HANDLER_ID as _ADMIN_ALERTS_ID, GenerationFailureAdminAlerts
 
     plugin_registry.hook_chain.register(
         GENERATION_HOOKS.failed,
@@ -976,21 +996,17 @@ def build_container() -> AppContainer:
     )
 
     # Initialize LLM memory components
-    from src.features.llm_memory.repository import LLMMemoryRepository
 
     llm_memory_repository = LLMMemoryRepository()
 
     # Initialize the LLM tool executor. The tool/chat-mode/resource
     # registries themselves were created earlier (before the plugin
     # registry) so startup plugin enabling could populate them.
-    from src.features.llm.tools.executor import ToolExecutor
 
     tool_executor = ToolExecutor(tool_registry=tool_registry, llm_service=llm_service)
 
     # Global tool governance (admin enable/lock + per-user opt-out), layered
     # on top of the mode/session tool filtering above.
-    from src.features.llm.tools.governance import ToolGovernanceEditor
-    from src.features.llm.tools.governance_routes import ToolGovernanceController
 
     tool_governance_editor = ToolGovernanceEditor(
         repository=tool_governance_repository, tool_registry=tool_registry
@@ -1006,14 +1022,10 @@ def build_container() -> AppContainer:
     # domain its tool context reaches exists.
 
     # Developer components
-    from src.features.developer.output_types_documenter import OutputTypesDocumenter
-    from src.features.developer.pipes_documenter import PipesDocumenter
-    from src.features.developer.template_functions_documenter import TemplateFunctionsDocumenter
     from src.features.generation.output_types import output_type_registry
     pipes_documenter = PipesDocumenter(pipe_catalog)
     output_types_documenter = OutputTypesDocumenter(output_type_registry)
     template_functions_documenter = TemplateFunctionsDocumenter()
-    from src.features.developer.routes import DeveloperController
     developer_controller = DeveloperController(
         template_functions_documenter,
         preset_template_loader,
@@ -1027,15 +1039,12 @@ def build_container() -> AppContainer:
 
     # Form components (the field-type registry was populated earlier, ahead
     # of plugin discovery, so builtin field types could be registered first)
-    from src.features.forms.routes import FormController
     form_controller = FormController(field_type_registry, plugin_registry)
 
     # Field-type registry controller
-    from src.features.fields.routes import FieldController
     field_controller = FieldController(field_type_registry)
 
     # Application layer services
-    from src.platform.websocket.connection_hub import ConnectionHub
 
     pipeline_builder = PipelineBuilder(preset_template_loader, preset_processor)
     output_processor = OutputProcessor(settings, storage_driver=storage_driver, model_locator=model_locator)
@@ -1069,36 +1078,29 @@ def build_container() -> AppContainer:
     generation_status_tracker = GenerationStatusTracker()
     generation_status_tracker.add_terminal_listener(limit_guard.on_generation_terminal)
 
-    # Stateless DB-wrapper repositories/policy the orchestrator needs for admin
-    # form overrides + model-access enforcement - instantiated here (ahead of the
-    # preset/model sections below, which build their own copies).
-    from src.features.presets.repository import DatabasePresetRepository as _DatabasePresetRepositoryForOrchestrator
-    from src.features.models.repository import ModelRepository as _ModelRepositoryForOrchestrator
-    from src.features.models.access_policy import ModelAccessPolicy
+    from src.features.presets.repository import DatabasePresetRepository
+    from src.features.models.repository import ModelRepository
 
-    _preset_repo_for_orchestrator = _DatabasePresetRepositoryForOrchestrator()
-    _model_repository_for_orchestrator = _ModelRepositoryForOrchestrator()
-    model_access_policy = ModelAccessPolicy(_model_repository_for_orchestrator)
+    database_preset_repository = DatabasePresetRepository()
+    file_preset_repository = FilePresetRepository(preset_template_loader)
+    preset_name_resolver = PresetNameResolver(preset_template_loader)
+    model_repository = ModelRepository()
+    model_access_policy = ModelAccessPolicy(model_repository)
 
-    from src.features.cloud.capabilities import CloudCapabilities
-    from src.features.cloud.policy import CloudGenerationPolicy
-    from src.features.cloud.repository import CloudCatalogRepository
 
     cloud_catalog_repository = CloudCatalogRepository()
-    from src.features.cloud.cost_repository import GenerationCostRepository
 
     generation_cost_repository = GenerationCostRepository()
     cloud_capabilities = CloudCapabilities(
         backend_registry=backend_registry,
         repository=cloud_catalog_repository,
-        model_repository=_model_repository_for_orchestrator,
+        model_repository=model_repository,
         model_access_policy=model_access_policy,
     )
-    from src.features.cloud.scope_repository import ModelPresetScopeRepository
 
     cloud_scope_repository = ModelPresetScopeRepository()
     cloud_policy = CloudGenerationPolicy(
-        cloud_catalog_repository, _model_repository_for_orchestrator, cloud_scope_repository
+        cloud_catalog_repository, model_repository, cloud_scope_repository
     )
 
     # Durable per-generation stats store. Built here (ahead of the main "Stats
@@ -1115,18 +1117,9 @@ def build_container() -> AppContainer:
 
     # Media index: built ahead of the orchestrator (like the stats manager)
     # so completed generations can queue their files for system tagging.
-    from src.features.media_index.repository import MediaIndexRepository
-    from src.features.media_index.indexer import MediaIndexer
-    from src.features.media_index.tagger import build_tagger_provider
-    from src.features.media_index.vision_embedder import build_vision_embedder
-    from src.features.media_index.gallery_vector_store import GalleryVectorStore
-    from src.features.media_index.gallery_prompt_vector_store import GalleryPromptVectorStore
-    from src.features.media_index.routes import MediaIndexController
-    from src.platform.vector.chroma_client import ChromaClientProvider
     # Reuses the prompt-database text embedder (see the "Prompt database
     # components" block below) rather than standing up a second one - built
     # here, ahead of that block, since the media index is wired first.
-    from src.features.prompt_database.embedding import build_embedding_provider
 
     media_index_repository = MediaIndexRepository()
     vision_embedder = build_vision_embedder(
@@ -1148,9 +1141,6 @@ def build_container() -> AppContainer:
         embedder_slug=text_embedding_provider.embedder_slug,
         client_provider=chroma_client_provider,
     )
-    from src.features.content_safety.gate import ContentGate
-    from src.features.content_safety.ledger_repository import ContentLedger
-    from src.features.content_safety.manager import ContentSafetyManager
 
     tagger_provider = build_tagger_provider(
         settings, model_roots, download_queue=download_queue, model_lifecycle=model_lifecycle,
@@ -1173,6 +1163,7 @@ def build_container() -> AppContainer:
         gallery_vector_store=gallery_vector_store,
         text_embedding_provider=text_embedding_provider,
         gallery_prompt_vector_store=gallery_prompt_vector_store,
+        plugins=plugin_registry,
     )
     media_index_controller = MediaIndexController(media_indexer)
 
@@ -1204,7 +1195,7 @@ def build_container() -> AppContainer:
         preset_template_loader, status_tracker=generation_status_tracker,
         model_locator=model_locator,
         notification_manager=notification_manager,
-        database_preset_repository=_preset_repo_for_orchestrator,
+        database_preset_repository=database_preset_repository,
         model_access_policy=model_access_policy,
         user_repository=user_repository,
         generation_stats_repository=generation_stats_repository,
@@ -1231,13 +1222,12 @@ def build_container() -> AppContainer:
         media_index_repository=media_index_repository,
         settings=settings,
         media_indexer=media_indexer,
-        preset_name_resolver=PresetNameResolver(preset_template_loader),
+        preset_name_resolver=preset_name_resolver,
         content_safety=content_safety,
         limit_guard=limit_guard,
     )
 
     # Phrasebook controller (needs generation_orchestrator)
-    from src.features.phrasebook.routes import PhrasebookController
     phrasebook_controller = PhrasebookController(
         category_repository=phrasebook_category_repo,
         value_repository=phrasebook_value_repo,
@@ -1248,7 +1238,6 @@ def build_container() -> AppContainer:
     )
 
     # Segment components
-    from src.features.segments.routes import SegmentController
     segment_category_repo = SegmentCategoryRepository()
     saved_segment_repo = SavedSegmentRepository()
     segment_template_repo = SegmentTemplateRepository()
@@ -1260,14 +1249,13 @@ def build_container() -> AppContainer:
     )
 
     # Model index components
-    from src.features.models.repository import ModelRepository
     from src.features.tags.repository import TagRepository
-    from src.features.models.routes import ModelController
-    model_repository = ModelRepository()
     tag_repository = TagRepository()
     def _generation_active() -> bool:
         snapshot = generation_orchestrator.queue.snapshot()
         return bool(snapshot["pending"]) or any(snapshot["running"].values())
+
+    from src.features.models.indexing_governor import local_generation_probe, local_native_backend_ids
 
     model_index_manager = build_model_index_collaborators(
         model_repository=model_repository,
@@ -1281,7 +1269,12 @@ def build_container() -> AppContainer:
         attribute_definition_repository=attribute_definition_repository,
         user_attribute_repository=user_model_attribute_repository,
         backend_registry=backend_registry,
+        generation_busy=local_generation_probe(
+            generation_status_tracker, lambda: local_native_backend_ids(backend_registry)
+        ),
     )
+
+    backend_registry.bind_model_digests(model_index_manager.digests)
 
     model_roots_manager = ModelRootsManager(
         repository=model_root_repository,
@@ -1296,7 +1289,6 @@ def build_container() -> AppContainer:
     # Model library components (favorites/custom names + model collections)
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
-    from src.features.model_library.routes import ModelCollectionController
 
     model_collection_repository = ModelCollectionRepository()
     user_model_meta_repository = UserModelMetaRepository()
@@ -1309,6 +1301,8 @@ def build_container() -> AppContainer:
     model_collection_controller = ModelCollectionController(model_collection_repository, model_smart_counts)
 
     download_queue.local_model_indexer = model_index_manager.indexing.index_downloaded
+    download_queue.verify_throttle = model_index_manager.indexing.scanner.governor.verification_throttle
+    output_processor.model_file_indexer = model_index_manager.indexing.index_downloaded
 
     model_controller = ModelController(
         model_index_manager, user_model_meta_repository, download_queue,
@@ -1317,7 +1311,6 @@ def build_container() -> AppContainer:
         content_safety=content_safety,
     )
 
-    from src.features.cloud.catalog import CloudCatalog
     from src.features.models.backend_indexer import backend_model_indexer as _cloud_backend_model_indexer
 
     cloud_catalog = CloudCatalog(
@@ -1327,25 +1320,20 @@ def build_container() -> AppContainer:
         backend_indexer=_cloud_backend_model_indexer,
     )
 
-    from src.features.cloud.scopes import CloudModelScopes
 
     cloud_model_scopes = CloudModelScopes(cloud_scope_repository, preset_template_loader, model_repository)
 
     # Tag components
-    from src.features.tags.routes import TagController
-    from src.features.presets.repository import DatabasePresetRepository
-    from src.features.presets.file_repository import FilePresetRepository
 
     tag_controller = TagController(
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
-        database_preset_repository=DatabasePresetRepository(),
-        file_preset_repository=FilePresetRepository(preset_template_loader),
+        database_preset_repository=database_preset_repository,
+        file_preset_repository=file_preset_repository,
     )
 
     # Collection components
     from src.features.collections.repository import CollectionRepository
-    from src.features.collections.routes import CollectionController
 
     collection_repository = CollectionRepository()
     collection_controller = CollectionController(collection_repository)
@@ -1355,22 +1343,12 @@ def build_container() -> AppContainer:
     # imported here as an instance rather than at module scope, mirroring the
     # notification wiring above.
     from src.features.automation.repository import automation_repo
-    from src.features.automation.context import AutomationServices
-    from src.features.automation.engine import AutomationEngine
-    from src.features.automation.runtime import AutomationRuntime
     from src.platform.websocket.automation_connection_hub import automation_connection_hub
-    from src.features.automation.routes import AutomationController
 
     # `action.index_models` runs the same per-backend availability indexing the
     # admin "Index models" button does: live backend instances come from the
     # registry, the reconciliation from the module-singleton indexer.
     from src.features.models.backend_indexer import backend_model_indexer
-
-    # `action.assign_user_to_group` needs a UserGroupRepository before the "User
-    # group components" block constructs the container's own instance - a second
-    # stateless instance is cheap (it opens its own cursor per call).
-    from src.features.user_groups.repository import UserGroupRepository as _UGRForAutomation
-    _user_group_repo_for_automation = _UGRForAutomation()
 
     automation_services = AutomationServices(
         model_index_manager=model_index_manager,
@@ -1385,7 +1363,7 @@ def build_container() -> AppContainer:
         model_lifecycle=model_lifecycle,
         backend_registry=backend_registry,
         backend_model_indexer=backend_model_indexer,
-        user_group_repository=_user_group_repo_for_automation,
+        user_group_repository=user_group_repository,
         media_indexer=media_indexer,
         generation_status_tracker=generation_status_tracker,
         model_collection_repository=model_collection_repository,
@@ -1407,9 +1385,7 @@ def build_container() -> AppContainer:
     automation_controller = AutomationController(automation_runtime, registry=automation_node_type_registry)
 
     # Media components
-    from src.features.generation.file_repository import file_repo, FileRepository
-    from src.features.media import MediaStore, MediaTypeResolver, FilePathResolver, ImageProcessor, UploadRepository
-    from src.features.media.routes import MediaController
+    from src.features.generation.file_repository import file_repo
 
     media_type_resolver = MediaTypeResolver()
     file_resolver = FilePathResolver(settings, preset_template_loader)
@@ -1428,7 +1404,6 @@ def build_container() -> AppContainer:
         storage_driver=storage_driver,
         limit_guard=limit_guard,
     )
-    from src.features.media.access import MediaAccess
 
     media_access = MediaAccess(
         generation_repository=generation_repository,
@@ -1439,7 +1414,6 @@ def build_container() -> AppContainer:
     )
     media_controller = MediaController(media_store, media_access)
 
-    from src.features.media.thumbnail_regeneration import ThumbnailRegeneration
 
     thumbnail_regeneration = ThumbnailRegeneration(
         settings=settings,
@@ -1448,7 +1422,12 @@ def build_container() -> AppContainer:
         upload_repository=upload_repository,
     )
 
-    from src.features.housekeeping.worker import HousekeepingWorker, build_tasks
+
+    from src.platform.websocket.notification_connection_hub import notification_connection_hub as tab_draft_hub
+
+    tab_draft_manager = TabDraftManager(TabDraftRepository(), notifier=tab_draft_hub)
+    tab_draft_controller = TabDraftController(tab_draft_manager)
+
 
     housekeeping_worker = HousekeepingWorker(
         settings,
@@ -1457,11 +1436,10 @@ def build_container() -> AppContainer:
             run_report_repository=run_report_repository,
             run_report_recorder=run_report_recorder,
             trace_repository=chat_call_trace_repository,
+            tab_draft_manager=tab_draft_manager,
         ),
     )
 
-    from src.features.backup.admin import BackupRuns
-    from src.features.backup.settings import repo_root as backup_repo_root
 
     backup_runs = BackupRuns(settings, backup_repo_root())
 
@@ -1470,14 +1448,11 @@ def build_container() -> AppContainer:
     # future rescan (admin reload, plugin enable/disable) schedules renders
     # too, then run once now for whatever the loader already holds (empty if
     # nothing has forced a load yet - the callback covers that first load).
-    from src.features.media.preset_prerender import PresetMediaPrerenderQueue
 
     preset_media_prerender_queue = PresetMediaPrerenderQueue(media_store)
     preset_template_loader.on_presets_changed = preset_media_prerender_queue.schedule_scan
     preset_media_prerender_queue.schedule_scan(preset_template_loader.presets)
 
-    from src.features.media.editing.editor import MediaEditor
-    from src.features.media.editing.routes import MediaEditController
 
     media_editor = MediaEditor(
         upload_repository=upload_repository,
@@ -1488,8 +1463,6 @@ def build_container() -> AppContainer:
     media_edit_controller = MediaEditController(media_editor)
 
     # Library components (uploads as first-class, curatable resources)
-    from src.features.library import LibraryCollaborators, LibraryRepository
-    from src.features.library.routes import LibraryController
 
     library_repository = LibraryRepository()
     library_collaborators = LibraryCollaborators(
@@ -1505,15 +1478,13 @@ def build_container() -> AppContainer:
     library_controller = LibraryController(library_collaborators)
 
     # Inspirations components (cross-user publishing of generations)
-    from src.features.inspirations import InspirationCollaborators, InspirationRepository
-    from src.features.inspirations.routes import InspirationController
 
     inspiration_repository = InspirationRepository()
     inspiration_collaborators = InspirationCollaborators(
         repository=inspiration_repository,
         generation_repository=generation_repository,
         generation_parameter_repository=generation_parameter_repository,
-        preset_name_resolver=PresetNameResolver(preset_template_loader),
+        preset_name_resolver=preset_name_resolver,
         preset_template_loader=preset_template_loader,
         field_type_registry=field_type_registry,
         file_store=file_service,
@@ -1527,14 +1498,7 @@ def build_container() -> AppContainer:
     inspiration_controller = InspirationController(inspiration_collaborators)
 
     # Preset manager components
-    from src.features.presets.file_repository import FilePresetRepository
-    from src.features.presets.repository import DatabasePresetRepository
-    from src.features.presets.routes import PresetController
 
-    from src.features.user_groups.repository import UserGroupRepository as _UGR
-    file_preset_repository = FilePresetRepository(preset_template_loader)
-    database_preset_repository = DatabasePresetRepository()
-    _user_group_repo_for_presets = _UGR()
     preset_collaborators = PresetCollaborators(
         preset_loader=preset_template_loader,
         preset_processor=preset_processor,
@@ -1542,7 +1506,7 @@ def build_container() -> AppContainer:
         file_repo=file_preset_repository,
         db_repo=database_preset_repository,
         user_repo=user_repository,
-        group_repo=_user_group_repo_for_presets,
+        group_repo=user_group_repository,
         pipeline_builder=pipeline_builder,
         pipe_catalog=pipe_catalog,
         plugins=plugin_registry,
@@ -1552,7 +1516,6 @@ def build_container() -> AppContainer:
         backend_registry=backend_registry,
         requirements_cache=requirements_cache,
     )
-    from src.features.plugins.setup import PluginSetup
 
     plugin_setup = PluginSetup(
         plugin_registry=plugin_registry,
@@ -1561,9 +1524,8 @@ def build_container() -> AppContainer:
         catalog_repository=cloud_catalog_repository,
         preset_loader=preset_template_loader,
         preset_db_repo=database_preset_repository,
-        group_repo=_user_group_repo_for_presets,
+        group_repo=user_group_repository,
     )
-    from src.features.presets import operations as preset_operations
     preset_lookup = functools.partial(preset_operations.get_preset, preset_collaborators)
     preset_form_schema_lookup = functools.partial(preset_operations.get_form_schema, preset_collaborators)
     recipe_preset_links = RecipePresetLinks(
@@ -1576,6 +1538,7 @@ def build_container() -> AppContainer:
         recipe_catalog,
         model_repository,
         download_queue=download_queue,
+        digests=model_index_manager.digests,
     )
     preset_controller = PresetController(
         preset_collaborators, backend_registry, media_store,
@@ -1587,8 +1550,6 @@ def build_container() -> AppContainer:
     # `kind` - see src/features/recipes/executors/) onto the run manager's
     # executor-registry seam. Built here, not up near `recipe_catalog`, because
     # it needs preset_collaborators/backend_registry/pipeline_builder, constructed above.
-    from src.features.recipes.executors import build_default_executor_registry
-    from src.features.setup import WorkspaceActivateExecutor
 
     _recipe_executors = build_default_executor_registry(
         recipe_catalog=recipe_catalog,
@@ -1604,9 +1565,10 @@ def build_container() -> AppContainer:
         backend_model_indexer=backend_model_indexer,
         download_queue=download_queue,
         step_kind_registry=recipe_step_kind_registry,
-        model_scanner=model_index_manager.indexing.scanner,
+        indexing_coordinator=model_index_manager.indexing,
         type_manager=model_index_manager.types,
         app_loop=lambda: getattr(_rr._container, "app_loop", None),
+        digests=model_index_manager.digests,
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not
     # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin
@@ -1616,9 +1578,6 @@ def build_container() -> AppContainer:
 
     # Prompt database components
     from src.features.prompt_database.repository import PromptRepository
-    from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
-    from src.features.prompt_database.vector_store import PromptVectorStore
-    from src.features.prompt_database.routes import PromptDatabaseController
 
     prompt_repository = PromptRepository()
     # `text_embedding_provider`, built above for the media index's prompt_embed
@@ -1653,10 +1612,6 @@ def build_container() -> AppContainer:
     )
 
     # Prompt enhancement pipeline (used by the enhance_prompt tool)
-    from src.features.prompt_enhancement import PromptEnhancementCollaborators
-    from src.features.prompt_enhancement.repository import (
-        EnhancementFeedbackRepository,
-    )
 
     enhancement_feedback_repository = EnhancementFeedbackRepository()
     prompt_enhancement_manager = PromptEnhancementCollaborators(
@@ -1674,13 +1629,9 @@ def build_container() -> AppContainer:
     # database/generation/memory/media managers) is available — the same
     # ordering constraint that puts `build_chat` below.
     from src.features.mcp.protocol import McpToolCollaborators
-    from src.features.mcp.repository import McpTokenRepository
 
     mcp_token_repository = McpTokenRepository()
-    mcp_tool_collaborators = McpToolCollaborators(
-        tool_registry=tool_registry,
-        tool_governance_repository=tool_governance_repository,
-        llm_repository=llm_repository,
+    tool_services = ToolServices(
         segment_category_repository=segment_category_repo,
         saved_segment_repository=saved_segment_repo,
         segment_template_repository=segment_template_repo,
@@ -1688,6 +1639,7 @@ def build_container() -> AppContainer:
         preset_collaborators=preset_collaborators,
         phrasebook_category_repository=phrasebook_category_repo,
         phrasebook_value_repository=phrasebook_value_repo,
+        llm_repository=llm_repository,
         prompt_database=prompt_database,
         generation_orchestrator=generation_orchestrator,
         llm_memory_repository=llm_memory_repository,
@@ -1700,10 +1652,14 @@ def build_container() -> AppContainer:
         generation_history_facade=generation_history_facade,
         content_safety=content_safety,
         library_collaborators=library_collaborators,
+        tab_drafts=tab_draft_manager,
+    )
+    mcp_tool_collaborators = McpToolCollaborators(
+        tool_registry=tool_registry,
+        tool_governance_repository=tool_governance_repository,
+        services=tool_services,
     )
 
-    from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
-    from src.features.docs.routes import DocsController
 
     mcp_tools_documenter = McpToolsDocumenter(mcp_tool_collaborators)
     docs_controller = DocsController(
@@ -1724,29 +1680,13 @@ def build_container() -> AppContainer:
             resource_registry=resource_registry,
             tool_executor=tool_executor,
             tool_governance_repository=tool_governance_repository,
-            phrasebook_category_repository=phrasebook_category_repo,
-            phrasebook_value_repository=phrasebook_value_repo,
+            tool_services=tool_services,
             phrasebook_search=phrasebook_search,
-            segment_category_repository=segment_category_repo,
-            saved_segment_repository=saved_segment_repo,
-            segment_template_repository=segment_template_repo,
-            model_index_manager=model_index_manager,
-            preset_collaborators=preset_collaborators,
             preset_lookup=preset_lookup,
             preset_form_schema_lookup=preset_form_schema_lookup,
-            prompt_database=prompt_database,
-            prompt_enhancement_manager=prompt_enhancement_manager,
-            generation_orchestrator=generation_orchestrator,
             generation_repository=generation_repository,
             generation_parameter_repository=generation_parameter_repository,
             generation_model_repository=generation_model_repository,
-            generation_history_facade=generation_history_facade,
-            llm_memory_repository=llm_memory_repository,
-            media_indexer=media_indexer,
-            collection_repository=collection_repository,
-            tag_repository=tag_repository,
-            content_safety=content_safety,
-            library_collaborators=library_collaborators,
         )
     )
     chat.pre_chat_action_registry.discover_actions()
@@ -1768,7 +1708,6 @@ def build_container() -> AppContainer:
 
     # Session components
     from src.features.sessions.repository import SessionRepository
-    from src.features.sessions.routes import SessionController
 
     session_repository = SessionRepository()
     # --- Session history (versions) ---
@@ -1776,7 +1715,6 @@ def build_container() -> AppContainer:
     # "current" state. `file_preset_repository` resolves a preset id's on-disk
     # display name, denormalized into each version's `summary` column at write
     # time (see migration 092 / SessionVersionRepository).
-    from src.features.sessions.version_repository import SessionVersionRepository
 
     session_version_repository = SessionVersionRepository()
     session_controller = SessionController(
@@ -1786,10 +1724,6 @@ def build_container() -> AppContainer:
         file_preset_repository=file_preset_repository,
     )
 
-    from src.features.formulas.collaborators import FormulaCollaborators
-    from src.features.formulas.repository import FormulaRepository
-    from src.features.formulas.routes import FormulaController
-    from src.features.formulas.sources import ModelRepositoryRefChecker, PresetFormSource
 
     formula_controller = FormulaController(
         FormulaCollaborators(
@@ -1799,10 +1733,6 @@ def build_container() -> AppContainer:
         )
     )
 
-    from src.features.filters.catalog import FilterCatalog
-    from src.features.filters.collaborators import FilterCollaborators
-    from src.features.filters.repository import UserFilterRepository
-    from src.features.filters.routes import FilterController
 
     filter_catalog = FilterCatalog(
         os.getenv("POTIONUI_FILTERS_DIR", "content/filters"),
@@ -1813,7 +1743,6 @@ def build_container() -> AppContainer:
     )
 
     from src.features.notifications.types import notification_type_registry as _organize_notification_types
-    from src.features.organize.components import build_organize
 
     organize = build_organize(
         organize_registry,
@@ -1828,23 +1757,17 @@ def build_container() -> AppContainer:
     organize_worker.subscribe(plugin_registry.hook_chain)
 
     # Workspace components
-    from src.features.workspaces.repository import WorkspaceRepository
-    from src.features.workspaces.routes import WorkspaceController
 
     workspace_repository = WorkspaceRepository()
     workspace_controller = WorkspaceController(workspace_repository=workspace_repository)
 
     # User group components
-    from src.features.user_groups.repository import UserGroupRepository
-    from src.features.user_groups.routes import UserGroupController
 
-    user_group_repository = UserGroupRepository()
     user_group_controller = UserGroupController(
         user_group_repository=user_group_repository,
         plugin_registry=plugin_registry,
     )
 
-    from src.features.auth.external_login import ExternalLoginManager
 
     external_login = ExternalLoginManager(
         auth=auth,

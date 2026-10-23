@@ -36,20 +36,12 @@ class TestSetPromptRelayTimelineToolSchema:
     def test_requires_approval(self):
         assert SetPromptRelayTimelineTool().requires_approval is True
 
-    def test_hint_is_nonempty(self):
-        assert len(SetPromptRelayTimelineTool().hint) > 0
-
-    def test_description_is_nonempty(self):
-        assert len(SetPromptRelayTimelineTool().description) > 0
 
     def test_parameters_has_segments_required(self):
         schema = SetPromptRelayTimelineTool().parameters
         assert "segments" in schema["properties"]
         assert "segments" in schema["required"]
 
-    def test_parameters_segments_is_array(self):
-        schema = SetPromptRelayTimelineTool().parameters
-        assert schema["properties"]["segments"]["type"] == "array"
 
     def test_segment_items_require_start_end_text(self):
         schema = SetPromptRelayTimelineTool().parameters
@@ -516,8 +508,6 @@ class TestExecuteConfirmed:
 # ---------------------------------------------------------------------------
 
 class TestApprovalContract:
-    def test_requires_approval_is_true(self):
-        assert SetPromptRelayTimelineTool().requires_approval is True
 
     @pytest.mark.asyncio
     async def test_execute_confirmed_is_callable(self):

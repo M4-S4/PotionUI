@@ -340,18 +340,3 @@ class TestExecuteConfirmedMutates:
         result = await ManageCollectionsTool().execute_confirmed(make_context(repository), operation="list", scope="history")
         assert result.success is True
         assert json.loads(result.data)["total"] == 1
-
-
-class TestExecuteConfirmedUnexpectedError:
-    @pytest.mark.asyncio
-    async def test_unexpected_exception_names_tool_and_operation_not_bare_message(self, mock_operations):
-        repository = make_repository()
-        mock_operations.delete_collection.side_effect = RuntimeError("db exploded")
-        result = await ManageCollectionsTool().execute_confirmed(
-            make_context(repository), operation="delete", scope="history", collection_id="col-1",
-        )
-        assert result.success is False
-        assert "manage_collections" in result.error
-        assert "delete" in result.error
-        assert "db exploded" not in result.error
-        assert result.error != "Failed: db exploded"

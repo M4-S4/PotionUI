@@ -7,6 +7,7 @@
 // left out of the `library` menu entirely - not just disabled. This mounts
 // the real toolbar against the real libraryStore.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -64,10 +65,6 @@ function mountToolbar() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mountToolbar> | undefined;

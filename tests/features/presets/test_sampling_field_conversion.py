@@ -28,6 +28,8 @@ import pytest
 import yaml
 
 from src.features.fields.sampling_fields import SamplerField, ScheduleField
+from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
+from src.features.presets.children_refs import parse_children_ref, read_children_fragment
 from src.platform.runtime.native.sampling.registry import sampler_registry, schedule_registry
 
 MARKETPLACE = Path("content/presets/marketplace")
@@ -55,8 +57,25 @@ UNCONVERTED = [
 ]
 
 
+def _inline_includes(node, preset_root: Path):
+    if isinstance(node, list):
+        return [_inline_includes(item, preset_root) for item in node]
+    if not isinstance(node, dict):
+        return node
+    out = {key: _inline_includes(value, preset_root) for key, value in node.items() if key != "children"}
+    children = node.get("children")
+    ref = parse_children_ref(children)
+    if ref is not None:
+        path = resolve_children_path(ref.file, preset_root, DEFAULT_SHARED_PATH)
+        out["children"] = _inline_includes(read_children_fragment(path, ref)["fields"], preset_root)
+    elif children is not None:
+        out["children"] = _inline_includes(children, preset_root)
+    return out
+
+
 def _tab(mode_dir: str) -> dict:
-    return yaml.safe_load((MARKETPLACE / mode_dir / "tabs/advanced.yml").read_text())
+    preset_root = MARKETPLACE / mode_dir.split("/")[0]
+    return _inline_includes(yaml.safe_load((MARKETPLACE / mode_dir / "tabs/advanced.yml").read_text()), preset_root)
 
 
 def _walk(node):

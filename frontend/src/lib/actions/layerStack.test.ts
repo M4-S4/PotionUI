@@ -59,7 +59,7 @@ describe('releaseLayer — bounded ordering', () => {
 	});
 
 	it('accounts for the highest still-open layer, not just the most recently opened one', () => {
-		const a = acquireLayer('overlay');
+		acquireLayer('overlay');
 		const b = acquireLayer('overlay');
 		releaseLayer('overlay', b);
 		const c = acquireLayer('overlay');

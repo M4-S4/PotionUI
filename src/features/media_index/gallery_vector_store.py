@@ -14,50 +14,15 @@ the same directory.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from src.platform.vector.chroma_client import ChromaClientProvider
-
-if TYPE_CHECKING:
-    import chromadb
+from src.platform.vector.chroma_client import ChromaCollectionStore
 
 logger = logging.getLogger(__name__)
 
 
-class GalleryVectorStore:
-    """Per-user gallery image embeddings, cosine-ranked."""
-
-    def __init__(
-        self,
-        persist_dir: str = "storage/chromadb",
-        embedder_slug: str = "default",
-        client_provider: Optional[ChromaClientProvider] = None,
-    ):
-        self._persist_dir = persist_dir
-        self._embedder_slug = embedder_slug
-        # Test-injection override only (see the `client` property) - stays
-        # None in production, where the provider is the sole cache.
-        self._client: Optional["chromadb.ClientAPI"] = None
-        self._client_provider = client_provider or ChromaClientProvider(persist_dir)
-
-    @property
-    def client(self) -> "chromadb.ClientAPI":
-        # `self._client` is a test-injection override, never a production
-        # cache: production reads delegate to the provider's cache on every
-        # access, so a store never keeps serving a client the provider has
-        # since closed via ChromaClientProvider.close().
-        if self._client is not None:
-            return self._client
-        return self._client_provider.get()
-
-    def _collection_name(self, user_id: str) -> str:
-        return f"gallery_{user_id}__{self._embedder_slug}"
-
-    def get_collection(self, user_id: str) -> "chromadb.Collection":
-        return self.client.get_or_create_collection(
-            name=self._collection_name(user_id),
-            metadata={"hnsw:space": "cosine"},
-        )
+class GalleryVectorStore(ChromaCollectionStore):
+    collection_prefix = "gallery_"
 
     def all_generation_ids(self, user_id: str) -> List[str]:
         """Every distinct ``generation_id`` embedded in the user's collection.
@@ -90,19 +55,6 @@ class GalleryVectorStore:
         except Exception as e:
             logger.error(f"ChromaDB gallery collection_size failed: {e}")
             return 0
-
-    def is_collection_empty(self, user_id: str) -> bool:
-        """Whether the active-namespace collection holds no vectors yet.
-
-        Used to detect a vision-model switch: the new namespace starts empty
-        even though the media index queue may still hold rows flagged done
-        from a previous embedder's now-abandoned collection.
-        """
-        try:
-            return self.get_collection(user_id).count() == 0
-        except Exception as e:
-            logger.error(f"ChromaDB is_collection_empty failed: {e}")
-            return False
 
     def add(
         self,
@@ -164,15 +116,6 @@ class GalleryVectorStore:
             )
         return hits
 
-    def bulk_delete(self, user_id: str, file_ids: List[str]) -> None:
-        if not file_ids:
-            return
-        collection = self.get_collection(user_id)
-        try:
-            collection.delete(ids=file_ids)
-        except Exception as e:
-            logger.error(f"ChromaDB gallery bulk_delete failed: {e}")
-
     def delete_collection(self, user_id: str, collection_name: Optional[str] = None) -> None:
         """Drop one of this user's gallery collections - the active
         (current-embedder-namespaced) one by default, or an explicit stale
@@ -195,7 +138,7 @@ class GalleryVectorStore:
         on the result until the rebuild has actually finished (see
         ``MediaIndexer._settle_gallery_rebuilds``).
         """
-        prefix = f"gallery_{user_id}__"
+        prefix = f"{self.collection_prefix}{user_id}__"
         current = self._collection_name(user_id)
         try:
             collections = self.client.list_collections()

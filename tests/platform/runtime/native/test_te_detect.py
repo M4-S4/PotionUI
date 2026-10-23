@@ -2,23 +2,12 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-import pytest
 import torch
 
 from src.platform.runtime.native.detect.te_detect import detect_te_config
 
+from ._header_listings import load_header
 from .conftest import clip_l_sd, qwen3_sd, t5xxl_sd
-
-# Real Comfy-Org trimmed MiniMax-H3 TE safetensors header (fetched 2026-08-10 —
-# see PORT_PLAN.md S4 / the port report); `ai/` is gitignored scratch, so a
-# fresh checkout skips these rather than failing.
-_H3_HEADER = Path(__file__).resolve().parents[4] / "ai" / "minimax_h3" / "te_bf16_header.json"
-# Locally-downloaded nvfp4_awq repack's header (read from the on-disk file the
-# maintainer already fetched, not range-requested — see the port report addendum).
-_H3_NVFP4_HEADER = Path(__file__).resolve().parents[4] / "ai" / "minimax_h3" / "te_nvfp4_awq_header.json"
 
 
 def test_detect_clip_l():
@@ -131,10 +120,7 @@ def test_detect_qwen3vl_32b_from_real_h3_header_shapes():
     since only the shapes detection actually reads matter, but the widths
     themselves come from the header.
     """
-    if not _H3_HEADER.is_file():
-        pytest.skip(f"real TE header not present: {_H3_HEADER}")
-    with open(_H3_HEADER) as f:
-        header = json.load(f)
+    header = load_header("minimax_h3/te_bf16")
 
     hidden = header["model.embed_tokens.weight"]["shape"][1]
     assert hidden == 5120
@@ -162,10 +148,7 @@ def test_detect_qwen3vl_32b_from_real_nvfp4_awq_header_not_confused_by_quant_sid
     as the plain bf16 checkpoint — none of its key/shape checks look at these
     sidecars, but this is the ground-truth proof, not just that reasoning.
     """
-    if not _H3_NVFP4_HEADER.is_file():
-        pytest.skip(f"real nvfp4_awq TE header not present: {_H3_NVFP4_HEADER}")
-    with open(_H3_NVFP4_HEADER) as f:
-        header = json.load(f)
+    header = load_header("minimax_h3/te_nvfp4_awq")
 
     dtype_map = {"BF16": torch.bfloat16, "F32": torch.float32, "F8_E4M3": torch.float32,
                  "U8": torch.uint8, "I8": torch.int8}

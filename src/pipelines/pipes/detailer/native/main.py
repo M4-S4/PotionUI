@@ -48,6 +48,7 @@ from src.pipelines.pipes.detailer.native.mask import (
     mediapipe_oval_ring,
     oval_polygon,
 )
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 _SKIP_TAG = "skip"
 _TOO_SMALL = "too small"
@@ -92,35 +93,6 @@ class _FacePlan:
 class DetailerNativePipe(BasePipe):
     name = "detailer"
     description = "Family-agnostic native face detailer: detect -> mask-guided latent inpaint -> colour match -> feather back in"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "detection_backend": "mediapipe",
-            "detection_confidence": 0.5,
-            "max_faces": 4,
-            "min_face_ratio": 0.02,
-            "max_face_ratio": 0.6,
-            "crop_padding": 0.6,
-            "crop_size": 1536,
-            "denoise": 0.3,
-            "steps": 12,
-            "guidance": 1.0,
-            "sampler": "euler",
-            "feather": 24,
-            "mask_mode": "oval",
-            "mask_dilate": 0.12,
-            "latent_mask": True,
-            "colour_match": True,
-            "overlay": True,
-            "loras_mode": "keep",
-            "loras": [],
-            "run_loras": [],
-            "seed_offset": 0,
-            "face_model": None,
-            "yolo_model": None,
-            "device": "cuda",
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -183,7 +155,7 @@ class DetailerNativePipe(BasePipe):
                            "MediaPipe face landmarker model path (mediapipe backend only)", required=False),
             PipeConfigSpec("yolo_model", str, None,
                            "YOLO face detector model path (yolo backend only)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
         ]
 
     @classmethod

@@ -1,42 +1,10 @@
-import importlib.util
 import sqlite3
-import sys
-import tempfile
-import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration045CloudCatalog(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.temp_dir = temp.name
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("045_cloud_catalog", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration045CloudCatalog(MigrationCase):
+    MIGRATION = "045_cloud_catalog"
 
     def _tables(self):
         with self.db.get_cursor() as cursor:
@@ -128,10 +96,3 @@ class TestMigration045CloudCatalog(unittest.TestCase):
         with self.db.get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) AS n FROM cloud_catalog")
             assert cursor.fetchone()["n"] == 1
-
-    def test_down_drops_both_tables(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        assert not {"cloud_catalog", "cloud_catalog_state"} & self._tables()

@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	import { createEventDispatcher } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { formatBytes } from '$lib/utils/format';
 	import { api } from '$lib/services/api/index';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { isAvailabilityKnown } from '$lib/utils/modelAvailability';
@@ -88,18 +90,6 @@
 			logger.error('Failed to toggle model favorite:', getErrorMessage(error));
 		}
 	}
-
-	const formatFileSize = (bytes?: number) => {
-		if (!bytes) return 'Unknown';
-		const gb = bytes / (1024 * 1024 * 1024);
-		const mb = bytes / (1024 * 1024);
-
-		if (gb >= 1) {
-			return `${gb.toFixed(2)} GB`;
-		} else {
-			return `${mb.toFixed(1)} MB`;
-		}
-	};
 
 	// Include images, thumbnails, and videos (for their thumbnails). An admin-set
 	// preview is folded in ahead of provider files.
@@ -213,23 +203,11 @@
 				<!-- Navigation arrows for multiple files -->
 				{#if mediaFiles.length > 1}
 					{#if currentMediaIndex > 0}
-						<button
-							class="absolute left-1.5 top-1/2 -translate-y-1/2 z-40 bg-black/60 hover:bg-black/80 text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-							on:click={goToPreviousMedia}
-							aria-label="Previous media"
-						>
-							<Icon name="chevron-left" className="w-3.5 h-3.5" />
-						</button>
+						<IconButton icon="chevron-left" label="Previous media" size="xs" variant="overlay" onclick={goToPreviousMedia} class="absolute left-1.5 top-1/2 -translate-y-1/2 z-40 opacity-0 group-hover:opacity-100" />
 					{/if}
 
 					{#if currentMediaIndex < mediaFiles.length - 1}
-						<button
-							class="absolute right-1.5 top-1/2 -translate-y-1/2 z-40 bg-black/60 hover:bg-black/80 text-white p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-							on:click={goToNextMedia}
-							aria-label="Next media"
-						>
-							<Icon name="chevron-right" className="w-3.5 h-3.5" />
-						</button>
+						<IconButton icon="chevron-right" label="Next media" size="xs" variant="overlay" onclick={goToNextMedia} class="absolute right-1.5 top-1/2 -translate-y-1/2 z-40 opacity-0 group-hover:opacity-100" />
 					{/if}
 
 					<!-- Media counter (offset right of the checkbox/favorite badges) -->
@@ -261,22 +239,10 @@
 							<svelte:fragment slot="loading" />
 						</PluginSlot>
 						<Tooltip text="Assign access">
-							<button
-								class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-								on:click={handleAssignClick}
-								aria-label="Assign access"
-							>
-								<Icon name="group" className="h-3.5 w-3.5" />
-							</button>
+							<IconButton icon="group" label="Assign access" size="xs" variant="overlay" onclick={handleAssignClick} class="opacity-0 group-hover:opacity-100" />
 						</Tooltip>
 						<Tooltip text="Remove model">
-							<button
-								class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-								on:click={handleDeleteClick}
-								aria-label="Remove model"
-							>
-								<Icon name="trash" className="h-3.5 w-3.5" />
-							</button>
+							<IconButton icon="trash" label="Remove model" size="xs" variant="overlay" onclick={handleDeleteClick} class="opacity-0 group-hover:opacity-100 hover:!bg-danger-solid" />
 						</Tooltip>
 					{:else}
 						<div
@@ -285,13 +251,7 @@
 							<FavoriteButton active={isFavorite} tone="onMedia" onToggle={toggleFavorite} />
 						</div>
 						<Tooltip text="View model details">
-							<button
-								class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-								on:click={handleViewClick}
-								aria-label="View model details"
-							>
-								<Icon name="eyes" className="h-3.5 w-3.5" />
-							</button>
+							<IconButton icon="eyes" label="View model details" size="xs" variant="overlay" onclick={handleViewClick} class="opacity-0 group-hover:opacity-100" />
 						</Tooltip>
 					{/if}
 				</div>
@@ -330,7 +290,7 @@
 					{/each}
 					{#if showTechnical && model.file_size}
 						<span class="flex-shrink-0 rounded bg-black/35 px-1.5 py-0.5 font-mono text-2xs text-white/65">
-							{formatFileSize(model.file_size)}
+							{formatBytes(model.file_size)}
 						</span>
 					{/if}
 				</div>

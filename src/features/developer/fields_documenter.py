@@ -47,25 +47,6 @@ class FieldsDocumenter:
             return ['database']
         return ['static']
 
-    def _get_can_handle(self, field_type: str, field_impl) -> List[str]:
-        """Get types this field implementation can handle.
-
-        Args:
-            field_type: The normalized field type
-            field_impl: The field implementation instance
-
-        Returns:
-            List of field types this implementation handles
-        """
-        if not hasattr(field_impl, 'can_handle'):
-            return []
-
-        if field_type == 'container':
-            return ['container', 'accordion', 'tabs']
-        elif field_type == 'default':
-            return ['*']  # Handles all unmatched types
-        return [field_type]
-
     def _document_field(self, field_impl) -> Dict[str, Any]:
         """Document a single field implementation.
 
@@ -131,7 +112,6 @@ class FieldsDocumenter:
             field_info['examples'] = []
 
         field_info['data_sources'] = self._get_data_sources(field_type)
-        field_info['can_handle'] = self._get_can_handle(field_type, field_impl)
 
         return field_info
 
@@ -156,8 +136,7 @@ class FieldsDocumenter:
                     'configuration': [],
                     'validation_rules': [],
                     'examples': [],
-                    'data_sources': [],
-                    'can_handle': []
+                    'data_sources': []
                 })
 
         # Sort fields by type name for better organization

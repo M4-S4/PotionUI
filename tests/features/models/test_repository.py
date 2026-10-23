@@ -37,6 +37,26 @@ class TestModelRepository(PersistenceTestBase):
         )
         return self.repository.create(model)
 
+    def test_existing_filenames_returns_only_stored_names(self):
+        self._create_model(filename="stored.safetensors", sha256="b" * 64)
+        self._create_model(filename="stored.safetensors", model_type="checkpoint", sha256="c" * 64)
+
+        found = self.repository.existing_filenames(["stored.safetensors", "missing.ckpt", "stored.safetensors"])
+
+        self.assertEqual(found, {"stored.safetensors"})
+
+    def test_existing_filenames_empty_input_skips_the_query(self):
+        with patch("src.platform.database.database.db") as fake_db:
+            self.assertEqual(self.repository.existing_filenames([]), set())
+
+        fake_db.get_cursor.assert_not_called()
+
+    def test_existing_filenames_spans_chunks(self):
+        names = [f"model_{index}.safetensors" for index in range(1203)]
+        self._create_model(filename=names[-1], sha256="d" * 64)
+
+        self.assertEqual(self.repository.existing_filenames(names), {names[-1]})
+
     def _create_provider(self, model_id: str, provider: str = "civitai", name: str = "Provider") -> ModelInfo:
         return self.repository.create_provider(
             ModelInfo(model_id=model_id, provider=provider, name=name, description="desc")

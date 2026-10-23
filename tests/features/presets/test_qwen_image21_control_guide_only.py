@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.features.forms.binding import FormBindingError, _expand_form_fields, bind_form
+from src.features.forms.binding import FormBindingError, bind_form
 from src.features.presets import PresetTemplateLoader
 
 MODEL_FIELDS = ("diffusion_model", "text_encoder", "vae", "control_model")
@@ -79,7 +79,7 @@ def _models_section(fields):
 
 
 def test_models_section_hides_on_the_same_condition_that_makes_the_mode_promptless(qwen21):
-    fields = _expand_form_fields(qwen21.modes["control"].forms[0].fields, qwen21)
+    fields = qwen21.modes["control"].forms[0].fields
     section = _models_section(fields)
     hide = [r for r in section.reactions if r["then"].get("set_visibility") is False]
     promptless = next(entry for entry in qwen21.vars["promptless_modes"] if entry["mode"] == "control")

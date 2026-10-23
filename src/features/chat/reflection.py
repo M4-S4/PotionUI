@@ -235,12 +235,6 @@ class _SpanBudget:
 
 class ChatReflectionGenerator:
     """Extracts and persists durable memory notes from a session's transcript.
-
-    Takes the owning ``ChatRuntime`` rather than its collaborators directly:
-    ``llm_memory_repository`` is late-bound onto the manager by the composition
-    root *after* construction (see ``ChatRuntime``'s docstring), so reading it
-    back through ``self._m`` at call time - instead of capturing it in
-    ``__init__`` - is what makes that late binding actually take effect here.
     """
 
     def __init__(self, manager):
@@ -273,7 +267,7 @@ class ChatReflectionGenerator:
         """The non-threshold gates: a memory store, an LLM config, and that
         config's toggle. True here says nothing about whether there is
         actually new (or any) unreflected content."""
-        if not self._m.llm_memory_repository or not session.llm_config_id:
+        if not self._m.tool_services.llm_memory_repository or not session.llm_config_id:
             return False
         config = self._m.llm_service.repository.get_configuration(session.llm_config_id)
         return bool(config and getattr(config, "memory_reflection", False))
@@ -381,6 +375,12 @@ class ChatReflectionGenerator:
         prompt = self._build_prompt(offered_presets, offered_mode)
 
         config = self._m.llm_service.repository.get_configuration(session.llm_config_id) if session.llm_config_id else None
+
+        if config is not None:
+            try:
+                await self._m.llm_service.ensure_context_window(config)
+            except Exception:
+                logger.debug("Could not prime LLM context window", exc_info=True)
 
         budget = self._resolve_span_budget(prompt, config)
         if budget.exhausted:
@@ -609,9 +609,9 @@ class ChatReflectionGenerator:
         what ``_validate_scope`` actually checks a reported scope_ref
         against."""
         label = preset_id
-        if self._m.preset_collaborators:
+        if self._m.tool_services.preset_collaborators:
             try:
-                label = preset_operations.get_preset(self._m.preset_collaborators, preset_id).get("name") or preset_id
+                label = preset_operations.get_preset(self._m.tool_services.preset_collaborators, preset_id).get("name") or preset_id
             except Exception:
                 logger.warning("preset lookup failed for '%s'; using id as label", preset_id, exc_info=True)
         return label
@@ -901,7 +901,7 @@ class ChatReflectionGenerator:
 
             try:
                 note = memory_operations.write_note(
-                    self._m.llm_memory_repository,
+                    self._m.tool_services.llm_memory_repository,
                     user_id=user_id,
                     key=self._slugify(key),
                     # Defensive truncation: the prompt asks for shorter notes, but a

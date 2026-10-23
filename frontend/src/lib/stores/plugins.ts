@@ -378,14 +378,6 @@ function createPluginStore() {
 
 export const pluginStore = createPluginStore();
 
-export const frontendPlugins = derived(plugins, ($plugins) =>
-	$plugins.filter((p) => p.type === 'frontend-only' || p.type === 'full-stack')
-);
-
-export const backendPlugins = derived(plugins, ($plugins) =>
-	$plugins.filter((p) => p.type === 'backend-only' || p.type === 'full-stack')
-);
-
 export const pluginNavItems = derived(pluginPages, ($pages) =>
 	($pages || [])
 		.filter((p) => p.show_in_sidebar)

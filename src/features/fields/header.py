@@ -20,13 +20,6 @@ class Header(BaseField):
 
         return schema
 
-
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'header'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
-
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:
         """Return configuration parameters for header field"""

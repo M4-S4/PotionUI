@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -48,10 +49,6 @@ function dividerRendered(target: HTMLElement) {
 	return Array.from(target.querySelectorAll('span')).some((span) => span.textContent?.trim() === 'or');
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let mounted: ReturnType<typeof mountPage> | undefined;
 let originalLocationDescriptor: PropertyDescriptor | undefined;
 
@@ -71,7 +68,7 @@ describe('login page provider buttons', () => {
 		vi.mocked(api.getLoginProviders).mockResolvedValue([] as never);
 
 		mounted = mountPage();
-		await settle();
+		await settle(10);
 
 		expect(providerButtons(mounted.target)).toHaveLength(0);
 		expect(dividerRendered(mounted.target)).toBe(false);
@@ -85,7 +82,7 @@ describe('login page provider buttons', () => {
 		] as never);
 
 		mounted = mountPage();
-		await settle();
+		await settle(10);
 
 		const buttons = providerButtons(mounted.target);
 		expect(buttons).toHaveLength(2);
@@ -115,11 +112,11 @@ describe('login page provider buttons', () => {
 		});
 
 		mounted = mountPage();
-		await settle();
+		await settle(10);
 
 		const [button] = providerButtons(mounted.target);
 		button.click();
-		await settle();
+		await settle(10);
 
 		expect(assignedHrefs).toEqual(['/api/plugins/acme-sso/start']);
 	});
