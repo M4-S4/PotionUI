@@ -4,8 +4,10 @@ every marketplace plugin. A shipped `smoke.timeout_seconds` out of range is a
 lint error, so it fails here.
 
 The default of 300 s is too short for a video model on a 12 GB card, so a
-recipe whose smoke generates video declares `smoke.timeout_seconds`, or is
-named with its reason in `VIDEO_SMOKES_ON_THE_DEFAULT`. The recipes whose smoke
+recipe whose smoke generates video declares `smoke.timeout_seconds`, is named
+with its cold smoke time in `VIDEO_SMOKES_MEASURED_WITHIN_THE_DEFAULT` when one
+and a half times that time fits the default, or waits for a measure in
+`VIDEO_SMOKES_AWAITING_A_MEASURE` with its reason. The recipes whose smoke
 needs more than the default are pinned in `LONG_SMOKES`."""
 
 from pathlib import Path
@@ -16,7 +18,7 @@ import yaml
 
 from scripts import recipe_lint
 from src.features.recipes.catalog import plugin_recipe_roots
-from src.features.recipes.schema import parse_recipe
+from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS, parse_recipe
 from src.platform.plugins.loader import PluginLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -30,13 +32,18 @@ LONG_SMOKES = {
     "wan22-starter": 600,
 }
 
-VIDEO_SMOKES_ON_THE_DEFAULT = {
+VIDEO_SMOKES_AWAITING_A_MEASURE = {
     "ltx2-starter": "smoke duration on 12 GB unmeasured; LTX-2.3 22B ran out of GPU memory there (docs/user/hardware-requirements.md)",
     "minimax-h3-fast-starter": "smoke duration on 12 GB unmeasured; the plugin's 12 GB preset needs 6 min 11 s for a 5 s clip (docs/user/hardware-requirements.md)",
     "minimax-h3-starter": "smoke duration on 12 GB unmeasured; the plugin's 12 GB preset needs 9 min 48 s for a 5 s clip (docs/user/hardware-requirements.md)",
-    "vp-wan21-t2v-1-3b-8gb": "smoke duration unmeasured; a 5 s clip takes 5 min 40 s to 5 min 55 s on the 8 GB tier (docs/user/hardware-requirements.md)",
-    "vp-wan22-ti2v-5b-8gb": "smoke duration unmeasured; a 5 s clip takes 4 min 38 s to 4 min 51 s on the 8 GB tier (docs/user/hardware-requirements.md)",
 }
+
+VIDEO_SMOKES_MEASURED_WITHIN_THE_DEFAULT = {
+    "vp-wan21-t2v-1-3b-8gb": 64,
+    "vp-wan22-ti2v-5b-8gb": 111,
+}
+
+VIDEO_SMOKES_ON_THE_DEFAULT = {**VIDEO_SMOKES_AWAITING_A_MEASURE, **VIDEO_SMOKES_MEASURED_WITHIN_THE_DEFAULT}
 
 
 @pytest.fixture(scope="module")
@@ -111,7 +118,15 @@ def test_the_list_of_video_smokes_keeping_the_default_names_only_ones_that_still
     undeclared = _video_smokes_on_the_default(smokes, preset_index)
 
     assert sorted(VIDEO_SMOKES_ON_THE_DEFAULT.keys() - undeclared) == []
-    assert all(VIDEO_SMOKES_ON_THE_DEFAULT.values())
+    assert all(VIDEO_SMOKES_AWAITING_A_MEASURE.values())
+
+
+@pytest.mark.parametrize(("recipe_id", "seconds"), sorted(VIDEO_SMOKES_MEASURED_WITHIN_THE_DEFAULT.items()))
+def test_a_measured_smoke_keeps_the_default_only_with_half_its_time_to_spare(smokes, recipe_id, seconds):
+    smoke, _ = smokes[recipe_id]
+
+    assert smoke.timeout_seconds == DEFAULT_SMOKE_TIMEOUT_SECONDS
+    assert seconds * 1.5 <= DEFAULT_SMOKE_TIMEOUT_SECONDS
 
 
 def test_the_smokes_known_to_run_past_five_minutes_are_seen_as_video_smokes(smokes, preset_index):
