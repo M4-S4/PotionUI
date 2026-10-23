@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 import numpy as np
 import torch
-from src.platform.runtime.native.errors import DecodeNumericsError
+from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_oom
 from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
@@ -11,6 +12,8 @@ from src.platform.runtime.native.resolution import snap_frame_count, snap_resolu
 from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, chunked_decode_causal3d
+from src.platform.runtime.system_memory import get_system_memory
+from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.contracts import logger
 from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
@@ -42,6 +45,15 @@ def snap_wan_geometry(bundle, lf: dict, width: int, height: int, frames: int,
 
 
 TIMESTEP_SCALE = 1000.0
+_PARK_PINNED_SHARE = 0.6
+
+
+def _holds_resident_weights(dit) -> bool:
+    streamer = getattr(dit, "_streamer", None)
+    plan = getattr(dit, "last_stream_plan", None)
+    if streamer is not None and getattr(streamer, "active", False) and plan is not None:
+        return plan.resident_gb > 0
+    return str(getattr(dit, "device", "cpu")).startswith("cuda")
 
 
 class ExpertRouter:
@@ -72,16 +84,70 @@ class ExpertRouter:
         free = free_vram_gb(self.device)
         if free is None:
             return need
-        get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
+        evicted = get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
+        if evicted and torch.cuda.is_available():
+            torch.cuda.empty_cache()
         free = free_vram_gb(self.device) or 0.0
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
-        return max(0.0, free - headroom)
+        budget = max(0.0, free - headroom)
+        logger.info("[WAN PLACEMENT] %s expert %.2fGB: latent %dx%dx%d, activation reserve %.2fGB, "
+                    "weight budget %.2fGB of %.2fGB free", self._expert_label(dit), need,
+                    frames, shape[-2], shape[-1], headroom, budget, free)
+        return budget
+
+    def _expert_label(self, dit) -> str:
+        return "low" if dit is self.low and dit is not self.high else "high"
+
+    def _log_placement(self, dit, seconds: float) -> None:
+        streamer = getattr(dit, "_streamer", None)
+        plan = getattr(dit, "last_stream_plan", None)
+        if streamer is not None and getattr(streamer, "active", False) and plan is not None:
+            logger.info("[WAN PLACEMENT] %s expert placed in %.1fs: %.2fGB resident, %.2fGB streamed",
+                        self._expert_label(dit), seconds, plan.resident_gb, plan.streamed_gb)
+        else:
+            logger.info("[WAN PLACEMENT] %s expert placed in %.1fs: fully resident",
+                        self._expert_label(dit), seconds)
+
+    def offload_active(self) -> None:
+        if self.active is None:
+            return
+        held = _holds_resident_weights(self.active)
+        self.active.offload()
+        if held and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def _park_or_offload_active(self, incoming) -> None:
+        outgoing = self.active
+        if outgoing is None:
+            return
+        if self.low is None or not callable(getattr(outgoing, "park", None)):
+            outgoing.offload()
+            return
+        parked, reason = self._park(outgoing, incoming)
+        logger.info("[WAN PLACEMENT] %s expert %s: %s", self._expert_label(outgoing),
+                    "parked pinned" if parked else "torn down", reason)
+        if not parked:
+            outgoing.offload()
+
+    def _park(self, outgoing, incoming) -> tuple[bool, str]:
+        if not runtime_flag("native_park_experts"):
+            return False, "parking is off (native_park_experts)"
+        if not getattr(outgoing, "is_streaming", False):
+            return False, "it was not streamed from pinned RAM"
+        pinned_gb = sum(float(getattr(dit, "estimated_vram_gb", None) or 0.0) + _dit_lora_delta_gb(dit)
+                        for dit in (outgoing, incoming))
+        limit_gb = _PARK_PINNED_SHARE * get_system_memory().total_gb
+        if pinned_gb > limit_gb:
+            return False, (f"up to {pinned_gb:.2f}GB pinned with the next expert, over {limit_gb:.2f}GB "
+                           f"({_PARK_PINNED_SHARE:.0%} of host RAM)")
+        if not outgoing.park():
+            return False, "free host RAM would fall under the streaming reserve"
+        return True, f"up to {pinned_gb:.2f}GB pinned with the next expert, limit {limit_gb:.2f}GB"
 
     def _place_expert(self, dit) -> None:
-        if self.active is not None:
-            self.active.offload()
+        self._park_or_offload_active(dit)
         self.active = dit
         if self.latents_shape is None or not str(self.device).startswith("cuda"):
             dit.move_to(self.device)
@@ -96,7 +162,9 @@ class ExpertRouter:
             return
         try:
             dit.stream_to(self.device, budget)
-        except torch.cuda.OutOfMemoryError:
+        except Exception as exc:
+            if not is_cuda_oom(exc):
+                raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
             dit.offload()
@@ -108,7 +176,10 @@ class ExpertRouter:
     def __call__(self, x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
         dit = self._select(float(sigma.reshape(-1)[0]))
         if dit is not self.active:
+            started = time.perf_counter()
             self._place_expert(dit)
+            if self.latents_shape is not None:
+                self._log_placement(dit, time.perf_counter() - started)
         extra = {}
         nag_context = conditioning.get("nag_context")
         if nag_context is not None:
