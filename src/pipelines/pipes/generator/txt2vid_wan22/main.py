@@ -15,6 +15,7 @@ two-level (``<pipe>/<variant>``), so the registered name is
 from __future__ import annotations
 
 import tempfile
+import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -294,9 +295,11 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
                     renoise_noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
                     fresh_noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
                     init_noise = freeinit_blend(latent, renoise_noise, fresh_noise, cutoff=fi_cutoff, order=fi_order)
+        except BaseException as exc:
+            traceback.clear_frames(exc.__traceback__)
+            raise
         finally:
-            if c.router.active is not None:
-                c.router.active.offload()
+            c.router.offload_active()
 
         frames = decode_wan_video(c, latent)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name

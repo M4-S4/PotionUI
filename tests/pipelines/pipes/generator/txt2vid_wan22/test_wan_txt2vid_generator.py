@@ -1268,7 +1268,7 @@ def test_generate_one_hands_the_last_resident_experts_pool_back_before_the_vae_d
     ctx.extra.router.active = _ParkablePlaceDiT("low", events, parks=True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
-    monkeypatch.setattr(_wan_mod, "_decode_video",
+    monkeypatch.setattr("src.pipelines.pipes.generator.txt2vid_wan22.main.decode_wan_video",
                         lambda c, latent: events.append("decode") or np.zeros((1, 64, 64, 3), dtype=np.uint8))
 
     pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
