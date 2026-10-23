@@ -2391,8 +2391,9 @@ Because registration is automatic, the props of every component in `ui/`, `detai
 breaks plugins that use it. Treat such a change as an API change and note it in the changelog;
 a component that must stay private belongs outside those folders.
 
-`Button` no longer takes a `title` prop and `IconButton` no longer sets a native `title`: wrap
-the control in the host `Tooltip` (`props={{ text }}`) to show a hover hint. `IconButton`
+`Button` no longer takes a `title` prop and `IconButton` sets no native `title`: an `IconButton`
+shows its `label` in the host tooltip by itself, and any other control is wrapped in the host
+`Tooltip` (`props={{ text }}`) to show a hover hint. `IconButton`
 accepts `variant: 'overlay'` for controls that sit over media and forwards extra attributes
 such as `data-*` to its button. `Tooltip` also opens on keyboard focus, closes on Escape,
 describes its trigger with `aria-describedby` while open, and takes `truncateOnly: true` to
@@ -2418,6 +2419,39 @@ updating and cleanup for you, and its markup children are projected into the hos
   <span class="text-fg-muted">Hover me</span>
 </HostUi>
 ```
+
+#### Icon buttons with a tooltip
+
+Each `HostUi` is its own Svelte root, so a host `IconButton` mounted inside a host `Tooltip`
+through two `HostUi` does not know it is inside one: it shows its own `label` tooltip and the
+user gets two. Give the tooltip to the `IconButton` itself instead:
+
+```svelte
+<HostUi
+  name="IconButton"
+  props={{ icon: 'film', label: 'Render', tooltip: 'Render the selected take', kbd: ['Shift', 'R'], onclick: render }}
+/>
+```
+
+- `tooltip` — the tooltip text. Without it the tooltip shows `label`.
+- `kbd` — a keyboard shortcut shown in the tooltip, as one string (`'Ctrl+K'`) or one string per
+  key (`['Shift', 'R']`). It is only displayed: handling the keys is up to your page (see
+  "Keyboard shortcuts on a plugin page").
+
+Both props are consumed by the button: unlike other extra props (`data-*`), they never reach the
+DOM as attributes. The tooltip attaches to the button itself, with no wrapper element, so `class`
+and layout apply to the button as usual. `label` stays its accessible name (`aria-label`). An
+`IconButton` never sets a native `title`; inside a `Tooltip` of the same Svelte tree it shows no
+tooltip of its own.
+
+**Tooltip on keyboard focus.** A tooltip, including the one of an `IconButton`, opens at once
+when its trigger receives focus from the keyboard, and closes when the focus leaves or on Escape.
+It does not open when the focus follows a mouse or touch press, nor for focus a script moves
+right after one (the host tracks the input modality on `<html data-input>`); hovering works as
+before. While it is open, the tooltip has `role="tooltip"` and an `id`, and its trigger gets
+`aria-describedby` pointing to it: the `IconButton`'s button, or the first element inside a
+`Tooltip` (a host `Button` or `IconButton`, or an element of your own). A screen reader reads the
+text and the shortcut (as `Shift+R`) after the control's name.
 
 Tailwind classes written in a plugin's `frontend/src/**/*.{svelte,js,ts}` (marketplace and
 local) and in `content/plugins/sdk/` are scanned by the app's Tailwind build, so the semantic
