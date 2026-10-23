@@ -1007,7 +1007,7 @@ def test_generate_one_offloads_active_expert_on_denoise_error():
 
 # -- torch.compile hook: a resident expert is offered to maybe_compile_dit --
 #
-# _ExpertRouter has no NativeGenerator instance to call the image path's
+# ExpertRouter has no NativeGenerator instance to call the image path's
 # private ``_maybe_compile()`` on, so it calls the same gated, reversible
 # ``maybe_compile_dit`` directly the moment an expert lands FULLY resident.
 
@@ -1145,7 +1145,7 @@ def test_router_hands_the_evicted_pool_back_before_reading_free_vram_again(monke
     monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
     high = _PlaceDiT("high", est_gb=14.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
 
     budget = router._weights_budget_gb(high)
 
@@ -1159,7 +1159,7 @@ def test_router_keeps_the_allocator_pool_when_nothing_was_evicted(monkeypatch):
     monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: calls.append(1))
     high = _PlaceDiT("high", est_gb=14.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
 
     router._weights_budget_gb(high)
 
@@ -1208,7 +1208,7 @@ def _switch_experts(monkeypatch, high, events, host_ram_gb=62.7, parking=True):
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_park_experts", parking)
     low = _LoggedPlaceDiT("low", events)
     shape = (1, 16, 5, 60, 104)
-    router = _ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
+    router = ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
     router(torch.zeros(shape), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     events.clear()
     router(torch.zeros(shape), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
@@ -1268,7 +1268,7 @@ def test_generate_one_hands_the_last_resident_experts_pool_back_before_the_vae_d
     ctx.extra.router.active = _ParkablePlaceDiT("low", events, parks=True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
-    monkeypatch.setattr(_wan_mod, "_decode_video",
+    monkeypatch.setattr("src.pipelines.pipes.generator.txt2vid_wan22.main.decode_wan_video",
                         lambda c, latent: events.append("decode") or np.zeros((1, 64, 64, 3), dtype=np.uint8))
 
     pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
@@ -1286,7 +1286,7 @@ def test_router_stream_driver_oom_falls_back_to_zero_budget(monkeypatch):
                 raise torch.AcceleratorError("CUDA error: out of memory")
 
     high = _DriverOOMOnceDiT("high", est_gb=27.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
 
     assert len(high.streamed) == 2
@@ -1303,7 +1303,7 @@ def test_router_stream_error_that_is_not_an_oom_propagates(monkeypatch):
             raise torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
 
     high = _BrokenDiT("high", est_gb=27.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
 
     with pytest.raises(torch.AcceleratorError, match="illegal memory access"):
         router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
@@ -1361,7 +1361,7 @@ def test_router_logs_the_budget_and_the_split_of_each_expert_placement(monkeypat
         dit._streamer = SimpleNamespace(active=True)
         dit.last_stream_plan = SimpleNamespace(resident_gb=6.9, streamed_gb=7.39)
     shape = (1, 16, 5, 60, 104)
-    router = _ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
+    router = ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
 
     router(torch.zeros(shape), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     router(torch.zeros(shape), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
@@ -1381,7 +1381,7 @@ def test_router_without_a_latent_shape_logs_no_placement(monkeypatch):
     recorder = _RecordingLogger()
     monkeypatch.setattr(_wan_mod, "logger", recorder)
     high = _PlaceDiT("high", est_gb=14.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0")
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0")
 
     router(torch.zeros(1, 16, 1, 8, 8), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
 
