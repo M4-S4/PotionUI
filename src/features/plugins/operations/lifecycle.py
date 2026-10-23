@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from src.features.plugins.dto import PluginResponse
 from src.features.plugins.mappers import plugin_to_response
+from src.features.plugins.operations.scan import register_discovered_plugin
 from src.features.plugins.repository import PluginRepository
 from src.features.providers.registry import reset_provider_registry
 from src.platform.http.errors import NotFoundError
@@ -118,7 +119,10 @@ def enable_plugin(
     """
     plugin = repo.get_plugin_by_id(plugin_id)
     if not plugin:
-        raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
+        discovered = registry.get_plugin(plugin_id)
+        if discovered is None:
+            raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
+        register_discovered_plugin(repo, discovered)
 
     # Enable in database
     if not repo.enable_plugin(plugin_id):
