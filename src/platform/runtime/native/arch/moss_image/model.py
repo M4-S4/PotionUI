@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from ...base import NativeArchModule
+from ...cancellation import raise_if_cancelled
 from ...errors import NativeEngineUnsupportedError
 from .config import TEXT_BLOCKS, MossImageConfig
 from .layers import Block, RMSNorm, TextProjection, rope_bands, rope_table
@@ -144,6 +145,7 @@ class MossImage(NativeArchModule):
         outputs = []
         for i, stream in enumerate(streams):
             for index in range(1, len(self.layers)):
+                raise_if_cancelled(index)
                 if index not in skip:
                     stream = self.layers[index](stream, ropes[i], mod[i : i + 1])
             out = self.final_norm_video(stream[:, :video_len])
