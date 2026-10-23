@@ -334,3 +334,28 @@ async def test_session_uses_the_shared_connector(monkeypatch):
     session = await HuggingFaceProvider()._get_session()
 
     assert session.kwargs["connector"] is sentinel
+
+
+@pytest.mark.asyncio
+async def test_hf_endpoint_env_redirects_resolve_and_api_urls(monkeypatch):
+    monkeypatch.setenv("HF_ENDPOINT", "http://127.0.0.1:9999/")
+    provider = HuggingFaceProvider()
+    await provider.initialize({})
+
+    url = await provider.get_download_url("org/repo", "main@model.safetensors")
+
+    assert url == "http://127.0.0.1:9999/org/repo/resolve/main/model.safetensors"
+    assert provider.API_URL == "http://127.0.0.1:9999/api"
+    assert provider.matches_download_url(url)
+
+
+@pytest.mark.asyncio
+async def test_hf_endpoint_unset_keeps_default_urls(monkeypatch):
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    provider = HuggingFaceProvider()
+    await provider.initialize({})
+
+    url = await provider.get_download_url("org/repo", "main@model.safetensors")
+
+    assert url == "https://huggingface.co/org/repo/resolve/main/model.safetensors"
+    assert provider.API_URL == "https://huggingface.co/api"
