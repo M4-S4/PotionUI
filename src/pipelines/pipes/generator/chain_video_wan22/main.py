@@ -750,8 +750,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                     # noise from.
                     **sampler_step_cache_kwargs(self.config, sampler=sampler, generator=gen),
                 )
-                if mset.router.active is not None:
-                    mset.router.active.offload()
+                mset.router.offload_active()
 
                 # Captured BEFORE decode -- this segment's own sampled latent tail,
                 # for the NEXT segment's seam splice (seam_handoff="latent"). Cloned
