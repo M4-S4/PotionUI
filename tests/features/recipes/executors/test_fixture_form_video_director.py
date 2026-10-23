@@ -3,7 +3,8 @@ import pytest
 from scripts.preset_render import StubSettings, build_processor
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.presets.loader import PresetTemplateLoader
-from src.features.recipes.executors._fixture_form import VIDEO_DIRECTOR_FIXTURE_PROMPT, build_fixture_form_data
+from src.features.presets.fixture_form import VIDEO_DIRECTOR_FIXTURE_PROMPT
+from src.features.recipes.executors._fixture_form import build_fixture_form_data
 from src.features.recipes.executors.base import StepContext
 from src.features.recipes.executors.pipeline_render import PipelineRenderExecutor
 from src.features.recipes.records import RecipeRun, RecipeRunStatus
@@ -37,11 +38,8 @@ def executor(loader, template_processor):
     return PipelineRenderExecutor(loader, template_processor, PipelineBuilder(loader, build_processor()))
 
 
-def _form(loader, template_processor, preset_id, **kwargs):
-    return build_fixture_form_data(
-        loader.load_preset_by_id(preset_id), "video",
-        preset_template_loader=loader, template_processor=template_processor, **kwargs,
-    )
+def _form(loader, preset_id, **kwargs):
+    return build_fixture_form_data(loader.load_preset_by_id(preset_id), "video", **kwargs)
 
 
 def _context(preset_id):
@@ -55,8 +53,8 @@ def _context(preset_id):
 
 
 @pytest.mark.parametrize("preset_id", DIRECTOR_PRESET_IDS)
-def test_director_presets_get_a_one_second_text_to_video_document(loader, template_processor, preset_id):
-    document = _form(loader, template_processor, preset_id)["video_director"]
+def test_director_presets_get_a_one_second_text_to_video_document(loader, preset_id):
+    document = _form(loader, preset_id)["video_director"]
 
     assert document["mode"] == "t2v"
     assert document["settings"]["duration"] == 1
@@ -64,13 +62,13 @@ def test_director_presets_get_a_one_second_text_to_video_document(loader, templa
     assert [segment["prompt"] for segment in document["segments"]] == [VIDEO_DIRECTOR_FIXTURE_PROMPT]
 
 
-def test_the_smoke_prompt_becomes_the_segment_prompt(loader, template_processor):
-    document = _form(loader, template_processor, WAN_PRESET_ID, prompt="a paper boat in the rain")["video_director"]
+def test_the_smoke_prompt_becomes_the_segment_prompt(loader):
+    document = _form(loader, WAN_PRESET_ID, prompt="a paper boat in the rain")["video_director"]
 
     assert document["segments"][0]["prompt"] == "a paper boat in the rain"
 
 
-def test_an_explicit_document_is_kept(loader, template_processor):
+def test_an_explicit_document_is_kept(loader):
     explicit = {
         "schema_version": 1,
         "mode": "t2v",
@@ -79,16 +77,13 @@ def test_an_explicit_document_is_kept(loader, template_processor):
         "media": [],
     }
 
-    form_data = _form(loader, template_processor, WAN_PRESET_ID, overrides={"video_director": explicit})
+    form_data = _form(loader, WAN_PRESET_ID, overrides={"video_director": explicit})
 
     assert form_data["video_director"] == explicit
 
 
-def test_presets_without_a_director_get_no_document(loader, template_processor):
-    form_data = build_fixture_form_data(
-        loader.load_preset_by_id(SDXL_PRESET_ID), "txt2img",
-        preset_template_loader=loader, template_processor=template_processor,
-    )
+def test_presets_without_a_director_get_no_document(loader):
+    form_data = build_fixture_form_data(loader.load_preset_by_id(SDXL_PRESET_ID), "txt2img")
 
     assert "video_director" not in form_data
 
