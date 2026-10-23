@@ -86,7 +86,8 @@ if it was set (`auto` is seeded as on); after that the variable is ignored.
   sampling loop and place the DiT through `place_dit_for_sequence` (`src/pipelines/pipes/_shared/
   generation/dit_placement.py`), which calls the same gate on every resident placement. Wan 2.1/2.2
   (`generator/txt2vid_wan22`, `generator/img2vid_wan22`, `generator/chain_video_wan22`) place their
-  high/low-noise experts through `_ExpertRouter._place_expert`, which offers each expert to the same
+  high/low-noise experts through `ExpertRouter._place_expert` (`src/pipelines/pipes/_shared/video/
+  wan_experts.py`), which offers each expert to the same
   gate independently the moment it lands fully resident. SeedVR2 (`generator/seedvr2`) subclasses
   `NativeGenerator` and calls the inherited `_maybe_compile()` right after its own `_move_dit_to_gpu`,
   same as the image path.
