@@ -18,6 +18,7 @@
 	import { pastedImageFileName } from '$lib/components/form-fields/mediaLoaderUpload';
 	import AutocompleteDropdown from '$lib/components/AutocompleteDropdown.svelte';
 	import ResourceChip from './ResourceChip.svelte';
+	import { breakElementLength, endsWithLineBreak, startsWithLineBreak } from '$lib/components/chipEditorDom';
 	import { parseValueToSegments } from './resourceChipSegments';
 	import {
 		type MentionCategory,
@@ -102,16 +103,13 @@
 						extractedResources[chipId] = resources[chipId];
 					}
 				} else if (el.tagName === 'BR') {
-					textContent += '\n';
+					textContent += '\n'.repeat(breakElementLength(el));
 				} else {
-					// Walk children
+					if (startsWithLineBreak(el)) textContent += '\n';
 					for (const child of Array.from(node.childNodes)) {
 						walkNode(child);
 					}
-					// Add newline after block elements
-					if (el.tagName === 'DIV' && el.nextSibling) {
-						textContent += '\n';
-					}
+					if (endsWithLineBreak(el)) textContent += '\n';
 				}
 			}
 		}
