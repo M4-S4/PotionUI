@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, mockAdminSocket, type AdminSocketMock } from './helpers';
 
 const JOURNEY = 'backends-index-feedback';
 
@@ -50,10 +50,12 @@ interface Mocks {
 	phase: { value: 'idle' | 'scanning' | 'indexing' | 'done' };
 	indexCalls: string[];
 	testCalls: string[];
+	socket: AdminSocketMock;
+	setPhase(phase: 'idle' | 'scanning' | 'indexing' | 'done'): Promise<void>;
 }
 
 async function mockBackends(page: Page): Promise<Mocks> {
-	const mocks: Mocks = { phase: { value: 'idle' }, indexCalls: [], testCalls: [] };
+	const mocks = { phase: { value: 'idle' }, indexCalls: [], testCalls: [] } as unknown as Mocks;
 	const statusFor = () => {
 		switch (mocks.phase.value) {
 			case 'scanning':
@@ -65,6 +67,11 @@ async function mockBackends(page: Page): Promise<Mocks> {
 			default:
 				return { state: 'idle' };
 		}
+	};
+	mocks.socket = await mockAdminSocket(page, statusFor);
+	mocks.setPhase = async (phase) => {
+		mocks.phase.value = phase;
+		await mocks.socket.pushIndexingStatus(statusFor());
 	};
 	await page.route(
 		(url) => url.pathname.startsWith('/api/backends') || url.pathname === '/api/models/indexing/status',
@@ -128,12 +135,12 @@ for (const viewport of [
 			await expect(indexButton).toBeDisabled();
 			await expect(page.getByText('Scanning /models')).toBeVisible();
 
-			mocks.phase.value = 'indexing';
+			await mocks.setPhase('indexing');
 			await expect(page.getByText('18 / 40')).toBeVisible({ timeout: 6000 });
 			await expect(indexButton).toBeDisabled();
 			await screenshot(page, JOURNEY, `detail-indexing-${viewport.name}`);
 
-			mocks.phase.value = 'done';
+			await mocks.setPhase('done');
 			await expect(page.getByText('new ·')).toBeVisible({ timeout: 6000 });
 			await expect(page.getByText('Indexed 40 model files — 12 new, 28 already indexed.')).toBeVisible();
 			await expect(indexButton).toBeEnabled();

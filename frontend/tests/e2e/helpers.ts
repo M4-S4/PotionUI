@@ -1,4 +1,4 @@
-import { expect, type Page, type Route } from '@playwright/test';
+import { expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -135,4 +135,28 @@ export async function expectNoBoxOverlap(
 			expect(overlap, `${p.name} overlaps ${q.name}`).toBe(false);
 		}
 	}
+}
+
+export interface AdminSocketMock {
+	pushIndexingStatus(status: Record<string, unknown>): Promise<void>;
+}
+
+export async function mockAdminSocket(
+	page: Page,
+	initialIndexingStatus?: () => Record<string, unknown>
+): Promise<AdminSocketMock> {
+	let socket: WebSocketRoute | null = null;
+	await page.routeWebSocket('**/ws/admin**', (ws) => {
+		socket = ws;
+		ws.send(JSON.stringify({ type: 'connection_established' }));
+		if (initialIndexingStatus) {
+			ws.send(JSON.stringify({ type: 'indexing_status', status: initialIndexingStatus() }));
+		}
+	});
+	return {
+		async pushIndexingStatus(status) {
+			await expect.poll(() => socket !== null, { timeout: 15000 }).toBe(true);
+			(socket as WebSocketRoute | null)!.send(JSON.stringify({ type: 'indexing_status', status }));
+		}
+	};
 }
