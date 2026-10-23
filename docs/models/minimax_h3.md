@@ -57,6 +57,8 @@ In the Video Director (`refs` mode's `per_shot` capability), a shot's references
 
 `mode: "references"` on the generator is what makes an empty reference set an error rather than a text-only run: on the reference partition that fallback returns plausible video that ignores the request.
 
+An audio reference, or a video reference's own soundtrack, is accepted at any sample rate and in mono or stereo: the generator truncates it to the generated duration at its source rate, then resamples it onto the audio VAE's 32 kHz with its own polyphase windowed-sinc filter in plain torch (`resample_waveform` in `pipes/generator/video_minimax_h3/audio.py`, the same kernel `torchaudio` builds, which the PotionUI image does not ship), and upmixes a mono track by repeating its channel. A track already at 32 kHz is passed through untouched.
+
 ### RefMods
 
 A RefMod ([ComfyUI-MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod)) is a `.safetensors` bundle of tiny, already-VAE-encoded H3 reference latents, built outside PotionUI — in ComfyUI, or with that repo's `extract_mod.py` — and dropped into `models/refmods/`. Because it skips the encode step, it is cheap to add even several at a time. A bundle can carry image, video and/or audio members; each member joins the same packed sequence as the native pickers above, numbered *after* that kind's native references — a RefMod's image member is `<Picture 4>` when three native images already precede it. Per-file strength runs 0–1: 1 is full conditioning, a lower value blurs/weakens the member (never adds noise), and 0 drops it — same as unchecking it. A RefMod satisfies the "at least one reference" rule on its own.

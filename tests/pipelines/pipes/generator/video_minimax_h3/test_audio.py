@@ -24,6 +24,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.audio import (
     encode_audio_condition,
     normalize_condition_waveform,
     pack_audio_rows,
+    resample_waveform,
     unpack_audio_rows,
 )
 
@@ -153,17 +154,72 @@ def test_a_matching_rate_skips_the_resampler_entirely():
     assert torch.equal(out, waveform)
 
 
-def test_a_different_rate_is_resampled_onto_the_vae_rate():
-    torchaudio = pytest.importorskip("torchaudio")
+def test_a_different_rate_is_resampled_onto_the_vae_rate_without_torchaudio(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_torchaudio(name, *args, **kwargs):
+        if name == "torchaudio" or name.startswith("torchaudio."):
+            raise ImportError("torchaudio is not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_torchaudio)
     waveform = torch.randn(2, 16000)
     out = normalize_condition_waveform(waveform, sample_rate=16000)
     assert out.shape == (2, 32000)
-    expected = torchaudio.transforms.Resample(16000, AUDIO_SAMPLE_RATE)(waveform.float())
-    assert torch.equal(out, expected)
+    assert out.dtype == torch.float32
+
+
+def test_the_resampler_matches_torchaudio_when_it_is_there():
+    torchaudio = pytest.importorskip("torchaudio")
+    waveform = torch.randn(2, 44100)
+    out = resample_waveform(waveform, sample_rate=44100, target_sample_rate=AUDIO_SAMPLE_RATE)
+    expected = torchaudio.functional.resample(waveform, 44100, AUDIO_SAMPLE_RATE)
+    assert out.shape == expected.shape
+    assert torch.allclose(out, expected, atol=1e-5)
+
+
+def _sine(frequency_hz: float, *, sample_rate: int, seconds: float, channels: int = 2) -> torch.Tensor:
+    t = torch.arange(int(seconds * sample_rate), dtype=torch.float64) / sample_rate
+    return torch.sin(2 * math.pi * frequency_hz * t).float().expand(channels, -1).contiguous()
+
+
+def _peak_frequency_hz(signal: torch.Tensor, sample_rate: int) -> float:
+    spectrum = torch.fft.rfft(signal.double() * torch.hann_window(signal.shape[-1], dtype=torch.float64))
+    return torch.fft.rfftfreq(signal.shape[-1], 1 / sample_rate)[spectrum.abs().argmax()].item()
+
+
+@pytest.mark.parametrize("sample_rate", [48000, 44100])
+def test_a_sine_keeps_its_frequency_and_duration_through_the_resample(sample_rate):
+    # A 440 Hz tone, 1.5 s: the frequency may move by at most one FFT bin
+    # (1 / 1.5 s) and the duration by at most one output sample.
+    seconds = 1.5
+    source = _sine(440.0, sample_rate=sample_rate, seconds=seconds)
+    out = normalize_condition_waveform(source, sample_rate=sample_rate)
+    assert out.shape == (2, math.ceil(source.shape[-1] * AUDIO_SAMPLE_RATE / sample_rate))
+    assert abs(out.shape[-1] / AUDIO_SAMPLE_RATE - seconds) <= 1 / AUDIO_SAMPLE_RATE
+    assert abs(_peak_frequency_hz(out[0], AUDIO_SAMPLE_RATE) - 440.0) <= 1 / seconds
+    steady = out[:, AUDIO_SAMPLE_RATE // 10 : -AUDIO_SAMPLE_RATE // 10]
+    assert abs(steady.abs().max().item() - 1.0) < 0.02
+    assert torch.equal(out[0], out[1])
+
+
+def test_a_mono_sine_at_another_rate_is_resampled_then_upmixed():
+    source = _sine(1000.0, sample_rate=48000, seconds=0.5, channels=1)
+    out = normalize_condition_waveform(source, sample_rate=48000)
+    assert out.shape == (2, 16000)
+    assert torch.equal(out[0], out[1])
+    assert abs(_peak_frequency_hz(out[0], AUDIO_SAMPLE_RATE) - 1000.0) <= 2.0
+
+
+def test_a_waveform_already_at_the_vae_rate_is_not_resampled():
+    source = _sine(440.0, sample_rate=AUDIO_SAMPLE_RATE, seconds=0.25)
+    assert torch.equal(resample_waveform(source, sample_rate=AUDIO_SAMPLE_RATE, target_sample_rate=AUDIO_SAMPLE_RATE), source)
+    assert torch.equal(normalize_condition_waveform(source, sample_rate=AUDIO_SAMPLE_RATE), source)
 
 
 def test_encode_resamples_before_handing_the_waveform_to_the_vae():
-    pytest.importorskip("torchaudio")
     vae = _FakeAudioVae()
     # 1 s at 16 kHz -> 32000 samples at the VAE's rate -> 40 latents.
     encode_audio_condition(vae, torch.randn(2, 16000), sample_rate=16000)
