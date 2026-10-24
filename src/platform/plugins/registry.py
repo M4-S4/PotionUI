@@ -29,6 +29,7 @@ from src.platform.plugins.chat_modes import ChatMode
 from src.platform.plugins.prompt_importers import PromptImporterDefinition, PromptImporterRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookBatchOperationDefinition, PhrasebookOperationRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistration, RecipeStepKindRegistry
+from src.platform.plugins.llm_providers import LLMProviderRegistration, LLMProviderRegistry
 from src.platform.plugins.requirement_checkers import RequirementCheckerRegistration, RequirementCheckerRegistry
 from src.platform.plugins.sourced_registry import DuplicateRegistrationError
 from src.platform.runtime.model_headers import ModelClassifierDefinition, model_classifier_registry
@@ -149,6 +150,16 @@ _BACKEND_SECTIONS = (
             kind=key, executor=backend, source=plugin_id
         ),
     ),
+    _BackendSection(
+        "llm_providers", "llm_provider_registry", "type", "LLM provider", "LLM provider backend",
+        lambda plugin_id, entry, key, backend: LLMProviderRegistration(
+            type_name=key,
+            label=entry.get('label') or key,
+            client=backend,
+            default_base_url=entry.get('default_base_url') or "",
+            source=plugin_id,
+        ),
+    ),
 )
 
 _SOURCE_REGISTRY_ATTRS = (
@@ -161,6 +172,7 @@ _SOURCE_REGISTRY_ATTRS = (
     "phrasebook_operation_registry",
     "requirement_checker_registry",
     "recipe_step_kind_registry",
+    "llm_provider_registry",
 )
 
 
@@ -191,6 +203,7 @@ class PluginRegistry:
         phrasebook_operation_registry: Optional[PhrasebookOperationRegistry] = None,
         requirement_checker_registry: Optional[RequirementCheckerRegistry] = None,
         recipe_step_kind_registry: Optional[RecipeStepKindRegistry] = None,
+        llm_provider_registry: Optional[LLMProviderRegistry] = None,
         organize_registry: Optional[OrganizeRegistry] = None,
         limit_kind_registry: Optional[LimitKindRegistry] = None,
     ):
@@ -239,7 +252,8 @@ class PluginRegistry:
         self.requirement_checker_registry = requirement_checker_registry
         # Recipe step kinds a plugin contributes (manifest `recipe_steps:`).
         self.recipe_step_kind_registry = recipe_step_kind_registry
-        self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
+        self.llm_provider_registry = llm_provider_registry
+        self.organize_registry =organize_registry if organize_registry is not None else _shared_organize_registry
         self.limit_kind_registry = (
             limit_kind_registry if limit_kind_registry is not None else _shared_limit_kind_registry
         )

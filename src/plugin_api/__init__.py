@@ -12,7 +12,7 @@ Import from the package itself - every name below is available directly:
 
 The capability modules (`src.plugin_api.providers`, `.chat`, `.backends`,
 `.compute`, `.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`,
-`.identity`, `.limits`, `.media`, `.organize`, `.phrasebook`, `.recipes`, `.sampling`) are the same
+`.identity`, `.limits`, `.llm`, `.media`, `.organize`, `.phrasebook`, `.recipes`, `.sampling`) are the same
 names, grouped, and each one's docstring explains what it is for. Import from
 whichever reads better.
 
@@ -78,6 +78,14 @@ from src.plugin_api.chat import (
     ToolContext,
     ToolResult,
     ToolSource,
+)
+
+from src.plugin_api.llm import (
+    DiscoveredModel,
+    DiscoveredWindow,
+    LLMConfig,
+    OpenAIClient,
+    OpenAIRequest,
 )
 
 # Contributing an engine.
@@ -378,6 +386,11 @@ __all__ = [
     "ToolContext",
     "ToolResult",
     "ToolSource",
+    "DiscoveredModel",
+    "DiscoveredWindow",
+    "LLMConfig",
+    "OpenAIClient",
+    "OpenAIRequest",
     # Backends and engines
     "BackendHealth",
     "BackendModel",
