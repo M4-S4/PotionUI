@@ -1092,7 +1092,11 @@ class EnsureCollections(StepExecutor):
 
 `StepContext` carries the run, the parsed recipe, the step being run, and a
 `report_progress(current, total, unit)` callback a long-running step should call from its
-own poll loop so the UI can render progress before the step finishes. Besides `ok` and
+own poll loop so the UI can render progress before the step finishes. It also carries an
+`is_cancelled()` check that turns true once an admin cancels the run: a step that started
+long work (a generation, a download) should stop that work when it does and return. The
+attempt is then recorded as cancelled whatever the step returns, and progress reported
+after the cancel is dropped. Besides `ok` and
 `fail`, a step can return `StepResult.awaiting(consent_request)` to park the run until an
 admin explicitly approves — that is how a multi-GB download gets a go-ahead. Failure
 messages are read by a non-technical owner mid-setup, so write them as a plain sentence
