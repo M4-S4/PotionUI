@@ -23,7 +23,15 @@ from fake_huggingface import FakeHuggingFace
 SOURCE_RECIPE = REPO_ROOT / "content" / "recipes" / "marketplace" / "flux2-klein-starter.yml"
 RECIPE_ID = "fresh-install-hf-starter"
 ARTIFACT_ID = "flux2-vae"
-KEPT_STEPS = ("plugins.ensure", "models.index", "artifacts.plan", "artifacts.fetch", "models.index.downloads")
+KEPT_STEPS = (
+    "plugins.ensure",
+    "backend.ensure",
+    "models.index",
+    "artifacts.plan",
+    "artifacts.fetch",
+    "models.index.downloads",
+    "preset.ensure",
+)
 PLUGIN_ID = "huggingface-provider"
 RUN_TIMEOUT_SECONDS = 180.0
 
@@ -117,8 +125,6 @@ def run(_shared: ThrowawayApp) -> JourneyResult:
                 extra_env=extra_env,
             )
             with app_ctx as app:
-                scan = app.client.post("/api/plugins/scan")
-                evidence.append(f"POST /api/plugins/scan -> {scan.status_code}")
                 before = plugin_row(app.client)
                 evidence.append(f"{PLUGIN_ID} at boot: enabled={before.get('enabled')}")
                 if before.get("enabled"):

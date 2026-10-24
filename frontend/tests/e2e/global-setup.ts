@@ -1,9 +1,14 @@
 import { chromium, type FullConfig } from '@playwright/test';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { AUTH_STATE_PATH, loginAsOwnerViaForm } from './helpers';
+import { AUTH_STATE_PATH, SIGNED_OUT, loginAsOwnerViaForm } from './helpers';
 
 export default async function globalSetup(config: FullConfig) {
+	if (process.env.E2E_UNCLAIMED) {
+		mkdirSync(dirname(AUTH_STATE_PATH), { recursive: true });
+		writeFileSync(AUTH_STATE_PATH, JSON.stringify(SIGNED_OUT));
+		return () => rmSync(AUTH_STATE_PATH, { force: true });
+	}
 	const baseURL = config.projects[0].use.baseURL;
 	const browser = await chromium.launch();
 	try {

@@ -57,6 +57,7 @@ report = {
         "plugin_registry": c.plugin_controller.registry is c.plugin_registry,
         "runtime_plugins": r.plugins is c.plugin_registry,
         "indexer_plugins": indexer.plugins is c.plugin_registry,
+        "llm_provider_registry": c.llm_service.provider_registry is c.plugin_registry.llm_provider_registry,
         "facade_repo": c.generation_history_facade.generation_repo is c.generation_repository,
         "parameter_repository": (
             c.inspiration_collaborators.generation_parameter_repository

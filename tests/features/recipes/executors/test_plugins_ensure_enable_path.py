@@ -1,5 +1,4 @@
 import functools
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -8,7 +7,6 @@ import pytest
 
 import src.features.providers.registry as module
 from src.features.plugins import operations
-from src.features.plugins.records import Plugin
 from src.features.providers.registry import ProviderRegistry
 from src.features.recipes.catalog import RecipeCatalog
 from src.features.recipes.executors._provider_credentials import resolve_provider_registry
@@ -69,6 +67,13 @@ class _PluginRegistry:
             repository=None,
             hooks={},
             frontend_hooks=[],
+            admin_tabs=[],
+            pages=[],
+            version="1.0.0",
+            plugin_type="backend-only",
+            manifest_path=plugin_dir / "manifest.yml",
+            description="d",
+            author="a",
             settings=[],
         )
         self.hook_chain = Mock()
@@ -100,17 +105,30 @@ class _PluginRegistry:
 
 class _PluginRepository:
     def __init__(self):
-        self.enabled = False
+        self.rows = {}
+
+    @property
+    def enabled(self):
+        row = self.rows.get(PLUGIN_ID)
+        return bool(row and row.enabled)
 
     def get_plugin_by_id(self, plugin_id):
-        return Plugin(
-            id=plugin_id, name="Hugging Face", version="1.0.0", type="backend-only", enabled=self.enabled,
-            manifest_path="manifest.yml", description="d", author="a",
-            installed_at=datetime(2024, 1, 1), updated_at=datetime(2024, 1, 1),
-        )
+        return self.rows.get(plugin_id)
+
+    def create_plugin(self, plugin):
+        self.rows[plugin.id] = plugin
+        return plugin
+
+    def register_hook(self, hook):
+        return hook
+
+    def create_plugin_page(self, page):
+        return page
 
     def enable_plugin(self, plugin_id):
-        self.enabled = True
+        if plugin_id not in self.rows:
+            return False
+        self.rows[plugin_id].enabled = True
         return True
 
 
@@ -156,7 +174,7 @@ def _artifact():
 
 
 def test_enabling_through_the_recipe_persists_the_plugin(harness):
-    assert harness.repository.enabled is False
+    assert harness.repository.rows == {}
 
     result = harness.executor.execute(_context())
 

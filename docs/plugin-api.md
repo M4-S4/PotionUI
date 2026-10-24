@@ -65,6 +65,7 @@ itself exports.
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `ToolApprovalPreview`, `PreChatAction` |
+| **LLM** — contributing an LLM configuration type | `.llm` | `OpenAIClient`, `OpenAIRequest`, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
 | **Backends** — contributing an engine, and reading the enabled ones | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate`, `list_backends()` (every enabled backend, highest priority first: what `GET /api/backends/enabled` returns for it, plus `execution_device` (`"this_host_gpu"`, `"no_gpu"`, `"remote"` or `"unestablished"`), `max_concurrent_runs` and `vram_total_gb` / `vram_free_gb`; the VRAM is known only for a local native backend on the GPU this process monitors and is `None` otherwise; a backend that is enabled but not running reports `"unestablished"` and a `None` capacity) |
 | **Cloud** — contributing a hosted-model provider, and pricing a run | `.cloud`, `.cloud_testing` | `estimate_cloud_cost(user, model_id, shots, driver=None)` (what a run of shots on an enabled cloud model would cost, the answer of `POST /api/cloud/models/{model_id}/estimate`; administrators only, `PermissionError` for anyone else), `DirectorEstimateError` (a `ValueError`: the shots it cannot price), `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `SplatGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
@@ -754,6 +755,45 @@ const unregisterShot = window.__potionui.chat.onToolApplied('video_producer_add_
 
 On a host that predates this, only approved calls reach the handler, and nothing on
 `window.__potionui` tells the two apart.
+
+## Contributing an LLM configuration type
+
+A plugin can add a provider to the Type list of Admin → LLM / Assistant → Add configuration.
+Declare it under `llm_providers:`:
+
+```yaml
+llm_providers:
+  - type: acme
+    label: Acme
+    backend: backend.client:AcmeClient   # "module.path:ClassName"
+    default_base_url: https://api.acme.example/v1
+```
+
+`backend` is loaded and instantiated once when the plugin enables, like a
+`recipe_steps[].backend`, and every configuration whose `type` is `acme` is then sent through
+that object. For a service that speaks the OpenAI chat-completions schema, subclass
+`OpenAIClient` from `src.plugin_api.llm` and adjust the request in `adapt_request`, which the
+buffered, tool-calling and streamed paths all call with the built request before it goes out:
+
+```python
+from src.plugin_api.llm import LLMConfig, OpenAIClient, OpenAIRequest
+
+class AcmeClient(OpenAIClient):
+    display_name = "Acme"
+
+    def adapt_request(self, request: OpenAIRequest, config: LLMConfig) -> OpenAIRequest:
+        request.payload["max_tokens"] = request.payload.pop("max_completion_tokens")
+        return request
+```
+
+The inherited `list_models` and `discover_context_window` read the service's `/models`
+listing, so the model picker and the context window work without more code; override them
+(they return `DiscoveredModel` and `DiscoveredWindow`) when the service lists models another
+way. The form lists `label` after the built-in types and fills an empty Base URL with
+`default_base_url` when the admin picks the type. A `type` named like a built-in one
+(`openai`, `ollama`, `native`) is ignored, and a type another enabled plugin already owns
+fails the enable. Disabling the plugin takes the type away: configurations saved with it
+stay, and fail with "Unsupported LLM type" until the plugin is enabled again.
 
 ## Contributing automation templates
 

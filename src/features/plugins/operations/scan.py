@@ -122,6 +122,24 @@ def _refresh_plugin_hooks(repo: PluginRepository, manifest) -> None:
     _register_plugin_hooks(repo, manifest)
 
 
+def register_discovered_plugin(repo: PluginRepository, manifest) -> Plugin:
+    plugin = Plugin(
+        id=manifest.id,
+        name=manifest.name,
+        version=manifest.version,
+        type=manifest.plugin_type,
+        enabled=False,
+        manifest_path=str(manifest.manifest_path),
+        description=manifest.description,
+        author=manifest.author,
+        installed_at=now_utc(),
+        updated_at=now_utc()
+    )
+    created_plugin = repo.create_plugin(plugin)
+    _register_plugin_hooks(repo, manifest)
+    logger.info(f"Discovered new plugin: {manifest.name} ({manifest.id})")
+    return created_plugin
+
 def refresh_known_plugin_hooks(repo: PluginRepository, registry: PluginRegistry) -> int:
     """
     Refresh hooks/pages in the DB for every plugin already known to it.
@@ -208,26 +226,8 @@ def scan_plugins(repo: PluginRepository, registry: PluginRegistry) -> PluginScan
 
     for manifest in registry_plugins:
         if manifest.id not in db_plugins:
-            # New plugin - create in database
-            plugin = Plugin(
-                id=manifest.id,
-                name=manifest.name,
-                version=manifest.version,
-                type=manifest.plugin_type,
-                enabled=False,  # New plugins start disabled
-                manifest_path=str(manifest.manifest_path),
-                description=manifest.description,
-                author=manifest.author,
-                installed_at=now_utc(),
-                updated_at=now_utc()
-            )
-            created_plugin = repo.create_plugin(plugin)
+            created_plugin = register_discovered_plugin(repo, manifest)
             new_plugins.append(plugin_to_response(created_plugin, registry))
-
-            # Register backend hooks in database
-            _register_plugin_hooks(repo, manifest)
-
-            logger.info(f"Discovered new plugin: {manifest.name} ({manifest.id})")
         else:
             # Existing plugin - check for version updates
             db_plugin = db_plugins[manifest.id]

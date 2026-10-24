@@ -596,7 +596,9 @@ class ThrowawayApp:
         password: Optional[str] = None,
         extra_env: Optional[Dict[str, str]] = None,
         repo_root: Path = REPO_ROOT,
+        claim: bool = True,
     ):
+        self.claim = claim
         self.models_source = Path(models_dir).expanduser().resolve() if models_dir else DEFAULT_TEST_MODELS_DIR
         self.recipes_source = (
             Path(recipes_dir).expanduser().resolve()
@@ -651,10 +653,11 @@ class ThrowawayApp:
             self.client = SetupClient(self.base_url)
             stage_wait_for_health(self.client)
 
-            self.owner_account_type = claim_owner(
-                self.client, username=self.username, email=self.email, password=self.password
-            )
-            if self.owner_account_type != "ADMIN":
+            if self.claim:
+                self.owner_account_type = claim_owner(
+                    self.client, username=self.username, email=self.email, password=self.password
+                )
+            if self.claim and self.owner_account_type != "ADMIN":
                 raise StageError(
                     "claim-owner",
                     f"Expected the first registration on a fresh instance to become ADMIN, "

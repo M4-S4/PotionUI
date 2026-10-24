@@ -25,6 +25,7 @@
 	import { Badge, Input, Spinner, Switch } from '$lib/components/ui';
 	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
+	import { baseUrlForType, llmTypeOptions } from './llmTypeOptions';
 	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
 	import LLMContextWindow from './llm/LLMContextWindow.svelte';
 
@@ -58,14 +59,6 @@
 		configId?: string | null;
 		preChatActions?: PreChatAction[];
 	} = $props();
-
-	const llmTypes = [
-		{ value: 'openai', label: 'OpenAI' },
-		{ value: 'anthropic', label: 'Anthropic' },
-		{ value: 'ollama', label: 'Ollama' },
-		{ value: 'native', label: 'Native' },
-		{ value: 'local', label: 'Local' }
-	];
 
 	// Ollama-specific options with defaults and descriptions
 	const ollamaOptions = {
@@ -232,6 +225,8 @@
 
 	loadProviderTypes();
 
+	const typeOptions = $derived(llmTypeOptions(providerTypes, draft.type));
+
 	const supportsModelListing = $derived(
 		providerTypes.some((t) => t.type === draft.type && t.supports_model_listing)
 	);
@@ -272,8 +267,13 @@
 {/snippet}
 
 {#snippet typeSelect()}
-	<select id="{idPrefix}-type" class="input" bind:value={draft.type}>
-		{#each llmTypes as type}
+	<select
+		id="{idPrefix}-type"
+		class="input"
+		bind:value={draft.type}
+		onchange={(e) => (draft.base_url = baseUrlForType(e.currentTarget.value, draft.base_url, providerTypes))}
+	>
+		{#each typeOptions as type}
 			<option value={type.value}>{type.label}</option>
 		{/each}
 	</select>

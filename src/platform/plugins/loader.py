@@ -123,6 +123,7 @@ class PluginManifest:
     chat_modes: List[Dict[str, Any]] = field(default_factory=list)
     tools: List[Dict[str, Any]] = field(default_factory=list)
     resources: List[Dict[str, Any]] = field(default_factory=list)
+    llm_providers: List[Dict[str, Any]] = field(default_factory=list)
 
     # Automation module node types (A3)
     automation_nodes: List[Dict[str, Any]] = field(default_factory=list)
@@ -164,7 +165,7 @@ _DICT_LIST_FIELDS = tuple(
     pipes presets preset_modes recipes model_layouts filters filter_ops
     recipe_steps samplers schedules model_classifiers pages admin_tabs quick_actions
     sidebar_widgets settings field_types model_metadata_fields renderers contributions docs
-    chat_modes resources automation_nodes automation_templates organize_facts organize_actions limit_kinds
+    chat_modes resources llm_providers automation_nodes automation_templates organize_facts organize_actions limit_kinds
     prompt_importers phrasebook_ops history_tools requirement_checkers setup
     """.split()
 )

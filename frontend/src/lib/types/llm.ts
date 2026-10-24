@@ -97,6 +97,8 @@ export interface NativeOptions {
  */
 export interface LLMProviderType {
 	type: string;
+	label: string | null;
+	default_base_url: string | null;
 	supports_model_listing: boolean;
 }
 

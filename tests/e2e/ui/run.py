@@ -74,6 +74,7 @@ if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
 import cloud_fake
+import fresh_install
 from e2e_harness import (  # noqa: E402
     StageError,
     ThrowawayApp,
@@ -151,7 +152,7 @@ def discover_specs() -> List[str]:
     return sorted(p.name[: -len(".spec.ts")] for p in specs if p not in skipped)
 
 
-FRESH_INSTANCE_SPECS = {"empty-group-tabs"}
+FRESH_INSTANCE_SPECS = {"empty-group-tabs", *fresh_install.SPEC_NAMES}
 
 
 def chunked(items: List[str], size: int) -> List[List[str]]:
@@ -620,11 +621,29 @@ def run_chunk(
     log(f"=== Chunk {chunk_index}/{total_chunks}: {', '.join(chunk_names)} ===")
 
     needs_cloud_fake = cloud_fake.wants_cloud_fake(chunk_names)
-    with ThrowawayApp(
-        models_dir=args.models_dir, port=args.port, keep=args.keep,
+    unclaimed = fresh_install.wants_fresh_install(chunk_names)
+    fresh = fresh_install.FreshInstall() if unclaimed else None
+    app_kwargs = dict(
+        models_dir=fresh.models_dir if fresh else args.models_dir,
+        port=args.port, keep=args.keep,
         username=OWNER_USERNAME, password=OWNER_PASSWORD,
-        extra_env=cloud_fake.plugin_env() if needs_cloud_fake else None,
-    ) as app:
+        extra_env=fresh.env() if fresh else (cloud_fake.plugin_env() if needs_cloud_fake else None),
+    )
+    if fresh:
+        app_kwargs["recipes_dir"] = fresh.recipes_dir
+        app_kwargs["claim"] = False
+    try:
+        return _run_chunk_on_app(
+            ThrowawayApp(**app_kwargs), fresh, needs_cloud_fake,
+            chunk_names=chunk_names, chunk_index=chunk_index, total_chunks=total_chunks, args=args,
+        )
+    finally:
+        if fresh:
+            fresh.stop()
+
+
+def _run_chunk_on_app(app_ctx, fresh, needs_cloud_fake, *, chunk_names, chunk_index, total_chunks, args) -> int:
+    with app_ctx as app:
         if needs_cloud_fake:
             cloud_fake.prepare(app)
         backend_port = app.instance.port
@@ -646,6 +665,9 @@ def run_chunk(
             env["E2E_PASSWORD"] = OWNER_PASSWORD
             env["E2E_ARTIFACTS_DIR"] = str(ARTIFACTS_DIR)
             env["E2E_DB_PATH"] = str(app.instance.db_path)
+            if fresh:
+                env["E2E_UNCLAIMED"] = "1"
+                env.update(fresh.spec_env())
 
             cmd = [NPX, "playwright", "test", *spec_filters(chunk_names)]
             if args.headed:
