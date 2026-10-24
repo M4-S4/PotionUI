@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.platform.plugins.llm_providers import LLMProviderRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
 from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.recipe_steps import RecipeStepKindRegistry
@@ -13,6 +14,7 @@ SECTIONS = {
     "phrasebook_ops": ("id", "phrasebook batch operation", "phrasebook batch operation backend"),
     "requirement_checkers": ("type", "requirement checker", "requirement checker backend"),
     "recipe_steps": ("kind", "recipe step kind", "recipe step executor backend"),
+    "llm_providers": ("type", "LLM provider", "LLM provider backend"),
 }
 
 
@@ -31,6 +33,7 @@ def make_registry(tmp_path, **overrides):
         "phrasebook_operation_registry": PhrasebookOperationRegistry(),
         "requirement_checker_registry": RequirementCheckerRegistry(),
         "recipe_step_kind_registry": RecipeStepKindRegistry(),
+        "llm_provider_registry": LLMProviderRegistry(),
     }
     wired.update(overrides)
     return PluginRegistry(marketplace_dir=str(tmp_path), local_dir=str(tmp_path), **wired)
@@ -150,6 +153,7 @@ def test_enable_stages_run_in_dependency_order(tmp_path, monkeypatch):
         "phrasebook_ops",
         "requirement_checkers",
         "recipe_steps",
+        "llm_providers",
         "_register_plugin_samplers",
         "_register_plugin_schedules",
         "_register_plugin_model_classifiers",

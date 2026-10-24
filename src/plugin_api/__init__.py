@@ -12,7 +12,7 @@ Import from the package itself - every name below is available directly:
 
 The capability modules (`src.plugin_api.automation`, `.backends`, `.chat`,
 `.cloud`, `.cloud_testing`, `.compute`, `.downloads`, `.filters`, `.generation`,
-`.groups`, `.hooks`, `.identity`, `.limits`, `.media`, `.models`, `.native`,
+`.groups`, `.hooks`, `.identity`, `.limits`, `.llm`, `.media`, `.models`, `.native`,
 `.notifications`, `.organize`, `.phrasebook`, `.pipes`, `.presets`, `.prompts`,
 `.providers`, `.recipes`, `.sampling`, `.setup`, `.storage`) group the same
 names, and each one's docstring explains what it is for. Import from whichever
@@ -84,6 +84,14 @@ from src.plugin_api.chat import (
     ToolContext,
     ToolResult,
     ToolSource,
+)
+
+from src.plugin_api.llm import (
+    DiscoveredModel,
+    DiscoveredWindow,
+    LLMConfig,
+    OpenAIClient,
+    OpenAIRequest,
 )
 
 # Contributing an engine.
@@ -413,6 +421,11 @@ __all__ = [
     "ToolContext",
     "ToolResult",
     "ToolSource",
+    "DiscoveredModel",
+    "DiscoveredWindow",
+    "LLMConfig",
+    "OpenAIClient",
+    "OpenAIRequest",
     # Backends and engines
     "BackendHealth",
     "BackendModel",

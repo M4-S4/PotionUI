@@ -12,6 +12,7 @@ from src.features.llm.repository import LLMConfig, LLMRepository
 from src.features.llm.ttl_cache import TTLCache
 from src.platform.database.rows import now_utc
 from src.platform.filesystem.model_roots import ModelRootResolver
+from src.platform.plugins.llm_providers import LLMProviderRegistry
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
@@ -42,8 +43,10 @@ class LLMGateway:
         llm_repository: LLMRepository,
         model_lifecycle: Optional[ModelLifecycle] = None,
         model_roots: Optional[ModelRootResolver] = None,
+        provider_registry: Optional[LLMProviderRegistry] = None,
     ):
         self.repository = llm_repository
+        self.provider_registry = provider_registry if provider_registry is not None else LLMProviderRegistry()
         self._ollama = OllamaClient()
         self._openai = OpenAIClient()
         self._native = NativeLLMClient(model_lifecycle, model_roots)
@@ -55,28 +58,43 @@ class LLMGateway:
         self._window_hits: TTLCache[WindowKey, WindowProbe] = TTLCache(CONTEXT_WINDOW_HIT_TTL_SECONDS)
         self._window_misses: TTLCache[WindowKey, WindowProbe] = TTLCache(CONTEXT_WINDOW_MISS_TTL_SECONDS)
 
+    def _client(self, type_id: str) -> Optional[LLMClient]:
+        if type_id in self._clients:
+            return self._clients[type_id]
+        registration = self.provider_registry.get(type_id)
+        return registration.client if registration is not None else None
+
     def _client_for(self, config: LLMConfig) -> LLMClient:
-        client = self._clients.get(config.type)
+        client = self._client(config.type)
         if client is None:
             raise ValueError(f"Unsupported LLM type: {config.type}")
         return client
 
+    def _type_entry(self, type_id: str, label: Optional[str], default_base_url: Optional[str]) -> Dict[str, Any]:
+        return {
+            "type": type_id,
+            "label": label,
+            "default_base_url": default_base_url,
+            "supports_model_listing": self.supports_model_listing(type_id),
+        }
+
     def provider_types(self) -> List[Dict[str, Any]]:
-        return [
-            {"type": type_id, "supports_model_listing": self.supports_model_listing(type_id)}
-            for type_id in self._clients
+        return [self._type_entry(type_id, None, None) for type_id in self._clients] + [
+            self._type_entry(registration.type_name, registration.label, registration.default_base_url or None)
+            for registration in self.provider_registry.all()
+            if registration.type_name not in self._clients
         ]
 
     def supports_model_listing(self, type_id: str) -> bool:
-        return callable(getattr(self._clients.get(type_id), "list_models", None))
+        return callable(getattr(self._client(type_id), "list_models", None))
 
     async def list_models(self, type_id: str, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
         if not self.supports_model_listing(type_id):
             raise ValueError(f"LLM type '{type_id}' cannot list models")
-        return await self._clients[type_id].list_models(base_url, api_key)
+        return await self._client(type_id).list_models(base_url, api_key)
 
     def supports_context_window_discovery(self, type_id: str) -> bool:
-        return callable(getattr(self._clients.get(type_id), "discover_context_window", None))
+        return callable(getattr(self._client(type_id), "discover_context_window", None))
 
     @staticmethod
     def _window_key(type_id: str, base_url: str, model: str) -> WindowKey:
@@ -92,7 +110,7 @@ class LLMGateway:
         window: Optional[DiscoveredWindow] = None
         try:
             window = await asyncio.wait_for(
-                self._clients[type_id].discover_context_window(base_url, api_key, model),
+                self._client(type_id).discover_context_window(base_url, api_key, model),
                 timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS + 1.0,
             )
         except Exception:

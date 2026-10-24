@@ -464,6 +464,15 @@ class RequirementCheckerSpec(BaseModel):
     backend: str
 
 
+class LLMProviderSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    label: str
+    backend: str
+    default_base_url: Optional[str] = None
+
+
 SETUP_STEP_KINDS = (
     "plugin.settings",
     "backend.added",
@@ -853,6 +862,7 @@ class PluginManifestSchema(BaseModel):
     chat_modes: List[ChatModeSpec] = Field(default_factory=list)
     tools: List[ChatToolSpec] = Field(default_factory=list)
     resources: List[ResourceProviderSpec] = Field(default_factory=list)
+    llm_providers: List[LLMProviderSpec] = Field(default_factory=list)
 
     # Automation module node types
     automation_nodes: List[AutomationNodeSpec] = Field(default_factory=list)

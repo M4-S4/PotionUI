@@ -9,6 +9,7 @@ from src.features.llm.clients.base import LLMResponse
 from src.platform.http.tls import client_ssl_context
 from src.features.llm.clients.openai_wire import (
     OpenAICompatSSEDecoder,
+    OpenAIRequest,
     ToolCallAssembler,
     build_openai_request,
     prompt_from,
@@ -40,6 +41,9 @@ class OpenAIClient:
 
     display_name = "OpenAI-compatible server"
 
+    def adapt_request(self, request: OpenAIRequest, config: LLMConfig) -> OpenAIRequest:
+        return request
+
     async def list_models(self, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         payload = await fetch_json(self.display_name, base_url, "/models", headers)
@@ -69,7 +73,7 @@ class OpenAIClient:
             for entry in entries if isinstance(entries, list) else []:
                 if not isinstance(entry, dict) or entry.get("id") != model:
                     continue
-                for key in ("context_length", "max_model_len"):
+                for key in ("context_length", "max_model_len", "context_window"):
                     tokens = positive_int(entry.get(key))
                     if tokens:
                         return DiscoveredWindow(tokens=tokens, kind="runtime")
@@ -94,9 +98,9 @@ class OpenAIClient:
             image_data: Optional base64 encoded image for vision models (GPT-4 Vision, etc.)
         """
         try:
-            request = build_openai_request(
+            request = self.adapt_request(build_openai_request(
                 config, prompt_from(prompt), system_message, image_data
-            )
+            ), config)
 
             async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 logging.info(f"[OpenAI] Sending to {config.base_url}/chat/completions, model: {config.model}, image: {bool(image_data)}")
@@ -136,10 +140,10 @@ class OpenAIClient:
     ) -> LLMResponse:
         """Generate a response with native tool calling."""
         try:
-            request = build_openai_request(
+            request = self.adapt_request(build_openai_request(
                 config, messages, system_message, image_data, options_override, tools,
                 tool_aware=True,
-            )
+            ), config)
 
             async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 logging.info(f"[OpenAI Tools] Sending to {config.base_url}/chat/completions, model: {config.model}, messages: {len(request.messages)}, tools: {len(tools) if tools else 0}")
@@ -214,10 +218,10 @@ class OpenAIClient:
         tell a tool-invoking turn apart from a plain-text one without waiting
         for the whole thing to buffer.
         """
-        request = build_openai_request(
+        request = self.adapt_request(build_openai_request(
             config, messages, system_message, image_data, options_override, tools,
             tool_aware=True, stream=True,
-        )
+        ), config)
 
         logging.info(
             f"[OpenAI Tools Stream] Sending streaming request to {config.base_url}/chat/completions, "
