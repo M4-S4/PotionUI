@@ -21,6 +21,7 @@ from src.pipelines.pipes.generator.txt2vid_wan22.main import _WanCtx, GeneratorW
 from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter
 from src.pipelines.pipes._shared.video.wan_experts import decode_wan_video
 from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb
+from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 
 
 class _FakeDiT:
@@ -1101,7 +1102,8 @@ def test_router_weights_budget_credits_resident_lora_delta(monkeypatch):
 
     assert res.ensure_free_calls
     need, _free, _exclude = res.ensure_free_calls[0]
-    assert need == pytest.approx(20.0 + expected_delta_gb)
+    headroom = sampling_headroom_gb((_HIRES_5S[-2], _HIRES_5S[-1]), latent_frames=_HIRES_5S[2])
+    assert need == pytest.approx(20.0 + expected_delta_gb + headroom)
 
 
 def test_router_resident_placement_routes_through_guarded_move(monkeypatch):
@@ -1286,6 +1288,24 @@ def test_router_stream_driver_oom_falls_back_to_zero_budget(monkeypatch):
                 raise torch.AcceleratorError("CUDA error: out of memory")
 
     high = _DriverOOMOnceDiT("high", est_gb=27.0)
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
+
+    assert len(high.streamed) == 2
+    assert high.streamed[1][1] == 0.0
+    assert high.offloaded == 1
+
+
+def test_router_stream_wsl_driver_error_falls_back_to_zero_budget(monkeypatch):
+    _patch_placement(monkeypatch, free_gb=30.0)
+
+    class _DriverNotReadyOnceDiT(_PlaceDiT):
+        def stream_to(self, d, budget):
+            self.streamed.append((d, budget))
+            if len(self.streamed) == 1:
+                raise RuntimeError("CUDA driver error: device not ready")
+
+    high = _DriverNotReadyOnceDiT("high", est_gb=27.0)
     router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
 

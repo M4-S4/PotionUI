@@ -334,6 +334,7 @@ def causal3d_chunk_frames(
     is_self_normalizing: bool = False,
     decode_mb_per_latent_px: float = 1.2,
     vram_fraction: float = 0.75,
+    single_frame_on_overflow: bool = False,
 ) -> int | None:
     """Max latent frames per TEMPORAL chunk (:func:`chunked_decode_causal3d`)
     whose full-spatial decode fits the given free-VRAM budget, or ``None`` when
@@ -374,12 +375,25 @@ def causal3d_chunk_frames(
     per_frame = two - one          # marginal decode spike for one extra latent frame
     base = one - per_frame         # fixed working overhead (paid once)
     budget = free_vram_gb_value * vram_fraction - vae_resident_gb - base
-    if per_frame <= 0 or budget < per_frame:   # not even one frame fits -> spatial tiling territory
+    if per_frame <= 0:
         return None
+    if budget < per_frame:                     # not even one frame fits -> spatial tiling territory
+        return 1 if single_frame_on_overflow else None
     max_frames = int(budget / per_frame)
     if max_frames >= frames:                   # whole clip already fits temporally -> no chunking
         return None
     return max(1, max_frames)
+
+
+def causal3d_frame_need_gb(
+    latent_hw: tuple[int, int],
+    *,
+    vae_resident_gb: float = 0.0,
+    decode_mb_per_latent_px: float = 1.2,
+    vram_fraction: float = 0.75,
+) -> float:
+    one = activation_headroom_gb(latent_hw, decode_mb_per_latent_px=decode_mb_per_latent_px, latent_frames=1)
+    return (vae_resident_gb + one) / vram_fraction
 
 
 def auto_tile_size(vram_free_gb: float | None, latent_hw: tuple[int, int]) -> int | None:

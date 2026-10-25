@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import time
+import traceback
 from typing import Any
 import numpy as np
 import torch
-from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_oom
-from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
+from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_driver_error, is_cuda_oom
+from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
 from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
-from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, chunked_decode_causal3d
+from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, causal3d_frame_need_gb, chunked_decode_causal3d
 from src.platform.runtime.system_memory import get_system_memory
 from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.contracts import logger
@@ -84,13 +85,17 @@ class ExpertRouter:
         free = free_vram_gb(self.device)
         if free is None:
             return need
-        evicted = get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
-        if evicted and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        free = free_vram_gb(self.device) or 0.0
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
+        evicted = get_residency_registry().ensure_free(self.device, need + headroom, free, exclude=self._own_experts())
+        if evicted:
+            logger.info("[WAN PLACEMENT] evicted %d resident component(s) (%s) for %.2fGB of weights and "
+                        "activations, %.2fGB free", len(evicted), ", ".join(type(m).__name__ for m in evicted),
+                        need + headroom, free)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        free = free_vram_gb(self.device) or 0.0
         budget = max(0.0, free - headroom)
         logger.info("[WAN PLACEMENT] %s expert %.2fGB: latent %dx%dx%d, activation reserve %.2fGB, "
                     "weight budget %.2fGB of %.2fGB free", self._expert_label(dit), need,
@@ -163,7 +168,7 @@ class ExpertRouter:
         try:
             dit.stream_to(self.device, budget)
         except Exception as exc:
-            if not is_cuda_oom(exc):
+            if not (is_cuda_oom(exc) or is_cuda_driver_error(exc)):
                 raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
@@ -220,7 +225,53 @@ def resolve_expert_boundary(spec, config: dict, sampling_settings: dict, steps: 
     return boundary
 
 
+def _make_room_for_decode(c: Any, latent: torch.Tensor) -> None:
+    if not str(c.device).startswith("cuda") or not torch.cuda.is_available():
+        return
+    free = effective_free_vram_gb(c.device)
+    if free is None:
+        return
+    vae_gb = float(getattr(c.vae, "estimated_vram_gb", None) or 0.0)
+    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=vae_gb)
+    evicted = get_residency_registry().ensure_free(c.device, need, free, exclude=[c.vae])
+    if evicted:
+        logger.info("[WAN DECODE] evicted %d resident component(s) (%s) before the VAE decode: %.2fGB needed, "
+                    "%.2fGB free", len(evicted), ", ".join(type(m).__name__ for m in evicted), need, free)
+        torch.cuda.empty_cache()
+
+
+def _clear_card_for_decode(c: Any) -> None:
+    if not str(c.device).startswith("cuda") or not torch.cuda.is_available():
+        return
+    get_residency_registry().offload_all(c.device, exclude=[c.vae])
+    torch.cuda.empty_cache()
+
+
+def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> torch.Tensor:
+    if chunk_frames is None:
+        return vae_module.decode(z)
+    return chunked_decode_causal3d(vae_module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu")
+
+
+def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
+    chunk_frames = causal3d_chunk_frames(
+        c.vae.module, z, free_vram_gb_value=effective_free_vram_gb(c.device), single_frame_on_overflow=True,
+    )
+    try:
+        return _decode_latent(c.vae.module, z, chunk_frames)
+    except Exception as exc:
+        if not (is_cuda_oom(exc) or is_cuda_driver_error(exc)):
+            raise
+        traceback.clear_frames(exc.__traceback__)
+        logger.warning("[WAN DECODE] VAE decode failed for lack of VRAM at %s latent frame(s) per chunk (%s); "
+                       "clearing the card and decoding one latent frame at a time",
+                       chunk_frames or int(z.shape[2]), str(exc).splitlines()[0][:200])
+    _clear_card_for_decode(c)
+    return _decode_latent(c.vae.module, z, 1)
+
+
 def decode_wan_video(c: Any, latent: torch.Tensor) -> np.ndarray:
+    _make_room_for_decode(c, latent)
     c.vae.move_to(c.device)
     z = latent.to(device=c.device, dtype=c.vae.compute_dtype)
     if c.latent_channels == len(LATENTS_MEAN):
@@ -229,13 +280,7 @@ def decode_wan_video(c: Any, latent: torch.Tensor) -> np.ndarray:
         z = z * std + mean
 
     with torch.no_grad():
-        chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free_vram_gb(c.device))
-        if chunk_frames is not None:
-            pixels = chunked_decode_causal3d(
-                c.vae.module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu",
-            )
-        else:
-            pixels = c.vae.module.decode(z)
+        pixels = _decode_pixels(c, z)
     c.vae.offload()
 
     if not torch.isfinite(pixels).all():

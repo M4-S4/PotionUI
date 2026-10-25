@@ -13,7 +13,7 @@ import torch
 
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
-from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames
+from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, causal3d_frame_need_gb
 
 
 def _tiny_wan_vae() -> AutoEncoderCausal3D:
@@ -116,3 +116,27 @@ def test_defaults_match_engine_py_constants():
     defaults = inspect.signature(causal3d_chunk_frames).parameters
     assert defaults["decode_mb_per_latent_px"].default == engine_mod._CAUSAL3D_DECODE_MB_PER_LATENT_PX
     assert defaults["vram_fraction"].default == engine_mod._DECODE_TILE_VRAM_FRACTION
+
+
+def test_one_frame_per_chunk_when_asked_and_even_one_frame_does_not_fit():
+    vae = _tiny_wan_vae()
+    latents = torch.zeros(1, 16, 9, 256, 256)
+    assert causal3d_chunk_frames(vae, latents, free_vram_gb_value=0.01, single_frame_on_overflow=True) == 1
+
+
+def test_single_frame_on_overflow_changes_nothing_when_frames_fit():
+    vae = _tiny_wan_vae()
+    latents = torch.zeros(1, 16, 4, 4, 4)
+    assert causal3d_chunk_frames(vae, latents, free_vram_gb_value=1000.0, single_frame_on_overflow=True) is None
+
+
+def test_frame_need_is_the_free_vram_under_which_one_frame_overflows():
+    vae = _tiny_wan_vae()
+    latents = torch.zeros(1, 16, 9, 60, 104)
+    need = causal3d_frame_need_gb((60, 104), vae_resident_gb=0.24)
+    assert causal3d_chunk_frames(vae, latents, free_vram_gb_value=need * 1.001, vae_resident_gb=0.24) == 1
+    assert causal3d_chunk_frames(vae, latents, free_vram_gb_value=need * 0.999, vae_resident_gb=0.24) is None
+
+
+def test_one_480p_latent_frame_needs_more_than_a_12gb_card():
+    assert causal3d_frame_need_gb((60, 104)) > 12.0
