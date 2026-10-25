@@ -182,6 +182,20 @@ def test_encode_video_raises_a_clear_message_on_oom():
     assert bundle.video_vae.offloaded == 1
 
 
+def test_video_encode_wsl_driver_oom_raises_the_explained_out_of_memory_error():
+    bundle = _bundle()
+
+    def driver_oom_encode(pixels):
+        raise RuntimeError("CUDA driver error: device not ready")
+
+    bundle.video_vae.module.encode = driver_oom_encode
+    with patch(f"{_MOD}.load_video_frames", return_value=torch.rand(5, 32, 32, 3)):
+        with pytest.raises(torch.cuda.OutOfMemoryError, match="no tiled encode fallback"):
+            _pipe(device="cpu", target_mode="scale", scale=2.0).process(
+                PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    assert bundle.video_vae.offloaded == 1
+
+
 def test_downscale_request_raises_before_any_gpu_work():
     bundle = _bundle()
     latent = torch.randn(1, 24, 3, 100, 100)

@@ -20,6 +20,7 @@ from src.pipelines.outputs import Icon, ProgressGenerationOutput
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.device import clear_gpu_memory
 from src.platform.runtime.model_lifecycle.lifecycle import empty_pinned_host_cache
+from src.platform.runtime.native.errors import is_cuda_oom
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     get_residency_registry,
@@ -240,7 +241,9 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
             try:
                 with torch.no_grad():
                     latent = bundle.video_vae.module.encode(pixels)
-            except torch.cuda.OutOfMemoryError as exc:
+            except RuntimeError as exc:
+                if not is_cuda_oom(exc):
+                    raise
                 raise torch.cuda.OutOfMemoryError(
                     "latent_upscaler/minimax_h3: VAE encode ran out of VRAM -- the H3 video VAE has no tiled "
                     "encode fallback yet, so try a shorter source clip or free VRAM first"

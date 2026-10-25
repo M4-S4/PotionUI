@@ -110,7 +110,7 @@ from vendor.gpl.comfyui.ops import (
 
 logger = logging.getLogger(__name__)
 
-_CUDA_OOM_ERRORS = (torch.cuda.OutOfMemoryError, getattr(torch, "AcceleratorError", torch.cuda.OutOfMemoryError))
+_CUDA_OOM_ERRORS = (RuntimeError,)
 
 
 class SamplingOutOfMemory(GenerationExecutionError):

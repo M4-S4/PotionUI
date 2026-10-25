@@ -95,6 +95,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base import NativeArchModule
+from ..errors import is_cuda_oom
 
 logger = logging.getLogger(__name__)
 
@@ -761,7 +762,9 @@ class MiniMaxH3VideoVAE(NativeArchModule):
                 try:
                     decoded.extend(self._decode_tile_batch(tiles[index : index + group]))
                     break
-                except torch.cuda.OutOfMemoryError:
+                except RuntimeError as exc:
+                    if not is_cuda_oom(exc):
+                        raise
                     if group == 1:
                         raise
                     group = max(1, group // 2)

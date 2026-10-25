@@ -10,6 +10,11 @@ from collections.abc import Iterable
 
 _TRUNCATE = 20
 
+_CUDA_DRIVER_OOM_MESSAGES = (
+    "CUDA driver error: device not ready",
+    "CUDA driver error: out of memory",
+)
+
 
 def _fmt_keys(keys: Iterable[str]) -> str:
     keys = list(keys)
@@ -24,7 +29,9 @@ def is_cuda_oom(exc: BaseException) -> bool:
     if isinstance(exc, torch.cuda.OutOfMemoryError):
         return True
     accelerator_error = getattr(torch, "AcceleratorError", None)
-    return accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc)
+    if accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc):
+        return True
+    return isinstance(exc, RuntimeError) and str(exc).startswith(_CUDA_DRIVER_OOM_MESSAGES)
 
 
 def is_cuda_driver_error(exc: BaseException) -> bool:

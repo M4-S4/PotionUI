@@ -173,6 +173,15 @@ below is only the *fallback* when component sizes are unknown; when they're know
 cards get different plans for a 9B Klein vs a 14B Wan. Residency priority is DiT > TE > VAE (the
 VAE is dropped to tiled/offloaded first, the TE next).
 
+What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
+`torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
+`RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
+expandable-segments allocator, which `cuda_env.py` turns on outside Windows. Under WSL2 (Docker
+Desktop) that driver error is how an exhausted card shows up, measured on a 12 GB RTX 4070 Ti on
+2026-10-25: never an `OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches
+`RuntimeError` and keeps only what `is_cuda_oom` accepts, so the same fallbacks run under WSL2;
+any other driver error propagates.
+
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
 
