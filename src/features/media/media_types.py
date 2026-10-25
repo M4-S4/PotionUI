@@ -10,17 +10,6 @@ from typing import Optional, Set
 
 from src.platform.filesystem import audio_formats, visual_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
-from src.platform.filesystem.splat_formats import splat_format_registry
-
-_GAUSSIAN_PLY_MARKERS = (b'end_header', b'f_dc_0', b'opacity', b'rot_0')
-_PLY_HEADER_SNIFF_BYTES = 64 * 1024
-
-
-def _looks_like_gaussian_ply(content: bytes) -> bool:
-    if not (content.startswith(b'ply\n') or content.startswith(b'ply\r\n')):
-        return False
-    head = content[:_PLY_HEADER_SNIFF_BYTES]
-    return all(marker in head for marker in _GAUSSIAN_PLY_MARKERS)
 
 
 # Longest signature first where two share a prefix (`RIFF`/`ftyp` containers
@@ -78,9 +67,6 @@ def sniff_media_extension(content: bytes) -> Optional[str]:
         if content.startswith(signature):
             return extension
 
-    if _looks_like_gaussian_ply(content):
-        return '.ply'
-
     # MPEG audio frame sync (an mp3 with no ID3 tag): 11 set bits.
     if len(content) >= 2 and content[0] == 0xFF and (content[1] & 0xE0) == 0xE0:
         return '.mp3'
@@ -134,10 +120,6 @@ class MediaTypeResolver:
         """
         return set(mesh_format_registry.extensions())
 
-    @property
-    def SPLAT_EXTENSIONS(self) -> Set[str]:
-        return set(splat_format_registry.extensions())
-
     def get_media_type(self, suffix: str) -> str:
         """Get MIME type for a file extension.
 
@@ -155,9 +137,6 @@ class MediaTypeResolver:
         mesh_format = mesh_format_registry.get(suffix)
         if mesh_format:
             return mesh_format.mime_type
-        splat_format = splat_format_registry.get(suffix)
-        if splat_format:
-            return splat_format.mime_type
         return 'application/octet-stream'
 
     def is_image(self, suffix: str) -> bool:
@@ -215,9 +194,6 @@ class MediaTypeResolver:
         """
         return mesh_format_registry.is_registered(suffix.lower())
 
-    def is_splat(self, suffix: str) -> bool:
-        return splat_format_registry.is_registered(suffix.lower())
-
     def is_valid_media_type(self, content_type: str) -> bool:
         """Check if a content type is a valid media type for upload.
 
@@ -235,6 +211,4 @@ class MediaTypeResolver:
             content_type.startswith('audio/')
         ):
             return True
-        if content_type in mesh_format_registry.mime_types().values():
-            return True
-        return content_type in splat_format_registry.mime_types().values()
+        return content_type in mesh_format_registry.mime_types().values()

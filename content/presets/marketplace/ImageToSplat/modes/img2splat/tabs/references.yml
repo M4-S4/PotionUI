@@ -1,6 +1,0 @@
-fields:
-  - name: "source_image"
-    type: "image"
-    label: "Source Image"
-    required: true
-    ai_hint: "The picture to turn into a 3D scene, kept at its own framing: landscapes, interiors, streets and characters in a setting all work. The scene is seen from this image's camera, so it holds up for small camera moves around it (an orbit of about 5 to 15 degrees, a dolly of 10 to 20 percent of the depth) and stretches beyond that."

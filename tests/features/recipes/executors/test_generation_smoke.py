@@ -152,37 +152,6 @@ def test_audio_inside_a_gallery_counts_as_output():
     assert result.safe_output["output_count"] == 1
 
 
-class Fake3DGalleryOrchestrator(FakeOrchestrator):
-
-    async def start_generation(self, request, user_id, output_callback):
-        from pathlib import Path
-        from src.pipelines.outputs import GalleryGenerationOutput, MeshGenerationOutput, SplatGenerationOutput
-
-        await output_callback("gen-1", GalleryGenerationOutput(
-            images=[],
-            meshes=[MeshGenerationOutput(mesh_path=Path("m.glb"), temporary=False)],
-            splats=[
-                SplatGenerationOutput(splat_path=Path("preview.ply"), temporary=True),
-                SplatGenerationOutput(splat_path=Path("s.ply"), temporary=False),
-            ],
-        ))
-        await output_callback("gen-1", SplatGenerationOutput(splat_path=Path("t.spz"), temporary=False))
-        await output_callback("gen-1", None)
-        return {"generation_id": "gen-1"}
-
-
-def test_meshes_and_splats_count_as_output_inside_and_outside_a_gallery():
-    template = FakePresetTemplate()
-    loader = FakePresetLoader(template)
-    file_repo = FakeFileRepository(files=[SimpleNamespace(file_path="generations/gen-1/1.ply")])
-    executor = GenerationSmokeExecutor(loader, object(), Fake3DGalleryOrchestrator(), file_repo)
-
-    result = executor.execute(_context(_recipe()))
-
-    assert result.success is True
-    assert result.safe_output["output_count"] == 3
-
-
 class FakeSamplingOrchestrator(FakeOrchestrator):
     """Emits sampling progress before the final image, the way a real
     generator does."""

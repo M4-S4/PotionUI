@@ -20,7 +20,6 @@
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
     "@types/d3-scale": "^4.0.9",
     "@types/node": "^20.19.43",
-    "@types/three": "^0.183.1",
     "@vitejs/plugin-basic-ssl": "^1.2.0",
     "autoprefixer": "^10.4.21",
     "jsdom": "^29.1.1",
@@ -36,7 +35,6 @@
   },
   "dependencies": {
     "@google/model-viewer": "^4.3.1",
-    "@sparkjsdev/spark": "2.3.1",
     "@xyflow/svelte": "1.6.6",
     "axios": "^1.6.0",
     "d3-scale": "^4.0.2",

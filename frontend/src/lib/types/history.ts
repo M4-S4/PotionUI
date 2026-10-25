@@ -43,9 +43,8 @@ export interface GenerationFile {
 	nsfw?: boolean;
 	content_flagged?: boolean;
 	content_state?: 'unrated';
-	/** Mesh files only - the real container format (e.g. 'glb'). */
+	/** Mesh files only - the real container format (e.g. 'glb', 'ply'). */
 	mesh_format?: string;
-	splat_format?: string;
 	/** Audio files only - track kind ('speech', 'mixed', 'vocal', 'instrumental').
 	 *  WS-only by design (workbench_update/gallery_update payloads during a live
 	 *  generation) - the persisted `File` record has no such column, so this is
@@ -197,7 +196,7 @@ export interface Collection {
 
 export type DatePreset = 'all' | 'today' | 'yesterday' | 'last_week' | 'last_month';
 
-export type MediaType = 'all' | 'image' | 'video' | 'audio' | 'mesh' | 'splat';
+export type MediaType = 'all' | 'image' | 'video' | 'audio' | 'mesh';
 
 export type SortBy = 'created_at' | 'completed_at' | 'rating' | 'file_size';
 

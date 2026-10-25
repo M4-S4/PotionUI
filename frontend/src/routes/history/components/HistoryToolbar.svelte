@@ -119,7 +119,7 @@
 		await historyStore.loadGenerations();
 	}
 
-	async function handleMediaTypeChange(mediaType: 'all' | 'image' | 'video' | 'audio' | 'mesh' | 'splat') {
+	async function handleMediaTypeChange(mediaType: 'all' | 'image' | 'video' | 'audio' | 'mesh') {
 		historyStore.setFilter('mediaType', mediaType);
 		await historyStore.loadGenerations();
 	}
@@ -421,16 +421,6 @@
 						on:click={() => handleMediaTypeChange('mesh')}
 					>
 						<Icon name="cube" className="w-3.5 h-3.5" />
-					</button>
-					<button
-						class="p-1.5 rounded-sm transition-colors duration-100 {currentState.filters.mediaType === 'splat'
-							? 'bg-signal/10 text-signal'
-							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-						title="3D scenes only"
-						aria-label="3D scenes only"
-						on:click={() => handleMediaTypeChange('splat')}
-					>
-						<Icon name="splat" className="w-3.5 h-3.5" />
 					</button>
 				</div>
 

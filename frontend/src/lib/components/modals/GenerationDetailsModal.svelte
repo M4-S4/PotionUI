@@ -18,9 +18,7 @@
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
-	import SplatPreview from '$lib/components/workbench/renderers/SplatPreview.svelte';
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
-	import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import type { AudioTrack, AudioTrackType } from '$lib/types/audio';
 	import StarRating from '$lib/components/StarRating.svelte';
@@ -229,7 +227,7 @@
 
 	// Reactive computed values; hide mode drops nsfw files from navigation.
 	$: mediaFiles = visibleMediaFiles(activeGeneration?.files || [], $nsfwFilterStore.mode).filter(
-		(file) => !isUnratedFile(file)
+		(file) => !isUnratedFile(file) && (!file.file_type || ['image', 'video', 'audio', 'mesh'].includes(file.file_type.toLowerCase()))
 	);
 	// Re-derived on every generation swap; reading `mediaFiles` orders this after it.
 	let renderedGenerationId = '';
@@ -387,20 +385,6 @@
 		return file?.file_type?.toLowerCase?.() === 'mesh';
 	}
 
-	function isSplatFile(file: any) {
-		return file?.file_type?.toLowerCase?.() === 'splat';
-	}
-
-	function splatViewerFile(file: any) {
-		const url = getImageUrl(file);
-		return {
-			url,
-			originalUrl: url,
-			splat_format: file.splat_format ?? null,
-			splat_name: file.file_path.split('/').pop() || null
-		};
-	}
-
 	function isAudioFile(file: any) {
 		return file?.file_type?.toLowerCase?.() === 'audio';
 	}
@@ -515,7 +499,7 @@
 		historyStore.toggleFavorite(activeGenerationId);
 	}
 
-	// The library holds images, video and audio - a mesh or a splat has nowhere to go there.
+	// The library holds images, video and audio - a mesh has nowhere to go there.
 	let copyingToLibrary = false;
 	$: canCopyToLibrary =
 		!!currentFile && ['image', 'video', 'audio'].includes(currentFile.file_type?.toLowerCase?.());
@@ -582,9 +566,7 @@
 			? 'mp4'
 			: isMeshFile(currentFile)
 				? resolveMeshFormat(currentFile)
-				: isSplatFile(currentFile)
-					? (resolveSplatFormat(currentFile) ?? 'ply')
-					: isAudioFile(currentFile)
+				: isAudioFile(currentFile)
 					? resolveAudioFormat(currentFile)
 					: 'png';
 		link.download = `generation-${activeGenerationId}-${currentFileIndex + 1}.${ext}`;
@@ -732,7 +714,7 @@
 
 								{#if currentFile.file_type}
 									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg uppercase">
-										{isVideoFile(currentFile) ? 'MP4' : isMeshFile(currentFile) ? resolveMeshFormat(currentFile).toUpperCase() : isSplatFile(currentFile) ? (resolveSplatFormat(currentFile) ?? 'splat').toUpperCase() : isAudioFile(currentFile) ? resolveAudioFormat(currentFile).toUpperCase() : 'PNG'}
+										{isVideoFile(currentFile) ? 'MP4' : isMeshFile(currentFile) ? resolveMeshFormat(currentFile).toUpperCase() : isAudioFile(currentFile) ? resolveAudioFormat(currentFile).toUpperCase() : 'PNG'}
 									</span>
 								{/if}
 							</div>
@@ -761,10 +743,6 @@
 					{:else if isMeshFile(currentFile)}
 						<div class="absolute inset-0 h-full w-full p-3 md:p-6">
 							<MeshPreview file={{ url: getImageUrl(currentFile), originalUrl: getImageUrl(currentFile) }} />
-						</div>
-					{:else if isSplatFile(currentFile)}
-						<div class="absolute inset-0 h-full w-full p-3 md:p-6">
-							<SplatPreview file={splatViewerFile(currentFile)} />
 						</div>
 					{:else if isAudioFile(currentFile)}
 						<div class="absolute inset-0 h-full w-full flex items-center justify-center p-3 md:p-6">

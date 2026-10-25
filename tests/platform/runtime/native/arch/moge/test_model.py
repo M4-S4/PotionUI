@@ -102,27 +102,3 @@ def test_estimate_fov_runs_at_the_requested_resolution_level():
 
 def test_a_mask_below_the_threshold_everywhere_estimates_nothing():
     assert _PinholeMoGe(30.0, mask_value=0.4).estimate_fov(torch.rand(1, 3, 64, 64)) == [None]
-
-
-def test_estimate_geometry_restores_the_shifted_depth_and_unprojects_it():
-    from src.platform.runtime.native.arch.moge import MoGeGeometry, normalized_view_plane_uv as uv_grid
-
-    model = _PinholeMoGe(45.0)
-    [geometry] = model.estimate_geometry(torch.rand(3, 48, 80))
-
-    assert isinstance(geometry, MoGeGeometry)
-    assert geometry.shift == pytest.approx(1.0, abs=1e-4)
-    expected_depth = 3.0 + 0.5 * uv_grid(80, 48)[..., 0]
-    assert torch.allclose(geometry.depth, expected_depth, atol=1e-3)
-    assert torch.equal(geometry.points[..., 2], geometry.depth)
-    assert bool(geometry.mask.all())
-    assert geometry.fov_x_deg == pytest.approx(45.0, abs=1e-3)
-    fx_px, fy_px = geometry.focal_pixels()
-    assert fx_px == pytest.approx(fy_px, rel=1e-6)
-    assert fx_px == pytest.approx(40 / math.tan(math.radians(22.5)), rel=1e-4)
-
-
-def test_estimate_geometry_masks_low_confidence_pixels():
-    assert _PinholeMoGe(30.0, mask_value=0.4).estimate_geometry(torch.rand(1, 3, 64, 64)) == [None]
-    [geometry] = _PinholeMoGe(30.0, mask_value=0.4).estimate_geometry(torch.rand(1, 3, 64, 64), mask_threshold=0.3)
-    assert bool(geometry.mask.all())

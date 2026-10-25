@@ -654,43 +654,6 @@ class TestUploadGenerationsFileTypes:
         assert added_record.thumbnail_medium is None
         assert added_record.thumbnail_large is None
 
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("filename,mime", [
-        ("scene.ply", "model/x-ply"),
-        ("scene.spz", "model/x-spz"),
-        ("scene.splat", "model/x-splat"),
-    ])
-    async def test_upload_splat_is_stored_as_splat(self, tmp_path, filename, mime):
-        manager = self._make_manager(tmp_path)
-
-        mock_file = MagicMock()
-        mock_file.filename = filename
-        mock_file.content_type = mime
-        mock_file.read = AsyncMock(return_value=b"splat bytes are not opened as an image")
-
-        await manager.upload_generations([mock_file], [], "user-123")
-
-        added_record = self.mock_repo.add_file.call_args[0][1]
-        assert added_record.file_type == "SPLAT"
-        assert added_record.mime_type == mime
-        assert added_record.file_path.endswith(filename[filename.index('.'):])
-        assert added_record.thumbnail_medium is None
-
-    @pytest.mark.asyncio
-    async def test_unnamed_gaussian_ply_upload_is_sniffed_as_splat(self, tmp_path, gaussian_ply_bytes):
-        manager = self._make_manager(tmp_path)
-
-        mock_file = MagicMock()
-        mock_file.filename = "blob"
-        mock_file.content_type = "model/x-ply"
-        mock_file.read = AsyncMock(return_value=gaussian_ply_bytes)
-
-        await manager.upload_generations([mock_file], [], "user-123")
-
-        added_record = self.mock_repo.add_file.call_args[0][1]
-        assert added_record.file_type == "SPLAT"
-        assert added_record.file_path.endswith(".ply")
-
 
 class _NoopUploadPluginRegistry:
     """A plugin registry that neither blocks nor rewrites anything."""

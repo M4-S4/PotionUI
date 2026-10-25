@@ -115,7 +115,6 @@ export function beginGenerationOwnership(
 				current_video: output.current_video,
 				current_audio: output.current_audio,
 				current_mesh: output.current_mesh,
-				current_splat: output.current_splat,
 				file_type: output.file_type
 			}
 		: { id: generationId, generation_id: generationId, status: 'running' };
@@ -134,7 +133,6 @@ export function beginGenerationOwnership(
 			batchVideos: output.batchVideos,
 			batchAudios: output.batchAudios,
 			batchMeshes: output.batchMeshes,
-			batchSplats: output.batchSplats,
 			workbenchIndex: output.workbenchIndex,
 			workbenchTotal: output.workbenchTotal,
 			pipeTimers: {}

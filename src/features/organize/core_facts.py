@@ -30,7 +30,6 @@ GENERATION_KINDS = (
     {"value": "video", "label": "Video"},
     {"value": "audio", "label": "Audio"},
     {"value": "mesh", "label": "3D"},
-    {"value": "splat", "label": "3D scene"},
 )
 
 ASPECT_OPTIONS = (

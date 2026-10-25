@@ -17,7 +17,6 @@ from datetime import datetime
 
 from src.platform.filesystem import audio_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
-from src.platform.filesystem.splat_formats import splat_format_registry
 from src.platform.filesystem.storage_driver import (
     FileStorageDriver,
     LocalFileStorageDriver,
@@ -30,7 +29,7 @@ from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
 
-FileType = Literal['IMAGE', 'VIDEO', 'AUDIO', 'MESH', 'SPLAT']
+FileType = Literal['IMAGE', 'VIDEO', 'AUDIO', 'MESH']
 StorageType = Literal['generations', 'tmp', 'models']
 
 
@@ -83,8 +82,6 @@ class FileStore:
             return 'AUDIO'
         elif mesh_format_registry.is_registered(f'.{ext}'):
             return 'MESH'
-        elif splat_format_registry.is_registered(f'.{ext}'):
-            return 'SPLAT'
         else:
             # Default to IMAGE for unknown extensions
             return 'IMAGE'

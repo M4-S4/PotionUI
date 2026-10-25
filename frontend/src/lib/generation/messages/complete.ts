@@ -62,7 +62,6 @@ generationMessageRegistry.register('generation_complete', {
 							current_video: output.current_video,
 							current_audio: output.current_audio,
 							current_mesh: output.current_mesh,
-							current_splat: output.current_splat,
 							file_type: output.file_type,
 							preview_suppressed: false
 						}
@@ -80,8 +79,7 @@ generationMessageRegistry.register('generation_complete', {
 				batchImages: output.batchImages,
 				batchVideos: output.batchVideos,
 				batchAudios: output.batchAudios,
-				batchMeshes: output.batchMeshes,
-				batchSplats: output.batchSplats
+				batchMeshes: output.batchMeshes
 			});
 
 			// Live adoption (see ownership.ts): the outgoing owner is gone --

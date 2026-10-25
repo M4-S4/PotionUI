@@ -59,7 +59,6 @@ CASES = [
     ("presets/marketplace/TRELLIS2", "img2mesh", {"source_image"}),
     ("presets/marketplace/Pixal3D", "img2mesh", {"source_image"}),
     ("presets/marketplace/Pixal3D", "views2mesh", {"front_image", "left_image", "back_image", "right_image"}),
-    ("presets/marketplace/ImageToSplat", "img2splat", {"source_image"}),
     ("presets/marketplace/MiniMax-H3", "refs", {"references"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
     ("comfyui-backend/presets/QwenImage", "img2img", {"source_image", "ref_image_2", "ref_image_3"}),

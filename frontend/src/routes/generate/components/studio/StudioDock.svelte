@@ -29,8 +29,7 @@
 		images: generation.batchImages,
 		videos: generation.batchVideos,
 		audios: generation.batchAudios,
-		meshes: generation.batchMeshes,
-		splats: generation.batchSplats
+		meshes: generation.batchMeshes
 	} as WorkbenchBatches;
 	$: total = galleryTotal(batches);
 	$: isResult = !isGenerating && total > 0 && currentGeneration?.status === 'completed';

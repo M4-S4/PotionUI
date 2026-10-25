@@ -3,7 +3,7 @@
  *
  * The picker addresses a file by identity, never by position: the card's
  * carousel is filtered (`is_final`, nsfw) and re-ordered
- * (images→videos→audio→mesh→splat), so a position in it is not a position in
+ * (images→videos→audio→mesh), so a position in it is not a position in
  * `generation.files`. The `<field>__origin` sibling the backend stores
  * (`{generation_id, file_index}`) does want a position, so it is derived here
  * from the file's own identity against the UNFILTERED files array.

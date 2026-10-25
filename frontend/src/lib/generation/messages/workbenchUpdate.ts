@@ -63,8 +63,6 @@ generationMessageRegistry.register('workbench_update', {
 		// view with nothing to show.
 		const isMeshUpdate = message.file_type === 'mesh';
 		const meshPath = isMeshUpdate ? message.path : undefined;
-		const isSplatUpdate = message.file_type === 'splat';
-		const splatPath = isSplatUpdate ? message.path : undefined;
 
 		if (isAudioUpdate && message.path) {
 			// Handle audio updates
@@ -157,33 +155,6 @@ generationMessageRegistry.register('workbench_update', {
 					}
 				}
 			});
-		} else if (isSplatUpdate && splatPath) {
-			const splatMetadata = {
-				format: message.splat_format,
-				filename: message.splat_name,
-				splat_count: message.splat_count,
-				seed: message.seed,
-				temporary: message.temporary,
-				derived: message.derived
-			};
-
-			ctx.tabsStore.updateTab(targetTabId, {
-				...activeIdPatch,
-				generation: {
-					...targetTab.generation,
-					currentGeneration: {
-						...targetTab.generation.currentGeneration,
-						current_splat: splatPath,
-						current_image: null,
-						current_video: null,
-						current_audio: null,
-						file_type: 'splat',
-						splat_metadata: splatMetadata,
-						status: targetTab.generation.currentGeneration?.status || 'running',
-						...policyPatch
-					}
-				}
-			});
 		} else if (imageData) {
 			// Process image data - handle base64 or URL
 			let imageUrl: string;
@@ -223,7 +194,7 @@ generationMessageRegistry.register('workbench_update', {
 					}
 				}
 			});
-		} else if (videoPath && !isAudioUpdate && !isMeshUpdate && !isSplatUpdate) {
+		} else if (videoPath && !isAudioUpdate && !isMeshUpdate) {
 			// Handle video updates
 			let videoUrl = videoPath;
 			if (videoPath.startsWith('/api/')) {

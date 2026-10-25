@@ -21,7 +21,6 @@ EMITTABLE = [
     "MeshGenerationOutput",
     "ModelFileGenerationOutput",
     "ProgressGenerationOutput",
-    "SplatGenerationOutput",
     "TextArtifactAction",
     "TextGenerationOutput",
     "VideoGenerationOutput",
@@ -86,22 +85,3 @@ def test_audio_output_is_usable_through_the_plugin_surface():
 
     assert gallery.audios == [audio]
     assert isinstance(audio, pipeline_outputs.GenerationOutput)
-
-
-def test_splat_io_type_reaches_the_plugin_surface():
-    from src.plugin_api.pipes import IOType
-
-    assert IOType.SPLAT.value == "SPLAT"
-
-
-def test_splat_output_is_usable_through_the_plugin_surface():
-    from pathlib import Path
-
-    from src.plugin_api.pipes import GalleryGenerationOutput, SplatGenerationOutput
-
-    splat = SplatGenerationOutput(splat_path=Path("/tmp/x.ply"), temporary=False, seed=1, splat_count=3)
-    gallery = GalleryGenerationOutput(images=[], splats=[splat])
-
-    assert gallery.splats == [splat]
-    assert gallery.meshes == []
-    assert isinstance(splat, pipeline_outputs.GenerationOutput)

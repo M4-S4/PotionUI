@@ -41,11 +41,10 @@ import io
 import math
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterator, Literal, Optional, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Iterator, Literal, Optional, Union
 
 from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
-from src.platform.filesystem.splat_formats import InvalidSplatError, inspect_splat
 from src.platform.filesystem.storage_driver import local_copy
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.util.imaging import convert_image_to_base64
@@ -79,7 +78,6 @@ __all__ = [
     "BackgroundMattingModel",
     "FFmpegNotFoundError",
     "FfmpegUnavailableError",
-    "SplatInfo",
     "StreamingMp4Writer",
     "TranscodeSpec",
     "VideoProbe",
@@ -87,19 +85,12 @@ __all__ = [
     "convert_image_to_base64",
     "extract_frame",
     "find_ffmpeg",
-    "probe_splat",
     "has_audio_stream",
     "mux_audio_from_source",
     "probe_video",
     "save_user_media",
     "transcode_video",
 ]
-
-
-class SplatInfo(TypedDict):
-    format: str
-    count: Optional[int]
-    view: Optional[Dict[str, Any]]
 
 
 def __getattr__(name):
@@ -220,25 +211,6 @@ async def save_user_media(user, path: Union[str, Path], purpose: str = UPLOAD_PU
     media_types = container.media_store.media_types
     content_type = media_types.get_media_type(source.suffix)
     if not media_types.is_valid_media_type(content_type):
-        raise MediaRefError("unsupported_media", "Only image, video, audio, 3D and Gaussian splat files can be stored")
-    if media_types.is_splat(source.suffix) and not media_types.is_mesh(source.suffix):
-        await asyncio.to_thread(probe_splat, source)
+        raise MediaRefError("unsupported_media", "Only image, video, audio and 3D files can be stored")
     data = await asyncio.to_thread(source.read_bytes)
     return await _store(container, data, source.name, content_type, user_id, purpose)
-
-
-def probe_splat(path: Union[str, Path]) -> SplatInfo:
-    source = Path(path)
-    if not source.is_file():
-        raise MediaRefError("not_found", "The file does not exist")
-    try:
-        info = inspect_splat(source)
-    except InvalidSplatError as exc:
-        raise MediaRefError("unsupported_media", f"Not a valid Gaussian splat: {exc}") from exc
-    except OSError as exc:
-        raise MediaRefError("not_found", f"The file could not be read: {exc}") from exc
-    return {
-        "format": info.format,
-        "count": info.count,
-        "view": info.view.as_dict() if info.view is not None else None,
-    }

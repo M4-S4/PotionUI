@@ -15,7 +15,6 @@
 		video: 'video',
 		audio: 'audio',
 		mesh: 'cube',
-		splat: 'splat',
 		upload: 'document'
 	};
 
