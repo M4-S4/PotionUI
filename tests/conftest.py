@@ -350,6 +350,5 @@ pytest_plugins = [
     'tests.fixtures.preset_fixtures',
     'tests.fixtures.image_fixtures',
     'tests.fixtures.mesh_fixtures',
-    'tests.fixtures.splat_fixtures',
     'tests.fixtures.audio_fixtures',
 ]

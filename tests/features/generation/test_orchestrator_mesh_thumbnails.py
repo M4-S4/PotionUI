@@ -233,28 +233,3 @@ class TestMeshThumbnailAutoTrigger:
         await _finish_and_settle(orchestrator, record)
 
         assert orchestrator._mesh_thumbnail_tasks == set()
-
-    @pytest.mark.asyncio
-    async def test_a_splat_file_is_never_mesh_rendered(
-        self, orchestrator, mock_generation_repo, fake_media_indexer,
-    ):
-        from src.features.generation.records import File
-        from src.features.generation.status_tracker import GenerationState
-
-        files = [File(file_path='generations/g/s1.ply', file_type='SPLAT', user_id='user_123', id='s1')]
-        mock_generation_repo.get_files = Mock(
-            side_effect=lambda generation_id, file_type=None, is_final=None: [
-                f for f in files if file_type is None or f.file_type == file_type
-            ]
-        )
-        record = _record(GenerationState.RUNNING)
-        orchestrator.status_tracker.get = Mock(return_value=record)
-        orchestrator.status_tracker.transition = Mock(
-            return_value=_record(GenerationState.COMPLETED)
-        )
-
-        with patch('src.platform.runtime.native.mesh_preview.render_mesh_preview') as mock_render:
-            await _finish_and_settle(orchestrator, record)
-
-        mock_render.assert_not_called()
-        assert 's1' not in fake_media_indexer.repository.thumbnails

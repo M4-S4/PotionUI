@@ -206,7 +206,7 @@ class LimitEventRepository:
             return cursor.rowcount
 
 
-_BREAKDOWN_LABELS = {"image": "Images", "video": "Videos", "audio": "Audio", "mesh": "3D", "splat": "3D scenes", "upload": "Library uploads"}
+_BREAKDOWN_LABELS = {"image": "Images", "video": "Videos", "audio": "Audio", "mesh": "3D", "upload": "Library uploads"}
 
 
 def _decimal(value: Any) -> Decimal:

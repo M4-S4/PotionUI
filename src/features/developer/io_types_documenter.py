@@ -14,7 +14,6 @@ class IoTypesDocumenter:
         'VIDEO': 'Video data',
         'AUDIO': 'Audio data',
         'MESH': '3D mesh file (glTF-binary)',
-        'SPLAT': '3D Gaussian splat file (.ply, .spz or .splat)',
         'MODEL': 'AI model (checkpoint)',
         'CLIP': 'CLIP text encoder model',
         'VAE': 'Variational Autoencoder model',

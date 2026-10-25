@@ -59,10 +59,6 @@
     "label": "Views to 3D",
     "icon": "cube"
   },
-  "img2splat": {
-    "label": "Image to 3D scene",
-    "icon": "cube"
-  },
   "inpaint": {
     "label": "Inpaint",
     "icon": "brush"

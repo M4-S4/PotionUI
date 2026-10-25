@@ -15,7 +15,7 @@ __all__ = ["load_moge2", "load_moge2_state_dict", "map_moge2_state_dict"]
 def _not_moge2(name: str) -> ValueError:
     return ValueError(
         f"{name} is not a MoGe-2 checkpoint (no encoder.backbone.cls_token / points_head.* keys). "
-        "Pixal3D's camera estimate and Image to Splat need moge_2_vitl_normal_fp16.safetensors from Comfy-Org/MoGe."
+        "Pixal3D's camera estimate needs moge_2_vitl_normal_fp16.safetensors from Comfy-Org/MoGe."
     )
 
 
@@ -49,7 +49,7 @@ def load_moge2(path: str | Path, *, dtype: torch.dtype = torch.float32) -> MoGe2
 
     path = Path(path)
     if path.suffix.lower() not in (".safetensors", ".sft"):
-        raise ValueError(f"{path.name}: MoGe-2 loads from safetensors only")
+        raise ValueError(f"{path.name}: the MoGe-2 camera estimator loads from safetensors only")
     with safe_open(str(path), framework="pt", device="cpu") as handle:
         keys = list(handle.keys())
         if not is_moge2_checkpoint(keys):

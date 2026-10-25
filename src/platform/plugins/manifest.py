@@ -544,7 +544,7 @@ class HistoryToolAppliesTo(BaseModel):
 
     min_selection: Optional[int] = Field(default=None, ge=1)
     max_selection: Optional[int] = None
-    media_kinds: List[Literal["image", "video", "audio", "mesh", "splat"]] = Field(default_factory=list)
+    media_kinds: List[Literal["image", "video", "audio", "mesh"]] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_selection_bounds(self) -> "HistoryToolAppliesTo":

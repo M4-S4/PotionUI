@@ -164,7 +164,7 @@ def apply_verdicts(
     if isinstance(output, GalleryGenerationOutput):
         output.images = keep_images
         output.videos = keep_videos
-        if not keep_images and not keep_videos and not output.audios and not output.meshes and not output.splats:
+        if not keep_images and not keep_videos and not output.audios and not output.meshes:
             return GateOutcome(None, verdicts, blocked=blocked)
         output._content_nsfw = kept_flagged
         output._content_flagged = kept_flagged and not blocking

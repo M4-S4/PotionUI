@@ -29,10 +29,6 @@ class TestIoTypesDocumenter:
         assert description == 'Audio data'
         assert description != 'No description available'
 
-    def test_get_description_splat(self):
-        documenter = IoTypesDocumenter()
-        assert documenter.get_description(IOType.SPLAT) == '3D Gaussian splat file (.ply, .spz or .splat)'
-
     def test_get_description_unknown_type(self):
         """Test getting description for an unknown IO type."""
         documenter = IoTypesDocumenter()

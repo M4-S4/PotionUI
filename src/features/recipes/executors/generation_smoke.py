@@ -216,13 +216,9 @@ class GenerationSmokeExecutor:
             ImageGenerationOutput,
             MeshGenerationOutput,
             ProgressGenerationOutput,
-            SplatGenerationOutput,
             VideoGenerationOutput,
         )
-        final_media = (
-            ImageGenerationOutput, VideoGenerationOutput, AudioGenerationOutput,
-            MeshGenerationOutput, SplatGenerationOutput,
-        )
+        final_media = (ImageGenerationOutput, VideoGenerationOutput, AudioGenerationOutput, MeshGenerationOutput)
 
         output_count = 0
         error_box: Dict[str, str] = {}
@@ -244,7 +240,7 @@ class GenerationSmokeExecutor:
             elif isinstance(output, GalleryGenerationOutput):
                 output_count += len(output.images)
                 output_count += sum(
-                    1 for item in (*output.videos, *output.audios, *output.meshes, *output.splats)
+                    1 for item in (*output.videos, *output.audios)
                     if not getattr(item, "temporary", False)
                 )
             elif isinstance(output, ErrorGenerationOutput):

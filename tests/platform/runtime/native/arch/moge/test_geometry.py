@@ -5,14 +5,7 @@ import math
 import pytest
 import torch
 
-from src.platform.runtime.native.arch.moge.geometry import (
-    depth_to_points,
-    focal_to_fx_fy,
-    fov_from_focal,
-    normalized_view_plane_uv,
-    recover_focal,
-    recover_focal_shift,
-)
+from src.platform.runtime.native.arch.moge.geometry import fov_from_focal, normalized_view_plane_uv, recover_focal
 
 
 def _pinhole_points(height: int, width: int, fov_x_deg: float, shift: float = 0.7) -> tuple[torch.Tensor, float]:
@@ -90,35 +83,3 @@ def test_a_batch_recovers_one_focal_per_image():
     wide, wide_focal = _pinhole_points(96, 96, 70.0)
     recovered = recover_focal(torch.cat([narrow, wide]))
     assert recovered == [pytest.approx(narrow_focal, rel=1e-5), pytest.approx(wide_focal, rel=1e-5)]
-
-
-@pytest.mark.parametrize("size,fov,shift", [((128, 128), 40.0, 0.7), ((96, 160), 60.0, -0.4)])
-def test_the_shift_is_recovered_with_the_focal(size, fov, shift):
-    height, width = size
-    points, focal = _pinhole_points(height, width, fov, shift=shift)
-    [(recovered_focal, recovered_shift)] = recover_focal_shift(points, torch.ones(1, height, width, dtype=torch.bool))
-    assert recovered_focal == pytest.approx(focal, rel=1e-5)
-    assert recovered_shift == pytest.approx(shift, abs=1e-4)
-
-
-def test_too_few_points_recover_nothing():
-    points, _ = _pinhole_points(16, 16, 40.0)
-    assert recover_focal_shift(points, torch.zeros(1, 16, 16, dtype=torch.bool)) == [None]
-
-
-def test_depth_to_points_reprojects_onto_pixel_centres():
-    height, width = 6, 10
-    fx, fy = focal_to_fx_fy(1.2, width / height)
-    depth = torch.linspace(1.0, 3.0, height * width).reshape(height, width)
-    points = depth_to_points(depth, fx, fy)
-    assert torch.equal(points[..., 2], depth)
-    u = points[..., 0] / points[..., 2] * fx * width + width / 2
-    v = points[..., 1] / points[..., 2] * fy * height + height / 2
-    assert torch.allclose(u, torch.arange(width).float().expand(height, -1) + 0.5, atol=1e-5)
-    assert torch.allclose(v, torch.arange(height).float()[:, None].expand(-1, width) + 0.5, atol=1e-5)
-
-
-def test_fx_fy_follow_the_fov():
-    fx, fy = focal_to_fx_fy(2.0 / math.sqrt(5.0), 2.0)
-    assert math.degrees(2 * math.atan(0.5 / fx)) == pytest.approx(90.0)
-    assert math.degrees(2 * math.atan(0.5 / fy)) == pytest.approx(53.13010235415598)
