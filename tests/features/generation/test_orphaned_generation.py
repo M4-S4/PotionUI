@@ -134,9 +134,25 @@ async def test_a_run_whose_starting_loop_closed_is_cancelled_and_frees_its_backe
         await _start(orchestrator, 'gen_1')
         await asyncio.to_thread(engine.started.wait, 5)
 
-    starter = threading.Thread(target=lambda: asyncio.run(start_then_leave()))
+    abandoned = threading.Event()
+
+    def run_and_close():
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(start_then_leave())
+            left = asyncio.all_tasks(loop)
+            for task in left:
+                task.cancel()
+            loop.run_until_complete(asyncio.gather(*left, return_exceptions=True))
+            abandoned.set()
+            loop.run_until_complete(loop.shutdown_default_executor())
+        finally:
+            loop.close()
+
+    starter = threading.Thread(target=run_and_close)
     starter.start()
     await asyncio.to_thread(engine.started.wait, 5)
+    await asyncio.to_thread(abandoned.wait, 5)
     engine.release.set()
     await asyncio.to_thread(starter.join, 10)
 
