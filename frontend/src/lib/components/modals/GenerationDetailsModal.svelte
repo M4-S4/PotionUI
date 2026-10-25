@@ -227,7 +227,7 @@
 
 	// Reactive computed values; hide mode drops nsfw files from navigation.
 	$: mediaFiles = visibleMediaFiles(activeGeneration?.files || [], $nsfwFilterStore.mode).filter(
-		(file) => !isUnratedFile(file)
+		(file) => !isUnratedFile(file) && (!file.file_type || ['image', 'video', 'audio', 'mesh'].includes(file.file_type.toLowerCase()))
 	);
 	// Re-derived on every generation swap; reading `mediaFiles` orders this after it.
 	let renderedGenerationId = '';
