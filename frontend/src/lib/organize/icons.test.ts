@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { hasIcon, iconPaths } from '$lib/utils/IconLibrary';
+import { hasIcon } from '$lib/utils/IconLibrary';
 import { actionIcon, factIcon, mediaKindIcon, subjectIcon } from './icons';
 
 const dir = join(__dirname, '../components/organize');
@@ -18,15 +18,9 @@ describe('organize icons', () => {
 			...['model', 'lora', 'preset', 'mode', 'media_kind', 'resolution', 'aspect', 'duration', 'prompt', 'filename', 'tags', 'detected_tags', 'model_type', 'base_model', 'name', 'description', 'trigger_words', 'source', 'file_size', 'attribute', 'plugin_fact'].map(factIcon),
 			...['add_to_collection', 'add_tags', 'plugin_action'].map(actionIcon),
 			...(['generation', 'upload', 'model'] as const).map(subjectIcon),
-			...['image', 'video', 'audio', 'mesh', 'splat'].map((k) => mediaKindIcon(k) as string)
+			...['image', 'video', 'audio', 'mesh'].map((k) => mediaKindIcon(k) as string)
 		];
 		for (const name of names) expect(hasIcon(name), name).toBe(true);
-	});
-
-	it('gives a splat an icon of its own, distinct from the mesh cube', () => {
-		expect(mediaKindIcon('splat')).toBe('splat');
-		expect(mediaKindIcon('splat')).not.toBe(mediaKindIcon('mesh'));
-		expect(iconPaths.splat).not.toEqual(iconPaths.cube);
 	});
 
 	it('every literal icon name used in organize components exists', () => {

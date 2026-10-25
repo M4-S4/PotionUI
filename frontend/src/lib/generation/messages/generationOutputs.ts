@@ -7,7 +7,7 @@
 // `batchImages`/`batchVideos`/etc. only ever reflect whichever generation
 // currently OWNS the tab's display (see `ownership.ts`) -- never a queued or
 // backgrounded generation (e.g. a Video Director shot run) alongside it.
-import type { ImageData, VideoData, MeshData, SplatData } from '$lib/types/tabs';
+import type { ImageData, VideoData, MeshData } from '$lib/types/tabs';
 import type { AudioData } from '$lib/types/audio';
 import { leadIndex } from '$lib/generation/leadFile';
 
@@ -16,27 +16,24 @@ export interface GenerationGalleryOutputs {
 	videos: VideoData[];
 	audios: AudioData[];
 	meshes: MeshData[];
-	splats: SplatData[];
 }
 
 /** The tab-display fields a generation's cached outputs resolve to: its
  *  batch arrays verbatim, plus the lead item (the newest derived item when
- *  one exists, else the first) across all five kinds in the persisted
- *  file-index order image/video/audio/mesh/splat (matches `leadFile.ts`). */
+ *  one exists, else the first) across all four kinds in the persisted
+ *  file-index order image/video/audio/mesh (matches `leadFile.ts`). */
 export interface LeadOutputPatch {
 	batchImages: ImageData[];
 	batchVideos: VideoData[];
 	batchAudios: AudioData[];
 	batchMeshes: MeshData[];
-	batchSplats: SplatData[];
 	workbenchIndex: number;
 	workbenchTotal: number;
 	current_image: string | null;
 	current_video: string | null;
 	current_audio: AudioData | null;
 	current_mesh: string | null;
-	current_splat: string | null;
-	file_type: 'image' | 'video' | 'audio' | 'mesh' | 'splat' | null;
+	file_type: 'image' | 'video' | 'audio' | 'mesh' | null;
 }
 
 /** Resolves what a generation's cached outputs should show on the tab --
@@ -47,21 +44,14 @@ export interface LeadOutputPatch {
  *  different run. `file_type` is `null` (and every batch array empty) when
  *  this generation has produced nothing yet. */
 export function leadOutputPatch(outputs: GenerationGalleryOutputs): LeadOutputPatch {
-	const { images, videos, audios, meshes, splats } = outputs;
-	const all: Array<ImageData | VideoData | AudioData | MeshData | SplatData> = [
-		...images,
-		...videos,
-		...audios,
-		...meshes,
-		...splats
-	];
+	const { images, videos, audios, meshes } = outputs;
+	const all: Array<ImageData | VideoData | AudioData | MeshData> = [...images, ...videos, ...audios, ...meshes];
 	const workbenchIndex = leadIndex(all);
 	const item = all[workbenchIndex] as { url?: string; originalUrl?: string } | undefined;
 
 	let fileType: LeadOutputPatch['file_type'] = null;
 	if (all.length > 0) {
-		if (workbenchIndex >= images.length + videos.length + audios.length + meshes.length) fileType = 'splat';
-		else if (workbenchIndex >= images.length + videos.length + audios.length) fileType = 'mesh';
+		if (workbenchIndex >= images.length + videos.length + audios.length) fileType = 'mesh';
 		else if (workbenchIndex >= images.length + videos.length) fileType = 'audio';
 		else if (workbenchIndex >= images.length) fileType = 'video';
 		else fileType = 'image';
@@ -72,14 +62,12 @@ export function leadOutputPatch(outputs: GenerationGalleryOutputs): LeadOutputPa
 		batchVideos: videos,
 		batchAudios: audios,
 		batchMeshes: meshes,
-		batchSplats: splats,
 		workbenchIndex,
 		workbenchTotal: all.length,
 		current_image: fileType === 'image' ? item?.url || item?.originalUrl || null : null,
 		current_video: fileType === 'video' ? item?.url || item?.originalUrl || null : null,
 		current_audio: fileType === 'audio' ? (item as AudioData) : null,
 		current_mesh: fileType === 'mesh' ? item?.url || item?.originalUrl || null : null,
-		current_splat: fileType === 'splat' ? item?.url || item?.originalUrl || null : null,
 		file_type: fileType
 	};
 }
@@ -87,7 +75,7 @@ export function leadOutputPatch(outputs: GenerationGalleryOutputs): LeadOutputPa
 const outputsByGenerationId = new Map<string, GenerationGalleryOutputs>();
 
 function empty(): GenerationGalleryOutputs {
-	return { images: [], videos: [], audios: [], meshes: [], splats: [] };
+	return { images: [], videos: [], audios: [], meshes: [] };
 }
 
 /** Reads a generation's cached outputs without clearing them -- used by

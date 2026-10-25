@@ -899,11 +899,4 @@ describe('smokeResultMedia', () => {
 		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'mesh.glb' } }))?.kind).toBe('mesh');
 		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'notes.txt' } }))?.kind).toBe('other');
 	});
-
-	it('reads a .ply, .spz or .splat file as a splat, not a mesh', () => {
-		for (const filename of ['scene.ply', 'scene.PLY', 'scene.spz', 'scene.splat']) {
-			expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename } }))?.kind, filename).toBe('splat');
-		}
-		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'scene.obj' } }))?.kind).toBe('mesh');
-	});
 });

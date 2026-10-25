@@ -25,8 +25,7 @@
 	const TYPE_ICON: Record<string, string> = {
 		video: 'video',
 		audio: 'audio',
-		mesh: 'cube',
-		splat: 'splat'
+		mesh: 'cube'
 	};
 
 	let sorted = $derived([...files].sort((a, b) => Number(b.is_final) - Number(a.is_final)));

@@ -1470,7 +1470,6 @@
 					batchVideos: [],
 					batchAudios: [],
 					batchMeshes: [],
-					batchSplats: [],
 					artifacts: [],
 					workbenchIndex: 0,
 					workbenchTotal: 0,
@@ -1833,15 +1832,14 @@
 	}
 
 	function handleWorkbenchNext() {
-		// The whole chain, not just images+videos: counting two of the five
-		// buckets pinned the index at the last video, so an audio, mesh or splat
-		// output after them could never be reached with the next arrow.
+		// The whole chain, not just images+videos: counting two of the four
+		// buckets pinned the index at the last video, so an audio or mesh output
+		// after them could never be reached with the next arrow.
 		const totalItems = galleryTotal({
 			images: generation.batchImages,
 			videos: generation.batchVideos,
 			audios: generation.batchAudios,
-			meshes: generation.batchMeshes,
-			splats: generation.batchSplats
+			meshes: generation.batchMeshes
 		});
 		const newIndex = Math.min(totalItems - 1, generation.workbenchIndex + 1);
 		tabsStore.updateTab(activeTabId, {
@@ -1862,8 +1860,8 @@
 		const { item, index } = event.detail;
 
 		// One `current_*` channel per bucket. Only setting current_image /
-		// current_video left an audio, mesh or splat tile selecting an entry with
-		// no media behind it at all.
+		// current_video left an audio or mesh tile selecting an entry with no
+		// media behind it at all.
 		const kind = normalizeFileType(item?.file_type) || 'image';
 		tabsStore.updateTab(activeTabId, {
 			generation: {
@@ -1875,7 +1873,6 @@
 					current_video: kind === 'video' ? item.url : null,
 					current_audio: kind === 'audio' ? item : null,
 					current_mesh: kind === 'mesh' ? item.url : null,
-					current_splat: kind === 'splat' ? item.url : null,
 					file_type: kind
 				}
 			}

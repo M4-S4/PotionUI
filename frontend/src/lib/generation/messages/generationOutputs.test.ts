@@ -14,8 +14,7 @@ function outputs(videoPath: string) {
 		images: [],
 		videos: [{ url: videoPath, originalUrl: videoPath } as any],
 		audios: [],
-		meshes: [],
-		splats: []
+		meshes: []
 	};
 }
 
@@ -31,7 +30,7 @@ describe('retireGeneration', () => {
 
 		retireGeneration('gen-1', unsubscribe);
 
-		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
+		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
 		expect(unsubscribe).toHaveBeenCalledWith('gen-1');
 	});
 
@@ -44,7 +43,7 @@ describe('retireGeneration', () => {
 		// A stray, reordered gallery_update for the same (already-retired) id
 		// arriving afterwards must not resurrect a cache entry for it.
 		setGenerationOutputs('gen-2', outputs('/api/media/generations/gen-2/1.mp4'));
-		expect(peekGenerationOutputs('gen-2')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
+		expect(peekGenerationOutputs('gen-2')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
 	});
 
 	it('is idempotent -- retiring an already-retired id repeats only the unsubscribe call', () => {
@@ -77,7 +76,7 @@ describe('retireOrphanedGenerationIds', () => {
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-a');
 		expect(unsubscribe).toHaveBeenCalledWith('gen-b');
-		expect(peekGenerationOutputs('gen-a')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
+		expect(peekGenerationOutputs('gen-a')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
 		expect(isGenerationOutputsRetired('gen-b')).toBe(true);
 	});
 

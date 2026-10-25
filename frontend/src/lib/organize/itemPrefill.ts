@@ -2,7 +2,7 @@ import { selectedCloudModelId } from '$lib/utils/cloudDirector';
 import type { OrganizeCondition } from '$lib/types/organize';
 import type { OrganizeStartRule } from './handoff';
 
-const MEDIA_KINDS = ['image', 'video', 'audio', 'mesh', 'splat'];
+const MEDIA_KINDS = ['image', 'video', 'audio', 'mesh'];
 
 export interface GenerationItemLike {
 	form_data?: Record<string, unknown> | null;

@@ -198,17 +198,6 @@ export interface MeshData {
 	seed?: number;
 }
 
-export interface SplatData {
-	url: string;
-	originalUrl?: string;
-	file_type?: 'splat';
-	splat_format?: string;
-	splat_name?: string;
-	derived?: boolean;
-	splat_count?: number;
-	seed?: number;
-}
-
 export interface ProgressData {
 	step: string;
 	/** `null`/`undefined` means this stage hasn't reported a fraction yet (e.g. a cold model load) - render indeterminate, not 0%. */
@@ -270,7 +259,6 @@ export interface GenerationState {
 	batchVideos: VideoData[];
 	batchAudios: AudioData[];
 	batchMeshes?: MeshData[];
-	batchSplats?: SplatData[];
 	artifacts: PipeArtifact[];
 	workbenchIndex: number;
 	workbenchTotal: number;

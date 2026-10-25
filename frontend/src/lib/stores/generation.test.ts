@@ -169,8 +169,7 @@ describe('dispatchGenerationMessage', () => {
 			images: [],
 			videos: [{ url: '/v.mp4', originalUrl: '/v.mp4' } as any],
 			audios: [],
-			meshes: [],
-			splats: []
+			meshes: []
 		});
 		const unsubscribe = vi.fn();
 		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -181,7 +180,7 @@ describe('dispatchGenerationMessage', () => {
 		);
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-orphaned');
-		expect(peekGenerationOutputs('gen-orphaned')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
+		expect(peekGenerationOutputs('gen-orphaned')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
 		expect(isGenerationOutputsRetired('gen-orphaned')).toBe(true);
 		// This is the expected/handled shape of "no tab found" for a terminal
 		// event, not a bug -- unlike the unowned non-terminal case, it must not
@@ -210,7 +209,7 @@ describe('dispatchGenerationMessage', () => {
 		);
 		errorSpy.mockRestore();
 
-		expect(peekGenerationOutputs('gen-retired')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
+		expect(peekGenerationOutputs('gen-retired')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
 	});
 
 	it('logs unknown message types once and otherwise no-ops', () => {
