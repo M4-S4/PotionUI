@@ -79,5 +79,24 @@ def test_is_cuda_driver_error_rejects_runtime_api_errors_and_other_types():
     assert not is_cuda_driver_error(ValueError("CUDA driver error: device not ready"))
 
 
-def test_is_cuda_oom_still_rejects_the_wsl_allocator_failure():
-    assert not is_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
+def test_is_cuda_oom_recognises_the_wsl_allocator_failure():
+    assert is_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
+
+
+def test_is_cuda_oom_recognises_a_driver_error_that_says_out_of_memory():
+    assert is_cuda_oom(RuntimeError("CUDA driver error: out of memory"))
+
+
+def test_is_cuda_oom_recognises_the_wsl_allocator_failure_with_a_cpp_stack_appended():
+    assert is_cuda_oom(RuntimeError("CUDA driver error: device not ready\nException raised from map at c10/cuda/CUDACachingAllocator.cpp"))
+
+
+def test_is_cuda_oom_rejects_other_driver_errors():
+    assert not is_cuda_oom(RuntimeError("CUDA driver error: invalid argument"))
+    assert not is_cuda_oom(RuntimeError("CUDA driver error: an illegal memory access was encountered"))
+    assert not is_cuda_oom(RuntimeError("CUDA driver error: unknown error"))
+
+
+def test_is_cuda_oom_rejects_the_wsl_message_on_an_error_that_is_not_a_runtime_error():
+    assert not is_cuda_oom(ValueError("CUDA driver error: device not ready"))
+    assert not is_cuda_oom(OSError("CUDA driver error: device not ready"))

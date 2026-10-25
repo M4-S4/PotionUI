@@ -74,11 +74,20 @@ def _fake_card(monkeypatch, log: list, *, capacity_gb: float, others_gb: float):
     return registry, free
 
 
+def _streamed_oom() -> BaseException:
+    return torch.cuda.OutOfMemoryError("fake streamed OOM")
+
+
+def _wsl_driver_oom() -> BaseException:
+    return RuntimeError("CUDA driver error: device not ready")
+
+
 class _FakeStreaming:
     """Stands in for ``engine.TextEncoderStreaming``: records the placement."""
 
     log: list = []
     oom_budgets: set = set()
+    make_oom = _streamed_oom
 
     def __init__(self, encoder) -> None:
         self.encoder = encoder
@@ -93,7 +102,7 @@ class _FakeStreaming:
     def apply(self, device, budget_gb) -> None:
         _FakeStreaming.log.append(("stream.apply", str(device), round(float(budget_gb), 3)))
         if round(float(budget_gb), 3) in _FakeStreaming.oom_budgets:
-            raise torch.cuda.OutOfMemoryError("fake streamed OOM")
+            raise _FakeStreaming.make_oom()
         self.resident_gb = budget_gb
         self._active = True
 
@@ -107,6 +116,7 @@ def fake_streaming(monkeypatch):
     log: list = []
     _FakeStreaming.log = log
     _FakeStreaming.oom_budgets = set()
+    monkeypatch.setattr(_FakeStreaming, "make_oom", _streamed_oom)
     monkeypatch.setattr(engine_mod, "TextEncoderStreaming", _FakeStreaming)
     return log
 
@@ -223,6 +233,40 @@ def test_pipe_path_streamed_oom_retries_fully_streamed(monkeypatch, fake_streami
         ("encode", "cpu"),
         ("stream.teardown",),
         ("mark", "streamed", 0.0),
+    ]
+
+
+def test_pipe_path_wsl_driver_oom_retries_fully_streamed(monkeypatch, fake_streaming):
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = _wsl_driver_oom
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]))
+
+    assert [e for e in log if e[0] != "note_offloaded"] == [
+        ("stream.apply", _DEV, _h3_budget(10.0)),
+        ("stream.teardown",),
+        ("stream.apply", _DEV, 0.0),
+        ("encode", "cpu"),
+        ("stream.teardown",),
+        ("mark", "streamed", 0.0),
+    ]
+
+
+def test_pipe_path_tears_down_and_raises_a_driver_error_that_is_not_exhaustion(monkeypatch, fake_streaming):
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = lambda: RuntimeError("CUDA driver error: invalid argument")
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    with pytest.raises(RuntimeError, match="invalid argument"):
+        run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]))
+    assert [e for e in log if e[0].startswith("stream.")] == [
+        ("stream.apply", _DEV, _h3_budget(10.0)),
+        ("stream.teardown",),
     ]
 
 
@@ -378,6 +422,21 @@ def test_generator_explicit_placement_decides_on_its_own(monkeypatch, fake_strea
 
 def test_generator_streamed_placement_oom_retries_fully_streamed(monkeypatch, fake_streaming):
     _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    _generator(encoder, vram_gb=12.0).encode_prompt("prompt")
+
+    assert log == [
+        ("stream.apply", _DEV, _h3_budget(10.0)), ("stream.teardown",),
+        ("stream.apply", _DEV, 0.0), ("encode", "cpu"), ("stream.teardown",),
+    ]
+
+
+def test_generator_streamed_placement_wsl_driver_oom_retries_fully_streamed(monkeypatch, fake_streaming):
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = _wsl_driver_oom
     log = fake_streaming
     _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
     encoder = minimax_h3_te(log)

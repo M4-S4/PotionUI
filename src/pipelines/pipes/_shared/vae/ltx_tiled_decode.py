@@ -44,6 +44,7 @@ import torch
 
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.device import clear_gpu_memory
+from src.platform.runtime.native.errors import is_cuda_oom
 from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 from src.platform.settings.runtime_flags import runtime_flag
 
@@ -269,7 +270,9 @@ def decode_with_oom_retry(
         try:
             with torch.no_grad():
                 return module.decode(latent)
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not is_cuda_oom(exc):
+                raise
             logger.warning(
                 "%s: conv VAE decode OOM'd; evicting every foreign GPU-resident "
                 "component and retrying once", log_prefix,
@@ -279,7 +282,9 @@ def decode_with_oom_retry(
             try:
                 with torch.no_grad():
                     return module.decode(latent)
-            except torch.cuda.OutOfMemoryError as exc:
+            except RuntimeError as exc:
+                if not is_cuda_oom(exc):
+                    raise
                 raise torch.cuda.OutOfMemoryError(
                     f"{log_prefix}: LTX conv VAE decode OOM'd even after evicting "
                     "other GPU-resident components -- this clip does not fit in "
@@ -313,7 +318,9 @@ def decode_with_oom_retry(
             pixels = _do_decode()
             _mark(mode="whole", evicted=False, retried=False, free_vram_after_gb=free_vram_gb(device))
             return pixels
-        except torch.cuda.OutOfMemoryError:
+        except RuntimeError as exc:
+            if not is_cuda_oom(exc):
+                raise
             logger.warning(
                 "%s: whole-clip diffusion decode OOM'd at latent grid %s "
                 "(free_vram_before_gb=%s, estimated_gb=%.2f); evicting every foreign "
@@ -326,7 +333,9 @@ def decode_with_oom_retry(
                 pixels = _do_decode()
                 _mark(mode="whole", evicted=True, retried=True, free_vram_after_gb=free_vram_gb(device))
                 return pixels
-            except torch.cuda.OutOfMemoryError:
+            except RuntimeError as exc:
+                if not is_cuda_oom(exc):
+                    raise
                 logger.warning(
                     "%s: whole-clip diffusion decode still OOM'd after eviction; "
                     "falling back to TILED decode (seams are blended, so output "
@@ -355,7 +364,9 @@ def decode_with_oom_retry(
     try:
         module.enable_tiling(**tile_sizes)
         pixels = _do_decode()
-    except torch.cuda.OutOfMemoryError as exc:
+    except RuntimeError as exc:
+        if not is_cuda_oom(exc):
+            raise
         _mark(mode="tiled", evicted=True, retried=True, oom=True, **tile_sizes)
         raise torch.cuda.OutOfMemoryError(
             f"{log_prefix}: LTX diffusion decode OOM'd even with tiled decoding at latent "
