@@ -93,34 +93,6 @@ def test_a_depth_jump_is_never_spanned_by_a_tangent():
     assert tangent_u[4, 4] == pytest.approx(points[4, 5] - points[4, 4])
 
 
-def test_a_lower_jump_keeps_a_small_sharp_step_from_being_spanned():
-    depth = np.full((8, 8), 4.0 * math.exp(0.3), dtype=np.float32)
-    depth[:, :4] = 4.0
-    select = np.zeros((8, 8), bool)
-    select[4, 3] = True
-    footprint = 4.0 / FOCAL
-
-    def major(jump):
-        splats = pixel_gaussians(np.full((8, 8, 3), 200, np.uint8), depth, select, np.full((8, 8), 0.9, np.float32),
-                                 FOCAL, FOCAL, present=np.ones((8, 8), bool), jump=jump)
-        return float(np.exp(splats.log_scales[0, :2]).max())
-
-    assert major(config.EDGE_JUMP_LOG_RATIO) > 4.0 * footprint
-    assert major(config.TANGENT_JUMP_LOG_RATIO) == pytest.approx(config.TANGENT_SCALE * footprint, rel=1e-4)
-
-
-def test_a_minimum_footprint_widens_only_the_in_plane_axes():
-    depth = np.full((6, 6), 3.0, dtype=np.float32)
-    select = np.zeros((6, 6), bool)
-    select[2, 3] = True
-    splats = pixel_gaussians(np.full((6, 6, 3), 255, np.uint8), depth, select, np.full((6, 6), 0.9, np.float32),
-                             FOCAL, FOCAL, present=np.ones((6, 6), bool), min_footprint=1.6)
-    footprint = 3.0 / FOCAL
-    assert np.sort(np.exp(splats.log_scales[0])) == pytest.approx(
-        [config.NORMAL_THICKNESS * footprint, 1.6 * footprint, 1.6 * footprint], rel=1e-5
-    )
-
-
 def test_a_pixel_cut_off_on_both_sides_falls_back_to_its_footprint():
     depth = np.full((5, 5), 6.0, dtype=np.float32)
     depth[2, 2] = 2.0

@@ -13,7 +13,6 @@ from .config import (
     BACKGROUND_DEPTH_MARGIN,
     BACKGROUND_LEVEL_STEP,
     BACKGROUND_MAX_LEVELS,
-    BACKGROUND_MIN_FOOTPRINT,
     BACKGROUND_OPACITY,
     BACKGROUND_OUTLINE_REACH,
     DISOCCLUSION_BASELINE,
@@ -36,11 +35,6 @@ from .config import (
     SKY_DEPTH_MIN,
     SKY_FARTHEST_PERCENTILE,
     SKY_OPACITY,
-    STEP_CUT_PX,
-    STEP_MAX_PX,
-    STEP_RISE_LOG,
-    STEP_SLOPE_LOG,
-    TANGENT_JUMP_LOG_RATIO,
     TANGENT_MAX_FOOTPRINTS,
     TANGENT_SCALE,
 )
@@ -51,7 +45,6 @@ __all__ = [
     "DepthLayers",
     "LiftedSplat",
     "background_thresholds",
-    "blurred_steps",
     "build_layers",
     "depth_jumps",
     "foreground_mask",
@@ -236,68 +229,6 @@ def depth_jumps(
     return DepthCuts(cuts=cuts, near_side=near_side, snapped=snapped, near_log=near, far_log=far)
 
 
-def _axis_steps(
-    log_depth: np.ndarray, usable: np.ndarray, slope: float, rise: float, longest: int
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    height, width = log_depth.shape
-    diff = log_depth[:, 1:] - log_depth[:, :-1]
-    valid = usable[:, 1:] & usable[:, :-1]
-    pad = np.zeros((height, 1))
-    sign = np.concatenate([np.where(valid & (np.abs(diff) > slope), np.sign(diff), 0.0), pad], axis=1).ravel()
-    diff = np.concatenate([np.where(valid, diff, 0.0), pad], axis=1).ravel()
-    begins = np.ones(sign.size, dtype=bool)
-    begins[1:] = sign[1:] != sign[:-1]
-    run = np.cumsum(begins) - 1
-    first = np.flatnonzero(begins)
-    size = np.diff(np.append(first, sign.size))
-    total = np.bincount(run, weights=diff)
-    is_step = (sign[first] != 0) & (size <= longest) & (np.abs(total) >= rise)
-    low = np.full((height, width), np.inf)
-    high = np.full((height, width), -np.inf)
-    gap = np.full((height, width), np.inf)
-    at = np.flatnonzero(is_step[run])
-    if at.size == 0:
-        return low, high, gap
-    owner = run[at]
-    rows, cols = at // width, at % width
-    begin = first[owner] % width
-    start, end = log_depth[rows, begin], log_depth[rows, begin + size[owner]]
-    lo, hi = np.minimum(start, end), np.maximum(start, end)
-    middle = 0.5 * (lo + hi)
-    left, right = log_depth[rows, cols], log_depth[rows, cols + 1]
-    straddle = (np.minimum(left, right) <= middle) & (np.maximum(left, right) > middle)
-    crossing = np.zeros(first.size)
-    crossing[owner[straddle]] = cols[straddle] + 0.5
-    for pixel in (cols, cols + 1):
-        low[rows, pixel] = np.minimum(low[rows, pixel], lo)
-        high[rows, pixel] = np.maximum(high[rows, pixel], hi)
-        gap[rows, pixel] = np.minimum(gap[rows, pixel], np.abs(pixel - crossing[owner]))
-    return low, high, gap
-
-
-def blurred_steps(
-    depth: np.ndarray,
-    usable: np.ndarray,
-    cuts: DepthCuts,
-    slope: float = STEP_SLOPE_LOG,
-    rise: float = STEP_RISE_LOG,
-    longest: int = STEP_MAX_PX,
-    reach: float = STEP_CUT_PX,
-) -> Tuple[np.ndarray, np.ndarray]:
-    log_depth = np.log(np.maximum(depth, MIN_DEPTH)).astype(np.float64)
-    low_u, high_u, gap_u = _axis_steps(log_depth, usable, slope, rise, longest)
-    low_v, high_v, gap_v = (a.T for a in _axis_steps(log_depth.T, usable.T, slope, rise, longest))
-    on_v = np.isfinite(low_v) & ((high_v - low_v) > (high_u - low_u))
-    low = np.where(on_v, low_v, low_u)
-    high = np.where(on_v, high_v, high_u)
-    gap = np.where(on_v, gap_v, gap_u)
-    member = np.isfinite(low) & ~cuts.cuts
-    low, high = np.where(member, low, 0.0), np.where(member, high, 0.0)
-    plateau = np.exp(np.where(log_depth <= 0.5 * (low + high), low, high))
-    snapped = np.where(member, plateau, cuts.snapped).astype(np.float32)
-    return member & (gap <= reach), snapped
-
-
 def hidden_bands(
     cuts: DepthCuts, depth: np.ndarray, present: np.ndarray, sky: np.ndarray, focal: float
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -427,8 +358,6 @@ def pixel_gaussians(
     fx: float,
     fy: float,
     present: Optional[np.ndarray] = None,
-    jump: float = EDGE_JUMP_LOG_RATIO,
-    min_footprint: float = 0.0,
 ) -> SplatArrays:
     present = select if present is None else present
     points = unproject(depth, fx, fy)
@@ -436,14 +365,11 @@ def pixel_gaussians(
     if rows.size == 0:
         empty = np.zeros((0, 3))
         return SplatArrays(empty, empty, np.zeros(0), empty, np.zeros((0, 4)))
-    tangent_u, tangent_v = surface_tangents(points, present, fx, fy, TANGENT_MAX_FOOTPRINTS, jump)
+    tangent_u, tangent_v = surface_tangents(points, present, fx, fy, TANGENT_MAX_FOOTPRINTS, EDGE_JUMP_LOG_RATIO)
     z = points[rows, cols, 2]
-    footprint = z / (0.5 * (fx + fy))
     rotations, log_scales = tangent_frames(
-        tangent_u[rows, cols], tangent_v[rows, cols], NORMAL_THICKNESS * footprint, TANGENT_SCALE
+        tangent_u[rows, cols], tangent_v[rows, cols], NORMAL_THICKNESS * z / (0.5 * (fx + fy)), TANGENT_SCALE
     )
-    if min_footprint > 0.0:
-        log_scales[:, :2] = np.maximum(log_scales[:, :2], np.log(min_footprint * footprint)[:, None])
     colours = rgb[rows, cols].astype(np.float32) / 255.0
     return SplatArrays(
         means=points[rows, cols],
@@ -461,24 +387,22 @@ def build_layers(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, fx: floa
         depth = np.where(sky, sky_depth(depth, usable), depth).astype(np.float32)
     present = usable | sky
     cuts = depth_jumps(depth, present, EDGE_JUMP_LOG_RATIO, EDGE_SNAP_WINDOW_PX)
-    steps, stepped = blurred_steps(depth, present & ~sky, cuts)
     hidden, outline = hidden_bands(cuts, depth, present, sky, 0.5 * (fx + fy))
     hidden = hidden | foreground_mask(cuts.cuts, cuts.near_side, present, sky)
-    edges = cuts.cuts | steps
     if EDGE_PIXELS == EDGE_DROP:
-        hidden = hidden | edges
-        visible = present & ~edges
+        hidden = hidden | cuts.cuts
+        visible = present & ~cuts.cuts
     else:
-        depth = stepped
+        depth = cuts.snapped
         visible = present
     background_rgb = background_depth = None
     if hidden.any():
-        background_rgb, background_depth = inpaint_background(rgb, depth, hidden, present & ~edges, outline)
+        background_rgb, background_depth = inpaint_background(rgb, depth, hidden, present & ~cuts.cuts, outline)
     return DepthLayers(
         depth=depth,
         present=visible,
         sky=sky,
-        cuts=edges,
+        cuts=cuts.cuts,
         hidden=hidden,
         background_rgb=background_rgb,
         background_depth=background_depth,
@@ -494,14 +418,14 @@ def lift_to_splat(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, fx: flo
 
     alpha = np.where(layers.sky, SKY_OPACITY, OPACITY).astype(np.float32)
     alpha[layers.cuts] = EDGE_OPACITY
-    front = pixel_gaussians(rgb, layers.depth, layers.present, alpha, fx, fy, jump=TANGENT_JUMP_LOG_RATIO)
+    front = pixel_gaussians(rgb, layers.depth, layers.present, alpha, fx, fy)
     parts = [front]
     back_count = 0
     if layers.background_depth is not None:
         back_alpha = np.full(layers.depth.shape, BACKGROUND_OPACITY, dtype=np.float32)
         back = pixel_gaussians(
             layers.background_rgb, layers.background_depth, layers.hidden, back_alpha, fx, fy,
-            present=np.ones_like(layers.hidden), min_footprint=BACKGROUND_MIN_FOOTPRINT,
+            present=np.ones_like(layers.hidden),
         )
         parts.append(back)
         back_count = back.count
