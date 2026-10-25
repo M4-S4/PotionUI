@@ -288,9 +288,6 @@ def test_decode_untiled_oom_retries_chunked_before_tiled(monkeypatch):
     assert (calls["once"], calls["chunked"], calls["tiled"]) == (1, 1, 0)
 
 
-# --- WSL2: the expandable-segments allocator reports exhausted VRAM as a driver error
-
-
 _WSL_DRIVER_OOM = "CUDA driver error: device not ready"
 
 
