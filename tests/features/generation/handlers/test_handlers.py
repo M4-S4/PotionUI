@@ -10,7 +10,7 @@ from src.features.generation.handlers import (
     VideoGenerationOutputHandler, GalleryGenerationOutputHandler,
     ParamGenerationOutputHandler,
     AudioGenerationOutputHandler,
-    MeshGenerationOutputHandler, SplatGenerationOutputHandler,
+    MeshGenerationOutputHandler,
     CostGenerationOutputHandler, ModelFileGenerationOutputHandler,
 )
 from src.features.generation.output_types import output_type_registry
@@ -885,7 +885,6 @@ class TestDefaultOutputTypeRegistry:
             VideoGenerationOutputHandler,
             AudioGenerationOutputHandler,
             MeshGenerationOutputHandler,
-            SplatGenerationOutputHandler,
             GalleryGenerationOutputHandler,
             ParamGenerationOutputHandler,
             ModelFileGenerationOutputHandler,

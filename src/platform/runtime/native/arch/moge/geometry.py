@@ -8,12 +8,9 @@ import torch
 import torch.nn.functional as F
 
 __all__ = [
-    "depth_to_points",
-    "focal_to_fx_fy",
     "fov_from_focal",
     "normalized_view_plane_uv",
     "recover_focal",
-    "recover_focal_shift",
     "solve_focal_shift",
 ]
 
@@ -61,14 +58,6 @@ def recover_focal(
     mask: Optional[torch.Tensor] = None,
     downsample: Tuple[int, int] = _DOWNSAMPLE,
 ) -> List[Optional[float]]:
-    return [pair[0] if pair is not None else None for pair in recover_focal_shift(points, mask, downsample)]
-
-
-def recover_focal_shift(
-    points: torch.Tensor,
-    mask: Optional[torch.Tensor] = None,
-    downsample: Tuple[int, int] = _DOWNSAMPLE,
-) -> List[Optional[Tuple[float, float]]]:
     height, width = points.shape[-3], points.shape[-2]
     points = points.reshape(-1, height, width, 3).float()
     uv = normalized_view_plane_uv(width, height, dtype=points.dtype, device=points.device)
@@ -82,7 +71,7 @@ def recover_focal_shift(
         mask = mask.reshape(-1, height, width).to(torch.float32).unsqueeze(1)
         mask_np = (F.interpolate(mask, downsample, mode="nearest").squeeze(1) > 0).cpu().numpy()
 
-    solutions: List[Optional[Tuple[float, float]]] = []
+    focals: List[Optional[float]] = []
     for index in range(points_np.shape[0]):
         xyz = points_np[index] if mask_np is None else points_np[index][mask_np[index]]
         grid = uv_np if mask_np is None else uv_np[mask_np[index]]
@@ -91,27 +80,15 @@ def recover_focal_shift(
         finite = np.isfinite(xyz).all(axis=-1)
         xyz, grid = xyz[finite], grid[finite]
         if grid.shape[0] < 2:
-            solutions.append(None)
+            focals.append(None)
             continue
-        shift, focal = solve_focal_shift(grid, xyz)
-        usable = math.isfinite(focal) and focal > 0 and math.isfinite(shift)
-        solutions.append((focal, shift) if usable else None)
-    return solutions
-
-
-def focal_to_fx_fy(focal: float, aspect_ratio: float) -> Tuple[float, float]:
-    diagonal = (1 + aspect_ratio ** 2) ** 0.5
-    return focal / 2 * diagonal / aspect_ratio, focal / 2 * diagonal
+        _, focal = solve_focal_shift(grid, xyz)
+        focals.append(focal if math.isfinite(focal) and focal > 0 else None)
+    return focals
 
 
 def fov_from_focal(focal: float, aspect_ratio: float) -> Tuple[float, float]:
-    fx, fy = focal_to_fx_fy(focal, aspect_ratio)
+    diagonal = (1 + aspect_ratio ** 2) ** 0.5
+    fx = focal / 2 * diagonal / aspect_ratio
+    fy = focal / 2 * diagonal
     return math.degrees(2 * math.atan(0.5 / fx)), math.degrees(2 * math.atan(0.5 / fy))
-
-
-def depth_to_points(depth: torch.Tensor, fx: float, fy: float) -> torch.Tensor:
-    height, width = depth.shape[-2:]
-    u = (torch.arange(width, dtype=depth.dtype, device=depth.device) + 0.5) / width
-    v = (torch.arange(height, dtype=depth.dtype, device=depth.device) + 0.5) / height
-    v, u = torch.meshgrid(v, u, indexing="ij")
-    return torch.stack([(u - 0.5) / fx * depth, (v - 0.5) / fy * depth, depth], dim=-1)

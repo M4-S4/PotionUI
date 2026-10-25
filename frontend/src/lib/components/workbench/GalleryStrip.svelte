@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import type { ImageData, VideoData, MeshData, SplatData } from '$lib/types/tabs';
+	import type { ImageData, VideoData, MeshData } from '$lib/types/tabs';
 	import type { AudioData } from '$lib/types/audio';
 	import { Badge, SegmentedControl } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import Icon from '$lib/components/Icon.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { groupByPrompt, isPromptBatch, type PromptEntry } from './promptGroups';
 
@@ -12,7 +11,6 @@
 	export let batchVideos: VideoData[] = [];
 	export let batchAudios: AudioData[] = [];
 	export let batchMeshes: MeshData[] = [];
-	export let batchSplats: SplatData[] = [];
 	export let selectedIndex: number = 0;
 
 	const dispatch = createEventDispatcher<{
@@ -36,7 +34,7 @@
 	$: batched = isPromptBatch(promptEntries.map((entry) => entry.item));
 	$: grouped = batched && view === 'prompt';
 	$: groups = grouped ? groupByPrompt(promptEntries) : [];
-	$: hasOtherMedia = batchAudios.length > 0 || batchMeshes.length > 0 || batchSplats.length > 0;
+	$: hasOtherMedia = batchAudios.length > 0 || batchMeshes.length > 0;
 </script>
 
 {#snippet groupTile(tile: (typeof groups)[number]['tiles'][number], group: (typeof groups)[number])}
@@ -245,35 +243,6 @@
 					{#if meshData.mesh_format}
 						<div class="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded-full font-medium">
 							{meshData.mesh_format}
-						</div>
-					{/if}
-				</div>
-			{/each}
-
-			{#each batchSplats as splatData, index}
-				{@const globalIndex = batchImages.length + batchVideos.length + batchAudios.length + batchMeshes.length + index}
-				<div
-					class="relative group cursor-pointer flex-shrink-0"
-					class:tile-selected={selectedIndex === globalIndex}
-					on:click={() => handleSelect({ url: splatData.url, originalUrl: splatData.originalUrl || splatData.url, file_type: 'splat' }, globalIndex)}
-					on:keydown={(e) => e.key === 'Enter' && handleSelect({ url: splatData.url, originalUrl: splatData.originalUrl || splatData.url, file_type: 'splat' }, globalIndex)}
-					role="button"
-					tabindex="0"
-				>
-					<div
-						class="w-32 h-32 rounded-lg overflow-hidden border {selectedIndex === globalIndex ? 'border-line-hover' : 'border-line-strong hover:border-line-hover'} transition-colors flex items-center justify-center"
-						style={placeholderTint(splatData.url)}
-					>
-						<Icon name="splat" className="w-12 h-12 text-fg-subtle" strokeWidth={1.5} />
-					</div>
-
-					<div class="absolute top-1 left-1 bg-black/70 text-white text-xs font-mono tabular-nums px-1.5 py-0.5 rounded-full font-medium">
-						#{globalIndex + 1}
-					</div>
-
-					{#if splatData.splat_format}
-						<div class="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-1.5 py-0.5 rounded-full font-medium">
-							{splatData.splat_format}
 						</div>
 					{/if}
 				</div>

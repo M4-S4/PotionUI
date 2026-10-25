@@ -220,24 +220,6 @@ class TestFileService:
         """No format is registered for `.ply` - it must not be classified MESH."""
         assert self.file_service.determine_file_type('ply') != 'MESH'
 
-    def test_determine_file_type_splats(self):
-        assert self.file_service.determine_file_type('ply') == 'SPLAT'
-        assert self.file_service.determine_file_type('.SPZ') == 'SPLAT'
-        assert self.file_service.determine_file_type('splat') == 'SPLAT'
-
-    def test_save_file_from_path_types_a_ply_as_splat(self):
-        source = Path(self.temp_dir) / "source.ply"
-        source.write_bytes(b"ply fake bytes")
-
-        _file_path, metadata = self.file_service.save_file_from_path(
-            self.test_generation_id,
-            str(source),
-            extension="ply",
-            storage_type='generations'
-        )
-
-        assert metadata['file_type'] == 'SPLAT'
-
     def test_determine_file_type_driven_by_mesh_format_registry(self):
         """Classification tracks the registry, not a hardcoded literal.
 

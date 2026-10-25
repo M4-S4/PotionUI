@@ -19,11 +19,10 @@ import {
 	isAudioFileType,
 	isImageFileType,
 	isMeshFileType,
-	isSplatFileType,
 	isVideoFileType
 } from '$lib/utils/fileType';
 
-export type MediaKind = 'image' | 'video' | 'audio' | 'mesh' | 'splat';
+export type MediaKind = 'image' | 'video' | 'audio' | 'mesh';
 
 /** Which page's Tools menu a tool is offered on. */
 export type MediaToolScope = 'history' | 'library' | 'field';
@@ -187,7 +186,6 @@ function mediaKind(file: GenerationFile): MediaKind | null {
 	if (isVideoFileType(file.file_type)) return 'video';
 	if (isAudioFileType(file.file_type)) return 'audio';
 	if (isMeshFileType(file.file_type)) return 'mesh';
-	if (isSplatFileType(file.file_type)) return 'splat';
 	return null;
 }
 

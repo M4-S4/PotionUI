@@ -80,7 +80,7 @@ describe('resolveMeshMetadata', () => {
 
 describe('resolveMeshFormat', () => {
 	it('surfaces a real non-glb format from the flat gallery/history shape', () => {
-		expect(resolveMeshFormat({ url: '/api/mesh/b.obj', mesh_format: 'obj' })).toBe('obj');
+		expect(resolveMeshFormat({ url: '/api/mesh/b.ply', mesh_format: 'ply' })).toBe('ply');
 	});
 
 	it('surfaces a real non-glb format from the nested live-generation shape', () => {
@@ -90,7 +90,7 @@ describe('resolveMeshFormat', () => {
 	});
 
 	it('lowercases an uppercase server-sent format', () => {
-		expect(resolveMeshFormat({ mesh_format: 'OBJ' })).toBe('obj');
+		expect(resolveMeshFormat({ mesh_format: 'PLY' })).toBe('ply');
 	});
 
 	it('falls back to glb only when the server sent no format at all', () => {

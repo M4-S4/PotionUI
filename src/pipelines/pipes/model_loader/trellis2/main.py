@@ -177,10 +177,8 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
         lifecycle = ComponentLifecycle(models, progress)
 
         loaded = {
-            key: lifecycle.acquire(Component(
-                label, key, fingerprint[0] if fingerprint else f"{key}|{dtype_name}", loader, estimated_gb,
-            ))
-            for label, key, loader, estimated_gb, *fingerprint in plan
+            key: lifecycle.acquire(Component(label, key, f"{key}|{dtype_name}", loader, estimated_gb))
+            for label, key, loader, estimated_gb in plan
         }
 
         return PipeOutput(output={"model": self._bundle(loaded, paths, tier, device)})

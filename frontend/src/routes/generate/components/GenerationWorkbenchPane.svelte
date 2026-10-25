@@ -54,7 +54,6 @@
 	batchVideos={tab.generation.batchVideos}
 	batchAudios={tab.generation.batchAudios}
 	batchMeshes={tab.generation.batchMeshes}
-	batchSplats={tab.generation.batchSplats}
 	workbenchMaxHeight={tab.workbenchMaxHeight || '600'}
 	{emptyLayout}
 	{stageTop}

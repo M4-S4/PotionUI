@@ -60,7 +60,7 @@ export function registerEntryTools(): void {
 		labelFor: (ctx) => {
 			if (ctx.entry?.status === 'failed') return 'View error';
 			if (isStack(ctx)) return 'Open grid';
-			if (ctx.kinds.has('mesh') || ctx.kinds.has('splat')) return 'Open in 3D viewer';
+			if (ctx.kinds.has('mesh')) return 'Open in 3D viewer';
 			return 'Open details';
 		},
 		applies: () => ({ enabled: true }),

@@ -24,7 +24,6 @@ function createInitialGenerationState(): GenerationState {
 		batchVideos: [],
 		batchAudios: [],
 		batchMeshes: [],
-		batchSplats: [],
 		artifacts: [],
 		workbenchIndex: 0,
 		workbenchTotal: 0,
