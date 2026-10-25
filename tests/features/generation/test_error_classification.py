@@ -236,3 +236,12 @@ def test_a_cloud_failure_with_context_leads_with_it():
     assert classification.category == "cloud_credits"
     assert classification.summary == "Shot 3 of 4 failed. Shots 1-2 were kept. The cloud provider account is out of credits."
     assert classify_generation_error(CloudRunError("credits", "x")).summary == "The cloud provider account is out of credits."
+
+
+def test_the_wsl_allocator_failure_classifies_as_cuda_oom():
+    exc = RuntimeError("CUDA driver error: device not ready")
+
+    classification = classify_generation_error(exc)
+
+    assert classification.category == "cuda_oom"
+    assert classification.suggestions

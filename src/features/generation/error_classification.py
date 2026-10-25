@@ -11,6 +11,7 @@ _CUDA_OOM_MARKERS = (
     "cuda error: out of memory",
     "hip out of memory",
     "cublas_status_execution_failed",
+    "cuda driver error: device not ready",
 )
 
 _MODEL_FILE_EXTENSIONS = (

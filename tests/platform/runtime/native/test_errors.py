@@ -7,6 +7,7 @@ import torch
 from src.platform.runtime.native.errors import (
     PoisonedConditioningError,
     SamplingNumericsError,
+    is_cuda_driver_error,
     is_cuda_oom,
 )
 
@@ -66,3 +67,17 @@ def test_is_cuda_oom_rejects_an_accelerator_error_that_does_not_say_out_of_memor
 
 def test_is_cuda_oom_rejects_a_plain_runtime_error_even_when_it_says_out_of_memory():
     assert not is_cuda_oom(RuntimeError("CUDA error: out of memory"))
+
+
+def test_is_cuda_driver_error_recognises_the_wsl_allocator_failure():
+    assert is_cuda_driver_error(RuntimeError("CUDA driver error: device not ready"))
+
+
+def test_is_cuda_driver_error_rejects_runtime_api_errors_and_other_types():
+    assert not is_cuda_driver_error(RuntimeError("CUDA error: an illegal memory access was encountered"))
+    assert not is_cuda_driver_error(torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB"))
+    assert not is_cuda_driver_error(ValueError("CUDA driver error: device not ready"))
+
+
+def test_is_cuda_oom_still_rejects_the_wsl_allocator_failure():
+    assert not is_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
