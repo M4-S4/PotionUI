@@ -13,7 +13,7 @@ Full-size captures (1440 x 900 and 1280 x 720, plus an English series of the plu
 - The engine selector lists the presets of the instance ("Wan 2.1 / 2.2"), grouped by the backend names given by the host, instead of "ComfyUI · RTX 4090".
 - Vocabulary is unified: "Instruction locale" (prototype: "Prompt de plan", "Instructions locales du plan"), "Control video" (prototype: "Vidéo de contrôle", "contrôle"), "Sous-titres".
 - Chips drawn over images (shot numbers, durations, scope tags, take letters) use a dark scrim with white text in both themes, as in the prototype. Status labels on the take thumbnails (draft, final, to redo) are white instead of tinted.
-- The prototype has a "Scène 3D" workspace. The plugin has none since 25 October 2026: it has five workspaces, and the window Reframe from 3D, opened from the shot editor, Director IA › References or the Shot menu, takes the place of that space (see Reframe from 3D below). The images taken before that date, composites and PNG crops alike, still show the "Scène 3D" ("3D scene") tab in the workspace bar when the bar is in the picture, and `scene-dark.jpg` / `scene-light.jpg` show the space itself.
+- The prototype has a "Scène 3D" workspace. The plugin has none since 25 October 2026: it has five workspaces, and the window Reframe from 3D, opened from the shot editor, Director IA › References or the Shot menu, takes the place of that space (see Reframe from 3D below). The images taken before that date, composites and PNG crops alike, still show the "Scène 3D" ("3D scene") tab in the workspace bar when the bar is in the picture.
 
 ## Screens
 
