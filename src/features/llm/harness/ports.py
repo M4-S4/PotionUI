@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, List, Optional, Protocol, 
 from src.features.llm.harness.errors import HarnessError
 from src.features.llm.harness.messages import Message, Origin, ToolCallPart
 from src.features.llm.harness.profile import CapabilityProfile
-from src.features.llm.harness.turn_state import Notice, PendingCall, StepRecord, ToolFinished, ToolStarted, TurnState
+from src.features.llm.harness.turn_state import Decision, Notice, PendingCall, StepRecord, ToolFinished, ToolStarted, TurnState
 
 if TYPE_CHECKING:
     from src.features.llm.repository import LLMConfig
@@ -48,6 +48,7 @@ class ToolRunner(Protocol):
         calls: Sequence[ToolCallPart],
         state: TurnState,
         context: Any,
+        decisions: Sequence[Decision] = (),
     ) -> AsyncIterator[Union[ToolStarted, ToolFinished, PendingCall]]: ...
 
 

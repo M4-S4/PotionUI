@@ -1,0 +1,58 @@
+{
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+  "headers": {
+    "x-goog-api-key": "[scrubbed]",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "gemini-3.8-flash",
+    "input": [
+      {
+        "type": "user_input",
+        "content": [
+          {
+            "type": "text",
+            "text": "Remove my stale backups."
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "stream": true,
+    "system_instruction": "You help manage backups. Ask before destructive actions.",
+    "tools": [
+      {
+        "type": "function",
+        "name": "list_backups",
+        "description": "List the stored backups.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      },
+      {
+        "type": "function",
+        "name": "delete_backup",
+        "description": "Delete one stored backup permanently.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        }
+      }
+    ],
+    "generation_config": {
+      "temperature": 1.0,
+      "max_output_tokens": 4096,
+      "thinking_summaries": "auto"
+    }
+  }
+}

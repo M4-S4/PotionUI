@@ -1,5 +1,6 @@
 import itertools
 import json
+from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Union
 
 from src.features.llm.harness.adapter import RenderRequest, WireRequest
@@ -22,7 +23,13 @@ from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, Pr
 
 SCRIPTED_ORIGIN = Origin(adapter="scripted", provider="scripted", model="scripted-model")
 
-Step = Union[Sequence[StreamEvent], HarnessError]
+@dataclass(frozen=True)
+class FailMidStream:
+    events: Sequence[StreamEvent]
+    error: HarnessError
+
+
+Step = Union[Sequence[StreamEvent], HarnessError, FailMidStream]
 
 
 def text_step(text: str, *, reasoning: str = "", usage: Optional[Usage] = None) -> List[StreamEvent]:
@@ -58,11 +65,15 @@ def scripted_profile(**fields: Any) -> CapabilityProfile:
 
 
 class _Replay:
-    def __init__(self, events: Sequence[StreamEvent]) -> None:
+    def __init__(self, events: Sequence[StreamEvent], eager: bool = False) -> None:
         self._events = list(events)
+        self._eager = eager
 
     def feed(self, chunk: bytes) -> List[StreamEvent]:
-        return []
+        if not self._eager:
+            return []
+        events, self._events = self._events, []
+        return events
 
     def close(self) -> List[StreamEvent]:
         return self._events
@@ -88,12 +99,16 @@ class ScriptedAdapter:
     def decoder(self, request: RenderRequest, profile: CapabilityProfile) -> _Replay:
         if isinstance(self._current, HarnessError):
             return _Replay([])
+        if isinstance(self._current, FailMidStream):
+            return _Replay(self._current.events, eager=True)
         return _Replay(self._current or [])
 
     async def send(self, wire: WireRequest, request: RenderRequest) -> AsyncIterator[bytes]:
         if isinstance(self._current, HarnessError):
             raise self._current
         yield b""
+        if isinstance(self._current, FailMidStream):
+            raise self._current.error
 
     def classify_error(self, failure: WireFailure) -> HarnessError:
         return InvalidRequest(f"scripted failure {failure.status}", status=failure.status)
