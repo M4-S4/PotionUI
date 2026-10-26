@@ -77,7 +77,6 @@ async def record(spec: Dict[str, Any], out: Path, adapter_class: type, force: bo
     adapter = adapter_class()
     meta = {
         "adapter": spec["adapter"],
-        "provider": spec.get("provider", spec["adapter"]),
         "model": spec["model"],
         "source": cassettes.RECORDED,
         "doc_url": spec.get("doc_url"),

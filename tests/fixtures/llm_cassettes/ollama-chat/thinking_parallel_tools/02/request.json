@@ -1,0 +1,86 @@
+{
+  "method": "POST",
+  "url": "http://ollama.local:11434/api/chat",
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": "[scrubbed]"
+  },
+  "body": {
+    "model": "qwen3:8b",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a preset assistant."
+      },
+      {
+        "role": "user",
+        "content": "Which preset is faster, fast or slow?"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_e94be7d82e0bd75f3ae25b51",
+            "type": "function",
+            "function": {
+              "name": "get_preset",
+              "arguments": {
+                "name": "fast"
+              }
+            }
+          },
+          {
+            "id": "call_f115f0628847151f07259925",
+            "type": "function",
+            "function": {
+              "name": "get_preset",
+              "arguments": {
+                "name": "slow"
+              }
+            }
+          }
+        ],
+        "thinking": "I need both presets."
+      },
+      {
+        "role": "tool",
+        "content": "{\"name\":\"fast\",\"steps\":4}",
+        "tool_call_id": "call_e94be7d82e0bd75f3ae25b51"
+      },
+      {
+        "role": "tool",
+        "content": "{\"name\":\"slow\",\"steps\":30}",
+        "tool_call_id": "call_f115f0628847151f07259925"
+      }
+    ],
+    "stream": true,
+    "keep_alive": 0,
+    "think": true,
+    "options": {
+      "temperature": 0.7,
+      "num_predict": 2000,
+      "num_ctx": 32768
+    },
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_preset",
+          "description": "Read one preset by name",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+  "headers": {
+    "x-goog-api-key": "[scrubbed]",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "gemini-3.8-flash",
+    "input": [
+      {
+        "type": "user_input",
+        "content": [
+          {
+            "type": "text",
+            "text": "Turn on the disco ball, start some energetic music and dim the lights to 20 percent."
+          }
+        ]
+      },
+      {
+        "type": "thought",
+        "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together."
+          }
+        ]
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "Setting the mood now."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "7b1x4s0q",
+        "name": "power_disco_ball",
+        "arguments": {
+          "power": true
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "m2k9c1pe",
+        "name": "start_music",
+        "arguments": {
+          "energetic": true,
+          "loud": false,
+          "bpm": 128
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "d8v3n6ra",
+        "name": "dim_lights",
+        "arguments": {
+          "brightness": 0.2
+        }
+      },
+      {
+        "type": "function_result",
+        "call_id": "7b1x4s0q",
+        "name": "power_disco_ball",
+        "result": [
+          {
+            "type": "text",
+            "text": "The disco ball is spinning."
+          }
+        ]
+      },
+      {
+        "type": "function_result",
+        "call_id": "m2k9c1pe",
+        "name": "start_music",
+        "result": [
+          {
+            "type": "text",
+            "text": "{\"playing\": true, \"bpm\": 128}"
+          }
+        ]
+      },
+      {
+        "type": "function_result",
+        "call_id": "d8v3n6ra",
+        "name": "dim_lights",
+        "result": [
+          {
+            "type": "text",
+            "text": "Lights dimmed to 20 percent."
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "stream": true,
+    "system_instruction": "You run the lights and sound in a party room. Use the tools to act.",
+    "tools": [
+      {
+        "type": "function",
+        "name": "power_disco_ball",
+        "description": "Powers the spinning disco ball.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "power": {
+              "type": "boolean",
+              "description": "Whether to turn the ball on or off."
+            }
+          },
+          "required": [
+            "power"
+          ]
+        }
+      },
+      {
+        "type": "function",
+        "name": "start_music",
+        "description": "Play some music matching the specified parameters.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "energetic": {
+              "type": "boolean"
+            },
+            "loud": {
+              "type": "boolean"
+            },
+            "bpm": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "energetic",
+            "loud",
+            "bpm"
+          ]
+        }
+      },
+      {
+        "type": "function",
+        "name": "dim_lights",
+        "description": "Dim the lights.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "brightness": {
+              "type": "number",
+              "description": "0.0 is darkest, 1.0 is brightest."
+            }
+          },
+          "required": [
+            "brightness"
+          ]
+        }
+      }
+    ],
+    "generation_config": {
+      "temperature": 1.0,
+      "max_output_tokens": 4096,
+      "thinking_summaries": "auto"
+    }
+  }
+}
