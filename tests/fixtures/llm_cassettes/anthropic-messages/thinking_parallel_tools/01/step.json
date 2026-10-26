@@ -10,7 +10,8 @@
         "redacted": false,
         "opaque": {
           "signature": "ErUBCkYIARgCIkB-hand-built-signature-1"
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "reasoning",
@@ -19,7 +20,8 @@
         "redacted": true,
         "opaque": {
           "data": "EmwKAhgBEgy3va3pzix-hand-built-redacted-1"
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",

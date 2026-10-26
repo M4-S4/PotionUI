@@ -10,7 +10,8 @@
         "redacted": false,
         "opaque": {
           "signature": "ErUBCkYIARgCIkB-hand-built-signature-3"
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",

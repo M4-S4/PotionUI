@@ -10,7 +10,8 @@
         "redacted": false,
         "opaque": {
           "signature": "ErUBCkYIARgCIkB-hand-built-pause-signature-2"
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",
