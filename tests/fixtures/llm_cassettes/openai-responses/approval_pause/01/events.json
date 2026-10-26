@@ -1,0 +1,92 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "id",
+    "value": "rs_2c3d4e5f60718293"
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "encrypted_content",
+    "value": "gAAAAABq_delete_plan_encrypted_blob_dGhpcmQ="
+  },
+  {
+    "type": "tool_call_start",
+    "block": 1,
+    "call_id": "call_delete_01",
+    "name": "delete_file",
+    "wire_id": "fc_2c3d4e5f60718293"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 1,
+    "text": "{\"pa"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 1,
+    "text": "th\":"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 1,
+    "text": "\"build/\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 1,
+    "args": null
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 298,
+      "output_tokens": 96,
+      "total_tokens": 394,
+      "reasoning_tokens": 80,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": null,
+      "cost": null,
+      "raw": {
+        "input_tokens": 298,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens": 96,
+        "output_tokens_details": {
+          "reasoning_tokens": 80
+        },
+        "total_tokens": 394
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "completed",
+    "raw": [
+      {
+        "id": "rs_2c3d4e5f60718293",
+        "type": "reasoning",
+        "summary": [],
+        "encrypted_content": "gAAAAABq_delete_plan_encrypted_blob_dGhpcmQ="
+      },
+      {
+        "id": "fc_2c3d4e5f60718293",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"path\":\"build/\"}",
+        "call_id": "call_delete_01",
+        "name": "delete_file"
+      }
+    ]
+  }
+]

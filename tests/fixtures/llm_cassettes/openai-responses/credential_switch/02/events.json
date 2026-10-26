@@ -1,0 +1,83 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "id",
+    "value": "rs_5f60718293a4b5c6"
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "encrypted_content",
+    "value": "gAAAAABq_prime_b_encrypted_blob_Zml2ZnQ="
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "103 is the ",
+    "phase": "final_answer"
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "next prime.",
+    "phase": "final_answer"
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 131,
+      "output_tokens": 38,
+      "total_tokens": 169,
+      "reasoning_tokens": 24,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": null,
+      "cost": null,
+      "raw": {
+        "input_tokens": 131,
+        "input_tokens_details": {
+          "cached_tokens": 0
+        },
+        "output_tokens": 38,
+        "output_tokens_details": {
+          "reasoning_tokens": 24
+        },
+        "total_tokens": 169
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "completed",
+    "raw": [
+      {
+        "id": "rs_5f60718293a4b5c6",
+        "type": "reasoning",
+        "summary": [],
+        "encrypted_content": "gAAAAABq_prime_b_encrypted_blob_Zml2ZnQ="
+      },
+      {
+        "id": "msg_5f60718293a4b5c6",
+        "type": "message",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "103 is the next prime."
+          }
+        ],
+        "role": "assistant"
+      }
+    ]
+  }
+]

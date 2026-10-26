@@ -4,6 +4,8 @@ import math
 from typing import Dict, Optional, Any
 from pydantic import BaseModel, model_validator
 
+from src.features.llm.types import OPENAI_TYPES
+
 # provider_options keys shared by the native and Ollama sampling controls
 # (same name, same meaning on both providers) plus native's own
 # repetition_penalty (Ollama's equivalent, "repeat_penalty", is a distinct
@@ -126,7 +128,7 @@ class LLMConfigRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_openai_options(self) -> "LLMConfigRequest":
-        if self.type != "openai" or not self.provider_options:
+        if self.type not in OPENAI_TYPES or not self.provider_options:
             return self
         opts = self.provider_options
 
