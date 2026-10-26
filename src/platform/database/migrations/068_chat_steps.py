@@ -270,7 +270,7 @@ class _SessionPlan:
     def __init__(self, session: Any) -> None:
         self.session = session
         self.session_id = session["id"]
-        self.seq = 1
+        self.seq = 0
         self.steps: List[tuple] = []
         self.turns: List[tuple] = []
         self.updates: List[tuple] = []

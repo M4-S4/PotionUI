@@ -31,7 +31,7 @@ def _chunks(values: Sequence[str]):
 
 
 def _next_seq(cursor: sqlite3.Cursor, session_id: str) -> int:
-    cursor.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_steps WHERE session_id = ?", (session_id,))
+    cursor.execute("SELECT COALESCE(MAX(seq), -1) + 1 FROM chat_steps WHERE session_id = ?", (session_id,))
     return cursor.fetchone()[0]
 
 

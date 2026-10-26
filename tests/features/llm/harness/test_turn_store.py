@@ -52,7 +52,7 @@ class ReferenceTurnStore:
         return sorted((step for step in self._steps if step.turn_id == turn_id), key=lambda step: step.seq)
 
     def next_seq(self, session_id: str) -> int:
-        return max((step.seq for step in self._steps if step.session_id == session_id), default=0) + 1
+        return max((step.seq for step in self._steps if step.session_id == session_id), default=-1) + 1
 
     def append(self, step: StepRecord) -> None:
         state = self._states.get(step.turn_id)
@@ -116,7 +116,7 @@ class TurnStoreContract:
 
     def test_an_empty_session_has_no_steps_and_starts_at_one(self):
         self.assertEqual(self.store.steps("s1"), [])
-        self.assertEqual(self.store.next_seq("s1"), 1)
+        self.assertEqual(self.store.next_seq("s1"), 0)
         self.assertIsNone(self.store.open_turn("s1"))
         self.assertIsNone(self.store.load_state("missing"))
 
@@ -146,25 +146,25 @@ class TurnStoreContract:
 
     def test_steps_come_back_in_order_with_every_field(self):
         self.store.save_state(state())
-        first = user_step(1)
+        first = user_step(0)
         second = ask_step(
-            2, [("c1", "search", {"q": "cats"}), ("c2", "search", {"q": "dogs"})], text="Looking.",
+            1, [("c1", "search", {"q": "cats"}), ("c2", "search", {"q": "dogs"})], text="Looking.",
             usage=Usage(input_tokens=10, output_tokens=5, cached_input_tokens=8, cost=0.0004), finish_raw="tool_use",
         )
-        third = result_step(3, [("c1", "search", "2 hits", False), ("c2", "search", "boom", True)])
-        fourth = final_step(4, "Done.", usage=Usage(input_tokens=30))
+        third = result_step(2, [("c1", "search", "2 hits", False), ("c2", "search", "boom", True)])
+        fourth = final_step(3, "Done.", usage=Usage(input_tokens=30))
         for step in (first, second, third, fourth):
             self.store.append(step)
 
         stored = self.reopen().steps("s1")
         self.assertEqual(stored, [first, second, third, fourth])
-        self.assertEqual(self.store.next_seq("s1"), 5)
+        self.assertEqual(self.store.next_seq("s1"), 4)
         self.assertEqual(self.store.turn_steps("t1"), stored)
 
     def test_opaque_provider_data_survives_byte_for_byte(self):
         self.store.save_state(state())
         original = StepRecord(
-            id="a1", session_id="s1", turn_id="t1", seq=1,
+            id="a0", session_id="s1", turn_id="t1", seq=0,
             message=message(
                 "m1", "assistant",
                 ReasoningPart(opaque={"signature": "EqQBCkYIBxgCKkA="}),
@@ -188,39 +188,39 @@ class TurnStoreContract:
         self.store.save_state(state())
 
         with self.assertRaises(TurnStoreError):
-            self.store.append(user_step(1, turn_id="nope"))
+            self.store.append(user_step(0, turn_id="nope"))
         with self.assertRaises(TurnStoreError):
-            self.store.append(user_step(1, session_id="s2"))
+            self.store.append(user_step(0, session_id="s2"))
         self.assertEqual(self.store.steps("s1"), [])
 
     def test_steps_are_append_only_and_contiguous(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
+        self.store.append(user_step(0))
 
         with self.assertRaises(TurnStoreError):
-            self.store.append(user_step(1, text="rewritten"))
+            self.store.append(user_step(0, text="rewritten"))
         with self.assertRaises(TurnStoreError):
-            self.store.append(final_step(3, "skipped a seq"))
-        self.assertEqual(self.store.steps("s1"), [user_step(1)])
+            self.store.append(final_step(2, "skipped a seq"))
+        self.assertEqual(self.store.steps("s1"), [user_step(0)])
 
     def test_a_step_id_is_unique(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
+        self.store.append(user_step(0))
 
         with self.assertRaises(TurnStoreError):
-            self.store.append(replace(user_step(2), id="s1.u1"))
+            self.store.append(replace(user_step(1), id="s1.u0"))
 
     def test_sessions_keep_separate_sequences(self):
         self.add_session("s2")
         self.store.save_state(state())
         self.store.save_state(state(turn_id="t2", session_id="s2"))
-        self.store.append(user_step(1))
-        self.store.append(user_step(1, turn_id="t2", session_id="s2", text="other"))
-        self.store.append(final_step(2, "answer"))
+        self.store.append(user_step(0))
+        self.store.append(user_step(0, turn_id="t2", session_id="s2", text="other"))
+        self.store.append(final_step(1, "answer"))
 
-        self.assertEqual([step.seq for step in self.store.steps("s1")], [1, 2])
-        self.assertEqual([step.seq for step in self.store.steps("s2")], [1])
-        self.assertEqual(self.store.next_seq("s2"), 2)
+        self.assertEqual([step.seq for step in self.store.steps("s1")], [0, 1])
+        self.assertEqual([step.seq for step in self.store.steps("s2")], [0])
+        self.assertEqual(self.store.next_seq("s2"), 1)
 
     def test_a_turn_cannot_move_to_another_session(self):
         self.add_session("s2")
@@ -250,8 +250,8 @@ class TurnStoreContract:
 
     def test_cancelling_mid_stream_keeps_the_partial_step_and_closes_the_tool_batch(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
-        self.store.append(ask_step(2, [("c1", "search", {"q": "cats"})], text="Looking"))
+        self.store.append(user_step(0))
+        self.store.append(ask_step(1, [("c1", "search", {"q": "cats"})], text="Looking"))
         running = state(gathered=(ToolResultPart(call_id="c1", name="search", content=(TextPart(text="2 hits"),)),))
         self.store.save_state(running)
 
@@ -260,7 +260,7 @@ class TurnStoreContract:
             steps, running, step_id="r3", seq=self.store.next_seq("s1"), status=StepStatus.CANCELLED, reason="Cancelled."
         )
         self.store.append(closing)
-        partial = final_step(4, "Found 2 cats, but", status=StepStatus.CANCELLED, finish=None)
+        partial = final_step(3, "Found 2 cats, but", status=StepStatus.CANCELLED, finish=None)
         self.store.append(partial)
         self.store.save_state(replace(running, status=TurnStatus.CANCELLED))
 
@@ -272,8 +272,8 @@ class TurnStoreContract:
 
     def test_a_provider_error_keeps_the_partial_step_and_the_error(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
-        self.store.append(final_step(2, "The answer is", status=StepStatus.FAILED, finish=None))
+        self.store.append(user_step(0))
+        self.store.append(final_step(1, "The answer is", status=StepStatus.FAILED, finish=None))
         failed = state(status=TurnStatus.FAILED, error=RateLimited("slow down", status=429, retry_after=4.0).to_json())
         self.store.save_state(failed)
 
@@ -284,8 +284,8 @@ class TurnStoreContract:
 
     def test_a_turn_waiting_for_a_decision_resumes_from_the_stored_state(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
-        self.store.append(ask_step(2, [("c1", "search", {}), ("c2", "delete_prompt", {"id": 7})], text="Deleting."))
+        self.store.append(user_step(0))
+        self.store.append(ask_step(1, [("c1", "search", {}), ("c2", "delete_prompt", {"id": 7})], text="Deleting."))
         waiting = state(
             status=TurnStatus.AWAITING_DECISION,
             rounds_used=1,
@@ -304,8 +304,8 @@ class TurnStoreContract:
             gathered=resumed.gathered + (ToolResultPart(call_id="c2", name="delete_prompt", content=(TextPart(text="deleted"),)),),
         )
         self.store.save_state(done)
-        self.store.append(result_step(3, [(item.call_id, item.name, item.text(), False) for item in done.gathered]))
-        self.store.append(final_step(4, "Deleted it."))
+        self.store.append(result_step(2, [(item.call_id, item.name, item.text(), False) for item in done.gathered]))
+        self.store.append(final_step(3, "Deleted it."))
         self.store.save_state(replace(done, status=TurnStatus.COMPLETED))
 
         self.assertEqual([step.message.role for step in self.store.steps("s1")], [Role.USER, Role.ASSISTANT, Role.TOOL, Role.ASSISTANT])
@@ -314,11 +314,11 @@ class TurnStoreContract:
     def test_the_restart_sweep_fails_running_turns_and_closes_their_tool_batch(self):
         self.add_session("s2")
         self.store.save_state(state())
-        self.store.append(user_step(1))
-        self.store.append(ask_step(2, [("c1", "search", {}), ("c2", "rename", {})]))
+        self.store.append(user_step(0))
+        self.store.append(ask_step(1, [("c1", "search", {}), ("c2", "rename", {})]))
         self.store.save_state(state(gathered=(ToolResultPart(call_id="c1", name="search", content=(TextPart(text="found"),)),)))
         self.store.save_state(state(turn_id="t2", session_id="s2"))
-        self.store.append(user_step(1, turn_id="t2", session_id="s2"))
+        self.store.append(user_step(0, turn_id="t2", session_id="s2"))
         self.store.save_state(state(turn_id="t3", status=TurnStatus.AWAITING_DECISION))
 
         swept = self.reopen().fail_interrupted()
@@ -341,8 +341,8 @@ class TurnStoreContract:
 
     def test_a_second_sweep_finds_nothing(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
-        self.store.append(ask_step(2, [("c1", "search", {})]))
+        self.store.append(user_step(0))
+        self.store.append(ask_step(1, [("c1", "search", {})]))
 
         self.assertEqual(self.store.fail_interrupted(), 1)
         steps_after_first = self.store.steps("s1")
@@ -353,10 +353,10 @@ class TurnStoreContract:
     def test_stored_history_re_renders_to_the_same_bytes(self):
         self.store.save_state(state())
         history = [
-            user_step(1),
-            ask_step(2, [("c1", "search", {"q": "ż", "n": [1, 2.5]})], text="Looking.", usage=Usage(input_tokens=3)),
-            result_step(3, [("c1", "search", "2 hits", False)]),
-            final_step(4, "Done."),
+            user_step(0),
+            ask_step(1, [("c1", "search", {"q": "ż", "n": [1, 2.5]})], text="Looking.", usage=Usage(input_tokens=3)),
+            result_step(2, [("c1", "search", "2 hits", False)]),
+            final_step(3, "Done."),
         ]
         for step in history:
             self.store.append(step)
@@ -394,16 +394,16 @@ class TestSqliteTurnStore(TurnStoreContract, PersistenceTestBase):
 
     def test_the_database_refuses_to_rewrite_a_step(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
+        self.store.append(user_step(0))
 
         with self.assertRaisesRegex(sqlite3.IntegrityError, "append-only"):
             with self.db.get_cursor() as cursor:
                 cursor.execute("UPDATE chat_steps SET parts = '[]'")
-        self.assertEqual(self.store.steps("s1"), [user_step(1)])
+        self.assertEqual(self.store.steps("s1"), [user_step(0)])
 
     def test_deleting_the_session_removes_its_turns_and_steps(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
+        self.store.append(user_step(0))
 
         with self.db.get_cursor() as cursor:
             cursor.execute("DELETE FROM chat_sessions WHERE id = 's1'")
@@ -415,14 +415,14 @@ class TestSqliteTurnStore(TurnStoreContract, PersistenceTestBase):
         self.add_session("s2")
         self.store.save_state(state())
         self.store.save_state(state(turn_id="t2", session_id="s2", status=TurnStatus.COMPLETED))
-        self.store.append(user_step(1))
-        self.store.append(final_step(2, "answer"))
-        self.store.append(user_step(1, turn_id="t2", session_id="s2"))
+        self.store.append(user_step(0))
+        self.store.append(final_step(1, "answer"))
+        self.store.append(user_step(0, turn_id="t2", session_id="s2"))
 
         grouped = self.store.steps_by_turn(["t1", "t2", "t1", "missing"])
         loaded = self.store.states(["t1", "t2", "missing"])
 
-        self.assertEqual({turn: [step.seq for step in steps] for turn, steps in grouped.items()}, {"t1": [1, 2], "t2": [1]})
+        self.assertEqual({turn: [step.seq for step in steps] for turn, steps in grouped.items()}, {"t1": [0, 1], "t2": [0]})
         self.assertEqual({turn: item.status for turn, item in loaded.items()}, {"t1": TurnStatus.RUNNING, "t2": TurnStatus.COMPLETED})
         self.assertEqual(self.store.steps_by_turn([]), {})
 
@@ -440,13 +440,13 @@ class TestSqliteTurnStore(TurnStoreContract, PersistenceTestBase):
 
     def test_a_failed_append_rolls_back_cleanly(self):
         self.store.save_state(state())
-        self.store.append(user_step(1))
+        self.store.append(user_step(0))
 
         with self.assertRaises(TurnStoreError):
-            self.store.append(replace(user_step(2), id="s1.u1"))
+            self.store.append(replace(user_step(1), id="s1.u0"))
 
-        self.store.append(final_step(2, "still appendable"))
-        self.assertEqual([step.seq for step in self.store.steps("s1")], [1, 2])
+        self.store.append(final_step(1, "still appendable"))
+        self.assertEqual([step.seq for step in self.store.steps("s1")], [0, 1])
 
 
 if __name__ == "__main__":

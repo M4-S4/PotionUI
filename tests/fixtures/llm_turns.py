@@ -16,7 +16,7 @@ def snapshot() -> TurnSnapshot:
     )
 
 
-def state(turn_id="t1", session_id="s1", status=TurnStatus.RUNNING, first_seq=1, **fields) -> TurnState:
+def state(turn_id="t1", session_id="s1", status=TurnStatus.RUNNING, first_seq=0, **fields) -> TurnState:
     return TurnState(turn_id=turn_id, session_id=session_id, status=status, snapshot=snapshot(), first_seq=first_seq, **fields)
 
 

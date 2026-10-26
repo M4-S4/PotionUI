@@ -57,7 +57,7 @@ def test_a_plain_exchange_becomes_one_completed_turn(env, chats):
     migration.up()
 
     steps = chats.steps(session)
-    assert [(step.seq, step.message.role) for step in steps] == [(1, Role.USER), (2, Role.ASSISTANT)]
+    assert [(step.seq, step.message.role) for step in steps] == [(0, Role.USER), (1, Role.ASSISTANT)]
     assert steps[0].message.parts == (TextPart(text="hello"),)
     assert steps[1].message.parts == (TextPart(text="hi there"),)
     assert steps[1].message.origin == LEGACY_ORIGIN
@@ -68,12 +68,12 @@ def test_a_plain_exchange_becomes_one_completed_turn(env, chats):
     (turn,) = chats.turns(session)
     state = codec.loads(TurnState, turn["state_json"])
     assert turn["id"] == user and turn["status"] == "completed"
-    assert state.status is TurnStatus.COMPLETED and state.first_seq == 1
+    assert state.status is TurnStatus.COMPLETED and state.first_seq == 0
     assert state.snapshot.llm_config_id == "cfg" and state.snapshot.mode == "assistant"
     assert chats.message(user)[0] == turn["id"]
     turn_id, metadata = chats.message(assistant)
     assert turn_id == turn["id"]
-    assert metadata["step_range"] == {"first": 2, "last": 2}
+    assert metadata["step_range"] == {"first": 1, "last": 1}
     assert metadata["behavior_trace"] == {"v": 1}
 
 
@@ -109,7 +109,7 @@ def test_a_tool_turn_keeps_round_reasoning_calls_results_and_the_final_answer(en
     assert tool.message.origin is None
     assert final.message.parts == (ReasoningPart(text="summarise results"), TextPart(text="Found 2 cats."))
     assert final.usage.total_tokens == 120
-    assert chats.message(assistant)[1]["step_range"] == {"first": 2, "last": 4}
+    assert chats.message(assistant)[1]["step_range"] == {"first": 1, "last": 3}
     (turn,) = chats.turns(session)
     assert codec.loads(TurnState, turn["state_json"]).rounds_used == 1
 
@@ -175,7 +175,7 @@ def test_a_pending_approval_ends_the_turn_cancelled_with_an_expired_notice(env, 
     (turn,) = chats.turns(session)
     state = codec.loads(TurnState, turn["state_json"])
     assert turn["status"] == "cancelled" and state.status is TurnStatus.CANCELLED
-    assert [(notice.kind, notice.step_seq) for notice in state.notices] == [(NoticeKind.APPROVAL_EXPIRED, 2)]
+    assert [(notice.kind, notice.step_seq) for notice in state.notices] == [(NoticeKind.APPROVAL_EXPIRED, 1)]
     assert state.pending == ()
     metadata = chats.message(paused)[1]
     assert [record["approval_status"] for record in metadata["tool_executions"]] == ["expired", None]
@@ -209,8 +209,8 @@ def test_a_continued_approval_chain_joins_one_turn(env, chats):
     assert state.status is TurnStatus.COMPLETED and state.rounds_used == 2 and state.notices == ()
     assert {step.turn_id for step in steps} == {turn["id"]}
     assert chats.message(first)[0] == chats.message(second)[0] == turn["id"]
-    assert chats.message(first)[1]["step_range"] == {"first": 2, "last": 3}
-    assert chats.message(second)[1]["step_range"] == {"first": 4, "last": 4}
+    assert chats.message(first)[1]["step_range"] == {"first": 1, "last": 2}
+    assert chats.message(second)[1]["step_range"] == {"first": 3, "last": 3}
 
 
 def test_a_user_row_without_an_answer_is_a_cancelled_turn_of_its_own(env, chats):
@@ -224,7 +224,7 @@ def test_a_user_row_without_an_answer_is_a_cancelled_turn_of_its_own(env, chats)
     migration.up()
 
     assert [(turn["status"]) for turn in chats.turns(session)] == ["cancelled", "completed", "cancelled"]
-    assert [step.seq for step in chats.steps(session)] == [1, 2, 3, 4]
+    assert [step.seq for step in chats.steps(session)] == [0, 1, 2, 3]
 
 
 def test_a_user_image_is_kept_as_a_reference(env, chats):
@@ -304,7 +304,7 @@ def test_a_session_that_already_has_steps_is_skipped(env, chats):
     migration.up()
 
     assert chats.steps(done) == steps_before
-    assert [step.seq for step in chats.steps(fresh)] == [1, 2]
+    assert [step.seq for step in chats.steps(fresh)] == [0, 1]
 
 
 def test_more_sessions_than_one_batch_are_all_converted(env, chats):
