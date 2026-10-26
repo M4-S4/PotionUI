@@ -282,7 +282,7 @@ async def test_undecided_approvals_stay_pending_while_a_decided_one_runs():
     assert shape(partial) == ["started:g1", "finished:g1", "pending:g2"]
     assert partial[-1] is waiting.pending[1]
 
-    rest = paused(partial, replace(waiting, gathered=waiting.gathered))
+    rest = paused(partial, waiting)
     final = await rig.collect(calls, rest, [Decision("g2", True)])
     assert shape(final) == ["started:g2", "finished:g2"]
 

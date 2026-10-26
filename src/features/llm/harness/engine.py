@@ -183,6 +183,7 @@ class _Run:
             guard=ToolCallGuard(set(turn.applied_calls)),
         )
         self.settings = turn.settings
+        self.sent_limit: Optional[int] = None
         self.rounds_used = 0
         self.rescue_retries = 0
         self.rescues: List[Dict[str, Any]] = []
@@ -307,6 +308,7 @@ class _Run:
             )
             if self.profile is None:
                 self.profile = prepared.profile
+            self.sent_limit = prepared.ledger.get("max_tokens_sent")
             box.assembler = StepAssembler(new_id("msg"), prepared.origin)
             text_filter = ToolCallTextFilter(self._registered()) if filtered else None
             received = False
@@ -339,7 +341,7 @@ class _Run:
             message = box.assembler.message()
             finish = box.assembler.finish
             truncation = decide_truncation(
-                message, finish.reason if finish is not None else None, self.settings, prepared.profile, truncation_attempt,
+                message, finish.reason if finish is not None else None, self.sent_limit, prepared.profile, truncation_attempt,
             )
             if truncation.action in (TruncationAction.RETRY, TruncationAction.FAIL):
                 self.notices.append(truncation.notice)
@@ -360,7 +362,7 @@ class _Run:
         self.last_finish_raw = finish.raw_reason if finish is not None else None
 
     def _cut_off(self, message: Message) -> Optional[NoticeRaised]:
-        decision = decide_truncation(message, self.last_finish, self.settings, self.profile)
+        decision = decide_truncation(message, self.last_finish, self.sent_limit, self.profile)
         if decision.action is not TruncationAction.INCOMPLETE:
             return None
         self.notices.append(decision.notice)

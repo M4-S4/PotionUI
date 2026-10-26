@@ -21,10 +21,11 @@ from src.features.llm.harness.retry import (
     BackoffRetry,
     retry_notice,
 )
+from src.features.llm.harness.events import TextDelta
 from src.features.llm.harness.turn_state import NoticeKind, NoticeRaised
 from tests.features.llm.harness.stepping import engine_turn, outcome_of
 from tests.fixtures.llm_engine import drain, scripted_engine
-from tests.fixtures.llm_harness import ScriptedAdapter, text_step
+from tests.fixtures.llm_harness import FailMidStream, ScriptedAdapter, text_step
 
 
 def no_jitter() -> float:
@@ -33,10 +34,6 @@ def no_jitter() -> float:
 
 def full_jitter() -> float:
     return 1.0
-
-
-def test_a_retryable_failure_gets_a_delay_in_seconds():
-    assert isinstance(BackoffRetry().delay(RateLimited("slow down"), 0), float)
 
 
 def test_a_rate_limit_waits_exactly_as_long_as_the_server_asked():
@@ -139,3 +136,18 @@ async def test_a_failure_that_cannot_succeed_is_raised_at_once(error):
         await drain(rig.engine.run(engine_turn(tool_context=None)))
     assert rig.sleeps == []
     assert len(adapter.requests) == 1
+
+
+async def test_a_failure_after_the_stream_has_started_is_not_retried():
+    adapter = ScriptedAdapter(FailMidStream([TextDelta(block=1, text="par")], Overloaded("cut")), text_step("good"))
+    rig = scripted_engine(adapter, retry=BackoffRetry(jitter=no_jitter))
+    seen: list = []
+
+    with pytest.raises(Overloaded):
+        async for event in rig.engine.run(engine_turn(tool_context=None)):
+            seen.append(event)
+
+    assert rig.sleeps == []
+    assert len(adapter.requests) == 1
+    assert [event.text for event in seen if isinstance(event, TextDelta)] == ["par"]
+    assert [event for event in seen if isinstance(event, NoticeRaised)] == []

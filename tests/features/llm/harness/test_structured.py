@@ -4,6 +4,7 @@ import pytest
 
 from src.features.llm.harness.adapter import Settings, ToolChoice
 from src.features.llm.harness.errors import StructuredOutputFailed
+from src.features.llm.harness.events import Finish, FinishReason, ToolArgsDelta, ToolCallEnd, ToolCallStart
 from src.features.llm.harness.messages import Role, TextPart, message
 from src.features.llm.harness.profile import ReasoningKind, StructuredOutputMode
 from src.features.llm.harness.structured import (
@@ -58,17 +59,24 @@ def test_a_tool_profile_forces_a_single_result_tool():
     assert plan.system == "be brief"
 
 
-def test_a_prompted_profile_puts_the_schema_in_the_system_prompt():
+PROMPTED_INSTRUCTION = (
+    "Reply with one JSON value that matches the JSON Schema below and nothing else: "
+    "no code fence and no commentary.\n"
+    'Schema: {"additionalProperties":false,"properties":{"title":{"minLength":1,"type":"string"}},'
+    '"required":["title"],"type":"object"}'
+)
+
+
+def test_a_prompted_profile_appends_the_instruction_to_the_system_prompt():
     plan = plan_structured("be brief", settings(), profile(StructuredOutputMode.PROMPTED))
     assert plan.mode is StructuredOutputMode.PROMPTED
     assert plan.settings.response_schema is None
-    assert plan.system.startswith("be brief\n\n")
-    assert '"required":["title"]' in plan.system
+    assert plan.system == "be brief\n\n" + PROMPTED_INSTRUCTION
     assert plan.tools == ()
 
 
-def test_a_prompted_plan_without_a_system_prompt_is_just_the_instruction():
-    assert not plan_structured("", settings(), profile(StructuredOutputMode.PROMPTED)).system.startswith("\n")
+def test_a_prompted_plan_without_a_system_prompt_is_exactly_the_instruction():
+    assert plan_structured("", settings(), profile(StructuredOutputMode.PROMPTED)).system == PROMPTED_INSTRUCTION
 
 
 def test_a_tool_profile_that_cannot_force_a_tool_falls_back_to_prompting_with_a_notice():
@@ -304,3 +312,43 @@ async def test_a_null_in_a_required_field_still_triggers_the_repair():
     )
     assert result.repaired is True and result.value == {"title": "Cats"}
     assert "$.title: expected string, got null" in adapter.requests[1].messages[-1].text()
+
+
+async def test_the_tool_mode_repairs_arguments_that_are_not_valid_json():
+    unparseable = [
+        ToolCallStart(block=2, call_id="t1", name=STRUCTURED_TOOL_NAME),
+        ToolArgsDelta(block=2, text='{"title": "Ca'),
+        ToolCallEnd(block=2),
+        Finish(reason=FinishReason.TOOL_CALLS, raw_reason="tool_calls"),
+    ]
+    adapter = ScriptedAdapter(unparseable, tool_step({"id": "t2", "name": STRUCTURED_TOOL_NAME, "args": {"title": "Cats"}}))
+    wanted = profile(StructuredOutputMode.TOOL, tool_choice=NAMED_TOOLS)
+    result = await run_structured(
+        scripted_complete(adapter, wanted), system="", messages=[user()], settings=settings(), profile=wanted,
+    )
+    assert result.repaired is True and result.value == {"title": "Cats"}
+    (feedback,) = adapter.requests[1].messages[-1].tool_results()
+    assert feedback.call_id == "t1" and feedback.is_error
+    assert "the tool arguments were not valid JSON" in feedback.text()
+
+
+async def test_a_wrapped_schema_whose_reply_lacks_the_value_key_is_repaired():
+    adapter = ScriptedAdapter(text_step('{"items": [1]}'), text_step('{"value": [1, 2]}'))
+    wanted = profile(StructuredOutputMode.NATIVE)
+    result = await run_structured(
+        scripted_complete(adapter, wanted), system="", messages=[user()], settings=settings(NUMBERS), profile=wanted,
+    )
+    assert result.repaired is True and result.value == [1, 2]
+    assert "not wrapped in an object with a 'value' key" in adapter.requests[1].messages[-1].text()
+
+
+async def test_an_empty_reply_is_repaired_without_sending_an_empty_assistant_message():
+    adapter = ScriptedAdapter(text_step(""), text_step('{"title": "Cats"}'))
+    wanted = profile(StructuredOutputMode.NATIVE)
+    result = await run_structured(
+        scripted_complete(adapter, wanted), system="", messages=[user()], settings=settings(), profile=wanted,
+    )
+    assert result.repaired is True and result.value == {"title": "Cats"}
+    sent = adapter.requests[1].messages
+    assert [item.role for item in sent] == [Role.USER, Role.USER]
+    assert "the reply was empty" in sent[-1].text()

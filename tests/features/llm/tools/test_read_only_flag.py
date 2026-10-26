@@ -45,9 +45,3 @@ def test_exactly_the_audited_read_tools_are_flagged_read_only():
 
 def test_a_read_only_tool_never_asks_for_approval():
     assert [tool.name for tool in builtin_tools() if tool.read_only and tool.requires_approval] == []
-
-
-def test_every_tool_that_writes_stays_sequential():
-    writers = [tool for tool in builtin_tools() if tool.name.split("_")[0] in {"create", "update", "delete", "write", "remove", "add", "edit", "set", "manage", "organize", "run", "start"}]
-    assert writers
-    assert [tool.name for tool in writers if tool.read_only] == []

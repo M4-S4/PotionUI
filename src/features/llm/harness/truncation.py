@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from src.features.llm.harness.adapter import Settings
 from src.features.llm.harness.errors import OutputTruncated
 from src.features.llm.harness.events import FinishReason
 from src.features.llm.harness.messages import Message
@@ -28,21 +27,20 @@ class TruncationDecision:
     error: Optional[OutputTruncated] = None
 
 
-def raised_limit(settings: Settings, profile: CapabilityProfile) -> Optional[int]:
+def raised_limit(sent: Optional[int], profile: CapabilityProfile) -> Optional[int]:
     ceiling = profile.max_output_tokens
-    current = settings.max_tokens
-    if current is None:
+    if sent is None:
         return ceiling
-    target = current * TRUNCATION_GROWTH
+    target = sent * TRUNCATION_GROWTH
     if ceiling is not None:
         target = min(target, ceiling)
-    return target if target > current else None
+    return target if target > sent else None
 
 
 def decide_truncation(
     message: Message,
     reason: Optional[FinishReason],
-    settings: Settings,
+    sent: Optional[int],
     profile: CapabilityProfile,
     retries_used: int = 0,
 ) -> TruncationDecision:
@@ -53,7 +51,7 @@ def decide_truncation(
             TruncationAction.INCOMPLETE,
             notice=Notice(NoticeKind.TRUNCATED, "The reply was cut off by the output limit.", detail={"calls": 0}),
         )
-    limit = raised_limit(settings, profile) if retries_used < MAX_TRUNCATION_RETRIES else None
+    limit = raised_limit(sent, profile) if retries_used < MAX_TRUNCATION_RETRIES else None
     if limit is None:
         text = (
             "The reply was cut off in the middle of a tool call again after the output limit was raised, so the tool was not run."
@@ -63,7 +61,7 @@ def decide_truncation(
         return TruncationDecision(
             TruncationAction.FAIL,
             notice=Notice(NoticeKind.TRUNCATED, text, detail={"retries": retries_used}),
-            error=OutputTruncated(text, detail={"max_tokens": settings.max_tokens, "retries": retries_used}),
+            error=OutputTruncated(text, detail={"max_tokens": sent, "retries": retries_used}),
         )
     return TruncationDecision(
         TruncationAction.RETRY,
@@ -71,6 +69,6 @@ def decide_truncation(
         notice=Notice(
             NoticeKind.TRUNCATED,
             f"The reply was cut off in the middle of a tool call, so it is being retried with a larger output limit ({limit} tokens).",
-            detail={"max_tokens": limit, "previous": settings.max_tokens},
+            detail={"max_tokens": limit, "previous": sent},
         ),
     )

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any, List
 
 import pytest
@@ -8,7 +9,7 @@ from src.features.llm.harness.events import Finish, FinishReason, TextDelta, Too
 from src.features.llm.harness.turn_state import NoticeKind, NoticeRaised, StepStatus, TurnStatus
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from tests.features.llm.harness.stepping import engine_turn, outcome_of
-from tests.fixtures.llm_engine import drain, scripted_engine
+from tests.fixtures.llm_engine import drain, scripted_config, scripted_engine
 from tests.fixtures.llm_harness import ScriptedAdapter, text_step, tool_step
 
 
@@ -85,15 +86,53 @@ async def test_a_call_that_is_cut_off_again_after_the_retry_fails_visibly_and_ne
     assert closing.message.tool_results()[0].call_id == "t1" and closing.message.tool_results()[0].is_error
 
 
+class CappedProfiles:
+    def __init__(self, inner, cap):
+        self._inner = inner
+        self._cap = cap
+
+    def resolve(self, config):
+        return replace(self._inner.resolve(config), max_output_tokens=self._cap)
+
+    async def refresh(self, config):
+        return self.resolve(config)
+
+
+async def test_the_retry_grows_the_limit_the_configuration_sends_when_the_turn_sets_none():
+    adapter = ScriptedAdapter(cut_off_call(), complete_call(), text_step("saved it"))
+    note = WriteNote()
+    rig = scripted_engine(adapter, [note], config=scripted_config(max_tokens=2000))
+
+    events = await drain(rig.engine.run(engine_turn()))
+
+    assert note.saved == [{"text": "a long note"}]
+    assert [request.settings.max_tokens for request in adapter.requests] == [None, 8000, 8000]
+    assert [request.config.max_tokens for request in adapter.requests] == [2000, 2000, 2000]
+    (notice,) = truncation_notices(events)
+    assert notice.detail == {"max_tokens": 8000, "previous": 2000}
+
+
+async def test_the_retry_stops_at_the_profile_maximum():
+    adapter = ScriptedAdapter(cut_off_call(), complete_call(), text_step("saved it"))
+    rig = scripted_engine(adapter, [WriteNote()], config=scripted_config(max_tokens=2000))
+    rig.gateway.profiles = CappedProfiles(rig.gateway.profiles, 5000)
+
+    await drain(rig.engine.run(engine_turn()))
+
+    assert [request.settings.max_tokens for request in adapter.requests] == [None, 5000, 5000]
+
+
 async def test_a_limit_that_cannot_be_raised_fails_at_once():
     adapter = ScriptedAdapter(cut_off_call(), text_step("never reached"))
     note = WriteNote()
-    rig = scripted_engine(adapter, [note])
+    rig = scripted_engine(adapter, [note], config=scripted_config(max_tokens=2000))
+    rig.gateway.profiles = CappedProfiles(rig.gateway.profiles, 2000)
 
-    with pytest.raises(OutputTruncated):
+    with pytest.raises(OutputTruncated) as raised:
         await drain(rig.engine.run(engine_turn()))
 
     assert note.saved == [] and len(adapter.requests) == 1
+    assert raised.value.detail["max_tokens"] == 2000
 
 
 async def test_a_cut_off_answer_is_kept_and_marked_incomplete_with_a_notice():
