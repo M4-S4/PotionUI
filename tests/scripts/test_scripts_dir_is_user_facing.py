@@ -35,6 +35,7 @@ ALLOWED_BASENAMES = {
     "pipes_reference.py",
     "build-plugins.mjs",
     "h3_extract_time_embedder.py",
+    "llm_cassette_record.py",
 }
 
 _IGNORED_BASENAMES_PREFIXES = ("README",)
