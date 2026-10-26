@@ -1,18 +1,14 @@
 import asyncio
 from dataclasses import replace
 from typing import Any, Dict, List, Optional
+from unittest.mock import AsyncMock
 
 import pytest
 
+from src.features.llm.harness.engine import ToolRound
 from src.features.llm.harness.events import Finish, FinishReason, ToolArgsDelta, ToolCallStart
-from src.features.llm.harness.messages import Role, TextPart, ToolCallPart, ToolResultPart, message
-from src.features.llm.harness.tool_runner import (
-    IncompleteBatch,
-    ParallelToolRunner,
-    ToolOutcome,
-    batch_results,
-    skipped_results,
-)
+from src.features.llm.harness.messages import ImagePart, Role, ToolCallPart, ToolResultPart, message
+from src.features.llm.harness.tool_runner import IncompleteBatch, ParallelToolRunner, batch_results
 from src.features.llm.harness.turn_state import (
     Decision,
     DecisionKind,
@@ -21,69 +17,41 @@ from src.features.llm.harness.turn_state import (
     ToolStarted,
     TurnStatus,
 )
+from src.features.llm.tools.base import ToolContext, ToolResult
+from src.features.llm.tools.executor import ToolExecutor
+from src.features.llm.tools.registry import ToolRegistry
+from src.features.llm.tools.workflow import ToolCallGuard
+from tests.features.llm.harness.probes import Probe, Shared
 from tests.features.llm.harness.stepping import play_step, request_for, turn_state
 from tests.fixtures.llm_harness import ScriptedAdapter, scripted_profile, text_step, tool_step
 
 WAIT = 3
 
 
-def result_for(call: ToolCallPart, text: str, is_error: bool = False) -> ToolResultPart:
-    return ToolResultPart(call_id=call.call_id, name=call.name, content=(TextPart(text),), is_error=is_error)
+class Rig:
+    def __init__(self, *names: str, shared: Optional[Shared] = None, **runner_options: Any) -> None:
+        self.log: List[str] = []
+        self.shared = shared or Shared()
+        registry = ToolRegistry()
+        for name in names:
+            registry.register(Probe(
+                name, self.log, read_only=name.startswith("read_"), gated=name.startswith("gate_"), shared=self.shared,
+            ))
+        self.executor = ToolExecutor(tool_registry=registry, llm_service=None)
+        self.runner = ParallelToolRunner(self.executor, **runner_options)
+        self.round = ToolRound(
+            tool_context=ToolContext(user_id="user-1"), allowed_tools=None, deferred_tools={}, guard=ToolCallGuard(),
+        )
+
+    async def collect(self, calls, state=None, decisions=()) -> list:
+        async def drain() -> list:
+            return [event async for event in self.runner.run(calls, state or turn_state(), self.round, decisions)]
+
+        return await asyncio.wait_for(drain(), WAIT)
 
 
 def call(call_id: str, name: str, args: Optional[Dict[str, Any]] = None) -> ToolCallPart:
     return ToolCallPart(call_id=call_id, name=name, args={} if args is None else args)
-
-
-class Backend:
-    def __init__(self) -> None:
-        self.log: List[str] = []
-        self.hold: Dict[str, asyncio.Event] = {}
-        self.entered: Dict[str, asyncio.Event] = {}
-        self.fail: set = set()
-        self.barrier: Optional[asyncio.Barrier] = None
-        self.running = 0
-        self.peak = 0
-        self.cancelled: List[str] = []
-
-    def parallel_safe(self, name: str) -> bool:
-        return name.startswith(("read_", "gate_"))
-
-    async def execute(self, tool_call: ToolCallPart, context: Any, state: Any) -> ToolOutcome:
-        self.log.append(f"start:{tool_call.call_id}")
-        self.running += 1
-        self.peak = max(self.peak, self.running)
-        try:
-            if tool_call.call_id in self.entered:
-                self.entered[tool_call.call_id].set()
-            if tool_call.call_id in self.fail:
-                raise RuntimeError("boom")
-            if self.barrier is not None and tool_call.name.startswith("read_"):
-                await self.barrier.wait()
-            if tool_call.call_id in self.hold:
-                await self.hold[tool_call.call_id].wait()
-            await asyncio.sleep(0)
-        except asyncio.CancelledError:
-            self.cancelled.append(tool_call.call_id)
-            raise
-        finally:
-            self.running -= 1
-        self.log.append(f"end:{tool_call.call_id}")
-        if tool_call.name.startswith("gate_"):
-            return ToolOutcome(result_for(tool_call, "preview"), pending=True, preview={"for": tool_call.call_id})
-        return ToolOutcome(result_for(tool_call, f"{tool_call.name} done"), record=f"record:{tool_call.call_id}")
-
-    async def confirm(self, tool_call: ToolCallPart, context: Any, state: Any) -> ToolOutcome:
-        self.log.append(f"confirm:{tool_call.call_id}")
-        await asyncio.sleep(0)
-        return ToolOutcome(result_for(tool_call, f"{tool_call.name} applied"), record=f"applied:{tool_call.call_id}")
-
-
-async def collect(runner, calls, state, decisions=()) -> list:
-    async def drain() -> list:
-        return [event async for event in runner.run(calls, state, None, decisions)]
-
-    return await asyncio.wait_for(drain(), WAIT)
 
 
 def shape(events) -> List[str]:
@@ -102,90 +70,93 @@ def finished(events) -> List[ToolResultPart]:
     return [event.result for event in events if isinstance(event, ToolFinished)]
 
 
-def pending_state(events, base=None):
+def paused(events, base=None):
     base = base or turn_state()
+    pending = tuple(event for event in events if isinstance(event, PendingCall))
+    waiting = {item.call_id for item in pending}
     return replace(
         base,
         status=TurnStatus.AWAITING_DECISION,
-        pending=tuple(event for event in events if isinstance(event, PendingCall)),
-        gathered=base.gathered + tuple(finished(events)),
+        pending=pending,
+        gathered=base.gathered + tuple(result for result in finished(events) if result.call_id not in waiting),
     )
 
 
 async def test_read_only_calls_run_concurrently():
-    backend = Backend()
-    backend.barrier = asyncio.Barrier(2)
-    events = await collect(
-        ParallelToolRunner(backend), [call("a", "read_a"), call("b", "read_b")], turn_state(),
-    )
+    shared = Shared()
+    shared.barrier = asyncio.Barrier(2)
+    rig = Rig("read_a", "read_b", shared=shared)
+    events = await rig.collect([call("a", "read_a"), call("b", "read_b")])
     assert shape(events) == ["started:a", "started:b", "finished:a", "finished:b"]
-    assert backend.peak == 2
+    assert shared.peak == 2
 
 
 async def test_results_follow_emission_order_when_the_first_call_finishes_last():
-    backend = Backend()
-    backend.hold = {"a": asyncio.Event()}
-    backend.entered = {"b": asyncio.Event()}
+    shared = Shared()
+    shared.hold = {"read_a": asyncio.Event()}
+    shared.entered = {"read_b": asyncio.Event()}
+    rig = Rig("read_a", "read_b", shared=shared)
 
     async def release() -> None:
-        await backend.entered["b"].wait()
+        await shared.entered["read_b"].wait()
         await asyncio.sleep(0)
-        backend.hold["a"].set()
+        shared.hold["read_a"].set()
 
     releaser = asyncio.ensure_future(release())
-    events = await collect(ParallelToolRunner(backend), [call("a", "read_a"), call("b", "read_b")], turn_state())
+    events = await rig.collect([call("a", "read_a"), call("b", "read_b")])
     await releaser
     assert [result.call_id for result in finished(events)] == ["a", "b"]
-    assert backend.log.index("end:b") < backend.log.index("end:a")
+    assert rig.log.index("end:read_b") < rig.log.index("end:read_a")
+    assert [execution.tool_call_id for execution in rig.round.executions] == ["a", "b"]
 
 
-async def test_mutating_calls_run_one_at_a_time_in_emission_order():
-    backend = Backend()
-    events = await collect(
-        ParallelToolRunner(backend),
-        [call("a", "write_a"), call("b", "write_b"), call("c", "write_c")],
-        turn_state(),
-    )
-    assert backend.log == ["start:a", "end:a", "start:b", "end:b", "start:c", "end:c"]
-    assert shape(events) == [
-        "started:a", "finished:a", "started:b", "finished:b", "started:c", "finished:c",
+async def test_a_tool_not_marked_read_only_runs_alone_whatever_its_name():
+    rig = Rig("write_a", "write_b", "write_c")
+    events = await rig.collect([call("a", "write_a"), call("b", "write_b"), call("c", "write_c")])
+    assert rig.log == [
+        "start:write_a", "end:write_a", "start:write_b", "end:write_b", "start:write_c", "end:write_c",
     ]
-    assert backend.peak == 1
+    assert shape(events) == ["started:a", "finished:a", "started:b", "finished:b", "started:c", "finished:c"]
+    assert rig.shared.peak == 1
 
 
 async def test_a_mutating_call_separates_the_read_only_calls_around_it():
-    backend = Backend()
-    await collect(
-        ParallelToolRunner(backend),
-        [call("a", "read_a"), call("w", "write_w"), call("c", "read_c"), call("d", "read_d")],
-        turn_state(),
-    )
-    assert backend.log.index("end:a") < backend.log.index("start:w")
-    assert backend.log.index("end:w") < backend.log.index("start:c")
-    assert backend.log.index("end:w") < backend.log.index("start:d")
-    assert backend.peak == 2
+    rig = Rig("read_a", "write_w", "read_c", "read_d")
+    await rig.collect([call("a", "read_a"), call("w", "write_w"), call("c", "read_c"), call("d", "read_d")])
+    assert rig.log.index("end:read_a") < rig.log.index("start:write_w")
+    assert rig.log.index("end:write_w") < rig.log.index("start:read_c")
+    assert rig.log.index("end:write_w") < rig.log.index("start:read_d")
+    assert rig.shared.peak == 2
 
 
 async def test_concurrency_is_bounded():
-    backend = Backend()
-    calls = [call(f"r{i}", "read_x") for i in range(5)]
-    await collect(ParallelToolRunner(backend, max_concurrency=2), calls, turn_state())
-    assert backend.peak == 2
-    assert len(backend.log) == 10
+    rig = Rig("read_x", max_concurrency=2)
+    await rig.collect([call(f"r{index}", "read_x") for index in range(5)])
+    assert rig.shared.peak == 2
+    assert len(rig.log) == 10
 
 
-async def test_a_call_with_unparseable_arguments_is_never_executed():
-    backend = Backend()
+async def test_an_unknown_tool_gets_an_error_result_and_the_batch_goes_on():
+    rig = Rig("read_a")
+    events = await rig.collect([call("x", "ghost"), call("a", "read_a")])
+    first, second = finished(events)
+    assert first.call_id == "x" and first.is_error and "not found" in first.text()
+    assert second.text() == "read_a done"
+
+
+async def test_a_call_with_unparseable_arguments_is_never_executed_and_still_recorded():
+    rig = Rig("read_a", "write_x")
     broken = ToolCallPart(call_id="x", name="write_x", args=None, args_raw='{"query": "cat')
-    events = await collect(ParallelToolRunner(backend), [broken, call("a", "read_a")], turn_state())
-    assert backend.log == ["start:a", "end:a"]
+    events = await rig.collect([broken, call("a", "read_a")])
+    assert rig.log == ["start:read_a", "end:read_a"]
     outcome = finished(events)[0]
     assert outcome.call_id == "x" and outcome.is_error
     assert "cut off" in outcome.text() and "Send the call again" in outcome.text()
-    assert shape(events)[:2] == ["started:x", "started:a"]
+    assert [execution.tool_call_id for execution in rig.round.executions] == ["x", "a"]
+    assert rig.round.executions[0].result.success is False
 
 
-async def test_a_call_cut_off_by_the_output_limit_never_reaches_the_backend():
+async def test_a_call_cut_off_by_the_output_limit_never_reaches_a_tool():
     adapter = ScriptedAdapter(
         [
             ToolCallStart(block=0, call_id="t1", name="write_note"),
@@ -196,9 +167,9 @@ async def test_a_call_cut_off_by_the_output_limit_never_reaches_the_backend():
     reply, _ = await play_step(adapter, scripted_profile(), request_for())
     (cut,) = reply.tool_calls()
     assert cut.args is None
-    backend = Backend()
-    events = await collect(ParallelToolRunner(backend), reply.tool_calls(), turn_state())
-    assert backend.log == []
+    rig = Rig("write_note")
+    events = await rig.collect(reply.tool_calls())
+    assert rig.log == []
     assert finished(events)[0].is_error
 
 
@@ -215,135 +186,184 @@ async def test_the_approval_batch_returns_every_result_together_in_emission_orde
     profile = scripted_profile()
     reply, _ = await play_step(adapter, profile, request_for())
     calls = reply.tool_calls()
-    backend = Backend()
-    runner = ParallelToolRunner(backend)
+    rig = Rig("read_a", "gate_b", "read_c", "write_d")
 
-    first = await collect(runner, calls, turn_state())
-    assert shape(first) == ["started:a", "started:b", "started:c", "finished:a", "pending:b", "finished:c"]
-    assert "start:d" not in backend.log
-    paused = pending_state(first)
-    assert [item.call_id for item in paused.pending] == ["b"]
-    assert paused.pending[0].preview == {"for": "b"}
+    first = await rig.collect(calls)
+    assert shape(first) == [
+        "started:a", "started:b", "started:c", "finished:a", "finished:b", "pending:b", "finished:c", "finished:d",
+    ]
+    assert "start:write_d" not in rig.log
+    waiting = paused(first)
+    assert [item.call_id for item in waiting.pending] == ["b"]
+    assert waiting.pending[0].preview["action"] == "Do"
+    assert [result.call_id for result in waiting.gathered] == ["a", "c", "d"]
     with pytest.raises(IncompleteBatch):
-        batch_results(calls, paused.gathered)
+        batch_results(calls, waiting.gathered)
     assert len(adapter.requests) == 1
 
-    second = await collect(runner, calls, paused, [Decision("b", True)])
-    assert shape(second) == ["started:b", "finished:b", "started:d", "finished:d"]
-    assert backend.log.index("confirm:b") < backend.log.index("start:d")
-    assert backend.log.count("start:b") == 1
+    second = await rig.collect(calls, waiting, [Decision("b", True)])
+    assert shape(second) == ["started:b", "finished:b"]
+    assert rig.log.count("start:gate_b") == 1 and rig.log.count("confirm:gate_b") == 1
 
-    ordered = batch_results(calls, paused.gathered + tuple(finished(second)))
+    ordered = batch_results(calls, waiting.gathered + tuple(finished(second)))
     assert [result.call_id for result in ordered] == ["a", "b", "c", "d"]
-    assert [result.text() for result in ordered] == ["read_a done", "gate_b applied", "read_c done", "write_d done"]
+    assert [result.text() for result in ordered] == [
+        "read_a done",
+        "gate_b applied",
+        "read_c done",
+        "Not run: waiting for approval of gate_b. Call it again if still needed.",
+    ]
+    assert [result.is_error for result in ordered] == [False, False, False, True]
 
-    tool_message = message("tool_1", Role.TOOL, *ordered)
-    await play_step(adapter, profile, request_for(messages=[reply, tool_message]), message_id="msg_2")
+    await play_step(adapter, profile, request_for(messages=[reply, message("tool_1", Role.TOOL, *ordered)]), message_id="msg_2")
     sent = adapter.requests[1].messages[-1]
     assert [result.call_id for result in sent.tool_results()] == ["a", "b", "c", "d"]
     assert adapter.exhausted
 
 
+async def test_the_records_say_what_happened_to_every_call_in_emission_order():
+    rig = Rig("read_a", "gate_b", "write_d")
+    first = await rig.collect([call("a", "read_a"), call("b", "gate_b"), call("d", "write_d")])
+    records = [event.record for event in first if isinstance(event, ToolFinished)]
+    assert [(item.tool_call_id, item.approval_status, item.skipped) for item in rig.round.executions] == [
+        ("a", None, False), ("b", "pending", False), ("d", None, True),
+    ]
+    assert records == rig.round.executions
+    assert rig.round.executions[1].result.preview.target == "gate_b"
+    assert first[[type(item).__name__ for item in first].index("PendingCall")].decision is DecisionKind.APPROVAL
+
+    waiting = paused(first)
+    second = await rig.collect([call("a", "read_a"), call("b", "gate_b"), call("d", "write_d")], waiting, [Decision("b", True)])
+    assert second[-1].record.approval_status == "approved"
+    assert second[-1].record.tool_call_id == "b"
+
+
 async def test_a_denied_call_becomes_an_error_result_with_the_reason():
-    backend = Backend()
-    runner = ParallelToolRunner(backend)
+    rig = Rig("gate_b")
     calls = [call("b", "gate_b")]
-    paused = pending_state(await collect(runner, calls, turn_state()))
-    events = await collect(runner, calls, paused, [Decision("b", False, "not this one")])
+    waiting = paused(await rig.collect(calls))
+    events = await rig.collect(calls, waiting, [Decision("b", False, "not this one")])
     (denied,) = finished(events)
     assert denied.is_error
     assert denied.text() == "User rejected this. Reason: not this one"
-    assert "confirm:b" not in backend.log
-    assert shape(events) == ["started:b", "finished:b"]
+    assert "confirm:gate_b" not in rig.log
+    assert shape(events) == ["finished:b"]
+    assert events[0].record.approval_status == "rejected"
 
 
 async def test_a_denial_without_a_reason_still_reads_as_a_rejection():
-    runner = ParallelToolRunner(Backend())
+    rig = Rig("gate_b")
     calls = [call("b", "gate_b")]
-    paused = pending_state(await collect(runner, calls, turn_state()))
-    events = await collect(runner, calls, paused, [Decision("b", False)])
+    waiting = paused(await rig.collect(calls))
+    events = await rig.collect(calls, waiting, [Decision("b", False)])
     assert finished(events)[0].text() == "User rejected this."
 
 
-async def test_undecided_approvals_stay_pending_and_hold_back_later_writes():
-    backend = Backend()
-    runner = ParallelToolRunner(backend)
-    calls = [call("b1", "gate_1"), call("b2", "gate_2"), call("w", "write_w")]
-    first = await collect(runner, calls, turn_state())
-    assert shape(first) == ["started:b1", "started:b2", "pending:b1", "pending:b2"]
-    paused = pending_state(first)
+async def test_a_confirmed_call_that_fails_is_recorded_as_failed():
+    rig = Rig("gate_b")
+    calls = [call("b", "gate_b")]
+    waiting = paused(await rig.collect(calls))
+    rig.executor.execute_tool_confirmed = AsyncMock(return_value=ToolResult(success=False, data="", error="nope"))
+    events = await rig.collect(calls, waiting, [Decision("b", True)])
+    assert finished(events)[0].is_error and finished(events)[0].text() == "Error: nope"
+    assert events[-1].record.approval_status == "failed"
 
-    partial = await collect(runner, calls, paused, [Decision("b1", True)])
-    assert shape(partial) == ["started:b1", "finished:b1", "pending:b2"]
-    assert partial[-1] is paused.pending[1]
-    assert "start:w" not in backend.log
 
-    rest = pending_state(partial, paused)
-    final = await collect(runner, calls, rest, [Decision("b2", True)])
-    assert shape(final) == ["started:b2", "finished:b2", "started:w", "finished:w"]
+async def test_undecided_approvals_stay_pending_while_a_decided_one_runs():
+    rig = Rig("gate_1", "gate_2", "write_w")
+    calls = [call("g1", "gate_1"), call("g2", "gate_2"), call("w", "write_w")]
+    first = await rig.collect(calls)
+    waiting = paused(first)
+    assert [item.call_id for item in waiting.pending] == ["g1", "g2"]
+    assert [result.call_id for result in waiting.gathered] == ["w"]
+
+    partial = await rig.collect(calls, waiting, [Decision("g1", True)])
+    assert shape(partial) == ["started:g1", "finished:g1", "pending:g2"]
+    assert partial[-1] is waiting.pending[1]
+
+    rest = paused(partial, replace(waiting, gathered=waiting.gathered))
+    final = await rig.collect(calls, rest, [Decision("g2", True)])
+    assert shape(final) == ["started:g2", "finished:g2"]
 
 
 async def test_a_write_before_an_approval_runs_immediately():
-    backend = Backend()
-    events = await collect(ParallelToolRunner(backend), [call("w", "write_w"), call("b", "gate_b")], turn_state())
-    assert shape(events) == ["started:w", "finished:w", "started:b", "pending:b"]
+    rig = Rig("write_w", "gate_b")
+    events = await rig.collect([call("w", "write_w"), call("b", "gate_b")])
+    assert shape(events) == ["started:w", "finished:w", "started:b", "finished:b", "pending:b"]
+    assert "end:write_w" in rig.log
 
 
 async def test_a_decision_for_a_call_that_is_not_pending_is_refused():
-    runner = ParallelToolRunner(Backend())
+    rig = Rig("read_a")
     with pytest.raises(ValueError, match="ghost"):
-        await collect(runner, [call("a", "read_a")], turn_state(), [Decision("ghost", True)])
+        await rig.collect([call("a", "read_a")], decisions=[Decision("ghost", True)])
 
 
 async def test_calls_waiting_on_an_outside_decision_are_not_executed():
-    backend = Backend()
+    rig = Rig("read_x", "read_a")
     outside = PendingCall("x", "read_x", DecisionKind.EXTERNAL)
-    events = await collect(
-        ParallelToolRunner(backend), [call("x", "read_x"), call("a", "read_a")], turn_state(pending=(outside,)),
-    )
+    state = turn_state(pending=(outside,))
+    events = await rig.collect([call("x", "read_x"), call("a", "read_a")], state)
     assert events[0] is outside
-    assert backend.log == ["start:a", "end:a"]
+    assert rig.log == ["start:read_a", "end:read_a"]
     with pytest.raises(ValueError):
-        await collect(ParallelToolRunner(backend), [call("x", "read_x")], turn_state(pending=(outside,)), [Decision("x", True)])
+        await rig.collect([call("x", "read_x")], state, [Decision("x", True)])
 
 
-async def test_a_backend_failure_becomes_an_error_result_and_the_batch_goes_on():
-    backend = Backend()
-    backend.fail = {"a"}
-    events = await collect(ParallelToolRunner(backend), [call("a", "read_a"), call("b", "read_b")], turn_state())
+async def test_a_failure_in_the_executor_becomes_an_error_result_and_the_batch_goes_on():
+    rig = Rig("read_a", "read_b")
+    real = rig.executor.execute_tool_guarded
+
+    async def flaky(name, *args, **kwargs):
+        if name == "read_a":
+            raise RuntimeError("boom")
+        return await real(name, *args, **kwargs)
+
+    rig.executor.execute_tool_guarded = flaky
+    events = await rig.collect([call("a", "read_a"), call("b", "read_b")])
     first, second = finished(events)
     assert first.is_error and "failed unexpectedly" in first.text()
     assert not second.is_error
 
 
+async def test_a_tool_image_travels_with_its_result():
+    registry = ToolRegistry()
+    registry.register(Probe("read_snap", [], read_only=True, image="aW1n"))
+    executor = ToolExecutor(tool_registry=registry, llm_service=None)
+    round_ = ToolRound(tool_context=ToolContext(user_id="u"), allowed_tools=None, deferred_tools={}, guard=ToolCallGuard())
+    events = [event async for event in ParallelToolRunner(executor).run([call("s", "read_snap")], turn_state(), round_)]
+    (result,) = finished(events)
+    assert [type(item).__name__ for item in result.content] == ["TextPart", "ImagePart"]
+    assert isinstance(result.content[1], ImagePart) and result.content[1].data == "aW1n"
+
+
 async def test_closing_the_run_cancels_every_read_still_in_flight():
-    backend = Backend()
-    backend.hold = {"a": asyncio.Event(), "b": asyncio.Event()}
-    backend.entered = {"a": asyncio.Event(), "b": asyncio.Event()}
-    runner = ParallelToolRunner(backend)
+    shared = Shared()
+    shared.hold = {"read_a": asyncio.Event(), "read_b": asyncio.Event()}
+    shared.entered = {"read_a": asyncio.Event(), "read_b": asyncio.Event()}
+    rig = Rig("read_a", "read_b", shared=shared)
 
     async def drain() -> None:
-        async for _ in runner.run([call("a", "read_a"), call("b", "read_b")], turn_state(), None):
+        async for _ in rig.runner.run([call("a", "read_a"), call("b", "read_b")], turn_state(), rig.round):
             pass
 
     task = asyncio.ensure_future(drain())
-    await asyncio.wait_for(backend.entered["a"].wait(), WAIT)
-    await asyncio.wait_for(backend.entered["b"].wait(), WAIT)
+    await asyncio.wait_for(shared.entered["read_a"].wait(), WAIT)
+    await asyncio.wait_for(shared.entered["read_b"].wait(), WAIT)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, WAIT)
-    assert sorted(backend.cancelled) == ["a", "b"]
+    assert sorted(shared.cancelled) == ["read_a", "read_b"]
 
 
-async def test_skipped_calls_get_error_results_so_the_batch_stays_valid():
-    calls = [call("a", "read_a"), call("b", "write_b")]
-    done = (result_for(calls[0], "ok"),)
-    skipped = skipped_results(calls, [result.call_id for result in done], "the turn was cancelled")
-    assert [result.call_id for result in skipped] == ["b"]
-    assert skipped[0].is_error and skipped[0].text() == "Not run: the turn was cancelled"
-    assert [result.call_id for result in batch_results(calls, done + skipped)] == ["a", "b"]
+def test_batch_results_orders_by_the_calls_and_names_what_is_missing():
+    calls = [call("a", "read_a"), call("b", "read_b")]
+    results = [ToolResultPart(call_id="b", name="read_b", content=()), ToolResultPart(call_id="a", name="read_a", content=())]
+    assert [result.call_id for result in batch_results(calls, results)] == ["a", "b"]
+    with pytest.raises(IncompleteBatch, match="b"):
+        batch_results(calls, results[1:])
 
 
-async def test_the_runner_rejects_a_concurrency_limit_below_one():
+def test_the_runner_rejects_a_concurrency_limit_below_one():
     with pytest.raises(ValueError):
-        ParallelToolRunner(Backend(), max_concurrency=0)
+        ParallelToolRunner(ToolExecutor(tool_registry=ToolRegistry(), llm_service=None), max_concurrency=0)

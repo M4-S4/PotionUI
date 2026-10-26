@@ -145,8 +145,10 @@ from src.features.segments.repository import (
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.clients import NativeLLMClient, OllamaClient, OpenAIClient
 from src.features.llm.context_windows import ContextWindows
-from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry, SequentialToolRunner, StaticProfileResolver
+from src.features.llm.harness.baseline import InMemoryTurnStore, StaticProfileResolver
 from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.retry import BackoffRetry
+from src.features.llm.harness.tool_runner import ParallelToolRunner
 from src.features.llm.types import LLMType, LLMTypes
 from src.bootstrap.composition import ChatDeps, build_chat
 from src.bootstrap.composition.chat import register_session_memory_cleanup
@@ -1034,9 +1036,9 @@ def build_container() -> AppContainer:
     turn_engine = TurnEngine(
         gateway=llm_service,
         tools=tool_executor,
-        runner=SequentialToolRunner(tool_executor),
+        runner=ParallelToolRunner(tool_executor),
         store=InMemoryTurnStore(),
-        retry=NoRetry(),
+        retry=BackoffRetry(),
     )
 
     # Global tool governance (admin enable/lock + per-user opt-out), layered

@@ -3,10 +3,13 @@ from typing import AsyncIterator, Optional, Sequence, Tuple
 
 from src.features.llm.harness.adapter import RenderRequest, Settings, ToolSpec
 from src.features.llm.harness.assembler import StepAssembler
+from src.features.llm.harness.build import user_message
+from src.features.llm.harness.engine import TurnInput, TurnOutcome
 from src.features.llm.harness.events import StreamEvent
 from src.features.llm.harness.messages import Message
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.turn_state import TurnSnapshot, TurnState, TurnStatus
+from tests.fixtures.llm_engine import tool_context
 from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, ScriptedAdapter, scripted_profile
 
 
@@ -63,3 +66,22 @@ def turn_state(profile: Optional[CapabilityProfile] = None, **changes) -> TurnSt
     )
     state = TurnState(turn_id="turn_1", session_id="session_1", status=TurnStatus.RUNNING, snapshot=snapshot, first_seq=1)
     return replace(state, **changes)
+
+
+def engine_turn(**overrides) -> TurnInput:
+    values = dict(
+        session_id="s1",
+        llm_id="cfg-scripted",
+        system="SYS",
+        history=(),
+        new_messages=(user_message("find cats", message_id="u1"),),
+        tool_context=tool_context(),
+    )
+    values.update(overrides)
+    return TurnInput(**values)
+
+
+def outcome_of(events) -> TurnOutcome:
+    outcomes = [event for event in events if isinstance(event, TurnOutcome)]
+    assert len(outcomes) == 1
+    return outcomes[0]
