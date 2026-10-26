@@ -66,6 +66,8 @@ class ListPhrasebookCategoriesTool(BaseTool):
     icon = "list-tree"
 
     name = "list_phrasebook_categories"
+
+    read_only = True
     group = "Phrasebook vocabulary"
     user_description = "Lists your phrasebook vocabulary categories."
 
@@ -115,6 +117,8 @@ class GetPhrasebookValuesTool(BaseTool):
     icon = "list"
 
     name = "get_phrasebook_values"
+
+    read_only = True
     group = "Phrasebook vocabulary"
     user_description = "Looks up or searches the saved values in one phrasebook category."
 

@@ -34,6 +34,8 @@ class ListLibraryItemsTool(BaseTool):
     context_group = "library"
 
     name = "list_library_items"
+
+    read_only = True
     group = "Generation"
     user_description = "Lists the files in your library, such as uploads."
 

@@ -676,6 +676,8 @@ class GetMusicDirectorTool(BaseTool):
         return music_director_active(form_state)
 
     name = "get_music_director"
+
+    read_only = True
     group = "Form & segments"
     user_description = "Reads the Music Director document on your generation form."
 

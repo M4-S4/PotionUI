@@ -18,6 +18,8 @@ class ListSegmentCategoriesTool(BaseTool):
     context_group = "library"
 
     name = "list_segment_categories"
+
+    read_only = True
     group = "Form & segments"
     user_description = "Lists the categories of your saved segment library."
 
@@ -65,6 +67,8 @@ class GetSavedSegmentsTool(BaseTool):
     context_group = "library"
 
     name = "get_saved_segments"
+
+    read_only = True
     group = "Form & segments"
     user_description = "Fetches reusable prompt segments from your library."
 
@@ -109,6 +113,8 @@ class GetSegmentTemplatesTool(BaseTool):
     context_group = "library"
 
     name = "get_segment_templates"
+
+    read_only = True
     group = "Form & segments"
     user_description = "Fetches your reusable multi-segment prompt templates."
 

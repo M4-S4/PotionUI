@@ -62,6 +62,8 @@ class ListModelsTool(BaseTool):
     context_group = "library"
 
     name = "list_models"
+
+    read_only = True
     group = "Models & presets"
     user_description = "Lists the models installed on your server."
 
@@ -142,6 +144,8 @@ class SearchModelsTool(BaseTool):
     icon = "search"
 
     name = "search_models"
+
+    read_only = True
     group = "Models & presets"
     user_description = "Searches the models you can use, with their trigger words."
 
