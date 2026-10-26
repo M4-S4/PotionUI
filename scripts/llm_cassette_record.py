@@ -85,7 +85,6 @@ async def record(spec: Dict[str, Any], out: Path, adapter_class: type, force: bo
         "profile_overrides": spec.get("profile_overrides", {}),
     }
     profile = cassettes.profile_for(meta)
-    origin = cassettes.origin_for(meta)
     carried = {
         "config": config_data,
         "system": spec.get("system", ""),
@@ -114,6 +113,7 @@ async def record(spec: Dict[str, Any], out: Path, adapter_class: type, force: bo
             directory = scenario_dir / f"{step_number:02d}"
             assembler = None
             if not isinstance(events, HarnessError):
+                origin = cassettes.origin_for(meta, cassettes.replayed_config(request.config))
                 assembler = StepAssembler(f"assistant_{step_number}", origin)
                 assembler.feed_all(events)
             cassettes.write_step(
