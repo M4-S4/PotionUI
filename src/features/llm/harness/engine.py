@@ -13,6 +13,7 @@ from src.features.llm.harness.events import FinishReason, ReasoningDelta, TextDe
 from src.features.llm.harness.messages import Message, Part, ReasoningPart, Role, TextPart, ToolCallPart, ToolResultPart
 from src.features.llm.harness.ports import RetryPolicy, ToolRunner, TurnStore
 from src.features.llm.harness.profile import CapabilityProfile
+from src.features.llm.harness.recovery import CANCELLED_REASON, FAILED_REASON, interrupted_tool_step
 from src.features.llm.harness.turn_state import (
     Notice,
     NoticeKind,
@@ -201,6 +202,7 @@ class _Run:
 
     async def events(self) -> AsyncIterator[Any]:
         try:
+            self.engine._store.save_state(self._state(TurnStatus.RUNNING))
             for message in self.turn.new_messages:
                 yield self._commit(message, StepStatus.COMPLETED)
             if self.tools_on:
@@ -252,6 +254,7 @@ class _Run:
                         continue
                     if isinstance(item, ToolFinished):
                         results.append(item.result)
+                        self.gathered = tuple(results)
                     yield item
             if pending:
                 pending_ids = {call.call_id for call in pending}
@@ -262,6 +265,7 @@ class _Run:
             yield self._commit(
                 Message(id=new_id("msg"), role=Role.TOOL, parts=tuple(results)), StepStatus.COMPLETED,
             )
+            self.gathered = ()
             if self.turn.iteration_nudge and not self.nudged:
                 self.nudged = True
                 yield self._commit(context_message("nudge", self.turn.iteration_nudge), StepStatus.COMPLETED)
@@ -407,6 +411,12 @@ class _Run:
         if self.finished:
             return
         self.finished = True
+        try:
+            self._persist_abort(step_status, turn_status, error)
+        except Exception:
+            logger.exception("[TurnEngine] could not persist the %s turn %s", turn_status.value, self.turn_id)
+
+    def _persist_abort(self, step_status: StepStatus, turn_status: TurnStatus, error: Optional[BaseException]) -> None:
         box = self.box
         if box is not None and box.message is None and box.assembler is not None:
             partial = box.assembler.message()
@@ -416,7 +426,19 @@ class _Run:
         error_json = error.to_json() if isinstance(error, HarnessError) else (
             {"kind": "error", "message": str(error)} if error is not None else None
         )
-        self.engine._store.save_state(self._state(turn_status, error=error_json))
+        state = self._state(turn_status, error=error_json)
+        closing = interrupted_tool_step(
+            self.steps,
+            state,
+            step_id=new_id("step"),
+            seq=self.first_seq + len(self.steps) if self.first_seq is not None else 0,
+            status=step_status,
+            reason=CANCELLED_REASON if turn_status is TurnStatus.CANCELLED else FAILED_REASON,
+        )
+        if closing is not None:
+            self.engine._store.append(closing)
+            self.steps.append(closing)
+        self.engine._store.save_state(state)
 
     def _state(self, status: TurnStatus, error: Optional[Mapping[str, Any]] = None) -> TurnState:
         return TurnState(
