@@ -55,6 +55,7 @@ class Settings:
     tool_choice: Optional[ToolChoice] = None
     response_schema: Any = None
     cache_key: Optional[str] = None
+    cache_ttl: Optional[str] = None
     keep_model_loaded: bool = False
 
     @classmethod

@@ -2,19 +2,17 @@ from __future__ import annotations
 
 import base64
 import binascii
-import codecs
 import copy
 import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Dict, List, NamedTuple, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from src.features.llm.harness.adapter import RenderRequest, ToolChoice, ToolSpec, WireRequest
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.errors import (
     AuthFailed,
-    ConnectionFailed,
     ContextOverflow,
     HarnessError,
     InvalidRequest,
@@ -61,6 +59,8 @@ from src.features.llm.harness.profile import (
     ReasoningKind,
     StructuredOutputMode,
 )
+from src.features.llm.harness.sse import SSEFramer, SSERecord
+from src.features.llm.harness.transport import HttpAdapter
 from src.features.llm.model_listing import DiscoveredModel, ModelListingError, fetch_json, sorted_models
 
 if TYPE_CHECKING:
@@ -90,7 +90,6 @@ OVERFLOW_MARKERS = ("prompt is too long", "exceed context limit", "context windo
 PAIRING_MARKERS = ("tool_use ids were found without", "unexpected tool_use_id")
 
 TOOL_ID_INVALID = re.compile(r"[^a-zA-Z0-9_-]")
-LINE_END = re.compile(r"\r\n|\n|\r")
 
 
 def api_root(base_url: Optional[str]) -> str:
@@ -212,37 +211,38 @@ def blocks_from_parts(message: Message, tool_ids: Dict[str, str]) -> List[Dict[s
     return blocks
 
 
-def violation(message: Message, reason: str, **detail: Any) -> OpaqueViolation:
+def violation(message: Message, index: int, check: str, reason: str, **detail: Any) -> OpaqueViolation:
     return OpaqueViolation(
-        f"The stored Anthropic reply {message.id} cannot be replayed: {reason}.",
-        detail={"message_id": message.id, "reason": reason, **detail},
+        f"The stored Anthropic reply {message.id} (message {index}) cannot be replayed, "
+        f"the {check} check failed: {reason}.",
+        detail={"message_id": message.id, "index": index, "check": check, "reason": reason, **detail},
     )
 
 
-def expected_parts(message: Message, content: List[Dict[str, Any]]) -> List[Tuple[Any, ...]]:
+def expected_parts(message: Message, index: int, content: List[Dict[str, Any]]) -> List[Tuple[Any, ...]]:
     expected: List[Tuple[Any, ...]] = []
-    for index, block in enumerate(content):
+    for position, block in enumerate(content):
         kind = block.get("type")
         if kind == "thinking":
             thinking, signature = block.get("thinking"), block.get("signature")
             if not isinstance(thinking, str) or not isinstance(signature, str) or not signature:
-                raise violation(message, "a thinking block lost its signature", block=index)
+                raise violation(message, index, "content", "a thinking block lost its signature", block=position)
             expected.append(("reasoning", False, "", thinking, signature))
         elif kind == "redacted_thinking":
             data = block.get("data")
             if not isinstance(data, str) or not data:
-                raise violation(message, "a redacted thinking block lost its data", block=index)
+                raise violation(message, index, "content", "a redacted thinking block lost its data", block=position)
             expected.append(("reasoning", True, "", "", data))
         elif kind == "text":
             text = block.get("text")
             if not isinstance(text, str):
-                raise violation(message, "a text block lost its text", block=index)
+                raise violation(message, index, "content", "a text block lost its text", block=position)
             if text:
                 expected.append(("text", text))
         elif kind == "tool_use":
             ident, name, args = block.get("id"), block.get("name"), block.get("input")
             if not isinstance(ident, str) or not isinstance(name, str) or not isinstance(args, dict):
-                raise violation(message, "a tool_use block is malformed", block=index)
+                raise violation(message, index, "content", "a tool_use block is malformed", block=position)
             expected.append(("tool_use", ident, name, args))
     return expected
 
@@ -267,15 +267,17 @@ def same_part(expected: Tuple[Any, ...], actual: Tuple[Any, ...]) -> bool:
     return expected == actual
 
 
-def check_parts(message: Message, content: List[Dict[str, Any]]) -> None:
-    expected, actual = expected_parts(message, content), actual_parts(message)
+def check_parts(message: Message, index: int, content: List[Dict[str, Any]]) -> None:
+    expected, actual = expected_parts(message, index, content), actual_parts(message)
     if len(expected) != len(actual):
         raise violation(
-            message, "its blocks no longer match its parts", blocks=len(expected), parts=len(actual)
+            message, index, "content", "its blocks no longer match its parts", blocks=len(expected), parts=len(actual)
         )
-    for index, (want, got) in enumerate(zip(expected, actual)):
+    for position, (want, got) in enumerate(zip(expected, actual)):
         if not same_part(want, got):
-            raise violation(message, f"block {index} ({want[0]}) no longer matches its part", block=index)
+            raise violation(
+                message, index, "content", f"block {position} ({want[0]}) no longer matches its part", block=position
+            )
 
 
 class WireMessages:
@@ -300,25 +302,27 @@ class WireMessages:
             self._hashed += 1
         return self._hasher.hexdigest()
 
-    def replayed_blocks(self, message: Message) -> List[Dict[str, Any]]:
+    def replayed_blocks(self, message: Message, index: int) -> List[Dict[str, Any]]:
         raw = message.raw
         content = raw.get("content") if isinstance(raw, dict) else None
         if not isinstance(content, list) or not all(isinstance(block, dict) for block in content):
-            raise violation(message, "the stored payload is malformed")
+            raise violation(message, index, "content", "the stored payload is malformed")
         if raw.get("sha256") != digest(content):
-            raise violation(message, "the stored content blocks were modified")
+            raise violation(message, index, "content", "the stored content blocks were modified")
         if not content:
             return []
-        check_parts(message, content)
+        check_parts(message, index, content)
         if any(block.get("type") in THINKING_BLOCKS for block in content) and raw.get("prefix") != self.prefix_digest():
-            raise violation(message, "the messages before it changed since its thinking blocks were issued")
+            raise violation(
+                message, index, "prefix", "the messages before it changed since its thinking blocks were issued"
+            )
         for part in message.tool_calls():
             self.tool_ids[part.call_id] = part.wire_id
         return copy.deepcopy(content)
 
-    def assistant_blocks(self, message: Message) -> List[Dict[str, Any]]:
+    def assistant_blocks(self, message: Message, index: int) -> List[Dict[str, Any]]:
         if message.replays_raw_to(self.target):
-            return self.replayed_blocks(message)
+            return self.replayed_blocks(message, index)
         return blocks_from_parts(message, self.tool_ids)
 
 
@@ -351,7 +355,7 @@ def check_tool_pairs(messages: List[Dict[str, Any]]) -> None:
 
 def wire_messages(request: RenderRequest) -> WireMessages:
     wire = WireMessages(target_origin(request.config))
-    for message in request.messages:
+    for index, message in enumerate(request.messages):
         if message.role is Role.SYSTEM:
             raise InvalidRequest("The system prompt belongs in RenderRequest.system, not in the messages.")
         if message.role is Role.USER:
@@ -359,7 +363,7 @@ def wire_messages(request: RenderRequest) -> WireMessages:
         elif message.role is Role.TOOL:
             wire.add("user", [tool_result_block(result, wire.tool_ids) for result in message.tool_results()])
         else:
-            wire.add("assistant", wire.assistant_blocks(message))
+            wire.add("assistant", wire.assistant_blocks(message, index))
     check_tool_pairs(wire.messages)
     return wire
 
@@ -407,6 +411,14 @@ def max_tokens_for(request: RenderRequest, profile: CapabilityProfile) -> int:
     return min(wanted, profile.max_output_tokens) if profile.max_output_tokens else wanted
 
 
+def cache_control_config(ttl: Optional[str]) -> Dict[str, str]:
+    if ttl in (None, "5m"):
+        return {"type": "ephemeral"}
+    if ttl == "1h":
+        return {"type": "ephemeral", "ttl": "1h"}
+    raise InvalidRequest(f"Anthropic caches prompts for 5m or 1h, not {ttl}.")
+
+
 def build_body(request: RenderRequest, profile: CapabilityProfile, wire: WireMessages) -> Dict[str, Any]:
     thinking, effort = thinking_config(request, profile)
     body: Dict[str, Any] = {"model": request.config.model, "max_tokens": max_tokens_for(request, profile), "stream": True}
@@ -417,7 +429,7 @@ def build_body(request: RenderRequest, profile: CapabilityProfile, wire: WireMes
     if effort:
         body["output_config"] = {"effort": effort}
     if profile.cache is CacheMode.EXPLICIT:
-        body["cache_control"] = {"type": "ephemeral"}
+        body["cache_control"] = cache_control_config(request.settings.cache_ttl)
     if request.tools:
         body["tools"] = [tool_config(spec, profile) for spec in request.tools]
         choice = tool_choice_config(request.settings.tool_choice, profile, bool(thinking) and thinking["type"] == "adaptive")
@@ -495,48 +507,6 @@ def build_error(
     return InvalidRequest(message, **extras)
 
 
-class SSERecord(NamedTuple):
-    data: str
-    event: Optional[str]
-
-
-class SSEFramer:
-    def __init__(self) -> None:
-        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        self._buffer = ""
-        self._data: List[str] = []
-        self._event: Optional[str] = None
-
-    def feed(self, chunk: bytes) -> List[SSERecord]:
-        self._buffer += self._decoder.decode(chunk)
-        records: List[SSERecord] = []
-        start = 0
-        for match in LINE_END.finditer(self._buffer):
-            if match.group() == "\r" and match.end() == len(self._buffer):
-                break
-            record = self._line(self._buffer[start:match.start()])
-            start = match.end()
-            if record is not None:
-                records.append(record)
-        self._buffer = self._buffer[start:]
-        return records
-
-    def _line(self, line: str) -> Optional[SSERecord]:
-        if line == "":
-            record = SSERecord("\n".join(self._data), self._event) if self._data else None
-            self._data, self._event = [], None
-            return record
-        if line.startswith(":"):
-            return None
-        name, _, value = line.partition(":")
-        value = value[1:] if value.startswith(" ") else value
-        if name == "event":
-            self._event = value
-        elif name == "data":
-            self._data.append(value)
-        return None
-
-
 @dataclass
 class OpenBlock:
     raw: Dict[str, Any]
@@ -546,7 +516,7 @@ class OpenBlock:
 
 class MessagesDecoder:
     def __init__(self, prefix: str) -> None:
-        self._framer = SSEFramer()
+        self._framer = SSEFramer(ADAPTER_NAME)
         self._prefix = prefix
         self._blocks: Dict[int, OpenBlock] = {}
         self._usage: Dict[str, Any] = {}
@@ -562,6 +532,7 @@ class MessagesDecoder:
         return events
 
     def close(self) -> List[StreamEvent]:
+        self._framer.close()
         if not self._finished:
             raise MalformedStream("The stream ended before message_stop.")
         return []
@@ -768,7 +739,7 @@ async def fetch_models(base_url: Optional[str], api_key: Optional[str]) -> List[
     return [item for item in data if isinstance(item, dict) and isinstance(item.get("id"), str)]
 
 
-class AnthropicMessagesAdapter:
+class AnthropicMessagesAdapter(HttpAdapter):
     name = ADAPTER_NAME
 
     def render(self, request: RenderRequest, profile: CapabilityProfile) -> WireRequest:
@@ -785,15 +756,9 @@ class AnthropicMessagesAdapter:
     def decoder(self, request: RenderRequest, profile: CapabilityProfile) -> MessagesDecoder:
         return MessagesDecoder(wire_messages(request).prefix_digest())
 
-    async def send(self, wire: WireRequest, request: RenderRequest) -> AsyncIterator[bytes]:
-        raise NotImplementedError("The shared HTTP transport provides send.")
-        yield b""
-
     def classify_error(self, failure: WireFailure) -> HarnessError:
         if failure.status is None:
-            cause = failure.cause
-            text = (str(cause) if cause is not None else "") or "The connection to Anthropic failed."
-            return ConnectionFailed(text, code=type(cause).__name__ if cause is not None else None)
+            return super().classify_error(failure)
         kind, message, request_id = error_fields(failure.body)
         body = failure.body.decode("utf-8", errors="replace")[:BODY_DETAIL_CHARS]
         detail: Dict[str, Any] = {"request_id": request_id} if request_id else {}
