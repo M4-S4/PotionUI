@@ -8,8 +8,8 @@ export interface LLMConfig {
 	api_key_set?: boolean;
 	model: string;
 	system_message: string;
-	temperature: number;
-	max_tokens: number;
+	temperature: number | null;
+	max_tokens: number | null;
 	timeout: number;
 	supports_vision?: boolean;
 	/** Extracts durable user facts from the transcript into memory notes. Default true. */

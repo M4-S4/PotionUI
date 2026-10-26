@@ -194,3 +194,17 @@ export function profileLayers(row: ProfileRow): string[] {
 	}
 	return layers;
 }
+
+export function recommendedSampling(profile: LLMProfile | null | undefined): Record<string, number> {
+	const value = profile?.fields.recommended_sampling?.value;
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+	return Object.fromEntries(
+		Object.entries(value as Record<string, unknown>).filter(
+			(entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1])
+		)
+	);
+}
+
+export function modelDefaultHint(recommended: number | undefined): string {
+	return recommended === undefined ? 'Model default' : `Model default · ${recommended}`;
+}

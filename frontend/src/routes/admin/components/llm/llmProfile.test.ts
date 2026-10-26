@@ -4,11 +4,13 @@ import {
 	buildProfileGroups,
 	clearProfileDraft,
 	formatProfileValue,
+	modelDefaultHint,
 	humanizeProfileName,
 	profileDraftCount,
 	profileDraftPayload,
 	profileHasProblems,
 	profileLayers,
+	recommendedSampling,
 	sameProfileValue,
 	setProfileDraft,
 	type ProfileRow
@@ -201,5 +203,40 @@ describe('sameProfileValue', () => {
 		expect(sameProfileValue(null, undefined)).toBe(true);
 		expect(sameProfileValue(['b', 'a'], ['a', 'b'])).toBe(true);
 		expect(sameProfileValue(1, 2)).toBe(false);
+	});
+});
+
+describe('recommendedSampling', () => {
+	const withValue = (value: unknown): LLMProfile => ({
+		...PROFILE,
+		fields: { recommended_sampling: { value, source: 'seed', seed: value, discovered: null, override: null } }
+	});
+
+	it('reads the recommended numbers out of the profile', () => {
+		expect(recommendedSampling(withValue({ temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0 }))).toEqual({
+			temperature: 0.6,
+			top_p: 0.95,
+			top_k: 20,
+			min_p: 0
+		});
+	});
+
+	it('drops anything that is not a number', () => {
+		expect(recommendedSampling(withValue({ temperature: '0.6', top_p: null, top_k: 20 }))).toEqual({ top_k: 20 });
+	});
+
+	it('is empty without a usable value', () => {
+		expect(recommendedSampling(null)).toEqual({});
+		expect(recommendedSampling(PROFILE)).toEqual({});
+		expect(recommendedSampling(withValue(null))).toEqual({});
+		expect(recommendedSampling(withValue([0.6]))).toEqual({});
+	});
+});
+
+describe('modelDefaultHint', () => {
+	it('names the recommended value when there is one', () => {
+		expect(modelDefaultHint(0.6)).toBe('Model default · 0.6');
+		expect(modelDefaultHint(0)).toBe('Model default · 0');
+		expect(modelDefaultHint(undefined)).toBe('Model default');
 	});
 });

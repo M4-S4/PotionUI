@@ -131,10 +131,11 @@ describe('LLMConfigTab capability profile', () => {
 		expect(labels).toEqual(['Configuration', 'Profile', 'Toolset', 'Access']);
 	});
 
-	it('does not load the profile until the tab is opened', async () => {
-		await open();
+	it('does not build the profile editor until the tab is opened', async () => {
+		const target = await open();
 
-		expect(mockGetLLMProfile).not.toHaveBeenCalled();
+		expect(mockGetLLMProfileSchema).not.toHaveBeenCalled();
+		expect(target.querySelector('[data-testid="profile-row"]')).toBeNull();
 	});
 
 	it('loads the profile of the selected configuration when the tab opens', async () => {

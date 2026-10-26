@@ -75,8 +75,8 @@ Always be creative and helpful while staying focused on the image generation con
 			memory_reflection: config?.memory_reflection ?? true,
 			show_thinking: config?.show_thinking ?? false,
 			system_message: config?.system_message ?? defaultSystemMessage,
-			temperature: config?.temperature ?? 0.7,
-			max_tokens: config?.max_tokens || 1000,
+			temperature: config?.temperature ?? null,
+			max_tokens: config?.max_tokens ?? null,
 			timeout: config?.timeout || 30,
 			provider_options: config?.provider_options ? { ...config.provider_options } : {},
 			...overrides

@@ -11,8 +11,8 @@
 		memory_reflection: boolean;
 		show_thinking: boolean;
 		system_message: string;
-		temperature: number;
-		max_tokens: number;
+		temperature: number | null;
+		max_tokens: number | null;
 		timeout: number;
 		provider_options: Record<string, any>;
 	};
@@ -22,10 +22,12 @@
 	import type { Snippet } from 'svelte';
 	import type { LLMProviderType, NativeCheckpoint, PreChatAction } from '$lib/types/llm';
 	import { api } from '$lib/services/api/index';
+	import * as adminApi from '$lib/services/admin-api';
 	import { Badge, Input, Spinner, Switch } from '$lib/components/ui';
 	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
 	import { baseUrlForType, llmTypeOptions, usesOpenAIOptions } from './llmTypeOptions';
+	import { modelDefaultHint, recommendedSampling } from './llm/llmProfile';
 	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
 
 	/**
@@ -220,6 +222,28 @@
 
 	loadProviderTypes();
 
+	let recommended = $state<Record<string, number>>({});
+
+	async function loadRecommended(id: string) {
+		try {
+			const response = await adminApi.getLLMProfile(id);
+			recommended = response.success && response.data ? recommendedSampling(response.data) : {};
+		} catch {
+			recommended = {};
+		}
+	}
+
+	$effect(() => {
+		recommended = {};
+		if (configId) loadRecommended(configId);
+	});
+
+	function setSampling(key: 'temperature' | 'max_tokens', event: Event) {
+		const raw = (event.currentTarget as HTMLInputElement).value.trim();
+		const parsed = Number(raw);
+		draft[key] = raw === '' || !Number.isFinite(parsed) ? null : parsed;
+	}
+
 	const typeOptions = $derived(llmTypeOptions(providerTypes, draft.type));
 
 	const supportsModelListing = $derived(
@@ -366,11 +390,29 @@
 {/snippet}
 
 {#snippet temperatureInput()}
-	<input id="{idPrefix}-temperature" type="number" class="input font-mono tabular-nums" bind:value={draft.temperature} min="0" max="2" step="0.1" />
+	<input
+		id="{idPrefix}-temperature"
+		type="number"
+		class="input font-mono tabular-nums"
+		value={draft.temperature ?? ''}
+		placeholder={modelDefaultHint(recommended.temperature)}
+		min="0"
+		max="2"
+		step="0.1"
+		oninput={(event) => setSampling('temperature', event)}
+	/>
 {/snippet}
 
 {#snippet maxTokensInput()}
-	<input id="{idPrefix}-max-tokens" type="number" class="input font-mono tabular-nums" bind:value={draft.max_tokens} min="1" max="4096" />
+	<input
+		id="{idPrefix}-max-tokens"
+		type="number"
+		class="input font-mono tabular-nums"
+		value={draft.max_tokens ?? ''}
+		placeholder={modelDefaultHint(undefined)}
+		min="1"
+		oninput={(event) => setSampling('max_tokens', event)}
+	/>
 {/snippet}
 
 {#snippet timeoutInput()}
