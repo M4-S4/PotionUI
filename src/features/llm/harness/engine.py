@@ -209,13 +209,14 @@ class _Run:
 
     async def events(self) -> AsyncIterator[Any]:
         try:
-            self.engine._store.save_state(self._state(TurnStatus.RUNNING))
-            for message in self.turn.new_messages:
-                yield self._commit(message, StepStatus.COMPLETED)
             if self.tools_on:
                 registered = self._registered()
                 self.sent_tools = tuple(spec for spec in self.turn.tools_in_use if spec.name in registered)
                 self._tool_specs()
+            self.engine._store.save_state(self._state(TurnStatus.RUNNING))
+            for message in self.turn.new_messages:
+                yield self._commit(message, StepStatus.COMPLETED)
+            if self.tools_on:
                 async for event in self._tool_loop():
                     yield event
             else:
