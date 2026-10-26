@@ -24,6 +24,7 @@ class LLMConfiguration:
     memory_reflection: bool = True
     show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
+    profile_overrides: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     # True when the stored api_key exists but cannot be decrypted with the
@@ -36,6 +37,7 @@ class LLMConfiguration:
     def from_row(cls, row) -> 'LLMConfiguration':
         """Create LLMConfiguration instance from database row"""
         provider_options = json_column(row['provider_options']) if 'provider_options' in row.keys() else None
+        profile_overrides = json_column(row['profile_overrides']) if 'profile_overrides' in row.keys() else None
 
         return cls(
             id=row['id'],
@@ -54,6 +56,7 @@ class LLMConfiguration:
             memory_reflection=bool(row['memory_reflection']) if 'memory_reflection' in row.keys() else True,
             show_thinking=bool(row['show_thinking']) if 'show_thinking' in row.keys() else False,
             provider_options=provider_options,
+            profile_overrides=profile_overrides,
             created_at=dt_column(row['created_at']),
             updated_at=dt_column(row['updated_at'])
         )
