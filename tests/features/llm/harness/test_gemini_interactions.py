@@ -420,6 +420,31 @@ class TestHistory:
         steps = render([user(), assistant])["input"]
         assert [step["type"] for step in steps] == ["user_input", "function_call"]
 
+    def test_calls_flagged_for_a_placeholder_signature_get_one_even_without_a_thinking_profile(self):
+        flagged = {"placeholder_signature": True}
+        assistant = message(
+            "a1", Role.ASSISTANT,
+            TextPart("Checking."),
+            ToolCallPart(call_id="c1", name="dim_lights", args={}, args_raw="{}", opaque=flagged),
+            ToolCallPart(call_id="c2", name="start_music", args={}, args_raw="{}", opaque=flagged),
+            origin=Origin(adapter="legacy", provider="legacy", model="legacy"),
+        )
+        steps = render([user(), assistant])["input"]
+        assert [step["type"] for step in steps] == [
+            "user_input", "model_output", "thought", "function_call", "function_call",
+        ]
+        assert steps[2] == {"type": "thought", "signature": "skip_thought_signature_validator"}
+
+    def test_a_flagged_call_after_a_real_thought_adds_no_placeholder(self):
+        assistant = message(
+            "a1", Role.ASSISTANT,
+            ReasoningPart(opaque={"signature": SIGNATURE}),
+            ToolCallPart(call_id="c1", name="dim_lights", args={}, args_raw="{}", opaque={"placeholder_signature": True}),
+            origin=origin(model="gemini-3.1-pro-preview"),
+        )
+        steps = render([user(), assistant], profile_fields=THINKING)["input"]
+        assert [step["signature"] for step in steps if step["type"] == "thought"] == [SIGNATURE]
+
     def test_tool_call_with_unparseable_arguments_is_sent_with_empty_arguments(self):
         assistant = message(
             "a1", Role.ASSISTANT,

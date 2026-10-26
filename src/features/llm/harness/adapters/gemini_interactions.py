@@ -168,22 +168,27 @@ def stored_thought(part: ReasoningPart) -> Dict[str, Any]:
     return thought_step(signature, opaque.get("summary"))
 
 
+def flagged_for_placeholder(part: ToolCallPart) -> bool:
+    return bool((part.opaque or {}).get("placeholder_signature"))
+
+
 def part_steps(message: Message, profile: CapabilityProfile, native: bool) -> List[Dict[str, Any]]:
     steps: List[Dict[str, Any]] = []
-    needs_signature = profile.reasoning is not ReasoningKind.NONE
+    signed = False
+    derive = profile.reasoning is not ReasoningKind.NONE
     for part in message.parts:
         if isinstance(part, ReasoningPart):
             if native:
                 steps.append(stored_thought(part))
-                needs_signature = False
+                signed = True
         elif isinstance(part, TextPart):
             steps.append(text_step(part.text))
         elif isinstance(part, CompactionPart):
             steps.append(text_step(part.summary))
         elif isinstance(part, ToolCallPart):
-            if needs_signature:
+            if not signed and (derive or flagged_for_placeholder(part)):
                 steps.append(thought_step(PLACEHOLDER_SIGNATURE))
-                needs_signature = False
+                signed = True
             steps.append({
                 "type": "function_call",
                 "id": part.wire_id or part.call_id,
