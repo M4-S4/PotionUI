@@ -30,10 +30,12 @@ def segment_text(steps: Sequence[StepRecord]) -> str:
 
 def reasoning_block(part: ReasoningPart) -> ReasoningBlock:
     if part.text:
-        return ReasoningBlock(kind="raw", text=part.text, redacted=part.redacted)
-    if part.summary:
-        return ReasoningBlock(kind="summary", text=part.summary, redacted=part.redacted)
-    return ReasoningBlock(kind="omitted", text="", redacted=part.redacted)
+        kind, text = "raw", part.text
+    elif part.summary:
+        kind, text = "summary", part.summary
+    else:
+        kind, text = "omitted", ""
+    return ReasoningBlock(kind=kind, text=text, redacted=part.redacted, duration_ms=part.duration_ms)
 
 
 def reasoning_blocks(steps: Sequence[StepRecord]) -> List[ReasoningBlock]:

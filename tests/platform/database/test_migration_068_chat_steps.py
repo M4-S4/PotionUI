@@ -101,13 +101,13 @@ def test_a_tool_turn_keeps_round_reasoning_calls_results_and_the_final_answer(en
     assert [step.message.role for step in steps] == [Role.USER, Role.ASSISTANT, Role.TOOL, Role.ASSISTANT]
     asks, tool, final = steps[1], steps[2], steps[3]
     assert asks.message.parts == (
-        ReasoningPart(text="plan the search"),
+        ReasoningPart(text="plan the search", duration_ms=900),
         ToolCallPart(call_id="call_1", name="search", args={"q": "cats", "n": 2}, args_raw=None, wire_id="call_1"),
     )
     assert asks.finish is FinishReason.TOOL_CALLS and asks.usage is None
     assert tool.message.parts == (ToolResultPart(call_id="call_1", name="search", content=(TextPart(text="2 hits"),)),)
     assert tool.message.origin is None
-    assert final.message.parts == (ReasoningPart(text="summarise results"), TextPart(text="Found 2 cats."))
+    assert final.message.parts == (ReasoningPart(text="summarise results", duration_ms=400), TextPart(text="Found 2 cats."))
     assert final.usage.total_tokens == 120
     assert chats.message(assistant)[1]["step_range"] == {"first": 1, "last": 3}
     (turn,) = chats.turns(session)
@@ -249,7 +249,7 @@ def test_a_reasoning_only_answer_without_a_transcript_keeps_its_reasoning(env, c
 
     migration.up()
 
-    assert chats.steps(session)[1].message.parts == (ReasoningPart(text="hmm"), TextPart(text="Because."))
+    assert chats.steps(session)[1].message.parts == (ReasoningPart(text="hmm", duration_ms=10), TextPart(text="Because."))
 
 
 def test_stored_json_decodes_under_the_contract_and_is_byte_stable(env, chats):

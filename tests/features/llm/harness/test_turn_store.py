@@ -169,6 +169,7 @@ class TurnStoreContract:
                 "m1", "assistant",
                 ReasoningPart(opaque={"signature": "EqQBCkYIBxgCKkA="}),
                 ReasoningPart(redacted=True, opaque={"data": "EmwKAhgB"}),
+                ReasoningPart(text="timed", duration_ms=1840),
                 TextPart(text="Checking.", phase="commentary"),
                 ToolCallPart(call_id="c1", name="search", args=RAW_BLOCKS[2]["input"], args_raw='{"q": "ż"}', wire_id="toolu_01", opaque={"thought_signature": "abc"}),
                 origin=ANTHROPIC, raw=RAW_BLOCKS,

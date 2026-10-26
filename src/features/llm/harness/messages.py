@@ -25,6 +25,7 @@ class ReasoningPart:
     summary: str = ""
     redacted: bool = False
     opaque: Optional[Dict[str, Any]] = None
+    duration_ms: Optional[int] = None
 
 
 @dataclass(frozen=True)
