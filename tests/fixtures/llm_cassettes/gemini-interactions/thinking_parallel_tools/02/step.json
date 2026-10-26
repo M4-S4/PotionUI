@@ -22,7 +22,7 @@
       "adapter": "gemini-interactions",
       "provider": "gemini",
       "model": "gemini-3.8-flash",
-      "credential": null
+      "credential": "a974a864522332e8"
     },
     "raw": [
       {
