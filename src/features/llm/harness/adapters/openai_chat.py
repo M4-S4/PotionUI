@@ -46,6 +46,7 @@ from src.features.llm.repository import LLMConfig
 DEFAULT_REASONING_FIELD = "reasoning_content"
 REASONING_FIELDS = ("reasoning_content", "reasoning")
 CONTEXT_WINDOW_KEYS = ("context_length", "max_model_len", "context_window")
+KNOWN_SERVERS = {"vllm": "vllm"}
 
 PROVIDER_OPTION_KEYS = (
     "top_p",
@@ -437,33 +438,54 @@ class OpenAIChatAdapter(HttpAdapter):
             ))
         return sorted_models(models)
 
+    async def probe_entries(self, base_url: str, api_key: Optional[str]) -> List[Dict[str, Any]]:
+        payload = await fetch_json(
+            self.display_name,
+            base_url,
+            "/models",
+            bearer_headers(api_key),
+            timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+        )
+        entries = payload.get("data") if isinstance(payload, dict) else None
+        return [entry for entry in entries if isinstance(entry, dict)] if isinstance(entries, list) else []
+
+    @staticmethod
+    def window_of(entries: List[Dict[str, Any]], model: str) -> Optional[DiscoveredWindow]:
+        for entry in entries:
+            if entry.get("id") != model:
+                continue
+            for key in CONTEXT_WINDOW_KEYS:
+                tokens = positive_int(entry.get(key))
+                if tokens:
+                    return DiscoveredWindow(tokens=tokens, kind="runtime")
+        return None
+
+    @staticmethod
+    def server_of(entries: List[Dict[str, Any]], model: str) -> Optional[str]:
+        listed = next((entry for entry in entries if entry.get("id") == model), entries[0] if entries else None)
+        owner = listed.get("owned_by") if listed else None
+        return KNOWN_SERVERS.get(owner) if isinstance(owner, str) else None
+
     async def discover_context_window(
         self, base_url: str, api_key: Optional[str], model: str,
     ) -> Optional[DiscoveredWindow]:
         try:
-            payload = await fetch_json(
-                self.display_name,
-                base_url,
-                "/models",
-                bearer_headers(api_key),
-                timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
-            )
-            entries = payload.get("data") if isinstance(payload, dict) else None
-            for entry in entries if isinstance(entries, list) else []:
-                if not isinstance(entry, dict) or entry.get("id") != model:
-                    continue
-                for key in CONTEXT_WINDOW_KEYS:
-                    tokens = positive_int(entry.get(key))
-                    if tokens:
-                        return DiscoveredWindow(tokens=tokens, kind="runtime")
-            return None
+            return self.window_of(await self.probe_entries(base_url, api_key), model)
         except Exception:
             logging.debug("%s context window probe failed for %s", self.display_name, model, exc_info=True)
             return None
 
     async def discover(self, config: LLMConfig) -> ProfileLayer:
         fields: Dict[str, Any] = {}
-        window = await self.discover_context_window(config.base_url, config.api_key, config.model)
+        try:
+            entries = await self.probe_entries(config.base_url, config.api_key)
+        except Exception:
+            logging.debug("%s discovery failed for %s", self.display_name, config.model, exc_info=True)
+            return ProfileLayer(ProfileSource.DISCOVERED, fields)
+        window = self.window_of(entries, config.model)
         if window is not None:
             fields["context_window"] = window.tokens
+        server = self.server_of(entries, config.model)
+        if server is not None:
+            fields["server"] = server
         return ProfileLayer(ProfileSource.DISCOVERED, fields)
