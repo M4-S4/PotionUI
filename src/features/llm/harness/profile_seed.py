@@ -63,6 +63,8 @@ class CatalogEntry:
 def _validated_fields(owner: str, fields: Any) -> Mapping[str, Any]:
     if not isinstance(fields, dict) or not fields:
         raise SeedError(f"{owner}: fields must be a non-empty mapping")
+    if owner != "base" and "server" in fields:
+        raise SeedError(f"{owner}: the server is what selects rows, so a row cannot set it")
     try:
         CapabilityProfile(adapter="seed", model="seed").layered([ProfileLayer(ProfileSource.SEED, fields)])
     except (TypeError, ValueError) as exc:

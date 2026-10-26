@@ -396,6 +396,14 @@ class TestRejectedSeedTables:
         with pytest.raises(SeedError, match="non-empty"):
             SeedTable.from_mapping(self.table(lambda data: data["rows"][0].update(fields={})))
 
+    def test_a_row_that_sets_the_server_it_is_selected_by(self):
+        with pytest.raises(SeedError, match="cannot set it"):
+            SeedTable.from_mapping(self.table(lambda data: data["rows"][0]["fields"].update(server="vllm")))
+
+    def test_a_catalog_entry_that_sets_the_server(self):
+        with pytest.raises(SeedError, match="cannot set it"):
+            SeedTable.from_mapping(self.table(lambda data: data["catalog"][0]["fields"].update(server="vllm")))
+
     def test_an_unknown_row_key(self):
         with pytest.raises(SeedError, match="unknown keys"):
             SeedTable.from_mapping(self.table(lambda data: data["rows"][0].update(note="x")))

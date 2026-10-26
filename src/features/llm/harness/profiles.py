@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 DISCOVERY_HIT_TTL_SECONDS = 3600.0
 DISCOVERY_MISS_TTL_SECONDS = 300.0
 DISCOVERY_TIMEOUT_SECONDS = 10.0
-SERVER_OPTION = "server"
 
 DiscoveryKey = Tuple[str, str, str]
 
@@ -118,9 +117,9 @@ class LayeredProfileResolver:
         adapter_name = self._adapter_for(config).name
         discovery = self._cached(config, adapter_name)
         profile = self._profile(config, adapter_name, discovery)
-        seed = self._seed.layer(self._seed_key(config, adapter_name)).fields
         discovered = discovery.layer.fields if discovery is not None else {}
         overrides = self._overrides(config)
+        seed = self._seed_layer(config, adapter_name, discovered, overrides).fields
         fields = {
             spec.name: FieldReport(
                 value=getattr(profile, spec.name),
@@ -158,13 +157,20 @@ class LayeredProfileResolver:
         return fields, None
 
     def _profile(self, config: LLMConfig, adapter_name: str, discovery: Optional[Discovery]) -> CapabilityProfile:
-        layers = [self._seed.layer(self._seed_key(config, adapter_name))]
-        if discovery is not None and discovery.layer.fields:
-            layers.append(discovery.layer)
         overrides = self._overrides(config)
+        discovered = discovery.layer.fields if discovery is not None else {}
+        layers = [self._seed_layer(config, adapter_name, discovered, overrides)]
+        if discovered:
+            layers.append(discovery.layer)
         if overrides:
             layers.append(ProfileLayer(ProfileSource.OVERRIDE, overrides))
         return CapabilityProfile(adapter=adapter_name, model=config.model).layered(layers)
+
+    def _seed_layer(
+        self, config: LLMConfig, adapter_name: str, discovered: Mapping[str, Any], overrides: Mapping[str, Any]
+    ) -> ProfileLayer:
+        server = overrides.get("server") or discovered.get("server")
+        return self._seed.layer(SeedKey(adapter=adapter_name, model=config.model, server=server))
 
     @staticmethod
     def _overrides(config: LLMConfig) -> Mapping[str, Any]:
@@ -186,8 +192,3 @@ class LayeredProfileResolver:
     @staticmethod
     def _key(config: LLMConfig, adapter_name: str) -> DiscoveryKey:
         return (adapter_name, (config.base_url or "").strip().rstrip("/"), config.model)
-
-    @staticmethod
-    def _seed_key(config: LLMConfig, adapter_name: str) -> SeedKey:
-        server = (config.provider_options or {}).get(SERVER_OPTION)
-        return SeedKey(adapter=adapter_name, model=config.model, server=server if isinstance(server, str) else None)

@@ -48,6 +48,7 @@ base:
     reasoning_levels: []
     reasoning_toggle: null
     reasoning_field: null
+    server: null
     replay: send_all
     replay_required_with_tools: false
     reasoning_prefix_bound: false

@@ -35,9 +35,12 @@ matching row in file order. Curated rows therefore win over the catalog, and mus
 are never in the catalog: their usable context is the loaded context (VRAM and `num_ctx`),
 not the trained maximum, and comes from discovery or an override.
 
-`servers` narrows a row to configurations whose `provider_options.server` names it
-(for example `vllm`). It exists because an OpenAI-compatible base URL says nothing about the
-software behind it.
+`servers` narrows a row to configurations whose profile `server` names it (for example
+`vllm`). An OpenAI-compatible base URL says nothing about the software behind it, so the
+server is a profile field: the adapter's discovery sets it (vLLM lists `owned_by: "vllm"` in
+`/v1/models`) and an admin can override it. The override wins, then the discovered value, and
+the seed rows for that server apply underneath. Rows and the catalog cannot set `server`
+themselves.
 
 Refresh the catalog with:
 
@@ -62,10 +65,14 @@ The script only rewrites the `catalog` key; everything above it is kept byte for
 | `reasoning_levels` | Accepted effort values, in order. |
 | `reasoning_toggle` | Where the on/off switch lives (`think`, `thinking.type`, `chat_template_kwargs.enable_thinking`, `reasoning.effort`). `null` on an `effort` model means thinking cannot be turned off. |
 | `reasoning_field` | The response and request field carrying reasoning text (`reasoning_content`, `reasoning`, `thinking`). `null` means echo what the server sent. |
+| `server` | The software behind an OpenAI-compatible endpoint (`vllm`, ...). Discovered or overridden; it selects `servers` rows. |
 | `replay` | See below. |
+| `replay_required_with_tools` | The API rejects a request with tools unless every earlier assistant message carries its reasoning (DeepSeek). |
+| `reasoning_prefix_bound` | Reasoning is only valid while everything before it is unchanged (Anthropic). |
 | `interleaved_reasoning` | The model reasons between tool calls. |
 | `vision`, `max_images`, `tool_result_media` | Image input, images per request, media inside tool results. |
 | `sampling_rejected`, `sampling_ignored_with_reasoning` | Parameters that make the API answer 400, and parameters it silently ignores while reasoning. Subset of `temperature`, `top_p`, `top_k`, `min_p`. |
+| `recommended_sampling` | The model card's sampling values (thinking mode where the card distinguishes). The lowest sampling layer. |
 | `cache`, `cache_min_tokens` | `none`, `automatic`, `explicit` (the client must mark breakpoints) or `local_prefix`, and the shortest cacheable prefix. |
 | `prices` | USD per million tokens: `input`, `output`, `cached_input`, `cache_write`, `reasoning`. |
 | `verified` | Set by the chat evaluation, read-only. |
@@ -99,9 +106,27 @@ Tool calls made by another origin lose their provider data and get `opaque =
 {"placeholder_signature": True}`. Adapters whose wire demands a signature (Gemini) substitute
 their documented placeholder when they see it.
 
-`missing_reasoning(messages)` lists the assistant messages that carry no reasoning. An adapter
-for a provider that needs reasoning replayed whenever tools are present (DeepSeek) switches
-thinking off for that request when the list is not empty.
+`missing_reasoning(messages)` lists the assistant messages that carry no reasoning.
+`must_disable_reasoning(profile, messages, tools_present)` is true when the profile has
+`replay_required_with_tools`, the request carries tools and that list is not empty; the engine
+then turns reasoning off for that request and tells the user, instead of sending a request the
+API would answer with 400.
+
+`policy_replay(..., prefix_changed_at=seq)` takes the sequence number of the earliest step that
+was trimmed or replaced by a compaction. For a `reasoning_prefix_bound` profile, every assistant
+step after it loses its reasoning and its raw payload (Anthropic invalidates a thinking block
+once anything before it changes) and a `reasoning_dropped` notice with the reason
+`history_changed` is returned.
+
+## Sampling and reasoning settings
+
+`harness/sampling.py` `resolve_settings(config, profile, request)` turns the layers into the
+`Settings` an adapter renders. For each of `temperature`, `top_p`, `top_k` and `min_p` the first
+value that is set wins: the request, then `provider_options`, then the configuration (only
+`temperature` is a column), then the profile's `recommended_sampling`. `max_tokens` follows the
+same order without a recommendation. Parameters in `sampling_rejected` are then removed.
+`provider_options.reasoning_effort`, `think` and `thinking` map to the one `Settings.reasoning`
+value (`reasoning_effort: "none"` becomes `False`); a request value wins over all of them.
 
 ## Admin routes
 

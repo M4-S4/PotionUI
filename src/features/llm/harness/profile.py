@@ -86,6 +86,7 @@ class CapabilityProfile:
     reasoning_levels: Tuple[str, ...] = ()
     reasoning_toggle: Optional[str] = None
     reasoning_field: Optional[str] = None
+    server: Optional[str] = None
     replay: ReplayPolicy = ReplayPolicy.SEND_ALL
     replay_required_with_tools: bool = False
     reasoning_prefix_bound: bool = False

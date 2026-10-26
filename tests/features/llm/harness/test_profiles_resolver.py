@@ -202,13 +202,59 @@ def test_discovery_is_cached_per_adapter_server_and_model():
     assert adapter.calls == ["a", "c", "d"]
 
 
-def test_the_server_hint_selects_seed_rows():
-    seed = tiny_seed({"id": "vllm", "servers": ["vllm"], "fields": {"reasoning_field": "reasoning"}})
-    resolver, _, _ = build(seed=seed)
+def vllm_seed():
+    return tiny_seed({"id": "vllm", "servers": ["vllm"], "fields": {"reasoning_field": "reasoning"}})
 
-    assert resolver.resolve(make_config(provider_options={"server": "vLLM"})).reasoning_field == "reasoning"
-    assert resolver.resolve(make_config(provider_options={"server": 3})).reasoning_field is None
-    assert resolver.resolve(make_config()).reasoning_field is None
+
+def test_a_discovered_server_selects_seed_rows_and_is_part_of_the_profile():
+    resolver, _, _ = build(ProbeAdapter(fields={"server": "vllm"}), vllm_seed())
+    config = make_config()
+
+    assert resolver.resolve(config).reasoning_field is None
+    profile = asyncio.run(resolver.refresh(config))
+
+    assert profile.server == "vllm"
+    assert profile.reasoning_field == "reasoning"
+    assert profile.sources["server"] is ProfileSource.DISCOVERED
+    assert profile.sources["reasoning_field"] is ProfileSource.SEED
+
+
+def test_an_admin_override_of_the_server_selects_seed_rows_without_discovery():
+    resolver, _, _ = build(seed=vllm_seed())
+
+    profile = resolver.resolve(make_config(profile_overrides={"server": "vLLM"}))
+
+    assert profile.server == "vLLM"
+    assert profile.reasoning_field == "reasoning"
+    assert profile.sources["server"] is ProfileSource.OVERRIDE
+
+
+def test_the_override_of_the_server_beats_the_discovered_one():
+    resolver, _, _ = build(ProbeAdapter(fields={"server": "llama.cpp"}), vllm_seed())
+    config = make_config(profile_overrides={"server": "vllm"})
+
+    profile = asyncio.run(resolver.refresh(config))
+
+    assert profile.server == "vllm" and profile.reasoning_field == "reasoning"
+
+
+def test_an_unknown_server_matches_no_server_rows():
+    resolver, _, _ = build(ProbeAdapter(fields={"server": "llama.cpp"}), vllm_seed())
+
+    profile = asyncio.run(resolver.refresh(make_config()))
+
+    assert profile.server == "llama.cpp" and profile.reasoning_field is None
+
+
+def test_explain_reports_the_server_row_in_the_seed_layer():
+    resolver, _, _ = build(ProbeAdapter(fields={"server": "vllm"}), vllm_seed())
+    config = make_config()
+    asyncio.run(resolver.refresh(config))
+
+    fields = resolver.explain(config).fields
+
+    assert fields["reasoning_field"].seed == "reasoning" and fields["reasoning_field"].source is ProfileSource.SEED
+    assert fields["server"].discovered == "vllm" and fields["server"].seed is None
 
 
 def test_a_stored_override_that_no_longer_validates_is_skipped_and_logged_once(caplog):

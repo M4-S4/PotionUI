@@ -59,6 +59,7 @@ PROFILE_FIELDS: Tuple[FieldSpec, ...] = (
     FieldSpec("reasoning_levels", "list", "Reasoning levels", "reasoning"),
     FieldSpec("reasoning_toggle", "text", "Reasoning switch", "reasoning", nullable=True),
     FieldSpec("reasoning_field", "text", "Reasoning field", "reasoning", nullable=True),
+    FieldSpec("server", "text", "Server software", "context", nullable=True),
     FieldSpec("replay", "enum", "Reasoning replay", "reasoning", options=_values(ReplayPolicy)),
     FieldSpec("replay_required_with_tools", "bool", "Reasoning must be replayed when tools are used", "reasoning"),
     FieldSpec("reasoning_prefix_bound", "bool", "Reasoning breaks when earlier messages change", "reasoning"),
