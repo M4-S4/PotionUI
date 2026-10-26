@@ -6,6 +6,7 @@ import pytest
 from src.features.llm.clients.openai import OpenAIClient
 from src.features.llm.gateway import LLMGateway
 from src.platform.plugins.llm_providers import LLMProviderRegistration, LLMProviderRegistry
+from tests.fixtures.llm_engine import client_gateway
 from tests.features.llm.wire_capture import (
     OPENAI_REPLY,
     collect,
@@ -33,7 +34,7 @@ class RenamingClient(OpenAIClient):
 def registry_with(type_name):
     registry = LLMProviderRegistry()
     registry.register(LLMProviderRegistration(
-        type_name=type_name, label=LABEL, client=RenamingClient(), default_base_url=BASE_URL, source=PLUGIN_ID,
+        type_name=type_name, label=LABEL, adapter=RenamingClient(), default_base_url=BASE_URL, source=PLUGIN_ID,
     ))
     return registry
 
@@ -43,7 +44,7 @@ def config_of(type_name):
 
 
 def gateway_for(registry, config=None):
-    return LLMGateway(SimpleNamespace(get_configuration=lambda config_id: config), provider_registry=registry)
+    return client_gateway(SimpleNamespace(get_configuration=lambda config_id: config), provider_registry=registry)
 
 
 def test_provider_types_lists_the_builtins_then_the_contributed_type():
@@ -52,7 +53,8 @@ def test_provider_types_lists_the_builtins_then_the_contributed_type():
     assert [entry["type"] for entry in types] == ["ollama", "openai", "native", TYPE_NAME]
     assert all(entry["label"] is None and entry["default_base_url"] is None for entry in types[:-1])
     assert types[-1] == {
-        "type": TYPE_NAME, "label": LABEL, "default_base_url": BASE_URL, "supports_model_listing": True,
+        "type": TYPE_NAME, "label": LABEL, "adapter": TYPE_NAME, "default_base_url": BASE_URL,
+        "supports_model_listing": True, "source": PLUGIN_ID,
     }
 
 
