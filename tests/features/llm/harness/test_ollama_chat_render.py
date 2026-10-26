@@ -83,19 +83,26 @@ def test_an_api_key_goes_out_as_a_bearer_header():
     assert render(request).headers["Authorization"] == "Bearer sk-cloud"
 
 
-def test_num_ctx_comes_from_the_profile_window_and_a_saved_num_ctx_is_not_a_second_source():
+def test_num_ctx_comes_from_the_profiles_context_request_only():
     request = RenderRequest(
         config=make_config("ollama", provider_options={"num_ctx": 4096}), system="", messages=()
     )
 
     assert "num_ctx" not in render(request).body["options"]
-    assert render(request, context_window=65536).body["options"]["num_ctx"] == 65536
+    assert render(request, context_request=65536).body["options"]["num_ctx"] == 65536
+
+
+def test_a_discovered_context_window_never_becomes_num_ctx():
+    request = RenderRequest(config=make_config("ollama"), system="", messages=())
+
+    assert "num_ctx" not in render(request, context_window=262144).body["options"]
+    assert render(request, context_window=262144, context_request=8192).body["options"]["num_ctx"] == 8192
 
 
 def test_num_ctx_sits_right_after_the_two_base_options():
     request = RenderRequest(config=make_config("ollama", provider_options={"top_k": 20}), system="", messages=())
 
-    assert list(render(request, context_window=65536).body["options"]) == ["temperature", "num_predict", "num_ctx", "top_k"]
+    assert list(render(request, context_request=65536).body["options"]) == ["temperature", "num_predict", "num_ctx", "top_k"]
 
 
 @pytest.mark.parametrize(
@@ -154,7 +161,7 @@ def test_thinking_goes_back_only_on_assistant_messages_that_have_tool_calls():
 
 
 def test_an_unresolved_image_reference_is_refused_rather_than_dropped():
-    message = Message("u", Role.USER, (TextPart("look"), ImagePart(media_type="image/png", ref="/tmp/x.png")))
+    message = Message("u", Role.USER, (TextPart("look"), ImagePart(media_type="image/png", ref="image-1")))
     request = RenderRequest(config=make_config("ollama"), system="", messages=(message,))
 
     with pytest.raises(InvalidRequest):

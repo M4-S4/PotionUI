@@ -9,8 +9,8 @@ from src.features.llm.harness import codec
 from src.features.llm.harness.adapter import Adapter, RenderRequest, Settings, ToolSpec, WireRequest
 from src.features.llm.harness.assembler import StepAssembler
 from src.features.llm.harness.errors import HarnessError
-from src.features.llm.harness.events import Finish, StreamEvent, Usage
-from src.features.llm.harness.messages import Message, Origin, credential_fingerprint
+from src.features.llm.harness.events import StreamEvent
+from src.features.llm.harness.messages import Message, Origin
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.llm_harness import decode_chunks
@@ -120,12 +120,7 @@ def profile_for(meta: Mapping[str, Any]) -> CapabilityProfile:
 
 
 def origin_for(meta: Mapping[str, Any], config: LLMConfig) -> Origin:
-    return Origin(
-        adapter=meta["adapter"],
-        provider=config.type,
-        model=config.model,
-        credential=credential_fingerprint(config.base_url, config.api_key),
-    )
+    return Origin.for_config(meta["adapter"], config)
 
 
 def config_from(meta: Mapping[str, Any], data: Mapping[str, Any]) -> LLMConfig:

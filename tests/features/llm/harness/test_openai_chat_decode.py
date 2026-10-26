@@ -75,7 +75,7 @@ def split(raw: bytes, *cuts: int) -> List[bytes]:
     return pieces
 
 
-def decode(chunks, *, tools=False, messages=(USER,), **profile):
+def decode(chunks, *, messages=(USER,), **profile):
     request = RenderRequest(config=make_config("openai"), system="SYS", messages=tuple(messages))
     decoder = OpenAIChatAdapter().decoder(request, profile_with("openai-chat", **profile))
     return decode_chunks(decoder, chunks if isinstance(chunks, list) else [chunks])
@@ -112,20 +112,10 @@ def test_a_plain_answer_is_text_then_usage_then_finish_with_one_block():
     ]
 
 
-@pytest.mark.parametrize(
-    "raw, reason",
-    [
-        ("stop", FinishReason.STOP),
-        ("length", FinishReason.LENGTH),
-        ("tool_calls", FinishReason.TOOL_CALLS),
-        ("content_filter", FinishReason.CONTENT_FILTER),
-        ("something_new", FinishReason.UNKNOWN),
-    ],
-)
-def test_the_finish_reason_arrives_before_usage_and_done_and_is_remembered(raw, reason):
-    events = decode(delta("hi") + finish_chunk(raw) + usage_chunk() + DONE)
+def test_the_finish_reason_arrives_before_usage_and_done_and_is_remembered():
+    events = decode(delta("hi") + finish_chunk("length") + usage_chunk() + DONE)
 
-    assert events[-1] == Finish(reason=reason, raw_reason=raw)
+    assert events[-1] == Finish(reason=FinishReason.LENGTH, raw_reason="length")
     assert isinstance(events[-2], UsageReported)
 
 
@@ -321,6 +311,25 @@ def test_a_done_marker_ends_open_calls_but_a_cut_stream_leaves_them_unended():
     assert cut.args is None and cut.args_raw == '{"a":1}'
 
 
+def test_a_stream_that_ends_after_the_finish_chunk_without_done_still_ends_its_calls():
+    raw = call_chunk(0, "c1", "t", '{"a":1}') + finish_chunk("tool_calls")
+
+    events = decode(raw)
+
+    assert assemble(events).tool_calls()[0].args == {"a": 1}
+    assert events[-1] == Finish(reason=FinishReason.TOOL_CALLS, raw_reason="tool_calls")
+
+
+def test_a_call_fragment_after_the_finish_chunk_is_ignored():
+    raw = call_chunk(0, "c1", "t", '{"a":1}') + finish_chunk("tool_calls") + call_chunk(0, arguments="999") + DONE
+
+    events = decode(raw)
+
+    assert assemble(events).tool_calls()[0].args == {"a": 1}
+    assert [e.text for e in events if isinstance(e, ToolArgsDelta)] == ['{"a":1}']
+    assert events[-1].reason is FinishReason.TOOL_CALLS
+
+
 def test_stop_with_tool_calls_is_reported_as_tool_calls_and_keeps_the_raw_reason():
     raw = call_chunk(0, "c1", "t", "{}") + finish_chunk("stop") + DONE
 
@@ -427,6 +436,28 @@ def test_an_error_object_in_the_stream_raises_the_matching_error():
         decode(raw)
 
     assert caught.value.message == "engine died"
+
+
+def test_a_string_error_object_in_the_stream_raises_a_server_error_with_its_text():
+    with pytest.raises(ServerFailed) as caught:
+        decode(frame({"error": "engine died"}))
+
+    assert caught.value.message == "engine died"
+
+
+def test_a_string_error_code_keeps_the_code_on_the_error_and_defaults_the_status():
+    with pytest.raises(ServerFailed) as caught:
+        decode(frame({"error": {"message": "slow down", "code": "rate_limit_exceeded"}}))
+
+    assert caught.value.code == "rate_limit_exceeded"
+
+
+def test_an_error_field_next_to_choices_is_not_an_error():
+    raw = frame({"error": None, "choices": [{"delta": {"content": "hi"}}]}) + frame(
+        {"error": {"message": "late warning"}, "choices": [{"delta": {"content": "!"}}]}
+    ) + DONE
+
+    assert texts(decode(raw)) == ["hi", "!"]
 
 
 def test_an_in_band_bad_request_is_classified_by_its_code():

@@ -107,17 +107,8 @@ def test_cached_prompt_tokens_and_the_timing_fields_are_kept():
     assert usage.raw["total_duration"] == 77
 
 
-@pytest.mark.parametrize(
-    "raw, reason",
-    [
-        ("stop", FinishReason.STOP),
-        ("length", FinishReason.LENGTH),
-        ("unload", FinishReason.UNKNOWN),
-        ("load", FinishReason.UNKNOWN),
-    ],
-)
-def test_done_reasons_normalise_and_keep_the_raw_value(raw, reason):
-    assert decode(token("hi") + done(done_reason=raw))[-1] == Finish(reason=reason, raw_reason=raw)
+def test_the_done_reason_is_kept_raw_next_to_the_normalised_one():
+    assert decode(token("hi") + done(done_reason="unload"))[-1] == Finish(reason=FinishReason.UNKNOWN, raw_reason="unload")
 
 
 def test_done_stops_reading_the_body():

@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from src.features.llm.harness import finish as finish_reasons
 from src.features.llm.harness import tool_ids
 from src.features.llm.harness.adapter import RenderRequest, Settings, ToolChoice, WireRequest
+from src.features.llm.harness.blocks import FIRST_TOOL_BLOCK, REASONING_BLOCK, TEXT_BLOCK
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.errors import HarnessError, WireFailure
 from src.features.llm.harness.events import (
@@ -42,9 +43,6 @@ from src.features.llm.model_listing import (
 )
 from src.features.llm.repository import LLMConfig
 
-REASONING_BLOCK = 0
-TEXT_BLOCK = 1
-FIRST_TOOL_BLOCK = 2
 DEFAULT_REASONING_FIELD = "reasoning_content"
 REASONING_FIELDS = ("reasoning_content", "reasoning")
 CONTEXT_WINDOW_KEYS = ("context_length", "max_model_len", "context_window")
@@ -65,10 +63,7 @@ TOGGLE_TEMPLATE_KWARGS = "chat_template_kwargs.enable_thinking"
 
 
 def auth_headers(config: LLMConfig) -> Dict[str, str]:
-    headers = {"Content-Type": "application/json"}
-    if config.api_key:
-        headers["Authorization"] = f"Bearer {config.api_key}"
-    return headers
+    return {"Content-Type": "application/json", **bearer_headers(config.api_key)}
 
 
 def reasoning_active(settings: Settings, profile: CapabilityProfile) -> bool:
@@ -325,6 +320,8 @@ class OpenAIChatDecoder:
         name = function.get("name")
         arguments = function.get("arguments")
         call = self._call_for(fragment.get("index"), wire_id, bool(name))
+        if call.ended:
+            return []
         if wire_id and not call.started:
             call.wire_id = wire_id
         if isinstance(name, str) and name and not call.started:

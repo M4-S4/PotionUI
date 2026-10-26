@@ -53,7 +53,7 @@ SAMPLES = [
     ("<think>İİ</thin", "", "İİ</thin"),
     ("<think>a</think>İ<think>İ</think>b", "İb", "aİ"),
     ("<thİnk>x</thİnk>y", "<thİnk>x</thİnk>y", ""),
-    ("<thinK>x</thinK>y", "<thinK>x</thinK>y", ""),
+    ("<thin\u212a>x</thin\u212a>y", "<thin\u212a>x</thin\u212a>y", ""),
 ]
 
 
@@ -116,9 +116,9 @@ def test_a_closing_tag_must_match_the_opening_name():
 
 
 def test_a_non_ascii_lookalike_of_a_closing_tag_is_not_held_back():
-    pieces = ThinkTagStage().feed("<think>abc</thinK")
+    pieces = ThinkTagStage().feed("<think>abc</thin\u212a")
 
-    assert joined(pieces, THINKING) == "abc</thinK"
+    assert joined(pieces, THINKING) == "abc</thin\u212a"
 
 
 def test_an_overlong_unfinished_tag_is_released_as_text():
