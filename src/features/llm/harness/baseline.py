@@ -1,13 +1,10 @@
 import time
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence, Union
 
-from src.features.llm import context_budget
 from src.features.llm.harness.errors import HarnessError
-from src.features.llm.harness.messages import ImagePart, Message, Origin, ReasoningPart, TextPart, ToolCallPart, ToolResultPart
-from src.features.llm.harness.profile import CapabilityProfile, ReasoningKind, ReplayPolicy
+from src.features.llm.harness.messages import ImagePart, TextPart, ToolCallPart, ToolResultPart
 from src.features.llm.harness.turn_state import (
     DecisionKind,
-    Notice,
     PendingCall,
     StepRecord,
     ToolFinished,
@@ -17,64 +14,6 @@ from src.features.llm.harness.turn_state import (
 )
 from src.features.llm.harness.build import JPEG
 from src.features.llm.tools.base import ToolExecution, ToolResult, serialize_approval_preview
-
-PROMPT_TOOL_TYPES = frozenset({"native"})
-
-
-class StaticProfileResolver:
-    def __init__(self, types: Any, windows: Any) -> None:
-        self._types = types
-        self._windows = windows
-
-    def resolve(self, config: Any) -> CapabilityProfile:
-        entry = self._types.require(config.type)
-        options = config.provider_options or {}
-        capacity = self._windows.capacity(config)
-        thinking = context_budget.resolve_thinking_enabled(config)
-        return CapabilityProfile(
-            adapter=getattr(entry.adapter, "name", config.type),
-            model=config.model,
-            context_window=capacity.capacity_tokens if capacity.source != "unknown" else None,
-            prompt_tools=config.type in PROMPT_TOOL_TYPES or bool(options.get("force_prompt_tools", False)),
-            reasoning=ReasoningKind.TOGGLE if thinking else ReasoningKind.NONE,
-            replay=ReplayPolicy.DROP_EARLIER,
-            vision=bool(config.supports_vision),
-        )
-
-    async def refresh(self, config: Any) -> CapabilityProfile:
-        await self._windows.ensure(config)
-        return self.resolve(config)
-
-
-def _same_model(left: Optional[Origin], right: Origin) -> bool:
-    return left is not None and (left.adapter, left.provider, left.model) == (right.adapter, right.provider, right.model)
-
-
-def _without_reasoning(message: Message) -> Message:
-    if not message.reasoning():
-        return message
-    return Message(
-        id=message.id,
-        role=message.role,
-        parts=tuple(part for part in message.parts if not isinstance(part, ReasoningPart)),
-        origin=message.origin,
-        raw=None,
-    )
-
-
-def turn_only_replay(
-    steps: Sequence[StepRecord],
-    *,
-    turn_id: str,
-    target: Origin,
-    profile: CapabilityProfile,
-) -> Tuple[Tuple[Message, ...], Tuple[Notice, ...]]:
-    messages = tuple(
-        step.message if step.turn_id == turn_id and _same_model(step.message.origin, target) else _without_reasoning(step.message)
-        for step in steps
-    )
-    return messages, ()
-
 
 class InMemoryTurnStore:
     def __init__(self) -> None:

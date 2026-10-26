@@ -15,7 +15,7 @@ from src.features.llm.harness.messages import (
     ToolResultPart,
     credential_fingerprint,
 )
-from src.features.llm.harness.profile import ReplayPolicy
+from src.features.llm.harness.profile import ProfileSource, ReplayPolicy
 from tests.fixtures.llm_engine import drain, scripted_config, scripted_gateway
 from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, ScriptedAdapter, text_step, tool_step
 
@@ -51,7 +51,7 @@ async def test_complete_assembles_the_step_and_reports_usage_and_finish():
 
 
 async def test_prepare_resolves_the_system_message_profile_and_origin():
-    config = scripted_config(api_key="sk-x", provider_options={"context_window": 32000})
+    config = scripted_config(api_key="sk-x", provider_options={"context_window": 32000}, profile_overrides={"context_window": 32000})
     gateway = scripted_gateway(ScriptedAdapter(), config)
 
     custom = await gateway.prepare("cfg-scripted", [user_message("x")], system="Custom")
@@ -60,7 +60,8 @@ async def test_prepare_resolves_the_system_message_profile_and_origin():
     assert custom.request.system == "Custom"
     assert default.request.system == "You are terse."
     assert default.profile.context_window == 32000
-    assert default.profile.replay is ReplayPolicy.DROP_EARLIER
+    assert default.profile.replay is ReplayPolicy.SEND_ALL
+    assert default.profile.sources["context_window"] is ProfileSource.OVERRIDE
     assert default.origin.credential == credential_fingerprint("http://scripted.invalid", "sk-x")
     assert default.origin.provider == "scripted" and default.origin.model == "scripted-model"
     assert default.request.stream is True

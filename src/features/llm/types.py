@@ -32,6 +32,9 @@ class LLMTypes:
             source=registration.source,
         )
 
+    def adapter_for(self, config: Any) -> Any:
+        return self.require(config.type).adapter
+
     def require(self, type_id: str) -> LLMType:
         entry = self.get(type_id)
         if entry is None:

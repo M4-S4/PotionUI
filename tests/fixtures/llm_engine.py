@@ -3,8 +3,9 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
-from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry, SequentialToolRunner, StaticProfileResolver
+from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry, SequentialToolRunner
 from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.repository import LLMConfig
 from src.features.llm.tools.base import BaseTool, ToolContext
 from src.features.llm.tools.executor import ToolExecutor
@@ -40,7 +41,7 @@ def scripted_gateway(adapter: Any, *configs: LLMConfig) -> LLMGateway:
     return LLMGateway(
         llm_repository=ConfigRepository(*(configs or (scripted_config(),))),
         types=types,
-        profiles=StaticProfileResolver(types, windows),
+        profiles=LayeredProfileResolver(types.adapter_for),
         windows=windows,
     )
 
@@ -109,7 +110,7 @@ def client_gateway(
         provider_registry=provider_registry,
     )
     windows = ContextWindows(types)
-    gateway = LLMGateway(llm_repository, types, StaticProfileResolver(types, windows), windows)
+    gateway = LLMGateway(llm_repository, types, LayeredProfileResolver(types.adapter_for), windows)
     gateway._clients = clients
     gateway._ollama, gateway._openai, gateway._native = clients["ollama"], clients["openai"], clients["native"]
     return gateway

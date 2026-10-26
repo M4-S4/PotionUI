@@ -145,8 +145,9 @@ from src.features.segments.repository import (
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.clients import NativeLLMClient, OllamaClient, OpenAIClient
 from src.features.llm.context_windows import ContextWindows
-from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry, SequentialToolRunner, StaticProfileResolver
+from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry, SequentialToolRunner
 from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.types import LLMType, LLMTypes
 from src.bootstrap.composition import ChatDeps, build_chat
 from src.bootstrap.composition.chat import register_session_memory_cleanup
@@ -821,10 +822,11 @@ def build_container() -> AppContainer:
         provider_registry=llm_provider_registry,
     )
     context_windows = ContextWindows(llm_types)
+    llm_profiles = LayeredProfileResolver(llm_types.adapter_for)
     llm_service = LLMGateway(
         llm_repository=llm_repository,
         types=llm_types,
-        profiles=StaticProfileResolver(llm_types, context_windows),
+        profiles=llm_profiles,
         windows=context_windows,
     )
 
@@ -981,6 +983,7 @@ def build_container() -> AppContainer:
         tool_governance_repository=tool_governance_repository,
         download_queue=download_queue,
         model_roots=model_roots,
+        profile_resolver=llm_profiles,
     )
 
     # Initialize user components
