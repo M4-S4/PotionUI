@@ -170,8 +170,8 @@ class Auth:
         elif not origin_is_loopback and not self.claim_tokens.verify(claim_token):
             raise ValueError(
                 "This instance isn't set up yet. To create the owner account "
-                "from a remote address, enter the setup token shown in the "
-                "server console."
+                "from a remote address, enter the setup token. It is saved in "
+                f"{self.claim_tokens.describe_location()} on the server."
             )
 
         # Hash password, then create the user and attempt the claim atomically.

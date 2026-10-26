@@ -74,3 +74,26 @@ class TestVerifyAndClear:
         store.clear()
         assert not path.exists()
         assert store.exists() is False
+
+
+class TestDescribeLocation:
+    def test_relative_to_the_install_when_under_cwd(self, store, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        token = store.ensure_token()
+        text = store.describe_location()
+        assert text == f"the file {CLAIM_TOKEN_FILENAME}"
+        assert token not in text
+
+    def test_generic_when_outside_cwd(self, store, tmp_path, monkeypatch):
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        settings = Mock(spec=Settings)
+        settings.storage_file.side_effect = lambda name: tmp_path / "storage" / name
+        text = ClaimTokenStore(settings).describe_location()
+        assert text == "the setup-token file in PotionUI's storage folder"
+
+    def test_generic_when_storage_unresolved(self):
+        m = Mock(spec=Settings)
+        m.storage_file.return_value = None
+        assert "setup-token file" in ClaimTokenStore(m).describe_location()
