@@ -19,6 +19,7 @@ recipe marks `onboarding_only`, which the admin Recipes page skips.
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 
 from src.features.recipes.dto import (
     CreateRecipeRunRequest,
@@ -37,7 +38,8 @@ from src.features.recipes.runner import (
 )
 from src.features.recipes.run_repository import RecipeRunRepository
 from src.features.setup import operations
-from src.features.setup.dto import SetupStatus
+from src.features.setup.dto import MachineInfo, SetupStatus
+from src.features.setup.machine import probe_machine
 from src.features.setup.readiness import ReadinessReport, build_readiness_aggregator
 from src.platform.http.origin import is_loopback_host
 from src.platform.security.current_user import get_current_active_user
@@ -229,6 +231,17 @@ def build_router(container: "AppContainer") -> APIRouter:
         except RecipeRunError as e:
             raise HTTPException(status_code=400, detail=str(e))
         return run_view(runner, _recipe_catalog(), run)
+
+    @setup_router.get(
+        "/machine",
+        response_model=MachineInfo,
+        summary="GPU, RAM and models-disk facts for the wizard",
+    )
+    async def get_setup_machine(
+        current_user: User = Depends(get_current_active_user),
+    ) -> MachineInfo:
+        _require_admin_or_404(current_user)
+        return await run_in_threadpool(probe_machine, getattr(container, "model_roots", None))
 
     @setup_router.get(
         "/recipes",

@@ -505,3 +505,33 @@ def test_single_file_artifact_has_no_variants():
     artifact = recipe.get_artifact("sdxl-checkpoint")
     assert artifact.variants == ()
     assert artifact.resolve("anything") is artifact
+
+
+class TestStarterCardFields:
+    def test_defaults_when_absent(self):
+        recipe = parse_recipe(_valid_recipe())
+        assert recipe.blurb is None
+        assert recipe.first_run is False
+        assert recipe.artifacts[0].source_host is None
+
+    def test_parses_blurb_first_run_and_source_host(self):
+        data = _valid_recipe(blurb="Fast.", first_run=True)
+        data["artifacts"][0]["source_host"] = "huggingface.co"
+        assert validate_recipe_dict(data) == []
+        recipe = parse_recipe(data)
+        assert recipe.blurb == "Fast."
+        assert recipe.first_run is True
+        assert recipe.artifacts[0].source_host == "huggingface.co"
+
+    def test_rejects_non_boolean_first_run(self):
+        issues = validate_recipe_dict(_valid_recipe(first_run="yes"))
+        assert any(i.startswith("first_run") for i in issues)
+
+    def test_rejects_empty_blurb(self):
+        issues = validate_recipe_dict(_valid_recipe(blurb=" "))
+        assert any(i.startswith("blurb") for i in issues)
+
+    def test_rejects_non_string_source_host(self):
+        data = _valid_recipe()
+        data["artifacts"][0]["source_host"] = 5
+        assert any("source_host" in i for i in validate_recipe_dict(data))

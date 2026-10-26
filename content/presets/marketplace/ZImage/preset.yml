@@ -16,6 +16,10 @@ version: "1.0.1"
 engine: "native"
 tags: ["z-image", "zimage", "lumina", "nextdit", "local", "transformer", "turbo"]
 
+requires:
+  min_vram_gb: 12
+  recommended_vram_gb: 16
+
 # Cover + example gallery, served from this preset's public/ directory.
 # Each gallery entry carries the settings that produced it.
 media:
