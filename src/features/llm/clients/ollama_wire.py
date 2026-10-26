@@ -208,7 +208,10 @@ def _prompt_tools_assistant_turn(msg: Dict[str, Any]) -> Dict[str, Any]:
             "arguments": arguments_to_object(fn.get("arguments")),
         })
         content_parts.append(f"<tool_call>{call_json}</tool_call>")
-    return {"role": "assistant", "content": "\n".join(content_parts)}
+    turn: Dict[str, Any] = {"role": "assistant", "content": "\n".join(content_parts)}
+    if msg.get("reasoning"):
+        turn["thinking"] = msg["reasoning"]
+    return turn
 
 
 def build_ollama_messages(
@@ -251,11 +254,14 @@ def build_ollama_messages(
                 ollama_messages.append(_prompt_tools_assistant_turn(msg))
             else:
                 # Ollama's native API needs object arguments (a string 400s).
-                ollama_messages.append({
+                assistant: Dict[str, Any] = {
                     "role": "assistant",
                     "content": msg.get("content", ""),
                     "tool_calls": normalize_tool_calls(msg["tool_calls"], as_object=True),
-                })
+                }
+                if msg.get("reasoning"):
+                    assistant["thinking"] = msg["reasoning"]
+                ollama_messages.append(assistant)
         else:
             ollama_messages.append({"role": msg["role"], "content": msg.get("content", "")})
 

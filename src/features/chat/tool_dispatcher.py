@@ -28,6 +28,7 @@ class Continuation:
     applied_calls: Set[str]
     context_metadata: Optional[Dict[str, Any]]
     loaded_groups: FrozenSet[str] = frozenset()
+    turn_message_ids: FrozenSet[str] = frozenset()
 
 
 class ToolCallDispatcher:
@@ -240,6 +241,7 @@ class ToolCallDispatcher:
             applied_calls=tool_transcript.applied_call_keys(chain),
             context_metadata=metadata.get("context_metadata"),
             loaded_groups=self._loaded_tool_groups(chain),
+            turn_message_ids=frozenset(row.id for row in chain),
         )
 
     def _loaded_tool_groups(self, chain: List[Any]) -> FrozenSet[str]:

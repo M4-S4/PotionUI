@@ -15,6 +15,13 @@ def uses_tools(request: OpenAIRequest) -> bool:
     )
 
 
+def lacks_reasoning(request: OpenAIRequest) -> bool:
+    return any(
+        message.get("role") == "assistant" and not message.get("reasoning_content")
+        for message in request.messages
+    )
+
+
 class DeepSeekClient(OpenAIClient):
     display_name = "DeepSeek"
 
@@ -23,7 +30,9 @@ class DeepSeekClient(OpenAIClient):
 
     def _thinking(self, request: OpenAIRequest) -> Dict[str, Any]:
         settings = self._settings()
-        if settings.get("thinking", DEFAULT_THINKING) == "off" or uses_tools(request):
+        if settings.get("thinking", DEFAULT_THINKING) == "off" or (
+            uses_tools(request) and lacks_reasoning(request)
+        ):
             return {"thinking": {"type": "disabled"}}
         return {
             "thinking": {"type": "enabled"},

@@ -229,6 +229,7 @@ class ProviderTurn:
     dispatched_inline: bool = False
     # An inline dispatch hit an approval-gated tool.
     pending: bool = False
+    reasoning: str = ""
 
 
 class TurnSource(Protocol):
@@ -337,7 +338,7 @@ class ToolWorkflow:
         rounds: List[Dict[str, Any]] = []
         for message in self.working_messages[self._history_len:]:
             if message.get("role") == "assistant" and message.get("tool_calls"):
-                rounds.append({
+                round_: Dict[str, Any] = {
                     "calls": [
                         {
                             "id": call.get("id", ""),
@@ -347,7 +348,10 @@ class ToolWorkflow:
                         for call in message["tool_calls"]
                     ],
                     "results": [],
-                })
+                }
+                if message.get("reasoning"):
+                    round_["reasoning"] = message["reasoning"]
+                rounds.append(round_)
             elif message.get("role") == "tool" and rounds:
                 rounds[-1]["results"].append({
                     "tool_call_id": message.get("tool_call_id", ""),
@@ -397,7 +401,7 @@ class ToolWorkflow:
                 return
 
             pending = False
-            async for item in self._dispatch(decision.calls, decision.assistant_content):
+            async for item in self._dispatch(decision.calls, decision.assistant_content, turn.reasoning):
                 if isinstance(item, bool):
                     pending = item
                     continue
@@ -511,15 +515,18 @@ class ToolWorkflow:
         self._any_tool_round_completed = True
 
     async def _dispatch(
-        self, calls: List[Dict[str, Any]], assistant_content: str
+        self, calls: List[Dict[str, Any]], assistant_content: str, reasoning: str = ""
     ) -> AsyncGenerator[Any, None]:
         """Append the assistant tool_call message, then run every call."""
         calls = [self._with_id(call) for call in calls]
-        self.working_messages.append({
+        message: Dict[str, Any] = {
             "role": "assistant",
             "content": assistant_content,
             "tool_calls": calls,
-        })
+        }
+        if reasoning:
+            message["reasoning"] = reasoning
+        self.working_messages.append(message)
         async for item in self._run_calls(calls):
             yield item
 
@@ -539,6 +546,10 @@ class ToolWorkflow:
         once the turn's generation is complete."""
         if self._inline_assistant_msg is not None:
             self._inline_assistant_msg["content"] = strip_tool_call_xml(content)
+
+    def attach_inline_reasoning(self, reasoning: str) -> None:
+        if reasoning and self._inline_assistant_msg is not None:
+            self._inline_assistant_msg["reasoning"] = reasoning
 
     @staticmethod
     def _with_id(call: Dict[str, Any]) -> Dict[str, Any]:

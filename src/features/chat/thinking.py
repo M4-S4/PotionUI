@@ -220,6 +220,34 @@ def without_streamed_thinking(message: Dict[str, Any]) -> Dict[str, Any]:
     return {**message, "metadata": {key: value for key, value in metadata.items() if key != "thinking"}}
 
 
+def _carries_replay_reasoning(metadata: Optional[Dict[str, Any]]) -> bool:
+    transcript = (metadata or {}).get("tool_transcript")
+    return isinstance(transcript, list) and any(
+        isinstance(round_, dict) and "reasoning" in round_ for round_ in transcript
+    )
+
+
+def _metadata_without_replay_reasoning(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    transcript = [
+        {key: value for key, value in round_.items() if key != "reasoning"} if isinstance(round_, dict) else round_
+        for round_ in metadata["tool_transcript"]
+    ]
+    return {**metadata, "tool_transcript": transcript}
+
+
+def message_without_replay_reasoning(message: MessageResponse) -> MessageResponse:
+    if not _carries_replay_reasoning(message.metadata):
+        return message
+    return message.model_copy(update={"metadata": _metadata_without_replay_reasoning(message.metadata)})
+
+
+def dict_without_replay_reasoning(message: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = message.get("metadata")
+    if not isinstance(metadata, dict) or not _carries_replay_reasoning(metadata):
+        return message
+    return {**message, "metadata": _metadata_without_replay_reasoning(metadata)}
+
+
 def hide_thinking_in_event(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     kind = event.get("event")
     data = event.get("data")
@@ -254,6 +282,8 @@ async def hide_thinking_stream(events: AsyncIterator[Dict[str, Any]]) -> AsyncIt
 def apply_thinking_visibility(
     messages: List[MessageResponse], llm_service: Any, llm_config_id: Optional[str],
 ) -> List[MessageResponse]:
+    if any(_carries_replay_reasoning(message.metadata) for message in messages):
+        messages = [message_without_replay_reasoning(message) for message in messages]
     if not any(_carries_thinking(message) for message in messages):
         return messages
     if config_shows_thinking(llm_service, llm_config_id):

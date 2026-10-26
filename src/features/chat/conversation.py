@@ -31,7 +31,8 @@ from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
 from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
 from src.features.chat.thinking import (
-    THINKING, TEXT, ThinkingCapture, config_shows_thinking, visible_text, without_streamed_thinking,
+    THINKING, TEXT, ThinkingCapture, config_shows_thinking, dict_without_replay_reasoning,
+    message_without_replay_reasoning, visible_text, without_streamed_thinking,
 )
 from src.features.chat.tool_transcript import tool_metadata
 from src.features.llm import context_budget, trace_collector
@@ -383,7 +384,7 @@ class ConversationRunner:
 
         return SendMessageResponse(
             user_message=user_message,
-            assistant_message=assistant_message,
+            assistant_message=message_without_replay_reasoning(assistant_message),
             resolved_message=resolved_message,
         )
 
@@ -527,7 +528,9 @@ class ConversationRunner:
         tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
         conversation_history = self._m.chat_repository.get_conversation_history(
-            session_id, include_tool_transcript=tools_enabled,
+            session_id,
+            include_tool_transcript=tools_enabled,
+            reasoning_message_ids=continuation.turn_message_ids if continuation else (),
         )
 
         # Execute before_generate hook
@@ -905,7 +908,9 @@ class ConversationRunner:
             yield {
                 "event": "done",
                 "data": {
-                    "assistant_message": without_streamed_thinking(assistant_message.model_dump()),
+                    "assistant_message": dict_without_replay_reasoning(
+                        without_streamed_thinking(assistant_message.model_dump())
+                    ),
                     "user_message": user_message.model_dump() if user_message else None,
                     "resolved_message": resolved_message,
                 }
@@ -1082,6 +1087,7 @@ class ConversationRunner:
         chars = 0
         for msg in unit:
             chars += len(msg.get("content", "") or "")
+            chars += len(msg.get("reasoning") or "")
             if msg.get("tool_calls"):
                 chars += len(json.dumps(msg["tool_calls"], default=str))
         return chars

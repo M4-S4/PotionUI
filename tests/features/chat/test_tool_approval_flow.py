@@ -580,6 +580,25 @@ class TestHistoryBudget:
         assert info["messages_sent"] == 3
         assert [m["role"] for m in history] == ["user", "assistant", "tool"]
 
+    def test_counts_a_rounds_reasoning_toward_its_cost(self):
+        call = {"id": "a", "function": {"name": "t", "arguments": {}}}
+        history = [
+            {"role": "user", "content": "u" * 4},
+            {"role": "assistant", "content": "", "tool_calls": [call], "reasoning": "r" * 400},
+            {"role": "tool", "tool_call_id": "a", "content": "ok"},
+            {"role": "assistant", "content": "a" * 4},
+            {"role": "user", "content": "q" * 4},
+        ]
+        without_reasoning = [dict(m) for m in history]
+        del without_reasoning[1]["reasoning"]
+
+        reasoned = self._runner(budget_tokens=20)._apply_history_budget(history)
+        plain = self._runner(budget_tokens=20)._apply_history_budget(without_reasoning)
+
+        assert plain["truncated"] is False
+        assert reasoned["truncated"] is True
+        assert [m["role"] for m in history] == ["assistant", "user"]
+
 
 class TestReplay:
     def test_unresolved_call_still_gets_a_result(self):

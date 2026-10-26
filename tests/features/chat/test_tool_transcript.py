@@ -49,3 +49,46 @@ def test_replay_falls_back_to_the_approved_execution_when_the_transcript_has_no_
     messages = tool_transcript.replay_messages("", metadata)
 
     assert "Moonlit shelf" in messages[-1]["content"]
+
+
+def _reasoned_metadata():
+    transcript, metadata = _metadata({"action": "add_prompt", "success": True})
+    transcript[0]["reasoning"] = "search before adding"
+    return transcript, metadata
+
+
+def test_replay_leaves_reasoning_out_unless_asked():
+    _transcript, metadata = _reasoned_metadata()
+
+    messages = tool_transcript.replay_messages("", metadata)
+
+    assert not any("reasoning" in message for message in messages)
+
+
+def test_replay_puts_each_rounds_reasoning_on_that_rounds_tool_call_message():
+    _transcript, metadata = _reasoned_metadata()
+
+    messages = tool_transcript.replay_messages("", metadata, with_reasoning=True)
+
+    calling = [message for message in messages if message.get("tool_calls")]
+    assert [message.get("reasoning") for message in calling] == ["search before adding", None]
+    assert [message["role"] for message in messages] == ["assistant", "tool", "assistant", "tool"]
+
+
+def test_replay_skips_an_empty_reasoning():
+    transcript, metadata = _reasoned_metadata()
+    transcript[0]["reasoning"] = ""
+
+    messages = tool_transcript.replay_messages("", metadata, with_reasoning=True)
+
+    assert not any("reasoning" in message for message in messages)
+
+
+def test_replay_with_reasoning_still_places_a_paused_turns_visible_text_first():
+    _transcript, metadata = _reasoned_metadata()
+    metadata["tool_executions"][1]["approval_status"] = tool_transcript.PENDING
+
+    messages = tool_transcript.replay_messages("Let me search.", metadata, with_reasoning=True)
+
+    assert messages[0]["content"] == "Let me search."
+    assert messages[0]["reasoning"] == "search before adding"

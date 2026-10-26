@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any, Tuple
+from typing import Collection, List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import json
 import logging
@@ -563,14 +563,19 @@ class ChatRepository:
         return self.message_repo.count_by_session(session_id)
 
     def get_conversation_history(
-        self, session_id: str, include_tool_transcript: bool = False
+        self,
+        session_id: str,
+        include_tool_transcript: bool = False,
+        reasoning_message_ids: Collection[str] = (),
     ) -> List[Dict[str, Any]]:
         """Get conversation history in format suitable for LLM API"""
         messages = self.message_repo._get_by_session_internal(session_id)
         history: List[Dict[str, Any]] = []
         for msg in messages:
             if include_tool_transcript and msg.role == 'assistant':
-                history.extend(replay_messages(msg.content, msg.metadata))
+                history.extend(replay_messages(
+                    msg.content, msg.metadata, with_reasoning=msg.id in reasoning_message_ids,
+                ))
             else:
                 history.append({'role': msg.role, 'content': msg.content})
         return history

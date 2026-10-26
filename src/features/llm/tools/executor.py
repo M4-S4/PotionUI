@@ -253,6 +253,8 @@ class _BufferedTurnSource:
         thinking = getattr(response, "thinking", None)
         if isinstance(thinking, str) and thinking:
             yield AssistantThinking(thinking)
+        else:
+            thinking = ""
         yield ProviderTurn(
             content=response.content or "",
             tool_calls=response.tool_calls,
@@ -264,6 +266,7 @@ class _BufferedTurnSource:
                 "completion": getattr(response, "completion", None),
             },
             response=response,
+            reasoning="" if thinking == response.content else thinking,
         )
 
 
@@ -306,6 +309,7 @@ class _LiveTurnSource:
 
         workflow = self._workflow
         content_parts: List[str] = []
+        reasoning_parts: List[str] = []
         tool_calls: Optional[List[Dict[str, Any]]] = None
         usage: Dict[str, Any] = {}
         draining = False
@@ -313,6 +317,7 @@ class _LiveTurnSource:
         for attempt in range(self._executor._EMPTY_RESPONSE_MAX_RETRIES):
             workflow.reset_inline()
             content_parts = []
+            reasoning_parts = []
             tool_calls = None
             usage = {}
             pending = False
@@ -357,6 +362,7 @@ class _LiveTurnSource:
                                     draining = True
                                     break
                     elif event_type == "thinking":
+                        reasoning_parts.append(event["content"])
                         if not draining:
                             thought = True
                             yield AssistantThinking(event["content"])
@@ -381,15 +387,18 @@ class _LiveTurnSource:
                 )
 
         full_iter_content = "".join(content_parts)
+        reasoning = "".join(reasoning_parts)
 
         if draining:
+            workflow.attach_inline_reasoning(reasoning)
             yield ProviderTurn(pending=True)
             return
         if workflow.dispatched_inline:
             workflow.finish_inline(full_iter_content)
+            workflow.attach_inline_reasoning(reasoning)
             yield ProviderTurn(dispatched_inline=True)
             return
-        yield ProviderTurn(content=full_iter_content, tool_calls=tool_calls, usage=usage)
+        yield ProviderTurn(content=full_iter_content, tool_calls=tool_calls, usage=usage, reasoning=reasoning)
 
     async def _acquire_final(self, request: TurnRequest) -> AsyncGenerator[Any, None]:
         content_parts: List[str] = []

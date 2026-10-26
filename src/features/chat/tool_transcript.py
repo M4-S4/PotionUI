@@ -82,7 +82,9 @@ def set_transcript_result(
         return
 
 
-def replay_messages(content: str, metadata: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def replay_messages(
+    content: str, metadata: Optional[Dict[str, Any]], *, with_reasoning: bool = False
+) -> List[Dict[str, Any]]:
     metadata = metadata or {}
     transcript = metadata.get("tool_transcript") or []
     if not transcript:
@@ -99,7 +101,7 @@ def replay_messages(content: str, metadata: Optional[Dict[str, Any]]) -> List[Di
         if not calls:
             continue
         results = {r.get("tool_call_id"): r.get("content", "") for r in round_.get("results") or []}
-        messages.append({
+        assistant: Dict[str, Any] = {
             "role": "assistant",
             "content": "",
             "tool_calls": [
@@ -110,7 +112,10 @@ def replay_messages(content: str, metadata: Optional[Dict[str, Any]]) -> List[Di
                 }
                 for call in calls
             ],
-        })
+        }
+        if with_reasoning and round_.get("reasoning"):
+            assistant["reasoning"] = round_["reasoning"]
+        messages.append(assistant)
         for call in calls:
             result = results.get(call["id"])
             if result is None:

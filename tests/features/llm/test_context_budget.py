@@ -279,6 +279,13 @@ class TestCountMessages:
         without_calls = count_messages([{"role": "assistant", "content": ""}], None).tokens
         assert with_calls > without_calls
 
+    def test_counts_the_reasoning_a_tool_call_turn_carries(self):
+        call = [{"function": {"name": "get_thing", "arguments": {"id": 1}}}]
+        bare = [{"role": "assistant", "content": "", "tool_calls": call}]
+        reasoned = [{"role": "assistant", "content": "", "tool_calls": call, "reasoning": "r" * 40}]
+
+        assert count_messages(reasoned, lambda t: len(t)).tokens - count_messages(bare, lambda t: len(t)).tokens == 40
+
     def test_never_measured_even_with_a_real_per_fragment_tokenizer(self):
         """The framing allowance is always an estimate layered on top, so a
         per-fragment sum can never claim `measured=True` on its own — only a

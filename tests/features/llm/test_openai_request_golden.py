@@ -11,6 +11,7 @@ import json
 import pytest
 
 from src.features.llm.clients.openai import OpenAIClient
+from src.features.llm.clients.openai_wire import build_openai_messages
 from tests.features.llm.wire_capture import (
     IMAGE_B64,
     OPENAI_REPLY,
@@ -397,3 +398,48 @@ async def test_stream_and_buffered_tools_send_the_same_request(monkeypatch, clie
     streamed = capture.body
 
     assert strip(streamed, "stream", "stream_options") == buffered
+
+
+REASONING = "The form has to be read before anything is changed."
+
+
+def reasoned_history(reasoning=REASONING):
+    history = tool_history()
+    history[1]["reasoning"] = reasoning
+    return history
+
+
+async def test_a_tool_call_turn_goes_out_with_its_reasoning_as_reasoning_content(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
+
+    await client.generate_with_tools(reasoned_history(), make_config("openai"), "SYS", tools=tool_schemas())
+
+    sent = capture.body["messages"][2]
+    assert sent["reasoning_content"] == REASONING
+    assert sent["tool_calls"][0]["function"]["arguments"] == '{"scope": "all"}'
+    assert strip(capture.body["messages"][2], "reasoning_content") == TOOL_MESSAGES[2]
+
+
+async def test_a_streamed_tool_call_turn_goes_out_with_its_reasoning(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [_sse()])
+
+    await collect(client.stream_with_tools(reasoned_history(), make_config("openai"), "SYS", tools=tool_schemas()))
+
+    assert capture.body["messages"][2]["reasoning_content"] == REASONING
+
+
+@pytest.mark.parametrize("reasoning", ["", None])
+async def test_a_tool_call_turn_without_reasoning_sends_no_reasoning_key(monkeypatch, client, reasoning):
+    capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
+
+    await client.generate_with_tools(reasoned_history(reasoning), make_config("openai"), "SYS", tools=tool_schemas())
+
+    assert capture.body["messages"] == TOOL_MESSAGES
+
+
+def test_reasoning_is_not_sent_by_the_history_builder_when_tools_are_not_in_play():
+    history = [{"role": "user", "content": "hello"}, {"role": "assistant", "content": "hi", "reasoning": REASONING}]
+
+    built = build_openai_messages(history, "SYS", None, tool_aware=False)
+
+    assert built[-1] == {"role": "assistant", "content": "hi"}

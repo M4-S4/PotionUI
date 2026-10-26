@@ -125,11 +125,14 @@ def build_openai_messages(
         elif msg["role"] == "assistant" and msg.get("tool_calls"):
             # Assistant message with tool calls — the OpenAI wire wants
             # string arguments (canonical in-process shape is an object).
-            api_messages.append({
+            assistant: Dict[str, Any] = {
                 "role": "assistant",
                 "content": msg.get("content", ""),
                 "tool_calls": normalize_tool_calls(msg["tool_calls"], as_object=False),
-            })
+            }
+            if msg.get("reasoning"):
+                assistant["reasoning_content"] = msg["reasoning"]
+            api_messages.append(assistant)
         else:
             api_messages.append({"role": msg["role"], "content": msg.get("content", "")})
 

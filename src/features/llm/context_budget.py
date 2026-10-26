@@ -387,6 +387,8 @@ def _message_text_units(message: Dict[str, Any]) -> List[str]:
     content, plus the serialised tool_calls a dispatching assistant turn
     carries (real request payload, not just what's shown in the UI)."""
     units = [message.get("content") or ""]
+    if message.get("reasoning"):
+        units.append(message["reasoning"])
     tool_calls = message.get("tool_calls")
     if tool_calls:
         try:

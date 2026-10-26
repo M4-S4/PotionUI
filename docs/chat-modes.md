@@ -113,8 +113,14 @@ waiting for approval" result, so each tool call the model made has an answer.
 
 Every assistant row stores `metadata.tool_transcript`: the call/result rounds the model
 saw. History replays it as native `assistant(tool_calls)` / `tool` messages and trims
-whole rounds only, so a continuation sees its own calls and the resolved result. The
-round budget (20) counts across the user turn and its continuations, and a call that
+whole rounds only, so a continuation sees its own calls and the resolved result. A round
+also stores the model's raw `reasoning` when it produced any, whatever the configuration's
+Show thinking switch says; history sends it back on the assistant message only for the
+rows of the user turn being continued, and the API strips it from every message it serves.
+Admin LLM call traces (`chat_llm_call_traces`, in the admin session detail) are the one
+exception: they stay wire-exact, so they include replayed reasoning, which is meant for
+admin debugging.
+The round budget (20) counts across the user turn and its continuations, and a call that
 repeats an already-approved call (same tool, same arguments) in that chain answers
 "Already applied earlier in this turn." instead of pausing again.
 

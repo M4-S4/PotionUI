@@ -20,7 +20,7 @@ settings:
   - name: "thinking"
     type: "select"
     label: "Thinking"
-    description: "Auto: reasons when no tools are offered. Off: never."
+    description: "Auto: reasons before answering. In a tool conversation it reasons only while every earlier assistant turn still has its reasoning to send back. Off: never."
     default: "auto"
     options:
       - value: "auto"

@@ -506,3 +506,65 @@ async def test_stream_and_buffered_tools_send_the_same_request(monkeypatch, clie
     streamed = capture.body
 
     assert strip(streamed, "stream") == strip(buffered, "stream")
+
+
+REASONING = "The form has to be read before anything is changed."
+
+
+def reasoned_history(reasoning=REASONING):
+    history = tool_history()
+    history[1]["reasoning"] = reasoning
+    return history
+
+
+async def test_a_native_tool_call_turn_goes_out_with_its_reasoning_as_thinking(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+
+    await client.generate_with_tools(reasoned_history(), make_config("ollama"), "SYS", tools=tool_schemas())
+
+    sent = capture.body["messages"][2]
+    assert sent["thinking"] == REASONING
+    assert strip(sent, "thinking") == NATIVE_TOOL_MESSAGES[2]
+
+
+async def test_a_streamed_native_tool_call_turn_goes_out_with_its_thinking(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [_ndjson()])
+
+    await collect(
+        client.stream_with_tools(reasoned_history(), make_config("ollama"), "SYS", tools=tool_schemas())
+    )
+
+    assert capture.body["messages"][2]["thinking"] == REASONING
+
+
+@pytest.mark.parametrize("reasoning", ["", None])
+async def test_a_tool_call_turn_without_reasoning_sends_no_thinking_key(monkeypatch, client, reasoning):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+
+    await client.generate_with_tools(
+        reasoned_history(reasoning), make_config("ollama"), "SYS", tools=tool_schemas()
+    )
+
+    assert capture.body["messages"] == NATIVE_TOOL_MESSAGES
+
+
+async def test_force_prompt_tools_carries_the_reasoning_on_the_text_turn(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"force_prompt_tools": True})
+
+    await client.generate_with_tools(reasoned_history(), config, "SYS", tools=tool_schemas())
+
+    assert capture.body["messages"][2] == {
+        "role": "assistant",
+        "content": '<tool_call>{"name": "get_form_state", "arguments": {"scope": "all"}}</tool_call>',
+        "thinking": REASONING,
+    }
+
+
+async def test_force_prompt_tools_without_reasoning_is_unchanged(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"force_prompt_tools": True})
+
+    await client.generate_with_tools(reasoned_history(""), config, "SYS", tools=tool_schemas())
+
+    assert "thinking" not in capture.body["messages"][2]
