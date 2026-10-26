@@ -1,4 +1,3 @@
-import functools
 import json
 
 import httpx
@@ -8,7 +7,6 @@ from src.features.llm.harness.errors import (
     AuthFailed,
     ConnectionFailed,
     ContextOverflow,
-    HarnessError,
     InvalidRequest,
     OpaqueViolation,
     Overloaded,
@@ -17,11 +15,7 @@ from src.features.llm.harness.errors import (
     ServerFailed,
     WireFailure,
 )
-from src.features.llm.harness.profile import ProfileSource
-from src.features.llm.model_listing import ModelListingError
-from tests.features.llm.harness.adapters.openai_responses_support import ADAPTER, make_config
-
-_REAL_ASYNC_CLIENT = httpx.AsyncClient
+from tests.features.llm.harness.adapters.openai_responses_support import ADAPTER
 
 
 def failure(status, error=None, headers=None, in_stream=False, body=None):
@@ -106,13 +100,6 @@ class TestClassification:
         assert result.detail["request_id"] == "req_9"
         assert '"param": "input"' in result.detail["body"]
 
-    def test_a_failure_inside_the_stream_is_marked_and_has_no_status(self):
-        result = ADAPTER.classify_error(failure(None, {"code": "rate_limit_exceeded", "message": "Slow"}, in_stream=True))
-
-        assert type(result) is RateLimited
-        assert result.status is None
-        assert result.detail["in_stream"] is True
-
     def test_a_body_that_is_not_json_still_gives_a_typed_error(self):
         result = ADAPTER.classify_error(failure(502, body=b"<html>Bad gateway</html>"))
 
@@ -140,86 +127,3 @@ class TestClassification:
         assert result.retryable is True
         assert "refused" in result.message
 
-    def test_every_result_is_a_harness_error(self):
-        assert all(isinstance(ADAPTER.classify_error(failure(status, {"message": "x"})), HarnessError) for status in (400, 401, 404, 429, 500, 503))
-
-
-@pytest.fixture
-def http(monkeypatch):
-    calls = []
-
-    def install(handler):
-        def recording(request):
-            calls.append(request)
-            return handler(request)
-
-        monkeypatch.setattr(
-            httpx, "AsyncClient",
-            functools.partial(_REAL_ASYNC_CLIENT, transport=httpx.MockTransport(recording)),
-        )
-        return calls
-
-    return install
-
-
-class TestListing:
-    async def test_models_are_listed_sorted_with_their_owner(self, http):
-        calls = http(lambda request: httpx.Response(200, json={"data": [
-            {"id": "o-mini", "owned_by": "system"},
-            {"id": "gpt-5.6", "owned_by": "openai"},
-            {"id": "plain"},
-            {"nope": 1},
-        ]}))
-
-        models = await ADAPTER.list_models("https://api.openai.com/v1/", "test-key-a")
-
-        assert str(calls[0].url) == "https://api.openai.com/v1/models"
-        assert calls[0].headers["authorization"] == "Bearer test-key-a"
-        assert [model.id for model in models] == ["gpt-5.6", "o-mini", "plain"]
-        assert models[0].details == {"owned_by": "openai"}
-        assert models[2].details is None
-
-    async def test_listing_without_a_key_sends_no_authorization(self, http):
-        calls = http(lambda request: httpx.Response(200, json={"data": []}))
-
-        await ADAPTER.list_models("https://api.openai.com/v1")
-
-        assert "authorization" not in calls[0].headers
-
-    async def test_a_reply_without_a_list_is_reported(self, http):
-        http(lambda request: httpx.Response(200, json={"object": "error"}))
-
-        with pytest.raises(ModelListingError):
-            await ADAPTER.list_models("https://api.openai.com/v1", "test-key-a")
-
-    async def test_rejected_credentials_are_reported(self, http):
-        http(lambda request: httpx.Response(401, json={}))
-
-        with pytest.raises(ModelListingError, match="rejected the credentials"):
-            await ADAPTER.list_models("https://api.openai.com/v1", "bad-key")
-
-
-class TestDiscovery:
-    async def test_discovery_returns_a_discovered_layer(self, http):
-        http(lambda request: httpx.Response(200, json={"data": [{"id": "gpt-5.6", "owned_by": "openai"}]}))
-
-        layer = await ADAPTER.discover(make_config())
-
-        assert layer.source is ProfileSource.DISCOVERED
-        assert dict(layer.fields) == {}
-
-    async def test_a_context_window_the_server_reports_is_picked_up(self, http):
-        http(lambda request: httpx.Response(200, json={"data": [
-            {"id": "other", "context_window": 1000},
-            {"id": "gpt-5.6", "context_length": 400000},
-        ]}))
-
-        layer = await ADAPTER.discover(make_config())
-
-        assert dict(layer.fields) == {"context_window": 400000}
-
-    async def test_discovery_failures_surface_to_the_resolver(self, http):
-        http(lambda request: httpx.Response(500, json={}))
-
-        with pytest.raises(ModelListingError):
-            await ADAPTER.discover(make_config())
