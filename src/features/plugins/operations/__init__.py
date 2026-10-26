@@ -18,6 +18,7 @@ enable_plugin`), never from a submodule directly.
 """
 from src.features.plugins.operations.lifecycle import (
     enable_plugin,
+    enable_default_plugins,
     disable_plugin,
     delete_plugin,
 )
@@ -38,6 +39,7 @@ from src.features.plugins.operations.frontend import (
 
 __all__ = [
     "enable_plugin",
+    "enable_default_plugins",
     "disable_plugin",
     "delete_plugin",
     "scan_plugins",

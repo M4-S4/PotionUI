@@ -805,6 +805,7 @@ class PluginManifestSchema(BaseModel):
     # Optional metadata
     category: PluginCategory = PluginCategory.OTHER
     capabilities: List[str] = Field(default_factory=list)
+    default_enabled: bool = False
     homepage: Optional[str] = None
     repository: Optional[str] = None
     license: Optional[str] = None

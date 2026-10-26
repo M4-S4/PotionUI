@@ -412,3 +412,25 @@ class TestPluginManifestSchema(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestDefaultEnabledFlag(unittest.TestCase):
+    _base = {
+        'id': 'test-plugin',
+        'name': 'Test Plugin',
+        'version': '1.0.0',
+        'description': 'A test plugin',
+        'author': 'Test Author',
+        'type': 'backend-only',
+    }
+
+    def test_defaults_to_false(self):
+        self.assertFalse(PluginManifestSchema.model_validate(self._base).default_enabled)
+
+    def test_true_is_parsed(self):
+        schema = PluginManifestSchema.model_validate({**self._base, 'default_enabled': True})
+        self.assertTrue(schema.default_enabled)
+
+    def test_non_boolean_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate({**self._base, 'default_enabled': 'sometimes'})

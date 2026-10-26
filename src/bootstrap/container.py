@@ -762,6 +762,7 @@ def build_container() -> AppContainer:
     # one fails plugin enable rather than crashing builtin registration.
     plugin_repository = PluginRepository()
     _sync_enabled_plugins(plugin_registry, plugin_repository)
+    plugin_operations.enable_default_plugins(plugin_repository, plugin_registry)
 
 
     plans = build_plans(limit_kind_registry, settings, plugin_registry)

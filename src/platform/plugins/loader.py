@@ -41,6 +41,7 @@ class PluginManifest:
     # Plugin type and capabilities
     plugin_type: str  # "frontend-only", "backend-only", or "full-stack"
     capabilities: List[str] = field(default_factory=list)
+    default_enabled: bool = False
 
     # Dependencies (canonical: {python: [...], binaries: [...]})
     dependencies_python: List[str] = field(default_factory=list)
@@ -460,6 +461,7 @@ class PluginLoader:
             author=schema.author,
             plugin_type=schema.type,
             capabilities=schema.capabilities,
+            default_enabled=schema.default_enabled,
             dependencies_python=schema.dependencies.python,
             dependencies_binaries=schema.dependencies.binaries,
             hooks=hooks,

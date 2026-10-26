@@ -40,9 +40,11 @@ def build_recipe(payload: bytes) -> dict:
     recipe = yaml.safe_load(SOURCE_RECIPE.read_text(encoding="utf-8"))
     artifact = next(a for a in recipe["artifacts"] if a["id"] == ARTIFACT_ID)
     artifact["size_bytes"] = len(payload)
+    artifact["source_host"] = "huggingface.co"
     artifact["checksum"]["value"] = hashlib.sha256(payload).hexdigest()
     recipe["id"] = RECIPE_ID
     recipe["name"] = "Fresh install Hugging Face starter"
+    recipe["first_run"] = True
     recipe["artifacts"] = [artifact]
     recipe["steps"] = [s for s in recipe["steps"] if s["key"] in KEPT_STEPS]
     for step in recipe["steps"]:
@@ -127,8 +129,8 @@ def run(_shared: ThrowawayApp) -> JourneyResult:
             with app_ctx as app:
                 before = plugin_row(app.client)
                 evidence.append(f"{PLUGIN_ID} at boot: enabled={before.get('enabled')}")
-                if before.get("enabled"):
-                    failures.append(f"{PLUGIN_ID} must be disabled on a fresh install")
+                if not before.get("enabled"):
+                    failures.append(f"{PLUGIN_ID} must be enabled by default on a fresh install")
 
                 final = drive_run(app.client, RECIPE_ID, evidence)
                 evidence.extend(f"  {line}" for line in step_summary(final))

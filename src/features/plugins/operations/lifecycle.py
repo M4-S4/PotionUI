@@ -187,6 +187,27 @@ def enable_plugin(
     return plugin_to_response(updated_plugin, registry)
 
 
+def enable_default_plugins(
+    repo: PluginRepository,
+    registry: PluginRegistry,
+    **collaborators: Any,
+) -> list:
+    """Enable every discovered plugin that declares `default_enabled` and that
+    the database has never recorded. A recorded row (enabled or not) is an
+    admin decision and is never overridden. Never raises: one plugin failing to
+    enable must not stop the app from booting."""
+    enabled = []
+    for manifest in registry.get_all_plugins():
+        if not manifest.default_enabled or repo.get_plugin_by_id(manifest.id) is not None:
+            continue
+        try:
+            enable_plugin(repo, registry, manifest.id, **collaborators)
+            enabled.append(manifest.id)
+        except Exception:
+            logger.exception(f"Could not enable default plugin '{manifest.id}'")
+    return enabled
+
+
 def disable_plugin(
     repo: PluginRepository,
     registry: PluginRegistry,
