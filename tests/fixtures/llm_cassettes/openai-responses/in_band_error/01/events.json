@@ -1,16 +1,13 @@
-[
-  {
-    "type": "reasoning_delta",
-    "block": 0,
-    "text": "",
-    "summary": false,
-    "redacted": false
-  },
-  {
-    "type": "reasoning_delta",
-    "block": 0,
-    "text": "Working out the answer",
-    "summary": true,
-    "redacted": false
+{
+  "error": {
+    "kind": "server_error",
+    "message": "The server had an error while processing your request. Sorry about that!",
+    "status": null,
+    "code": "server_error",
+    "retry_after": null,
+    "detail": {
+      "code": "server_error",
+      "in_stream": true
+    }
   }
-]
+}

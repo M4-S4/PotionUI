@@ -1,48 +1,5 @@
 {
-  "config": {
-    "id": "cfg_cassette",
-    "name": "OpenAI",
-    "type": "openai",
-    "enabled": true,
-    "base_url": "https://api.openai.com/v1",
-    "api_key": "cassette-key-a",
-    "model": "gpt-5.6",
-    "system_message": "",
-    "show_thinking": true
-  },
-  "system": "You are a careful assistant. Use tools when they help.",
-  "tools": [
-    {
-      "name": "delete_file",
-      "description": "Delete a file or folder.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "path"
-        ],
-        "additionalProperties": false
-      },
-      "strict": true
-    }
-  ],
-  "settings": {
-    "temperature": null,
-    "top_p": null,
-    "top_k": null,
-    "min_p": null,
-    "max_tokens": 4096,
-    "reasoning": "medium",
-    "tool_choice": null,
-    "response_schema": null,
-    "cache_key": "conv-cassette",
-    "keep_model_loaded": false
-  },
-  "append": [
+  "messages": [
     {
       "id": "tool_02",
       "role": "tool",

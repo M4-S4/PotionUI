@@ -10,21 +10,7 @@
     "system_message": "",
     "show_thinking": true
   },
-  "system": "You are a careful assistant. Use tools when they help.",
-  "tools": [],
-  "settings": {
-    "temperature": null,
-    "top_p": null,
-    "top_k": null,
-    "min_p": null,
-    "max_tokens": 4096,
-    "reasoning": "medium",
-    "tool_choice": null,
-    "response_schema": null,
-    "cache_key": "conv-cassette",
-    "keep_model_loaded": false
-  },
-  "append": [
+  "messages": [
     {
       "id": "user_03",
       "role": "user",

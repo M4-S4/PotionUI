@@ -5,7 +5,7 @@
     "type": "openai",
     "enabled": true,
     "base_url": "https://api.openai.com/v1",
-    "api_key": "cassette-key-a",
+    "api_key": "cassette-key",
     "model": "gpt-5.6",
     "system_message": "",
     "show_thinking": true
@@ -43,7 +43,7 @@
     "cache_key": "conv-cassette",
     "keep_model_loaded": false
   },
-  "append": [
+  "messages": [
     {
       "id": "user_01",
       "role": "user",
