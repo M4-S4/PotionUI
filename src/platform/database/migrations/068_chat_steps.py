@@ -135,8 +135,15 @@ def _text(text: str) -> Dict[str, Any]:
     return {"type": "text", "text": text, "phase": None}
 
 
-def _reasoning(text: str) -> Dict[str, Any]:
-    return {"type": "reasoning", "text": text, "summary": "", "redacted": False, "opaque": None}
+def _reasoning(text: str, duration_ms: Optional[int] = None) -> Dict[str, Any]:
+    return {
+        "type": "reasoning",
+        "text": text,
+        "summary": "",
+        "redacted": False,
+        "opaque": None,
+        "duration_ms": duration_ms,
+    }
 
 
 def _image(ref: str) -> Dict[str, Any]:
@@ -195,10 +202,14 @@ def _arguments(value: Any) -> Dict[str, Any]:
     return _finite(value) if isinstance(value, dict) else {}
 
 
-def _thinking_texts(metadata: Dict[str, Any]) -> List[str]:
+def _thinking_segments(metadata: Dict[str, Any]) -> List[tuple]:
     thinking = metadata.get("thinking")
     segments = _listed(thinking.get("segments")) if isinstance(thinking, dict) else []
-    return [segment["text"] for segment in segments if isinstance(segment, dict) and isinstance(segment.get("text"), str)]
+    return [
+        (segment["text"], _int_or_none(segment.get("duration_ms")))
+        for segment in segments
+        if isinstance(segment, dict) and isinstance(segment.get("text"), str)
+    ]
 
 
 def _resolved_text(record: Dict[str, Any]) -> Optional[str]:
@@ -401,8 +412,12 @@ class _SessionPlan:
             for item in transcript
             if isinstance(item.get("reasoning"), str) and item["reasoning"].strip()
         }
+        segments = _thinking_segments(metadata)
+        durations = {text.strip(): duration for text, duration in segments}
         leftover = [
-            _reasoning(text) for text in _thinking_texts(metadata) if text.strip() and text.strip() not in round_texts
+            _reasoning(text, duration)
+            for text, duration in segments
+            if text.strip() and text.strip() not in round_texts
         ]
 
         drafts: List[Dict[str, Any]] = []
@@ -417,7 +432,11 @@ class _SessionPlan:
                 for entry in _listed(item.get("results"))
                 if isinstance(entry, dict)
             }
-            lead = [_reasoning(item["reasoning"])] if isinstance(item.get("reasoning"), str) and item["reasoning"] else []
+            lead = (
+                [_reasoning(item["reasoning"], durations.get(item["reasoning"].strip()))]
+                if isinstance(item.get("reasoning"), str) and item["reasoning"]
+                else []
+            )
             call_parts = []
             result_parts = []
             for call in calls:

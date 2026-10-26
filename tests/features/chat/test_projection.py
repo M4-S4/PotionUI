@@ -43,6 +43,9 @@ def test_reasoning_kinds_follow_what_the_provider_returned():
     omitted = projection.reasoning_block(ReasoningPart())
     assert (omitted.kind, omitted.text, omitted.redacted) == ("omitted", "", False)
     assert projection.reasoning_block(ReasoningPart(redacted=True, opaque={"data": "x"})).redacted is True
+    assert projection.reasoning_block(ReasoningPart(text="chain", duration_ms=1840)).duration_ms == 1840
+    assert projection.reasoning_block(ReasoningPart(summary="short", duration_ms=7)).duration_ms == 7
+    assert projection.reasoning_block(ReasoningPart()).duration_ms is None
 
 
 def test_reasoning_blocks_keep_step_order_and_skip_other_roles():

@@ -30,7 +30,7 @@ def test_migrated_reasoning_reaches_the_api_only_through_the_projection(env, cha
     shown = projection.present([row], steps, states, show_thinking=True)[0]
     hidden = projection.present([row], steps, states, show_thinking=False)[0]
 
-    assert [block.text for block in shown.reasoning] == ["plan the search", "summarise results"]
+    assert [(block.text, block.duration_ms) for block in shown.reasoning] == [("plan the search", 900), ("summarise results", 400)]
     assert hidden.reasoning is None
     assert "reasoning" not in hidden.model_dump()
     assert "thinking" not in shown.metadata and "thinking" not in hidden.metadata
