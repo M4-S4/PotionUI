@@ -10,7 +10,6 @@ from src.features.llm.harness.adapters.gemini_interactions import (
     ADAPTER_NAME,
     GeminiInteractionsAdapter,
     discovered_fields,
-    target_origin,
 )
 from src.features.llm.harness.errors import (
     AuthFailed,
@@ -107,8 +106,7 @@ def request(messages, *, tools=(), settings: Optional[Settings] = None, system="
 
 
 def origin(model: str = "gemini-3.8-flash", adapter: str = ADAPTER_NAME, **config_fields: Any) -> Origin:
-    cfg = config(model=model, **config_fields)
-    return Origin(adapter=adapter, provider=cfg.type, model=cfg.model, credential=target_origin(cfg).credential)
+    return Origin.for_config(adapter, config(model=model, **config_fields))
 
 
 def user(text: str = "hi", *parts: Any) -> Message:
