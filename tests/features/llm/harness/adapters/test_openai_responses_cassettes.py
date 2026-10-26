@@ -10,11 +10,24 @@ from tests.features.llm.harness import cassettes
 from tests.features.llm.harness.adapters.openai_responses_support import ADAPTER
 
 ROOT = cassettes.CASSETTE_ROOT / "openai-responses"
-SCENARIOS = ["thinking_parallel_tools", "approval_pause", "credential_switch", "in_band_error"]
+PLANNED = ["thinking_parallel_tools", "approval_pause", "credential_switch", "in_band_error"]
+PRESENT = [path.name for path in cassettes.scenario_dirs("openai-responses")]
+DOC_PREFIX = "https://developers.openai.com/api/docs/"
 
 
 def steps(name: str) -> List[cassettes.CassetteStep]:
     return cassettes.load_scenario(ROOT / name)
+
+
+def hand_built(name: str) -> bool:
+    return name in PRESENT and all(step.meta["source"] == cassettes.HAND_BUILT for step in steps(name))
+
+
+def only_while_hand_built(name: str):
+    return pytest.mark.skipif(not hand_built(name), reason=f"{name} was replaced by a recording")
+
+
+HAND_BUILT_PRESENT = [name for name in PRESENT if hand_built(name)]
 
 
 def message_of(step: cassettes.CassetteStep) -> Message:
@@ -38,29 +51,50 @@ def request_and_profile(name: str, index: int):
     raise IndexError(index)
 
 
-def test_the_scenarios_on_disk_are_the_expected_ones():
-    assert [path.name for path in cassettes.scenario_dirs("openai-responses")] == sorted(SCENARIOS)
+def contains_run(sequence: List[Any], run: List[Any]) -> bool:
+    return any(sequence[start:start + len(run)] == run for start in range(len(sequence) - len(run) + 1))
 
 
-@pytest.mark.parametrize("name", SCENARIOS)
+def test_every_planned_scenario_is_present():
+    assert set(PLANNED) <= set(PRESENT)
+
+
+@pytest.mark.parametrize("name", PRESENT)
 def test_a_scenario_replays_cleanly_through_the_shared_runner(name):
     cassettes.run_scenario(ADAPTER, ROOT / name)
 
 
-class TestRecordedShape:
-    @pytest.mark.parametrize("name", SCENARIOS)
-    def test_every_step_is_labelled_and_cites_the_docs(self, name):
+class TestEveryRecording:
+    @pytest.mark.parametrize("name", PRESENT)
+    def test_every_step_names_its_adapter_and_source(self, name):
         for step in steps(name):
             assert step.meta["adapter"] == "openai-responses"
-            assert step.meta["source"] == cassettes.HAND_BUILT
-            assert step.meta["doc_url"].startswith("https://developers.openai.com/api/docs/")
+            assert step.meta["source"] in (cassettes.HAND_BUILT, cassettes.RECORDED)
+            if step.meta["source"] == cassettes.HAND_BUILT:
+                assert step.meta["doc_url"].startswith(DOC_PREFIX)
 
-    @pytest.mark.parametrize("name", SCENARIOS)
+    @pytest.mark.parametrize("name", PRESENT)
+    def test_a_request_replays_the_previous_output_untouched_unless_the_credential_changed(self, name):
+        previous = None
+        for index, step in enumerate(steps(name)):
+            request, profile = request_and_profile(name, index)
+            sent = ADAPTER.render(request, profile).body["input"]
+            if previous is not None and previous.raw:
+                if previous.replays_raw_to(Origin.for_config(ADAPTER.name, request.config)):
+                    assert contains_run(sent, previous.raw)
+                else:
+                    assert not any(item.get("encrypted_content") for item in sent)
+            previous = message_of(step) if step.step is not None else None
+
+
+class TestHandBuiltShape:
+    @pytest.mark.parametrize("name", HAND_BUILT_PRESENT)
     def test_the_chunks_cut_through_events(self, name):
         for step in steps(name):
             assert len(step.chunks) > 3
             assert any(not chunk.endswith(b"\n\n") for chunk in step.chunks)
 
+    @only_while_hand_built("thinking_parallel_tools")
     def test_a_chunk_boundary_falls_inside_a_multibyte_character(self):
         broken = []
         for chunk in steps("thinking_parallel_tools")[0].chunks:
@@ -72,6 +106,7 @@ class TestRecordedShape:
         assert broken
 
 
+@only_while_hand_built("thinking_parallel_tools")
 class TestThinkingWithParallelTools:
     def test_the_first_step_keeps_reasoning_commentary_and_both_calls_in_order(self):
         message = message_of(steps("thinking_parallel_tools")[0])
@@ -108,6 +143,7 @@ class TestThinkingWithParallelTools:
         assert part.opaque["encrypted_content"]
 
 
+@only_while_hand_built("approval_pause")
 class TestApprovalPause:
     def test_the_paused_call_is_replayed_with_its_reasoning_after_the_decision(self):
         first, second = steps("approval_pause")
@@ -131,6 +167,7 @@ class TestApprovalPause:
         assert call.args_raw == '{"path":"build/"}'
 
 
+@only_while_hand_built("credential_switch")
 class TestCredentialSwitch:
     def test_the_second_request_carries_no_opaque_data_from_the_first_key(self):
         first, second = steps("credential_switch")
@@ -148,6 +185,7 @@ class TestCredentialSwitch:
         }
 
 
+@only_while_hand_built("in_band_error")
 class TestInBandError:
     def test_the_stored_failure_is_the_classified_in_stream_error(self):
         step = steps("in_band_error")[0]
