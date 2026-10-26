@@ -410,17 +410,19 @@ class TestByteCaps:
         repository = FakeTraceRepository()
         recorder = make_recorder(repository)
         huge = "q" * (MAX_TRACE_FIELD_BYTES * 2)
+        wide_list = [{"content": "q" * 8000} for _ in range(9)]
+        wide_dict = {f"key{index}": "q" * 8000 for index in range(9)}
         record(
             recorder,
             request_system=huge,
-            request_messages=[{"role": "user", "content": huge}],
-            request_params={"prompt": huge},
-            request_tools=[{"name": huge}],
+            request_messages=wide_list,
+            request_params=wide_dict,
+            request_tools=wide_list,
             response_text=huge,
-            response_tool_calls=[{"name": huge}],
-            request_body={"messages": [{"role": "user", "content": huge}]},
+            response_tool_calls=wide_list,
+            request_body=wide_dict,
             response_raw=huge,
-            error={"detail": huge},
+            error=wide_dict,
         )
         recorder.shutdown(timeout=5.0)
 
