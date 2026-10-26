@@ -131,6 +131,15 @@ class Origin:
     model: str
     credential: Optional[str] = None
 
+    @classmethod
+    def for_config(cls, adapter: str, config: Any) -> "Origin":
+        return cls(
+            adapter=adapter,
+            provider=config.type,
+            model=config.model,
+            credential=credential_fingerprint(config.base_url, config.api_key),
+        )
+
 
 LEGACY_ORIGIN = Origin(adapter="legacy", provider="legacy", model="legacy")
 

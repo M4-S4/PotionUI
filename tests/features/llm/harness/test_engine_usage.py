@@ -169,6 +169,28 @@ async def test_a_discarded_empty_attempt_still_counts_toward_the_turn_usage():
     assert outcome.usage.input_tokens == 1700 and outcome.usage.output_tokens == 120
 
 
+async def test_a_truncated_attempt_that_is_retried_still_counts_toward_the_turn_usage():
+    from src.features.llm.harness.events import ToolArgsDelta, ToolCallStart
+
+    cut_off = [
+        ToolCallStart(block=2, call_id="t1", name="echo"),
+        ToolArgsDelta(block=2, text='{"message": "a long no'),
+        UsageReported(Usage(input_tokens=500, output_tokens=2000, total_tokens=2500)),
+        Finish(reason=FinishReason.LENGTH, raw_reason="length"),
+    ]
+    adapter = ScriptedAdapter(
+        cut_off,
+        with_usage(tool_step({"id": "t1", "name": "echo", "args": {"message": "a long note"}}), FIRST),
+        with_usage(text_step("saved"), SECOND),
+    )
+    rig = scripted_engine(adapter, [EchoTool()])
+
+    outcome = outcome_of(await drain(rig.engine.run(turn())))
+
+    assert [step.usage for step in model_steps(rig)] == [FIRST, SECOND]
+    assert outcome.usage.input_tokens == 2700 and outcome.usage.output_tokens == 2130
+
+
 async def test_the_thinking_mode_comes_from_the_last_step_not_the_total():
     mode = {"mode": "forced_off"}
     adapter = ScriptedAdapter(

@@ -5,14 +5,15 @@ import pytest
 
 from src.features.chat import decisions, projection
 from src.features.llm.harness import codec
-from src.features.llm.harness.baseline import NoRetry, SequentialToolRunner
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.engine import TurnEngine, TurnInput, TurnOutcome
 from src.features.llm.harness.errors import HarnessError, Overloaded
 from src.features.llm.harness.events import Finish, FinishReason, TextDelta, ToolArgsDelta, ToolCallStart
 from src.features.llm.harness.messages import Role, TextPart
 from src.features.llm.harness.recovery import CANCELLED_REASON, FAILED_REASON
+from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.store import SqliteTurnStore
+from src.features.llm.harness.tool_runner import ParallelToolRunner
 from src.features.llm.harness.turn_state import StepCommitted, StepStatus, TurnStatus
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.executor import ToolExecutor
@@ -85,9 +86,9 @@ class Rig:
         self.engine = TurnEngine(
             gateway=gateway,
             tools=executor,
-            runner=runner or SequentialToolRunner(executor),
+            runner=runner or ParallelToolRunner(executor),
             store=self.store,
-            retry=NoRetry(),
+            retry=BackoffRetry(max_retries=0),
         )
 
     def fresh(self) -> SqliteTurnStore:

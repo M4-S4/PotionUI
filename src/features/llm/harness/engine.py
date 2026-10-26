@@ -16,9 +16,10 @@ from src.features.llm.harness.messages import Message, Part, ReasoningPart, Role
 from src.features.llm.harness.ports import RetryPolicy, ToolRunner, TurnStore
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.recovery import CANCELLED_REASON, FAILED_REASON, interrupted_tool_step
+from src.features.llm.harness.retry import retry_notice
+from src.features.llm.harness.truncation import TruncationAction, decide_truncation
 from src.features.llm.harness.turn_state import (
     Notice,
-    NoticeKind,
     NoticeRaised,
     PendingCall,
     StepCommitted,
@@ -186,6 +187,7 @@ class _Run:
             deferred_tools={group: list(names) for group, names in turn.deferred_tools.items()},
             guard=ToolCallGuard(set(turn.applied_calls)),
         )
+        self.sent_limit: Optional[int] = None
         self.rounds_used = 0
         self.rescue_retries = 0
         self.rescues: List[Dict[str, Any]] = []
@@ -243,7 +245,10 @@ class _Run:
         async for event in self._step(box, (), filtered=False, retry_empty=False, keep_loaded=False):
             yield event
         message = box.message
-        yield self._commit(message, StepStatus.COMPLETED, final=True)
+        cut_off = self._cut_off(message)
+        if cut_off:
+            yield cut_off
+        yield self._commit(message, StepStatus.INCOMPLETE if cut_off else StepStatus.COMPLETED, final=True)
         yield self._outcome(message.text(), ANSWER, TurnStatus.COMPLETED)
 
     async def _tool_loop(self) -> AsyncIterator[Any]:
@@ -259,7 +264,10 @@ class _Run:
                 yield self._commit(context_message("rescue", decision.nudge), StepStatus.COMPLETED)
                 continue
             if isinstance(decision, _Finish):
-                status = StepStatus.COMPLETED if decision.reason == ANSWER else StepStatus.INCOMPLETE
+                cut_off = self._cut_off(box.message) if decision.reason == ANSWER else None
+                if cut_off:
+                    yield cut_off
+                status = StepStatus.COMPLETED if decision.reason == ANSWER and not cut_off else StepStatus.INCOMPLETE
                 yield self._commit(self._rebuilt(box.message, decision.text, ()), status, final=True)
                 yield self._outcome(decision.content, decision.reason, TurnStatus.COMPLETED)
                 return
@@ -273,7 +281,7 @@ class _Run:
                         continue
                     if isinstance(item, ToolFinished):
                         results.append(item.result)
-                        self.gathered = tuple(results)
+                        self.gathered = tuple(result for result in results if result.content)
                     yield item
             if pending:
                 pending_ids = {call.call_id for call in pending}
@@ -296,7 +304,12 @@ class _Run:
         async for event in self._step(box, (), filtered=True, retry_empty=False, keep_loaded=False):
             yield event
         text = strip_tool_call_xml(box.message.text())
-        yield self._commit(self._rebuilt(box.message, text, ()), StepStatus.COMPLETED, final=True)
+        cut_off = self._cut_off(box.message)
+        if cut_off:
+            yield cut_off
+        yield self._commit(
+            self._rebuilt(box.message, text, ()), StepStatus.INCOMPLETE if cut_off else StepStatus.COMPLETED, final=True,
+        )
         yield self._outcome(text, BUDGET, TurnStatus.COMPLETED)
 
     async def _step(
@@ -305,6 +318,7 @@ class _Run:
         self.box = box
         retry_attempt = 0
         empty_attempt = 0
+        truncation_attempt = 0
         while True:
             prepared = await self.engine._gateway.prepare(
                 self.turn.llm_id, tuple(self.working),
@@ -313,6 +327,7 @@ class _Run:
             box.profile = prepared.profile
             if self.profile is None:
                 self.profile = prepared.profile
+            self.sent_limit = prepared.ledger.get("max_tokens_sent")
             box.assembler = StepAssembler(new_id("msg"), prepared.origin)
             text_filter = ToolCallTextFilter(self._registered()) if filtered else None
             received = False
@@ -332,8 +347,8 @@ class _Run:
                 delay = self.engine._retry.delay(error, retry_attempt)
                 if delay is None:
                     raise
+                notice = retry_notice(error, retry_attempt, delay)
                 retry_attempt += 1
-                notice = Notice(kind=NoticeKind.RETRYING, message=str(error), detail={"retry_after": delay, "kind": error.kind})
                 self.notices.append(notice)
                 yield NoticeRaised(notice)
                 await self.engine._sleep(delay)
@@ -343,6 +358,19 @@ class _Run:
                 if trailing:
                     yield TextDelta(block=1, text=trailing)
             message = box.assembler.message()
+            finish = box.assembler.finish
+            truncation = decide_truncation(
+                message, finish.reason if finish is not None else None, self.sent_limit, prepared.profile, truncation_attempt,
+            )
+            if truncation.action in (TruncationAction.RETRY, TruncationAction.FAIL):
+                self.notices.append(truncation.notice)
+                yield NoticeRaised(truncation.notice)
+                if truncation.action is TruncationAction.FAIL:
+                    raise truncation.error
+                truncation_attempt += 1
+                self.usages.append(priced(box.assembler.usage, prepared.profile))
+                self.settings = replace(self.settings, max_tokens=truncation.max_tokens)
+                continue
             empty_attempt += 1
             if not retry_empty or message.text() or message.tool_calls() or empty_attempt >= EMPTY_RESPONSE_ATTEMPTS:
                 break
@@ -353,6 +381,13 @@ class _Run:
         finish = box.assembler.finish
         self.last_finish = finish.reason if finish is not None else None
         self.last_finish_raw = finish.raw_reason if finish is not None else None
+
+    def _cut_off(self, message: Message) -> Optional[NoticeRaised]:
+        decision = decide_truncation(message, self.last_finish, self.sent_limit, self.profile)
+        if decision.action is not TruncationAction.INCOMPLETE:
+            return None
+        self.notices.append(decision.notice)
+        return NoticeRaised(decision.notice)
 
     @staticmethod
     def _visible(event: TextDelta, text_filter: Optional[ToolCallTextFilter]) -> List[TextDelta]:
