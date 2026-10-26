@@ -87,12 +87,15 @@ class CapabilityProfile:
     reasoning_toggle: Optional[str] = None
     reasoning_field: Optional[str] = None
     replay: ReplayPolicy = ReplayPolicy.SEND_ALL
+    replay_required_with_tools: bool = False
+    reasoning_prefix_bound: bool = False
     interleaved_reasoning: bool = False
     vision: bool = False
     max_images: Optional[int] = 1
     tool_result_media: bool = False
     sampling_rejected: FrozenSet[str] = frozenset()
     sampling_ignored_with_reasoning: FrozenSet[str] = frozenset()
+    recommended_sampling: Mapping[str, float] = field(default_factory=dict)
     cache: CacheMode = CacheMode.NONE
     cache_min_tokens: Optional[int] = None
     prices: Optional[Prices] = None

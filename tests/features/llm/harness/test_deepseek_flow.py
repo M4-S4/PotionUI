@@ -3,7 +3,7 @@ from typing import List
 from src.features.llm.harness.messages import LEGACY_ORIGIN, Origin, Role, TextPart, ToolResultPart, credential_fingerprint, message
 from src.features.llm.harness.profile import ReplayPolicy
 from src.features.llm.harness.profiles import LayeredProfileResolver
-from src.features.llm.harness.replay import missing_reasoning, policy_replay
+from src.features.llm.harness.replay import missing_reasoning, must_disable_reasoning, policy_replay
 from src.features.llm.harness.turn_state import StepRecord, StepStatus
 from tests.fixtures.llm_harness import assemble, text_step, tool_step
 from tests.fixtures.llm_profiles import ProbeAdapter, adapter_for, make_config
@@ -49,6 +49,7 @@ def test_the_deepseek_profile_asks_for_thinking_with_reasoning_replayed_for_ever
 
     assert profile.adapter == "openai-chat"
     assert profile.replay is ReplayPolicy.SEND_ALL
+    assert profile.replay_required_with_tools is True
     assert profile.reasoning.value == "effort"
     assert profile.reasoning_toggle == "thinking.type"
     assert profile.reasoning_field == "reasoning_content"
@@ -64,6 +65,7 @@ def test_every_assistant_message_of_a_tool_conversation_keeps_its_reasoning_so_t
         "plan the lookup", "summarise", "second lookup",
     ]
     assert missing_reasoning(messages) == ()
+    assert must_disable_reasoning(profile, messages, tools_present=True) is False
     assert notices == ()
 
 
@@ -82,6 +84,8 @@ def test_history_from_before_reasoning_was_kept_is_reported_so_thinking_is_turne
     messages, _ = policy_replay(legacy, turn_id="t2", target=ORIGIN, profile=profile)
 
     assert missing_reasoning(messages) == ("a2", "a4")
+    assert must_disable_reasoning(profile, messages, tools_present=True) is True
+    assert must_disable_reasoning(profile, messages, tools_present=False) is False
 
 
 def test_an_admin_override_to_drop_earlier_turns_surfaces_the_gap_the_same_way():

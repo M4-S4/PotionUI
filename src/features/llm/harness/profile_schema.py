@@ -1,3 +1,4 @@
+import math
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -59,6 +60,8 @@ PROFILE_FIELDS: Tuple[FieldSpec, ...] = (
     FieldSpec("reasoning_toggle", "text", "Reasoning switch", "reasoning", nullable=True),
     FieldSpec("reasoning_field", "text", "Reasoning field", "reasoning", nullable=True),
     FieldSpec("replay", "enum", "Reasoning replay", "reasoning", options=_values(ReplayPolicy)),
+    FieldSpec("replay_required_with_tools", "bool", "Reasoning must be replayed when tools are used", "reasoning"),
+    FieldSpec("reasoning_prefix_bound", "bool", "Reasoning breaks when earlier messages change", "reasoning"),
     FieldSpec("interleaved_reasoning", "bool", "Reasoning between tool calls", "reasoning"),
     FieldSpec("vision", "bool", "Image input", "media"),
     FieldSpec("max_images", "int", "Images per request", "media", minimum=0, nullable=True),
@@ -68,6 +71,7 @@ PROFILE_FIELDS: Tuple[FieldSpec, ...] = (
         "sampling_ignored_with_reasoning", "set", "Ignored sampling parameters while reasoning", "sampling",
         options=SAMPLING_PARAMETERS,
     ),
+    FieldSpec("recommended_sampling", "numbers", "Recommended sampling", "sampling", options=SAMPLING_PARAMETERS),
     FieldSpec("cache", "enum", "Prompt caching", "cache", options=_values(CacheMode)),
     FieldSpec("cache_min_tokens", "int", "Minimum cacheable prefix", "cache", minimum=0, nullable=True),
     FieldSpec("prices", "prices", "Prices per million tokens", "cost", nullable=True),
@@ -101,11 +105,23 @@ def normalize_value(name: str, value: Any) -> Any:
         raise ValueError(f"{name}: levels cannot be blank")
     if spec.kind == "text" and not typed.strip():
         raise ValueError(f"{name}: cannot be blank")
+    if spec.kind == "numbers":
+        _check_sampling_values(name, typed, spec.options)
     if spec.kind == "prices" and any(price is not None and price < 0 for price in asdict(typed).values()):
         raise ValueError(f"{name}: prices cannot be negative")
     if spec.minimum is not None and isinstance(typed, int) and typed < spec.minimum:
         raise ValueError(f"{name}: must be at least {spec.minimum}")
     return codec.to_json(typed)
+
+
+def _check_sampling_values(name: str, values: Mapping[str, float], allowed: Tuple[str, ...]) -> None:
+    unknown = sorted(set(values) - set(allowed))
+    if unknown:
+        raise ValueError(f"{name}: unknown parameters {unknown}, expected some of {list(allowed)}")
+    for key, value in values.items():
+        upper = 1.0 if key in ("top_p", "min_p") else math.inf
+        if not math.isfinite(value) or not 0 <= value <= upper:
+            raise ValueError(f"{name}: {key} must be between 0 and {upper if upper != math.inf else 'infinity'}")
 
 
 def validate_overrides(patch: Mapping[str, Any]) -> Dict[str, Any]:

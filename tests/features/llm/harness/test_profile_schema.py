@@ -116,6 +116,23 @@ def test_a_non_object_patch_is_rejected():
         validate_overrides(["replay"])
 
 
+def test_recommended_sampling_is_a_map_of_known_parameters_to_sane_numbers():
+    assert validate_overrides({"recommended_sampling": {"temperature": 0.6, "top_k": 20}}) == {
+        "recommended_sampling": {"temperature": 0.6, "top_k": 20.0}
+    }
+    assert field("recommended_sampling")["kind"] == "numbers"
+    assert field("recommended_sampling")["options"] == ["temperature", "top_p", "top_k", "min_p"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [{"seed": 1}, {"temperature": -0.1}, {"top_p": 1.5}, {"min_p": -1}, {"top_k": "20"}, {"temperature": True}, [0.6]],
+)
+def test_invalid_recommended_sampling_is_rejected(value):
+    with pytest.raises(ValueError, match="recommended_sampling"):
+        validate_overrides({"recommended_sampling": value})
+
+
 def test_the_smallest_context_window_is_accepted():
     assert validate_overrides({"context_window": 1024}) == {"context_window": 1024}
 

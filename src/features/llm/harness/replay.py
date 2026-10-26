@@ -16,6 +16,7 @@ PLACEHOLDER_SIGNATURE = "placeholder_signature"
 
 CREDENTIAL_CHANGED = "credential"
 MODEL_CHANGED = "model"
+HISTORY_CHANGED = "history_changed"
 
 
 def policy_replay(
@@ -24,6 +25,7 @@ def policy_replay(
     turn_id: str,
     target: Origin,
     profile: CapabilityProfile,
+    prefix_changed_at: Optional[int] = None,
 ) -> Tuple[Tuple[Message, ...], Tuple[Notice, ...]]:
     messages: List[Message] = []
     dropped: Dict[Tuple[str, str], List[int]] = {}
@@ -32,13 +34,20 @@ def policy_replay(
         if message.role is not Role.ASSISTANT:
             messages.append(message)
             continue
-        selected, foreign_drop = _select(message, step.turn_id == turn_id, target, profile.replay)
-        if foreign_drop:
+        stale = prefix_changed_at is not None and profile.reasoning_prefix_bound and step.seq > prefix_changed_at
+        selected, reported = _select(message, step.turn_id == turn_id, target, profile.replay, stale)
+        if reported == "foreign":
             reason = CREDENTIAL_CHANGED if _same_model(message.origin, target) else MODEL_CHANGED
             dropped.setdefault((reason, message.origin.model), []).append(step.seq)
+        elif reported == "stale":
+            dropped.setdefault((HISTORY_CHANGED, ""), []).append(step.seq)
         if selected is not None:
             messages.append(selected)
     return tuple(messages), tuple(_notices(dropped))
+
+
+def must_disable_reasoning(profile: CapabilityProfile, messages: Sequence[Message], tools_present: bool) -> bool:
+    return profile.replay_required_with_tools and tools_present and bool(missing_reasoning(messages))
 
 
 def missing_reasoning(messages: Sequence[Message]) -> Tuple[str, ...]:
@@ -51,19 +60,23 @@ def missing_reasoning(messages: Sequence[Message]) -> Tuple[str, ...]:
 
 
 def _select(
-    message: Message, in_progress: bool, target: Origin, policy: ReplayPolicy
-) -> Tuple[Optional[Message], bool]:
+    message: Message, in_progress: bool, target: Origin, policy: ReplayPolicy, stale: bool
+) -> Tuple[Optional[Message], Optional[str]]:
     foreign = not _same_origin(message.origin, target)
     keep_reasoning = _keeps_reasoning(policy, in_progress)
     parts: List[Part] = []
-    changed = False
-    foreign_drop = False
+    changed = stale and message.raw is not None
+    reported: Optional[str] = None
     for part in message.parts:
         if isinstance(part, ReasoningPart):
             if not keep_reasoning:
                 changed = True
             elif foreign and part.opaque:
-                changed = foreign_drop = True
+                changed = True
+                reported = "foreign"
+            elif stale:
+                changed = True
+                reported = reported or ("stale" if part.opaque else None)
             else:
                 parts.append(part)
         elif isinstance(part, ToolCallPart) and foreign:
@@ -75,10 +88,10 @@ def _select(
         else:
             parts.append(part)
     if not changed:
-        return message, False
+        return message, None
     if not parts and message.parts:
-        return None, foreign_drop
-    return Message(id=message.id, role=message.role, parts=tuple(parts), origin=message.origin, raw=None), foreign_drop
+        return None, reported
+    return Message(id=message.id, role=message.role, parts=tuple(parts), origin=message.origin, raw=None), reported
 
 
 def _without_provider_data(call: ToolCallPart) -> ToolCallPart:
@@ -123,4 +136,6 @@ def _notices(dropped: Dict[Tuple[str, str], List[int]]) -> List[Notice]:
 def _dropped_text(reason: str, model: str) -> str:
     if reason == CREDENTIAL_CHANGED:
         return "Reasoning made with a different API key was left out."
+    if reason == HISTORY_CHANGED:
+        return "Reasoning that followed earlier messages that changed was left out."
     return f"Reasoning made by {model} was left out because the model changed."

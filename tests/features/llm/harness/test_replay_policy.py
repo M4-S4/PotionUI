@@ -16,7 +16,7 @@ from src.features.llm.harness.messages import (
     message,
 )
 from src.features.llm.harness.profile import ReplayPolicy
-from src.features.llm.harness.replay import PLACEHOLDER_SIGNATURE, missing_reasoning, policy_replay
+from src.features.llm.harness.replay import PLACEHOLDER_SIGNATURE, missing_reasoning, must_disable_reasoning, policy_replay
 from src.features.llm.harness.turn_state import NoticeKind, StepRecord, StepStatus
 from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, assemble, scripted_profile, text_step, tool_step
 
@@ -357,6 +357,116 @@ class TestForeignToolCalls:
         messages, _ = run(history, ReplayPolicy.SEND_ALL, target=ANTHROPIC)
 
         assert messages[0].parts == (CompactionPart(summary="we agreed on X"),)
+
+
+class TestPrefixChange:
+    def bound_history(self) -> List[StepRecord]:
+        return [
+            user(1, TURN_ONE),
+            assistant(2, TURN_ONE, with_raw(signed(tool_step({"name": "lookup", "args": {}}, reasoning="before"), "s1"), {"raw": 1}), ANTHROPIC),
+            tool_result(3, TURN_ONE),
+            assistant(4, TURN_ONE, with_raw(signed(text_step("answer", reasoning="after"), "s2"), {"raw": 2}), ANTHROPIC),
+            user(5, TURN_TWO),
+            assistant(6, TURN_TWO, with_raw(signed(text_step("again", reasoning="newest"), "s3"), {"raw": 3}), ANTHROPIC),
+        ]
+
+    def run(self, history, changed_at, bound=True, policy=ReplayPolicy.SEND_ALL):
+        profile = scripted_profile(replay=policy.value, reasoning_prefix_bound=bound)
+        return policy_replay(history, turn_id=TURN_TWO, target=ANTHROPIC, profile=profile, prefix_changed_at=changed_at)
+
+    def test_assistant_messages_after_the_change_lose_reasoning_and_raw(self):
+        messages, notices = self.run(self.bound_history(), changed_at=3)
+
+        by_id = {m.id: m for m in messages}
+        assert reasoning_texts(messages) == {"assistant-2": ["before"], "assistant-4": [], "assistant-6": []}
+        assert by_id["assistant-2"].raw == {"raw": 1}
+        assert by_id["assistant-4"].raw is None and by_id["assistant-6"].raw is None
+        assert by_id["assistant-4"].text() == "answer"
+        assert len(notices) == 1
+        assert notices[0].kind is NoticeKind.REASONING_DROPPED
+        assert notices[0].detail == {"reason": "history_changed", "model": "", "steps": [4, 6]}
+        assert notices[0].step_seq == 6
+
+    def test_the_step_at_the_change_point_itself_is_not_after_it(self):
+        messages, _ = self.run(self.bound_history(), changed_at=4)
+
+        assert reasoning_texts(messages)["assistant-4"] == ["after"]
+        assert reasoning_texts(messages)["assistant-6"] == []
+
+    def test_a_change_before_everything_drops_all_assistant_reasoning(self):
+        messages, _ = self.run(self.bound_history(), changed_at=0)
+
+        assert reasoning_texts(messages) == {"assistant-2": [], "assistant-4": [], "assistant-6": []}
+
+    def test_without_a_reported_change_nothing_is_dropped(self):
+        messages, notices = self.run(self.bound_history(), changed_at=None)
+
+        assert reasoning_texts(messages) == {"assistant-2": ["before"], "assistant-4": ["after"], "assistant-6": ["newest"]}
+        assert notices == ()
+
+    def test_profiles_that_are_not_prefix_bound_ignore_the_change(self):
+        messages, notices = self.run(self.bound_history(), changed_at=0, bound=False)
+
+        assert reasoning_texts(messages) == {"assistant-2": ["before"], "assistant-4": ["after"], "assistant-6": ["newest"]}
+        assert notices == ()
+
+    def test_raw_is_dropped_even_for_a_message_without_reasoning(self):
+        history = [
+            user(1, TURN_ONE),
+            assistant(2, TURN_ONE, with_raw(text_step("plain"), {"raw": 1}), ANTHROPIC),
+        ]
+
+        messages, notices = self.run(history, changed_at=0)
+
+        assert messages[1].raw is None and messages[1].text() == "plain"
+        assert notices == ()
+
+    def test_a_policy_that_already_dropped_the_reasoning_stays_silent(self):
+        _, notices = self.run(self.bound_history(), changed_at=0, policy=ReplayPolicy.NEVER)
+
+        assert notices == ()
+
+    def test_a_foreign_message_is_reported_as_foreign_not_as_changed(self):
+        profile = scripted_profile(reasoning_prefix_bound=True)
+
+        _, notices = policy_replay(
+            self.bound_history(), turn_id=TURN_TWO, target=OTHER_MODEL, profile=profile, prefix_changed_at=0
+        )
+
+        assert {notice.detail["reason"] for notice in notices} == {"model"}
+
+    def test_plain_reasoning_text_after_the_change_is_dropped_silently(self):
+        history = [user(1, TURN_ONE), assistant(2, TURN_ONE, text_step("hi", reasoning="plain"), ANTHROPIC)]
+
+        messages, notices = self.run(history, changed_at=0)
+
+        assert reasoning_texts(messages) == {"assistant-2": []}
+        assert notices == ()
+
+
+class TestMustDisableReasoning:
+    def required(self):
+        return scripted_profile(replay_required_with_tools=True)
+
+    def test_a_gap_with_tools_on_a_profile_that_requires_replay(self):
+        messages, _ = run(two_turn_history(), ReplayPolicy.DROP_EARLIER)
+
+        assert must_disable_reasoning(self.required(), messages, tools_present=True) is True
+
+    def test_no_gap_means_reasoning_may_stay_on(self):
+        messages, _ = run(two_turn_history(), ReplayPolicy.SEND_ALL)
+
+        assert must_disable_reasoning(self.required(), messages, tools_present=True) is False
+
+    def test_without_tools_a_gap_does_not_matter(self):
+        messages, _ = run(two_turn_history(), ReplayPolicy.DROP_EARLIER)
+
+        assert must_disable_reasoning(self.required(), messages, tools_present=False) is False
+
+    def test_profiles_that_do_not_require_replay_never_disable(self):
+        messages, _ = run(two_turn_history(), ReplayPolicy.DROP_EARLIER)
+
+        assert must_disable_reasoning(scripted_profile(), messages, tools_present=True) is False
 
 
 class TestMissingReasoning:

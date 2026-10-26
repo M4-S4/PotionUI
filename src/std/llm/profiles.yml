@@ -19,6 +19,13 @@ sources:
   ollama-tool-calling: https://docs.ollama.com/capabilities/tool-calling
   ollama-renderers: https://github.com/ollama/ollama/tree/main/model/renderers
   qwen3-thinking-card: https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507
+  qwen3-6-card: https://huggingface.co/Qwen/Qwen3.6-35B-A3B
+  qwen3-8-card: https://huggingface.co/Qwen/Qwen3.8-27B
+  gemma-3-parameters: https://ollama.com/library/gemma3/blobs/3116c5225075
+  gemma-4-card: https://huggingface.co/google/gemma-4-31B-it
+  glm-4-7-card: https://huggingface.co/zai-org/GLM-4.7
+  kimi-k2-thinking-card: https://huggingface.co/moonshotai/Kimi-K2-Thinking
+  gemini-3-guide: https://ai.google.dev/gemini-api/docs/gemini-3
   gpt-oss-harmony: https://cookbook.openai.com/articles/openai-harmony
   glm-thinking-mode: https://docs.z.ai/guides/capabilities/thinking-mode
   kimi-thinking: https://platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model
@@ -42,12 +49,15 @@ base:
     reasoning_toggle: null
     reasoning_field: null
     replay: send_all
+    replay_required_with_tools: false
+    reasoning_prefix_bound: false
     interleaved_reasoning: false
     vision: false
     max_images: 1
     tool_result_media: false
     sampling_rejected: []
     sampling_ignored_with_reasoning: []
+    recommended_sampling: {}
     cache: none
     cache_min_tokens: null
     prices: null
@@ -64,6 +74,7 @@ rows:
       structured_output: native
       vision: true
       tool_result_media: true
+      reasoning_prefix_bound: true
       cache: explicit
   - id: anthropic-5x
     source: [anthropic-thinking, anthropic-prompt-caching, anthropic-migration]
@@ -146,6 +157,12 @@ rows:
     fields:
       reasoning: effort
       cache_min_tokens: 4096
+  - id: gemini-3-temperature
+    source: [gemini-3-guide]
+    adapters: [gemini-interactions]
+    models: ['^gemini-3']
+    fields:
+      recommended_sampling: {temperature: 1.0}
   - id: deepseek
     source: [deepseek-thinking-mode, deepseek-chat-completion]
     adapters: [openai-chat]
@@ -159,6 +176,7 @@ rows:
       reasoning_toggle: thinking.type
       reasoning_field: reasoning_content
       replay: send_all
+      replay_required_with_tools: true
       interleaved_reasoning: true
       sampling_ignored_with_reasoning: [temperature]
       cache: automatic
@@ -194,14 +212,22 @@ rows:
       reasoning: toggle
       reasoning_toggle: think
       replay: drop_earlier
+      recommended_sampling: {temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0.0}
+  - id: ollama-qwen3-5-and-3-6
+    source: [qwen3-6-card]
+    adapters: [ollama-chat]
+    models: ['(^|/)qwen3\.[56]([:_-]|$)']
+    fields:
+      recommended_sampling: {temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0.0}
   - id: ollama-qwen3-8
-    source: [ollama-renderers, ollama-thinking]
+    source: [ollama-renderers, ollama-thinking, qwen3-8-card]
     adapters: [ollama-chat]
     models: ['(^|/)qwen3\.8([:_-]|$)']
     fields:
       reasoning: toggle
       reasoning_toggle: think
       replay: send_all
+      recommended_sampling: {temperature: 1.0, top_p: 0.95, top_k: 20, min_p: 0.0}
   - id: ollama-gpt-oss
     source: [ollama-thinking, gpt-oss-harmony]
     adapters: [ollama-chat]
@@ -213,7 +239,7 @@ rows:
       replay: drop_earlier
       interleaved_reasoning: true
   - id: ollama-glm
-    source: [glm-thinking-mode, ollama-renderers]
+    source: [glm-thinking-mode, glm-4-7-card, ollama-renderers]
     adapters: [ollama-chat]
     models: ['(^|/)glm-']
     fields:
@@ -221,8 +247,9 @@ rows:
       reasoning_toggle: think
       replay: send_all
       interleaved_reasoning: true
+      recommended_sampling: {temperature: 1.0, top_p: 0.95}
   - id: ollama-kimi
-    source: [kimi-thinking, ollama-thinking]
+    source: [kimi-thinking, kimi-k2-thinking-card, ollama-thinking]
     adapters: [ollama-chat]
     models: ['(^|/)kimi-']
     fields:
@@ -230,6 +257,7 @@ rows:
       reasoning_toggle: think
       replay: send_all
       interleaved_reasoning: true
+      recommended_sampling: {temperature: 1.0}
   - id: ollama-minimax-m2
     source: [minimax-m2-card, ollama-thinking]
     adapters: [ollama-chat]
@@ -238,19 +266,27 @@ rows:
       reasoning: always_on
       replay: send_all
       interleaved_reasoning: true
+      recommended_sampling: {temperature: 1.0, top_p: 0.95, top_k: 40}
   - id: ollama-gemma
     source: [ollama-thinking, ollama-tool-calling]
     adapters: [ollama-chat]
     models: ['(^|/)gemma[3-9]']
     fields:
       vision: true
+  - id: ollama-gemma-3
+    source: [gemma-3-parameters]
+    adapters: [ollama-chat]
+    models: ['(^|/)gemma3']
+    fields:
+      recommended_sampling: {temperature: 1.0, top_p: 0.95, top_k: 64}
   - id: ollama-gemma-4
-    source: [ollama-thinking]
+    source: [ollama-thinking, gemma-4-card]
     adapters: [ollama-chat]
     models: ['(^|/)gemma4']
     fields:
       reasoning: toggle
       reasoning_toggle: think
+      recommended_sampling: {temperature: 1.0, top_p: 0.95, top_k: 64}
   - id: native-engine
     source: [qwen3-thinking-card]
     adapters: [native]

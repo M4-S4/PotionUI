@@ -259,6 +259,61 @@ def test_the_native_engine_renders_tools_into_the_prompt():
     assert profile.replay.value == "drop_earlier"
 
 
+@pytest.mark.parametrize(
+    "adapter, model, expected",
+    [
+        ("ollama-chat", "qwen3:8b", {"temperature": 0.6, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0}),
+        ("ollama-chat", "qwen3.5:9b", {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0}),
+        ("ollama-chat", "qwen3.6:27b", {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0}),
+        ("ollama-chat", "qwen3.8:14b", {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0}),
+        ("ollama-chat", "glm-5.3", {"temperature": 1.0, "top_p": 0.95}),
+        ("ollama-chat", "kimi-k2.6", {"temperature": 1.0}),
+        ("ollama-chat", "minimax-m2.7", {"temperature": 1.0, "top_p": 0.95, "top_k": 40.0}),
+        ("ollama-chat", "gemma3:12b", {"temperature": 1.0, "top_p": 0.95, "top_k": 64.0}),
+        ("ollama-chat", "gemma4:31b", {"temperature": 1.0, "top_p": 0.95, "top_k": 64.0}),
+        ("gemini-interactions", "gemini-3.5-flash", {"temperature": 1.0}),
+        ("ollama-chat", "llama3.2:3b", {}),
+        ("gemini-interactions", "gemini-2.5-pro", {}),
+        ("anthropic-messages", "claude-opus-5-5", {}),
+    ],
+)
+def test_recommended_sampling_follows_the_model_card(adapter, model, expected):
+    assert profile_for(adapter, model).recommended_sampling == expected
+
+
+def test_every_recommended_sampling_value_passes_the_override_validation():
+    from src.features.llm.harness.profile_schema import validate_overrides
+
+    for row in default_seed().rows:
+        if "recommended_sampling" in row.fields:
+            validate_overrides({"recommended_sampling": row.fields["recommended_sampling"]})
+
+
+def test_only_anthropic_profiles_are_reasoning_prefix_bound():
+    assert profile_for("anthropic-messages", "claude-opus-5-5").reasoning_prefix_bound is True
+    assert profile_for("anthropic-messages", "claude-sonnet-4-5").reasoning_prefix_bound is True
+    for adapter, model in (
+        ("openai-responses", "gpt-5.6"),
+        ("gemini-interactions", "gemini-3.5-flash"),
+        ("openai-chat", "deepseek-v4-pro"),
+        ("ollama-chat", "qwen3:8b"),
+        ("native", "x"),
+    ):
+        assert profile_for(adapter, model).reasoning_prefix_bound is False
+
+
+def test_only_deepseek_requires_reasoning_replayed_when_tools_are_present():
+    assert profile_for("openai-chat", "deepseek-v4-pro").replay_required_with_tools is True
+    assert profile_for("openai-chat", "deepseek-flash").replay_required_with_tools is True
+    for adapter, model in (
+        ("anthropic-messages", "claude-opus-5-5"),
+        ("openai-responses", "gpt-5.6"),
+        ("openai-chat", "llama-3.3-70b"),
+        ("ollama-chat", "qwen3:8b"),
+    ):
+        assert profile_for(adapter, model).replay_required_with_tools is False
+
+
 def test_matching_is_case_insensitive():
     assert profile_for("anthropic-messages", "Claude-Opus-5-5").tool_choice == frozenset({"auto", "none"})
 
