@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from src.features.llm.harness import codec
 from src.features.llm.harness.adapter import RenderRequest, Settings, ToolSpec
-from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessagesAdapter, target_origin
+from src.features.llm.harness.adapters.anthropic_messages import ADAPTER_NAME, AnthropicMessagesAdapter
 from src.features.llm.harness.assembler import StepAssembler
 from src.features.llm.harness.messages import (
     ContextPart,
@@ -112,7 +112,7 @@ def make_request(
 
 
 def own_origin(**config: Any) -> Origin:
-    return target_origin(make_config(**config))
+    return Origin.for_config(ADAPTER_NAME, make_config(**config))
 
 
 def render_body(request: RenderRequest, profile: Optional[CapabilityProfile] = None) -> Dict[str, Any]:
@@ -177,13 +177,23 @@ def redacted_block(index: int, data: str) -> List[Any]:
     return [block_start(index, {"type": "redacted_thinking", "data": data}), block_stop(index)]
 
 
-def synthetic_history() -> Tuple[List[Message], RenderRequest]:
-    adapter, profile = AnthropicMessagesAdapter(), make_profile()
-    settings = Settings(max_tokens=8192, reasoning="medium")
-    history: List[Message] = [message("u1", "user", TextPart("What is the weather in Paris and Tokyo, and what time is it there?"))]
+SETTINGS = Settings(max_tokens=8192, reasoning="medium")
 
-    def request_for(messages: Sequence[Message]) -> RenderRequest:
-        return make_request(messages, system="You are a travel assistant.", tools=[WEATHER, CLOCK], settings=settings)
+
+def trip_request(messages: Sequence[Message]) -> RenderRequest:
+    return make_request(messages, system="You are a travel assistant.", tools=[WEATHER, CLOCK], settings=SETTINGS)
+
+
+def reply_to(history: Sequence[Message], payload: bytes, message_id: str) -> Message:
+    request = trip_request(history)
+    events = decode_chunks(AnthropicMessagesAdapter().decoder(request, make_profile()), [payload])
+    assembler = StepAssembler(message_id, Origin.for_config(ADAPTER_NAME, request.config))
+    assembler.feed_all(events)
+    return assembler.message()
+
+
+def synthetic_history() -> Tuple[List[Message], RenderRequest]:
+    history: List[Message] = [message("u1", "user", TextPart("What is the weather in Paris and Tokyo, and what time is it there?"))]
 
     replies = [
         stream(
@@ -216,9 +226,5 @@ def synthetic_history() -> Tuple[List[Message], RenderRequest]:
         [],
     ]
     for number, (reply, follow_up) in enumerate(zip(replies, follow_ups), start=1):
-        request = request_for(history)
-        events = decode_chunks(adapter.decoder(request, profile), [reply])
-        assembler = StepAssembler(f"a{number}", target_origin(request.config))
-        assembler.feed_all(events)
-        history = history + [assembler.message()] + follow_up
-    return history, request_for(history)
+        history = history + [reply_to(history, reply, f"a{number}")] + follow_up
+    return history, trip_request(history)

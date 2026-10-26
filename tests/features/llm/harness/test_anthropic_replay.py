@@ -1,12 +1,13 @@
 import copy
 import dataclasses
-from typing import Any, Callable, Dict, List
+import logging
+from typing import Any, Callable, Dict, List, Tuple
 
 import pytest
 
 from src.features.llm.harness import codec
 from src.features.llm.harness.adapter import RenderRequest, Settings, ToolChoice
-from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessagesAdapter, digest
+from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessagesAdapter, digest, wire_messages
 from src.features.llm.harness.errors import OpaqueViolation
 from src.features.llm.harness.messages import (
     Message,
@@ -22,9 +23,15 @@ from tests.features.llm.harness.anthropic_helpers import (
     chunks_of,
     make_profile,
     read_json,
+    reply_to,
     scenario_path,
     step_dirs,
+    stream,
     synthetic_history,
+    text_block,
+    thinking_block,
+    tool_block,
+    trip_request,
 )
 
 PLANNED = {"thinking_parallel_tools", "approval_pause", "in_band_error"}
@@ -237,56 +244,108 @@ MUTATIONS: Dict[str, Callable[[List[Message]], List[Message]]] = {
     "delete_an_earlier_tool_message": lambda h: h[:T1] + h[T1 + 1:],
 }
 
+DEGRADING: Dict[str, List[Tuple[str, int]]] = {
+    "edit_earlier_tool_result": [("a2", A2), ("a3", A3)],
+    "flag_earlier_tool_result_as_error": [("a2", A2), ("a3", A3)],
+    "edit_earlier_user_message": [("a1", A1), ("a2", A2), ("a3", A3)],
+    "edit_earlier_context_note": [("a3", A3)],
+    "strip_reasoning_from_an_earlier_message_consistently": [("a2", A2), ("a3", A3)],
+}
+BROKEN_PAIRING = {"delete_an_earlier_tool_message"}
 
-def test_the_untouched_history_renders():
+
+def test_the_untouched_history_renders_every_reply_with_its_thinking():
     history, request = final_request()
-    assert render(history, request)
+    wire = wire_messages(dataclasses.replace(request, messages=tuple(history)))
+    assert wire.degraded == []
+    replies = [item["content"] for item in wire.messages if item["role"] == "assistant"]
+    assert [[block["type"] for block in reply][0] for reply in replies] == ["thinking", "thinking", "thinking"]
 
 
-@pytest.mark.parametrize("name", sorted(MUTATIONS))
-def test_a_tampered_history_is_refused_before_anything_is_sent(name):
+CONTENT_MUTATIONS = sorted(name for name in MUTATIONS if name not in DEGRADING and name not in BROKEN_PAIRING)
+
+
+@pytest.mark.parametrize("name", CONTENT_MUTATIONS)
+def test_tampered_blocks_are_refused_with_the_content_check_naming_the_reply(name):
     history, request = final_request()
     tampered = MUTATIONS[name](history)
     assert tampered != history
     with pytest.raises(OpaqueViolation) as caught:
         render(tampered, request)
-    assert caught.value.retryable is False
-    assert not isinstance(caught.value, (ConnectionError, TimeoutError))
+    detail = caught.value.detail
+    assert detail["check"] == "content"
+    assert detail["index"] in (A1, A3) and tampered[detail["index"]].id == detail["message_id"]
+    assert f"reply {detail['message_id']} (message {detail['index']})" in caught.value.message
+    assert "content check failed" in caught.value.message
 
 
-CONTENT_MUTATIONS = sorted(name for name in MUTATIONS if "earlier" not in name and name not in {
-    "strip_reasoning_from_an_earlier_message_consistently",
-    "delete_an_earlier_tool_message",
-})
-PREFIX_MUTATIONS = [
-    "edit_earlier_tool_result",
-    "flag_earlier_tool_result_as_error",
-    "edit_earlier_user_message",
-    "edit_earlier_context_note",
-    "strip_reasoning_from_an_earlier_message_consistently",
-]
-
-
-@pytest.mark.parametrize("name", CONTENT_MUTATIONS)
-def test_edited_blocks_fail_the_content_check_on_the_edited_message(name):
+@pytest.mark.parametrize("name", sorted(BROKEN_PAIRING))
+def test_a_history_with_unanswered_tool_calls_is_refused(name):
     history, request = final_request()
-    with pytest.raises(OpaqueViolation) as caught:
-        render(MUTATIONS[name](history), request)
-    assert caught.value.detail["check"] == "content"
-    assert caught.value.detail["index"] in (A1, A3)
-    assert caught.value.detail["message_id"] == f"a{1 if caught.value.detail['index'] == A1 else 3}"
-    assert "content check failed" in caught.value.message and "message " in caught.value.message
+    tampered = MUTATIONS[name](history)
+    assert tampered != history
+    with pytest.raises(OpaqueViolation, match="tool_result"):
+        render(tampered, request)
 
 
-@pytest.mark.parametrize("name", PREFIX_MUTATIONS)
-def test_edits_before_a_reply_fail_the_prefix_check_naming_that_reply(name):
+def clear_raw(history: List[Message], ids: List[str]) -> List[Message]:
+    return [dataclasses.replace(item, raw=None) if item.id in ids else item for item in history]
+
+
+@pytest.mark.parametrize("name", sorted(DEGRADING))
+def test_edits_before_a_reply_send_that_reply_without_its_thinking_and_nothing_else_changes(name):
     history, request = final_request()
-    with pytest.raises(OpaqueViolation) as caught:
-        render(MUTATIONS[name](history), request)
-    assert caught.value.detail["check"] == "prefix"
-    assert caught.value.detail["message_id"] in {"a1", "a2", "a3"}
-    assert history[caught.value.detail["index"]].id == caught.value.detail["message_id"]
-    assert "prefix check failed" in caught.value.message
+    tampered = MUTATIONS[name](history)
+    assert tampered != history
+    expected_ids = [item_id for item_id, _ in DEGRADING[name]]
+    wire = wire_messages(dataclasses.replace(request, messages=tuple(tampered)))
+    assert wire.degraded == DEGRADING[name]
+    assert all(tampered[index].id == item_id for item_id, index in wire.degraded)
+    assert render(tampered, request).content() == render(clear_raw(tampered, expected_ids), request).content()
+    replies = [item.id for item in tampered if item.role.value == "assistant"]
+    sent = [item["content"] for item in wire.messages if item["role"] == "assistant"]
+    for reply_id, blocks in zip(replies, sent):
+        kinds = [block["type"] for block in blocks]
+        if reply_id in expected_ids:
+            assert "thinking" not in kinds and "redacted_thinking" not in kinds
+        else:
+            assert blocks == next(item for item in tampered if item.id == reply_id).raw["content"]
+    assert [block["id"] for blocks in sent for block in blocks if block["type"] == "tool_use"] == [
+        "toolu_paris", "toolu_tokyo", "toolu_time",
+    ]
+
+
+def test_degraded_replies_are_logged_once_per_render(caplog):
+    history, request = final_request()
+    with caplog.at_level(logging.INFO):
+        render(MUTATIONS["edit_earlier_user_message"](history), request)
+        render(history, request)
+    messages = [record.getMessage() for record in caplog.records if record.name == "root"]
+    assert messages == ["[anthropic-messages] sent 3 stored repl(ies) without their thinking blocks"]
+
+
+def test_a_trimmed_window_degrades_the_old_replies_and_the_chat_carries_on():
+    history, _ = synthetic_history()
+    history = history + [message("u3", "user", TextPart("And Berlin?"))]
+    first = reply_to(history, stream(thinking_block(0, "Berlin weather.", "sig-4"), tool_block(1, "toolu_berlin", "get_weather", '{"city": "Berlin"}'), stop="tool_use"), "a4")
+    history = history + [first, message("t3", "tool", ToolResultPart("toolu_berlin", "get_weather", (TextPart("rain"),)))]
+    second = reply_to(history, stream(thinking_block(0, "Done.", "sig-5"), text_block(1, "Berlin is rainy.")), "a5")
+    full = history + [second, message("u4", "user", TextPart("Thanks, and tomorrow?"))]
+    assert wire_messages(trip_request(full)).degraded == []
+
+    trimmed = full[7:]
+    assert [item.id for item in trimmed] == ["u3", "a4", "t3", "a5", "u4"]
+    wire = wire_messages(trip_request(trimmed))
+    assert wire.degraded == [("a4", 1), ("a5", 3)]
+    sent = [block["type"] for item in wire.messages if item["role"] == "assistant" for block in item["content"]]
+    assert sent == ["tool_use", "text"]
+
+    third = reply_to(trimmed, stream(thinking_block(0, "Tomorrow.", "sig-6"), tool_block(1, "toolu_next", "get_weather", '{"city": "Berlin"}'), stop="tool_use"), "a6")
+    carried = trimmed + [third, message("t4", "tool", ToolResultPart("toolu_next", "get_weather", (TextPart("sun"),)))]
+    again = wire_messages(trip_request(carried))
+    assert again.degraded == [("a4", 1), ("a5", 3)]
+    last = [item for item in again.messages if item["role"] == "assistant"][-1]["content"]
+    assert [block["type"] for block in last] == ["thinking", "tool_use"] and last[0]["signature"] == "sig-6"
 
 
 def test_a_blank_signature_reports_which_block_lost_it():

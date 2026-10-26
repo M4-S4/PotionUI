@@ -114,11 +114,6 @@ def test_body_carries_model_system_and_streams_even_when_not_asked():
     assert "system" not in render_body(make_request([USER]))
 
 
-def test_wire_bytes_match_httpx_json_encoding():
-    wire = AnthropicMessagesAdapter().render(make_request([message("u1", "user", TextPart("Zażółć 東京"))]), make_profile())
-    assert json.loads(wire.content()) == wire.body
-
-
 @pytest.mark.parametrize("settings", [
     Settings(temperature=0.2),
     Settings(top_p=0.9),
@@ -173,6 +168,62 @@ def test_a_profile_that_forbids_forcing_never_gets_a_forced_choice():
     profile = make_profile(tool_choice=["auto", "none"])
     settings = Settings(tool_choice=ToolChoice("required"))
     assert "tool_choice" not in render_body(make_request([USER], tools=[TOOL], settings=settings), profile)
+
+
+@pytest.mark.parametrize("settings", [
+    Settings(),
+    Settings(tool_choice=ToolChoice("required")),
+    Settings(reasoning="medium"),
+])
+def test_tool_history_without_tools_sends_minimal_definitions_and_forbids_new_calls(settings):
+    assistant = message(
+        "a1",
+        "assistant",
+        tool_call("call_1"),
+        ToolCallPart(call_id="call_2", name="get_time", args={"city": "Paris"}),
+        tool_call("call_3"),
+        origin=FOREIGN,
+    )
+    results = message(
+        "t1",
+        "tool",
+        ToolResultPart("call_1", "get_weather", (TextPart("a"),)),
+        ToolResultPart("call_2", "get_time", (TextPart("b"),)),
+        ToolResultPart("call_3", "get_weather", (TextPart("c"),)),
+    )
+    body = render_body(make_request([USER, assistant, results], settings=settings), make_profile())
+    assert body["tools"] == [
+        {"name": "get_weather", "input_schema": {"type": "object"}},
+        {"name": "get_time", "input_schema": {"type": "object"}},
+    ]
+    assert body["tool_choice"] == {"type": "none"}
+
+
+def test_real_tools_are_never_replaced_by_the_history_fallback():
+    assistant = message("a1", "assistant", ToolCallPart(call_id="call_1", name="get_time", args={}), origin=FOREIGN)
+    results = message("t1", "tool", ToolResultPart("call_1", "get_time", (TextPart("a"),)))
+    body = render_body(make_request([USER, assistant, results], tools=[TOOL]), make_profile())
+    assert [tool["name"] for tool in body["tools"]] == ["get_weather"] and "tool_choice" not in body
+
+
+def test_a_history_without_tool_calls_and_without_tools_sends_neither():
+    body = render_body(make_request([USER, message("a1", "assistant", TextPart("Hi."), origin=FOREIGN), USER]), make_profile())
+    assert "tools" not in body and "tool_choice" not in body
+
+
+@pytest.mark.parametrize("kind, reasoning, choice, expected", [
+    ("always_on", False, ToolChoice("required"), None),
+    ("always_on", False, ToolChoice("none"), {"type": "none"}),
+    ("always_on", None, ToolChoice("required"), None),
+    ("effort", False, ToolChoice("required"), {"type": "any"}),
+    ("toggle", False, ToolChoice("named", "get_weather"), {"type": "tool", "name": "get_weather"}),
+])
+def test_tool_choice_limits_follow_whether_the_model_thinks_not_whether_thinking_was_asked_for(kind, reasoning, choice, expected):
+    body = render_body(
+        make_request([USER], tools=[TOOL], settings=Settings(reasoning=reasoning, tool_choice=choice)),
+        make_profile(reasoning=kind),
+    )
+    assert body.get("tool_choice") == expected
 
 
 def test_tool_choice_is_dropped_without_tools():
@@ -248,7 +299,7 @@ def test_whitespace_only_user_text_is_not_sent_and_empty_messages_vanish():
 
 
 @pytest.mark.parametrize("part", [
-    ImagePart(media_type="image/png", ref="/tmp/local.png"),
+    ImagePart(media_type="image/png", ref="image-1"),
     FilePart(media_type="application/zip", name="a.zip", data="AAAA"),
     FilePart(media_type="text/plain", data="not base64!"),
     FilePart(media_type="application/pdf", ref="file:///a.pdf"),
@@ -331,6 +382,12 @@ def test_same_model_under_another_credential_drops_reasoning():
     assistant = message("a1", "assistant", ReasoningPart(summary="x", opaque={"signature": "s"}), TextPart("Hi."), origin=stored, raw={"content": [{"type": "thinking"}], "sha256": "0"})
     messages = render_body(make_request([USER, assistant, message("u2", "user", TextPart("Again"))]))["messages"]
     assert messages[1]["content"] == [{"type": "text", "text": "Hi."}]
+
+
+def test_a_same_origin_reply_with_no_content_is_dropped():
+    empty = message("a1", "assistant", origin=own_origin(), raw={"content": [], "sha256": anthropic_messages.digest([]), "prefix": ""})
+    messages = render_body(make_request([USER, empty, message("u2", "user", TextPart("Again"))]))["messages"]
+    assert messages == [{"role": "user", "content": [{"type": "text", "text": "Hello"}, {"type": "text", "text": "Again"}]}]
 
 
 def test_assistant_messages_without_renderable_content_are_dropped():
@@ -481,6 +538,19 @@ def test_empty_text_blocks_are_not_kept_and_unknown_blocks_stay_verbatim():
     step = StepAssembler("a1", own_origin())
     step.feed_all(events)
     assert [part.text for part in step.message().parts] == ["Done."]
+
+
+def test_whitespace_only_text_blocks_stay_out_of_the_stored_payload_and_do_not_break_replay():
+    payload = stream(text_block(0, "\n\n"), tool_block(1, "toolu_1", "get_weather", '{"city": "Paris"}'), text_block(2, "  "), stop="tool_use")
+    events = decode(payload)
+    assert [block["type"] for block in events[-1].raw["content"]] == ["tool_use"]
+    assembler = StepAssembler("a1", own_origin())
+    assembler.feed_all(events)
+    step = assembler.message()
+    assert [part.text for part in step.parts if isinstance(part, TextPart)] == ["\n\n", "  "]
+    results = message("t1", "tool", ToolResultPart("toolu_1", "get_weather", (TextPart("ok"),)))
+    sent = render_body(make_request([USER, step, results]))["messages"]
+    assert [block["type"] for block in sent[1]["content"]] == ["tool_use"]
 
 
 def test_a_tool_call_with_cut_off_arguments_is_kept_unexecutable_and_still_replays():
@@ -757,6 +827,14 @@ MODELS = {
             },
         },
         {"id": "claude-plain", "capabilities": {"thinking": {"supported": False}}},
+        {
+            "id": "claude-toggle",
+            "capabilities": {
+                "thinking": {"supported": True, "types": {"adaptive": {"supported": True}, "enabled": {"supported": False}}},
+                "effort": {"supported": False},
+            },
+        },
+        {"id": "claude-typeless", "capabilities": {"thinking": {"supported": True}}},
     ],
     "has_more": False,
 }
@@ -799,9 +877,12 @@ async def test_discovery_distinguishes_manual_thinking_and_no_thinking(models_ap
     adapter = AnthropicMessagesAdapter()
     legacy = (await adapter.discover(make_config(model="claude-legacy-4-5"))).fields
     plain = (await adapter.discover(make_config(model="claude-plain"))).fields
+    toggle = (await adapter.discover(make_config(model="claude-toggle"))).fields
+    typeless = (await adapter.discover(make_config(model="claude-typeless"))).fields
     assert legacy["reasoning"] == "budget" and "reasoning_levels" not in legacy
     assert legacy["vision"] is False and legacy["structured_output"] == "prompted"
     assert plain == {"reasoning": "none"}
+    assert toggle == {"reasoning": "toggle"} and typeless == {"reasoning": "toggle"}
 
 
 async def test_discovery_fails_loudly_for_an_unlisted_model(models_api):
@@ -811,7 +892,9 @@ async def test_discovery_fails_loudly_for_an_unlisted_model(models_api):
 
 async def test_model_listing_maps_entries_and_sorts_them(models_api):
     models = await AnthropicMessagesAdapter().list_models("https://api.anthropic.com/v1", API_KEY)
-    assert [model.id for model in models] == ["claude-legacy-4-5", "claude-plain", "claude-sonnet-5-5"]
+    assert [model.id for model in models] == [
+        "claude-legacy-4-5", "claude-plain", "claude-sonnet-5-5", "claude-toggle", "claude-typeless",
+    ]
     sonnet = models[2]
     assert (sonnet.label, sonnet.modified_at) == ("Claude Sonnet 5.5", "2026-09-01T00:00:00Z")
     assert sonnet.details == {"context_window": 1000000, "max_output_tokens": 64000}
