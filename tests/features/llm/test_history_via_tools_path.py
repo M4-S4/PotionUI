@@ -5,13 +5,14 @@ import pytest
 from src.features.llm.clients.openai import OpenAIClient
 from src.features.llm.gateway import LLMGateway
 from tests.features.llm.wire_capture import OLLAMA_REPLY, install_wire_capture, json_response, make_config
+from tests.fixtures.llm_engine import client_gateway
 
 HISTORY = [{"role": "user", "content": "hello"}]
 EMPTY = {"message": {"content": ""}}
 
 
 def _gateway(config):
-    gateway = LLMGateway(llm_repository=Mock())
+    gateway = client_gateway(Mock())
     gateway.repository.get_configuration.return_value = config
     return gateway
 

@@ -14,6 +14,7 @@ from src.features.llm.gateway import LLMGateway
 from src.features.llm.model_listing import DiscoveredModel, ModelListingError
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
+from tests.fixtures.llm_engine import client_gateway
 
 _REAL_ASYNC_CLIENT = httpx.AsyncClient
 
@@ -120,13 +121,13 @@ class TestOpenAICompatibleLister:
 
 class TestGatewayCapability:
     def test_types_report_listing_support(self):
-        types = {t["type"]: t["supports_model_listing"] for t in LLMGateway(Mock()).provider_types()}
+        types = {t["type"]: t["supports_model_listing"] for t in client_gateway(Mock()).provider_types()}
         assert types == {"ollama": True, "openai": True, "native": False}
 
     @pytest.mark.asyncio
     async def test_unsupported_type_raises(self):
         with pytest.raises(ValueError):
-            await LLMGateway(Mock()).list_models("native", "http://x")
+            await client_gateway(Mock()).list_models("native", "http://x")
 
 
 def _user(account_type: AccountType) -> User:
