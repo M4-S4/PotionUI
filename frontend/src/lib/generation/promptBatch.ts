@@ -236,6 +236,33 @@ export function batchLine(summary: BatchSummary): { text: string; generateLabel:
 
 export const BATCH_CAP_MESSAGE = `Up to ${MAX_BATCH_IMAGES} images per run.`;
 
+export const LOCKED_BATCH_COPY = 'This preset runs one prompt at a time.';
+
+export function imageWord(perPrompt: number): string {
+	return perPrompt === 1 ? 'image' : 'images';
+}
+
+export interface AddPromptState {
+	atLimit: boolean;
+	disabled: boolean;
+	explanation: string | null;
+}
+
+export function addPromptState(input: {
+	canBatch: boolean;
+	count: number;
+	maxPrompts: number;
+	perPrompt: number;
+}): AddPromptState {
+	const atLimit = input.canBatch && input.count >= input.maxPrompts;
+	let explanation: string | null = null;
+	if (!input.canBatch) explanation = LOCKED_BATCH_COPY;
+	else if (atLimit) {
+		explanation = `A run can make up to ${MAX_BATCH_IMAGES} images. At ${input.perPrompt} ${imageWord(input.perPrompt)} each, that is ${input.maxPrompts} prompts.`;
+	}
+	return { atLimit, disabled: !input.canBatch || atLimit, explanation };
+}
+
 export function batchPromptFields(
 	entries: Array<{ prompt_index?: unknown; prompt?: unknown } | null | undefined>,
 	index: number

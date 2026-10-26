@@ -49,6 +49,24 @@ describe('segment-composer.css', () => {
 		expect(tail).not.toContain('.small-button:focus-visible');
 	});
 
+	it('keeps the prompt header stage rules inside the nest, where they outrank the plain composer rules', () => {
+		const nestEnd = topLevelBlockEnd(css, '.segment-composer {');
+		const nest = css.slice(0, nestEnd);
+		const tail = css.slice(nestEnd + 1);
+		for (const rule of [
+			'.composer-toolbar.has-tabs[data-wrap="1"]',
+			'.composer-toolbar.prompt-header[data-folded~="styles"]',
+			'.composer-toolbar.prompt-header[data-icons~="library"]'
+		]) {
+			expect(nest).toContain(rule);
+			expect(tail).not.toContain(rule);
+		}
+	});
+
+	it('turns transitions off while the header measures itself, so reduced-motion users get the same fit', () => {
+		expect(css).toMatch(/\.composer-toolbar\.is-fitting \* \{ transition: none !important; \}/);
+	});
+
 	it.each(['.form-grid', '.field-label', '.swatches', '.swatch', '.swatch.active', '.swatch-current', '.clear-color'])(
 		'no longer carries the unreferenced %s rule',
 		(selector) => {

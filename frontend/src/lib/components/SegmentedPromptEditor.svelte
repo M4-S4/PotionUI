@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { copyText } from '$lib/utils/clipboard';
-	import { onMount, createEventDispatcher, tick } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
 	import type {
 		ChipData,
 		Prompt,
@@ -15,7 +15,7 @@
 	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { segmentUsageNumbers } from '$lib/utils/variableUsageNumbering';
 	import { libraryImportOutcome } from '$lib/utils/variablesTransfer';
-	import { toolbarFit } from '$lib/utils/toolbarFit';
+	import { headerFit, headerStages, type HeaderActionKey, type HeaderStage } from '$lib/utils/toolbarFit';
 	import { toasts } from '$lib/stores/toast';
 	import { hydrateSegments } from '$lib/utils/chipParser';
 	import {
@@ -38,7 +38,8 @@
 	import { resolvedPromptStats, resolvedPromptTokens } from '$lib/utils/resolvedPrompt';
 	import PromptSegment from './PromptSegment.svelte';
 	import Tooltip from './Tooltip.svelte';
-	import { Button, IconButton } from '$lib/components/ui';
+	import { Button } from '$lib/components/ui';
+	import PromptLibraryMenu, { type FoldedRow } from './PromptLibraryMenu.svelte';
 	import SegmentListApplyModal from './modals/SegmentListApplyModal.svelte';
 	import SavedSegmentSelectionModal from './modals/SavedSegmentSelectionModal.svelte';
 	import SaveSegmentModal from './modals/SaveSegmentModal.svelte';
@@ -48,17 +49,6 @@
 
 	type ApplyTarget = 'main' | 'negative';
 
-	type ToolbarAction = {
-		key: string;
-		icon: string;
-		label: string;
-		tip: string;
-		onclick: () => void;
-		active?: boolean;
-		count?: number;
-	};
-
-	// Props
 	export let segments: Segment[] = [];
 	export let isNegative = false;
 	export let negativeSegments: Segment[] | undefined = undefined;
@@ -115,10 +105,6 @@
 	$: mainLabel = label || (isNegative ? 'Negative segments' : 'Positive segments');
 	$: variableCount = Object.keys(variables || {}).length;
 
-	function segmentCountLabel(count: number): string {
-		return `${count} ${count === 1 ? 'segment' : 'segments'}`;
-	}
-
 	$: headerWord = label || (isNegative && !paired ? 'Negative' : 'Prompt');
 
 	const dispatch = createEventDispatcher();
@@ -143,20 +129,8 @@
 		| null;
 	let savedSegmentFlow: SavedSegmentFlow = null;
 
-	const COLLAPSE_ORDER = ['templates', 'segments', 'prompts', 'styles', 'variables'];
-	const MENU_ICONS: Record<string, string> = {
-		styles: 'sparkles',
-		prompts: 'file',
-		segments: 'library',
-		templates: 'template',
-		variables: 'braces'
-	};
-	let mainHidden: string[] = [];
-	let negativeHidden: string[] = [];
-	let mainMoreOpen = false;
-	let mainMoreRoot: HTMLDivElement;
-	let negativeMoreOpen = false;
-	let negativeMoreRoot: HTMLDivElement;
+	const EMPTY_STAGE: HeaderStage = { wrap: false, icons: [], folded: [] };
+	let mainStage: HeaderStage = EMPTY_STAGE;
 
 	let resolvedOpen = true;
 	let copiedTarget: ApplyTarget | null = null;
@@ -426,72 +400,43 @@
 		}
 	}
 
-	async function toggleMainMore() {
-		mainMoreOpen = !mainMoreOpen;
-		if (mainMoreOpen) {
-			await tick();
-			mainMoreRoot?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-		}
-	}
-
-	async function toggleNegativeMore() {
-		negativeMoreOpen = !negativeMoreOpen;
-		if (negativeMoreOpen) {
-			await tick();
-			negativeMoreRoot?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-		}
-	}
-
-	function handleOutsidePointerDown(event: PointerEvent) {
-		if (mainMoreOpen && mainMoreRoot && !mainMoreRoot.contains(event.target as Node)) mainMoreOpen = false;
-		if (negativeMoreOpen && negativeMoreRoot && !negativeMoreRoot.contains(event.target as Node)) negativeMoreOpen = false;
-	}
-
-	function handleOutsideKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape') return;
-		if (mainMoreOpen) mainMoreOpen = false;
-		if (negativeMoreOpen) negativeMoreOpen = false;
-	}
-
-	function runMainMore(action: () => void) {
-		mainMoreOpen = false;
-		action();
-	}
-
-	function runNegativeMore(action: () => void) {
-		negativeMoreOpen = false;
-		action();
-	}
-
-	$: mainOrder = [
+	$: mainActions = [
 		...(onOpenStyles ? ['styles'] : []),
-		...(showLibraryActions ? ['prompts', 'segments', 'templates'] : []),
 		...(onOpenVariableManager ? ['variables'] : [])
-	];
-	$: negativeOrder = showLibraryActions ? ['prompts', 'segments', 'templates'] : [];
+	] as HeaderActionKey[];
+	$: mainStages = headerStages({ actions: mainActions, tabs: !!titleExtra, compact });
+	$: negativeStages = headerStages({ actions: [], tabs: false, compact });
 
-	function collapsedItems(target: ApplyTarget, hidden: string[]) {
-		const actions: Record<string, { label: string; run: () => void }> = {
-			styles: { label: appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles', run: () => onOpenStyles?.() },
-			prompts: { label: 'Prompts', run: () => openPromptApply(target) },
-			segments: { label: 'Segments', run: () => openLibraryInsert(target) },
-			templates: { label: 'Templates', run: () => openTemplateApply(target) },
-			variables: { label: variableCount > 0 ? `Variables (${variableCount})` : 'Variables', run: () => onOpenVariableManager?.() }
+	function foldedRowsFor(folded: string[], styleName: string | null, variablesTotal: number): FoldedRow[] {
+		const rows: Record<string, FoldedRow> = {
+			styles: {
+				key: 'styles',
+				icon: 'sparkles',
+				label: 'Styles',
+				description: 'Apply a preset style',
+				state: styleName ?? undefined,
+				run: () => onOpenStyles?.()
+			},
+			variables: {
+				key: 'variables',
+				icon: 'braces',
+				label: 'Variables',
+				description: 'Manage prompt variables',
+				state: variablesTotal > 0 ? String(variablesTotal) : undefined,
+				run: () => onOpenVariableManager?.()
+			}
 		};
-		return hidden.filter((key) => actions[key]).map((key) => ({ key, icon: MENU_ICONS[key], ...actions[key] }));
+		return ['styles', 'variables'].filter((key) => folded.includes(key)).map((key) => rows[key]);
 	}
 
-	$: mainCollapsed = collapsedItems('main', mainHidden);
-	$: negativeCollapsed = collapsedItems('negative', negativeHidden);
+	$: mainFolded = foldedRowsFor(mainStage.folded, appliedStyleName, variableCount);
+	$: mainFoldedState = mainFolded.some((row) => row.state !== undefined);
 
-	$: negativeCount = (negativeSegments || []).length;
 	$: previewSource = previewSegments ?? segments;
 	$: hasPreviewContent = (previewText ?? flattenRichSegments(previewSource)).length > 0;
 	$: resolvedTokens = showPreview && resolvedOpen ? resolvedPromptTokens(previewSource, previewText) : [];
 	$: resolvedStats = showPreview ? resolvedPromptStats(previewSource, previewText) : { chars: 0 };
 </script>
-
-<svelte:window on:pointerdown={handleOutsidePointerDown} on:keydown={handleOutsideKeydown} />
 
 <div class="prompt-editor segment-composer min-w-0" class:compact>
 	{#snippet mainRail()}
@@ -540,104 +485,20 @@
 		</div>
 	{/snippet}
 
-	{#snippet toolbarAction(action: ToolbarAction, hidden: string[])}
-		{@const count = action.count ?? 0}
-		{#if !hidden.includes(action.key)}
-			<span class="toolbar-slot" data-toolbar-action={action.key}>
-				{#if compact}
-					<Tooltip text={count > 0 ? `${action.tip} · ${count}` : action.tip} position="top">
-						<IconButton
-							icon={action.icon}
-							label={count > 0 ? `${action.label} (${count})` : action.label}
-							size="xs"
-							variant="secondary"
-							active={action.active ?? false}
-							onclick={action.onclick}
-						/>
-					</Tooltip>
-				{:else}
-					<Tooltip text={action.tip} position="top">
-						<Button
-							size="xs"
-							variant="secondary"
-							icon={action.icon}
-							class={action.active ? 'text-sm styles-applied' : 'text-sm'}
-							ariaLabel={count > 0 ? `${action.label} (${count})` : action.label}
-							onclick={action.onclick}
-						>
-							<span class="toolbar-label">{action.label}</span>
-							{#if count > 0}
-								<span class="font-mono tabular-nums text-sm text-signal">{count}</span>
-							{/if}
-						</Button>
-					</Tooltip>
-				{/if}
-			</span>
-		{/if}
-	{/snippet}
-
-	{#snippet libraryActions(target: ApplyTarget, hidden: string[])}
-		{@render toolbarAction({
-			key: 'prompts',
-			icon: 'document',
-			label: 'Prompts',
-			tip: 'Apply a saved prompt',
-			onclick: () => openPromptApply(target)
-		}, hidden)}
-		{@render toolbarAction({
-			key: 'segments',
-			icon: 'list',
-			label: 'Segments',
-			tip: 'Insert a saved segment',
-			onclick: () => openLibraryInsert(target)
-		}, hidden)}
-		{@render toolbarAction({
-			key: 'templates',
-			icon: 'layout-template',
-			label: 'Templates',
-			tip: 'Apply a segment template',
-			onclick: () => openTemplateApply(target)
-		}, hidden)}
-	{/snippet}
-
-	{#snippet collapsedMenuItems(items: { key: string; icon: string; label: string; run: () => void }[], run: (action: () => void) => void)}
-		{#if items.length > 0}
-			<div class="menu-group">
-				{#each items as item (item.key)}
-					<button type="button" role="menuitem" class="menu-item" on:click={() => run(item.run)}>
-						<Icon name={`composer-${item.icon}`} className="icon" strokeWidth={1.7} />
-						<span>{item.label}</span>
-					</button>
-				{/each}
-			</div>
-		{/if}
-	{/snippet}
-
-	{#snippet moreTrigger(label: string, open: boolean, onclick: () => void)}
-		<Tooltip text={label} position="top">
-			<IconButton
-				icon="more"
-				{label}
-				size="xs"
-				variant="secondary"
-				active={open}
-				ariaExpanded={open}
-				{onclick}
-			/>
-		</Tooltip>
-	{/snippet}
-
 	{#if embedded}
 		{@render mainRail()}
 	{:else}
 		<section class="composer edge-inline" class:compact class:plain>
 			<header
-				class="composer-toolbar section-header"
-				use:toolbarFit={{ order: mainOrder, collapseOrder: COLLAPSE_ORDER, onChange: (hidden) => (mainHidden = hidden) }}
+				class="composer-toolbar section-header prompt-header"
+				class:has-tabs={!!titleExtra}
+				use:headerFit={{ stages: mainStages, onChange: (stage) => (mainStage = stage) }}
 			>
-				<strong class="composer-title section-title">{headerWord}</strong>
-				<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(segments.length)}</span>
-				{#if titleExtra}{@render titleExtra()}{/if}
+				{#if titleExtra}
+					{@render titleExtra()}
+				{:else}
+					<strong class="composer-title section-title prompt-title">{headerWord}</strong>
+				{/if}
 
 				{#if !paired && isNegative && negativePromptUnavailable}
 					<span class="inline-note-warning">Not used by this preset</span>
@@ -645,62 +506,61 @@
 
 				<div class="toolbar-spacer"></div>
 
-				{#if onOpenStyles}
-					{@render toolbarAction({
-						key: 'styles',
-						icon: 'sparkles',
-						label: appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles',
-						tip: 'Apply a preset style',
-						onclick: onOpenStyles,
-						active: !!appliedStyleName
-					}, mainHidden)}
-				{/if}
+				<div class="header-actions">
+					{#if onOpenStyles}
+						<span class="toolbar-slot" data-toolbar-action="styles" data-header-action="styles">
+							<Tooltip text={appliedStyleName ? `Style: ${appliedStyleName}` : 'Apply a preset style'} position="top">
+								<Button
+									size="sm"
+									variant="secondary"
+									icon="sparkles"
+									class={appliedStyleName ? 'styles-applied' : ''}
+									ariaLabel={appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles'}
+									onclick={onOpenStyles}
+								>
+									<span class="header-label">{appliedStyleName ? `Style: ${appliedStyleName}` : 'Styles'}</span>
+								</Button>
+							</Tooltip>
+						</span>
+					{/if}
 
-				{#if showLibraryActions}
-					{@render libraryActions('main', mainHidden)}
-				{/if}
-
-				{#if onOpenVariableManager}
-					{@render toolbarAction({
-						key: 'variables',
-						icon: 'braces',
-						label: 'Variables',
-						tip: 'Manage prompt variables',
-						onclick: onOpenVariableManager,
-						count: variableCount
-					}, mainHidden)}
-				{/if}
-
-				{#if showLibraryActions || hasMainContent || mainCollapsed.length > 0}
-					<div class="relative" bind:this={mainMoreRoot} data-toolbar-more>
-						{@render moreTrigger('More prompt actions', mainMoreOpen, toggleMainMore)}
-						{#if mainMoreOpen}
-							<div class="floating segment-menu header-menu" role="menu" aria-label="More prompt actions">
-								{@render collapsedMenuItems(mainCollapsed, runMainMore)}
-								<div class="menu-group">
-									{#if showLibraryActions}
-										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openSavePrompt('main'))}>
-											<Icon name="composer-save" className="icon" strokeWidth={1.7} />
-											<span>Save as Prompt</span>
-										</button>
-										{#if hasMainContent}
-											<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openSaveTemplate('main'))}>
-												<Icon name="composer-template" className="icon" strokeWidth={1.7} />
-												<span>Save as Segment Template</span>
-											</button>
-										{/if}
+					{#if onOpenVariableManager}
+						<span class="toolbar-slot" data-toolbar-action="variables" data-header-action="variables">
+							<Tooltip text={variableCount > 0 ? `Manage prompt variables · ${variableCount}` : 'Manage prompt variables'} position="top">
+								<Button
+									size="sm"
+									variant="secondary"
+									icon="braces"
+									ariaLabel={variableCount > 0 ? `Variables (${variableCount})` : 'Variables'}
+									onclick={onOpenVariableManager}
+								>
+									<span class="header-label">Variables</span>
+									{#if variableCount > 0}
+										<span class="font-mono tabular-nums text-sm text-signal">{variableCount}</span>
 									{/if}
-									{#if hasMainContent}
-										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => handleCopyPrompt('main'))}>
-											<Icon name={copiedTarget === 'main' ? 'composer-check' : 'composer-copy'} className="icon" strokeWidth={1.7} />
-											<span>{copiedTarget === 'main' ? 'Copied' : 'Copy prompt'}</span>
-										</button>
-									{/if}
-								</div>
-							</div>
-						{/if}
-					</div>
-				{/if}
+								</Button>
+							</Tooltip>
+						</span>
+					{/if}
+
+					{#if showLibraryActions || hasMainContent || mainFolded.length > 0}
+						<span class="toolbar-slot" data-toolbar-action="library" data-header-action="library">
+							<PromptLibraryMenu
+								library={showLibraryActions}
+								folded={mainFolded}
+								hasContent={hasMainContent}
+								copied={copiedTarget === 'main'}
+								showDot={mainFoldedState}
+								onInsertPrompt={() => openPromptApply('main')}
+								onInsertSegment={() => openLibraryInsert('main')}
+								onInsertTemplate={() => openTemplateApply('main')}
+								onSavePrompt={() => openSavePrompt('main')}
+								onSaveTemplate={() => openSaveTemplate('main')}
+								onCopy={() => handleCopyPrompt('main')}
+							/>
+						</span>
+					{/if}
+				</div>
 			</header>
 
 			{@render mainRail()}
@@ -801,48 +661,31 @@
 		{:else if !negativeInert}
 			<section class="composer edge-inline negative-composer" class:compact class:plain>
 				<header
-				class="composer-toolbar section-header negative-header"
-				use:toolbarFit={{ order: negativeOrder, collapseOrder: COLLAPSE_ORDER, onChange: (hidden) => (negativeHidden = hidden) }}
-			>
-					<strong class="composer-title negative section-title negative">Negative</strong>
-					<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(negativeCount)}</span>
+					class="composer-toolbar section-header negative-header prompt-header"
+					use:headerFit={{ stages: negativeStages }}
+				>
+					<strong class="composer-title negative section-title prompt-title">Negative</strong>
 
 					<div class="toolbar-spacer"></div>
 
-					{#if showLibraryActions}
-						{@render libraryActions('negative', negativeHidden)}
-					{/if}
-
-					{#if showLibraryActions || hasNegativeContent || negativeCollapsed.length > 0}
-						<div class="relative" bind:this={negativeMoreRoot} data-toolbar-more>
-							{@render moreTrigger('More negative prompt actions', negativeMoreOpen, toggleNegativeMore)}
-							{#if negativeMoreOpen}
-								<div class="floating segment-menu header-menu" role="menu" aria-label="More negative prompt actions">
-									{@render collapsedMenuItems(negativeCollapsed, runNegativeMore)}
-									<div class="menu-group">
-										{#if showLibraryActions}
-											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openSavePrompt('negative'))}>
-												<Icon name="composer-save" className="icon" strokeWidth={1.7} />
-												<span>Save as Prompt</span>
-											</button>
-											{#if hasNegativeContent}
-												<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openSaveTemplate('negative'))}>
-													<Icon name="composer-template" className="icon" strokeWidth={1.7} />
-													<span>Save as Segment Template</span>
-												</button>
-											{/if}
-										{/if}
-										{#if hasNegativeContent}
-											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => handleCopyPrompt('negative'))}>
-												<Icon name={copiedTarget === 'negative' ? 'composer-check' : 'composer-copy'} className="icon" strokeWidth={1.7} />
-												<span>{copiedTarget === 'negative' ? 'Copied' : 'Copy prompt'}</span>
-											</button>
-										{/if}
-									</div>
-								</div>
-							{/if}
-						</div>
-					{/if}
+					<div class="header-actions">
+						{#if showLibraryActions || hasNegativeContent}
+							<span class="toolbar-slot" data-toolbar-action="library" data-header-action="library">
+								<PromptLibraryMenu
+									negative
+									library={showLibraryActions}
+									hasContent={hasNegativeContent}
+									copied={copiedTarget === 'negative'}
+									onInsertPrompt={() => openPromptApply('negative')}
+									onInsertSegment={() => openLibraryInsert('negative')}
+									onInsertTemplate={() => openTemplateApply('negative')}
+									onSavePrompt={() => openSavePrompt('negative')}
+									onSaveTemplate={() => openSaveTemplate('negative')}
+									onCopy={() => handleCopyPrompt('negative')}
+								/>
+							</span>
+						{/if}
+					</div>
 				</header>
 
 				{#if negativePromptUnavailable}
@@ -939,6 +782,8 @@
 	}
 
 	.inline-note-warning {
+		flex: none;
+		white-space: nowrap;
 		border-radius: 0.25rem;
 		border: 1px solid rgb(var(--warning) / 0.25);
 		background-color: rgb(var(--warning) / 0.1);
