@@ -23,6 +23,28 @@ from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
+RAW_CAPTURE_BYTES = 128 * 1024
+
+
+class RawCapture:
+    __slots__ = ("_chunks", "_size", "_limit")
+
+    def __init__(self, limit: int = RAW_CAPTURE_BYTES) -> None:
+        self._chunks: List[bytes] = []
+        self._size = 0
+        self._limit = limit
+
+    def add(self, chunk: bytes) -> None:
+        room = self._limit - self._size
+        if room <= 0 or not chunk:
+            return
+        piece = chunk[:room]
+        self._chunks.append(piece)
+        self._size += len(piece)
+
+    def text(self) -> str:
+        return b"".join(self._chunks).decode("utf-8", errors="replace")
+
 
 @dataclass
 class _TraceContext:
@@ -83,11 +105,13 @@ def record(
     prompt_tokens: Optional[int] = None,
     completion_tokens: Optional[int] = None,
     duration_ms: int = 0,
+    adapter: Optional[str] = None,
+    request_body: Optional[Any] = None,
+    response_raw: Optional[str] = None,
+    usage: Optional[Dict[str, Any]] = None,
+    cost: Optional[float] = None,
+    error: Optional[Dict[str, Any]] = None,
 ) -> None:
-    """Record one wire-exact LLM call. No-op with no active context or recorder.
-
-    Never raises — a tracing failure must not break the chat turn it observed.
-    """
     ctx = _trace_context.get()
     if ctx is None or _recorder is None:
         return
@@ -108,6 +132,12 @@ def record(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             duration_ms=duration_ms,
+            adapter=adapter,
+            request_body=request_body,
+            response_raw=response_raw,
+            usage=usage,
+            cost=cost,
+            error=error,
         )
     except Exception:
         logger.exception("Failed to record chat LLM call trace")

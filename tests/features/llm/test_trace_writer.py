@@ -348,6 +348,85 @@ class TestByteCaps:
             assert len(created[field].encode("utf-8")) <= MAX_TRACE_FIELD_BYTES
         assert recorder.stats()["truncated"] == 1
 
+    def test_the_wire_fields_are_persisted_as_given(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        record(
+            recorder,
+            adapter="openai-chat",
+            request_body={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+            response_raw="data: [DONE]\n\n",
+            usage={"input_tokens": 3, "cost": 0.5},
+            cost=0.5,
+            error={"kind": "rate_limited"},
+        )
+        recorder.shutdown(timeout=5.0)
+
+        created = repository.created[0]
+        assert created["adapter"] == "openai-chat"
+        assert created["request_body"] == {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+        assert created["response_raw"] == "data: [DONE]\n\n"
+        assert created["usage"] == {"input_tokens": 3, "cost": 0.5}
+        assert created["cost"] == 0.5
+        assert created["error"] == {"kind": "rate_limited"}
+
+    def test_a_record_without_wire_fields_stores_them_as_nothing(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        record(recorder)
+        recorder.shutdown(timeout=5.0)
+
+        created = repository.created[0]
+        assert [created[key] for key in ("adapter", "request_body", "response_raw", "usage", "cost", "error")] == [None] * 6
+
+    def test_an_enormous_wire_body_and_raw_response_are_capped_like_every_other_field(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        huge = "z" * (MAX_TRACE_FIELD_BYTES * 4)
+        record(
+            recorder,
+            request_body={"messages": [{"role": "user", "content": huge} for _ in range(20)]},
+            response_raw=huge,
+            error={"detail": {"body": huge}},
+        )
+        recorder.shutdown(timeout=5.0)
+
+        created = repository.created[0]
+        assert stored_json_bytes(created["request_body"]) <= MAX_TRACE_FIELD_BYTES
+        assert stored_json_bytes(created["error"]) <= MAX_TRACE_FIELD_BYTES
+        assert len(created["response_raw"].encode("utf-8")) <= MAX_TRACE_FIELD_BYTES
+        assert recorder.stats()["truncated"] == 1
+
+    def test_a_raw_response_cut_to_the_cap_keeps_its_head(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        record(recorder, response_raw="a" * (MAX_TRACE_FIELD_BYTES + 500))
+        recorder.shutdown(timeout=5.0)
+
+        stored = repository.created[0]["response_raw"]
+        assert stored.startswith("aaaa") and "truncated" in stored
+
+    def test_every_capped_field_at_its_limit_still_fits_the_record(self):
+        repository = FakeTraceRepository()
+        recorder = make_recorder(repository)
+        huge = "q" * (MAX_TRACE_FIELD_BYTES * 2)
+        record(
+            recorder,
+            request_system=huge,
+            request_messages=[{"role": "user", "content": huge}],
+            request_params={"prompt": huge},
+            request_tools=[{"name": huge}],
+            response_text=huge,
+            response_tool_calls=[{"name": huge}],
+            request_body={"messages": [{"role": "user", "content": huge}]},
+            response_raw=huge,
+            error={"detail": huge},
+        )
+        recorder.shutdown(timeout=5.0)
+
+        assert len(repository.created) == 1
+        assert recorder.stats()["dropped"] == 0
+
     def test_many_tiny_entries_stay_within_the_serialized_field_cap(self):
         # Every entry is far below the per-string cap, so the field only goes
         # over through sheer count plus the separators between entries.
