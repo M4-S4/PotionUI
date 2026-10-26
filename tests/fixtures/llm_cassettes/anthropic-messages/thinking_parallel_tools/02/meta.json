@@ -1,0 +1,37 @@
+{
+  "adapter": "anthropic-messages",
+  "provider": "anthropic",
+  "model": "claude-sonnet-5-5",
+  "source": "hand-built",
+  "doc_url": "https://platform.claude.com/docs/en/build-with-claude/streaming",
+  "recorded_at": null,
+  "profile_overrides": {
+    "context_window": 1000000,
+    "max_output_tokens": 64000,
+    "parallel_tools": true,
+    "tool_choice": [
+      "auto",
+      "none",
+      "required",
+      "named"
+    ],
+    "tool_choice_with_reasoning": [
+      "auto",
+      "none"
+    ],
+    "reasoning": "effort",
+    "reasoning_levels": [
+      "low",
+      "medium",
+      "high",
+      "max"
+    ],
+    "replay": "send_all",
+    "interleaved_reasoning": true,
+    "vision": true,
+    "max_images": 100,
+    "tool_result_media": true,
+    "cache": "explicit",
+    "cache_min_tokens": 512
+  }
+}

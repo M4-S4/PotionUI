@@ -1,0 +1,38 @@
+{
+  "messages": [
+    {
+      "id": "t1",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01HandBuiltRead",
+          "name": "read_file",
+          "content": [
+            {
+              "type": "text",
+              "text": "# PotionUI\nSelf-hosted generation.",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        },
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01HandBuiltDelete",
+          "name": "delete_file",
+          "content": [
+            {
+              "type": "text",
+              "text": "The user declined this action: delete_file build/.",
+              "phase": null
+            }
+          ],
+          "is_error": true
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
