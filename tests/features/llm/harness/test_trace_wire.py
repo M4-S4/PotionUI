@@ -1,15 +1,16 @@
-from dataclasses import replace
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence
 
 import pytest
 
+from src.features.llm import gateway as gateway_module
 from src.features.llm import trace_collector
 from src.features.llm.harness.adapter import RenderRequest, ToolSpec, WireRequest
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.errors import MalformedStream, Overloaded
 from src.features.llm.harness.events import Finish, FinishReason, TextDelta, ToolArgsDelta, Usage, UsageReported
 from src.features.llm.harness.profile import CapabilityProfile, Prices
-from tests.fixtures.llm_engine import drain, scripted_gateway
+from tests.features.llm.harness.stepping import engine_turn, outcome_of
+from tests.fixtures.llm_engine import PricedResolver, drain, scripted_engine, scripted_gateway
 from tests.fixtures.llm_harness import ScriptedAdapter, text_step
 
 
@@ -29,15 +30,17 @@ class WireAdapter(ScriptedAdapter):
         *,
         name: str = "scripted",
         fail_after: Optional[Exception] = None,
+        body: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(events)
         self.name = name
         self._chunks = list(chunks)
         self._fail_after = fail_after
+        self._body = body
 
     def render(self, request: RenderRequest, profile: CapabilityProfile) -> WireRequest:
         super().render(request, profile)
-        body = {
+        body = self._body or {
             "model": request.config.model,
             "stream": True,
             "messages": [{"role": "system", "content": request.system}, {"role": "user", "content": "hi"}],
@@ -51,18 +54,6 @@ class WireAdapter(ScriptedAdapter):
             yield chunk
         if self._fail_after is not None:
             raise self._fail_after
-
-
-class PricedResolver:
-    def __init__(self, inner: Any, prices: Prices) -> None:
-        self._inner = inner
-        self._prices = prices
-
-    def resolve(self, config: Any) -> Any:
-        return replace(self._inner.resolve(config), prices=self._prices)
-
-    async def refresh(self, config: Any) -> Any:
-        return self.resolve(config)
 
 
 @pytest.fixture
@@ -110,6 +101,47 @@ async def test_a_step_is_traced_with_the_wire_body_the_raw_response_the_usage_an
     assert row["error"] is None
     assert (row["prompt_tokens"], row["completion_tokens"]) == (1000, 100)
     assert row["response_text"] == "Hello"
+
+
+USER_INPUT = [{"type": "user_input", "content": [{"type": "text", "text": "hi"}]}]
+GEMINI_BODY = {
+    "model": "gemini-3.8-flash", "input": USER_INPUT, "store": False, "stream": True,
+    "system_instruction": "SYS", "generation_config": {"temperature": 0.7, "max_output_tokens": 100},
+}
+RESPONSES_BODY = {
+    "model": "gpt-5.6", "instructions": "SYS", "input": [{"role": "user", "content": "hi"}],
+    "prompt_cache_key": "s1", "stream": True, "reasoning": {"effort": "low"},
+}
+ANTHROPIC_BODY = {
+    "model": "claude", "max_tokens": 100, "stream": True, "system": "SYS",
+    "messages": [{"role": "user", "content": "hi"}], "tools": [{"name": "echo"}],
+}
+
+
+@pytest.mark.parametrize(
+    "body, params",
+    [
+        (GEMINI_BODY, {"store": False, "generation_config": {"temperature": 0.7, "max_output_tokens": 100}}),
+        (RESPONSES_BODY, {"prompt_cache_key": "s1", "reasoning": {"effort": "low"}}),
+    ],
+    ids=["gemini", "responses"],
+)
+async def test_a_wire_without_a_messages_array_keeps_its_conversation_only_in_the_request_body(recorder, body, params):
+    await traced(scripted_gateway(WireAdapter(answer("hi"), [b"raw"], body=body)))
+
+    row = recorder.rows[0]
+    assert row["request_body"] == body
+    assert row["request_messages"] == []
+    assert row["request_params"] == params
+
+
+async def test_a_wire_with_a_messages_array_keeps_the_legacy_fields_and_the_system_prompt_stays_out_of_the_params(recorder):
+    await traced(scripted_gateway(WireAdapter(answer("hi"), [b"raw"], body=ANTHROPIC_BODY)))
+
+    row = recorder.rows[0]
+    assert row["request_messages"] == [{"role": "user", "content": "hi"}]
+    assert row["request_params"] == {"max_tokens": 100}
+    assert row["request_system"] == "You are terse."
 
 
 async def test_the_raw_response_keeps_the_reasoning_the_text_leaves_out(recorder):
@@ -191,16 +223,22 @@ async def test_a_malformed_stream_is_traced_and_still_raises(recorder):
     assert row["response_raw"] == "?"
 
 
-async def test_every_retry_attempt_is_a_traced_call_of_its_own(recorder):
-    adapter = ScriptedAdapter(Overloaded("busy"), text_step("ok"))
-    gateway = scripted_gateway(adapter)
+class RetryOnce:
+    def delay(self, error: Any, attempt: int) -> Optional[float]:
+        return 2.5 if attempt == 0 and error.retryable else None
 
-    with trace_collector.activate("s1", "u1"):
-        with pytest.raises(Overloaded):
-            await gateway.complete("cfg-scripted", [user_message("hi")])
-        await gateway.complete("cfg-scripted", [user_message("hi")])
 
-    assert [row["error"] is not None for row in recorder.rows] == [True, False]
+async def test_every_retry_attempt_of_a_turn_is_a_traced_call_of_its_own(recorder):
+    adapter = ScriptedAdapter(Overloaded("busy", status=529), text_step("back"))
+    rig = scripted_engine(adapter, retry=RetryOnce())
+
+    with trace_collector.activate("s1", "u1", purpose="chat"):
+        events = await drain(rig.engine.run(engine_turn(tool_context=None)))
+
+    assert outcome_of(events).content == "back"
+    assert [row["iteration"] for row in recorder.rows] == [1, 2]
+    assert recorder.rows[0]["error"]["kind"] == "overloaded" and recorder.rows[0]["error"]["status"] == 529
+    assert recorder.rows[1]["error"] is None and recorder.rows[1]["response_text"] == "back"
 
 
 async def test_nothing_is_gathered_or_recorded_outside_a_trace_context(recorder):
@@ -238,15 +276,21 @@ async def test_a_completion_reports_the_priced_usage():
     assert completion.usage.cost == 0.00007
 
 
-async def test_a_trace_recorder_that_fails_cannot_break_the_call(recorder):
-    class Broken:
-        def record(self, **row: Any) -> None:
-            raise RuntimeError("db down")
+async def test_a_failure_while_building_the_trace_cannot_break_or_replace_the_call(recorder, monkeypatch):
+    def cannot_serialise(usage: Usage) -> Dict[str, Any]:
+        raise RuntimeError("cannot serialise")
 
-    trace_collector.set_recorder(Broken())
-    adapter = WireAdapter(answer("hi"), [b"raw"])
+    monkeypatch.setattr(gateway_module, "_usage_payload", cannot_serialise)
+    succeeding = scripted_gateway(WireAdapter(answer("hi"), [b"raw"]))
+    failing = scripted_gateway(ScriptedAdapter(Overloaded("busy")))
 
-    await traced(scripted_gateway(adapter))
+    with trace_collector.activate("s1", "u1", purpose="chat"):
+        completion = await succeeding.complete("cfg-scripted", [user_message("hi")])
+        with pytest.raises(Overloaded):
+            await failing.complete("cfg-scripted", [user_message("hi")])
+
+    assert completion.text == "hi"
+    assert recorder.rows == []
 
 
 async def test_release_calls_the_adapter_hook_and_is_a_noop_without_one():

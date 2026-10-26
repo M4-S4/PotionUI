@@ -369,6 +369,7 @@ class _Run:
                     raise truncation.error
                 truncation_attempt += 1
                 self.usages.append(priced(box.assembler.usage, prepared.profile))
+                box.assembler = None
                 self.settings = replace(self.settings, max_tokens=truncation.max_tokens)
                 continue
             empty_attempt += 1
@@ -376,6 +377,7 @@ class _Run:
                 break
             logger.warning("[TurnEngine] empty response (attempt %s/%s), retrying", empty_attempt, EMPTY_RESPONSE_ATTEMPTS)
             self.usages.append(priced(box.assembler.usage, prepared.profile))
+            box.assembler = None
         box.message = message
         self.last_usage = priced(box.assembler.usage, prepared.profile)
         finish = box.assembler.finish

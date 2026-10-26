@@ -3,10 +3,11 @@ from typing import Any, List, Optional, Sequence
 from src.features.llm.harness.adapter import RenderRequest, ToolSpec
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.cache import Divergence, Segment, first_divergence, request_segments
-from src.features.llm.harness.engine import TurnInput, TurnOutcome
+from src.features.llm.harness.engine import TurnInput
 from src.features.llm.harness.messages import ContextPart, Message, Role
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
-from tests.fixtures.llm_engine import EngineRig, drain, scripted_engine, tool_context
+from tests.features.llm.harness.stepping import engine_turn, outcome_of
+from tests.fixtures.llm_engine import EngineRig, drain, scripted_engine
 from tests.fixtures.llm_harness import ScriptedAdapter, text_step, tool_step
 
 
@@ -30,25 +31,13 @@ class LateTool(BaseTool):
 
 
 def turn(**overrides: Any) -> TurnInput:
-    values = dict(
-        session_id="s1",
-        llm_id="cfg-scripted",
-        system="SYS",
-        history=(),
-        tool_context=tool_context(),
-        allowed_tools=("echo",),
-        deferred_tools={"extras": ("late",)},
-    )
+    values = dict(allowed_tools=("echo",), deferred_tools={"extras": ("late",)})
     values.update(overrides)
-    return TurnInput(**values)
+    return engine_turn(**values)
 
 
 def tool_names(request: RenderRequest) -> List[str]:
     return [spec.name for spec in request.tools]
-
-
-def outcome_of(events: Sequence[Any]) -> TurnOutcome:
-    return next(event for event in events if isinstance(event, TurnOutcome))
 
 
 def stored(rig: EngineRig) -> tuple:

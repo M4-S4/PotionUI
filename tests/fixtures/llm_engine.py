@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Sequence
 
 from src.features.llm.context_windows import ContextWindows
@@ -7,6 +7,7 @@ from src.features.llm.harness.baseline import InMemoryTurnStore, StaticProfileRe
 from src.features.llm.harness.engine import TurnEngine
 from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.tool_runner import ParallelToolRunner
+from src.features.llm.harness.profile import Prices
 from src.features.llm.repository import LLMConfig
 from src.features.llm.tools.base import BaseTool, ToolContext
 from src.features.llm.tools.executor import ToolExecutor
@@ -83,6 +84,18 @@ def scripted_engine(
         sleep=sleep,
     )
     return EngineRig(engine=engine, gateway=gateway, executor=executor, store=store, sleeps=sleeps)
+
+
+class PricedResolver:
+    def __init__(self, inner: Any, prices: Prices) -> None:
+        self._inner = inner
+        self._prices = prices
+
+    def resolve(self, config: Any) -> Any:
+        return replace(self._inner.resolve(config), prices=self._prices)
+
+    async def refresh(self, config: Any) -> Any:
+        return self.resolve(config)
 
 
 def tool_context(llm_id: str = "cfg-scripted") -> ToolContext:

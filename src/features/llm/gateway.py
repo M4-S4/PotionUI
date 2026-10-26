@@ -22,7 +22,10 @@ from src.features.llm.model_listing import DiscoveredModel
 from src.features.llm.repository import LLMConfig, LLMRepository
 from src.features.llm.types import LLMType, LLMTypes
 
-_NON_PARAM_KEYS = ("model", "messages", "tools", "stream", "stream_options")
+_NON_PARAM_KEYS = (
+    "model", "messages", "tools", "stream", "stream_options",
+    "input", "contents", "steps", "system", "system_instruction", "instructions",
+)
 
 
 @dataclass(frozen=True)

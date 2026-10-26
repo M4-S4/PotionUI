@@ -1,18 +1,26 @@
 import asyncio
-from dataclasses import replace
 from typing import Any, List, Sequence
 
 import pytest
 
 from src.features.llm.harness import engine as engine_module
-from src.features.llm.harness.build import user_message
-from src.features.llm.harness.engine import TurnInput, TurnOutcome
+from src.features.llm.harness.adapter import Settings
 from src.features.llm.harness.errors import Overloaded
-from src.features.llm.harness.events import Finish, FinishReason, TextDelta, Usage, UsageReported
+from src.features.llm.harness.events import (
+    Finish,
+    FinishReason,
+    TextDelta,
+    ToolArgsDelta,
+    ToolCallStart,
+    Usage,
+    UsageReported,
+)
 from src.features.llm.harness.messages import Role
 from src.features.llm.harness.profile import Prices
+from src.features.llm.harness.turn_state import TurnStatus
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
-from tests.fixtures.llm_engine import drain, scripted_engine, tool_context
+from tests.features.llm.harness.stepping import engine_turn, outcome_of
+from tests.fixtures.llm_engine import PricedResolver, drain, scripted_engine
 from tests.fixtures.llm_harness import ScriptedAdapter, text_step, tool_step
 
 
@@ -35,18 +43,6 @@ class DeleteTool(BaseTool):
         return ToolResult(success=True, data="", preview=ToolApprovalPreview(action="Delete", target=kwargs.get("id")))
 
 
-class PricedResolver:
-    def __init__(self, inner: Any, prices: Prices) -> None:
-        self._inner = inner
-        self._prices = prices
-
-    def resolve(self, config: Any) -> Any:
-        return replace(self._inner.resolve(config), prices=self._prices)
-
-    async def refresh(self, config: Any) -> Any:
-        return self.resolve(config)
-
-
 class ReleasingAdapter(ScriptedAdapter):
     def __init__(self, *steps: Any, fail: bool = False, hang: bool = False) -> None:
         super().__init__(*steps)
@@ -60,23 +56,6 @@ class ReleasingAdapter(ScriptedAdapter):
             raise RuntimeError("server gone")
         if self._hang:
             await asyncio.Event().wait()
-
-
-def turn(**overrides: Any) -> TurnInput:
-    values: dict = dict(
-        session_id="s1",
-        llm_id="cfg-scripted",
-        system="SYS",
-        history=(),
-        new_messages=(user_message("find cats", message_id="u1"),),
-        tool_context=tool_context(),
-    )
-    values.update(overrides)
-    return TurnInput(**values)
-
-
-def outcome_of(events: Sequence[Any]) -> TurnOutcome:
-    return next(event for event in events if isinstance(event, TurnOutcome))
 
 
 def with_usage(events: Sequence[Any], usage: Usage) -> List[Any]:
@@ -109,7 +88,7 @@ def three_step_script() -> ScriptedAdapter:
 async def test_the_turn_usage_adds_up_every_step_and_each_step_keeps_its_own():
     rig = scripted_engine(three_step_script(), [EchoTool()])
 
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn())))
 
     assert [step.usage for step in model_steps(rig)] == [FIRST, SECOND, THIRD]
     assert outcome.usage == Usage(
@@ -121,7 +100,7 @@ async def test_the_turn_usage_adds_up_every_step_and_each_step_keeps_its_own():
 async def test_each_step_and_the_turn_carry_a_cost_priced_from_the_profile():
     rig = priced_rig(three_step_script(), Prices(input=2, output=10, cached_input=0.2), [EchoTool()])
 
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn())))
 
     assert [step.usage.cost for step in model_steps(rig)] == [0.0025, 0.0014, 0.00094]
     assert outcome.usage.cost == 0.00484
@@ -135,7 +114,7 @@ async def test_a_cost_reported_by_the_provider_is_kept_and_summed():
     )
     rig = priced_rig(adapter, Prices(input=2, output=10), [EchoTool()])
 
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn())))
 
     assert [step.usage.cost for step in model_steps(rig)] == [0.5, 0.25]
     assert outcome.usage.cost == 0.75
@@ -150,7 +129,7 @@ async def test_a_steered_step_is_recorded_with_its_usage():
     adapter = ScriptedAdapter(truncated, with_usage(text_step("Recovered."), SECOND))
     rig = scripted_engine(adapter, [EchoTool()])
 
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn())))
 
     steps = model_steps(rig)
     assert [step.usage for step in steps] == [FIRST, SECOND]
@@ -163,15 +142,13 @@ async def test_a_discarded_empty_attempt_still_counts_toward_the_turn_usage():
     adapter = ScriptedAdapter(empty, with_usage(text_step("second try"), SECOND))
     rig = scripted_engine(adapter, [EchoTool()])
 
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn())))
 
     assert [step.usage for step in model_steps(rig)] == [SECOND]
     assert outcome.usage.input_tokens == 1700 and outcome.usage.output_tokens == 120
 
 
 async def test_a_truncated_attempt_that_is_retried_still_counts_toward_the_turn_usage():
-    from src.features.llm.harness.events import ToolArgsDelta, ToolCallStart
-
     cut_off = [
         ToolCallStart(block=2, call_id="t1", name="echo"),
         ToolArgsDelta(block=2, text='{"message": "a long no'),
@@ -185,10 +162,37 @@ async def test_a_truncated_attempt_that_is_retried_still_counts_toward_the_turn_
     )
     rig = scripted_engine(adapter, [EchoTool()])
 
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn())))
 
     assert [step.usage for step in model_steps(rig)] == [FIRST, SECOND]
     assert outcome.usage.input_tokens == 2700 and outcome.usage.output_tokens == 2130
+
+
+async def test_a_discarded_truncated_attempt_is_not_committed_when_the_next_attempt_cannot_start():
+    cut_off = [
+        ToolCallStart(block=2, call_id="t1", name="echo"),
+        ToolArgsDelta(block=2, text='{"message": "a long no'),
+        UsageReported(Usage(input_tokens=500, output_tokens=2000, total_tokens=2500)),
+        Finish(reason=FinishReason.LENGTH, raw_reason="length"),
+    ]
+    rig = scripted_engine(ScriptedAdapter(cut_off), [EchoTool()])
+    prepare = rig.gateway.prepare
+    calls: List[int] = []
+
+    async def prepare_once(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("configuration vanished")
+        return await prepare(*args, **kwargs)
+
+    rig.gateway.prepare = prepare_once
+
+    with pytest.raises(RuntimeError, match="configuration vanished"):
+        await drain(rig.engine.run(engine_turn(settings=Settings(max_tokens=2000))))
+
+    steps = rig.store.steps("s1")
+    assert [step.message.role for step in steps] == [Role.USER]
+    assert rig.store.load_state(steps[0].turn_id).status is TurnStatus.FAILED
 
 
 async def test_the_thinking_mode_comes_from_the_last_step_not_the_total():
@@ -199,7 +203,7 @@ async def test_the_thinking_mode_comes_from_the_last_step_not_the_total():
     )
     rig = scripted_engine(adapter, [EchoTool()])
 
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn())))
 
     assert outcome.thinking_mode == mode
 
@@ -208,7 +212,7 @@ async def test_a_turn_with_no_reported_usage_has_none():
     adapter = ScriptedAdapter([TextDelta(block=1, text="hi"), Finish(reason=FinishReason.STOP)])
     rig = scripted_engine(adapter)
 
-    outcome = outcome_of(await drain(rig.engine.run(turn(tool_context=None))))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn(tool_context=None))))
 
     assert outcome.usage is None and outcome.last_usage is None
 
@@ -220,7 +224,7 @@ async def test_steps_that_may_be_followed_by_another_keep_the_model_loaded_and_t
     )
     rig = scripted_engine(adapter, [EchoTool()])
 
-    await drain(rig.engine.run(turn(max_rounds=1)))
+    await drain(rig.engine.run(engine_turn(max_rounds=1)))
 
     assert [request.settings.keep_model_loaded for request in adapter.requests] == [True, False]
 
@@ -229,19 +233,17 @@ async def test_an_answer_without_tools_does_not_keep_the_model_loaded():
     adapter = ScriptedAdapter(text_step("hello"))
     rig = scripted_engine(adapter)
 
-    await drain(rig.engine.run(turn(tool_context=None)))
+    await drain(rig.engine.run(engine_turn(tool_context=None)))
 
     assert adapter.requests[0].settings.keep_model_loaded is False
 
 
 async def test_the_caller_settings_survive_and_the_cache_key_defaults_to_the_session():
-    from src.features.llm.harness.adapter import Settings
-
     adapter = ScriptedAdapter(text_step("a"), text_step("b"))
     rig = scripted_engine(adapter)
 
-    await drain(rig.engine.run(turn(tool_context=None, settings=Settings(temperature=0.3))))
-    await drain(rig.engine.run(turn(tool_context=None, session_id="s2", settings=Settings(cache_key="mine"))))
+    await drain(rig.engine.run(engine_turn(tool_context=None, settings=Settings(temperature=0.3))))
+    await drain(rig.engine.run(engine_turn(tool_context=None, session_id="s2", settings=Settings(cache_key="mine"))))
 
     assert adapter.requests[0].settings.temperature == 0.3
     assert [request.settings.cache_key for request in adapter.requests] == ["s1", "mine"]
@@ -251,7 +253,7 @@ async def test_the_model_is_released_once_a_turn_completes():
     adapter = ReleasingAdapter(tool_step({"id": "c1", "name": "echo", "args": {}}), text_step("done"))
     rig = scripted_engine(adapter, [EchoTool()])
 
-    await drain(rig.engine.run(turn()))
+    await drain(rig.engine.run(engine_turn()))
 
     assert adapter.released == ["cfg-scripted"]
 
@@ -260,7 +262,7 @@ async def test_the_model_is_released_while_a_turn_waits_for_approval():
     adapter = ReleasingAdapter(tool_step({"id": "c1", "name": "delete_prompt", "args": {"id": "p1"}}))
     rig = scripted_engine(adapter, [DeleteTool()])
 
-    events = await drain(rig.engine.run(turn()))
+    events = await drain(rig.engine.run(engine_turn()))
 
     assert outcome_of(events).pending
     assert adapter.released == ["cfg-scripted"]
@@ -271,7 +273,7 @@ async def test_the_model_is_released_when_the_provider_fails():
     rig = scripted_engine(adapter)
 
     with pytest.raises(Overloaded):
-        await drain(rig.engine.run(turn(tool_context=None)))
+        await drain(rig.engine.run(engine_turn(tool_context=None)))
 
     assert adapter.released == ["cfg-scripted"]
 
@@ -279,7 +281,7 @@ async def test_the_model_is_released_when_the_provider_fails():
 async def test_the_model_is_released_when_the_stream_is_closed_midway():
     adapter = ReleasingAdapter([TextDelta(block=1, text="partial"), Finish(reason=FinishReason.STOP)])
     rig = scripted_engine(adapter)
-    events = rig.engine.run(turn(tool_context=None))
+    events = rig.engine.run(engine_turn(tool_context=None))
 
     async for event in events:
         if isinstance(event, TextDelta):
@@ -293,7 +295,7 @@ async def test_a_failing_release_does_not_fail_the_turn():
     adapter = ReleasingAdapter(text_step("fine"), fail=True)
     rig = scripted_engine(adapter)
 
-    outcome = outcome_of(await drain(rig.engine.run(turn(tool_context=None))))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn(tool_context=None))))
 
     assert outcome.content == "fine"
     assert adapter.released == ["cfg-scripted"]
@@ -304,7 +306,7 @@ async def test_a_hanging_release_is_cut_off_instead_of_holding_the_turn_open(mon
     adapter = ReleasingAdapter(text_step("fine"), hang=True)
     rig = scripted_engine(adapter)
 
-    outcome = outcome_of(await drain(rig.engine.run(turn(tool_context=None))))
+    outcome = outcome_of(await drain(rig.engine.run(engine_turn(tool_context=None))))
 
     assert outcome.content == "fine"
     assert adapter.released == ["cfg-scripted"]

@@ -8,7 +8,7 @@ from src.features.llm.harness.codec import dumps
 SYSTEM_KEYS = ("system", "system_instruction", "instructions")
 MESSAGE_KEYS = ("messages", "input", "contents", "steps")
 STRUCTURAL_KEYS = frozenset({"tools", *SYSTEM_KEYS, *MESSAGE_KEYS})
-VOLATILE_PARAMS = frozenset({"max_tokens", "max_completion_tokens", "max_output_tokens"})
+VOLATILE_PARAMS = frozenset({"max_tokens", "max_completion_tokens", "max_output_tokens", "num_predict"})
 TERMINATOR = 1
 
 
@@ -42,7 +42,11 @@ def request_segments(request: RenderRequest) -> Tuple[Segment, ...]:
 
 def wire_segments(wire: WireRequest) -> Tuple[Segment, ...]:
     body: Mapping[str, Any] = wire.body if isinstance(wire.body, Mapping) else {}
-    params = {key: value for key, value in body.items() if key not in STRUCTURAL_KEYS and key not in VOLATILE_PARAMS}
+    params = {
+        key: _without_volatile(value)
+        for key, value in body.items()
+        if key not in STRUCTURAL_KEYS and key not in VOLATILE_PARAMS
+    }
     segments = [Segment("params", _canonical(params))]
     segments.extend(_items("tools", body.get("tools")))
     for key in SYSTEM_KEYS:
@@ -63,6 +67,12 @@ def first_divergence(previous: Sequence[Segment], current: Sequence[Segment]) ->
             continue
         return Divergence(offset=offset + _shared_prefix(old.data, new), section=old.section)
     return None
+
+
+def _without_volatile(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: item for key, item in value.items() if key not in VOLATILE_PARAMS}
+    return value
 
 
 def _items(section: str, value: Any) -> Tuple[Segment, ...]:
