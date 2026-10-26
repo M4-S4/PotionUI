@@ -1,0 +1,50 @@
+{
+  "message": {
+    "id": "assistant_2",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "fast has fewer steps.",
+        "summary": "",
+        "redacted": false,
+        "opaque": null
+      },
+      {
+        "type": "text",
+        "text": "The `fast` preset is quicker.",
+        "phase": null
+      }
+    ],
+    "origin": {
+      "adapter": "openai-chat",
+      "provider": "openai-chat",
+      "model": "Qwen/Qwen3-30B-A3B",
+      "credential": null
+    },
+    "raw": null
+  },
+  "usage": {
+    "input_tokens": 330,
+    "output_tokens": 30,
+    "total_tokens": 360,
+    "reasoning_tokens": null,
+    "cached_input_tokens": 208,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "prompt_tokens": 330,
+      "completion_tokens": 30,
+      "total_tokens": 360,
+      "prompt_tokens_details": {
+        "cached_tokens": 208
+      }
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "stop",
+    "raw": null
+  }
+}

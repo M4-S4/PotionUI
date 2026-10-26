@@ -1,0 +1,67 @@
+{
+  "config": {
+    "id": "cassette",
+    "name": "cassette",
+    "type": "openai-chat",
+    "enabled": true,
+    "base_url": "http://vllm.local:8000/v1",
+    "api_key": "cassette-key",
+    "model": "Qwen/Qwen3-30B-A3B",
+    "system_message": "",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30,
+    "supports_vision": false,
+    "disable_system_prompt": false,
+    "memory_reflection": true,
+    "show_thinking": false,
+    "provider_options": null,
+    "api_key_unreadable": false
+  },
+  "system": "You are a preset assistant.",
+  "tools": [
+    {
+      "name": "get_preset",
+      "description": "Read one preset by name",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "strict": false
+    }
+  ],
+  "settings": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "min_p": null,
+    "max_tokens": null,
+    "reasoning": null,
+    "tool_choice": null,
+    "response_schema": null,
+    "cache_key": null,
+    "keep_model_loaded": false
+  },
+  "messages": [
+    {
+      "id": "user_1",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Which preset is faster, fast or slow?",
+          "phase": null
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "adapter": "ollama-chat",
+  "provider": "ollama-chat",
+  "source": "hand-built",
+  "recorded_at": null,
+  "model": "qwen3:8b",
+  "doc_url": "https://docs.ollama.com/capabilities/thinking",
+  "profile_overrides": {
+    "context_window": 32768,
+    "reasoning": "toggle",
+    "parallel_tools": true
+  }
+}

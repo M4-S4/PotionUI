@@ -1,0 +1,67 @@
+{
+  "message": {
+    "id": "assistant_1",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "Both presets need to be read.",
+        "summary": "",
+        "redacted": false,
+        "opaque": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "chatcmpl-tool-aa11",
+        "name": "get_preset",
+        "args": {
+          "name": "fast"
+        },
+        "args_raw": "{\"name\": \"fast\"}",
+        "wire_id": "chatcmpl-tool-aa11",
+        "opaque": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "chatcmpl-tool-bb22",
+        "name": "get_preset",
+        "args": {
+          "name": "slow"
+        },
+        "args_raw": "{\"name\": \"slow\"}",
+        "wire_id": "chatcmpl-tool-bb22",
+        "opaque": null
+      }
+    ],
+    "origin": {
+      "adapter": "openai-chat",
+      "provider": "openai-chat",
+      "model": "Qwen/Qwen3-30B-A3B",
+      "credential": null
+    },
+    "raw": null
+  },
+  "usage": {
+    "input_tokens": 212,
+    "output_tokens": 64,
+    "total_tokens": 276,
+    "reasoning_tokens": 20,
+    "cached_input_tokens": null,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "prompt_tokens": 212,
+      "completion_tokens": 64,
+      "total_tokens": 276,
+      "completion_tokens_details": {
+        "reasoning_tokens": 20
+      }
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "tool_calls",
+    "raw": null
+  }
+}

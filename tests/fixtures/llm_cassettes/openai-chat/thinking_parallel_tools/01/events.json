@@ -1,0 +1,81 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "Both presets ",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "need to be read.",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "tool_call_start",
+    "block": 1,
+    "call_id": "chatcmpl-tool-aa11",
+    "name": "get_preset",
+    "wire_id": "chatcmpl-tool-aa11"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 1,
+    "text": "{\"name\": "
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 1,
+    "text": "\"fast\"}"
+  },
+  {
+    "type": "tool_call_start",
+    "block": 2,
+    "call_id": "chatcmpl-tool-bb22",
+    "name": "get_preset",
+    "wire_id": "chatcmpl-tool-bb22"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 2,
+    "text": "{\"name\": \"slow\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 1,
+    "args": null
+  },
+  {
+    "type": "tool_call_end",
+    "block": 2,
+    "args": null
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 212,
+      "output_tokens": 64,
+      "total_tokens": 276,
+      "reasoning_tokens": 20,
+      "cached_input_tokens": null,
+      "cache_write_tokens": null,
+      "cost": null,
+      "raw": {
+        "prompt_tokens": 212,
+        "completion_tokens": 64,
+        "total_tokens": 276,
+        "completion_tokens_details": {
+          "reasoning_tokens": 20
+        }
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "tool_calls",
+    "raw": null
+  }
+]
