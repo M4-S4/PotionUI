@@ -1,0 +1,51 @@
+{
+  "messages": [
+    {
+      "id": "t1",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "7b1x4s0q",
+          "name": "power_disco_ball",
+          "content": [
+            {
+              "type": "text",
+              "text": "The disco ball is spinning.",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        },
+        {
+          "type": "tool_result",
+          "call_id": "m2k9c1pe",
+          "name": "start_music",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"playing\": true, \"bpm\": 128}",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        },
+        {
+          "type": "tool_result",
+          "call_id": "d8v3n6ra",
+          "name": "dim_lights",
+          "content": [
+            {
+              "type": "text",
+              "text": "Lights dimmed to 20 percent.",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
