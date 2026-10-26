@@ -1,0 +1,36 @@
+{
+  "adapter": "openai-responses",
+  "model": "gpt-5.6",
+  "source": "hand-built",
+  "doc_url": "https://developers.openai.com/api/docs/guides/error-codes",
+  "recorded_at": null,
+  "profile_overrides": {
+    "reasoning": "effort",
+    "reasoning_levels": [
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ],
+    "parallel_tools": true,
+    "strict_tools": true,
+    "tool_choice": [
+      "auto",
+      "none",
+      "required",
+      "named"
+    ],
+    "tool_choice_with_reasoning": [
+      "auto"
+    ],
+    "sampling_rejected": [
+      "temperature",
+      "top_p"
+    ],
+    "tool_result_media": true,
+    "vision": true,
+    "context_window": 400000,
+    "max_output_tokens": 128000
+  }
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "Working out the answer",
+    "summary": true,
+    "redacted": false
+  }
+]

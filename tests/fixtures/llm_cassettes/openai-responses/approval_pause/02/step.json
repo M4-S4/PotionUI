@@ -1,0 +1,76 @@
+{
+  "message": {
+    "id": "msg_02",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "text",
+        "text": "Understood, I left the build folder alone.",
+        "phase": "final_answer"
+      }
+    ],
+    "origin": {
+      "adapter": "openai-responses",
+      "provider": "openai",
+      "model": "gpt-5.6",
+      "credential": "a183811129c1ad90"
+    },
+    "raw": [
+      {
+        "id": "msg_3d4e5f6071829304",
+        "type": "message",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "Understood, I left the build folder alone."
+          }
+        ],
+        "role": "assistant"
+      }
+    ]
+  },
+  "usage": {
+    "input_tokens": 401,
+    "output_tokens": 14,
+    "total_tokens": 415,
+    "reasoning_tokens": 0,
+    "cached_input_tokens": 256,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "input_tokens": 401,
+      "input_tokens_details": {
+        "cached_tokens": 256
+      },
+      "output_tokens": 14,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 415
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "completed",
+    "raw": [
+      {
+        "id": "msg_3d4e5f6071829304",
+        "type": "message",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "Understood, I left the build folder alone."
+          }
+        ],
+        "role": "assistant"
+      }
+    ]
+  }
+}

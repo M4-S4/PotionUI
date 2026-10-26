@@ -1,0 +1,108 @@
+{
+  "message": {
+    "id": "msg_01",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "Looking for the next prime.",
+        "redacted": false,
+        "opaque": {
+          "id": "rs_4e5f60718293a4b5",
+          "encrypted_content": "gAAAAABq_prime_a_encrypted_blob_Zm91cnRo"
+        }
+      },
+      {
+        "type": "text",
+        "text": "101 is prime.",
+        "phase": "final_answer"
+      }
+    ],
+    "origin": {
+      "adapter": "openai-responses",
+      "provider": "openai",
+      "model": "gpt-5.6",
+      "credential": "a183811129c1ad90"
+    },
+    "raw": [
+      {
+        "id": "rs_4e5f60718293a4b5",
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "Looking for the next prime."
+          }
+        ],
+        "encrypted_content": "gAAAAABq_prime_a_encrypted_blob_Zm91cnRo"
+      },
+      {
+        "id": "msg_4e5f60718293a4b5",
+        "type": "message",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "101 is prime."
+          }
+        ],
+        "role": "assistant"
+      }
+    ]
+  },
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 44,
+    "total_tokens": 164,
+    "reasoning_tokens": 30,
+    "cached_input_tokens": 0,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "input_tokens": 120,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 44,
+      "output_tokens_details": {
+        "reasoning_tokens": 30
+      },
+      "total_tokens": 164
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "completed",
+    "raw": [
+      {
+        "id": "rs_4e5f60718293a4b5",
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "Looking for the next prime."
+          }
+        ],
+        "encrypted_content": "gAAAAABq_prime_a_encrypted_blob_Zm91cnRo"
+      },
+      {
+        "id": "msg_4e5f60718293a4b5",
+        "type": "message",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "101 is prime."
+          }
+        ],
+        "role": "assistant"
+      }
+    ]
+  }
+}

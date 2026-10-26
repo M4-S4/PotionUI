@@ -1,0 +1,61 @@
+{
+  "config": {
+    "id": "cfg_cassette",
+    "name": "OpenAI",
+    "type": "openai",
+    "enabled": true,
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "cassette-key-a",
+    "model": "gpt-5.6",
+    "system_message": "",
+    "show_thinking": true
+  },
+  "system": "You are a careful assistant. Use tools when they help.",
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Current weather for a city.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "description": "City name"
+          }
+        },
+        "required": [
+          "city"
+        ],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  ],
+  "settings": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "min_p": null,
+    "max_tokens": 4096,
+    "reasoning": "medium",
+    "tool_choice": null,
+    "response_schema": null,
+    "cache_key": "conv-cassette",
+    "keep_model_loaded": false
+  },
+  "append": [
+    {
+      "id": "user_01",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What is the weather in Paris and Zürich?",
+          "phase": null
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
