@@ -52,7 +52,32 @@ CLASSIFIED = [
 ]
 
 
+STREAM_CODES = [
+    ("rate_limit_exceeded", RateLimited),
+    ("insufficient_quota", QuotaExhausted),
+    ("context_length_exceeded", ContextOverflow),
+    ("invalid_api_key", AuthFailed),
+    ("invalid_organization", AuthFailed),
+    ("account_deactivated", AuthFailed),
+    ("server_is_overloaded", Overloaded),
+    ("overloaded", Overloaded),
+    ("slow_down", Overloaded),
+    ("server_error", ServerFailed),
+    ("internal_error", ServerFailed),
+    ("invalid_prompt", InvalidRequest),
+    ("", InvalidRequest),
+]
+
+
 class TestClassification:
+    @pytest.mark.parametrize("code, expected", STREAM_CODES)
+    def test_failures_inside_the_stream_are_sorted_by_their_code(self, code, expected):
+        result = ADAPTER.classify_error(failure(None, {"code": code, "message": "Stream failure"}, in_stream=True))
+
+        assert type(result) is expected
+        assert result.status is None
+        assert result.detail["in_stream"] is True
+
     @pytest.mark.parametrize("label, status, error, expected", CLASSIFIED, ids=[row[0] for row in CLASSIFIED])
     def test_http_failures(self, label, status, error, expected):
         result = ADAPTER.classify_error(failure(status, error))
@@ -78,7 +103,8 @@ class TestClassification:
         result = ADAPTER.classify_error(failure(400, error, {"X-Request-Id": "req_9"}))
 
         assert result.code == "invalid_value"
-        assert result.detail == {"code": "invalid_value", "type": "invalid_request_error", "param": "input", "request_id": "req_9"}
+        assert result.detail["request_id"] == "req_9"
+        assert '"param": "input"' in result.detail["body"]
 
     def test_a_failure_inside_the_stream_is_marked_and_has_no_status(self):
         result = ADAPTER.classify_error(failure(None, {"code": "rate_limit_exceeded", "message": "Slow"}, in_stream=True))

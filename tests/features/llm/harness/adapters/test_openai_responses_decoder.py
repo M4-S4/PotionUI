@@ -220,10 +220,11 @@ class TestFraming:
 
         assert decode(data) == decode(stream_of([message_item("Hi")]))
 
-    def test_a_final_frame_without_its_blank_line_is_still_read(self):
+    def test_a_final_event_cut_off_before_its_blank_line_is_not_trusted(self):
         data = stream_of([message_item("Hi")]).rstrip(b"\n")
 
-        assert decode(data) == decode(stream_of([message_item("Hi")]))
+        with pytest.raises(MalformedStream):
+            decode(data)
 
 
 class TestFinish:

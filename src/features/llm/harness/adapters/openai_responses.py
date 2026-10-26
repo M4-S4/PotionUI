@@ -7,7 +7,6 @@ from src.features.llm.harness.adapter import RenderRequest, StreamDecoder, ToolC
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.errors import (
     AuthFailed,
-    ConnectionFailed,
     ContextOverflow,
     HarnessError,
     InvalidRequest,
@@ -47,6 +46,8 @@ from src.features.llm.harness.messages import (
     credential_fingerprint,
 )
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, ReasoningKind
+from src.features.llm.harness.sse import SSEFramer, SSERecord
+from src.features.llm.harness.transport import HttpAdapter
 from src.features.llm.harness.turn_state import Notice, NoticeKind
 from src.features.llm.model_listing import (
     CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
@@ -65,6 +66,19 @@ SKELETON_FIELDS = {
     "call": ("call_id", "name", "arguments"),
 }
 SCHEMA_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
+CODE_ERRORS = {
+    "rate_limit_exceeded": RateLimited,
+    "insufficient_quota": QuotaExhausted,
+    "context_length_exceeded": ContextOverflow,
+    "invalid_api_key": AuthFailed,
+    "invalid_organization": AuthFailed,
+    "account_deactivated": AuthFailed,
+    "server_is_overloaded": Overloaded,
+    "overloaded": Overloaded,
+    "slow_down": Overloaded,
+    "server_error": ServerFailed,
+    "internal_error": ServerFailed,
+}
 
 
 def _compact(value: Any) -> str:
@@ -315,6 +329,7 @@ class _Decoder:
         self._classify = classify
         self._buffered = buffered
         self._pending = b""
+        self._framer = SSEFramer(label="openai-responses")
         self._slots: Dict[int, _Slot] = {}
         self._items: Dict[int, Dict[str, Any]] = {}
         self._refused = False
@@ -337,21 +352,10 @@ class _Decoder:
         if self._buffered:
             self._pending += chunk
             return []
-        self._pending = (self._pending + chunk).replace(b"\r\n", b"\n")
-        events: List[StreamEvent] = []
-        while True:
-            end = self._pending.find(b"\n\n")
-            if end < 0:
-                return events
-            frame, self._pending = self._pending[:end], self._pending[end + 2:]
-            events.extend(self._frame(frame))
+        return self._records(self._framer.feed(chunk))
 
     def close(self) -> List[StreamEvent]:
-        events: List[StreamEvent] = []
-        if self._buffered:
-            events = self._body(self._pending)
-        elif self._pending.strip():
-            events = self._frame(self._pending)
+        events = self._body(self._pending) if self._buffered else self._records(self._framer.close())
         self._pending = b""
         if not self._finished:
             raise MalformedStream("The stream ended before the response completed")
@@ -369,17 +373,17 @@ class _Decoder:
             raise MalformedStream(f"The response ended with status {status}")
         return self._finish(response, status)
 
-    def _frame(self, frame: bytes) -> List[StreamEvent]:
-        try:
-            lines = frame.decode("utf-8").split("\n")
-        except UnicodeDecodeError:
-            raise MalformedStream("An event is not valid UTF-8") from None
-        data = [line[6:] if line.startswith("data: ") else line[5:] for line in lines if line.startswith("data:")]
-        text = "\n".join(data)
-        if not text or text == "[DONE]" or self._finished:
+    def _records(self, records: List[SSERecord]) -> List[StreamEvent]:
+        events: List[StreamEvent] = []
+        for record in records:
+            events.extend(self._record(record))
+        return events
+
+    def _record(self, record: SSERecord) -> List[StreamEvent]:
+        if self._finished:
             return []
         try:
-            payload = json.loads(text)
+            payload = json.loads(record.data)
         except ValueError:
             raise MalformedStream("An event carried invalid JSON") from None
         if not isinstance(payload, dict):
@@ -564,7 +568,7 @@ def _error_object(body: bytes) -> Dict[str, Any]:
     return {"message": body.decode("utf-8", errors="replace")[:500]}
 
 
-class OpenAIResponsesAdapter:
+class OpenAIResponsesAdapter(HttpAdapter):
     name = "openai-responses"
 
     def origin(self, config: Any) -> Origin:
@@ -628,41 +632,33 @@ class OpenAIResponsesAdapter:
     def classify_error(self, failure: WireFailure) -> HarnessError:
         error = _error_object(failure.body)
         code = str(error.get("code") or "")
-        kind = str(error.get("type") or "")
-        status = failure.status
-        message = str(error.get("message") or "") or f"OpenAI answered HTTP {status}"
+        message = str(error.get("message") or "")
         lowered = message.lower()
-        detail = {key: error[key] for key in ("code", "type", "param") if error.get(key)}
+        kind: Optional[type] = None
+        if code == "invalid_encrypted_content" or "without its required" in lowered or (
+            "encrypted content" in lowered and "not supported" not in lowered
+        ):
+            kind = OpaqueViolation
+        elif code in CODE_ERRORS:
+            kind = CODE_ERRORS[code]
+        elif failure.status is None and failure.body:
+            kind = InvalidRequest
+        if kind is None:
+            result = super().classify_error(failure)
+        else:
+            result = kind(
+                message or "OpenAI reported an error",
+                status=failure.status,
+                code=code or None,
+                retry_after=failure.retry_after_seconds(),
+                detail={key: error[key] for key in ("code", "type", "param") if error.get(key)},
+            )
         request_id = failure.header("x-request-id")
         if request_id:
-            detail["request_id"] = request_id
+            result.detail["request_id"] = request_id
         if failure.in_stream:
-            detail["in_stream"] = True
-        fields: Dict[str, Any] = {
-            "status": status,
-            "code": code or kind or None,
-            "retry_after": failure.retry_after_seconds(),
-            "detail": detail,
-        }
-        if status is None and failure.cause is not None and not failure.body:
-            return ConnectionFailed(str(failure.cause) or "The connection to OpenAI failed", **fields)
-        if code == "invalid_encrypted_content" or (
-            "encrypted content" in lowered and "not supported" not in lowered
-        ) or "without its required" in lowered:
-            return OpaqueViolation(message, **fields)
-        if code == "context_length_exceeded" or "context length" in lowered or "context window" in lowered:
-            return ContextOverflow(message, **fields)
-        if "insufficient_quota" in (code, kind) or "exceeded your current quota" in lowered:
-            return QuotaExhausted(message, **fields)
-        if status == 429 or code == "rate_limit_exceeded":
-            return RateLimited(message, **fields)
-        if status in (401, 403) or code in ("invalid_api_key", "invalid_organization", "account_deactivated"):
-            return AuthFailed(message, **fields)
-        if status == 503 or code in ("server_is_overloaded", "overloaded", "slow_down"):
-            return Overloaded(message, **fields)
-        if (status is not None and status >= 500) or code in ("server_error", "internal_error"):
-            return ServerFailed(message, **fields)
-        return InvalidRequest(message, **fields)
+            result.detail["in_stream"] = True
+        return result
 
     async def discover(self, config: Any) -> ProfileLayer:
         payload = await fetch_json(
