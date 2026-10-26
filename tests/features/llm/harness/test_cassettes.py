@@ -19,6 +19,7 @@ from src.features.llm.harness.events import (
     Usage,
     UsageReported,
 )
+from src.features.llm.harness.messages import credential_fingerprint
 from src.features.llm.harness.ndjson import NDJSONFramer
 from src.features.llm.harness.profile import ProfileLayer, ProfileSource
 from src.features.llm.harness.transport import HttpAdapter
@@ -159,6 +160,36 @@ def test_no_secret_reaches_any_cassette_file(recorded):
     assert request["url"].endswith(f"key={cassettes.SCRUBBED}")
     stored = json.loads((recorded / "01" / "input.json").read_text(encoding="utf-8"))
     assert stored["config"]["api_key"] == cassettes.CASSETTE_API_KEY
+
+
+def test_recorded_messages_carry_the_origin_of_the_config_the_replay_uses(recorded):
+    stored = json.loads((recorded / "01" / "step.json").read_text(encoding="utf-8"))["message"]["origin"]
+
+    assert stored == {
+        "adapter": "line-test",
+        "provider": "line-test",
+        "model": "line-1",
+        "credential": credential_fingerprint("http://peer.invalid:9", cassettes.CASSETTE_API_KEY),
+    }
+
+
+def test_a_replay_under_another_credential_fails_the_assembled_step(recorded):
+    _edit(recorded / "01" / "input.json", lambda data: data["config"].update(api_key="another-key"))
+
+    with pytest.raises(AssertionError, match="assembled step differs"):
+        cassettes.run_scenario(LineAdapter(), recorded)
+
+
+def test_origin_follows_the_config_it_is_given():
+    meta = {"adapter": "line-test", "model": "line-1"}
+    config = cassettes.config_from(meta, {"base_url": "http://a.invalid", "type": "openai", "api_key": "k1", "model": "line-2"})
+
+    origin = cassettes.origin_for(meta, config)
+
+    assert (origin.adapter, origin.provider, origin.model) == ("line-test", "openai", "line-2")
+    assert origin.credential == credential_fingerprint("http://a.invalid", "k1")
+    assert origin != cassettes.origin_for(meta, config.model_copy(update={"api_key": "k2"}))
+    assert origin != cassettes.origin_for(meta, config.model_copy(update={"base_url": "http://b.invalid"}))
 
 
 def test_a_changed_request_body_fails_the_replay(recorded):
