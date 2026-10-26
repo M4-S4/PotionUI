@@ -86,6 +86,7 @@ class TestOpenAIParsing:
         {"id": "other", "context_length": 1},
         {"id": "or/model", "context_length": 200000},
         {"id": "vllm/model", "max_model_len": 32768},
+        {"id": "deepseek/model", "context_window": 1048576},
         {"id": "plain/model"},
     ]}
 
@@ -93,6 +94,7 @@ class TestOpenAIParsing:
     @pytest.mark.parametrize("model, expected", [
         ("or/model", window(200000)),
         ("vllm/model", window(32768)),
+        ("deepseek/model", window(1048576)),
         ("plain/model", None),
         ("absent/model", None),
     ])

@@ -9,9 +9,11 @@ from src.features.llm.clients.base import LLMResponse
 from src.platform.http.tls import client_ssl_context
 from src.features.llm.clients.openai_wire import (
     OpenAICompatSSEDecoder,
+    OpenAIRequest,
     ToolCallAssembler,
     build_openai_request,
     prompt_from,
+    sent_sampling_params,
 )
 from src.features.llm.model_listing import (
     CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
@@ -39,6 +41,9 @@ class OpenAIClient:
     """
 
     display_name = "OpenAI-compatible server"
+
+    def adapt_request(self, request: OpenAIRequest, config: LLMConfig) -> OpenAIRequest:
+        return request
 
     async def list_models(self, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -69,7 +74,7 @@ class OpenAIClient:
             for entry in entries if isinstance(entries, list) else []:
                 if not isinstance(entry, dict) or entry.get("id") != model:
                     continue
-                for key in ("context_length", "max_model_len"):
+                for key in ("context_length", "max_model_len", "context_window"):
                     tokens = positive_int(entry.get(key))
                     if tokens:
                         return DiscoveredWindow(tokens=tokens, kind="runtime")
@@ -94,9 +99,9 @@ class OpenAIClient:
             image_data: Optional base64 encoded image for vision models (GPT-4 Vision, etc.)
         """
         try:
-            request = build_openai_request(
+            request = self.adapt_request(build_openai_request(
                 config, prompt_from(prompt), system_message, image_data
-            )
+            ), config)
 
             async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 logging.info(f"[OpenAI] Sending to {config.base_url}/chat/completions, model: {config.model}, image: {bool(image_data)}")
@@ -136,10 +141,10 @@ class OpenAIClient:
     ) -> LLMResponse:
         """Generate a response with native tool calling."""
         try:
-            request = build_openai_request(
+            request = self.adapt_request(build_openai_request(
                 config, messages, system_message, image_data, options_override, tools,
                 tool_aware=True,
-            )
+            ), config)
 
             async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 logging.info(f"[OpenAI Tools] Sending to {config.base_url}/chat/completions, model: {config.model}, messages: {len(request.messages)}, tools: {len(tools) if tools else 0}")
@@ -167,10 +172,10 @@ class OpenAIClient:
                 thinking = thinking if isinstance(thinking, str) and thinking else None
 
                 record_trace(
-                    "openai", config, _trace_start,
+                    config.type, config, _trace_start,
                     request_system=system_message,
                     request_messages=request.messages,
-                    request_params=request.sampling_params,
+                    request_params=sent_sampling_params(request.payload),
                     request_tools=[t.get("function", {}).get("name") for t in (tools or [])],
                     response_text=content,
                     response_tool_calls=tool_calls,
@@ -214,10 +219,10 @@ class OpenAIClient:
         tell a tool-invoking turn apart from a plain-text one without waiting
         for the whole thing to buffer.
         """
-        request = build_openai_request(
+        request = self.adapt_request(build_openai_request(
             config, messages, system_message, image_data, options_override, tools,
             tool_aware=True, stream=True,
-        )
+        ), config)
 
         logging.info(
             f"[OpenAI Tools Stream] Sending streaming request to {config.base_url}/chat/completions, "
@@ -268,10 +273,10 @@ class OpenAIClient:
         assembled_tool_calls = assembler.assembled()
 
         record_trace(
-            "openai", config, _trace_start,
+            config.type, config, _trace_start,
             request_system=system_message,
             request_messages=request.messages,
-            request_params=request.sampling_params,
+            request_params=sent_sampling_params(request.payload),
             request_tools=[t.get("function", {}).get("name") for t in (tools or [])] if tools else None,
             response_text="".join(full_content_parts),
             response_tool_calls=assembled_tool_calls,

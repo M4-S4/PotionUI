@@ -56,6 +56,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
+| **LLM** — contributing an LLM configuration type | `.llm` | `OpenAIClient`, `OpenAIRequest`, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
@@ -637,6 +638,46 @@ unregisterContext();
 unregisterMode();
 unregisterTool();
 ```
+
+## Contributing an LLM configuration type
+
+A plugin can add a provider to the Type list of Admin → LLM / Assistant → Add configuration.
+Declare it under `llm_providers:`:
+
+```yaml
+llm_providers:
+  - type: acme
+    label: Acme
+    backend: backend.client:AcmeClient   # "module.path:ClassName"
+    default_base_url: https://api.acme.example/v1
+```
+
+`backend` is loaded and instantiated once when the plugin enables, like a
+`recipe_steps[].backend`, and every configuration whose `type` is `acme` is then sent through
+that object. For a service that speaks the OpenAI chat-completions schema, subclass
+`OpenAIClient` from `src.plugin_api.llm` and adjust the request in `adapt_request`, which the
+buffered, tool-calling and streamed paths all call with the built request before it goes out:
+
+```python
+from src.plugin_api.llm import LLMConfig, OpenAIClient, OpenAIRequest
+
+class AcmeClient(OpenAIClient):
+    display_name = "Acme"
+
+    def adapt_request(self, request: OpenAIRequest, config: LLMConfig) -> OpenAIRequest:
+        request.payload["max_tokens"] = request.payload.pop("max_completion_tokens")
+        return request
+```
+
+The inherited `list_models` and `discover_context_window` read the service's `/models`
+listing, so the model picker and the context window work without more code; override them
+(they return `DiscoveredModel` and `DiscoveredWindow`) when the service lists models another
+way. The form lists `label` after the built-in types. When the admin picks a type, it puts
+that type's `default_base_url` in the Base URL if the field is empty or still holds another
+type's default, and leaves a URL the admin typed alone. A `type` named like a built-in one
+(`openai`, `ollama`, `native`) is ignored, and a type another enabled plugin already owns
+fails the enable. Disabling the plugin takes the type away: configurations saved with it
+stay, and fail with "Unsupported LLM type" until the plugin is enabled again.
 
 ## Contributing automation templates
 

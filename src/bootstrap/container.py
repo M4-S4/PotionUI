@@ -89,6 +89,7 @@ from src.platform.plugins.recipe_steps import (
     RecipeStepKindRegistry,
     recipe_step_kind_registry as _shared_recipe_step_kind_registry,
 )
+from src.platform.plugins.llm_providers import llm_provider_registry as _shared_llm_provider_registry
 from src.platform.plugins.organize import (
     OrganizeRegistry,
     organize_registry as _shared_organize_registry,
@@ -716,6 +717,7 @@ def build_container() -> AppContainer:
     # plugins add, and both the executor registry and the recipe catalog
     # (for lint) read from it.
     recipe_step_kind_registry = _shared_recipe_step_kind_registry
+    llm_provider_registry = _shared_llm_provider_registry
 
     organize_registry = _shared_organize_registry
     limit_kind_registry = _shared_limit_kind_registry
@@ -736,6 +738,7 @@ def build_container() -> AppContainer:
         phrasebook_operation_registry=phrasebook_operation_registry,
         requirement_checker_registry=requirement_checker_registry,
         recipe_step_kind_registry=recipe_step_kind_registry,
+        llm_provider_registry=llm_provider_registry,
         limit_kind_registry=limit_kind_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
@@ -802,7 +805,12 @@ def build_container() -> AppContainer:
 
     # Initialize LLM components
     llm_repository = LLMRepository()
-    llm_service = LLMGateway(llm_repository=llm_repository, model_lifecycle=model_lifecycle, model_roots=model_roots)
+    llm_service = LLMGateway(
+        llm_repository=llm_repository,
+        model_lifecycle=model_lifecycle,
+        model_roots=model_roots,
+        provider_registry=llm_provider_registry,
+    )
 
     tool_governance_repository = ToolGovernanceRepository()
 
