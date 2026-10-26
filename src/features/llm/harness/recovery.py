@@ -3,6 +3,10 @@ from typing import Optional, Sequence
 from src.features.llm.harness.messages import Message, Role, TextPart, ToolResultPart
 from src.features.llm.harness.turn_state import StepRecord, StepStatus, TurnState
 
+CANCELLED_REASON = "Cancelled before this tool finished. It may or may not have run."
+FAILED_REASON = "The turn failed before this tool finished. It may or may not have run."
+INTERRUPTED_REASON = "The server stopped before this tool finished. It may or may not have run."
+
 
 def interrupted_tool_step(
     steps: Sequence[StepRecord],

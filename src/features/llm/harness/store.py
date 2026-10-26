@@ -7,7 +7,7 @@ from src.features.llm.harness import codec
 from src.features.llm.harness.errors import HarnessError
 from src.features.llm.harness.events import FinishReason, Usage
 from src.features.llm.harness.messages import Message, Origin, Part, Role
-from src.features.llm.harness.recovery import interrupted_tool_step
+from src.features.llm.harness.recovery import INTERRUPTED_REASON, interrupted_tool_step
 from src.features.llm.harness.turn_repository import TurnRepository
 from src.features.llm.harness.turn_state import StepRecord, StepStatus, TurnState, TurnStatus
 from src.platform.util.ids import generate_ulid
@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 OPEN_STATUSES = (TurnStatus.RUNNING.value, TurnStatus.AWAITING_DECISION.value)
 
-INTERRUPTED_REASON = "The server stopped before this tool finished. It may or may not have run."
 INTERRUPTED_ERROR = HarnessError("The server restarted before this turn finished.", code="interrupted")
 
 
