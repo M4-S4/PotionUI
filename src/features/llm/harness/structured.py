@@ -1,10 +1,11 @@
 import json
 import re
 from dataclasses import dataclass, replace
-from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
 from src.features.llm.harness.adapter import Settings, ToolChoice, ToolSpec
 from src.features.llm.harness.errors import HarnessError
+from src.features.llm.harness.json_schema import DEFINITION_KEYS, prune_nulls, strict_schema, validate
 from src.features.llm.harness.messages import Message, Role, TextPart, ToolResultPart
 from src.features.llm.harness.profile import CapabilityProfile, StructuredOutputMode
 from src.features.llm.harness.tool_choice import NAMED, effective_tool_choice
@@ -13,23 +14,11 @@ from src.features.llm.harness.turn_state import Notice, NoticeKind
 STRUCTURED_TOOL_NAME = "submit_result"
 STRUCTURED_TOOL_DESCRIPTION = "Submit the final result. Call this tool exactly once with the complete result."
 WRAP_KEY = "value"
-MAX_REF_HOPS = 32
-DEFINITION_KEYS = ("$defs", "definitions")
 
 Complete = Callable[[str, Tuple[Message, ...], Settings, Tuple[ToolSpec, ...]], Awaitable[Message]]
 
 FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 OPENER = re.compile(r"[\[{]")
-
-TYPE_CHECKS: Dict[str, Callable[[Any], bool]] = {
-    "string": lambda value: isinstance(value, str),
-    "integer": lambda value: isinstance(value, int) and not isinstance(value, bool),
-    "number": lambda value: isinstance(value, (int, float)) and not isinstance(value, bool),
-    "boolean": lambda value: isinstance(value, bool),
-    "array": lambda value: isinstance(value, list),
-    "object": lambda value: isinstance(value, dict),
-    "null": lambda value: value is None,
-}
 
 
 class StructuredOutputFailed(HarnessError):
@@ -44,6 +33,7 @@ class StructuredPlan:
     settings: Settings
     schema: Mapping[str, Any]
     wrapped: bool
+    strict: bool = False
     notices: Tuple[Notice, ...] = ()
 
 
@@ -113,7 +103,10 @@ def plan_structured(system: str, settings: Settings, profile: CapabilityProfile)
             notices=notices,
         )
     wrapped = schema.get("type") != "object"
+    strict = mode is StructuredOutputMode.NATIVE or profile.strict_tools
     wire = wrap_schema(schema) if wrapped else dict(schema)
+    if strict:
+        wire = strict_schema(wire)
     if mode is StructuredOutputMode.TOOL:
         tool = ToolSpec(STRUCTURED_TOOL_NAME, STRUCTURED_TOOL_DESCRIPTION, wire, strict=profile.strict_tools)
         return StructuredPlan(
@@ -123,6 +116,7 @@ def plan_structured(system: str, settings: Settings, profile: CapabilityProfile)
             settings=replace(settings, response_schema=None, tool_choice=forced),
             schema=schema,
             wrapped=wrapped,
+            strict=strict,
             notices=notices,
         )
     return StructuredPlan(
@@ -132,6 +126,7 @@ def plan_structured(system: str, settings: Settings, profile: CapabilityProfile)
         settings=replace(settings, response_schema=wire),
         schema=schema,
         wrapped=wrapped,
+        strict=strict,
         notices=notices,
     )
 
@@ -175,6 +170,8 @@ def parse_structured(message: Message, plan: StructuredPlan) -> Parsed:
         if not isinstance(value, dict) or WRAP_KEY not in value:
             return Parsed(errors=(f"the result was not wrapped in an object with a {WRAP_KEY!r} key",))
         value = value[WRAP_KEY]
+    if plan.strict:
+        value = prune_nulls(value, plan.schema)
     errors = validate(value, plan.schema)
     return Parsed(None if errors else value, tuple(errors))
 
@@ -222,104 +219,3 @@ async def run_structured(
         f"The model did not return valid structured output: {'; '.join(parsed.errors)}",
         detail={"mode": plan.mode.value, "errors": list(parsed.errors)},
     )
-
-
-def validate(value: Any, schema: Any, path: str = "$", root: Any = None) -> List[str]:
-    root = schema if root is None else root
-    schema = _resolve(schema, root)
-    if not isinstance(schema, Mapping):
-        return []
-    types = schema.get("type")
-    if types is not None:
-        names = [types] if isinstance(types, str) else list(types)
-        if not any(TYPE_CHECKS.get(name, lambda _: True)(value) for name in names):
-            return [f"{path}: expected {' or '.join(names)}, got {_kind(value)}"]
-    errors: List[str] = []
-    if "const" in schema and value != schema["const"]:
-        errors.append(f"{path}: must equal {json.dumps(schema['const'])}")
-    if "enum" in schema and value not in schema["enum"]:
-        errors.append(f"{path}: must be one of {json.dumps(schema['enum'])}")
-    for part in schema.get("allOf", ()):
-        errors += validate(value, part, path, root)
-    if "anyOf" in schema and not any(not validate(value, part, path, root) for part in schema["anyOf"]):
-        errors.append(f"{path}: matches none of the allowed shapes")
-    if "oneOf" in schema and sum(not validate(value, part, path, root) for part in schema["oneOf"]) != 1:
-        errors.append(f"{path}: must match exactly one of the allowed shapes")
-    if isinstance(value, str):
-        errors += _check_string(value, schema, path)
-    elif isinstance(value, (int, float)) and not isinstance(value, bool):
-        errors += _check_number(value, schema, path)
-    elif isinstance(value, list):
-        errors += _check_array(value, schema, path, root)
-    elif isinstance(value, dict):
-        errors += _check_object(value, schema, path, root)
-    return errors
-
-
-def _kind(value: Any) -> str:
-    for name in ("boolean", "integer", "number", "string", "array", "object", "null"):
-        if TYPE_CHECKS[name](value):
-            return name
-    return type(value).__name__
-
-
-def _resolve(schema: Any, root: Any) -> Any:
-    for _ in range(MAX_REF_HOPS):
-        if not isinstance(schema, Mapping) or "$ref" not in schema:
-            return schema
-        ref = schema["$ref"]
-        if not isinstance(ref, str) or not ref.startswith("#"):
-            raise ValueError(f"unsupported schema reference {ref!r}")
-        node = root
-        for token in (item for item in ref[1:].split("/") if item):
-            node = node[token.replace("~1", "/").replace("~0", "~")]
-        schema = node
-    raise ValueError("schema references loop")
-
-
-def _check_string(value: str, schema: Mapping[str, Any], path: str) -> List[str]:
-    errors: List[str] = []
-    if "minLength" in schema and len(value) < schema["minLength"]:
-        errors.append(f"{path}: must have at least {schema['minLength']} characters")
-    if "maxLength" in schema and len(value) > schema["maxLength"]:
-        errors.append(f"{path}: must have at most {schema['maxLength']} characters")
-    if "pattern" in schema and not re.search(schema["pattern"], value):
-        errors.append(f"{path}: must match the pattern {schema['pattern']}")
-    return errors
-
-
-def _check_number(value: float, schema: Mapping[str, Any], path: str) -> List[str]:
-    errors: List[str] = []
-    if "minimum" in schema and value < schema["minimum"]:
-        errors.append(f"{path}: must be at least {schema['minimum']}")
-    if "maximum" in schema and value > schema["maximum"]:
-        errors.append(f"{path}: must be at most {schema['maximum']}")
-    return errors
-
-
-def _check_array(value: list, schema: Mapping[str, Any], path: str, root: Any) -> List[str]:
-    errors: List[str] = []
-    if "minItems" in schema and len(value) < schema["minItems"]:
-        errors.append(f"{path}: must have at least {schema['minItems']} items")
-    if "maxItems" in schema and len(value) > schema["maxItems"]:
-        errors.append(f"{path}: must have at most {schema['maxItems']} items")
-    if isinstance(schema.get("items"), Mapping):
-        for index, item in enumerate(value):
-            errors += validate(item, schema["items"], f"{path}[{index}]", root)
-    return errors
-
-
-def _check_object(value: dict, schema: Mapping[str, Any], path: str, root: Any) -> List[str]:
-    errors: List[str] = []
-    properties = schema.get("properties") or {}
-    for name in schema.get("required", ()):
-        if name not in value:
-            errors.append(f"{path}: missing required property {name!r}")
-    for name, item in value.items():
-        if name in properties:
-            errors += validate(item, properties[name], f"{path}.{name}", root)
-        elif schema.get("additionalProperties") is False:
-            errors.append(f"{path}: unexpected property {name!r}")
-        elif isinstance(schema.get("additionalProperties"), Mapping):
-            errors += validate(item, schema["additionalProperties"], f"{path}.{name}", root)
-    return errors

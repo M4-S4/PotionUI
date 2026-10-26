@@ -11,7 +11,6 @@ from src.features.llm.harness.structured import (
     extract_json,
     plan_structured,
     run_structured,
-    validate,
 )
 from src.features.llm.harness.turn_state import NoticeKind
 from tests.features.llm.harness.stepping import scripted_complete
@@ -227,49 +226,80 @@ def test_extracting_json_handles_fences_prose_and_failures():
     assert extract_json("no json at all") == (None, "the reply was not valid JSON")
 
 
-@pytest.mark.parametrize(
-    "value, schema, expected",
-    [
-        ("x", {"type": "string"}, []),
-        (1, {"type": "string"}, ["$: expected string, got integer"]),
-        (True, {"type": "integer"}, ["$: expected integer, got boolean"]),
-        (1.5, {"type": ["integer", "null"]}, ["$: expected integer or null, got number"]),
-        (None, {"type": ["integer", "null"]}, []),
-        ("c", {"enum": ["a", "b"]}, ['$: must be one of ["a", "b"]']),
-        (3, {"const": 4}, ["$: must equal 4"]),
-        ("", {"type": "string", "minLength": 1}, ["$: must have at least 1 characters"]),
-        ("abc", {"type": "string", "maxLength": 2}, ["$: must have at most 2 characters"]),
-        ("abc", {"type": "string", "pattern": "^x"}, ["$: must match the pattern ^x"]),
-        (0, {"type": "number", "minimum": 1}, ["$: must be at least 1"]),
-        (9, {"type": "number", "maximum": 5}, ["$: must be at most 5"]),
-        ([], {"type": "array", "minItems": 1}, ["$: must have at least 1 items"]),
-        ([1, 2], {"type": "array", "maxItems": 1}, ["$: must have at most 1 items"]),
-        ([1, "a"], NUMBERS, ["$[1]: expected integer, got string"]),
-        ({"a": 1}, {"type": "object", "required": ["b"]}, ["$: missing required property 'b'"]),
-        ({"a": 1}, {"type": "object", "properties": {}, "additionalProperties": False}, ["$: unexpected property 'a'"]),
-        ({"a": "x"}, {"type": "object", "additionalProperties": {"type": "integer"}}, ["$.a: expected integer, got string"]),
-        ({"a": {"b": 1}}, {"properties": {"a": {"properties": {"b": {"type": "string"}}}}}, ["$.a.b: expected string, got integer"]),
-        (5, {"anyOf": [{"type": "string"}, {"type": "integer"}]}, []),
-        (5.5, {"anyOf": [{"type": "string"}, {"type": "integer"}]}, ["$: matches none of the allowed shapes"]),
-        (5, {"oneOf": [{"type": "integer"}, {"type": "number"}]}, ["$: must match exactly one of the allowed shapes"]),
-        (5, {"allOf": [{"type": "integer"}, {"minimum": 9}]}, ["$: must be at least 9"]),
-    ],
-)
-def test_the_validator_reports_what_is_wrong(value, schema, expected):
-    assert validate(value, schema) == expected
+WITH_OPTIONAL = {
+    "type": "object",
+    "properties": {"title": {"type": "string"}, "subtitle": {"type": "string"}},
+    "required": ["title"],
+}
+NAMED_TOOLS = frozenset({"auto", "named"})
 
 
-def test_references_resolve_against_the_document_root():
-    schema = {"type": "array", "items": {"$ref": "#/$defs/n"}, "$defs": {"n": {"type": "integer"}}}
-    assert validate([1, 2], schema) == []
-    assert validate([1, "x"], schema) == ["$[1]: expected integer, got string"]
+def test_a_native_plan_hands_the_adapter_a_strict_compatible_schema():
+    plan = plan_structured("", settings(WITH_OPTIONAL), profile(StructuredOutputMode.NATIVE))
+    wire = plan.settings.response_schema
+    assert wire == {
+        "type": "object",
+        "properties": {"title": {"type": "string"}, "subtitle": {"type": ["string", "null"]}},
+        "required": ["title", "subtitle"],
+        "additionalProperties": False,
+    }
+    assert plan.strict is True
+    assert plan.schema == WITH_OPTIONAL
 
 
-def test_recursive_references_follow_the_data_and_loops_without_data_are_refused():
-    tree = {"type": "object", "properties": {"kids": {"type": "array", "items": {"$ref": "#"}}}, "required": ["kids"]}
-    assert validate({"kids": [{"kids": []}]}, tree) == []
-    assert validate({"kids": [{}]}, tree) == ["$.kids[0]: missing required property 'kids'"]
-    with pytest.raises(ValueError):
-        validate(1, {"$ref": "#/a", "a": {"$ref": "#/a"}})
-    with pytest.raises(ValueError):
-        validate(1, {"$ref": "https://example.com/schema"})
+def test_a_wrapped_native_schema_is_strict_all_the_way_down():
+    plan = plan_structured("", settings({"type": "array", "items": WITH_OPTIONAL}), profile(StructuredOutputMode.NATIVE))
+    wire = plan.settings.response_schema
+    assert wire["additionalProperties"] is False and wire["required"] == ["value"]
+    item = wire["properties"]["value"]["items"]
+    assert item["additionalProperties"] is False and item["required"] == ["title", "subtitle"]
+
+
+def test_a_prompted_plan_keeps_the_original_schema_and_is_not_strict():
+    plan = plan_structured("", settings(WITH_OPTIONAL), profile(StructuredOutputMode.PROMPTED))
+    assert plan.strict is False
+    assert '"required":["title"]' in plan.system
+    assert '"null"' not in plan.system
+
+
+def test_the_result_tool_is_strict_only_when_the_profile_has_strict_tools():
+    loose = plan_structured("", settings(WITH_OPTIONAL), profile(StructuredOutputMode.TOOL, tool_choice=NAMED_TOOLS))
+    assert loose.strict is False
+    assert loose.tools[0].parameters == WITH_OPTIONAL
+    strict = plan_structured(
+        "", settings(WITH_OPTIONAL), profile(StructuredOutputMode.TOOL, tool_choice=NAMED_TOOLS, strict_tools=True),
+    )
+    assert strict.strict is True
+    assert strict.tools[0].parameters["required"] == ["title", "subtitle"]
+
+
+async def test_a_native_reply_with_nulls_for_the_optional_fields_parses_to_the_original_shape():
+    adapter = ScriptedAdapter(text_step('{"title": "Cats", "subtitle": null}'))
+    wanted = profile(StructuredOutputMode.NATIVE)
+    result = await run_structured(
+        scripted_complete(adapter, wanted), system="", messages=[user()], settings=settings(WITH_OPTIONAL), profile=wanted,
+    )
+    assert result.value == {"title": "Cats"}
+    assert result.repaired is False
+    assert adapter.requests[0].settings.response_schema["required"] == ["title", "subtitle"]
+
+
+async def test_a_strict_tool_reply_with_nulls_parses_to_the_original_shape():
+    adapter = ScriptedAdapter(
+        tool_step({"id": "t1", "name": STRUCTURED_TOOL_NAME, "args": {"title": "Cats", "subtitle": None}}),
+    )
+    wanted = profile(StructuredOutputMode.TOOL, tool_choice=NAMED_TOOLS, strict_tools=True)
+    result = await run_structured(
+        scripted_complete(adapter, wanted), system="", messages=[user()], settings=settings(WITH_OPTIONAL), profile=wanted,
+    )
+    assert result.value == {"title": "Cats"}
+
+
+async def test_a_null_in_a_required_field_still_triggers_the_repair():
+    adapter = ScriptedAdapter(text_step('{"title": null, "subtitle": null}'), text_step('{"title": "Cats", "subtitle": null}'))
+    wanted = profile(StructuredOutputMode.NATIVE)
+    result = await run_structured(
+        scripted_complete(adapter, wanted), system="", messages=[user()], settings=settings(WITH_OPTIONAL), profile=wanted,
+    )
+    assert result.repaired is True and result.value == {"title": "Cats"}
+    assert "$.title: expected string, got null" in adapter.requests[1].messages[-1].text()
