@@ -118,6 +118,10 @@ report = {
             t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
         ),
     },
+    "turn_store_wiring": {
+        "engine_uses_the_container_store": c.turn_engine._store is c.turn_store,
+        "store_is_the_durable_one": type(c.turn_store).__name__ == "SqliteTurnStore",
+    },
     "detected_tags_wired": any(
         pid == "organize_engine"
         for pid, _ in c.plugin_registry.hook_chain._handlers.get("media_index.after_tags_written", [])
@@ -237,6 +241,9 @@ def test_the_digest_pool_is_wired_to_the_scanner_and_the_coordinator(report):
 def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):
     assert [k for k, v in report["tab_draft_wiring"].items() if not v] == []
 
+
+def test_chat_turns_are_stored_durably_by_the_one_container_store(report):
+    assert [k for k, v in report["turn_store_wiring"].items() if not v] == []
 
 def test_organize_listens_to_the_tags_the_media_indexer_announces(report):
     assert report["detected_tags_wired"] is True

@@ -27,6 +27,7 @@ def _message_to_dto(message: ChatMessage) -> MessageResponse:
         completion_tokens=metadata.get('completion_tokens'),
         tool_executions=metadata.get('tool_executions'),
         metadata=message.metadata,
+        turn_id=message.turn_id,
     )
 
 
@@ -179,11 +180,11 @@ class ChatMessageRepository:
             with get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO chat_messages
-                    (id, session_id, role, content, parsed_content, metadata, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, session_id, role, content, parsed_content, metadata, created_at, turn_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     message.id, message.session_id, message.role, message.content,
-                    parsed_content_json, metadata_json, now.isoformat()
+                    parsed_content_json, metadata_json, now.isoformat(), message.turn_id
                 ))
             return _message_to_dto(message)
         except Exception:
@@ -537,7 +538,8 @@ class ChatRepository:
         role: str,
         content: str,
         parsed_content: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        turn_id: Optional[str] = None
     ) -> Optional[MessageResponse]:
         """Add a message to a session"""
         if not self.session_repo.exists(session_id):
@@ -549,7 +551,8 @@ class ChatRepository:
             role=role,
             content=content,
             parsed_content=parsed_content,
-            metadata=metadata
+            metadata=metadata,
+            turn_id=turn_id
         )
 
         return self.message_repo.create(message)
