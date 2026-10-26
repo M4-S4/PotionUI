@@ -130,6 +130,30 @@ export interface SetupRecipe {
 	/** When set, a run of this recipe has already completed — the catalog
 	 * renders it as "Installed" with a "Run again" action instead of "Start". */
 	last_completed_at: string | null;
+	blurb: string | null;
+	min_vram_gb: number | null;
+	recommended_vram_gb: number | null;
+	sources: string[];
+	first_run: boolean;
+}
+
+export interface SetupMachineGpu {
+	name: string;
+	vram_bytes: number;
+	compute_capability: string | null;
+	supported: boolean;
+}
+
+export interface SetupMachineDisk {
+	path: string;
+	free_bytes: number;
+	total_bytes: number;
+}
+
+export interface SetupMachine {
+	gpu: SetupMachineGpu | null;
+	ram_total_bytes: number | null;
+	models_disk: SetupMachineDisk | null;
 }
 
 /** An artifact a paused-for-consent step wants to download, as surfaced in
@@ -255,6 +279,11 @@ export function createSetupApi(client: AxiosInstance) {
 		/** The catalog of recipes a guided setup run can be started from. */
 		async getSetupRecipes(): Promise<{ recipes: SetupRecipe[] }> {
 			const response = await client.get('/api/setup/recipes');
+			return response.data;
+		},
+
+		async getSetupMachine(): Promise<SetupMachine> {
+			const response = await client.get('/api/setup/machine');
 			return response.data;
 		},
 

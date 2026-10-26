@@ -149,6 +149,9 @@ export type {
 	SetupRunStepView,
 	SetupRun,
 	SetupRecipe,
+	SetupMachine,
+	SetupMachineGpu,
+	SetupMachineDisk,
 	SetupConsentArtifact,
 	SetupConsentRequest
 } from './setup';

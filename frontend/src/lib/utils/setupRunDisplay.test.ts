@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+	consentKindLabel,
+	runProgressPercent,
 	smokeResultMedia,
 	isRunTerminal,
 	shouldPollRun,
@@ -898,5 +900,33 @@ describe('smokeResultMedia', () => {
 		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'song.wav' } }))?.kind).toBe('audio');
 		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'mesh.glb' } }))?.kind).toBe('mesh');
 		expect(smokeResultMedia(attempt({ safe_output: { generation_id: 'g1', filename: 'notes.txt' } }))?.kind).toBe('other');
+	});
+});
+
+describe('consentKindLabel', () => {
+	it('uses plain labels for model kinds', () => {
+		expect(consentKindLabel('diffusion_model')).toBe('Image model');
+		expect(consentKindLabel('text_encoder')).toBe('Prompt reader');
+		expect(consentKindLabel('vae')).toBe('Image decoder');
+	});
+
+	it('falls back to a readable form of an unknown kind and empty for none', () => {
+		expect(consentKindLabel('upscale_model')).toBe(humanizeStepKey('upscale_model'));
+		expect(consentKindLabel('')).toBe('');
+	});
+});
+
+describe('runProgressPercent', () => {
+	const group = (status: string) =>
+		({ stepKey: status, title: '', kind: '', ordinal: 0, status, latest: null, attempts: [] }) as any;
+
+	it('is the share of succeeded steps', () => {
+		expect(runProgressPercent({ groups: [], hasManifest: true })).toBe(0);
+		expect(
+			runProgressPercent({
+				groups: [group('succeeded'), group('succeeded'), group('running'), group('pending')],
+				hasManifest: true
+			})
+		).toBe(50);
 	});
 });

@@ -237,5 +237,5 @@ export async function listModelLayouts(): Promise<ModelLayoutSummary[]> {
 }
 
 export function serverPathPlaceholder(pathStyle: 'windows' | 'posix' | undefined): string {
-	return pathStyle === 'windows' ? 'D:\\ComfyUI\\models' : '/mnt/storage/ComfyUI/models';
+	return pathStyle === 'windows' ? 'D:\\models' : '/mnt/storage/models';
 }

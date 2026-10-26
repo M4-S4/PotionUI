@@ -22,8 +22,15 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 
 	try {
 		await page.goto('/');
-		await expect(page.getByRole('heading', { name: 'Create the owner account' })).toBeVisible({ timeout: 20000 });
-		await screenshot(page, JOURNEY, '01-claim-owner');
+		await expect(page.getByRole('heading', { name: 'A local studio for AI images and video' })).toBeVisible({
+			timeout: 20000
+		});
+		await screenshot(page, JOURNEY, '01-welcome');
+		await page.getByRole('button', { name: 'Get started' }).click();
+
+		await expect(page.getByRole('heading', { name: 'Create your owner account' })).toBeVisible();
+		await expect(page.getByText('This account lives only on this computer.')).toBeVisible();
+		await screenshot(page, JOURNEY, '02-claim-owner');
 
 		await page.locator('#username').fill('fresh-owner');
 		await page.locator('#email').fill('fresh-owner@example.com');
@@ -31,52 +38,55 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 		await page.locator('#confirmPassword').fill(PASSWORD);
 		await page.getByRole('button', { name: 'Create owner account' }).click();
 
-		await page.waitForURL(/\/setup/, { timeout: 20000 });
-		await expect(page.getByRole('heading', { name: 'Models location' })).toBeVisible({ timeout: 20000 });
-		await screenshot(page, JOURNEY, '02-models-location');
+		await page.waitForURL(/\/setup$/, { timeout: 20000 });
+		await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 20000 });
+		await expect(page.getByRole('button', { name: 'Skip the guide, go to the app' })).toBeVisible();
+		await screenshot(page, JOURNEY, '03-computer');
+		await page.getByRole('button', { name: 'Continue' }).click();
 
-		await page.getByRole('button', { name: 'Skip' }).click();
+		await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
+		await expect(page.getByRole('radio', { name: /Start fresh/ })).toHaveAttribute('aria-checked', 'true');
+		await screenshot(page, JOURNEY, '04-models-location');
+		await page.getByRole('button', { name: 'Continue' }).click();
+
+		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible({ timeout: 20000 });
 		await expect(page.getByText(RECIPE_NAME)).toBeVisible({ timeout: 20000 });
-		await screenshot(page, JOURNEY, '03-recipe-list');
+		await screenshot(page, JOURNEY, '05-starter');
 
-		const card = page.locator('div').filter({ hasText: RECIPE_NAME }).filter({ has: page.getByRole('button', { name: 'Start' }) }).last();
-		await card.getByRole('button', { name: 'Start' }).click();
-		await expect(page.getByText('Guided setup', { exact: true })).toBeVisible({ timeout: 20000 });
-		await screenshot(page, JOURNEY, '04-run-started');
-
-		const step = (title: string) =>
-			page
-				.locator('div')
-				.filter({ has: page.getByText(title, { exact: true }) })
-				.filter({ hasText: /Done|Couldn't finish|Needs your go-ahead|Working on it|Not started yet/ })
-				.last();
-
-		await expect(step('Enable required plugins').getByText('Done', { exact: true })).toBeVisible({ timeout: 60000 });
+		await page.getByRole('radio', { name: new RegExp(RECIPE_NAME) }).click();
+		await page.getByRole('button', { name: /^Review( .+)? download$/ }).click();
+		await expect(page.getByRole('heading', { name: 'Review the download' })).toBeVisible({ timeout: 60000 });
 		await expect(page.getByText("Couldn't finish")).toHaveCount(0);
-		await expect(page.getByText('Plan required downloads wants to download')).toBeVisible({ timeout: 60000 });
-		await screenshot(page, JOURNEY, '05-consent');
+		await expect(page.getByText(/wants to download the following/)).toBeVisible({ timeout: 60000 });
+		await expect(page.getByText(/Downloads come from Hugging Face \(huggingface\.co\)/)).toBeVisible();
+		const tokenDisclosure = page.locator('details', { hasText: /Add a token \(optional\)/ });
+		await expect(tokenDisclosure).toBeVisible();
+		await expect(tokenDisclosure).not.toHaveJSProperty('open', true);
+		await screenshot(page, JOURNEY, '06-consent');
+		await tokenDisclosure.locator('summary').click();
+		await expect(tokenDisclosure.getByRole('button', { name: 'Save' })).toBeDisabled();
+		await expect(tokenDisclosure.getByText('Needed for gated models.')).toBeVisible();
+		await screenshot(page, JOURNEY, '07-consent-token');
 		await page.getByRole('button', { name: 'Approve and download' }).click();
 
-		await expect(step('Download the Flux2 model files').getByText('Done', { exact: true })).toBeVisible({ timeout: 120000 });
-		await screenshot(page, JOURNEY, '06-downloaded');
-		await expect(step('Register downloaded models').getByText('Done', { exact: true })).toBeVisible({ timeout: 120000 });
-		await expect(step('Install and assign the Flux2 preset').getByText('Done', { exact: true })).toBeVisible({ timeout: 120000 });
-		await expect(page.getByText("Couldn't finish")).toHaveCount(0);
-		await expect(page.getByText("You're all set")).toBeVisible({ timeout: 30000 });
-		await screenshot(page, JOURNEY, '07-completed');
+		await expect(page.getByRole('heading', { name: "You're all set" })).toBeVisible({ timeout: 240000 });
+		await expect(page.getByText("Setup couldn't finish")).toHaveCount(0);
+		await expect(page.getByRole('button', { name: 'Create your first image' })).toBeVisible();
+		await screenshot(page, JOURNEY, '08-ready');
 
+		await page.getByText('Readiness checks', { exact: true }).click();
 		await page.getByRole('button', { name: 'Refresh' }).click();
 		const presetsCheck = page.locator('div').filter({ has: page.getByRole('heading', { name: 'Presets & models' }) }).last();
 		await expect(presetsCheck.getByText('ready', { exact: true })).toBeVisible({ timeout: 30000 });
-		await screenshot(page, JOURNEY, '08-presets-ready');
+		await screenshot(page, JOURNEY, '09-presets-ready');
 
 		await page.goto('/generate');
 		await page.getByRole('button', { name: 'Choose a preset' }).click();
 		await expect(page.getByText('Flux2', { exact: false }).first()).toBeVisible({ timeout: 15000 });
-		await screenshot(page, JOURNEY, '09-generate');
+		await screenshot(page, JOURNEY, '10-generate');
 
 		await page.setViewportSize({ width: 390, height: 844 });
-		await screenshot(page, JOURNEY, '10-completed-390');
+		await screenshot(page, JOURNEY, '11-completed-390');
 	} finally {
 		const path = shotPath(JOURNEY, 'api-calls').replace(/\.png$/, '.txt');
 		mkdirSync(dirname(path), { recursive: true });

@@ -388,6 +388,25 @@ export function runManifestProgressSummary(resolved: ResolvedStepGroups): string
 	return parts.join(', ');
 }
 
+const CONSENT_KIND_LABELS: Record<string, string> = {
+	diffusion_model: 'Image model',
+	checkpoint: 'Image model',
+	text_encoder: 'Prompt reader',
+	vae: 'Image decoder'
+};
+
+export function consentKindLabel(kind: string): string {
+	if (CONSENT_KIND_LABELS[kind]) return CONSENT_KIND_LABELS[kind];
+	return kind ? humanizeStepKey(kind) : '';
+}
+
+export function runProgressPercent(resolved: ResolvedStepGroups): number {
+	const { groups } = resolved;
+	if (groups.length === 0) return 0;
+	const succeeded = groups.filter((g) => g.status === 'succeeded').length;
+	return Math.round((succeeded / groups.length) * 100);
+}
+
 /**
  * A step-progress detail line from an attempt's raw progress fields (e.g.
  * "512 KB of 6.5 GB" for a download in flight, "3 of 12" for a countable
