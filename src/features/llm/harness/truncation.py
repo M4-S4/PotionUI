@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Optional
 
 from src.features.llm.harness.adapter import Settings
-from src.features.llm.harness.errors import HarnessError
+from src.features.llm.harness.errors import OutputTruncated
 from src.features.llm.harness.events import FinishReason
 from src.features.llm.harness.messages import Message
 from src.features.llm.harness.profile import CapabilityProfile
@@ -11,10 +11,6 @@ from src.features.llm.harness.turn_state import Notice, NoticeKind
 
 MAX_TRUNCATION_RETRIES = 1
 TRUNCATION_GROWTH = 4
-
-
-class OutputTruncated(HarnessError):
-    kind = "output_truncated"
 
 
 class TruncationAction(StrEnum):

@@ -49,7 +49,7 @@ def effective_tool_choice(settings: Settings, profile: CapabilityProfile) -> Too
     return ToolChoiceDecision(
         ToolChoice(AUTO) if AUTO in allowed else None,
         notice=Notice(
-            kind=NoticeKind.DEGRADED_RETRY,
+            kind=NoticeKind.TOOL_CHOICE_DOWNGRADED,
             message=_message(choice, thinking, profile),
             detail={
                 "reason": "tool_choice_unsupported",

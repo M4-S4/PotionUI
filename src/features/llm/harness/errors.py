@@ -95,6 +95,14 @@ class MalformedStream(HarnessError):
     kind = "malformed_stream"
 
 
+class OutputTruncated(HarnessError):
+    kind = "output_truncated"
+
+
+class StructuredOutputFailed(HarnessError):
+    kind = "structured_output_invalid"
+
+
 ERROR_KINDS: Dict[str, Type[HarnessError]] = {
     cls.kind: cls
     for cls in (
@@ -109,6 +117,8 @@ ERROR_KINDS: Dict[str, Type[HarnessError]] = {
         InvalidRequest,
         OpaqueViolation,
         MalformedStream,
+        OutputTruncated,
+        StructuredOutputFailed,
     )
 }
 

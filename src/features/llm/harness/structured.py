@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Awaitable, Callable, Dict, Mapping, Optional, Sequence, Tuple
 
 from src.features.llm.harness.adapter import Settings, ToolChoice, ToolSpec
-from src.features.llm.harness.errors import HarnessError
+from src.features.llm.harness.errors import StructuredOutputFailed
 from src.features.llm.harness.json_schema import DEFINITION_KEYS, prune_nulls, strict_schema, validate
 from src.features.llm.harness.messages import Message, Role, TextPart, ToolResultPart
 from src.features.llm.harness.profile import CapabilityProfile, StructuredOutputMode
@@ -19,10 +19,6 @@ Complete = Callable[[str, Tuple[Message, ...], Settings, Tuple[ToolSpec, ...]], 
 
 FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 OPENER = re.compile(r"[\[{]")
-
-
-class StructuredOutputFailed(HarnessError):
-    kind = "structured_output_invalid"
 
 
 @dataclass(frozen=True)
@@ -87,7 +83,7 @@ def plan_structured(system: str, settings: Settings, profile: CapabilityProfile)
         if not profile.tools or granted != forced:
             mode = StructuredOutputMode.PROMPTED
             notices = (Notice(
-                kind=NoticeKind.DEGRADED_RETRY,
+                kind=NoticeKind.STRUCTURED_FALLBACK,
                 message="This model cannot return structured output through a tool call, so the format is requested in the prompt instead.",
                 detail={"reason": "structured_output_fallback", "requested": "tool", "used": "prompted"},
             ),)
@@ -207,7 +203,7 @@ async def run_structured(
         return StructuredResult(parsed.value, reply, plan.mode, False, plan.notices)
     history += repair_messages(reply, parsed.errors, plan)
     repair = Notice(
-        kind=NoticeKind.DEGRADED_RETRY,
+        kind=NoticeKind.STRUCTURED_REPAIRED,
         message="The reply did not match the requested format, so the model was asked again.",
         detail={"reason": "structured_output_repair", "errors": list(parsed.errors)},
     )

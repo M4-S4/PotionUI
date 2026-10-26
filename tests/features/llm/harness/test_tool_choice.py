@@ -35,7 +35,7 @@ def test_forcing_a_tool_the_profile_bans_falls_back_to_auto_with_a_notice():
     decision = effective_tool_choice(asking("required"), profile(tool_choice=frozenset({"auto"}), reasoning=ReasoningKind.NONE))
     assert decision.choice == ToolChoice("auto")
     assert decision.drop_tools is False
-    assert decision.notice.kind is NoticeKind.DEGRADED_RETRY
+    assert decision.notice.kind is NoticeKind.TOOL_CHOICE_DOWNGRADED
     assert decision.notice.detail["reason"] == "tool_choice_unsupported"
     assert decision.notice.detail["requested"] == "required"
 

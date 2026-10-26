@@ -3,11 +3,11 @@ from dataclasses import replace
 import pytest
 
 from src.features.llm.harness.adapter import Settings, ToolChoice
+from src.features.llm.harness.errors import StructuredOutputFailed
 from src.features.llm.harness.messages import Role, TextPart, message
 from src.features.llm.harness.profile import ReasoningKind, StructuredOutputMode
 from src.features.llm.harness.structured import (
     STRUCTURED_TOOL_NAME,
-    StructuredOutputFailed,
     extract_json,
     plan_structured,
     run_structured,
@@ -76,7 +76,7 @@ def test_a_tool_profile_that_cannot_force_a_tool_falls_back_to_prompting_with_a_
     assert plan.mode is StructuredOutputMode.PROMPTED
     assert plan.tools == ()
     (notice,) = plan.notices
-    assert notice.kind is NoticeKind.DEGRADED_RETRY
+    assert notice.kind is NoticeKind.STRUCTURED_FALLBACK
     assert notice.detail["reason"] == "structured_output_fallback"
     assert "Schema:" in plan.system
 
@@ -158,7 +158,8 @@ async def test_an_invalid_reply_gets_exactly_one_repair_attempt():
     )
     assert result.value == {"title": "Cats"}
     assert result.repaired is True
-    assert result.notices[-1].detail["reason"] == "structured_output_repair"
+    assert result.notices[-1].kind is NoticeKind.STRUCTURED_REPAIRED
+    assert result.notices[-1].detail["errors"] == ["$.title: expected string, got integer"]
     sent = adapter.requests[1].messages
     assert [item.role for item in sent] == [Role.USER, Role.ASSISTANT, Role.USER]
     assert "$.title: expected string, got integer" in sent[-1].text()
