@@ -25,6 +25,7 @@ import {
 	isRecoveryStillCurrent,
 	findTurnAssistantMessage,
 	applyDurableRecovery,
+	applyStepDiscarded,
 	settleUnrecoverable,
 	needsDurableRecovery,
 	mapPersistedMessage,
@@ -368,14 +369,16 @@ export function createStreamEventHandler(
 			stepEpoch += 1;
 			owned.applyStreamEvent(event);
 		} else if (event.type === 'step_discarded') {
-			if (owned.applyStreamEvent(event)) {
-				const kept = get(d.store).messages.at(-1);
+			owned.updateMessages((msgs) => {
+				const next = applyStepDiscarded(msgs);
+				const kept = next.at(-1);
 				const keptBlocks = kept?.reasoning?.length ?? 0;
 				streamedContent = kept?.content ?? '';
 				for (const [key, index] of reasoningIndex) if (index >= keptBlocks) reasoningIndex.delete(key);
 				reasoningBlock = keptBlocks;
 				reasoningText = '';
-			}
+				return next;
+			});
 		} else if (event.type === 'notice') {
 			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'tool_start') {

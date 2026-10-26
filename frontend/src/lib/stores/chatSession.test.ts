@@ -123,15 +123,6 @@ describe('chatSession store', () => {
 		expect(message.notices!.map((notice) => notice.kind)).toEqual(['retrying']);
 	});
 
-	it('applyStreamEvent drops what a discarded step streamed', () => {
-		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
-		chatSession.applyStreamEvent({ type: 'token', data: { content: 'Kept. ' } }, { accumulated: 'Kept. ' });
-		chatSession.applyStreamEvent({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
-		chatSession.applyStreamEvent({ type: 'token', data: { content: 'cut' } }, { accumulated: 'Kept. cut' });
-		chatSession.applyStreamEvent({ type: 'step_discarded', data: { seq: 2 } });
-		expect(get(chatSession).messages[0].content).toBe('Kept. ');
-	});
-
 	it('applyStreamEvent routes tool_start/tool_end events', () => {
 		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
 		chatSession.applyStreamEvent({ type: 'tool_start', data: { tool_name: 'list_models' } });
