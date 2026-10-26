@@ -43,7 +43,7 @@
   },
   "usage": {
     "input_tokens": 498,
-    "output_tokens": 29,
+    "output_tokens": 47,
     "total_tokens": 545,
     "reasoning_tokens": 18,
     "cached_input_tokens": 256,

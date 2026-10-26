@@ -36,6 +36,12 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "prompt_tokens": row["prompt_tokens"],
         "completion_tokens": row["completion_tokens"],
         "duration_ms": row["duration_ms"],
+        "adapter": row["adapter"],
+        "request_body": json_column(row["request_body"]),
+        "response_raw": row["response_raw"],
+        "usage": json_column(row["usage"]),
+        "cost": row["cost"],
+        "error": json_column(row["error"]),
         "created_at": dt_iso(row["created_at"]),
     }
 
@@ -61,8 +67,13 @@ class ChatCallTraceRepository:
         prompt_tokens: Optional[int],
         completion_tokens: Optional[int],
         duration_ms: int,
+        adapter: Optional[str] = None,
+        request_body: Optional[Any] = None,
+        response_raw: Optional[str] = None,
+        usage: Optional[Dict[str, Any]] = None,
+        cost: Optional[float] = None,
+        error: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Insert one call trace row. Returns the new row id."""
         trace_id = generate_ulid()
         with get_cursor() as cursor:
             cursor.execute("""
@@ -71,14 +82,16 @@ class ChatCallTraceRepository:
                     provider, model, request_system, request_messages,
                     request_params, request_tools, response_text,
                     response_tool_calls, prompt_tokens, completion_tokens,
-                    duration_ms, created_at
-                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    duration_ms, adapter, request_body, response_raw,
+                    usage, cost, error, created_at
+                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trace_id, session_id, user_id, purpose, iteration,
                 provider, model, request_system, _dumps(request_messages),
                 _dumps(request_params), _dumps(request_tools), response_text,
                 _dumps(response_tool_calls), prompt_tokens, completion_tokens,
-                duration_ms, now_iso(),
+                duration_ms, adapter, _dumps(request_body), response_raw,
+                _dumps(usage), cost, _dumps(error), now_iso(),
             ))
         return trace_id
 

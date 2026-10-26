@@ -102,7 +102,7 @@
     "type": "usage",
     "usage": {
       "input_tokens": 212,
-      "output_tokens": 61,
+      "output_tokens": 204,
       "total_tokens": 416,
       "reasoning_tokens": 143,
       "cached_input_tokens": 0,

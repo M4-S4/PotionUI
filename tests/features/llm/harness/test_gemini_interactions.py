@@ -570,7 +570,7 @@ class TestDecoder:
     def test_usage_is_reported_before_the_finish_that_carries_the_assembled_steps(self):
         events = decode(TOOL_STREAM)
         assert events[-2] == UsageReported(Usage(
-            input_tokens=100, output_tokens=20, total_tokens=150, reasoning_tokens=30, cached_input_tokens=64,
+            input_tokens=100, output_tokens=50, total_tokens=150, reasoning_tokens=30, cached_input_tokens=64,
             raw={"total_input_tokens": 100, "total_output_tokens": 20, "total_thought_tokens": 30,
                  "total_cached_tokens": 64, "total_tokens": 150},
         ))
@@ -661,6 +661,15 @@ class TestDecoder:
         ))
         assert events[-2].usage.input_tokens == 5
         assert events[-2].usage.output_tokens == 1
+
+    def test_thought_tokens_are_folded_into_the_output_count_and_kept_as_the_reasoning_subset(self):
+        usage = gemini.usage_from({"total_input_tokens": 10, "total_output_tokens": 4, "total_thought_tokens": 6})
+
+        assert (usage.output_tokens, usage.reasoning_tokens) == (10, 6)
+
+    def test_an_unreported_output_count_stays_unknown_even_with_thought_tokens(self):
+        assert gemini.usage_from({"total_input_tokens": 10, "total_thought_tokens": 6}).output_tokens is None
+        assert gemini.usage_from({"total_output_tokens": 4}).output_tokens == 4
 
     def test_no_usage_means_no_usage_event(self):
         assert not any(isinstance(e, UsageReported) for e in decode(stream(completed())))

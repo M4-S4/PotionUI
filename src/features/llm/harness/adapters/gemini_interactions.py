@@ -302,9 +302,10 @@ def tool_declaration(spec: ToolSpec) -> Dict[str, Any]:
 
 
 def usage_from(raw: Mapping[str, Any]) -> Usage:
+    output = raw.get("total_output_tokens")
     return Usage(
         input_tokens=raw.get("total_input_tokens"),
-        output_tokens=raw.get("total_output_tokens"),
+        output_tokens=None if output is None else output + (raw.get("total_thought_tokens") or 0),
         total_tokens=raw.get("total_tokens"),
         reasoning_tokens=raw.get("total_thought_tokens"),
         cached_input_tokens=raw.get("total_cached_tokens"),
