@@ -54,6 +54,8 @@ from src.features.llm.harness.messages import (
 )
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
 from src.features.llm.repository import LLMConfig
+from tests.features.llm.harness.wire_peer import chunked as peer_chunks
+from tests.features.llm.harness.wire_peer import install_peer
 from tests.fixtures.llm_harness import assemble, decode_chunks
 
 SIGNATURE = "EpoGCpcGAXLI2nx/sig-one"
@@ -799,6 +801,43 @@ class TestClassifyError:
     def test_detail_keeps_the_body(self):
         error = self.classify(500, {"error": {"code": "api_error", "message": "boom"}})
         assert "boom" in error.detail["body"]
+
+
+class TestSend:
+    async def collect(self, req: RenderRequest) -> list:
+        adapter = GeminiInteractionsAdapter()
+        wire = adapter.render(req, profile(**THINKING))
+        return [chunk async for chunk in adapter.send(wire, req)]
+
+    async def test_request_goes_out_with_the_key_header_and_the_rendered_bytes(self, monkeypatch):
+        peer = install_peer(monkeypatch, peer_chunks(TOOL_STREAM))
+        req = request([user("lights and music")], tools=[LIGHT_TOOL, MUSIC_TOOL])
+        received = await self.collect(req)
+        sent = peer.requests[0]
+        wire = GeminiInteractionsAdapter().render(req, profile(**THINKING))
+        assert str(sent.url) == "https://generativelanguage.googleapis.com/v1beta/interactions"
+        assert sent.method == "POST"
+        assert sent.headers["x-goog-api-key"] == "test-key"
+        assert sent.headers["content-type"] == "application/json"
+        assert sent.content == wire.content()
+        assert decode_chunks(gemini.GeminiDecoder(), received) == decode(TOOL_STREAM)
+
+    async def test_resource_exhausted_reaches_the_caller_as_a_rate_limit_with_the_delay(self, monkeypatch):
+        body = classic(
+            429, "RESOURCE_EXHAUSTED", "You exceeded your current quota",
+            quota_detail("GenerateRequestsPerMinutePerProjectPerModel"),
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "12s"},
+        )
+        install_peer(monkeypatch, peer_chunks([json.dumps(body).encode()], status=429))
+        with pytest.raises(RateLimited) as caught:
+            await self.collect(request([user()]))
+        assert caught.value.retry_after == 12.0
+
+    async def test_missing_signature_rejection_reaches_the_caller_as_an_opaque_violation(self, monkeypatch):
+        body = classic(400, "INVALID_ARGUMENT", "Function call is missing a thought_signature in functionCall parts.")
+        install_peer(monkeypatch, peer_chunks([json.dumps(body).encode()], status=400))
+        with pytest.raises(OpaqueViolation):
+            await self.collect(request([user()]))
 
 
 class TestDiscovery:
