@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 DISCOVERY_HIT_TTL_SECONDS = 3600.0
 DISCOVERY_MISS_TTL_SECONDS = 300.0
 DISCOVERY_TIMEOUT_SECONDS = 10.0
+NOT_DISCOVERABLE = frozenset({"context_request"})
 
 DiscoveryKey = Tuple[str, str, str]
 
@@ -147,6 +148,10 @@ class LayeredProfileResolver:
             logger.debug("[LayeredProfileResolver] discovery failed for '%s'", config.id, exc_info=True)
             return {}, _failure_message(exc)
         fields = dict(layer.fields)
+        forbidden = sorted(NOT_DISCOVERABLE & set(fields))
+        if forbidden:
+            logger.warning("[LayeredProfileResolver] '%s' tried to discover %s", adapter.name, forbidden)
+            return {}, f"The {adapter.name} adapter returned an invalid profile: discovery cannot set {forbidden}"
         try:
             CapabilityProfile(adapter=adapter.name, model=config.model).layered(
                 [ProfileLayer(ProfileSource.DISCOVERED, fields)]

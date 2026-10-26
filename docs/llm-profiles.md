@@ -56,7 +56,8 @@ The script only rewrites the `catalog` key; everything above it is kept byte for
 
 | Field | Meaning |
 |---|---|
-| `context_window`, `max_output_tokens` | Token limits. `null` means unknown. |
+| `context_window`, `max_output_tokens` | Token limits used for budgeting. `null` means unknown. |
+| `context_request` | The context size to request from servers that allocate it per request (Ollama `num_ctx`). Only an admin override or a seed tier row sets it, never discovery: the trained maximum an Ollama server reports would otherwise be allocated as a KV cache on a GPU shared with image generation. An adapter that returns it from `discover` has its whole layer rejected. |
 | `tools`, `prompt_tools`, `parallel_tools`, `strict_tools` | Native tool calling, tools rendered into the prompt as XML, several calls per step, strict schemas. |
 | `tool_choice`, `tool_choice_with_reasoning` | Allowed modes (`auto`, `none`, `required`, `named`) without and with reasoning on. Never force a mode that is not listed. |
 | `tool_id_rule` | `passthrough` the wire's ids, `mint` ids (Ollama has none), or `nine_digits`. |
@@ -140,6 +141,15 @@ All admin only.
 | `POST /api/llm/configurations/{id}/profile/refresh` | Runs discovery again and returns the profile. A failed discovery keeps the previous result and reports `discovery_error`. |
 
 Editing the configuration itself never touches its overrides.
+
+## Sampling columns
+
+A configuration's `temperature` and `max_tokens` are optional. `NULL` means the model's
+recommended value (`recommended_sampling`), else nothing is sent. Migration 069 rebuilt
+`llm_configurations` so both columns allow `NULL`, cleared every `temperature` still at the old
+`0.7` default, and moved `provider_options.context_window`, `num_ctx` (Ollama) and
+`force_prompt_tools` into `profile_overrides` (`context_window` and `context_request`,
+`prompt_tools`). `timeout` stays required.
 
 ## Writing an adapter
 

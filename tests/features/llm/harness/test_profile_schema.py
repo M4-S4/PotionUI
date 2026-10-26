@@ -84,6 +84,7 @@ def test_null_marks_a_field_for_clearing():
         ({"adapter": "x"}, "adapter"),
         ({"replay": "sometimes"}, "replay"),
         ({"context_window": 512}, "at least 1024"),
+        ({"context_request": 512}, "at least 1024"),
         ({"context_window": "big"}, "context_window"),
         ({"context_window": 4096.5}, "context_window"),
         ({"context_window": True}, "context_window"),

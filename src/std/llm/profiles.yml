@@ -35,6 +35,7 @@ sources:
 base:
   fields:
     context_window: null
+    context_request: null
     max_output_tokens: null
     tools: true
     prompt_tools: false

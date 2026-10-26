@@ -73,6 +73,7 @@ class CapabilityProfile:
     adapter: str
     model: str
     context_window: Optional[int] = None
+    context_request: Optional[int] = None
     max_output_tokens: Optional[int] = None
     tools: bool = True
     prompt_tools: bool = False

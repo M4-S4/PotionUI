@@ -204,3 +204,44 @@ def test_without_a_resolver_the_routes_say_profiles_are_unavailable(method, path
     assert response.json()["success"] is False
     assert response.json()["error"] == "profiles_unavailable"
     assert harness.repository.writes == []
+
+
+def test_the_recommended_sampling_is_served_in_the_same_per_field_shape_as_every_other_field():
+    from src.features.llm.harness.profile_seed import default_seed
+
+    adapter = ProbeAdapter(name="ollama-chat")
+    resolver = LayeredProfileResolver(adapter_for(adapter), default_seed(), clock=FakeClock())
+    harness = Harness(resolver, adapter)
+    harness.repository.configs["cfg-1"] = make_config(id="cfg-1", model="qwen3.6:27b", type="ollama")
+
+    field = harness.client().get("/api/llm/configurations/cfg-1/profile").json()["data"]["fields"]["recommended_sampling"]
+
+    assert field == {
+        "value": {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0},
+        "source": "seed",
+        "seed": {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0},
+        "discovered": None,
+        "override": None,
+    }
+
+
+def test_an_override_of_the_recommended_sampling_is_reported_as_the_override(harness):
+    response = harness.client().put(
+        "/api/llm/configurations/cfg-1/profile", json={"overrides": {"recommended_sampling": {"temperature": 0.3}}}
+    )
+
+    field = response.json()["data"]["fields"]["recommended_sampling"]
+    assert field["value"] == {"temperature": 0.3} and field["source"] == "override" and field["override"] == {"temperature": 0.3}
+
+
+def test_the_requested_context_size_is_only_ever_an_override(harness):
+    client = harness.client()
+    discovered = client.get("/api/llm/configurations/cfg-1/profile").json()["data"]["fields"]
+    assert discovered["context_window"]["source"] == "discovered"
+    assert discovered["context_request"] == {"value": None, "source": "seed", "seed": None, "discovered": None, "override": None}
+
+    overridden = client.put(
+        "/api/llm/configurations/cfg-1/profile", json={"overrides": {"context_request": 16384}}
+    ).json()["data"]["fields"]["context_request"]
+
+    assert overridden == {"value": 16384, "source": "override", "seed": None, "discovered": None, "override": 16384}

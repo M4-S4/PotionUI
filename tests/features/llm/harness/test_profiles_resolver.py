@@ -321,3 +321,42 @@ def test_an_unsupported_type_surfaces_the_lookup_error():
 
     with pytest.raises(ValueError, match="Unsupported LLM type: nope"):
         resolver.resolve(make_config(type="nope"))
+
+
+def test_a_discovered_window_never_becomes_a_requested_context_size():
+    resolver, _, _ = build(ProbeAdapter(fields={"context_window": 262144}))
+    config = make_config()
+
+    profile = asyncio.run(resolver.refresh(config))
+
+    assert profile.context_window == 262144
+    assert profile.context_request is None
+    assert profile.sources["context_request"] is ProfileSource.SEED
+
+
+def test_an_adapter_that_tries_to_discover_the_requested_size_is_rejected_whole():
+    resolver, _, _ = build(ProbeAdapter(fields={"context_window": 262144, "context_request": 262144}))
+    config = make_config()
+
+    profile = asyncio.run(resolver.refresh(config))
+
+    assert profile.context_window is None and profile.context_request is None
+    assert "cannot set ['context_request']" in resolver.explain(config).discovery_error
+
+
+def test_an_override_sets_the_requested_size_next_to_the_discovered_window():
+    resolver, _, _ = build(ProbeAdapter(fields={"context_window": 262144}))
+    config = make_config(profile_overrides={"context_request": 16384})
+
+    profile = asyncio.run(resolver.refresh(config))
+
+    assert (profile.context_window, profile.context_request) == (262144, 16384)
+    assert profile.sources["context_request"] is ProfileSource.OVERRIDE
+
+
+def test_a_seed_row_may_set_the_requested_size():
+    resolver, _, _ = build(seed=tiny_seed({"id": "tier", "fields": {"context_request": 8192}}))
+
+    profile = resolver.resolve(make_config())
+
+    assert profile.context_request == 8192 and profile.sources["context_request"] is ProfileSource.SEED

@@ -46,6 +46,7 @@ def _values(enum_type: Any) -> Tuple[str, ...]:
 
 PROFILE_FIELDS: Tuple[FieldSpec, ...] = (
     FieldSpec("context_window", "int", "Context window", "context", minimum=1024, nullable=True),
+    FieldSpec("context_request", "int", "Context size to request", "context", minimum=1024, nullable=True),
     FieldSpec("max_output_tokens", "int", "Max output tokens", "context", minimum=1, nullable=True),
     FieldSpec("tools", "bool", "Tool calling", "tools"),
     FieldSpec("prompt_tools", "bool", "Tools rendered into the prompt", "tools"),
