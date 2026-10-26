@@ -19,6 +19,17 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 		if (calls[calls.length - 1] !== line) calls.push(line);
 	};
 	page.on('request', record);
+	await page.route('**/api/setup/machine', (route) =>
+		route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				gpu: { name: 'NVIDIA GeForce RTX 4090', vram_bytes: 25757220864, compute_capability: '8.9', supported: true },
+				ram_total_bytes: 68719476736,
+				models_disk: null
+			})
+		})
+	);
 
 	try {
 		await page.goto('/');
