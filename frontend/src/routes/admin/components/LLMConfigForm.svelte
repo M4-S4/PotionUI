@@ -27,7 +27,6 @@
 	import { coerceProviderOptionText } from './llmProviderOptions';
 	import { baseUrlForType, llmTypeOptions, usesOpenAIOptions } from './llmTypeOptions';
 	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
-	import LLMContextWindow from './llm/LLMContextWindow.svelte';
 
 	/**
 	 * Shared Model / Prompting / Sampling / Capabilities / Ollama Options /
@@ -85,10 +84,6 @@
 			{ value: 'low', label: 'Low' },
 			{ value: 'medium', label: 'Medium' },
 			{ value: 'high', label: 'High' }
-		]},
-		force_prompt_tools: { default: false, type: 'select', label: 'Force Prompt Tools', description: 'Inject tool definitions into system prompt instead of native tool calling. Enable this for models where native tools don\'t work (e.g. Gemma 4).', options: [
-			{ value: false, label: 'Disabled (native)' },
-			{ value: true, label: 'Enabled (prompt injection)' }
 		]}
 	};
 
@@ -390,31 +385,6 @@
 	</div>
 {/snippet}
 
-{#snippet contextWindowInput()}
-	<LLMContextWindow
-		id="{idPrefix}-context-window"
-		type={draft.type}
-		model={draft.model}
-		baseUrl={draft.base_url}
-		apiKey={draft.api_key}
-		configId={apiKeySet ? configId : null}
-		value={draft.provider_options.context_window ?? undefined}
-		onchange={(next) => {
-			delete draft.provider_options.num_ctx;
-			setProviderOption('context_window', next, next === undefined);
-		}}
-	/>
-	{#if draft.type === 'ollama'}
-		<p class="text-xs text-fg-subtle mt-1">A bigger window uses more GPU memory, shared with image generation.</p>
-	{/if}
-{/snippet}
-
-{#snippet contextWindowFields()}
-	{@render field('Context window (tokens)', `${idPrefix}-context-window`, contextWindowInput, {
-		help: 'How many tokens a conversation can hold before it is trimmed. Leave blank to detect.'
-	})}
-{/snippet}
-
 {#snippet capabilityFields()}
 	<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
 		{#if mode === 'create'}
@@ -603,7 +573,6 @@
 	{@render section('Model', true, modelFields)}
 	{@render section('Prompting', false, promptingFields, promptingHeaderExtra)}
 	{@render section('Sampling', false, samplingFields)}
-	{@render section('Context', false, contextWindowFields)}
 	{@render section('Capabilities', false, capabilityFields)}
 	{#if usesOpenAIOptions(draft.type)}
 		{@render section('OpenAI Options', false, openaiFields)}

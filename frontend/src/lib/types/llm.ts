@@ -55,9 +55,6 @@ export interface OllamaOptions {
 	stop?: string[];               // Stop sequences
 
 	think?: boolean | 'low' | 'medium' | 'high';
-
-	// Tool calling
-	force_prompt_tools?: boolean;  // Inject tool schemas into system prompt instead of native tool calling (for models like Gemma 4 where native tools don't work)
 }
 
 /**
@@ -79,8 +76,6 @@ export interface NativeOptions {
 	/** null/unset = the loaded chat template's own default. */
 	thinking?: boolean | null;
 	quantization?: 'none' | 'int8' | 'nf4';
-	/** Context-window capacity (tokens) the budget preflight is told to use — see docs/user/admin.md. */
-	context_window?: number;
 	// Sampling — unset leaves the knob to the model's own generation_config;
 	// see docs/user/admin.md and LLM-E01 for later effectiveness comparisons.
 	top_k?: number;                // Limits token selection to the top K candidates
@@ -160,15 +155,6 @@ export interface DiscoveredLLMModel {
 export interface LLMModelDiscovery {
 	supported: boolean;
 	models: DiscoveredLLMModel[];
-	error: string | null;
-}
-
-export interface LLMContextWindowDiscovery {
-	supported: boolean;
-	detected: number | null;
-	detected_kind: 'runtime' | 'trained' | null;
-	effective: number | null;
-	discovered_at: string | null;
 	error: string | null;
 }
 

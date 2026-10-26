@@ -134,7 +134,7 @@ async function mockLlmApi(page: Page, state: { profile: MockProfile }): Promise<
 			state.profile = { ...state.profile, discovered_at: new Date().toISOString() };
 			return fulfillJson(route, { success: true, data: state.profile });
 		}
-		if (method === 'POST' && (path === '/api/llm/models/discover' || path === '/api/llm/context-window/discover')) {
+		if (method === 'POST' && path === '/api/llm/models/discover') {
 			return fulfillJson(route, { success: true, data: { supported: false, models: [], detected: null, error: null } });
 		}
 		return fulfillJson(route, { success: false, message: `unmocked ${method} ${path}` }, 404);

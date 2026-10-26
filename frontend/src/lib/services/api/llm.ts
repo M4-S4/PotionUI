@@ -2,7 +2,6 @@ import type { AxiosInstance } from 'axios';
 import type { APIResponse } from '$lib/types/api';
 import type {
 	LLMConfig,
-	LLMContextWindowDiscovery,
 	LLMModelDiscovery,
 	LLMProviderType,
 	NativeCheckpoint,
@@ -34,17 +33,6 @@ export function createLlmApi(client: AxiosInstance) {
 			config_id?: string | null;
 		}): Promise<APIResponse<LLMModelDiscovery>> {
 			const response = await client.post('/api/llm/models/discover', request);
-			return response.data;
-		},
-
-		async discoverLLMContextWindow(request: {
-			type: string;
-			base_url: string;
-			api_key?: string | null;
-			config_id?: string | null;
-			model: string;
-		}): Promise<APIResponse<LLMContextWindowDiscovery>> {
-			const response = await client.post('/api/llm/context-window/discover', request);
 			return response.data;
 		},
 

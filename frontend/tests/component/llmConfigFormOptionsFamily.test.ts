@@ -75,3 +75,40 @@ describe('LLMConfigForm — provider option sections by type', () => {
 		expect(await sections('native')).toContain('Native Options');
 	});
 });
+
+describe('LLMConfigForm — settings that live in the capability profile', () => {
+	async function text(type: string): Promise<string> {
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const component = createClassComponent({
+			component: LLMConfigForm as never,
+			target,
+			props: { draft: draft(type), mode: 'edit', layout: 'panel', idPrefix: 'test', configId: 'c1', apiKeySet: true }
+		});
+		destroy = () => {
+			component.$destroy();
+			target.remove();
+		};
+		await settle();
+		return target.textContent ?? '';
+	}
+
+	it.each(['ollama', 'native', 'anthropic', 'openai-compatible'])('has no context window field for %s', async (type) => {
+		const content = await text(type);
+
+		expect(content).not.toContain('Context window');
+		expect(document.querySelector('#test-context-window')).toBeNull();
+	});
+
+	it('has no force-prompt-tools switch among the Ollama options', async () => {
+		const content = await text('ollama');
+
+		expect(content).toContain('Ollama Options');
+		expect(content).not.toContain('Force Prompt Tools');
+		expect(document.querySelector('#test-ollama-force_prompt_tools')).toBeNull();
+	});
+
+	it('keeps the Ollama thinking option', async () => {
+		expect(await text('ollama')).toContain('Thinking Mode');
+	});
+});
