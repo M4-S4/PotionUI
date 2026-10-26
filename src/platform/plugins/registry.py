@@ -155,7 +155,7 @@ _BACKEND_SECTIONS = (
         lambda plugin_id, entry, key, backend: LLMProviderRegistration(
             type_name=key,
             label=entry.get('label') or key,
-            client=backend,
+            adapter=backend,
             default_base_url=entry.get('default_base_url') or "",
             source=plugin_id,
         ),

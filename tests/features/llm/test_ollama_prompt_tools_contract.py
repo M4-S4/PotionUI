@@ -30,6 +30,7 @@ from src.features.llm.tools.builtin.manage_prompts_tool import AddPromptTool
 from src.features.llm.tools.builtin.update_form_settings_tool import UpdateFormSettingsTool
 from src.features.llm import context_budget
 from tests.features.llm.wire_capture import OLLAMA_REPLY, install_wire_capture, json_response, make_config
+from tests.fixtures.llm_engine import client_gateway
 
 
 def _compact(obj) -> str:
@@ -194,7 +195,7 @@ class TestGatewayToolSchemaBudgetControl:
     @pytest.fixture
     def gateway(self):
         from unittest.mock import AsyncMock, Mock
-        gw = LLMGateway(llm_repository=Mock())
+        gw = client_gateway(Mock())
         gw._ollama.generate_with_tools = AsyncMock()
         return gw
 

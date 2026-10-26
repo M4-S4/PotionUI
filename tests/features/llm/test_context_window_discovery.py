@@ -19,6 +19,7 @@ from src.features.llm.model_listing import DiscoveredWindow
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from tests.features.llm.wire_capture import OLLAMA_REPLY, install_wire_capture, json_response, make_config
+from tests.fixtures.llm_engine import client_gateway
 
 SHOW_RUNTIME = {"parameters": "stop   <|im_end|>\nnum_ctx                        6000\ntemperature 0.7"}
 SHOW_TRAINED = {"model_info": {"general.architecture": "qwen3", "qwen3.context_length": 131072}}
@@ -202,7 +203,7 @@ class TestResolveCapacityOrder:
 
 @pytest.fixture
 def gateway():
-    return LLMGateway(llm_repository=Mock())
+    return client_gateway(Mock())
 
 
 async def _tokens():
@@ -253,7 +254,7 @@ class TestGatewayCache:
     async def test_negative_entries_expire_sooner_than_positive_ones(self, gateway, monkeypatch):
         now = [1000.0]
         monkeypatch.setattr(ttl_cache.time, "monotonic", lambda: now[0])
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         miss_probe = stub_probe(gateway, "openai", None)
         hit_probe = stub_probe(gateway, "ollama", window(4096, "runtime"))
         missing = make_config("openai")
@@ -338,7 +339,7 @@ class TestOllamaWire:
 
     async def send(self, monkeypatch, config, show_payload):
         capture = install_wire_capture(monkeypatch, [json_response(show_payload), json_response(self.CHAT_REPLY)])
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         gateway.repository.get_configuration.return_value = config
         await gateway.generate_with_history([{"role": "user", "content": "hi"}], "cfg-1")
         return capture
@@ -369,7 +370,7 @@ class TestOllamaWire:
     @pytest.mark.asyncio
     async def test_budget_for_the_send_uses_the_discovered_window(self, monkeypatch):
         capture = install_wire_capture(monkeypatch, [json_response(SHOW_RUNTIME), json_response(OLLAMA_REPLY)])
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config("ollama", max_tokens=60000)
         gateway.repository.get_configuration.return_value = config
 
@@ -382,7 +383,7 @@ class TestPreflightUsesDiscoveredWindow:
     @pytest.mark.asyncio
     async def test_first_preflight_after_priming_sees_the_discovered_window(self, monkeypatch):
         install_wire_capture(monkeypatch, [json_response(SHOW_RUNTIME)])
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config("ollama")
         gateway.repository.get_configuration.return_value = config
         manager = Mock()
@@ -435,7 +436,7 @@ class TestEndpoint:
         assert TestClient(app, raise_server_exceptions=False).post(URL, json=BODY).status_code == 403
 
     def test_unsupported_type(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         data = admin_app(gateway).post(URL, json={**BODY, "type": "anthropic"}).json()["data"]
 
         assert data == {
@@ -445,7 +446,7 @@ class TestEndpoint:
 
     def test_trained_window_reports_detected_and_capped_effective(self, monkeypatch):
         capture = install_wire_capture(monkeypatch, [json_response(SHOW_TRAINED)])
-        data = admin_app(LLMGateway(llm_repository=Mock())).post(URL, json=BODY).json()["data"]
+        data = admin_app(client_gateway(Mock())).post(URL, json=BODY).json()["data"]
 
         assert set(data) == DATA_KEYS
         assert data["supported"] is True
@@ -458,13 +459,13 @@ class TestEndpoint:
 
     def test_runtime_window_is_effective_as_is(self, monkeypatch):
         install_wire_capture(monkeypatch, [json_response(SHOW_RUNTIME)])
-        data = admin_app(LLMGateway(llm_repository=Mock())).post(URL, json=BODY).json()["data"]
+        data = admin_app(client_gateway(Mock())).post(URL, json=BODY).json()["data"]
 
         assert (data["detected"], data["detected_kind"], data["effective"]) == (6000, "runtime", 6000)
 
     def test_nothing_detected_is_a_plain_error(self, monkeypatch):
         install_wire_capture(monkeypatch, [json_response({}, status=500)])
-        data = admin_app(LLMGateway(llm_repository=Mock())).post(URL, json=BODY).json()["data"]
+        data = admin_app(client_gateway(Mock())).post(URL, json=BODY).json()["data"]
 
         assert set(data) == DATA_KEYS
         assert data["supported"] is True
@@ -495,7 +496,7 @@ class TestEndpoint:
         repository.get_configuration.return_value = (
             SimpleNamespace(type=stored_type, api_key="sk-stored") if stored_type else None
         )
-        resp = admin_app(LLMGateway(llm_repository=Mock()), repository).post(
+        resp = admin_app(client_gateway(Mock()), repository).post(
             URL, json={**BODY, "api_key": typed, "config_id": "c1"},
         )
 

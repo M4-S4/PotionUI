@@ -9,6 +9,7 @@ from src.features.llm.clients.openai import OpenAIClient
 from src.features.llm.gateway import LLMGateway
 from src.platform.plugins.llm_providers import LLMProviderRegistry
 from src.platform.plugins.registry import PluginRegistry
+from tests.fixtures.llm_engine import client_gateway
 
 PLUGIN_ID = "deepseek-provider"
 PACKAGE = "deepseek_provider"
@@ -44,15 +45,17 @@ def registry(tmp_path, providers):
 def test_enabling_the_plugin_adds_deepseek_to_the_configuration_types(registry, providers):
     assert registry.enable_plugin(PLUGIN_ID)
 
-    types = LLMGateway(SimpleNamespace(), provider_registry=providers).provider_types()
+    types = client_gateway(SimpleNamespace(), provider_registry=providers).provider_types()
 
     assert types[-1] == {
         "type": "deepseek",
         "label": "DeepSeek",
+        "adapter": "deepseek",
         "default_base_url": "https://api.deepseek.com",
         "supports_model_listing": True,
+        "source": PLUGIN_ID,
     }
-    client = providers.get("deepseek").client
+    client = providers.get("deepseek").adapter
     assert isinstance(client, OpenAIClient)
     assert type(client).__module__ == f"{PACKAGE}.backend.client"
 
