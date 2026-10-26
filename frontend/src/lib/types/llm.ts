@@ -1,7 +1,7 @@
 export interface LLMConfig {
 	id: string;
 	name: string;
-	type: 'ollama' | 'openai' | 'native';
+	type: string;
 	enabled: boolean;
 	base_url: string;
 	/** Whether a key is stored server-side. The key itself is never returned. */
@@ -98,9 +98,56 @@ export interface NativeOptions {
 export interface LLMProviderType {
 	type: string;
 	label: string | null;
+	adapter: string;
 	default_base_url: string | null;
 	supports_model_listing: boolean;
+	source: string;
 }
+
+export type LLMProfileSource = 'seed' | 'discovered' | 'override';
+
+export interface LLMProfileField {
+	value: unknown;
+	source: LLMProfileSource;
+	seed: unknown;
+	discovered: unknown;
+	override: unknown;
+}
+
+export interface LLMProfileVerification {
+	suite: string;
+	passed_at: string;
+	runtime?: string | null;
+	gpu_tier?: string | null;
+}
+
+export interface LLMProfile {
+	config_id: string;
+	adapter: string;
+	model: string;
+	discovered_at: string | null;
+	discovery_error: string | null;
+	fields: Record<string, LLMProfileField>;
+	verified?: LLMProfileVerification | null;
+}
+
+export type LLMProfileFieldKind = 'enum' | 'set' | 'int' | 'float' | 'bool' | 'string';
+
+export interface LLMProfileSchemaField {
+	name: string;
+	kind: LLMProfileFieldKind | (string & {});
+	label?: string;
+	group?: string;
+	options?: string[];
+	min?: number;
+	max?: number;
+}
+
+export interface LLMProfileSchema {
+	fields: LLMProfileSchemaField[];
+}
+
+export type LLMProfileOverrides = Record<string, unknown>;
 
 export interface DiscoveredLLMModel {
 	id: string;

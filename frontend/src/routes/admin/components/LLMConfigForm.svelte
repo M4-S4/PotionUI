@@ -25,7 +25,7 @@
 	import { Badge, Input, Spinner, Switch } from '$lib/components/ui';
 	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
-	import { baseUrlForType, llmTypeOptions } from './llmTypeOptions';
+	import { baseUrlForType, llmTypeOptions, usesOpenAIOptions } from './llmTypeOptions';
 	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
 	import LLMContextWindow from './llm/LLMContextWindow.svelte';
 
@@ -605,7 +605,7 @@
 	{@render section('Sampling', false, samplingFields)}
 	{@render section('Context', false, contextWindowFields)}
 	{@render section('Capabilities', false, capabilityFields)}
-	{#if draft.type === 'openai'}
+	{#if usesOpenAIOptions(draft.type)}
 		{@render section('OpenAI Options', false, openaiFields)}
 	{/if}
 	{#if draft.type === 'ollama'}
