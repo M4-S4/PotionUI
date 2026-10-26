@@ -156,6 +156,25 @@ class TestSampling:
         assert "temperature" not in body_of(thinking, profile)
         assert body_of(quiet, profile)["temperature"] == 0.2
 
+    def test_a_reasoning_model_counts_as_reasoning_even_when_no_effort_is_sent(self):
+        profile = make_profile(**REASONING_PROFILE)
+        request = make_request(
+            [user_message()], tools=[WEATHER],
+            settings=Settings(temperature=0.2, tool_choice=ToolChoice("required")),
+        )
+
+        body = body_of(request, profile)
+
+        assert "reasoning" not in body
+        assert "temperature" not in body
+        assert "tool_choice" not in body
+
+    def test_switching_reasoning_off_on_a_model_with_no_off_level_still_counts_as_reasoning(self):
+        profile = make_profile(**{**REASONING_PROFILE, "reasoning_levels": ["low", "high"]})
+        request = make_request([user_message()], settings=Settings(temperature=0.2, reasoning=False))
+
+        assert "temperature" not in body_of(request, profile)
+
     def test_top_k_and_min_p_have_no_responses_equivalent(self):
         request = make_request([user_message()], settings=Settings(top_k=40, min_p=0.05))
 

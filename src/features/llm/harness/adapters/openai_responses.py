@@ -43,12 +43,10 @@ from src.features.llm.harness.messages import (
     TextPart,
     ToolCallPart,
     ToolResultPart,
-    credential_fingerprint,
 )
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, ReasoningKind
 from src.features.llm.harness.sse import SSEFramer, SSERecord
 from src.features.llm.harness.transport import HttpAdapter
-from src.features.llm.harness.turn_state import Notice, NoticeKind
 from src.features.llm.model_listing import (
     CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
     DiscoveredModel,
@@ -201,6 +199,14 @@ def _verified_output(message: Message) -> List[Dict[str, Any]]:
     return list(raw)
 
 
+def _replayed_output(message: Message) -> List[Dict[str, Any]]:
+    items = _verified_output(message)
+    cut = len(items)
+    while cut and items[cut - 1].get("type") == "reasoning":
+        cut -= 1
+    return items[:cut]
+
+
 def _rebuilt_items(message: Message) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     for part in message.parts:
@@ -219,10 +225,6 @@ def _rebuilt_items(message: Message) -> List[Dict[str, Any]]:
                 "arguments": _call_arguments(part),
             })
     return items
-
-
-def _dropped_notice(message: Message, reason: str, text: str) -> Notice:
-    return Notice(NoticeKind.REASONING_DROPPED, text, detail={"message_id": message.id, "reason": reason})
 
 
 def _tool_definition(spec: ToolSpec, profile: CapabilityProfile) -> Dict[str, Any]:
@@ -571,20 +573,12 @@ def _error_object(body: bytes) -> Dict[str, Any]:
 class OpenAIResponsesAdapter(HttpAdapter):
     name = "openai-responses"
 
-    def origin(self, config: Any) -> Origin:
-        return Origin(
-            adapter=self.name,
-            provider=config.type,
-            model=config.model,
-            credential=credential_fingerprint(config.base_url, config.api_key),
-        )
-
     def render(self, request: RenderRequest, profile: CapabilityProfile) -> WireRequest:
         config = request.config
         settings = request.settings
-        items, _ = self._input(request, profile)
+        items = self._input(request, profile)
         reasoning = _reasoning(request, profile)
-        reasoning_active = reasoning is not None and reasoning.get("effort") != "none"
+        reasoning_active = profile.reasoning is not ReasoningKind.NONE and (reasoning or {}).get("effort") != "none"
         body: Dict[str, Any] = {"model": config.model}
         if request.system:
             body["instructions"] = request.system
@@ -622,9 +616,6 @@ class OpenAIResponsesAdapter(HttpAdapter):
             headers["Authorization"] = f"Bearer {config.api_key}"
         url = f"{config.base_url.strip().rstrip('/')}/responses"
         return WireRequest(method="POST", url=url, headers=headers, body=body, stream=request.stream)
-
-    def reasoning_notices(self, request: RenderRequest, profile: CapabilityProfile) -> Tuple[Notice, ...]:
-        return tuple(self._input(request, profile)[1])
 
     def decoder(self, request: RenderRequest, profile: CapabilityProfile) -> StreamDecoder:
         return _Decoder(self.classify_error, buffered=not request.stream)
@@ -694,10 +685,9 @@ class OpenAIResponsesAdapter(HttpAdapter):
     def _listing_headers(api_key: Optional[str]) -> Dict[str, str]:
         return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
-    def _input(self, request: RenderRequest, profile: CapabilityProfile) -> Tuple[List[Dict[str, Any]], List[Notice]]:
-        target = self.origin(request.config)
+    def _input(self, request: RenderRequest, profile: CapabilityProfile) -> List[Dict[str, Any]]:
+        target = Origin.for_config(self.name, request.config)
         items: List[Dict[str, Any]] = []
-        notices: List[Notice] = []
         for message in request.messages:
             if message.role is Role.SYSTEM:
                 items.append({"role": "developer", "content": message.text()})
@@ -707,31 +697,8 @@ class OpenAIResponsesAdapter(HttpAdapter):
                     items.append(item)
             elif message.role is Role.TOOL:
                 items.extend(_result_item(part, profile) for part in message.tool_results())
+            elif message.replays_raw_to(target):
+                items.extend(_replayed_output(message))
             else:
-                rendered, notice = self._assistant(message, target)
-                items.extend(rendered)
-                if notice is not None:
-                    notices.append(notice)
-        return items, notices
-
-    def _assistant(self, message: Message, target: Origin) -> Tuple[List[Dict[str, Any]], Optional[Notice]]:
-        if message.replays_raw_to(target):
-            items = _verified_output(message)
-            cut = len(items)
-            while cut and items[cut - 1].get("type") == "reasoning":
-                cut -= 1
-            if cut == len(items):
-                return items, None
-            return items[:cut], _dropped_notice(
-                message, "incomplete", "Reasoning that was cut off before its answer was left out."
-            )
-        notice = None
-        origin = message.origin
-        if origin is not None and origin.adapter == self.name and any(
-            isinstance(part, ReasoningPart) and part.opaque for part in message.parts
-        ):
-            if origin.credential != target.credential:
-                notice = _dropped_notice(message, "credential", "Reasoning made with a different API key was left out.")
-            else:
-                notice = _dropped_notice(message, "model", "Reasoning made by a different model was left out.")
-        return _rebuilt_items(message), notice
+                items.extend(_rebuilt_items(message))
+        return items

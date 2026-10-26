@@ -6,7 +6,7 @@ import pytest
 from src.features.llm.harness.adapter import Adapter, Settings
 from src.features.llm.harness.errors import ConnectionFailed, OpaqueViolation, QuotaExhausted
 from src.features.llm.harness.events import FinishReason
-from src.features.llm.harness.messages import TextPart
+from src.features.llm.harness.messages import Origin, TextPart
 from src.features.llm.harness.transport import HttpAdapter
 from tests.features.llm.harness.adapters.openai_responses_support import (
     ADAPTER,
@@ -65,7 +65,7 @@ async def test_the_next_request_replays_what_the_first_response_returned(monkeyp
     profile = make_profile(**REASONING_PROFILE)
     first = make_request([user_message()])
 
-    assistant = assemble(await run(first, profile), "asst_1", ADAPTER.origin(first.config))
+    assistant = assemble(await run(first, profile), "asst_1", Origin.for_config(ADAPTER.name, first.config))
     second = make_request([user_message(), assistant, user_message("More", "user_2")])
 
     assert ADAPTER.render(second, profile).body["input"][1:3] == output

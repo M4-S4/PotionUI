@@ -146,8 +146,4 @@ def assistant_message(
     config = config or make_config()
     request = make_request([user_message()], config=config)
     events = decode_all(request, stream_of(output))
-    return assemble(events, message_id, ADAPTER.origin(config))
-
-
-def origin_of(config: Optional[LLMConfig] = None) -> Origin:
-    return ADAPTER.origin(config or make_config())
+    return assemble(events, message_id, Origin.for_config(ADAPTER.name, config))

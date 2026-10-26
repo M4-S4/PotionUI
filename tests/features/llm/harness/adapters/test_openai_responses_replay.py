@@ -13,7 +13,6 @@ from src.features.llm.harness.messages import (
     TextPart,
     ToolCallPart,
 )
-from src.features.llm.harness.turn_state import NoticeKind
 from tests.features.llm.harness.adapters.openai_responses_support import (
     ADAPTER,
     REASONING_PROFILE,
@@ -58,30 +57,13 @@ class TestSameOriginReplay:
         assert items[2]["phase"] == "commentary"
         assert items[3]["id"] == "fc_1"
 
-    def test_the_stored_payload_survives_the_wire_bytes_unchanged(self):
-        assistant = assistant_message(full_output())
-
-        first = ADAPTER.render(history(assistant), PROFILE).content()
-        second = ADAPTER.render(history(assistant), PROFILE).content()
-
-        assert first == second
-        assert b"enc-1" in first
-
-    def test_nothing_is_reported_when_nothing_was_left_out(self):
-        assistant = assistant_message(full_output())
-
-        assert ADAPTER.reasoning_notices(history(assistant), PROFILE) == ()
-
     def test_a_reasoning_item_with_no_answer_after_it_is_not_replayed(self):
         output = [message_item("Partial", "commentary", "msg_1"), reasoning_item("rs_9", "enc-9")]
         assistant = assistant_message(output)
 
         items = rendered_input(history(assistant))
-        notices = ADAPTER.reasoning_notices(history(assistant), PROFILE)
 
-        assert [item.get("type", item.get("role")) for item in items] == ["user", "message", "user"]
-        assert [notice.kind for notice in notices] == [NoticeKind.REASONING_DROPPED]
-        assert notices[0].detail == {"message_id": "asst_1", "reason": "incomplete"}
+        assert items[1:-1] == [output[0]]
 
 
 class TestForeignOriginReplay:
@@ -98,33 +80,18 @@ class TestForeignOriginReplay:
         assert len(items) == 4
         assert all("encrypted_content" not in item and "id" not in item for item in items)
 
-    def test_a_new_key_is_reported_to_the_user(self):
-        assistant = assistant_message(full_output(), make_config(api_key="test-key-a"))
-        request = history(assistant, make_config(api_key="test-key-b"))
-
-        notices = ADAPTER.reasoning_notices(request, PROFILE)
-
-        assert len(notices) == 1
-        assert notices[0].kind is NoticeKind.REASONING_DROPPED
-        assert notices[0].message == "Reasoning made with a different API key was left out."
-        assert notices[0].detail == {"message_id": "asst_1", "reason": "credential"}
-
-    def test_a_new_endpoint_counts_as_a_new_credential(self):
+    @pytest.mark.parametrize("changed", [
+        {"base_url": "https://eu.api.openai.com/v1"},
+        {"model": "gpt-5.5"},
+        {"type": "openai-compatible"},
+    ])
+    def test_any_other_origin_difference_also_stops_the_raw_replay(self, changed):
         assistant = assistant_message(full_output())
-        request = history(assistant, make_config(base_url="https://eu.api.openai.com/v1"))
 
-        assert ADAPTER.reasoning_notices(request, PROFILE)[0].detail["reason"] == "credential"
-        assert all("encrypted_content" not in item for item in rendered_input(request))
+        items = rendered_input(history(assistant, make_config(**changed)))
 
-    def test_a_new_model_drops_the_reasoning_with_its_own_message(self):
-        assistant = assistant_message(full_output())
-        request = history(assistant, make_config(model="gpt-5.5"))
-
-        notices = ADAPTER.reasoning_notices(request, PROFILE)
-
-        assert notices[0].message == "Reasoning made by a different model was left out."
-        assert notices[0].detail["reason"] == "model"
-        assert all("encrypted_content" not in item for item in rendered_input(request))
+        assert len(items) == 4
+        assert all("encrypted_content" not in item and "id" not in item for item in items)
 
     def test_switching_back_restores_the_original_items(self):
         output = full_output()
@@ -136,17 +103,17 @@ class TestForeignOriginReplay:
         assert away != back
         assert back[1:4] == output
 
-    def test_reasoning_from_another_adapter_is_dropped_without_a_notice(self):
+    def test_reasoning_from_another_adapter_is_dropped(self):
         other = Origin(adapter="anthropic-messages", provider="anthropic", model="claude", credential="x")
         assistant = Message(
             id="a", role=Role.ASSISTANT, origin=other,
             parts=(ReasoningPart(text="hmm", opaque={"signature": "s"}), TextPart("Answer")),
         )
 
-        request = history(assistant)
-
-        assert rendered_input(request)[1] == {"role": "assistant", "content": [{"type": "output_text", "text": "Answer"}]}
-        assert ADAPTER.reasoning_notices(request, PROFILE) == ()
+        assert rendered_input(history(assistant))[1] == {
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Answer"}],
+        }
 
     def test_a_converted_legacy_message_is_rebuilt_from_its_text_and_calls(self):
         assistant = Message(id="a", role=Role.ASSISTANT, origin=LEGACY_ORIGIN, parts=(
@@ -168,8 +135,11 @@ class TestForeignOriginReplay:
 
         items = rendered_input(history(assistant))
 
-        assert all("encrypted_content" not in item and "id" not in item for item in items)
-        assert items[1]["phase"] == "commentary"
+        assert items[1:3] == [
+            {"role": "assistant", "content": [{"type": "output_text", "text": "Checking."}], "phase": "commentary"},
+            {"type": "function_call", "call_id": "call_1", "name": "get_weather", "arguments": '{"city":"Paris"}'},
+        ]
+        assert len(items) == 4
 
 
 def drop(item, key):

@@ -5,8 +5,7 @@ import pytest
 from src.features.llm.harness import codec
 from src.features.llm.harness.errors import ServerFailed
 from src.features.llm.harness.events import StreamEvent
-from src.features.llm.harness.messages import Message, ReasoningPart, TextPart, ToolCallPart
-from src.features.llm.harness.turn_state import NoticeKind
+from src.features.llm.harness.messages import Message, Origin, ReasoningPart, TextPart, ToolCallPart
 from tests.features.llm.harness import cassettes
 from tests.features.llm.harness.adapters.openai_responses_support import ADAPTER
 
@@ -137,7 +136,7 @@ class TestCredentialSwitch:
         first, second = steps("credential_switch")
         request, _ = request_and_profile("credential_switch", 1)
 
-        assert message_of(first).origin.credential != ADAPTER.origin(request.config).credential
+        assert message_of(first).origin.credential != Origin.for_config(ADAPTER.name, request.config).credential
         assert "encrypted_content" not in str(body_of(second)["input"])
         assert not any("id" in item for item in body_of(second)["input"])
 
@@ -147,19 +146,6 @@ class TestCredentialSwitch:
             "content": [{"type": "output_text", "text": "101 is prime."}],
             "phase": "final_answer",
         }
-
-    def test_the_user_is_told_which_reasoning_was_left_out(self):
-        request, profile = request_and_profile("credential_switch", 1)
-
-        notices = ADAPTER.reasoning_notices(request, profile)
-
-        assert [(notice.kind, notice.detail["reason"]) for notice in notices] == [(NoticeKind.REASONING_DROPPED, "credential")]
-        assert notices[0].detail["message_id"] == "msg_01"
-
-    def test_the_first_step_replays_nothing_to_report(self):
-        request, profile = request_and_profile("credential_switch", 0)
-
-        assert ADAPTER.reasoning_notices(request, profile) == ()
 
 
 class TestInBandError:
