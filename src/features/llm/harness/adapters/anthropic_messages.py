@@ -5,6 +5,7 @@ import binascii
 import copy
 import hashlib
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
@@ -49,7 +50,6 @@ from src.features.llm.harness.messages import (
     TextPart,
     ToolCallPart,
     ToolResultPart,
-    credential_fingerprint,
 )
 from src.features.llm.harness.profile import (
     CacheMode,
@@ -102,15 +102,6 @@ def auth_headers(api_key: Optional[str]) -> Dict[str, str]:
     if api_key:
         headers["x-api-key"] = api_key
     return headers
-
-
-def target_origin(config: LLMConfig) -> Origin:
-    return Origin(
-        adapter=ADAPTER_NAME,
-        provider=config.type,
-        model=config.model,
-        credential=credential_fingerprint(config.base_url, config.api_key),
-    )
 
 
 def canonical(value: Any) -> str:
@@ -211,11 +202,11 @@ def blocks_from_parts(message: Message, tool_ids: Dict[str, str]) -> List[Dict[s
     return blocks
 
 
-def violation(message: Message, index: int, check: str, reason: str, **detail: Any) -> OpaqueViolation:
+def violation(message: Message, index: int, reason: str, **detail: Any) -> OpaqueViolation:
     return OpaqueViolation(
         f"The stored Anthropic reply {message.id} (message {index}) cannot be replayed, "
-        f"the {check} check failed: {reason}.",
-        detail={"message_id": message.id, "index": index, "check": check, "reason": reason, **detail},
+        f"the content check failed: {reason}.",
+        detail={"message_id": message.id, "index": index, "check": "content", "reason": reason, **detail},
     )
 
 
@@ -226,23 +217,22 @@ def expected_parts(message: Message, index: int, content: List[Dict[str, Any]]) 
         if kind == "thinking":
             thinking, signature = block.get("thinking"), block.get("signature")
             if not isinstance(thinking, str) or not isinstance(signature, str) or not signature:
-                raise violation(message, index, "content", "a thinking block lost its signature", block=position)
+                raise violation(message, index, "a thinking block lost its signature", block=position)
             expected.append(("reasoning", False, "", thinking, signature))
         elif kind == "redacted_thinking":
             data = block.get("data")
             if not isinstance(data, str) or not data:
-                raise violation(message, index, "content", "a redacted thinking block lost its data", block=position)
+                raise violation(message, index, "a redacted thinking block lost its data", block=position)
             expected.append(("reasoning", True, "", "", data))
         elif kind == "text":
             text = block.get("text")
             if not isinstance(text, str):
-                raise violation(message, index, "content", "a text block lost its text", block=position)
-            if text:
-                expected.append(("text", text))
+                raise violation(message, index, "a text block lost its text", block=position)
+            expected.append(("text", text))
         elif kind == "tool_use":
             ident, name, args = block.get("id"), block.get("name"), block.get("input")
             if not isinstance(ident, str) or not isinstance(name, str) or not isinstance(args, dict):
-                raise violation(message, index, "content", "a tool_use block is malformed", block=position)
+                raise violation(message, index, "a tool_use block is malformed", block=position)
             expected.append(("tool_use", ident, name, args))
     return expected
 
@@ -255,7 +245,8 @@ def actual_parts(message: Message) -> List[Tuple[Any, ...]]:
             carried = opaque.get("data") if part.redacted else opaque.get("signature")
             actual.append(("reasoning", part.redacted, part.text, part.summary, carried))
         elif isinstance(part, TextPart):
-            actual.append(("text", part.text))
+            if part.text.strip():
+                actual.append(("text", part.text))
         elif isinstance(part, ToolCallPart):
             actual.append(("tool_use", part.wire_id, part.name, part.args))
     return actual
@@ -270,14 +261,10 @@ def same_part(expected: Tuple[Any, ...], actual: Tuple[Any, ...]) -> bool:
 def check_parts(message: Message, index: int, content: List[Dict[str, Any]]) -> None:
     expected, actual = expected_parts(message, index, content), actual_parts(message)
     if len(expected) != len(actual):
-        raise violation(
-            message, index, "content", "its blocks no longer match its parts", blocks=len(expected), parts=len(actual)
-        )
+        raise violation(message, index, "its blocks no longer match its parts", blocks=len(expected), parts=len(actual))
     for position, (want, got) in enumerate(zip(expected, actual)):
         if not same_part(want, got):
-            raise violation(
-                message, index, "content", f"block {position} ({want[0]}) no longer matches its part", block=position
-            )
+            raise violation(message, index, f"block {position} ({want[0]}) no longer matches its part", block=position)
 
 
 class WireMessages:
@@ -285,6 +272,7 @@ class WireMessages:
         self.target = target
         self.messages: List[Dict[str, Any]] = []
         self.tool_ids: Dict[str, str] = {}
+        self.degraded: List[Tuple[str, int]] = []
         self._hasher = hashlib.sha256()
         self._hashed = 0
 
@@ -306,16 +294,13 @@ class WireMessages:
         raw = message.raw
         content = raw.get("content") if isinstance(raw, dict) else None
         if not isinstance(content, list) or not all(isinstance(block, dict) for block in content):
-            raise violation(message, index, "content", "the stored payload is malformed")
+            raise violation(message, index, "the stored payload is malformed")
         if raw.get("sha256") != digest(content):
-            raise violation(message, index, "content", "the stored content blocks were modified")
-        if not content:
-            return []
+            raise violation(message, index, "the stored content blocks were modified")
         check_parts(message, index, content)
         if any(block.get("type") in THINKING_BLOCKS for block in content) and raw.get("prefix") != self.prefix_digest():
-            raise violation(
-                message, index, "prefix", "the messages before it changed since its thinking blocks were issued"
-            )
+            self.degraded.append((message.id, index))
+            return blocks_from_parts(message, self.tool_ids)
         for part in message.tool_calls():
             self.tool_ids[part.call_id] = part.wire_id
         return copy.deepcopy(content)
@@ -354,7 +339,7 @@ def check_tool_pairs(messages: List[Dict[str, Any]]) -> None:
 
 
 def wire_messages(request: RenderRequest) -> WireMessages:
-    wire = WireMessages(target_origin(request.config))
+    wire = WireMessages(Origin.for_config(ADAPTER_NAME, request.config))
     for index, message in enumerate(request.messages):
         if message.role is Role.SYSTEM:
             raise InvalidRequest("The system prompt belongs in RenderRequest.system, not in the messages.")
@@ -411,6 +396,15 @@ def max_tokens_for(request: RenderRequest, profile: CapabilityProfile) -> int:
     return min(wanted, profile.max_output_tokens) if profile.max_output_tokens else wanted
 
 
+def history_tools(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    names: List[str] = []
+    for message in messages:
+        for block in message["content"]:
+            if block["type"] == "tool_use" and block["name"] not in names:
+                names.append(block["name"])
+    return [{"name": name, "input_schema": {"type": "object"}} for name in names]
+
+
 def cache_control_config(ttl: Optional[str]) -> Dict[str, str]:
     if ttl in (None, "5m"):
         return {"type": "ephemeral"}
@@ -432,9 +426,13 @@ def build_body(request: RenderRequest, profile: CapabilityProfile, wire: WireMes
         body["cache_control"] = cache_control_config(request.settings.cache_ttl)
     if request.tools:
         body["tools"] = [tool_config(spec, profile) for spec in request.tools]
-        choice = tool_choice_config(request.settings.tool_choice, profile, bool(thinking) and thinking["type"] == "adaptive")
+        thinking_on = bool(thinking and thinking["type"] == "adaptive") or profile.reasoning is ReasoningKind.ALWAYS_ON
+        choice = tool_choice_config(request.settings.tool_choice, profile, thinking_on)
         if choice:
             body["tool_choice"] = choice
+    elif history_tools(wire.messages):
+        body["tools"] = history_tools(wire.messages)
+        body["tool_choice"] = {"type": "none"}
     body["messages"] = wire.messages
     return body
 
@@ -685,7 +683,7 @@ class MessagesDecoder:
         content = [
             self._blocks[index].raw
             for index in sorted(self._blocks)
-            if self._blocks[index].raw["type"] != "text" or self._blocks[index].raw["text"]
+            if self._blocks[index].raw["type"] != "text" or self._blocks[index].raw["text"].strip()
         ]
         self._finished = True
         reason = FINISH_REASONS.get(self._stop_reason, FinishReason.UNKNOWN)
@@ -744,6 +742,8 @@ class AnthropicMessagesAdapter(HttpAdapter):
 
     def render(self, request: RenderRequest, profile: CapabilityProfile) -> WireRequest:
         wire = wire_messages(request)
+        if wire.degraded:
+            logging.info(f"[{ADAPTER_NAME}] sent {len(wire.degraded)} stored repl(ies) without their thinking blocks")
         headers = {**auth_headers(request.config.api_key), "content-type": "application/json", "accept": "text/event-stream"}
         return WireRequest(
             method="POST",
