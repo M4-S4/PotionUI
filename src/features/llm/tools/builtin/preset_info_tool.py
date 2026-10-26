@@ -38,7 +38,6 @@ class ListPresetsTool(BaseTool):
     context_group = "library"
 
     name = "list_presets"
-
     read_only = True
     group = "Models & presets"
     user_description = "Lists the presets you can generate with."
@@ -137,7 +136,6 @@ class GetPresetInfoTool(BaseTool):
     context_group = "library"
 
     name = "get_preset_info"
-
     read_only = True
     group = "Models & presets"
     user_description = "Reads the settings and options of the preset you are using."

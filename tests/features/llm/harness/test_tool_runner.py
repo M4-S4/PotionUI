@@ -154,6 +154,7 @@ async def test_a_call_with_unparseable_arguments_is_never_executed_and_still_rec
     assert "cut off" in outcome.text() and "Send the call again" in outcome.text()
     assert [execution.tool_call_id for execution in rig.round.executions] == ["x", "a"]
     assert rig.round.executions[0].result.success is False
+    assert "cut off" in rig.round.executions[0].result.error
 
 
 async def test_a_call_cut_off_by_the_output_limit_never_reaches_a_tool():

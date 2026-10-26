@@ -557,7 +557,6 @@ class GetVideoDirectorTool(BaseTool):
         return video_director_active(form_state)
 
     name = "get_video_director"
-
     read_only = True
     group = "Form & segments"
     user_description = "Reads the Video Director document on your generation form."

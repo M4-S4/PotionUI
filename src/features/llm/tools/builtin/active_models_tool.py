@@ -37,7 +37,6 @@ class GetActiveModelsTool(BaseTool):
     icon = "boxes"
 
     name = "get_active_models"
-
     read_only = True
     group = "Models & presets"
     user_description = "Reads details of the models currently selected in your form."

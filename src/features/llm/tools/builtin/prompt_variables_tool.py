@@ -596,7 +596,6 @@ class GetPromptVariablesTool(BaseTool):
     icon = "braces"
 
     name = "get_prompt_variables"
-
     read_only = True
     group = "Form & segments"
     user_description = "Reads the ${name} prompt variables on your generation form, with every option."
@@ -700,7 +699,6 @@ class ListTabDraftsTool(BaseTool):
     icon = "braces"
 
     name = "list_tab_drafts"
-
     read_only = True
     group = "Form & segments"
     user_description = "Lists the user's Generate tabs that hold prompt variables, so another tab's variables can be read."

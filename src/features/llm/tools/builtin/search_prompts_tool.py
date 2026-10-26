@@ -19,7 +19,6 @@ class SearchModelPromptsTool(BaseTool):
     MAX_QUERIES = 6
 
     name = "search_model_prompts"
-
     read_only = True
     group = "Prompt writing"
     user_description = "Finds example prompts in your prompt library, including ones you imported."

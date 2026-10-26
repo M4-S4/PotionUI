@@ -281,7 +281,6 @@ class ReadMemoryTool(BaseTool):
     context_group = "memory_maintenance"
 
     name = "read_memory"
-
     read_only = True
     group = "Memory"
     user_description = "Reads notes the assistant saved in earlier chats."
