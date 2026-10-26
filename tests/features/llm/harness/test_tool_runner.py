@@ -316,22 +316,23 @@ async def test_a_backend_failure_becomes_an_error_result_and_the_batch_goes_on()
     assert not second.is_error
 
 
-async def test_closing_the_run_cancels_the_reads_still_in_flight():
+async def test_closing_the_run_cancels_every_read_still_in_flight():
     backend = Backend()
-    backend.hold = {"a": asyncio.Event()}
-    backend.entered = {"a": asyncio.Event()}
+    backend.hold = {"a": asyncio.Event(), "b": asyncio.Event()}
+    backend.entered = {"a": asyncio.Event(), "b": asyncio.Event()}
     runner = ParallelToolRunner(backend)
 
     async def drain() -> None:
-        async for _ in runner.run([call("a", "read_a")], turn_state(), None):
+        async for _ in runner.run([call("a", "read_a"), call("b", "read_b")], turn_state(), None):
             pass
 
     task = asyncio.ensure_future(drain())
     await asyncio.wait_for(backend.entered["a"].wait(), WAIT)
+    await asyncio.wait_for(backend.entered["b"].wait(), WAIT)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await task
-    assert backend.cancelled == ["a"]
+        await asyncio.wait_for(task, WAIT)
+    assert sorted(backend.cancelled) == ["a", "b"]
 
 
 async def test_skipped_calls_get_error_results_so_the_batch_stays_valid():

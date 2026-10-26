@@ -222,6 +222,7 @@ def test_extracting_json_handles_fences_prose_and_failures():
     assert extract_json('{"a": 1}') == ({"a": 1}, None)
     assert extract_json('```json\n[1, 2]\n```') == ([1, 2], None)
     assert extract_json('Here you go: {"a": {"b": 2}} hope it helps') == ({"a": {"b": 2}}, None)
+    assert extract_json('Pick {one}:\n```json\n{"a": 1}\n```') == ({"a": 1}, None)
     assert extract_json("   ") == (None, "the reply was empty")
     assert extract_json("no json at all") == (None, "the reply was not valid JSON")
 
