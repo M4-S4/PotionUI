@@ -213,6 +213,20 @@ describe('ChatActionCard resolved states', () => {
 		expect(target.querySelector('.action-summary')?.textContent).toBe('Rejected without a reason.');
 	});
 
+	it('expired shows an inert card that cannot be approved or rejected', async () => {
+		const { onResolve } = setup({ execution: execution({ approval_status: 'expired' }) });
+		expect(card().dataset.state).toBe('expired');
+		expect(card().textContent).toContain('Expired');
+		expect(target.querySelector('.action-summary')?.textContent).toBe('This approval expired before it was decided.');
+		expect(button('Reject')).toBeUndefined();
+		expect(button('Retry')).toBeUndefined();
+		expect(target.querySelector('.action-btn.is-approve')).toBeNull();
+		click(button('Details'));
+		await settle();
+		expect(target.querySelector('.action-summary')).toBeNull();
+		expect(onResolve).not.toHaveBeenCalled();
+	});
+
 	it('failed shows the real error and Retry resolves approved again', async () => {
 		const { onResolve } = setup({
 			execution: execution({

@@ -85,15 +85,42 @@ describe('chatSession store', () => {
 		expect(s.messages[1].content).toBe('Hey');
 	});
 
-	it('applyStreamEvent routes thinking events by segment with the accumulated text', () => {
+	it('applyStreamEvent routes reasoning events by block with the accumulated text and kind', () => {
 		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
-		chatSession.applyStreamEvent({ type: 'thinking', data: { segment: 0 } }, { accumulated: 'plan' });
-		chatSession.applyStreamEvent({ type: 'thinking', data: { segment: 0 } }, { accumulated: 'plan more' });
-		chatSession.applyStreamEvent({ type: 'thinking', data: { segment: 1 } }, { accumulated: 'again' });
-		const thinking = get(chatSession).messages[0].thinking!;
-		expect(thinking.map((segment) => segment.text)).toEqual(['plan more', 'again']);
-		expect(thinking[0].open).toBeUndefined();
-		expect(thinking[1].open).toBe(true);
+		chatSession.applyStreamEvent({ type: 'reasoning', data: { block: 0, kind: 'raw' } }, { accumulated: 'plan' });
+		chatSession.applyStreamEvent({ type: 'reasoning', data: { block: 0, kind: 'raw' } }, { accumulated: 'plan more' });
+		chatSession.applyStreamEvent({ type: 'reasoning', data: { block: 1, kind: 'summary' } }, { accumulated: 'again' });
+		const reasoning = get(chatSession).messages[0].reasoning!;
+		expect(reasoning.map((block) => [block.kind, block.text])).toEqual([
+			['raw', 'plan more'],
+			['summary', 'again']
+		]);
+		expect(reasoning[0].open).toBeUndefined();
+		expect(reasoning[1].open).toBe(true);
+	});
+
+	it('applyStreamEvent closes a block on reasoning_end with the reported duration', () => {
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+		chatSession.applyStreamEvent({ type: 'reasoning', data: { block: 0, kind: 'raw' } }, { accumulated: 'plan' });
+		chatSession.applyStreamEvent({ type: 'reasoning_end', data: { block: 0, duration_ms: 1840 } });
+		const block = get(chatSession).messages[0].reasoning![0];
+		expect(block.open).toBeUndefined();
+		expect(block.duration_ms).toBe(1840);
+	});
+
+	it('applyStreamEvent records step usage and notices on the streaming message', () => {
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 1, isStreaming: true });
+		chatSession.applyStreamEvent({
+			type: 'step',
+			data: { seq: 3, finish: 'tool_calls', usage: { input_tokens: 40, output_tokens: 6 } }
+		});
+		chatSession.applyStreamEvent({
+			type: 'notice',
+			data: { kind: 'retrying', message: 'Rate limited; retrying in 4 s.', detail: { retry_after: 4 } }
+		});
+		const message = get(chatSession).messages[0];
+		expect(message.usage).toEqual({ input_tokens: 40, output_tokens: 6 });
+		expect(message.notices!.map((notice) => notice.kind)).toEqual(['retrying']);
 	});
 
 	it('applyStreamEvent routes tool_start/tool_end events', () => {

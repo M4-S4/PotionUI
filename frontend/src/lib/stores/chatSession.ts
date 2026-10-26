@@ -11,7 +11,10 @@ import { writable, derived, get } from 'svelte/store';
 import type { UnifiedChatMessageData } from '$lib/types/chat';
 import {
 	applyToken,
-	applyThinking,
+	applyReasoning,
+	applyReasoningEnd,
+	applyStep,
+	applyNotice,
 	applyToolStart,
 	applyToolEnd,
 	applyDone,
@@ -172,15 +175,29 @@ function createChatSessionStore() {
 				switch (event.type) {
 					case 'token':
 						return { ...s, messages: applyToken(s.messages, opts.accumulated ?? '') };
-					case 'thinking':
+					case 'reasoning':
 						return {
 							...s,
-							messages: applyThinking(
+							messages: applyReasoning(
 								s.messages,
-								typeof event.data?.segment === 'number' ? event.data.segment : 0,
+								typeof event.data?.block === 'number' ? event.data.block : 0,
+								event.data?.kind === 'summary' || event.data?.kind === 'omitted' ? event.data.kind : 'raw',
 								opts.accumulated ?? ''
 							)
 						};
+					case 'reasoning_end':
+						return {
+							...s,
+							messages: applyReasoningEnd(
+								s.messages,
+								typeof event.data?.block === 'number' ? event.data.block : 0,
+								event.data?.duration_ms
+							)
+						};
+					case 'step':
+						return { ...s, messages: applyStep(s.messages, event.data || {}) };
+					case 'notice':
+						return { ...s, messages: applyNotice(s.messages, event.data || {}) };
 					case 'tool_start':
 						return { ...s, messages: applyToolStart(s.messages, event.data || {}) };
 					case 'tool_end':

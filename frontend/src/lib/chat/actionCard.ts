@@ -7,7 +7,7 @@ import type {
 import { buildApprovalDiff, deriveCompactSummary } from './approvalPreview';
 import { formatNumberVariableSummary } from './conditionText';
 
-export type ActionCardState = 'pending' | 'stale' | 'applied' | 'rejected' | 'failed';
+export type ActionCardState = 'pending' | 'stale' | 'applied' | 'rejected' | 'failed' | 'expired';
 
 export interface ActionDecision {
 	approved: boolean;
@@ -33,7 +33,8 @@ export const ACTION_STATE_LABEL: Record<ActionCardState, string> = {
 	stale: 'Form changed',
 	applied: 'Applied',
 	rejected: 'Rejected',
-	failed: 'Failed'
+	failed: 'Failed',
+	expired: 'Expired'
 };
 
 export function actionCardState(execution: ToolExecution, stale: boolean): ActionCardState | null {
@@ -46,6 +47,8 @@ export function actionCardState(execution: ToolExecution, stale: boolean): Actio
 			return 'rejected';
 		case 'failed':
 			return 'failed';
+		case 'expired':
+			return 'expired';
 		default:
 			return null;
 	}
