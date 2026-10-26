@@ -10,7 +10,8 @@
         "redacted": false,
         "opaque": {
           "signature": "EsQCCsECAXLI2nzP9c1mQbJ7Vh4tYkXw0DgNfRu5oLaEi3ZsMq8SvT2yHn6CpUjOe1KbWxAdGl9FrBt7QzIm4YcVhPoN"
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",

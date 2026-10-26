@@ -16,7 +16,8 @@
               "text": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent."
             }
           ]
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",

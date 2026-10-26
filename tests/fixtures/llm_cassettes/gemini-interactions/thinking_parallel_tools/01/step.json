@@ -16,7 +16,8 @@
               "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together."
             }
           ]
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",
