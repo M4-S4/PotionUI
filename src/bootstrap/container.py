@@ -143,6 +143,12 @@ from src.features.segments.repository import (
     SegmentTemplateRepository,
 )
 from src.features.llm.gateway import LLMGateway
+from src.features.llm.clients import NativeLLMClient, OllamaClient, OpenAIClient
+from src.features.llm.context_windows import ContextWindows
+from src.features.llm.harness.baseline import NoRetry, SequentialToolRunner, StaticProfileResolver
+from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.store import SqliteTurnStore
+from src.features.llm.types import LLMType, LLMTypes
 from src.bootstrap.composition import ChatDeps, build_chat
 from src.bootstrap.composition.chat import register_session_memory_cleanup
 
@@ -363,6 +369,8 @@ class AppContainer:
     # LLM
     llm_repository: LLMRepository
     llm_service: LLMGateway
+    turn_store: "SqliteTurnStore"
+    turn_engine: "TurnEngine"
     llm_memory_repository: "LLMMemoryRepository"
     chat_call_trace_recorder: "ChatCallTraceRecorder"
 
@@ -806,11 +814,20 @@ def build_container() -> AppContainer:
 
     # Initialize LLM components
     llm_repository = LLMRepository()
+    llm_types = LLMTypes(
+        core=(
+            LLMType(type="ollama", adapter=OllamaClient()),
+            LLMType(type="openai", adapter=OpenAIClient()),
+            LLMType(type="native", adapter=NativeLLMClient(model_lifecycle, model_roots)),
+        ),
+        provider_registry=llm_provider_registry,
+    )
+    context_windows = ContextWindows(llm_types)
     llm_service = LLMGateway(
         llm_repository=llm_repository,
-        model_lifecycle=model_lifecycle,
-        model_roots=model_roots,
-        provider_registry=llm_provider_registry,
+        types=llm_types,
+        profiles=StaticProfileResolver(llm_types, context_windows),
+        windows=context_windows,
     )
 
     tool_governance_repository = ToolGovernanceRepository()
@@ -1016,6 +1033,14 @@ def build_container() -> AppContainer:
     # registry) so startup plugin enabling could populate them.
 
     tool_executor = ToolExecutor(tool_registry=tool_registry, llm_service=llm_service)
+    turn_store = SqliteTurnStore()
+    turn_engine = TurnEngine(
+        gateway=llm_service,
+        tools=tool_executor,
+        runner=SequentialToolRunner(tool_executor),
+        store=turn_store,
+        retry=NoRetry(),
+    )
 
     # Global tool governance (admin enable/lock + per-user opt-out), layered
     # on top of the mode/session tool filtering above.

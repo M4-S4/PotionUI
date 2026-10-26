@@ -99,7 +99,7 @@ class _StreamToolCallFilter:
     normal streaming. Unlike `<tool_call>`, a suppressed `<tool_action>` span
     is never dispatched inline here — it stays in the iteration's
     independently-accumulated `full_iter_content` for
-    `ToolExecutor._rescue_final_content` to detect, repair, and dispatch once
+    `ToolExecutor.rescue_final_content` to detect, repair, and dispatch once
     the iteration ends, exactly as it already does for a buffered response.
     """
 
@@ -326,7 +326,7 @@ class _LiveTurnSource:
             draining = False
             thought = False
             stream_filter = _StreamToolCallFilter(
-                self._executor._registered_allowed(workflow.allowed_tools, workflow.deferred_tools)
+                self._executor.registered_allowed(workflow.allowed_tools, workflow.deferred_tools)
             )
 
             # Owns the provider stream for this attempt: a retry, an
@@ -439,7 +439,7 @@ class ToolExecutor:
         self.tool_registry = tool_registry
         self.llm_service = llm_service
 
-    def _registered_allowed(
+    def registered_allowed(
         self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> set:
         """Registered tool names, narrowed to the session's allowed set."""
@@ -458,7 +458,7 @@ class ToolExecutor:
             return [*schemas, use_tools_schema(deferred_tools)]
         return schemas
 
-    async def _gate_tool_image(self, tool_context: ToolContext, result: ToolResult) -> Optional[str]:
+    async def gate_tool_image(self, tool_context: ToolContext, result: ToolResult) -> Optional[str]:
         """Strip a tool result's image when the session's LLM config can't see
         it, returning a note to append to that tool's message content instead
         (or ``None`` when the image should be attached normally).
@@ -484,7 +484,7 @@ class ToolExecutor:
         result.image_data = None
         return _VISION_UNSUPPORTED_NOTE
 
-    def _rescue_final_content(
+    def rescue_final_content(
         self, content: str, allowed_tools: Optional[List[str]],
         deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> Tuple[List[Dict[str, Any]], List[str], List[str], List[Dict[str, Any]], str]:
@@ -497,7 +497,7 @@ class ToolExecutor:
         Every detected span is stripped from ``cleaned_content`` so no markup
         ever surfaces.
         """
-        registered = self._registered_allowed(allowed_tools, deferred_tools)
+        registered = self.registered_allowed(allowed_tools, deferred_tools)
         near = tool_call_rescue.find_near_miss_invocations(content or "", registered)
         if not near:
             return [], [], [], [], content
@@ -605,10 +605,7 @@ class ToolExecutor:
         tool_call_id: str,
         tool_name: str,
     ) -> None:
-        vision_note = await self._gate_tool_image(tool_context, result)
-        content = _bound_tool_result_content(result.data if result.success else f"Error: {result.error}")
-        if vision_note:
-            content = f"{content}\n\n{vision_note}"
+        content = await self.tool_result_text(tool_context, result)
         working_messages.append({
             "role": "tool",
             "content": content,
@@ -616,8 +613,15 @@ class ToolExecutor:
             "name": tool_name,
         })
 
+    async def tool_result_text(self, tool_context: ToolContext, result: ToolResult) -> str:
+        vision_note = await self.gate_tool_image(tool_context, result)
+        content = _bound_tool_result_content(result.data if result.success else f"Error: {result.error}")
+        if vision_note:
+            content = f"{content}\n\n{vision_note}"
+        return content
+
     @staticmethod
-    def _tool_end_payload(execution: ToolExecution) -> Dict[str, Any]:
+    def tool_end_payload(execution: ToolExecution) -> Dict[str, Any]:
         result = execution.result
         data: Dict[str, Any] = {
             "tool_name": execution.tool_name,
@@ -816,7 +820,7 @@ class ToolExecutor:
             yield {"type": "tool_start", "data": {"tool_name": tool_name, "arguments": arguments}}
 
             start_time = time.monotonic()
-            result, is_pending = await self._execute_tool_guarded(
+            result, is_pending = await self.execute_tool_guarded(
                 tool_name, tool_context, arguments, allowed_tools, guard, deferred_tools
             )
             duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -831,7 +835,7 @@ class ToolExecutor:
             )
             tool_executions.append(execution)
 
-            yield {"type": "tool_end", "data": self._tool_end_payload(execution)}
+            yield {"type": "tool_end", "data": self.tool_end_payload(execution)}
 
             if is_pending:
                 logger.info(f"[ToolExecutor] Tool '{tool_name}' requires approval — pausing stream loop")
@@ -983,7 +987,7 @@ class ToolExecutor:
                 error=unexpected(tool_name, "run", e, context.is_admin),
             ), False
 
-    async def _execute_tool_guarded(
+    async def execute_tool_guarded(
         self,
         tool_name: str,
         context: ToolContext,

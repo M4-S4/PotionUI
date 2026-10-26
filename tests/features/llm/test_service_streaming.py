@@ -23,6 +23,7 @@ if project_root not in sys.path:
 
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
+from tests.fixtures.llm_engine import client_gateway
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ def _make_service(config: LLMConfig | None = None, repo=None):
     """
     if repo is None:
         repo = _make_mock_repo(config)
-    return LLMGateway(llm_repository=repo)
+    return client_gateway(repo)
 
 
 async def _collect(async_gen):
@@ -638,7 +639,7 @@ class TestStreamWithHistory:
     async def test_routes_to_ollama(self):
         config = _make_config("ollama")
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         lines = [self._ollama_line("hi", done=True)]
         client_cm, _, _ = _make_stream_ctx(200, lines)
@@ -656,7 +657,7 @@ class TestStreamWithHistory:
     async def test_routes_to_openai(self):
         config = _make_config("openai", base_url="http://api.openai.test/v1")
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         lines = [self._sse_line("hello"), "", "data: [DONE]", ""]
         client_cm, _, _ = _make_stream_ctx(200, lines)
@@ -673,7 +674,7 @@ class TestStreamWithHistory:
     @pytest.mark.asyncio
     async def test_raises_when_config_not_found(self):
         repo = _make_mock_repo(None)  # config not found
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         with pytest.raises(ValueError, match="not found"):
             await _collect(
@@ -686,7 +687,7 @@ class TestStreamWithHistory:
     async def test_raises_when_config_disabled(self):
         config = _make_config("ollama", enabled=False)
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         with pytest.raises(ValueError, match="disabled"):
             await _collect(
@@ -699,7 +700,7 @@ class TestStreamWithHistory:
     async def test_raises_for_unsupported_provider_type(self):
         config = _make_config("anthropic")  # unknown type
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         with pytest.raises(ValueError, match="Unsupported LLM type"):
             await _collect(
@@ -713,7 +714,7 @@ class TestStreamWithHistory:
         """custom_system_message must be forwarded verbatim to the underlying stream method."""
         config = _make_config("ollama")
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         lines = [self._ollama_line("ok", done=True)]
         client_cm, mock_client, _ = _make_stream_ctx(200, lines)
@@ -738,7 +739,7 @@ class TestStreamWithHistory:
         """mode='generation' with no custom message should use the config's default system message."""
         config = _make_config("ollama")
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         lines = [self._ollama_line("ok", done=True)]
         client_cm, mock_client, _ = _make_stream_ctx(200, lines)
@@ -770,7 +771,7 @@ class TestStreamingNetworkErrors:
 
         config = _make_config("ollama")
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         # Simulate the outer AsyncClient raising a connection error
         mock_client_cm = AsyncMock()
@@ -790,7 +791,7 @@ class TestStreamingNetworkErrors:
 
         config = _make_config("openai", base_url="http://api.openai.test/v1")
         repo = _make_mock_repo(config)
-        service = LLMGateway(llm_repository=repo)
+        service = client_gateway(repo)
 
         mock_client_cm = AsyncMock()
         mock_client_cm.__aenter__ = AsyncMock(side_effect=httpx.ConnectError("connection refused"))

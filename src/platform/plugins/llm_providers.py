@@ -8,7 +8,7 @@ from src.platform.plugins.sourced_registry import SourcedRegistry
 class LLMProviderRegistration:
     type_name: str
     label: str
-    client: Any
+    adapter: Any
     default_base_url: str = ""
     source: str = "core"
 
