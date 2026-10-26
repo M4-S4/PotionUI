@@ -46,7 +46,6 @@ from src.features.llm.harness.messages import (
     TextPart,
     ToolCallPart,
     ToolResultPart,
-    credential_fingerprint,
 )
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, ReasoningKind
 from src.features.llm.harness.sse import DONE_SENTINEL, SSEFramer
@@ -100,15 +99,6 @@ def model_id(model: str) -> str:
 
 def auth_headers(api_key: Optional[str]) -> Dict[str, str]:
     return {"x-goog-api-key": api_key} if api_key else {}
-
-
-def target_origin(config: LLMConfig) -> Origin:
-    return Origin(
-        adapter=ADAPTER_NAME,
-        provider=config.type,
-        model=config.model,
-        credential=credential_fingerprint(config.base_url, config.api_key),
-    )
 
 
 def thought_step(signature: str, summary: Optional[List[Any]] = None) -> Dict[str, Any]:
@@ -594,7 +584,7 @@ class GeminiInteractionsAdapter(HttpAdapter):
             raise AuthFailed("The Gemini configuration has no API key.")
         body: Dict[str, Any] = {
             "model": model_id(config.model),
-            "input": input_steps(request.messages, target_origin(config), profile),
+            "input": input_steps(request.messages, Origin.for_config(ADAPTER_NAME, config), profile),
             "store": False,
             "stream": True,
         }
