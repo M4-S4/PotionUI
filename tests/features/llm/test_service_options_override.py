@@ -21,6 +21,7 @@ if project_root not in sys.path:
 
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
+from tests.fixtures.llm_engine import client_gateway
 
 
 def _make_config(provider_type: str = "ollama", **overrides) -> LLMConfig:
@@ -53,7 +54,7 @@ def _make_mock_repo(config: LLMConfig | None = None):
 def _make_service(config: LLMConfig | None = None, repo=None):
     if repo is None:
         repo = _make_mock_repo(config)
-    return LLMGateway(llm_repository=repo)
+    return client_gateway(repo)
 
 
 def _make_post_ctx(status_code: int, response_data: dict):

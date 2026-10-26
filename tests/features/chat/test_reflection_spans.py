@@ -23,6 +23,7 @@ from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.persistence_base import PersistenceTestBase
+from tests.fixtures.llm_engine import client_gateway
 
 
 def _message(role: str, content: str, msg_id: str, metadata: dict = None) -> Mock:
@@ -840,7 +841,7 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
         super().tearDown()
 
     def _build_gateway_and_config(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         # A non-trivial configured system message - invisible to an estimate
         # that only prices the fixed reflection prompt's own text.
         system_message = "You are a strict, formatting-conscious assistant. " * 10

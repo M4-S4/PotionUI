@@ -8,6 +8,7 @@ from unittest.mock import Mock, AsyncMock, patch
 from src.features.llm import context_budget
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
+from tests.fixtures.llm_engine import client_gateway
 
 
 def make_config(**overrides) -> LLMConfig:
@@ -27,7 +28,7 @@ def make_config(**overrides) -> LLMConfig:
 class TestGatewayTestConfiguration:
     @pytest.fixture
     def gateway(self):
-        return LLMGateway(llm_repository=Mock())
+        return client_gateway(Mock())
 
     @pytest.mark.asyncio
     async def test_success_reports_response(self, gateway):
@@ -65,7 +66,7 @@ class TestGatewayTestConfiguration:
 class TestGenerateResponseClampsMaxTokensOnAKnownWindow:
     @pytest.mark.asyncio
     async def test_known_window_clamps_max_tokens_sent_to_the_client(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(provider_options={"context_window": 32768}, max_tokens=50000)
         gateway._ollama.generate = AsyncMock(return_value=Mock(content="ok"))
 
@@ -80,7 +81,7 @@ class TestGenerateResponseClampsMaxTokensOnAKnownWindow:
 
     @pytest.mark.asyncio
     async def test_unknown_window_leaves_max_tokens_untouched(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(max_tokens=100_000)
         gateway._ollama.generate = AsyncMock(return_value=Mock(content="ok"))
 
@@ -103,7 +104,7 @@ class TestGatewayContextBudgetHook:
 
     @pytest.fixture
     def gateway(self):
-        gw = LLMGateway(llm_repository=Mock())
+        gw = client_gateway(Mock())
         gw.repository.get_configuration.return_value = make_config()
         gw._ollama.generate_with_tools = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
@@ -177,7 +178,7 @@ class TestGatewayContextProfileFor:
     must see exactly this bundle for a given config/options_override."""
 
     def test_bundles_capacity_reserve_counter_and_image_override(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(
             type="native", model="native-model",
             provider_options={"context_window": 4096, "image_token_estimate": 200},
@@ -195,21 +196,21 @@ class TestGatewayContextProfileFor:
         assert inputs.image_tokens_override == 200
 
     def test_options_override_max_tokens_wins_over_config_default(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(max_tokens=2000, provider_options={"think": False})
         inputs = gateway.context_profile_for(config, options_override={"max_tokens": 4096})
         assert inputs.max_tokens == 4096
         assert inputs.reserve_tokens == 1229
 
     def test_a_raising_messages_token_counter_hook_degrades_to_none(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(type="native", model="native-model")
         gateway._native.messages_token_counter = Mock(side_effect=RuntimeError("boom"))
         inputs = gateway.context_profile_for(config)
         assert inputs.messages_counter is None
 
     def test_ollama_openai_never_get_a_messages_counter(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         for provider_type in ("ollama", "openai"):
             inputs = gateway.context_profile_for(make_config(type=provider_type))
             assert inputs.messages_counter is None
@@ -219,7 +220,7 @@ class TestGatewayReserveClampRegression:
 
     @pytest.fixture
     def gateway(self):
-        gw = LLMGateway(llm_repository=Mock())
+        gw = client_gateway(Mock())
         gw._ollama.generate_with_tools = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
         ))
@@ -247,7 +248,7 @@ class TestGatewayReserveClampRegression:
         assert sent[-1]["content"] == "current question"
 
     def test_configured_window_with_large_max_tokens_clamps_the_reserve(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(
             provider_options={"context_window": 32768, "think": False}, max_tokens=50000,
         )
@@ -256,7 +257,7 @@ class TestGatewayReserveClampRegression:
         assert outcome.ledger["reserve_tokens"] == 4916
 
     def test_unknown_window_with_large_max_tokens_clamps_the_reserve(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(provider_options={"think": False}, max_tokens=100_000)
         outcome = gateway.estimate_context_budget(config, "sys", [{"role": "user", "content": "hi"}])
         assert outcome.ledger["capacity_source"] == "unknown"
@@ -275,7 +276,7 @@ class TestGatewayReserveClampRegression:
         assert sent_override is None
 
     def test_thinking_enabled_adds_a_reserve_allowance(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         thinking_off = make_config(
             type="ollama", provider_options={"context_window": 32768, "think": False}, max_tokens=1000,
         )
@@ -292,7 +293,7 @@ class TestGatewayReserveClampRegression:
 
     @pytest.mark.parametrize("think", [{}, {"think": None}])
     def test_an_unset_think_reserves_no_thinking_allowance(self, think):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(
             type="ollama", provider_options={"context_window": 32768, **think}, max_tokens=1000,
         )
@@ -301,7 +302,7 @@ class TestGatewayReserveClampRegression:
         assert profile.thinking_allowance_tokens == 0
 
     def test_an_explicit_level_reserves_the_allowance(self):
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(
             type="ollama", provider_options={"context_window": 32768, "think": "high"}, max_tokens=1000,
         )
@@ -347,7 +348,7 @@ class TestSentMaxTokensNeverExceedsWindow:
         return history
 
     def _build_gateway(self, provider_type):
-        gw = LLMGateway(llm_repository=Mock())
+        gw = client_gateway(Mock())
         response = Mock(content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0)
         client = getattr(gw, f"_{provider_type}")
         client.generate_with_tools = AsyncMock(return_value=response)
@@ -407,7 +408,7 @@ class TestGatewayImageTokenOverrideThreading:
 
     @pytest.fixture
     def gateway(self):
-        gw = LLMGateway(llm_repository=Mock())
+        gw = client_gateway(Mock())
         gw._ollama.generate_with_tools = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
         ))
@@ -451,7 +452,7 @@ class TestLedgerMatchesGatewayHook:
     async def test_same_config_and_request_yield_the_same_ledger(self):
         from src.features.chat.conversation import ConversationRunner
 
-        gateway = LLMGateway(llm_repository=Mock())
+        gateway = client_gateway(Mock())
         config = make_config(
             type="native", model="native-model",
             provider_options={"context_window": 500, "image_token_estimate": 30},
@@ -516,7 +517,7 @@ class _ParkingClient:
 class TestGatewayStreamClosePropagation:
     @pytest.fixture
     def gateway(self):
-        gw = LLMGateway(llm_repository=Mock())
+        gw = client_gateway(Mock())
         gw.repository.get_configuration.return_value = make_config()
         return gw
 
