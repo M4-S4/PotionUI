@@ -1,6 +1,7 @@
 import pytest
 
-from src.features.llm.harness.cost import OUTPUT_EXCLUDES_REASONING, priced, step_cost, total_usage
+from src.features.llm.harness.adapters import gemini_interactions as gemini
+from src.features.llm.harness.cost import priced, step_cost, total_usage
 from src.features.llm.harness.events import Usage
 from src.features.llm.harness.profile import CapabilityProfile, Prices
 
@@ -33,19 +34,13 @@ def test_a_reasoning_price_splits_the_reasoning_tokens_out_of_the_output():
     assert step_cost(usage, prices) == 0.00499
 
 
-def test_gemini_output_excludes_thought_tokens_so_they_are_added_at_the_output_rate():
-    usage = Usage(input_tokens=3000, output_tokens=200, reasoning_tokens=800, cached_input_tokens=2000)
+def test_gemini_thought_tokens_arrive_inside_the_output_count_and_price_at_the_output_rate():
+    usage = gemini.usage_from({
+        "total_input_tokens": 3000, "total_output_tokens": 200, "total_thought_tokens": 800, "total_cached_tokens": 2000,
+    })
 
-    assert step_cost(usage, GEMINI, output_includes_reasoning=False) == 0.0144
-    assert step_cost(usage, GEMINI, output_includes_reasoning=True) == 0.0048
-
-
-def test_priced_picks_the_gemini_shape_from_the_adapter_name():
-    usage = Usage(input_tokens=3000, output_tokens=200, reasoning_tokens=800, cached_input_tokens=2000)
-
-    assert "gemini-interactions" in OUTPUT_EXCLUDES_REASONING
-    assert priced(usage, profile("gemini-interactions", GEMINI)).cost == 0.0144
-    assert priced(usage, profile("openai-responses", GEMINI)).cost == 0.0048
+    assert (usage.output_tokens, usage.reasoning_tokens) == (1000, 800)
+    assert step_cost(usage, GEMINI) == 0.0144
 
 
 def test_a_deepseek_hit_miss_split_arrives_as_cached_tokens_and_prices_like_openai():
