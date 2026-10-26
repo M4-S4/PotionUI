@@ -2,6 +2,8 @@
  * Shared chat types used across AI chat panel components.
  */
 
+import type { NoticeKind } from '$lib/chat/noticeKinds';
+
 export interface ParsedContent {
 	prompt?: string;
 	improvements?: string;
@@ -170,7 +172,7 @@ export interface MessageUsage {
 	cost?: number | null;
 }
 
-export type ChatNoticeKind = 'retrying' | 'reasoning_dropped' | 'approval_expired';
+export type ChatNoticeKind = NoticeKind | (string & {});
 
 export interface ChatNotice {
 	kind: ChatNoticeKind;

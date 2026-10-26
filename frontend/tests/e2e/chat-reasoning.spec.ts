@@ -23,7 +23,7 @@ interface Block {
 }
 
 interface Notice {
-	kind: 'retrying' | 'reasoning_dropped' | 'approval_expired';
+	kind: string;
 	message: string;
 }
 
@@ -246,7 +246,9 @@ for (const viewport of VIEWPORTS) {
 					answer: 'Go with the softer palette.',
 					notices: [
 						{ kind: 'retrying', message: 'Rate limited; retrying in 4 s.' },
-						{ kind: 'reasoning_dropped', message: 'Reasoning made with a different API key was left out.' }
+						{ kind: 'reasoning_dropped', message: 'Reasoning made with a different API key was left out.' },
+						{ kind: 'structured_repaired', message: 'The structured reply was repaired.' },
+						{ kind: 'brand_new_kind', message: 'A kind this build has never seen.' }
 					]
 				}
 			]);
@@ -257,6 +259,8 @@ for (const viewport of VIEWPORTS) {
 				timeout: 30000
 			});
 			await expect(notices.filter({ hasText: 'Rate limited; retrying in 4 s.' })).toBeVisible();
+			await expect(notices.filter({ hasText: 'The structured reply was repaired.' })).toBeVisible();
+			await expect(notices.filter({ hasText: 'A kind this build has never seen.' })).toBeVisible();
 
 			const answer = page.locator('.assistant-copy', { hasText: 'Go with the softer palette.' }).last();
 			const firstBox = await notices.first().boundingBox();

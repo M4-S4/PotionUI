@@ -1,22 +1,15 @@
 <script lang="ts">
 	import type { ChatNotice } from '$lib/types/chat';
 	import Icon from '$lib/components/Icon.svelte';
+	import { noticeAppearance } from '$lib/chat/noticeKinds';
 
 	let { notices = [] }: { notices?: ChatNotice[] } = $props();
-
-	const APPEARANCE: Record<string, { icon: string; tone: string }> = {
-		retrying: { icon: 'clock', tone: 'text-warning' },
-		reasoning_dropped: { icon: 'info', tone: 'text-info' },
-		approval_expired: { icon: 'hourglass', tone: 'text-fg-subtle' }
-	};
-
-	const FALLBACK = { icon: 'info', tone: 'text-fg-subtle' };
 </script>
 
 {#if notices.length > 0}
 	<div class="mb-3 flex w-[min(100%,500px)] flex-col gap-1.5" role="status" aria-live="polite" data-testid="chat-notices">
 		{#each notices as notice, index (`${notice.kind}:${index}`)}
-			{@const look = APPEARANCE[notice.kind] ?? FALLBACK}
+			{@const look = noticeAppearance(notice.kind)}
 			<div
 				class="flex items-start gap-2 rounded border border-line bg-surface-1 px-3 py-2 text-sm text-fg-muted"
 				data-testid="chat-notice"

@@ -16,7 +16,6 @@ import type {
 	TraceStepName,
 	BehaviorTraceManifest,
 	ChatNotice,
-	ChatNoticeKind,
 	ContextLedger,
 	MessageUsage,
 	ReasoningBlock,
@@ -171,7 +170,7 @@ export function noticesFromMessage(
 		entry && typeof entry.kind === 'string' && typeof entry.message === 'string'
 			? [
 					{
-						kind: entry.kind as ChatNoticeKind,
+						kind: entry.kind,
 						message: entry.message,
 						detail: entry.detail ?? null,
 						step_seq: typeof entry.step_seq === 'number' ? entry.step_seq : null
@@ -222,7 +221,7 @@ export function applyNotice(
 	if (existing.some((notice) => notice.kind === data.kind && notice.message === data.message)) return messages;
 	const kept = data.kind === 'retrying' ? existing.filter((notice) => notice.kind !== 'retrying') : existing;
 	const notice: ChatNotice = {
-		kind: data.kind as ChatNoticeKind,
+		kind: data.kind,
 		message: data.message,
 		detail: data.detail ?? null,
 		step_seq: typeof data.step_seq === 'number' ? data.step_seq : null

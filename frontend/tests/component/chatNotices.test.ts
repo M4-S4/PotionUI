@@ -49,7 +49,7 @@ describe('ChatNotices', () => {
 		const target = mount([
 			{ kind: 'retrying', message: 'a' },
 			{ kind: 'reasoning_dropped', message: 'b' },
-			{ kind: 'something_new' as never, message: 'c' }
+			{ kind: 'something_new', message: 'c' }
 		]);
 		const icons = items(target).map((el) => el.querySelector('svg')?.getAttribute('class') ?? '');
 
@@ -57,6 +57,31 @@ describe('ChatNotices', () => {
 		expect(icons[1]).toContain('text-info');
 		expect(icons[2]).toContain('text-fg-subtle');
 		expect(items(target)[2].textContent).toContain('c');
+	});
+
+	it('renders every kind the harness raises with its own message', () => {
+		const kinds = [
+			'retrying',
+			'degraded_retry',
+			'reasoning_dropped',
+			'tool_choice_downgraded',
+			'structured_fallback',
+			'structured_repaired',
+			'approval_expired'
+		];
+		const target = mount(kinds.map((kind) => ({ kind, message: `message for ${kind}` })));
+
+		expect(items(target).map((el) => [el.dataset.kind, el.textContent?.trim()])).toEqual(
+			kinds.map((kind) => [kind, `message for ${kind}`])
+		);
+		expect(target.querySelectorAll('svg')).toHaveLength(kinds.length);
+	});
+
+	it('shows an unknown kind as a generic notice carrying its message', () => {
+		const target = mount([{ kind: 'brand_new_kind', message: 'Something the server decided to say.' }]);
+
+		expect(items(target)[0].dataset.kind).toBe('brand_new_kind');
+		expect(items(target)[0].textContent).toContain('Something the server decided to say.');
 	});
 
 	it('uses no native title tooltip', () => {
