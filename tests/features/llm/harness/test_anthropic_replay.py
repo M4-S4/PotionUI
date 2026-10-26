@@ -18,33 +18,47 @@ from src.features.llm.harness.messages import (
 from src.features.llm.harness.profile import CapabilityProfile
 from tests.features.llm.harness import cassettes
 from tests.features.llm.harness.anthropic_helpers import (
+    ADAPTER_DIR,
     chunks_of,
     make_profile,
     read_json,
     scenario_path,
     step_dirs,
-    stored_history,
+    synthetic_history,
 )
 
-SCENARIOS = ["thinking_parallel_tools", "approval_pause", "in_band_error"]
+PLANNED = {"thinking_parallel_tools", "approval_pause", "in_band_error"}
+PRESENT = sorted(path.name for path in cassettes.scenario_dirs(ADAPTER_DIR))
 ADAPTER = AnthropicMessagesAdapter()
 
 
-@pytest.mark.parametrize("name", SCENARIOS)
+def require_hand_built(name):
+    sources = {read_json(directory / "meta.json")["source"] for directory in step_dirs(name)}
+    if sources != {"hand-built"}:
+        pytest.skip(f"{name} has been replaced by a recording")
+
+
+def test_every_planned_scenario_has_a_cassette():
+    assert PLANNED <= set(PRESENT)
+
+
+@pytest.mark.parametrize("name", PRESENT)
 def test_cassette_scenario_replays_through_the_adapter(name):
     cassettes.run_scenario(ADAPTER, scenario_path(name))
 
 
-@pytest.mark.parametrize("name", SCENARIOS)
-def test_hand_built_cassettes_cite_the_provider_docs(name):
+@pytest.mark.parametrize("name", PRESENT)
+def test_cassettes_declare_where_they_came_from(name):
     for directory in step_dirs(name):
         meta = read_json(directory / "meta.json")
-        assert meta["source"] == "hand-built"
-        assert meta["doc_url"].startswith("https://platform.claude.com/docs/")
+        assert meta["source"] in {"hand-built", "recorded"}
         assert meta["adapter"] == "anthropic-messages" and meta["provider"] == "anthropic"
+        if meta["source"] == "hand-built":
+            assert meta["doc_url"].startswith("https://platform.claude.com/docs/")
 
 
-def test_cassette_chunks_cut_through_multibyte_characters():
+def test_hand_built_cassette_chunks_cut_through_multibyte_characters():
+    require_hand_built("thinking_parallel_tools")
     cut = 0
     for directory in step_dirs("thinking_parallel_tools"):
         for chunk in chunks_of(directory):
@@ -56,6 +70,7 @@ def test_cassette_chunks_cut_through_multibyte_characters():
 
 
 def test_the_pause_scenario_returns_results_in_emission_order_with_the_skipped_call_marked():
+    require_hand_built("approval_pause")
     directory = step_dirs("approval_pause")[1]
     messages = read_json(directory / "request.json")["body"]["messages"]
     results = messages[-1]["content"]
@@ -65,7 +80,7 @@ def test_the_pause_scenario_returns_results_in_emission_order_with_the_skipped_c
 
 
 def final_request(follow_up: bool = True, **overrides: Any):
-    history, request = stored_history("thinking_parallel_tools")
+    history, request = synthetic_history()
     if follow_up:
         history = history + [message("u3", "user", TextPart("And what about Berlin?"))]
     return history, dataclasses.replace(request, messages=tuple(history), **overrides)
@@ -82,8 +97,8 @@ def test_stored_assistant_messages_replay_their_blocks_verbatim_and_in_order():
     stored = [item.raw["content"] for item in history if item.role.value == "assistant"]
     assert replayed == stored
     assert [block["type"] for block in replayed[0]] == ["thinking", "redacted_thinking", "text", "tool_use", "tool_use"]
-    assert replayed[0][0]["signature"] == "ErUBCkYIARgCIkB-hand-built-signature-1"
-    assert replayed[2][0] == {"type": "thinking", "thinking": "", "signature": "ErUBCkYIARgCIkB-hand-built-signature-3"}
+    assert replayed[0][0]["signature"] == "sig-1"
+    assert replayed[2][0] == {"type": "thinking", "thinking": "", "signature": "sig-3"}
 
 
 def test_replay_survives_a_trip_through_the_codec():
@@ -209,7 +224,7 @@ MUTATIONS: Dict[str, Callable[[List[Message]], List[Message]]] = {
     ),
     "edit_thinking_text_in_raw_resealed": lambda h: replaced(h, A1, with_raw(h[A1], edit_thinking, reseal=True)),
     "edit_earlier_tool_result": lambda h: replaced(
-        h, T1, message("t1", "tool", ToolResultPart("toolu_01HandBuiltParis", "get_weather", (TextPart("sunny"),)), *h[T1].parts[1:])
+        h, T1, message("t1", "tool", ToolResultPart("toolu_paris", "get_weather", (TextPart("sunny"),)), *h[T1].parts[1:])
     ),
     "flag_earlier_tool_result_as_error": lambda h: replaced(
         h, T1, message("t1", "tool", dataclasses.replace(h[T1].parts[0], is_error=True), *h[T1].parts[1:])

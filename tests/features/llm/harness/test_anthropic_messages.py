@@ -51,68 +51,24 @@ from src.features.llm.model_listing import ModelListingError
 from tests.features.llm.harness.anthropic_helpers import (
     API_KEY,
     MODEL,
+    WEATHER,
     bare_profile,
     make_config,
     make_profile,
     make_request,
     own_origin,
+    redacted_block,
     render_body,
     sse_bytes,
+    stream,
+    text_block,
+    thinking_block,
+    tool_block,
 )
 from tests.fixtures.llm_harness import decode_chunks
 
-TOOL = ToolSpec(
-    name="get_weather",
-    description="Current weather for a city.",
-    parameters={"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]},
-)
+TOOL = WEATHER
 USER = message("u1", "user", TextPart("Hello"))
-
-
-def stream(*blocks: List[Any], stop: str = "end_turn", usage: Dict[str, Any] = None, extra: List[Any] = ()) -> bytes:
-    events: List[Any] = [
-        ("message_start", {"type": "message_start", "message": {"id": "msg_1", "usage": usage or {"input_tokens": 9, "output_tokens": 1}}})
-    ]
-    for events_of_block in blocks:
-        events.extend(events_of_block)
-    events.extend(extra)
-    events.append(("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop}, "usage": {"output_tokens": 5}}))
-    events.append(("message_stop", {"type": "message_stop"}))
-    return sse_bytes(events)
-
-
-def text_block(index: int, *parts: str) -> List[Any]:
-    events = [("content_block_start", {"type": "content_block_start", "index": index, "content_block": {"type": "text", "text": ""}})]
-    events += [
-        ("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "text_delta", "text": part}})
-        for part in parts
-    ]
-    events.append(("content_block_stop", {"type": "content_block_stop", "index": index}))
-    return events
-
-
-def tool_block(index: int, ident: str, name: str, *parts: str) -> List[Any]:
-    events = [
-        (
-            "content_block_start",
-            {"type": "content_block_start", "index": index, "content_block": {"type": "tool_use", "id": ident, "name": name, "input": {}}},
-        )
-    ]
-    events += [
-        ("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "input_json_delta", "partial_json": part}})
-        for part in parts
-    ]
-    events.append(("content_block_stop", {"type": "content_block_stop", "index": index}))
-    return events
-
-
-def thinking_block(index: int, text: str, signature: str) -> List[Any]:
-    return [
-        ("content_block_start", {"type": "content_block_start", "index": index, "content_block": {"type": "thinking", "thinking": ""}}),
-        ("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "thinking_delta", "thinking": text}}),
-        ("content_block_delta", {"type": "content_block_delta", "index": index, "delta": {"type": "signature_delta", "signature": signature}}),
-        ("content_block_stop", {"type": "content_block_stop", "index": index}),
-    ]
 
 
 def decode(payload: bytes, profile=None, request=None):
@@ -422,10 +378,7 @@ def test_foreign_tool_calls_without_parsed_arguments_are_sent_with_empty_input()
 def test_decoder_turns_a_thinking_tool_stream_into_events_and_a_replayable_message():
     payload = stream(
         thinking_block(0, "Plan it.", "sig-a"),
-        [
-            ("content_block_start", {"type": "content_block_start", "index": 1, "content_block": {"type": "redacted_thinking", "data": "red-1"}}),
-            ("content_block_stop", {"type": "content_block_stop", "index": 1}),
-        ],
+        redacted_block(1, "red-1"),
         text_block(2, "Checking ", "now."),
         tool_block(3, "toolu_1", "get_weather", "", '{"city"', ': "Paris"}'),
         stop="tool_use",
