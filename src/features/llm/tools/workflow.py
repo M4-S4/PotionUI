@@ -149,6 +149,9 @@ class ToolCallGuard:
     def already_applied(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
         return self.call_key(tool_name, arguments) in self._applied_calls
 
+    def failed_call_keys(self) -> List[str]:
+        return list(self._failed_calls)
+
 
 # ---------------------------------------------------------------------------
 # Events the workflow yields
@@ -476,7 +479,7 @@ class ToolWorkflow:
 
         # No parsed call — the content may still be a near-miss invocation
         # (wrong tag / fence / bare JSON) that must not reach the user raw.
-        repaired, ambiguous, problems, records, cleaned = self._executor._rescue_final_content(
+        repaired, ambiguous, problems, records, cleaned = self._executor.rescue_final_content(
             content or "", self.allowed_tools, self.deferred_tools
         )
         if repaired:
@@ -509,7 +512,7 @@ class ToolWorkflow:
             self.forced_tool_call, self.tool_context, self.working_messages,
             self.tool_executions, self.allowed_tools, self.deferred_tools,
         )
-        yield ToolFinished(self._executor._tool_end_payload(execution))
+        yield ToolFinished(self._executor.tool_end_payload(execution))
         if execution.result.image_data:
             self._tool_image_data = execution.result.image_data
         self._any_tool_round_completed = True

@@ -67,7 +67,7 @@ def test_enabling_registers_the_type_and_disabling_removes_it(registry, provider
     assert (registration.label, registration.default_base_url, registration.source) == (
         "Example LLM", BASE_URL, "llm-plugin",
     )
-    assert type(registration.client).__name__ == "ExampleClient"
+    assert type(registration.adapter).__name__ == "ExampleClient"
 
     registry.disable_plugin("llm-plugin")
 

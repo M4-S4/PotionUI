@@ -22,6 +22,7 @@ if project_root not in sys.path:
 
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
+from tests.fixtures.llm_engine import client_gateway
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +61,7 @@ def _make_service(config: LLMConfig | None = None, repo=None):
     """Create an LLMGateway with a mocked repository."""
     if repo is None:
         repo = _make_mock_repo(config)
-    return LLMGateway(llm_repository=repo)
+    return client_gateway(repo)
 
 
 async def _collect(async_gen):
