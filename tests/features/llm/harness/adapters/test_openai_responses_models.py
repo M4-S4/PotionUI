@@ -35,10 +35,10 @@ class TestListing:
 
         assert "authorization" not in peer.requests[0].headers
 
-    async def test_a_reply_without_a_list_is_reported(self, monkeypatch):
+    async def test_a_reply_without_a_list_is_reported_under_the_openai_name(self, monkeypatch):
         install_peer(monkeypatch, json_reply({"object": "error"}))
 
-        with pytest.raises(ModelListingError):
+        with pytest.raises(ModelListingError, match="OpenAI returned no model list"):
             await ADAPTER.list_models("https://api.openai.com/v1", "test-key-a")
 
     async def test_rejected_credentials_are_reported(self, monkeypatch):
@@ -67,8 +67,22 @@ class TestDiscovery:
 
         assert dict(layer.fields) == {"context_window": 400000}
 
-    async def test_discovery_failures_surface_to_the_resolver(self, monkeypatch):
+    async def test_a_failed_probe_leaves_the_layer_empty(self, monkeypatch):
         install_peer(monkeypatch, json_reply({}, status=500))
 
-        with pytest.raises(ModelListingError):
-            await ADAPTER.discover(make_config())
+        layer = await ADAPTER.discover(make_config())
+
+        assert dict(layer.fields) == {}
+
+    async def test_the_context_window_probe_is_available_to_the_gateway(self, monkeypatch):
+        peer = install_peer(monkeypatch, json_reply({"data": [{"id": "gpt-5.6", "context_length": 400000}]}))
+
+        window = await ADAPTER.discover_context_window("https://api.openai.com/v1", "test-key-a", "gpt-5.6")
+
+        assert (window.tokens, window.kind) == (400000, "runtime")
+        assert peer.requests[0].headers["authorization"] == "Bearer test-key-a"
+
+    async def test_a_model_the_server_does_not_list_has_no_window(self, monkeypatch):
+        install_peer(monkeypatch, json_reply({"data": [{"id": "other", "context_length": 1000}]}))
+
+        assert await ADAPTER.discover_context_window("https://api.openai.com/v1", None, "gpt-5.6") is None

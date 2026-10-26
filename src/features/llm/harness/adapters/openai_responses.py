@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.features.llm.harness.adapter import RenderRequest, StreamDecoder, ToolChoice, ToolSpec, WireRequest
+from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.errors import (
     AuthFailed,
@@ -44,20 +45,12 @@ from src.features.llm.harness.messages import (
     ToolCallPart,
     ToolResultPart,
 )
-from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, ReasoningKind
+from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ReasoningKind
 from src.features.llm.harness.sse import SSEFramer, SSERecord
 from src.features.llm.harness.transport import HttpAdapter
-from src.features.llm.model_listing import (
-    CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
-    DiscoveredModel,
-    ModelListingError,
-    fetch_json,
-    positive_int,
-    sorted_models,
-)
+from src.features.llm.model_listing import DiscoveredModel, DiscoveredWindow
 
 ENCRYPTED_REASONING = "reasoning.encrypted_content"
-WINDOW_KEYS = ("context_window", "context_length", "max_model_len")
 SKELETON_FIELDS = {
     "reasoning": ("id", "encrypted_content"),
     "text": ("text", "phase"),
@@ -570,8 +563,15 @@ def _error_object(body: bytes) -> Dict[str, Any]:
     return {"message": body.decode("utf-8", errors="replace")[:500]}
 
 
+class _OpenAIModels(OpenAIChatAdapter):
+    display_name = "OpenAI"
+
+
 class OpenAIResponsesAdapter(HttpAdapter):
     name = "openai-responses"
+
+    def __init__(self) -> None:
+        self._models = _OpenAIModels()
 
     def render(self, request: RenderRequest, profile: CapabilityProfile) -> WireRequest:
         config = request.config
@@ -652,38 +652,15 @@ class OpenAIResponsesAdapter(HttpAdapter):
         return result
 
     async def discover(self, config: Any) -> ProfileLayer:
-        payload = await fetch_json(
-            "OpenAI",
-            config.base_url,
-            "/models",
-            self._listing_headers(config.api_key),
-            timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
-        )
-        entries = payload.get("data") if isinstance(payload, dict) else None
-        fields: Dict[str, Any] = {}
-        for entry in entries if isinstance(entries, list) else []:
-            if isinstance(entry, dict) and entry.get("id") == config.model:
-                tokens = next((value for value in (positive_int(entry.get(key)) for key in WINDOW_KEYS) if value), None)
-                if tokens:
-                    fields["context_window"] = tokens
-        return ProfileLayer(ProfileSource.DISCOVERED, fields)
+        return await self._models.discover(config)
+
+    async def discover_context_window(
+        self, base_url: str, api_key: Optional[str], model: str,
+    ) -> Optional[DiscoveredWindow]:
+        return await self._models.discover_context_window(base_url, api_key, model)
 
     async def list_models(self, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
-        payload = await fetch_json("OpenAI", base_url, "/models", self._listing_headers(api_key))
-        entries = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(entries, list):
-            raise ModelListingError("OpenAI returned no model list.")
-        models = []
-        for entry in entries:
-            if not isinstance(entry, dict) or not entry.get("id"):
-                continue
-            owner = entry.get("owned_by")
-            models.append(DiscoveredModel(id=str(entry["id"]), details={"owned_by": owner} if owner else None))
-        return sorted_models(models)
-
-    @staticmethod
-    def _listing_headers(api_key: Optional[str]) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        return await self._models.list_models(base_url, api_key)
 
     def _input(self, request: RenderRequest, profile: CapabilityProfile) -> List[Dict[str, Any]]:
         target = Origin.for_config(self.name, request.config)
