@@ -8,7 +8,8 @@
         "text": "I need both presets.",
         "summary": "",
         "redacted": false,
-        "opaque": null
+        "opaque": null,
+        "duration_ms": null
       },
       {
         "type": "tool_call",
@@ -35,9 +36,9 @@
     ],
     "origin": {
       "adapter": "ollama-chat",
-      "provider": "ollama-chat",
+      "provider": "ollama",
       "model": "qwen3:8b",
-      "credential": null
+      "credential": "fbb54a4831ddcd28"
     },
     "raw": null
   },

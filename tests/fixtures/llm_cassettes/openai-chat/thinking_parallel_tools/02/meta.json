@@ -1,6 +1,5 @@
 {
   "adapter": "openai-chat",
-  "provider": "openai-chat",
   "source": "hand-built",
   "recorded_at": null,
   "model": "Qwen/Qwen3-30B-A3B",

@@ -1,6 +1,5 @@
 {
   "adapter": "ollama-chat",
-  "provider": "ollama-chat",
   "source": "hand-built",
   "recorded_at": null,
   "model": "qwen3:8b",

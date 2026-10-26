@@ -8,7 +8,8 @@
         "text": "Both presets need to be read.",
         "summary": "",
         "redacted": false,
-        "opaque": null
+        "opaque": null,
+        "duration_ms": null
       },
       {
         "type": "tool_call",
@@ -35,9 +36,9 @@
     ],
     "origin": {
       "adapter": "openai-chat",
-      "provider": "openai-chat",
+      "provider": "openai-compatible",
       "model": "Qwen/Qwen3-30B-A3B",
-      "credential": null
+      "credential": "22bd176dc6a235db"
     },
     "raw": null
   },

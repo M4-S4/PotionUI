@@ -2,7 +2,7 @@
   "config": {
     "id": "cassette",
     "name": "cassette",
-    "type": "openai-chat",
+    "type": "openai-compatible",
     "enabled": true,
     "base_url": "http://vllm.local:8000/v1",
     "api_key": "cassette-key",
