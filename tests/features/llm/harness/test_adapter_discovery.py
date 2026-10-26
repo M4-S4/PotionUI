@@ -59,6 +59,29 @@ async def test_discovered_facts_are_accepted_by_the_profile_layering(monkeypatch
     assert profile.sources["context_window"] is ProfileSource.DISCOVERED
 
 
+async def test_openai_discovery_names_a_vllm_server_from_the_listing_owner(monkeypatch):
+    install_peer(monkeypatch, reply({"data": [{"id": "golden-model", "owned_by": "vllm", "max_model_len": 4096}]}))
+
+    layer = await OpenAIChatAdapter().discover(make_config("openai"))
+
+    assert dict(layer.fields) == {"context_window": 4096, "server": "vllm"}
+
+
+async def test_openai_discovery_names_the_server_even_when_the_model_is_not_listed_under_that_id(monkeypatch):
+    install_peer(monkeypatch, reply({"data": [{"id": "alias", "owned_by": "vllm"}]}))
+
+    layer = await OpenAIChatAdapter().discover(make_config("openai"))
+
+    assert dict(layer.fields) == {"server": "vllm"}
+
+
+@pytest.mark.parametrize("owner", ["openai", "organization-owner", None, 5])
+async def test_openai_discovery_names_no_server_for_other_owners(monkeypatch, owner):
+    install_peer(monkeypatch, reply({"data": [{"id": "golden-model", "owned_by": owner}]}))
+
+    assert "server" not in (await OpenAIChatAdapter().discover(make_config("openai"))).fields
+
+
 async def test_openai_discovery_reports_nothing_for_an_unlisted_model(monkeypatch):
     install_peer(monkeypatch, reply({"data": [{"id": "other", "context_length": 5}]}))
 
