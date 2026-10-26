@@ -367,6 +367,15 @@ export function createStreamEventHandler(
 		} else if (event.type === 'step') {
 			stepEpoch += 1;
 			owned.applyStreamEvent(event);
+		} else if (event.type === 'step_discarded') {
+			if (owned.applyStreamEvent(event)) {
+				const kept = get(d.store).messages.at(-1);
+				const keptBlocks = kept?.reasoning?.length ?? 0;
+				streamedContent = kept?.content ?? '';
+				for (const [key, index] of reasoningIndex) if (index >= keptBlocks) reasoningIndex.delete(key);
+				reasoningBlock = keptBlocks;
+				reasoningText = '';
+			}
 		} else if (event.type === 'notice') {
 			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'tool_start') {

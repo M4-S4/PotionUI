@@ -204,8 +204,29 @@ export function applyStep(messages: Messages, data: { usage?: MessageUsage | nul
 	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
 	const message = messages[lastIdx];
 	const usage = data?.usage ? mergeUsage(message.usage, data.usage) : message.usage;
+	const closed = closedReasoning(message);
 	const msgs = [...messages];
-	msgs[lastIdx] = { ...message, ...closedReasoning(message), ...(usage ? { usage } : {}) };
+	msgs[lastIdx] = {
+		...message,
+		...closed,
+		stepMark: { content: message.content.length, reasoning: (closed.reasoning ?? message.reasoning)?.length ?? 0 },
+		...(usage ? { usage } : {})
+	};
+	return msgs;
+}
+
+export function applyStepDiscarded(messages: Messages): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	const message = messages[lastIdx];
+	const mark = message.stepMark ?? { content: 0, reasoning: 0 };
+	const kept = message.reasoning?.slice(0, mark.reasoning);
+	const msgs = [...messages];
+	msgs[lastIdx] = {
+		...message,
+		content: message.content.slice(0, mark.content),
+		reasoning: kept?.length ? kept : undefined
+	};
 	return msgs;
 }
 

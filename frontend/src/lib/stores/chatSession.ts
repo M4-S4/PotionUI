@@ -14,6 +14,7 @@ import {
 	applyReasoning,
 	applyReasoningEnd,
 	applyStep,
+	applyStepDiscarded,
 	applyNotice,
 	applyToolStart,
 	applyToolEnd,
@@ -196,6 +197,8 @@ function createChatSessionStore() {
 						};
 					case 'step':
 						return { ...s, messages: applyStep(s.messages, event.data || {}) };
+					case 'step_discarded':
+						return { ...s, messages: applyStepDiscarded(s.messages) };
 					case 'notice':
 						return { ...s, messages: applyNotice(s.messages, event.data || {}) };
 					case 'tool_start':

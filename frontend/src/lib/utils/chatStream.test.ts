@@ -4,6 +4,7 @@ import {
 	applyReasoning,
 	applyReasoningEnd,
 	applyStep,
+	applyStepDiscarded,
 	applyNotice,
 	mergeUsage,
 	reasoningFromMessage,
@@ -1500,6 +1501,79 @@ describe('applyStep', () => {
 	it('is a no-op when the last message is not an assistant message', () => {
 		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
 		expect(applyStep(msgs, { usage: { input_tokens: 1 } })).toBe(msgs);
+	});
+});
+
+describe('applyStepDiscarded', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const streaming = (content: string, blocks: Array<[ 'raw' | 'summary', string ]> = []) => {
+		let msgs = fixture();
+		blocks.forEach(([kind, text], index) => {
+			msgs = applyReasoning(msgs, index, kind, text);
+		});
+		return applyToken(msgs, content);
+	};
+
+	it('removes everything streamed since the turn start when no step has finished', () => {
+		const out = applyStepDiscarded(streaming('a cut-off tool ca', [['raw', 'thinking about it']]));
+
+		expect(out[1].content).toBe('');
+		expect(out[1].reasoning).toBeUndefined();
+	});
+
+	it('keeps the text and reasoning of earlier steps and removes only what came after the last step', () => {
+		let msgs = streaming('First step. ', [['raw', 'first thought']]);
+		msgs = applyStep(msgs, {});
+		msgs = applyReasoning(msgs, 1, 'raw', 'second thought');
+		msgs = applyToken(msgs, 'First step. Second step, cut off');
+
+		const out = applyStepDiscarded(msgs);
+
+		expect(out[1].content).toBe('First step. ');
+		expect(out[1].reasoning!.map((block) => block.text)).toEqual(['first thought']);
+	});
+
+	it('goes back to the same boundary when the retried step is discarded too', () => {
+		let msgs = applyStep(streaming('Kept. '), {});
+		msgs = applyStepDiscarded(applyToken(msgs, 'Kept. first try'));
+		msgs = applyStepDiscarded(applyToken(msgs, 'Kept. second try'));
+
+		expect(msgs[1].content).toBe('Kept. ');
+	});
+
+	it('leaves tool runs, notices and usage alone', () => {
+		let msgs = applyToolStart(streaming('Kept. '), { tool_name: 'list_models', arguments: {} });
+		msgs = applyNotice(msgs, { kind: 'retrying', message: 'Retrying with more room.' });
+		msgs = applyStep(msgs, { usage: { input_tokens: 5 } });
+		msgs = applyToken(msgs, 'Kept. dropped');
+
+		const out = applyStepDiscarded(msgs);
+
+		expect(out[1].tool_executions).toHaveLength(1);
+		expect(out[1].notices).toHaveLength(1);
+		expect(out[1].usage).toEqual({ input_tokens: 5 });
+		expect(out[1].isStreaming).toBe(true);
+	});
+
+	it('records the boundary a step ends at', () => {
+		const out = applyStep(streaming('Hello', [['raw', 'plan']]), {});
+
+		expect(out[1].stepMark).toEqual({ content: 5, reasoning: 1 });
+	});
+
+	it('does not mutate its input and ignores a non-assistant tail', () => {
+		const input = streaming('text');
+		applyStepDiscarded(input);
+		expect(input[1].content).toBe('text');
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyStepDiscarded(msgs)).toBe(msgs);
 	});
 });
 

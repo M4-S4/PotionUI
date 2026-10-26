@@ -1209,4 +1209,85 @@ describe('reasoning events (createStreamEventHandler)', () => {
 
 		expect(assistant().content).toBe('ok');
 	});
+
+	it('step_discarded removes the discarded step text so the retried step continues from the boundary', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'token', data: { content: 'First step. ' } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'token', data: { content: 'Second step, cut' } });
+		await deliver({ type: 'step_discarded', data: { seq: 2 } });
+		expect(assistant().content).toBe('First step. ');
+
+		await deliver({ type: 'token', data: { content: 'Retried.' } });
+		await flushFrame();
+
+		expect(assistant().content).toBe('First step. Retried.');
+	});
+
+	it('step_discarded drops text that was still waiting for the next frame', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'token', data: { content: 'never applied' } });
+		await deliver({ type: 'step_discarded', data: { seq: 1 } });
+		await flushFrame();
+
+		expect(assistant().content).toBe('');
+	});
+
+	it('step_discarded removes the reasoning of the discarded step and lets the retry reuse its block numbers', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'first' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 100 } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'doomed' } });
+		await deliver({ type: 'step_discarded', data: { seq: 2 } });
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['first']);
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'retry' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 50 } });
+		await flushFrame();
+
+		expect(assistant().reasoning!.map((block) => [block.text, block.duration_ms])).toEqual([
+			['first', 100],
+			['retry', 50]
+		]);
+	});
+
+	it('step_discarded keeps block indexes exact when the retry numbers its blocks past the discarded ones', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'first' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 100 } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'reasoning', data: { block: 1, kind: 'raw', text: 'doomed one' } });
+		await deliver({ type: 'reasoning', data: { block: 2, kind: 'raw', text: 'doomed two' } });
+		await deliver({ type: 'step_discarded', data: { seq: 2 } });
+
+		await deliver({ type: 'reasoning', data: { block: 3, kind: 'raw', text: 'retry one' } });
+		await deliver({ type: 'reasoning', data: { block: 4, kind: 'raw', text: 'retry two' } });
+		await deliver({ type: 'reasoning_end', data: { block: 3, duration_ms: 30 } });
+		await deliver({ type: 'reasoning_end', data: { block: 4, duration_ms: 40 } });
+		await flushFrame();
+
+		expect(assistant().reasoning!.map((block) => [block.text, block.duration_ms])).toEqual([
+			['first', 100],
+			['retry one', 30],
+			['retry two', 40]
+		]);
+	});
+
+	it('step_discarded before any step clears the whole attempt', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'doomed' } });
+		await deliver({ type: 'token', data: { content: 'cut' } });
+		await deliver({ type: 'step_discarded', data: { seq: 1 } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'fresh' } });
+		await flushFrame();
+
+		expect(assistant().content).toBe('');
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['fresh']);
+	});
 });

@@ -387,6 +387,7 @@ export interface UnifiedChatMessageData {
 	tool_executions?: ToolExecution[];
 	trace_steps?: TraceStep[];
 	reasoning?: ReasoningBlock[];
+	stepMark?: { content: number; reasoning: number };
 	usage?: MessageUsage;
 	notices?: ChatNotice[];
 	sources?: MessageSource[];
