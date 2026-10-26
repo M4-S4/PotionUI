@@ -1,0 +1,25 @@
+{
+  "messages": [
+    {
+      "id": "t1",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "k3p8w2ud",
+          "name": "list_backups",
+          "content": [
+            {
+              "type": "text",
+              "text": "2025-01, 2025-02, 2026-09",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
