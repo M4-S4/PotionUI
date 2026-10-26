@@ -64,6 +64,7 @@ TERMINAL_STATUSES = frozenset({"completed", "requires_action", "incomplete", "fa
 LISTING_PAGE_SIZE = 1000
 LISTING_MAX_PAGES = 10
 GENERATION_METHODS = frozenset({"generateContent", "createInteraction"})
+SIGNATURE_MARKERS = ("thought_signature", "thought signature", "thoughtsignature")
 OVERFLOW_MARKERS = ("input token count", "exceeds the maximum number of tokens", "token limit", "context length")
 SUMMARY_SEPARATOR = "\n\n"
 
@@ -335,7 +336,7 @@ def upgraded_by_message(cls: Type[HarnessError], message: str) -> Type[HarnessEr
     if cls is not InvalidRequest:
         return cls
     lowered = message.lower()
-    if "signature" in lowered:
+    if any(marker in lowered for marker in SIGNATURE_MARKERS):
         return OpaqueViolation
     if any(marker in lowered for marker in OVERFLOW_MARKERS):
         return ContextOverflow

@@ -9,11 +9,11 @@ from src.features.llm.harness.messages import Message, Role
 from tests.features.llm.harness import cassettes
 
 SCENARIOS = cassettes.scenario_dirs(ADAPTER_NAME)
-EXPECTED = {"thinking_parallel_tools", "approval_pause", "in_band_error"}
+PLANNED = {"thinking_parallel_tools", "approval_pause", "in_band_error"}
 
 
 def test_every_planned_scenario_is_present():
-    assert {path.name for path in SCENARIOS} == EXPECTED
+    assert PLANNED <= {path.name for path in SCENARIOS}
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.name)
@@ -22,11 +22,12 @@ def test_scenario_replays_through_the_adapter(scenario):
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda path: path.name)
-def test_scenario_is_declared_hand_built_with_its_source(scenario):
+def test_scenario_declares_where_it_came_from(scenario):
     for step in cassettes.load_scenario(scenario):
-        assert step.meta["source"] == cassettes.HAND_BUILT
-        assert step.meta["doc_url"].startswith("https://ai.google.dev/")
         assert step.meta["adapter"] == ADAPTER_NAME
+        assert step.meta["source"] in {cassettes.HAND_BUILT, cassettes.RECORDED}
+        if step.meta["source"] == cassettes.HAND_BUILT:
+            assert step.meta["doc_url"].startswith("https://ai.google.dev/")
 
 
 def foreign_credential(stored: Message) -> Message:

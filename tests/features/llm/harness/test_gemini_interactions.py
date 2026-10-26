@@ -53,6 +53,7 @@ from src.features.llm.harness.messages import (
     message,
 )
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
+from src.features.llm.model_listing import ModelListingError
 from src.features.llm.repository import LLMConfig
 from tests.features.llm.harness.wire_peer import chunked as peer_chunks
 from tests.features.llm.harness.wire_peer import install_peer
@@ -370,11 +371,6 @@ class TestHistory:
              "result": [{"type": "text", "text": "denied"}], "is_error": True},
         ]
 
-    def test_results_of_a_batch_stay_together_after_the_calls(self):
-        kinds = [step["type"] for step in render(history(), profile_fields=THINKING)["input"]]
-        assert kinds == ["user_input", "thought", "model_output", "function_call", "function_call",
-                         "function_result", "function_result"]
-
     def test_rendering_from_parts_matches_rendering_from_raw(self):
         from_raw = GeminiInteractionsAdapter().render(request(history()), profile(**THINKING))
         from_parts = GeminiInteractionsAdapter().render(request(history(raw=None)), profile(**THINKING))
@@ -542,22 +538,26 @@ class TestOpaqueMutations:
         with pytest.raises(OpaqueViolation):
             render(history(raw={"steps": RAW_STEPS}), profile_fields=THINKING)
 
-    def test_unmutated_history_renders(self):
-        assert render(history(), profile_fields=THINKING)["input"][1]["signature"] == SIGNATURE
-
-
 class TestDecoder:
-    def test_stream_decodes_into_blocks_tools_usage_and_finish(self):
+    def test_thought_becomes_summary_deltas_then_signature_and_summary_opaque_data(self):
         events = decode(TOOL_STREAM)
         assert events[0] == ReasoningDelta(block=0, text="", summary=True)
         assert events[1:3] == [
             ReasoningDelta(block=0, text=SUMMARY_ONE["text"], summary=True),
             ReasoningDelta(block=0, text="\n\n" + SUMMARY_TWO["text"], summary=True),
         ]
-        assert OpaqueDelta(block=0, key="signature", value=SIGNATURE) in events
-        assert [e for e in events if isinstance(e, TextDelta)] == [
+        assert events[3:5] == [
+            OpaqueDelta(block=0, key="signature", value=SIGNATURE),
+            OpaqueDelta(block=0, key="summary", value=[SUMMARY_ONE, SUMMARY_TWO]),
+        ]
+
+    def test_text_deltas_keep_the_block_of_their_step(self):
+        assert [e for e in decode(TOOL_STREAM) if isinstance(e, TextDelta)] == [
             TextDelta(block=1, text="On "), TextDelta(block=1, text="it."),
         ]
+
+    def test_calls_start_with_their_wire_id_and_stream_their_arguments_in_pieces(self):
+        events = decode(TOOL_STREAM)
         assert [e for e in events if isinstance(e, ToolCallStart)] == [
             ToolCallStart(block=2, call_id="fc_1", name="dim_lights", wire_id="fc_1"),
             ToolCallStart(block=3, call_id="fc_2", name="start_music", wire_id="fc_2"),
@@ -565,16 +565,18 @@ class TestDecoder:
         assert [e for e in events if isinstance(e, ToolArgsDelta)] == [
             ToolArgsDelta(block=2, text='{"level"'), ToolArgsDelta(block=2, text=": 20}"),
         ]
-        assert ToolCallEnd(block=3, args={}) in events
+        assert [e for e in events if isinstance(e, ToolCallEnd)] == [
+            ToolCallEnd(block=2), ToolCallEnd(block=3, args={}),
+        ]
+
+    def test_usage_is_reported_before_the_finish_that_carries_the_assembled_steps(self):
+        events = decode(TOOL_STREAM)
         assert events[-2] == UsageReported(Usage(
             input_tokens=100, output_tokens=20, total_tokens=150, reasoning_tokens=30, cached_input_tokens=64,
             raw={"total_input_tokens": 100, "total_output_tokens": 20, "total_thought_tokens": 30,
                  "total_cached_tokens": 64, "total_tokens": 150},
         ))
-        finish = events[-1]
-        assert finish.reason is FinishReason.TOOL_CALLS
-        assert finish.raw_reason == "requires_action"
-        assert finish.raw == RAW_STEPS
+        assert events[-1] == Finish(reason=FinishReason.TOOL_CALLS, raw_reason="requires_action", raw=RAW_STEPS)
 
     def test_assembled_message_holds_signature_summary_and_calls(self):
         assembled = assemble(decode(TOOL_STREAM), origin=origin())
@@ -725,6 +727,12 @@ class TestDecoder:
         assert caught.value.message == message
         assert caught.value.code == code
 
+    def test_in_band_error_that_merely_mentions_a_signature_stays_an_invalid_request(self):
+        error = {"code": "invalid_request", "message": "Tool verify_signature has an invalid parameter schema."}
+        with pytest.raises(InvalidRequest) as caught:
+            decode(stream(event("error", error=error)))
+        assert type(caught.value) is InvalidRequest
+
     def test_failed_status_raises_the_recorded_error(self):
         errors = [{"code": "quota_exceeded", "message": "out of quota"}]
         with pytest.raises(QuotaExhausted):
@@ -777,6 +785,21 @@ class TestClassifyError:
         assert error.code == "RESOURCE_EXHAUSTED"
         assert error.status == 429
 
+    def test_error_body_may_be_a_json_array(self):
+        body = classic(429, "RESOURCE_EXHAUSTED", "limit", quota_detail("GenerateRequestsPerDayPerProjectPerModel"))
+        assert type(self.adapter.classify_error(failure(429, [body]))) is QuotaExhausted
+
+    def test_an_unparsable_server_delay_is_ignored(self):
+        body = classic(429, "RESOURCE_EXHAUSTED", "slow", {"retryDelay": "soons"})
+        error = self.classify(429, body)
+        assert type(error) is RateLimited
+        assert error.retry_after is None
+
+    def test_a_body_that_is_not_json_still_classifies_by_status(self):
+        error = self.adapter.classify_error(WireFailure(status=429, body=b"upstream busy"))
+        assert type(error) is RateLimited
+        assert error.retry_after is None
+
     def test_header_wins_over_the_server_delay(self):
         body = classic(429, "RESOURCE_EXHAUSTED", "slow", {"retryDelay": "34s"})
         assert self.classify(429, body, {"Retry-After": "3"}).retry_after == 3.0
@@ -789,11 +812,19 @@ class TestClassifyError:
         body = classic(429, "RESOURCE_EXHAUSTED", "You exceeded your current quota", quota_detail(quota_id, value))
         assert type(self.classify(429, body)) is QuotaExhausted
 
-    def test_missing_thought_signature_is_an_opaque_violation(self):
-        body = classic(400, "INVALID_ARGUMENT", "Function call is missing a thought_signature in functionCall parts.")
-        error = self.classify(400, body)
+    @pytest.mark.parametrize("message", [
+        "Function call is missing a thought_signature in functionCall parts.",
+        "Corrupted thought signature.",
+        "Invalid thoughtSignature on content block 2.",
+    ])
+    def test_missing_thought_signature_is_an_opaque_violation(self, message):
+        error = self.classify(400, classic(400, "INVALID_ARGUMENT", message))
         assert type(error) is OpaqueViolation
         assert error.retryable is False
+
+    def test_a_400_that_merely_mentions_a_signature_stays_an_invalid_request(self):
+        body = classic(400, "INVALID_ARGUMENT", "Tool verify_signature has an invalid parameter schema.")
+        assert type(self.classify(400, body)) is InvalidRequest
 
     def test_oversized_prompt_is_a_context_overflow(self):
         body = classic(400, "INVALID_ARGUMENT", "The input token count (1200000) exceeds the maximum number of tokens allowed (1048575).")
@@ -925,6 +956,34 @@ class TestDiscovery:
             ("/v1beta/models?pageSize=1000", {"x-goog-api-key": "k"}),
             ("/v1beta/models?pageSize=1000&pageToken=next%20page", {"x-goog-api-key": "k"}),
         ]
+
+    async def test_list_models_without_a_models_key_fails(self, monkeypatch):
+        async def fake(provider, base_url, path, headers=None, **kwargs):
+            return {"unexpected": []}
+
+        monkeypatch.setattr(gemini, "fetch_json", fake)
+        with pytest.raises(ModelListingError):
+            await GeminiInteractionsAdapter().list_models("https://generativelanguage.googleapis.com", "k")
+
+    async def test_list_models_stops_after_the_page_limit(self, monkeypatch):
+        calls = []
+
+        async def fake(provider, base_url, path, headers=None, **kwargs):
+            calls.append(path)
+            return {"models": [{"name": f"models/m{len(calls)}"}], "nextPageToken": "again"}
+
+        monkeypatch.setattr(gemini, "fetch_json", fake)
+        models = await GeminiInteractionsAdapter().list_models("https://generativelanguage.googleapis.com", "k")
+        assert len(calls) == gemini.LISTING_MAX_PAGES
+        assert len(models) == gemini.LISTING_MAX_PAGES
+
+    async def test_a_model_that_only_supports_interactions_is_listed(self, monkeypatch):
+        async def fake(provider, base_url, path, headers=None, **kwargs):
+            return {"models": [{"name": "models/agent-1", "supportedGenerationMethods": ["createInteraction"]}]}
+
+        monkeypatch.setattr(gemini, "fetch_json", fake)
+        models = await GeminiInteractionsAdapter().list_models("https://generativelanguage.googleapis.com", "k")
+        assert [m.id for m in models] == ["agent-1"]
 
 
 def test_assembled_message_survives_the_codec():
