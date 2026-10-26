@@ -58,6 +58,7 @@ Subsystem docs for anyone authoring presets, plugins, or touching the engine. Ad
 
 - [Chat Modes, Tools, Styles & @Resources](chat-modes.md) — how a chat session is configured.
 - [Chat Memory](chat-memory.md) — durable, cross-session facts the assistant can recall.
+- [LLM Capability Profiles](llm-profiles.md) — what a model can do and which quirks a request must respect: seed table, discovery, admin overrides and the reasoning replay policy.
 - [Video Director](video-director.md) — the composition UI/contract for native video presets.
 - [Music Director](music-director.md) — the composition contract for native music/song presets.
 

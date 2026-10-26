@@ -6,6 +6,7 @@ import yaml
 
 from src.features.llm.harness.profile import LAYERED_FIELDS, CapabilityProfile, ProfileSource
 from src.features.llm.harness.profile_seed import SEED_PATH, SeedError, SeedKey, SeedTable, default_seed
+from tests.fixtures.llm_profiles import tiny_seed
 
 CATALOG_OWNED = {"context_window", "max_output_tokens", "prices"}
 
@@ -260,6 +261,14 @@ def test_the_native_engine_renders_tools_into_the_prompt():
 
 def test_matching_is_case_insensitive():
     assert profile_for("anthropic-messages", "Claude-Opus-5-5").tool_choice == frozenset({"auto", "none"})
+
+
+def test_patterns_written_with_capitals_still_match_lowercased_model_names():
+    table = tiny_seed({"id": "capitals", "models": ["^Claude-OPUS"], "fields": {"vision": True}})
+
+    assert table.layer(SeedKey("any", "claude-opus-5")).fields["vision"] is True
+    assert table.layer(SeedKey("any", "CLAUDE-Opus-5")).fields["vision"] is True
+    assert table.layer(SeedKey("any", "gpt-5")).fields["vision"] is False
 
 
 def test_applied_rows_are_listed_in_application_order():
