@@ -118,7 +118,7 @@ button { cursor: pointer; }
 
 .grip .icon { width: 13px; height: 13px; }
 
-.index { margin-top: 6px; color: rgb(var(--fg-subtle)); font-size: 7px; }
+.index { margin-top: 6px; color: rgb(var(--fg-subtle)); font-size: 12px; }
 
 .rail-line { flex: 1; width: 1px; min-height: 18px; margin: 7px 0; background: rgb(var(--line)); }
 
@@ -269,7 +269,7 @@ button { cursor: pointer; }
 
 .chip:hover .chip-chev, .chip:focus-within .chip-chev { opacity: 1; }
 
-.add-segment { width: 100%; height: 40px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgb(var(--fg-muted)); background: transparent; border: 1px dashed rgb(var(--line-strong)); border-radius: 6px; font-size: 8px; }
+.add-segment { width: 100%; height: 40px; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; color: rgb(var(--fg-muted)); background: transparent; border: 1px dashed rgb(var(--line-strong)); border-radius: 6px; font-size: 12px; }
 
 .add-segment:hover { color: rgb(var(--fg)); background: rgb(var(--surface-1)); border-color: rgb(var(--line-strong)); }
 
@@ -279,15 +279,17 @@ button { cursor: pointer; }
 
 .resolved-head { width: 100%; min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 9px; color: rgb(var(--fg-muted)); background: transparent; text-align: left; }
 
+.resolved-toggle { min-width: 0; display: flex; align-items: center; gap: 7px; color: inherit; text-align: left; }
+
 .resolved-head .icon { width: 11px; transition: transform .15s; }
 
 .resolved.open .resolved-head .icon { transform: rotate(180deg); }
 
-.resolved-title { font-size: 8px; font-weight: 600; }
+.resolved-title { font-size: 12px; font-weight: 600; }
 
-.resolved-stats { margin-left: auto; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; }
+.resolved-stats { margin-left: auto; color: rgb(var(--fg-subtle)); font: 400 12px "IBM Plex Mono"; font-variant-numeric: tabular-nums; }
 
-.resolved-body { padding: 0 11px 10px; color: rgb(var(--fg-muted)); font: 400 9px/1.7 "IBM Plex Mono"; }
+.resolved-body { padding: 0 11px 10px; color: rgb(var(--fg-muted)); font: 400 12px/1.7 "IBM Plex Mono"; }
 
 .resolved-body mark { color: rgb(var(--fg)); background: transparent; text-decoration: underline; text-decoration-color: rgb(var(--line-strong)); text-underline-offset: 3px; }
 
@@ -438,16 +440,6 @@ button { cursor: pointer; }
 
 .section-label { margin-bottom: 6px; color: rgb(var(--fg-subtle)); font-size: 6px; text-transform: uppercase; letter-spacing: .1em; }
 
-.current-value-card { display: flex; align-items: center; gap: 10px; min-height: 61px; padding: 9px; background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 6px; }
-
-.current-value-copy { min-width: 0; flex: 1; }
-
-.current-value-copy span, .current-value-copy strong { display: block; }
-
-.current-value-copy span { margin-bottom: 4px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .07em; }
-
-.current-value-copy strong { color: rgb(var(--fg)); font-size: 8px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
-
 .option-list { max-height: 250px; border: 1px solid rgb(var(--line)); border-radius: 5px; overflow-x: hidden; overflow-y: auto; background: rgb(var(--surface-2)); }
 
 .option-row { position: relative; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: start; gap: 8px; width: 100%; min-height: 34px; padding: 7px 9px 7px 8px; color: rgb(var(--fg-muted)); text-align: left; border-bottom: 1px solid rgb(var(--line)); }
@@ -517,17 +509,17 @@ button { cursor: pointer; }
 
 .menu-group:last-child { border-bottom: 0; }
 
-.menu-item { width: 100%; min-height: 33px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: rgb(var(--fg-muted)); background: transparent; border-radius: 4px; text-align: left; font-size: 8px; }
+.menu-item { width: 100%; min-height: 33px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: rgb(var(--fg-muted)); background: transparent; border-radius: 4px; text-align: left; font-size: 12px; }
 
 .menu-item:hover { color: rgb(var(--fg)); background: rgb(var(--surface-3)); }
 
 .menu-item .icon { width: 12px; height: 12px; }
 
-.menu-item .shortcut { margin-left: auto; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; }
+.menu-item .shortcut { margin-left: auto; color: rgb(var(--fg-subtle)); font: 400 12px "IBM Plex Mono"; }
 
 .menu-item.danger { color: rgb(var(--danger)); }
 
-.menu-glyph { display: inline-flex; align-items: center; justify-content: center; font: 600 9px "IBM Plex Mono"; }
+.menu-glyph { display: inline-flex; align-items: center; justify-content: center; width: auto; min-width: 15px; font: 600 12px "IBM Plex Mono"; white-space: nowrap; letter-spacing: -0.08em; }
 
 .menu-glyph.phrasebook { color: rgb(var(--signal)); }
 
@@ -566,7 +558,7 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 
 .finder-heading strong, .finder-heading span { display: block; }
 
-.finder-heading span { margin-top: 4px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; }
+.finder-heading span { margin-top: 4px; color: rgb(var(--fg-subtle)); font: 400 12px "IBM Plex Mono"; }
 
 .finder-body { padding: 0; }
 
@@ -610,7 +602,7 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 
 .finder-check .icon { width: 10px; height: 10px; }
 
-.chip-tooltip { position: fixed; z-index: 90; width: max-content; max-width: min(360px, calc(100vw - 24px)); padding: 7px 9px; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line-strong)); border-radius: 5px; box-shadow: 0 9px 26px rgba(0,0,0,.28); font-size: 8px; line-height: 1.45; overflow-wrap: anywhere; pointer-events: none; }
+.chip-tooltip { position: fixed; z-index: 90; width: max-content; max-width: min(360px, calc(100vw - 24px)); padding: 7px 9px; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line-strong)); border-radius: 5px; box-shadow: 0 9px 26px rgba(0,0,0,.28); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; pointer-events: none; }
 
 @media (max-width: 760px) {
   .segment { grid-template-columns: 34px minmax(0, 1fr); }
@@ -783,12 +775,6 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 }
 .section-label {
 	font-size: 12px;
-}
-.current-value-copy span {
-	font-size: 12px;
-}
-.current-value-copy strong {
-	font-size: 13px;
 }
 .choice-edit-row input {
 	font-size: 13px;
