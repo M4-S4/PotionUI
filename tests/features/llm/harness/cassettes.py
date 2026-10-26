@@ -10,7 +10,7 @@ from src.features.llm.harness.adapter import Adapter, RenderRequest, Settings, T
 from src.features.llm.harness.assembler import StepAssembler
 from src.features.llm.harness.errors import HarnessError
 from src.features.llm.harness.events import Finish, StreamEvent, Usage
-from src.features.llm.harness.messages import Message, Origin
+from src.features.llm.harness.messages import Message, Origin, credential_fingerprint
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.llm_harness import decode_chunks
@@ -119,8 +119,13 @@ def profile_for(meta: Mapping[str, Any]) -> CapabilityProfile:
     return profile.layered([ProfileLayer(ProfileSource.OVERRIDE, overrides)]) if overrides else profile
 
 
-def origin_for(meta: Mapping[str, Any]) -> Origin:
-    return Origin(adapter=meta["adapter"], provider=meta.get("provider", meta["adapter"]), model=meta["model"])
+def origin_for(meta: Mapping[str, Any], config: LLMConfig) -> Origin:
+    return Origin(
+        adapter=meta["adapter"],
+        provider=config.type,
+        model=config.model,
+        credential=credential_fingerprint(config.base_url, config.api_key),
+    )
 
 
 def config_from(meta: Mapping[str, Any], data: Mapping[str, Any]) -> LLMConfig:
@@ -141,6 +146,10 @@ def config_to_dict(config: LLMConfig) -> Dict[str, Any]:
     if data.get("api_key"):
         data["api_key"] = CASSETTE_API_KEY
     return data
+
+
+def replayed_config(config: LLMConfig) -> LLMConfig:
+    return LLMConfig(**config_to_dict(config))
 
 
 def request_from(
@@ -249,7 +258,7 @@ def run_scenario(adapter: Adapter, scenario: Path) -> None:
         if step.step is None:
             raise AssertionError(f"{step.directory}: step.json is required when the stream decodes")
         stored = codec.from_json(Message, step.step["message"])
-        assembler = StepAssembler(stored.id, origin_for(step.meta))
+        assembler = StepAssembler(stored.id, origin_for(step.meta, request.config))
         assembler.feed_all(decoded)
         _same(step, "assembled step", step_payload(assembler), step.step)
         history = history + [stored]

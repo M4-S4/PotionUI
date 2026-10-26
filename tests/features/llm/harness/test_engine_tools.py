@@ -1,7 +1,8 @@
 import asyncio
 
 from src.features.llm.harness.messages import Role
-from src.features.llm.harness.turn_state import PendingCall, StepCommitted, ToolFinished, TurnStatus
+from src.features.llm.harness.recovery import CANCELLED_REASON
+from src.features.llm.harness.turn_state import PendingCall, StepCommitted, StepStatus, ToolFinished, TurnStatus
 from tests.features.llm.harness.probes import Probe, Shared
 from tests.features.llm.harness.stepping import engine_turn, outcome_of
 from tests.fixtures.llm_engine import drain, scripted_engine
@@ -59,3 +60,21 @@ async def test_a_round_with_an_approval_pauses_with_every_other_call_resolved():
     committed = [event.step.message.role for event in events if isinstance(event, StepCommitted)]
     assert committed == [Role.USER, Role.ASSISTANT]
     assert [event.result.call_id for event in events if isinstance(event, ToolFinished)] == ["a", "b", "c"]
+
+
+async def test_closing_the_turn_right_after_an_approval_placeholder_closes_that_call_as_cancelled():
+    log = []
+    adapter = ScriptedAdapter(tool_step({"id": "a", "name": "read_a"}, {"id": "b", "name": "gate_b"}))
+    rig = scripted_engine(adapter, probes(log, Shared(), "read_a", "gate_b"))
+
+    stream = rig.engine.run(engine_turn())
+    async for event in stream:
+        if isinstance(event, ToolFinished) and event.result.call_id == "b":
+            break
+    await stream.aclose()
+
+    closing = rig.store.steps("s1")[-1]
+    assert closing.message.role is Role.TOOL and closing.status is StepStatus.CANCELLED
+    results = {result.call_id: result for result in closing.message.tool_results()}
+    assert results["a"].text() == "read_a done" and not results["a"].is_error
+    assert results["b"].is_error and results["b"].text() == CANCELLED_REASON

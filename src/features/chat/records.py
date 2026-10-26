@@ -15,6 +15,7 @@ class ChatMessage:
     parsed_content: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
+    turn_id: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> 'ChatMessage':
@@ -29,7 +30,8 @@ class ChatMessage:
             content=row['content'],
             parsed_content=parsed_content,
             metadata=metadata,
-            created_at=dt_column(row['created_at'])
+            created_at=dt_column(row['created_at']),
+            turn_id=row['turn_id'] if 'turn_id' in row.keys() else None
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -41,7 +43,8 @@ class ChatMessage:
             'content': self.content,
             'parsed_content': self.parsed_content,
             'metadata': self.metadata,
-            'created_at': dt_iso(self.created_at)
+            'created_at': dt_iso(self.created_at),
+            'turn_id': self.turn_id
         }
 
 

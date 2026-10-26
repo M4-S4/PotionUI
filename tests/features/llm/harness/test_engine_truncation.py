@@ -78,8 +78,11 @@ async def test_a_call_that_is_cut_off_again_after_the_retry_fails_visibly_and_ne
     state = rig.store.load_state(rig.store.steps("s1")[0].turn_id)
     assert state.status is TurnStatus.FAILED
     assert state.error["kind"] == "output_truncated"
-    failed = rig.store.steps("s1")[-1]
+    stored = rig.store.steps("s1")
+    failed, closing = stored[-2], stored[-1]
     assert failed.status is StepStatus.FAILED and failed.message.tool_calls()[0].args is None
+    assert closing.message.role.value == "tool" and closing.status is StepStatus.FAILED
+    assert closing.message.tool_results()[0].call_id == "t1" and closing.message.tool_results()[0].is_error
 
 
 async def test_a_limit_that_cannot_be_raised_fails_at_once():
