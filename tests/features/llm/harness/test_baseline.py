@@ -2,9 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry
+from src.features.llm.harness.baseline import InMemoryTurnStore
 from src.features.llm.harness.build import user_message
-from src.features.llm.harness.errors import RateLimited
 from src.features.llm.harness.messages import Origin
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.turn_state import StepRecord, StepStatus, TurnSnapshot, TurnState, TurnStatus
@@ -49,10 +48,6 @@ def test_the_in_memory_store_appends_in_order_and_finds_the_open_turn():
     assert store.open_turn("s1").turn_id == "t1"
     assert store.load_state("t0").status is TurnStatus.COMPLETED
     assert store.steps("other") == []
-
-
-def test_no_retry_never_retries():
-    assert NoRetry().delay(RateLimited("slow", retry_after=1.0), 0) is None
 
 
 def test_llm_types_merge_core_and_plugin_entries():

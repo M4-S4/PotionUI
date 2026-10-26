@@ -92,6 +92,12 @@ def test_a_crlf_split_between_chunks_is_one_line_ending():
     assert _data(_feed_all(SSEFramer(), chunks)) == ["a", "b"]
 
 
+def test_a_crlf_split_between_two_data_lines_of_one_record_does_not_end_the_record():
+    chunks = [b"data: x\r", b"\ndata: y\r\n\r\n"]
+
+    assert _data(_feed_all(SSEFramer(), chunks)) == ["x\ny"]
+
+
 def test_a_lone_cr_at_a_chunk_end_followed_by_text_is_a_line_ending():
     chunks = [b"data: a\r", b"\rdata: b\r", b"\r"]
 

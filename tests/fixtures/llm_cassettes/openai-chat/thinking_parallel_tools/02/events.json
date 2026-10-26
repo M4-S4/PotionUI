@@ -1,0 +1,47 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "fast has fewer steps.",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "The `fast` preset ",
+    "phase": null
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "is quicker.",
+    "phase": null
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 330,
+      "output_tokens": 30,
+      "total_tokens": 360,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 208,
+      "cache_write_tokens": null,
+      "cost": null,
+      "raw": {
+        "prompt_tokens": 330,
+        "completion_tokens": 30,
+        "total_tokens": 360,
+        "prompt_tokens_details": {
+          "cached_tokens": 208
+        }
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "stop",
+    "raw": null
+  }
+]

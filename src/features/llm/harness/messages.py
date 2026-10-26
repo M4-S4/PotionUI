@@ -25,6 +25,7 @@ class ReasoningPart:
     summary: str = ""
     redacted: bool = False
     opaque: Optional[Dict[str, Any]] = None
+    duration_ms: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,15 @@ class Origin:
     provider: str
     model: str
     credential: Optional[str] = None
+
+    @classmethod
+    def for_config(cls, adapter: str, config: Any) -> "Origin":
+        return cls(
+            adapter=adapter,
+            provider=config.type,
+            model=config.model,
+            credential=credential_fingerprint(config.base_url, config.api_key),
+        )
 
 
 LEGACY_ORIGIN = Origin(adapter="legacy", provider="legacy", model="legacy")

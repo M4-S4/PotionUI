@@ -1,7 +1,7 @@
 """Chat Data Transfer Objects for API requests and responses."""
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_serializer
 
 
 class CreateSessionRequest(BaseModel):
@@ -13,6 +13,31 @@ class CreateSessionRequest(BaseModel):
     system_message: Optional[str] = None  # Custom system message for chat
     tools_enabled: bool = True  # Global tools toggle; False withholds every mode tool
     disabled_tools: Optional[List[str]] = None  # Names unticked within the mode's tools (None/[] = none)
+
+
+class ReasoningBlock(BaseModel):
+    kind: str
+    text: str = ""
+    redacted: bool = False
+    duration_ms: Optional[int] = None
+
+
+class UsageResponse(BaseModel):
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    reasoning_tokens: Optional[int] = None
+    cached_input_tokens: Optional[int] = None
+    cache_write_tokens: Optional[int] = None
+    cost: Optional[float] = None
+
+
+class NoticeResponse(BaseModel):
+    kind: str
+    message: str
+    step_seq: Optional[int] = None
+
+
+_PROJECTED_FIELDS = ("reasoning", "usage", "notices")
 
 
 class MessageResponse(BaseModel):
@@ -28,6 +53,18 @@ class MessageResponse(BaseModel):
     completion_tokens: Optional[int] = None
     tool_executions: Optional[List[Dict[str, Any]]] = None
     metadata: Optional[Dict[str, Any]] = None
+    turn_id: Optional[str] = None
+    reasoning: Optional[List[ReasoningBlock]] = None
+    usage: Optional[UsageResponse] = None
+    notices: Optional[List[NoticeResponse]] = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_projection(self, handler):
+        data = handler(self)
+        for name in _PROJECTED_FIELDS:
+            if data.get(name) is None:
+                data.pop(name, None)
+        return data
 
 
 class SessionResponse(BaseModel):

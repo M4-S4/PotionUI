@@ -34,6 +34,9 @@ class NoticeKind(StrEnum):
     RETRYING = "retrying"
     TRUNCATED = "truncated"
     APPROVAL_EXPIRED = "approval_expired"
+    TOOL_CHOICE_DOWNGRADED = "tool_choice_downgraded"
+    STRUCTURED_FALLBACK = "structured_fallback"
+    STRUCTURED_REPAIRED = "structured_repaired"
 
 
 @dataclass(frozen=True)

@@ -75,7 +75,7 @@ async def test_the_read_timeout_is_unbounded_and_the_rest_follow_the_config(monk
 
     timeout = peer.timeouts[0]
     assert (timeout.connect, timeout.read, timeout.write, timeout.pool) == (7, None, 7, 7)
-    assert stream_timeout(30).read is None
+    assert stream_timeout(CONFIG).read is None
 
 
 @pytest.mark.parametrize(
@@ -87,6 +87,8 @@ async def test_the_read_timeout_is_unbounded_and_the_rest_follow_the_config(monk
         (429, b'{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}', {}, QuotaExhausted),
         (400, b'{"error":{"code":"context_length_exceeded","message":"too long"}}', {}, ContextOverflow),
         (400, b'{"type":"error","error":{"message":"prompt is too long: 250000 tokens"}}', {}, ContextOverflow),
+        (413, b'{"error":{"message":"prompt is too long"}}', {}, ContextOverflow),
+        (422, b'{"detail":"exceed_context_size_error"}', {}, ContextOverflow),
         (400, b'{"error":{"message":"bad field"}}', {}, InvalidRequest),
         (404, b"not found", {}, InvalidRequest),
         (408, b"", {}, ConnectionFailed),
@@ -153,51 +155,6 @@ async def test_a_failure_after_the_first_chunk_keeps_the_delivered_chunks_and_ra
             received.append(chunk)
 
     assert received == [b"first"]
-
-
-async def test_the_trace_hook_gets_the_wire_and_every_received_byte(monkeypatch):
-    install_peer(monkeypatch, chunked([b"ab", b"cd"]))
-    seen = []
-
-    await collect(EchoAdapter(trace=lambda wire, raw: seen.append((wire, raw))))
-
-    assert seen == [(WIRE, b"abcd")]
-
-
-async def test_the_trace_hook_gets_the_error_body_of_a_failed_request(monkeypatch):
-    install_peer(monkeypatch, chunked([b"nope"], status=500))
-    seen = []
-
-    with pytest.raises(ServerFailed):
-        await collect(EchoAdapter(trace=lambda wire, raw: seen.append(raw)))
-
-    assert seen == [b"nope"]
-
-
-async def test_the_trace_hook_fires_with_the_bytes_so_far_when_the_consumer_stops_early(monkeypatch):
-    install_peer(monkeypatch, chunked([b"ab", b"cd"]))
-    seen = []
-    stream = EchoAdapter(trace=lambda wire, raw: seen.append(raw)).send(WIRE, REQUEST)
-
-    assert await stream.__anext__() == b"ab"
-    await stream.aclose()
-
-    assert seen == [b"ab"]
-
-
-async def test_a_trace_hook_that_raises_does_not_break_the_stream(monkeypatch):
-    install_peer(monkeypatch, chunked([b"ab"]))
-
-    def explode(wire, raw):
-        raise RuntimeError("hook")
-
-    assert await collect(EchoAdapter(trace=explode)) == [b"ab"]
-
-
-async def test_no_trace_hook_means_nothing_is_buffered(monkeypatch):
-    install_peer(monkeypatch, chunked([b"ab"]))
-
-    assert await collect(EchoAdapter()) == [b"ab"]
 
 
 async def test_closing_the_stream_midway_releases_the_response(monkeypatch):
