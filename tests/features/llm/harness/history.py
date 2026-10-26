@@ -12,7 +12,7 @@ from src.features.llm.harness.messages import (
     ToolCallPart,
     ToolResultPart,
 )
-from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
+from src.features.llm.harness.profile import LAYERED_FIELDS, CapabilityProfile, ProfileLayer, ProfileSource
 from src.features.llm.repository import LLMConfig
 
 IMAGE_B64 = "aW1hZ2UtYnl0ZXM="
@@ -82,7 +82,15 @@ def reasoned_history(reasoning: Optional[str]) -> list:
 
 def profile_with(adapter: str, model: str = "golden-model", **fields: Any) -> CapabilityProfile:
     profile = CapabilityProfile(adapter=adapter, model=model)
-    return profile.layered([ProfileLayer(ProfileSource.OVERRIDE, fields)]) if fields else profile
+    request = fields.pop("context_request", None)
+    if fields:
+        profile = profile.layered([ProfileLayer(ProfileSource.OVERRIDE, fields)])
+    if request is not None:
+        if "context_request" in LAYERED_FIELDS:
+            profile = profile.layered([ProfileLayer(ProfileSource.OVERRIDE, {"context_request": request})])
+        else:
+            object.__setattr__(profile, "context_request", request)
+    return profile
 
 
 def settings_from(options: Optional[Dict[str, Any]]) -> Settings:

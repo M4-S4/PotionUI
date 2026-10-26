@@ -15,7 +15,7 @@ PROVIDER_OPTIONS = {
 
 OVERRIDE = {"temperature": 0.1, "max_tokens": 64, "top_p": 0.5, "top_k": 40, "think": False}
 
-WINDOW = {"context_window": 8192}
+WINDOW = {"context_request": 8192}
 PROMPT_TOOLS = {"prompt_tools": True}
 
 

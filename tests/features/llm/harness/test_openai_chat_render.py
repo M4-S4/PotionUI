@@ -83,7 +83,7 @@ def test_a_trailing_slash_on_the_base_url_does_not_double_up():
 
 
 def test_an_unresolved_image_reference_is_refused_rather_than_dropped():
-    message = Message("u", Role.USER, (TextPart("look"), ImagePart(media_type="image/png", ref="/tmp/x.png")))
+    message = Message("u", Role.USER, (TextPart("look"), ImagePart(media_type="image/png", ref="image-1")))
     request = RenderRequest(config=make_config("openai"), system="", messages=(message,))
 
     with pytest.raises(InvalidRequest):
@@ -173,12 +173,14 @@ def test_raw_arguments_that_disagree_with_the_parsed_ones_are_not_replayed():
 
 
 def test_a_call_that_never_parsed_goes_back_with_empty_arguments():
-    messages = _call_message(args_raw='{"a":', args=None)
-    call = messages[1].parts[0]
-    broken = Message("a", Role.ASSISTANT, (ToolCallPart(call_id="local_1", name="t", args=None, args_raw='{"a":', wire_id="srv_1"),), origin=ORIGIN)
-    request = RenderRequest(config=make_config("openai"), system="", messages=(messages[0], broken, messages[2]))
+    user, _, result = _call_message()
+    broken = Message(
+        "a", Role.ASSISTANT,
+        (ToolCallPart(call_id="local_1", name="t", args=None, args_raw='{"a":', wire_id="srv_1"),),
+        origin=ORIGIN,
+    )
+    request = RenderRequest(config=make_config("openai"), system="", messages=(user, broken, result))
 
-    assert call.args == {"a": 1}
     assert render(request).body["messages"][2]["tool_calls"][0]["function"]["arguments"] == "{}"
 
 

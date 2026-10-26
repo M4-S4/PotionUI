@@ -3,9 +3,12 @@ import logging
 import re
 from typing import Any, Callable, Dict, List, Optional
 
+import httpx
+
 from src.features.llm.harness import finish as finish_reasons
 from src.features.llm.harness import prompt_tools, tool_ids
 from src.features.llm.harness.adapter import RenderRequest, WireRequest
+from src.features.llm.harness.blocks import FIRST_TOOL_BLOCK, REASONING_BLOCK, TEXT_BLOCK
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.errors import HarnessError, WireFailure
 from src.features.llm.harness.events import (
@@ -36,6 +39,7 @@ from src.features.llm.model_listing import (
     sorted_models,
 )
 from src.features.llm.repository import LLMConfig
+from src.platform.http.tls import client_ssl_context
 
 OPTION_KEYS = (
     "num_gpu",
@@ -58,9 +62,6 @@ OPTION_KEYS = (
     "stop",
 )
 
-REASONING_BLOCK = 0
-TEXT_BLOCK = 1
-FIRST_TOOL_BLOCK = 2
 KEEP_ALIVE_LOADED = "5m"
 TRAINED_WINDOW_CAP_TOKENS = 32768
 _MODELFILE_NUM_CTX = re.compile(r"^\s*num_ctx\s+(\d+)\s*$", re.MULTILINE)
@@ -93,8 +94,9 @@ def render_options(request: RenderRequest, profile: CapabilityProfile) -> Dict[s
         "temperature": config.temperature,
         "num_predict": config.max_tokens,
     }
-    if profile.context_window:
-        options["num_ctx"] = profile.context_window
+    context_request = getattr(profile, "context_request", None)
+    if context_request:
+        options["num_ctx"] = context_request
     for key in OPTION_KEYS:
         if key in configured:
             options[key] = configured[key]
@@ -355,6 +357,19 @@ class OllamaChatAdapter(HttpAdapter):
                 details=details or None,
             ))
         return sorted_models(models)
+
+    async def release(self, config: LLMConfig) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
+                response = await client.post(
+                    f"{config.base_url.rstrip('/')}/api/chat",
+                    headers=bearer_headers(config.api_key),
+                    json={"model": config.model, "keep_alive": 0},
+                )
+            return response.is_success
+        except Exception:
+            logging.debug("%s release failed for %s", self.display_name, config.model, exc_info=True)
+            return False
 
     async def show(self, base_url: str, api_key: Optional[str], model: str) -> Any:
         return await fetch_json(

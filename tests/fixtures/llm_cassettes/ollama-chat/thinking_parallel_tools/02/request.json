@@ -59,8 +59,7 @@
     "think": true,
     "options": {
       "temperature": 0.7,
-      "num_predict": 2000,
-      "num_ctx": 32768
+      "num_predict": 2000
     },
     "tools": [
       {

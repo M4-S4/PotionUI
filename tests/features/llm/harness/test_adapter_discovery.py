@@ -200,3 +200,25 @@ async def test_ollama_context_window_probe_prefers_the_modelfile_num_ctx_and_nev
 
     install_peer(monkeypatch, reply({"error": "nope"}, status=500))
     assert await OllamaChatAdapter().discover_context_window("http://o", None, "m") is None
+
+
+async def test_release_unloads_the_model_with_a_zero_keep_alive(monkeypatch):
+    peer = install_peer(monkeypatch, reply({"done": True}))
+
+    released = await OllamaChatAdapter().release(make_config("ollama", api_key="k"))
+
+    assert released is True
+    assert (peer.requests[0].method, str(peer.requests[0].url)) == ("POST", "http://peer.invalid:1234/api/chat")
+    assert peer.body == {"model": "golden-model", "keep_alive": 0}
+    assert peer.requests[0].headers["authorization"] == "Bearer k"
+
+
+async def test_release_swallows_every_failure_and_reports_it_as_false(monkeypatch):
+    install_peer(monkeypatch, reply({"error": "busy"}, status=500))
+    assert await OllamaChatAdapter().release(make_config("ollama")) is False
+
+    def refuse(request):
+        raise httpx.ConnectError("refused", request=request)
+
+    install_peer(monkeypatch, refuse)
+    assert await OllamaChatAdapter().release(make_config("ollama")) is False
