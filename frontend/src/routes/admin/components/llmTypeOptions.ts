@@ -24,6 +24,8 @@ export function llmTypeOptions(providerTypes: LLMProviderType[], current: string
 }
 
 export function baseUrlForType(type: string, baseUrl: string, providerTypes: LLMProviderType[]): string {
-	if (baseUrl.trim()) return baseUrl;
-	return providerTypes.find((provider) => provider.type === type)?.default_base_url ?? baseUrl;
+	const current = baseUrl.trim();
+	const isDefault = providerTypes.some((provider) => provider.default_base_url === current);
+	if (current && !isDefault) return baseUrl;
+	return providerTypes.find((provider) => provider.type === type)?.default_base_url ?? '';
 }

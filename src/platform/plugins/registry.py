@@ -253,7 +253,7 @@ class PluginRegistry:
         # Recipe step kinds a plugin contributes (manifest `recipe_steps:`).
         self.recipe_step_kind_registry = recipe_step_kind_registry
         self.llm_provider_registry = llm_provider_registry
-        self.organize_registry =organize_registry if organize_registry is not None else _shared_organize_registry
+        self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
         self.limit_kind_registry = (
             limit_kind_registry if limit_kind_registry is not None else _shared_limit_kind_registry
         )

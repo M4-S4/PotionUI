@@ -672,8 +672,9 @@ class AcmeClient(OpenAIClient):
 The inherited `list_models` and `discover_context_window` read the service's `/models`
 listing, so the model picker and the context window work without more code; override them
 (they return `DiscoveredModel` and `DiscoveredWindow`) when the service lists models another
-way. The form lists `label` after the built-in types and fills an empty Base URL with
-`default_base_url` when the admin picks the type. A `type` named like a built-in one
+way. The form lists `label` after the built-in types. When the admin picks a type, it puts
+that type's `default_base_url` in the Base URL if the field is empty or still holds another
+type's default, and leaves a URL the admin typed alone. A `type` named like a built-in one
 (`openai`, `ollama`, `native`) is ignored, and a type another enabled plugin already owns
 fails the enable. Disabling the plugin takes the type away: configurations saved with it
 stay, and fail with "Unsupported LLM type" until the plugin is enabled again.

@@ -69,6 +69,13 @@ def sampling_params(
     return params
 
 
+_NON_SAMPLING_KEYS = ("model", "messages", "tools", "stream", "stream_options")
+
+
+def sent_sampling_params(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in _NON_SAMPLING_KEYS}
+
+
 def _attach_image(api_messages: List[Dict[str, Any]], image_data: str) -> None:
     """Rewrite the last user turn as an image part followed by its text.
 

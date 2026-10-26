@@ -49,4 +49,14 @@ describe('baseUrlForType', () => {
 	it('leaves the field alone for a type without a default', () => {
 		expect(baseUrlForType('openai', '', [provider('openai'), DEEPSEEK])).toBe('');
 	});
+
+	it('clears the default of the previous type when switching to a type without one', () => {
+		expect(baseUrlForType('openai', DEEPSEEK_URL, [provider('openai'), DEEPSEEK])).toBe('');
+	});
+
+	it('swaps the default of the previous type for the default of the next one', () => {
+		const other = provider('other', 'Other', 'https://other.example.org/v1');
+
+		expect(baseUrlForType('other', DEEPSEEK_URL, [DEEPSEEK, other])).toBe('https://other.example.org/v1');
+	});
 });

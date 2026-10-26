@@ -125,3 +125,24 @@ async def test_every_send_path_puts_the_adapted_request_on_the_wire(monkeypatch,
 
     assert capture.body["max_tokens"] == config_of(TYPE_NAME).max_tokens
     assert "max_completion_tokens" not in capture.body
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call, reply", [
+    (
+        lambda client, config: client.generate_with_tools(tool_history(), config, "SYS", tool_schemas()),
+        json_response(OPENAI_REPLY),
+    ),
+    (
+        lambda client, config: collect(client.stream_with_tools(tool_history(), config, "SYS", tool_schemas())),
+        sse_response(SSE_EVENTS),
+    ),
+])
+async def test_the_trace_names_the_type_and_records_the_params_that_went_out(monkeypatch, call, reply):
+    capture = install_wire_capture(monkeypatch, [reply])
+
+    await call(RenamingClient(), config_of(TYPE_NAME))
+
+    assert capture.trace["provider"] == TYPE_NAME
+    assert capture.trace["request_params"]["max_tokens"] == config_of(TYPE_NAME).max_tokens
+    assert "max_completion_tokens" not in capture.trace["request_params"]

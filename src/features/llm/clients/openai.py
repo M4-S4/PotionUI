@@ -13,6 +13,7 @@ from src.features.llm.clients.openai_wire import (
     ToolCallAssembler,
     build_openai_request,
     prompt_from,
+    sent_sampling_params,
 )
 from src.features.llm.model_listing import (
     CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
@@ -171,10 +172,10 @@ class OpenAIClient:
                 thinking = thinking if isinstance(thinking, str) and thinking else None
 
                 record_trace(
-                    "openai", config, _trace_start,
+                    config.type, config, _trace_start,
                     request_system=system_message,
                     request_messages=request.messages,
-                    request_params=request.sampling_params,
+                    request_params=sent_sampling_params(request.payload),
                     request_tools=[t.get("function", {}).get("name") for t in (tools or [])],
                     response_text=content,
                     response_tool_calls=tool_calls,
@@ -272,10 +273,10 @@ class OpenAIClient:
         assembled_tool_calls = assembler.assembled()
 
         record_trace(
-            "openai", config, _trace_start,
+            config.type, config, _trace_start,
             request_system=system_message,
             request_messages=request.messages,
-            request_params=request.sampling_params,
+            request_params=sent_sampling_params(request.payload),
             request_tools=[t.get("function", {}).get("name") for t in (tools or [])] if tools else None,
             response_text="".join(full_content_parts),
             response_tool_calls=assembled_tool_calls,

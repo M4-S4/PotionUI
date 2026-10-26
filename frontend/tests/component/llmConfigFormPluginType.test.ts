@@ -92,6 +92,19 @@ describe('LLMConfigForm — a type contributed by a plugin', () => {
 		expect(draft.base_url).toBe(DEEPSEEK_URL);
 	});
 
+	it('clears the DeepSeek URL when the admin switches back to OpenAI', async () => {
+		const draft = makeDraft();
+		const select = await mount(draft);
+
+		choose(select, 'deepseek');
+		await settle();
+		choose(select, 'openai');
+		await settle();
+
+		expect(draft.type).toBe('openai');
+		expect(draft.base_url).toBe('');
+	});
+
 	it('keeps a base URL the admin already typed', async () => {
 		const draft = makeDraft({ base_url: 'https://proxy.example.org' });
 		const select = await mount(draft);
