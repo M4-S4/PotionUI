@@ -32,8 +32,8 @@ def _type_clause(model_type: str, include_extractable_checkpoints: bool):
         families = sorted(TRANSFORMER_EXTRACTABLE_FAMILIES)
         placeholders = ",".join("?" * len(families))
         clause = (
-            "(m.model_type = ? OR (m.model_type = ? AND m.sha256 IN ("
-            "SELECT v.sha256 FROM model_header_verdicts v "
+            "(m.model_type = ? OR (m.model_type = ? AND m.id IN ("
+            "SELECT v.model_id FROM model_verdicts v "
             "WHERE v.status = 'decided' AND v.transformer_extractable = 1 "
             f"AND v.family IN ({placeholders}))))"
         )

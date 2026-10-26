@@ -979,19 +979,20 @@ class TestHeaderTypedFiles:
         library.scanner.attach_digests(library.manager)
         return library
 
-    def test_the_type_comes_from_the_header_read_during_the_scan_and_the_verdict_is_stored_with_the_digest(self, lib):
+    def test_the_type_and_the_verdict_both_come_from_the_header_read_during_the_scan_before_the_digest(self, lib):
         path = lib.put(lib.checkpoints, "flux-dev.safetensors", FLUX)
 
         lib.index()
 
         model = lib.model("flux-dev.safetensors")
         assert (model.model_type, model.type_source, model.sha256) == ("diffusion_model", "header", None)
-        assert lib.scanner.types.get_verdicts([_sha(path.read_bytes())]) == {}
+        early = lib.scanner.types.get_verdicts([model.id])[model.id]
+        assert (early["status"], early["model_type"], early["family"]) == ("decided", "diffusion_model", "flux")
 
         drain_manager(lib.manager, max_jobs=5)
 
         digest = _sha(path.read_bytes())
-        verdict = lib.scanner.types.get_verdicts([digest])[digest]
+        verdict = lib.scanner.types.get_verdicts([model.id])[model.id]
         assert (verdict["status"], verdict["model_type"]) == ("decided", "diffusion_model")
         settled = lib.model("flux-dev.safetensors")
         assert (settled.model_type, settled.type_source, settled.sha256) == ("diffusion_model", "header", digest)
@@ -1052,11 +1053,11 @@ class TestSettleDigestedVerdicts:
         self._drop_verdicts()
         model = [m for m in _models() if m.filename == "flux.safetensors"][0]
         digest = model_repo.get_by_id(model.id, include_providers=False, include_tags=False).sha256
-        assert digest and library.scanner.types.get_verdicts([digest]) == {}
+        assert digest and library.scanner.types.get_verdicts([model.id]) == {}
 
         library.scanner.settle_digested({model.id})
 
-        assert library.scanner.types.get_verdicts([digest])[digest]["model_type"] == "diffusion_model"
+        assert library.scanner.types.get_verdicts([model.id])[model.id]["model_type"] == "diffusion_model"
 
     def test_a_single_unscanned_copy_needs_no_verdict(self, both_unscanned):
         library = both_unscanned
@@ -1086,20 +1087,25 @@ class TestEnsureVerdictForLocation:
         return library
 
     def _verdicts(self, library):
-        return library.scanner.types.get_verdicts([library.sha])
+        model_id = library.location["model_id"]
+        return library.scanner.types.get_verdicts([model_id])
 
     def test_a_verdict_is_made_from_the_file_even_when_its_folder_is_not_header_scanned(self, library):
         assert self._verdicts(library) == {}
 
         library.scanner.ensure_verdict_for_location(library.location)
 
-        assert self._verdicts(library)[library.sha]["model_type"] == "diffusion_model"
+        assert self._verdicts(library)[library.location["model_id"]]["model_type"] == "diffusion_model"
 
-    def test_a_location_without_a_digest_or_a_header_extension_is_left_alone(self, library):
-        library.scanner.ensure_verdict_for_location({**library.location, "sha256": None})
+    def test_a_location_without_a_header_extension_is_left_alone(self, library):
         library.scanner.ensure_verdict_for_location({**library.location, "rel_path": "old.ckpt"})
 
         assert self._verdicts(library) == {}
+
+    def test_a_location_without_a_digest_still_gets_its_verdict(self, library):
+        library.scanner.ensure_verdict_for_location({**library.location, "sha256": None})
+
+        assert self._verdicts(library)[library.location["model_id"]]["model_type"] == "diffusion_model"
 
     def test_a_location_on_an_offline_root_is_left_alone(self, library, monkeypatch):
         monkeypatch.setattr(library.scanner, "location_path", lambda row: None)

@@ -643,7 +643,7 @@ class ModelIndexingCoordinator:
             )
         sha256 = location["sha256"]
         self.scanner.ensure_verdict_for_location(location)
-        verdict = self.scanner.types.get_verdicts([sha256]).get(sha256)
+        verdict = self.scanner.types.get_verdicts([model.id]).get(model.id)
         if not verdict or verdict["status"] != "decided" or not verdict["model_type"]:
             return None
         outcome = self.type_manager.assert_type(sha256, verdict["model_type"], "download")
