@@ -26,8 +26,8 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = None
     model: str
     system_message: str
-    temperature: float = 0.7
-    max_tokens: int = 2000
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     timeout: int = 30
     supports_vision: bool = False
     disable_system_prompt: bool = False

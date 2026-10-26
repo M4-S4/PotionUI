@@ -14,8 +14,8 @@ class LLMConfiguration:
     api_key: Optional[str]
     model: str
     system_message: str
-    temperature: float = 0.7
-    max_tokens: int = 2000
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     timeout: int = 30
     supports_vision: bool = False
     disable_system_prompt: bool = False
@@ -48,8 +48,8 @@ class LLMConfiguration:
             api_key=row['api_key'],
             model=row['model'],
             system_message=row['system_message'],
-            temperature=float(row['temperature']),
-            max_tokens=int(row['max_tokens']),
+            temperature=float(row['temperature']) if row['temperature'] is not None else None,
+            max_tokens=int(row['max_tokens']) if row['max_tokens'] is not None else None,
             timeout=int(row['timeout']),
             supports_vision=bool(row['supports_vision']) if 'supports_vision' in row.keys() else False,
             disable_system_prompt=bool(row['disable_system_prompt']) if 'disable_system_prompt' in row.keys() else False,

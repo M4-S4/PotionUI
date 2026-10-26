@@ -200,7 +200,7 @@ class ContextProfile:
     counter: Optional[TokenCounter] = None
     messages_counter: Optional[MessagesCounter] = None
     image_tokens_override: Optional[int] = None
-    max_tokens: int = 0
+    max_tokens: Optional[int] = 0
     thinking_enabled: bool = False
     thinking_allowance_tokens: int = 0
 
@@ -340,7 +340,8 @@ class ReserveInfo:
 
 
 def resolve_reserve(*, max_tokens: Any, window_tokens: int, thinking_enabled: bool) -> ReserveInfo:
-    base = min(max(0, int(max_tokens)), max(MIN_RESERVE_TOKENS, math.ceil(RESERVE_WINDOW_FRACTION * window_tokens)))
+    standard = max(MIN_RESERVE_TOKENS, math.ceil(RESERVE_WINDOW_FRACTION * window_tokens))
+    base = standard if max_tokens is None else min(max(0, int(max_tokens)), standard)
     allowance = (
         min(THINKING_ALLOWANCE_CAP_TOKENS, math.ceil(THINKING_ALLOWANCE_FRACTION * window_tokens))
         if thinking_enabled else 0
@@ -355,13 +356,13 @@ def resolve_reserve(*, max_tokens: Any, window_tokens: int, thinking_enabled: bo
 
 def resolve_sent_max_tokens(
     *,
-    max_tokens: int,
+    max_tokens: Optional[int],
     reserve_tokens: int,
     capacity_tokens: int,
     capacity_source: str,
     estimated_prompt_tokens: int,
-) -> int:
-    if capacity_source == "unknown":
+) -> Optional[int]:
+    if max_tokens is None or capacity_source == "unknown":
         return max_tokens
     return min(max_tokens, max(reserve_tokens, capacity_tokens - estimated_prompt_tokens))
 
