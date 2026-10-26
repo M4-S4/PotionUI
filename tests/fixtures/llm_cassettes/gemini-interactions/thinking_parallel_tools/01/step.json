@@ -1,0 +1,191 @@
+{
+  "message": {
+    "id": "a1",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together.",
+        "redacted": false,
+        "opaque": {
+          "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+          "summary": [
+            {
+              "type": "text",
+              "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together."
+            }
+          ]
+        }
+      },
+      {
+        "type": "text",
+        "text": "Setting the mood now.",
+        "phase": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "7b1x4s0q",
+        "name": "power_disco_ball",
+        "args": {
+          "power": true
+        },
+        "args_raw": "{\"power\": true}",
+        "wire_id": "7b1x4s0q",
+        "opaque": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "m2k9c1pe",
+        "name": "start_music",
+        "args": {
+          "energetic": true,
+          "loud": false,
+          "bpm": 128
+        },
+        "args_raw": "{\"energetic\": true, \"loud\": false, \"bpm\": 128}",
+        "wire_id": "m2k9c1pe",
+        "opaque": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "d8v3n6ra",
+        "name": "dim_lights",
+        "args": {
+          "brightness": 0.2
+        },
+        "args_raw": "{\"brightness\": 0.2}",
+        "wire_id": "d8v3n6ra",
+        "opaque": null
+      }
+    ],
+    "origin": {
+      "adapter": "gemini-interactions",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "credential": null
+    },
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together."
+          }
+        ]
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "Setting the mood now."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "7b1x4s0q",
+        "name": "power_disco_ball",
+        "arguments": {
+          "power": true
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "m2k9c1pe",
+        "name": "start_music",
+        "arguments": {
+          "energetic": true,
+          "loud": false,
+          "bpm": 128
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "d8v3n6ra",
+        "name": "dim_lights",
+        "arguments": {
+          "brightness": 0.2
+        }
+      }
+    ]
+  },
+  "usage": {
+    "input_tokens": 212,
+    "output_tokens": 61,
+    "total_tokens": 416,
+    "reasoning_tokens": 143,
+    "cached_input_tokens": 0,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "total_input_tokens": 212,
+      "input_tokens_by_modality": [
+        {
+          "modality": "text",
+          "tokens": 212
+        }
+      ],
+      "total_cached_tokens": 0,
+      "total_output_tokens": 61,
+      "total_thought_tokens": 143,
+      "total_tool_use_tokens": 0,
+      "total_tokens": 416
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "requires_action",
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together."
+          }
+        ]
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "Setting the mood now."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "7b1x4s0q",
+        "name": "power_disco_ball",
+        "arguments": {
+          "power": true
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "m2k9c1pe",
+        "name": "start_music",
+        "arguments": {
+          "energetic": true,
+          "loud": false,
+          "bpm": 128
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "d8v3n6ra",
+        "name": "dim_lights",
+        "arguments": {
+          "brightness": 0.2
+        }
+      }
+    ]
+  }
+}

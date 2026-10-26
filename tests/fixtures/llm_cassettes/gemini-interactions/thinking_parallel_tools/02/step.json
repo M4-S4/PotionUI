@@ -1,0 +1,86 @@
+{
+  "message": {
+    "id": "a2",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "",
+        "redacted": false,
+        "opaque": {
+          "signature": "EsQCCsECAXLI2nzP9c1mQbJ7Vh4tYkXw0DgNfRu5oLaEi3ZsMq8SvT2yHn6CpUjOe1KbWxAdGl9FrBt7QzIm4YcVhPoN"
+        }
+      },
+      {
+        "type": "text",
+        "text": "The disco ball is spinning, energetic music is playing at 128 BPM and the lights are dimmed to 20 percent.",
+        "phase": null
+      }
+    ],
+    "origin": {
+      "adapter": "gemini-interactions",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "credential": null
+    },
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "EsQCCsECAXLI2nzP9c1mQbJ7Vh4tYkXw0DgNfRu5oLaEi3ZsMq8SvT2yHn6CpUjOe1KbWxAdGl9FrBt7QzIm4YcVhPoN"
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "The disco ball is spinning, energetic music is playing at 128 BPM and the lights are dimmed to 20 percent."
+          }
+        ]
+      }
+    ]
+  },
+  "usage": {
+    "input_tokens": 498,
+    "output_tokens": 29,
+    "total_tokens": 545,
+    "reasoning_tokens": 18,
+    "cached_input_tokens": 256,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "total_input_tokens": 498,
+      "input_tokens_by_modality": [
+        {
+          "modality": "text",
+          "tokens": 498
+        }
+      ],
+      "total_cached_tokens": 256,
+      "total_output_tokens": 29,
+      "total_thought_tokens": 18,
+      "total_tool_use_tokens": 0,
+      "total_tokens": 545
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "completed",
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "EsQCCsECAXLI2nzP9c1mQbJ7Vh4tYkXw0DgNfRu5oLaEi3ZsMq8SvT2yHn6CpUjOe1KbWxAdGl9FrBt7QzIm4YcVhPoN"
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "The disco ball is spinning, energetic music is playing at 128 BPM and the lights are dimmed to 20 percent."
+          }
+        ]
+      }
+    ]
+  }
+}
