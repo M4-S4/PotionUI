@@ -1,15 +1,13 @@
 import copy
 import dataclasses
-import json
 from typing import Any, Callable, Dict, List
 
 import pytest
 
 from src.features.llm.harness import codec
-from src.features.llm.harness.adapter import RenderRequest, Settings, ToolChoice, ToolSpec
-from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessagesAdapter, digest, target_origin
-from src.features.llm.harness.assembler import StepAssembler
-from src.features.llm.harness.errors import HarnessError, OpaqueViolation
+from src.features.llm.harness.adapter import RenderRequest, Settings, ToolChoice
+from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessagesAdapter, digest
+from src.features.llm.harness.errors import OpaqueViolation
 from src.features.llm.harness.messages import (
     Message,
     ReasoningPart,
@@ -17,75 +15,24 @@ from src.features.llm.harness.messages import (
     ToolResultPart,
     message,
 )
-from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
-from src.features.llm.repository import LLMConfig
+from src.features.llm.harness.profile import CapabilityProfile
+from tests.features.llm.harness import cassettes
 from tests.features.llm.harness.anthropic_helpers import (
     chunks_of,
     make_profile,
     read_json,
+    scenario_path,
     step_dirs,
     stored_history,
 )
-from tests.fixtures.llm_harness import decode_chunks
 
 SCENARIOS = ["thinking_parallel_tools", "approval_pause", "in_band_error"]
 ADAPTER = AnthropicMessagesAdapter()
 
 
-def scrubbed(wire) -> Dict[str, Any]:
-    headers = {name: "[scrubbed]" if name.lower() == "x-api-key" else value for name, value in wire.headers.items()}
-    return {"method": wire.method, "url": wire.url, "headers": headers, "body": wire.body}
-
-
-def run_scenario(name: str) -> None:
-    history: List[Message] = []
-    carried: Dict[str, Any] = {}
-    for directory in step_dirs(name):
-        meta = read_json(directory / "meta.json")
-        step_input = read_json(directory / "input.json")
-        carried = {**carried, **{key: value for key, value in step_input.items() if key != "messages"}}
-        history += codec.from_json(List[Message], step_input["messages"])
-        profile = CapabilityProfile(adapter=meta["adapter"], model=meta["model"]).layered(
-            [ProfileLayer(ProfileSource.OVERRIDE, meta["profile_overrides"])]
-        )
-        config = LLMConfig(**carried["config"])
-        request = RenderRequest(
-            config=config,
-            system=carried["system"],
-            messages=tuple(history),
-            tools=tuple(codec.from_json(List[ToolSpec], carried["tools"])),
-            settings=codec.from_json(Settings, carried["settings"]),
-        )
-        golden = read_json(directory / "request.json")
-        wire = ADAPTER.render(request, profile)
-        assert scrubbed(wire) == golden, directory
-        assert wire.content() == json.dumps(golden["body"], ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        events = read_json(directory / "events.json")
-        decoder = ADAPTER.decoder(request, profile)
-        if "error" in events:
-            expected = HarnessError.from_json(events["error"])
-            with pytest.raises(type(expected)) as caught:
-                decode_chunks(decoder, chunks_of(directory))
-            assert caught.value.to_json() == expected.to_json()
-            continue
-        decoded = decode_chunks(decoder, chunks_of(directory))
-        assert codec.to_json(decoded) == events, directory
-        step = read_json(directory / "step.json")
-        stored = codec.from_json(Message, step["message"])
-        assert stored.origin == target_origin(config)
-        assembler = StepAssembler(stored.id, stored.origin)
-        assembler.feed_all(decoded)
-        assert {
-            "message": codec.to_json(assembler.message()),
-            "usage": codec.to_json(assembler.usage),
-            "finish": codec.to_json(assembler.finish),
-        } == step, directory
-        history.append(stored)
-
-
 @pytest.mark.parametrize("name", SCENARIOS)
 def test_cassette_scenario_replays_through_the_adapter(name):
-    run_scenario(name)
+    cassettes.run_scenario(ADAPTER, scenario_path(name))
 
 
 @pytest.mark.parametrize("name", SCENARIOS)
@@ -292,11 +239,64 @@ def test_a_tampered_history_is_refused_before_anything_is_sent(name):
     assert not isinstance(caught.value, (ConnectionError, TimeoutError))
 
 
-def test_violations_name_the_message_and_the_reason():
+CONTENT_MUTATIONS = sorted(name for name in MUTATIONS if "earlier" not in name and name not in {
+    "strip_reasoning_from_an_earlier_message_consistently",
+    "delete_an_earlier_tool_message",
+})
+PREFIX_MUTATIONS = [
+    "edit_earlier_tool_result",
+    "flag_earlier_tool_result_as_error",
+    "edit_earlier_user_message",
+    "edit_earlier_context_note",
+    "strip_reasoning_from_an_earlier_message_consistently",
+]
+
+
+@pytest.mark.parametrize("name", CONTENT_MUTATIONS)
+def test_edited_blocks_fail_the_content_check_on_the_edited_message(name):
     history, request = final_request()
-    tampered = replaced(history, A1, with_raw(history[A1], drop_redacted, reseal=True))
     with pytest.raises(OpaqueViolation) as caught:
-        render(tampered, request)
-    assert caught.value.detail["message_id"] == "a1"
-    assert "no longer match" in caught.value.detail["reason"]
-    assert "a1" in caught.value.message
+        render(MUTATIONS[name](history), request)
+    assert caught.value.detail["check"] == "content"
+    assert caught.value.detail["index"] in (A1, A3)
+    assert caught.value.detail["message_id"] == f"a{1 if caught.value.detail['index'] == A1 else 3}"
+    assert "content check failed" in caught.value.message and "message " in caught.value.message
+
+
+@pytest.mark.parametrize("name", PREFIX_MUTATIONS)
+def test_edits_before_a_reply_fail_the_prefix_check_naming_that_reply(name):
+    history, request = final_request()
+    with pytest.raises(OpaqueViolation) as caught:
+        render(MUTATIONS[name](history), request)
+    assert caught.value.detail["check"] == "prefix"
+    assert caught.value.detail["message_id"] in {"a1", "a2", "a3"}
+    assert history[caught.value.detail["index"]].id == caught.value.detail["message_id"]
+    assert "prefix check failed" in caught.value.message
+
+
+def test_a_blank_signature_reports_which_block_lost_it():
+    history, request = final_request()
+    with pytest.raises(OpaqueViolation) as caught:
+        render(MUTATIONS["blank_signature_in_raw_resealed"](history), request)
+    assert (caught.value.detail["message_id"], caught.value.detail["index"], caught.value.detail["block"]) == ("a1", A1, 0)
+
+
+def test_a_lost_signature_names_the_block_position():
+    history, request = final_request()
+
+    def blank_second_block(content):
+        swap_first_two(content)
+        content[1]["signature"] = ""
+
+    with pytest.raises(OpaqueViolation) as caught:
+        render(replaced(history, A1, with_raw(history[A1], blank_second_block, reseal=True)), request)
+    assert caught.value.detail["block"] == 1
+
+
+def test_the_cache_ttl_follows_the_settings():
+    history, request = final_request()
+    long_lived = dataclasses.replace(request, settings=Settings(max_tokens=100, cache_ttl="1h"))
+    default = dataclasses.replace(request, settings=Settings(max_tokens=100, cache_ttl="5m"))
+    assert ADAPTER.render(long_lived, make_profile()).body["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    assert ADAPTER.render(default, make_profile()).body["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in ADAPTER.render(long_lived, make_profile(cache="none")).body

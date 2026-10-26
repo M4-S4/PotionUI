@@ -1,4 +1,3 @@
-import base64
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -9,19 +8,20 @@ from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessag
 from src.features.llm.harness.messages import Message, Origin
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
 from src.features.llm.repository import LLMConfig
+from tests.features.llm.harness import cassettes
 
-CASSETTES = Path(__file__).resolve().parents[3] / "fixtures" / "llm_cassettes" / "anthropic-messages"
+ADAPTER_DIR = "anthropic-messages"
 MODEL = "claude-sonnet-5-5"
 BASE_URL = "https://api.anthropic.com"
 API_KEY = "cassette-key"
 
 
 def scenario_path(name: str) -> Path:
-    return CASSETTES / name
+    return cassettes.CASSETTE_ROOT / ADAPTER_DIR / name
 
 
 def step_dirs(name: str) -> List[Path]:
-    return sorted(path for path in scenario_path(name).iterdir() if path.is_dir())
+    return cassettes.step_dirs(scenario_path(name))
 
 
 def read_json(path: Path) -> Any:
@@ -29,8 +29,7 @@ def read_json(path: Path) -> Any:
 
 
 def chunks_of(directory: Path) -> List[bytes]:
-    lines = (directory / "chunks.jsonl").read_text(encoding="utf-8").splitlines()
-    return [base64.b64decode(json.loads(line)["b64"]) for line in lines if line.strip()]
+    return cassettes.load_step(directory).chunks
 
 
 def cassette_profile_fields() -> Dict[str, Any]:

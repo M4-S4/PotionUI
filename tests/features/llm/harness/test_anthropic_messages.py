@@ -246,6 +246,11 @@ def test_top_level_cache_control_follows_the_profile(cache, expected):
     assert render_body(make_request([USER]), make_profile(cache=cache)).get("cache_control") == expected
 
 
+def test_an_unsupported_cache_ttl_is_refused():
+    with pytest.raises(InvalidRequest, match="5m or 1h"):
+        render_body(make_request([USER], settings=Settings(cache_ttl="2h")), make_profile())
+
+
 @pytest.mark.parametrize("settings_tokens, cap, expected", [
     (4096, None, 4096),
     (None, None, 2000),

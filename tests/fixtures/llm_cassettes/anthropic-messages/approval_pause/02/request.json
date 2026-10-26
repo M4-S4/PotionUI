@@ -19,7 +19,8 @@
       "effort": "medium"
     },
     "cache_control": {
-      "type": "ephemeral"
+      "type": "ephemeral",
+      "ttl": "1h"
     },
     "tools": [
       {

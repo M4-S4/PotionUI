@@ -63,6 +63,7 @@
     "tool_choice": null,
     "response_schema": null,
     "cache_key": null,
+    "cache_ttl": "1h",
     "keep_model_loaded": false
   },
   "messages": [
