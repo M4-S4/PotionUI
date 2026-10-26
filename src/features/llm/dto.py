@@ -2,7 +2,9 @@
 
 import math
 from typing import Dict, Optional, Any
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
+
+from src.features.llm.harness.profile_schema import validate_overrides
 
 # provider_options keys shared by the native and Ollama sampling controls
 # (same name, same meaning on both providers) plus native's own
@@ -179,6 +181,15 @@ class ModelDiscoveryRequest(BaseModel):
     base_url: str = ""
     api_key: Optional[str] = None
     config_id: Optional[str] = None
+
+
+class ProfileOverridesRequest(BaseModel):
+    overrides: Dict[str, Any]
+
+    @field_validator("overrides")
+    @classmethod
+    def _validate_overrides(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        return validate_overrides(value)
 
 
 class ContextWindowDiscoveryRequest(BaseModel):
