@@ -1,0 +1,83 @@
+{
+  "config": {
+    "id": "cassette",
+    "name": "cassette",
+    "type": "anthropic",
+    "enabled": true,
+    "base_url": "https://api.anthropic.com",
+    "api_key": "cassette-key",
+    "model": "claude-sonnet-5-5",
+    "system_message": "",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30,
+    "supports_vision": false,
+    "disable_system_prompt": false,
+    "memory_reflection": true,
+    "show_thinking": false,
+    "provider_options": null,
+    "api_key_unreadable": false
+  },
+  "system": "You are a careful file assistant. Ask before destructive actions.",
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read a text file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "strict": false
+    },
+    {
+      "name": "delete_file",
+      "description": "Delete a file or folder.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "strict": false
+    }
+  ],
+  "settings": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "min_p": null,
+    "max_tokens": 8192,
+    "reasoning": "medium",
+    "tool_choice": null,
+    "response_schema": null,
+    "cache_key": null,
+    "keep_model_loaded": false
+  },
+  "messages": [
+    {
+      "id": "u1",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Show me README.md and then remove the build/ folder.",
+          "phase": null
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

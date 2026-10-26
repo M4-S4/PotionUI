@@ -1,0 +1,12 @@
+{
+  "error": {
+    "kind": "overloaded",
+    "message": "Overloaded",
+    "status": null,
+    "code": "overloaded_error",
+    "retry_after": null,
+    "detail": {
+      "request_id": "req_011HandBuiltOverloaded"
+    }
+  }
+}

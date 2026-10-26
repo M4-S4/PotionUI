@@ -1,0 +1,78 @@
+{
+  "message": {
+    "id": "a2",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "The deletion was declined, so I should report that and stop.",
+        "redacted": false,
+        "opaque": {
+          "signature": "ErUBCkYIARgCIkB-hand-built-pause-signature-2"
+        }
+      },
+      {
+        "type": "text",
+        "text": "README.md starts with \"PotionUI\". I did not delete build/ because you declined.",
+        "phase": null
+      }
+    ],
+    "origin": {
+      "adapter": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "credential": "e7f9d1c8882fa5dd"
+    },
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The deletion was declined, so I should report that and stop.",
+          "signature": "ErUBCkYIARgCIkB-hand-built-pause-signature-2"
+        },
+        {
+          "type": "text",
+          "text": "README.md starts with \"PotionUI\". I did not delete build/ because you declined."
+        }
+      ],
+      "sha256": "a888b8240d9db5dd9d44507e417ff7c0a489f02d7a66794e7150752490162603",
+      "prefix": "334fe1b345fe23af4765d3fd142e475c292e28b01b8b0a402584f385787afdfe"
+    }
+  },
+  "usage": {
+    "input_tokens": 1570,
+    "output_tokens": 52,
+    "total_tokens": 1622,
+    "reasoning_tokens": null,
+    "cached_input_tokens": 1500,
+    "cache_write_tokens": 0,
+    "cost": null,
+    "raw": {
+      "input_tokens": 70,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1500,
+      "output_tokens": 52
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "end_turn",
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The deletion was declined, so I should report that and stop.",
+          "signature": "ErUBCkYIARgCIkB-hand-built-pause-signature-2"
+        },
+        {
+          "type": "text",
+          "text": "README.md starts with \"PotionUI\". I did not delete build/ because you declined."
+        }
+      ],
+      "sha256": "a888b8240d9db5dd9d44507e417ff7c0a489f02d7a66794e7150752490162603",
+      "prefix": "334fe1b345fe23af4765d3fd142e475c292e28b01b8b0a402584f385787afdfe"
+    }
+  }
+}

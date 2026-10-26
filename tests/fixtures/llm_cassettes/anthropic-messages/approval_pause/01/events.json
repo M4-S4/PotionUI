@@ -1,0 +1,153 @@
+[
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 1880,
+      "output_tokens": 1,
+      "total_tokens": 1881,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 1500,
+      "cost": null,
+      "raw": {
+        "input_tokens": 380,
+        "cache_creation_input_tokens": 1500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 1
+      }
+    }
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "Reading is safe. Deleting build/ needs the user's approval.",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "signature",
+    "value": "ErUBCkYIARgCIkB-hand-built-pause-signature-1"
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Reading the README and preparing the deletion.",
+    "phase": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 2,
+    "call_id": "toolu_01HandBuiltRead",
+    "name": "read_file",
+    "wire_id": "toolu_01HandBuiltRead"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 2,
+    "text": ""
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 2,
+    "text": "{\"path\": \"README.md\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 2,
+    "args": {
+      "path": "README.md"
+    }
+  },
+  {
+    "type": "tool_call_start",
+    "block": 3,
+    "call_id": "toolu_01HandBuiltDelete",
+    "name": "delete_file",
+    "wire_id": "toolu_01HandBuiltDelete"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": ""
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "{\"path\": "
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "\"build/\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 3,
+    "args": {
+      "path": "build/"
+    }
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 1880,
+      "output_tokens": 141,
+      "total_tokens": 2021,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 1500,
+      "cost": null,
+      "raw": {
+        "input_tokens": 380,
+        "cache_creation_input_tokens": 1500,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 141
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "tool_use",
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "Reading is safe. Deleting build/ needs the user's approval.",
+          "signature": "ErUBCkYIARgCIkB-hand-built-pause-signature-1"
+        },
+        {
+          "type": "text",
+          "text": "Reading the README and preparing the deletion."
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01HandBuiltRead",
+          "name": "read_file",
+          "input": {
+            "path": "README.md"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01HandBuiltDelete",
+          "name": "delete_file",
+          "input": {
+            "path": "build/"
+          }
+        }
+      ],
+      "sha256": "2e786b8b991b75eae11e3a1a856eb2ce3127e09c130a1c8871cd1d45b6509906",
+      "prefix": "f593fff2201d16000db0dae5089d2a6ec2739ce66d2bb1977449d9fc94c5aa6b"
+    }
+  }
+]

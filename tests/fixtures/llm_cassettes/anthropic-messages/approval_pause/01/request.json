@@ -1,0 +1,68 @@
+{
+  "method": "POST",
+  "url": "https://api.anthropic.com/v1/messages",
+  "headers": {
+    "anthropic-version": "2026-10-21",
+    "x-api-key": "[scrubbed]",
+    "content-type": "application/json",
+    "accept": "text/event-stream"
+  },
+  "body": {
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 8192,
+    "stream": true,
+    "system": "You are a careful file assistant. Ask before destructive actions.",
+    "thinking": {
+      "type": "adaptive"
+    },
+    "output_config": {
+      "effort": "medium"
+    },
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "tools": [
+      {
+        "name": "read_file",
+        "description": "Read a text file.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "delete_file",
+        "description": "Delete a file or folder.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Show me README.md and then remove the build/ folder."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,113 @@
+[
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 2246,
+      "output_tokens": 1,
+      "total_tokens": 2247,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 1840,
+      "cache_write_tokens": 310,
+      "cost": null,
+      "raw": {
+        "input_tokens": 96,
+        "cache_creation_input_tokens": 310,
+        "cache_read_input_tokens": 1840,
+        "output_tokens": 1
+      }
+    }
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "Both weather reports are in. ",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "Next I need the local time in Tokyo.",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "signature",
+    "value": "ErUBCkYIARgCIkB-hand-built-signature-2"
+  },
+  {
+    "type": "tool_call_start",
+    "block": 1,
+    "call_id": "toolu_01HandBuiltTime",
+    "name": "get_time",
+    "wire_id": "toolu_01HandBuiltTime"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 1,
+    "text": ""
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 1,
+    "text": "{\"city\": \"Tokyo\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 1,
+    "args": {
+      "city": "Tokyo"
+    }
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 2246,
+      "output_tokens": 64,
+      "total_tokens": 2310,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 1840,
+      "cache_write_tokens": 310,
+      "cost": null,
+      "raw": {
+        "input_tokens": 96,
+        "cache_creation_input_tokens": 310,
+        "cache_read_input_tokens": 1840,
+        "output_tokens": 64
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "tool_use",
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "Both weather reports are in. Next I need the local time in Tokyo.",
+          "signature": "ErUBCkYIARgCIkB-hand-built-signature-2"
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01HandBuiltTime",
+          "name": "get_time",
+          "input": {
+            "city": "Tokyo"
+          }
+        }
+      ],
+      "sha256": "e81cc38a23bd7ef319080a2dc64b9b38b24b8a402f74bb725ba012a8ee99d05a",
+      "prefix": "16bc801598631d3d1cd88e8f496faa8265942f0cd95654812549c928ccae6327"
+    }
+  }
+]

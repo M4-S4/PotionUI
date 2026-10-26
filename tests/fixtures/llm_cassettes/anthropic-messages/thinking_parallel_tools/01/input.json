@@ -1,0 +1,83 @@
+{
+  "config": {
+    "id": "cassette",
+    "name": "cassette",
+    "type": "anthropic",
+    "enabled": true,
+    "base_url": "https://api.anthropic.com",
+    "api_key": "cassette-key",
+    "model": "claude-sonnet-5-5",
+    "system_message": "",
+    "temperature": 0.7,
+    "max_tokens": 2000,
+    "timeout": 30,
+    "supports_vision": false,
+    "disable_system_prompt": false,
+    "memory_reflection": true,
+    "show_thinking": false,
+    "provider_options": null,
+    "api_key_unreadable": false
+  },
+  "system": "You are a travel assistant. Use the tools to answer.",
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Current weather for a city.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "city"
+        ]
+      },
+      "strict": false
+    },
+    {
+      "name": "get_time",
+      "description": "Current local time for a city.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "city"
+        ]
+      },
+      "strict": false
+    }
+  ],
+  "settings": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "min_p": null,
+    "max_tokens": 8192,
+    "reasoning": "medium",
+    "tool_choice": null,
+    "response_schema": null,
+    "cache_key": null,
+    "keep_model_loaded": false
+  },
+  "messages": [
+    {
+      "id": "u1",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What is the weather in Paris and Tokyo, and what time is it in Tokyo?",
+          "phase": null
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
