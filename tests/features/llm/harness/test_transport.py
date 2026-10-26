@@ -87,6 +87,8 @@ async def test_the_read_timeout_is_unbounded_and_the_rest_follow_the_config(monk
         (429, b'{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}', {}, QuotaExhausted),
         (400, b'{"error":{"code":"context_length_exceeded","message":"too long"}}', {}, ContextOverflow),
         (400, b'{"type":"error","error":{"message":"prompt is too long: 250000 tokens"}}', {}, ContextOverflow),
+        (413, b'{"error":{"message":"prompt is too long"}}', {}, ContextOverflow),
+        (422, b'{"detail":"exceed_context_size_error"}', {}, ContextOverflow),
         (400, b'{"error":{"message":"bad field"}}', {}, InvalidRequest),
         (404, b"not found", {}, InvalidRequest),
         (408, b"", {}, ConnectionFailed),

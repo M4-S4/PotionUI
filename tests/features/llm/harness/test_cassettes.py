@@ -168,6 +168,20 @@ def test_a_changed_request_body_fails_the_replay(recorded):
         cassettes.run_scenario(LineAdapter(), recorded)
 
 
+def test_a_changed_url_fails_the_replay(recorded):
+    _edit(recorded / "01" / "request.json", lambda data: data.update(url="http://elsewhere.invalid/line"))
+
+    with pytest.raises(AssertionError, match="request url differs"):
+        cassettes.run_scenario(LineAdapter(), recorded)
+
+
+def test_a_changed_header_fails_the_replay(recorded):
+    _edit(recorded / "01" / "request.json", lambda data: data["headers"].update({"X-Extra": "1"}))
+
+    with pytest.raises(AssertionError, match="request headers differ"):
+        cassettes.run_scenario(LineAdapter(), recorded)
+
+
 def test_a_reordered_request_body_fails_the_byte_comparison(recorded):
     path = recorded / "01" / "request.json"
     _edit(path, lambda data: data.update(body=dict(reversed(list(data["body"].items())))))
@@ -235,6 +249,34 @@ def test_a_stream_that_should_have_failed_but_decodes_is_reported(recorded):
         cassettes.run_scenario(LineAdapter(), recorded)
 
 
+class LeakyAdapter(LineAdapter):
+    def render(self, request, profile):
+        wire = super().render(request, profile)
+        return WireRequest(wire.method, wire.url, wire.headers, {**wire.body, "note": request.config.api_key})
+
+
+def test_the_recorder_refuses_to_keep_a_recording_that_contains_the_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("LINE_TEST_KEY", SECRET)
+    install_peer(monkeypatch, chunked([FINAL_REPLY]))
+
+    with pytest.raises(SystemExit, match="contains the API key"):
+        asyncio.run(recorder.record(SPEC, tmp_path, LeakyAdapter, force=True))
+
+
+def test_the_recorder_needs_the_key_in_the_environment(monkeypatch, tmp_path):
+    monkeypatch.delenv("LINE_TEST_KEY", raising=False)
+
+    with pytest.raises(SystemExit, match="LINE_TEST_KEY is not set"):
+        asyncio.run(recorder.record(SPEC, tmp_path, LineAdapter, force=True))
+
+
+def test_the_recorder_will_not_replace_a_scenario_without_force(monkeypatch, recorded, tmp_path):
+    monkeypatch.setenv("LINE_TEST_KEY", SECRET)
+
+    with pytest.raises(SystemExit, match="exists"):
+        asyncio.run(recorder.record(SPEC, tmp_path, LineAdapter, force=False))
+
+
 def test_hand_built_scenarios_are_listed(recorded, tmp_path):
     root = tmp_path
     assert cassettes.hand_built_scenarios(root) == []
@@ -256,3 +298,25 @@ def test_scrub_helpers_hide_credentials_and_nothing_else():
     }
     assert cassettes.scrub_url("https://h/x?alt=sse&key=abc") == f"https://h/x?alt=sse&key={cassettes.SCRUBBED}"
     assert cassettes.scrub_url("https://h/x") == "https://h/x"
+
+
+def _all_steps():
+    root = cassettes.CASSETTE_ROOT
+    return [
+        step
+        for adapter in (sorted(path for path in root.iterdir() if path.is_dir()) if root.is_dir() else [])
+        for scenario in cassettes.scenario_dirs(adapter.name)
+        for step in cassettes.step_dirs(scenario)
+    ]
+
+
+@pytest.mark.parametrize("step", _all_steps(), ids=lambda path: f"{path.parent.parent.name}/{path.parent.name}/{path.name}")
+def test_every_stored_cassette_says_where_it_came_from(step):
+    meta = json.loads((step / "meta.json").read_text(encoding="utf-8"))
+
+    assert meta["source"] in (cassettes.HAND_BUILT, cassettes.RECORDED)
+    assert meta["adapter"] == step.parent.parent.name
+    if meta["source"] == cassettes.HAND_BUILT:
+        assert meta["doc_url"].startswith("https://")
+    else:
+        assert meta["recorded_at"]
