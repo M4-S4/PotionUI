@@ -11,7 +11,8 @@
         "opaque": {
           "id": "rs_2c3d4e5f60718293",
           "encrypted_content": "gAAAAABq_delete_plan_encrypted_blob_dGhpcmQ="
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "tool_call",

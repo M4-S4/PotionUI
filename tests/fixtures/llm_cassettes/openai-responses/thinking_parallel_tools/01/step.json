@@ -11,7 +11,8 @@
         "opaque": {
           "id": "rs_0a1b2c3d4e5f6071",
           "encrypted_content": "gAAAAABq_weather_plan_encrypted_blob_aGVsbG8gd29ybGQ="
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",

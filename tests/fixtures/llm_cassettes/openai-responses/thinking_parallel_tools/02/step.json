@@ -11,7 +11,8 @@
         "opaque": {
           "id": "rs_1b2c3d4e5f607182",
           "encrypted_content": "gAAAAABq_weather_wrap_encrypted_blob_c2Vjb25k"
-        }
+        },
+        "duration_ms": null
       },
       {
         "type": "text",
