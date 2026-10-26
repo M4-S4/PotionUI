@@ -390,6 +390,10 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         # interrupted by a restart resume without waiting for a queue call.
         await container.download_queue.start()
 
+        failed_turns = container.turn_store.fail_interrupted()
+        if failed_turns:
+            logging.info(f"Failed {failed_turns} chat turn(s) left running by a restart")
+
         # Generation state lives only in-process, so a pending/running row
         # surviving a restart means the process died mid-generation, not that
         # it's still running. Fail those before the frontend can adopt one.
