@@ -1,0 +1,35 @@
+{
+  "adapter": "gemini-interactions",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "source": "hand-built",
+  "doc_url": "https://ai.google.dev/gemini-api/docs/interactions/streaming",
+  "doc_urls": [
+    "https://ai.google.dev/gemini-api/docs/interactions/streaming",
+    "https://ai.google.dev/gemini-api/docs/function-calling",
+    "https://ai.google.dev/gemini-api/docs/interactions/thought-signatures"
+  ],
+  "recorded_at": null,
+  "profile_overrides": {
+    "reasoning": "effort",
+    "reasoning_levels": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ],
+    "parallel_tools": true,
+    "tool_choice": [
+      "auto",
+      "none",
+      "required",
+      "named"
+    ],
+    "tool_choice_with_reasoning": [
+      "auto",
+      "none",
+      "required",
+      "named"
+    ]
+  }
+}

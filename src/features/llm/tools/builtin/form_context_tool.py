@@ -61,6 +61,7 @@ class GetCurrentSegmentsTool(BaseTool):
         return not video_director_active(form_state)
 
     name = "get_current_segments"
+    read_only = True
     group = "Form & segments"
     user_description = "Reads the prompt segments currently in your editor."
 
@@ -163,6 +164,7 @@ class GetFormStateTool(BaseTool):
     icon = "clipboard-list"
 
     name = "get_form_state"
+    read_only = True
     group = "Form & segments"
     user_description = "Reads the current values of your generation form."
 

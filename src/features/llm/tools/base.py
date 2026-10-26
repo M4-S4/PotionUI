@@ -203,6 +203,7 @@ class BaseTool(ABC):
     group: str = "Other"
     user_description: str = ""
     requires_approval: bool = False
+    read_only: bool = False
 
     @property
     def label(self) -> str:

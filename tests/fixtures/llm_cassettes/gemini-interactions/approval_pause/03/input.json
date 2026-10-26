@@ -1,0 +1,38 @@
+{
+  "messages": [
+    {
+      "id": "t2",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "x5n1h7cb",
+          "name": "delete_backup",
+          "content": [
+            {
+              "type": "text",
+              "text": "Deleted 2025-01.",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        },
+        {
+          "type": "tool_result",
+          "call_id": "y9t4j6fe",
+          "name": "delete_backup",
+          "content": [
+            {
+              "type": "text",
+              "text": "The user declined this action: keep it for the audit.",
+              "phase": null
+            }
+          ],
+          "is_error": true
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
