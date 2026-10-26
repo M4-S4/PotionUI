@@ -78,7 +78,7 @@ def test_several_lines_in_one_chunk_all_decode():
 def test_the_done_object_carries_the_token_counts():
     events = decode(token("hi") + done(prompt_eval_count=20, eval_count=10))
 
-    assert events[0] == TextDelta(block=0, text="hi")
+    assert events[0] == TextDelta(block=1, text="hi")
     assert isinstance(events[1], UsageReported)
     usage = events[1].usage
     assert (usage.input_tokens, usage.output_tokens, usage.total_tokens) == (20, 10, 30)
@@ -151,16 +151,17 @@ def test_tool_calls_arrive_complete_with_object_arguments_and_a_minted_id():
     assert isinstance(start, ToolCallStart)
     assert (start.name, start.wire_id) == ("get_form_state", None)
     assert start.call_id.startswith("call_")
-    assert events[1] == ToolCallEnd(block=0, args={"scope": "all"})
+    assert events[1] == ToolCallEnd(block=2, args={"scope": "all"})
     assert events[-1] == Finish(reason=FinishReason.TOOL_CALLS, raw_reason="stop")
 
 
-def test_a_server_supplied_tool_call_id_is_kept():
+def test_a_server_supplied_tool_call_id_is_not_used_ids_are_always_minted():
     call = {"id": "call_xyz", "function": {"name": "t", "arguments": {}}}
 
     start = decode(line({"message": {"tool_calls": [call]}}) + done())[0]
 
-    assert (start.call_id, start.wire_id) == ("call_xyz", "call_xyz")
+    assert start.call_id != "call_xyz" and start.wire_id is None
+    assert len(start.call_id) == len("call_") + 24
 
 
 def test_parallel_calls_in_one_chunk_get_distinct_ids_and_blocks():
@@ -266,55 +267,39 @@ def test_a_missing_model_error_is_an_invalid_request():
 CALL_TEXT = '<tool_call>{"name": "get_form_state", "arguments": {"scope": "all"}}</tool_call>'
 
 
-def test_prompt_tools_mode_turns_inline_blocks_into_tool_calls_and_keeps_the_prose():
+@pytest.mark.parametrize("prompt_tools", [False, True])
+def test_inline_tool_call_blocks_are_never_parsed_in_the_decoder(prompt_tools):
     raw = token("Let me look. ") + token(CALL_TEXT) + done()
 
-    events = decode(raw, with_tools=True, prompt_tools=True)
+    events = decode(raw, with_tools=True, prompt_tools=prompt_tools)
 
-    assert texts(events) == ["Let me look. "]
-    message = assemble(events)
-    assert [(c.name, c.args) for c in message.tool_calls()] == [("get_form_state", {"scope": "all"})]
-    assert events[-1].reason is FinishReason.TOOL_CALLS
-
-
-def test_prompt_tools_blocks_split_anywhere_still_decode():
-    raw = token("a") + token(CALL_TEXT) + token("b") + done()
-
-    for cuts in ([], [5], [12, 40], list(range(1, len(raw), 7))):
-        events = decode(split(raw, *cuts), with_tools=True, prompt_tools=True)
-        assert "".join(texts(events)) == "ab"
-        assert len(assemble(events).tool_calls()) == 1
-
-
-def test_prompt_tools_mode_hands_back_a_broken_block_as_text_for_the_rescue_pass():
-    broken = '<tool_call>{"name": "x", "arguments": </tool_call>'
-
-    events = decode(token(broken) + done(), with_tools=True, prompt_tools=True)
-
-    assert "".join(texts(events)) == broken
+    assert "".join(texts(events)) == "Let me look. " + CALL_TEXT
     assert not assemble(events).tool_calls()
+    assert events[-1].reason is FinishReason.UNKNOWN
 
 
-def test_prompt_tools_mode_hands_back_a_block_that_never_closed_as_text():
-    events = decode(token('ok <tool_call>{"name": "x"') + done(), with_tools=True, prompt_tools=True)
+def test_blocks_are_fixed_reasoning_zero_text_one_and_calls_from_two():
+    calls = [{"function": {"name": "a", "arguments": {}}}, {"function": {"name": "b", "arguments": {}}}]
+    raw = token("hi") + thought("plan") + line({"message": {"tool_calls": calls}}) + done()
 
-    assert "".join(texts(events)) == 'ok <tool_call>{"name": "x"'
+    events = decode(raw)
+
+    assert [(type(e).__name__, e.block) for e in events if hasattr(e, "block") and not isinstance(e, ToolCallEnd)] == [
+        ("TextDelta", 1),
+        ("ReasoningDelta", 0),
+        ("ToolCallStart", 2),
+        ("ToolCallStart", 3),
+    ]
 
 
-def test_without_the_prompt_tools_flag_inline_blocks_stay_text():
-    events = decode(token(CALL_TEXT) + done(), with_tools=True)
-
-    assert "".join(texts(events)) == CALL_TEXT
-    assert not assemble(events).tool_calls()
-
-
-def test_a_tool_call_inside_a_think_block_is_not_run():
+def test_a_tool_call_inside_a_think_block_stays_reasoning():
     raw = token("<think>maybe " + CALL_TEXT + "</think>no call") + done()
 
     events = decode(raw, with_tools=True, prompt_tools=True)
 
     assert not assemble(events).tool_calls()
     assert texts(events) == ["no call"]
+    assert thoughts(events) == ["maybe " + CALL_TEXT]
 
 
 @pytest.mark.parametrize("scenario", cassettes.scenario_dirs("ollama-chat"), ids=lambda path: path.name)

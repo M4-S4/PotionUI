@@ -1,21 +1,12 @@
 import json
-import re
-from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Sequence, Tuple
 
 from src.features.llm.harness.adapter import ToolSpec
-from src.features.llm.harness.assembler import parse_args
 from src.features.llm.harness.messages import ToolCallPart
 
 OPEN_TAG = "<tool_call>"
 CLOSE_TAG = "</tool_call>"
-
-_MANGLED_QUOTE = re.compile(r"<\|(['\"])\|>")
-
-
-def demangle_quote_tokens(text: str) -> str:
-    return _MANGLED_QUOTE.sub(r"\1", text)
 
 
 @lru_cache(maxsize=16)
@@ -38,7 +29,7 @@ def _tools_text(key: Tuple[Tuple[str, str, str], ...]) -> str:
     return "\n".join(lines)
 
 
-def render_tools_text(tools: Sequence[ToolSpec]) -> str:
+def build_prompt_tools_text(tools: Sequence[ToolSpec]) -> str:
     return _tools_text(tuple(
         (tool.name, tool.description, json.dumps(tool.parameters, sort_keys=True, separators=(",", ":")))
         for tool in tools
@@ -121,84 +112,3 @@ def assistant_text(text: str, calls: Sequence[ToolCallPart]) -> str:
 
 def result_text(name: str, content: str) -> str:
     return f"[Tool Result: {name or 'tool'}]\n{content}"
-
-
-@dataclass(frozen=True)
-class TextItem:
-    text: str
-
-
-@dataclass(frozen=True)
-class CallItem:
-    name: str
-    args: Optional[Dict[str, Any]]
-    raw: str
-
-
-Item = Union[TextItem, CallItem]
-
-
-def parse_call_block(block: str) -> Optional[CallItem]:
-    raw = block[len(OPEN_TAG):-len(CLOSE_TAG)].strip()
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        try:
-            data = json.loads(demangle_quote_tokens(raw))
-        except ValueError:
-            return None
-    if not isinstance(data, dict):
-        return None
-    function = data.get("function")
-    source = function if isinstance(function, dict) else data
-    name = source.get("name")
-    if not isinstance(name, str) or not name:
-        return None
-    arguments = source.get("arguments") or source.get("parameters") or {}
-    args = arguments if isinstance(arguments, dict) else parse_args(arguments) if isinstance(arguments, str) else None
-    return CallItem(name=name, args=args, raw=arguments if isinstance(arguments, str) else json.dumps(arguments))
-
-
-class PromptToolStage:
-    def __init__(self) -> None:
-        self._buffer = ""
-        self._inside = False
-
-    def feed(self, text: str) -> List[Item]:
-        self._buffer += text
-        items: List[Item] = []
-        while True:
-            if not self._inside:
-                start = self._buffer.find(OPEN_TAG)
-                if start == -1:
-                    keep = _partial_suffix(self._buffer)
-                    cut = len(self._buffer) - keep
-                    if cut:
-                        items.append(TextItem(self._buffer[:cut]))
-                        self._buffer = self._buffer[cut:]
-                    break
-                if start:
-                    items.append(TextItem(self._buffer[:start]))
-                self._buffer = self._buffer[start:]
-                self._inside = True
-            end = self._buffer.find(CLOSE_TAG)
-            if end == -1:
-                break
-            end += len(CLOSE_TAG)
-            block, self._buffer = self._buffer[:end], self._buffer[end:]
-            self._inside = False
-            call = parse_call_block(block)
-            items.append(call if call is not None else TextItem(block))
-        return items
-
-    def finish(self) -> List[Item]:
-        rest, self._buffer = self._buffer, ""
-        self._inside = False
-        return [TextItem(rest)] if rest else []
-
-
-def _partial_suffix(buffer: str) -> int:
-    for size in range(min(len(buffer), len(OPEN_TAG) - 1), 0, -1):
-        if OPEN_TAG.startswith(buffer[-size:]):
-            return size
-    return 0

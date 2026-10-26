@@ -22,7 +22,7 @@ from tests.features.llm.wire_capture import (
 
 @pytest.mark.parametrize("schemas", [tool_schemas(), COMPLEX, COMPLEX[1:]], ids=["simple", "complex", "unsynthesisable"])
 def test_the_system_tool_text_matches_the_legacy_ollama_text(schemas):
-    assert prompt_tools.render_tools_text(specs(schemas)) == build_prompt_tools_text(schemas)
+    assert prompt_tools.build_prompt_tools_text(specs(schemas)) == build_prompt_tools_text(schemas)
 
 
 @pytest.mark.parametrize("schemas", [tool_schemas(), COMPLEX, COMPLEX[1:]], ids=["simple", "complex", "unsynthesisable"])

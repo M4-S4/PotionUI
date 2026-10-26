@@ -13,7 +13,7 @@
       },
       {
         "type": "tool_call",
-        "call_id": "call_79b0aa00_0",
+        "call_id": "call_e94be7d82e0bd75f3ae25b51",
         "name": "get_preset",
         "args": {
           "name": "fast"
@@ -24,7 +24,7 @@
       },
       {
         "type": "tool_call",
-        "call_id": "call_79b0aa00_1",
+        "call_id": "call_f115f0628847151f07259925",
         "name": "get_preset",
         "args": {
           "name": "slow"

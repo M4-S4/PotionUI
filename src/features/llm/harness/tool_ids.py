@@ -6,7 +6,7 @@ from src.features.llm.harness.profile import ToolIdRule
 
 
 def mint_call_id(seed: str, index: int) -> str:
-    return f"call_{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:8]}_{index}"
+    return f"call_{hashlib.sha256(f'{seed}:{index}'.encode('utf-8')).hexdigest()[:24]}"
 
 
 def nine_digit_id(call_id: str) -> str:

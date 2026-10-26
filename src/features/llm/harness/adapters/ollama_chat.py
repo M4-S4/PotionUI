@@ -19,11 +19,11 @@ from src.features.llm.harness.events import (
     Usage,
     UsageReported,
 )
-from src.features.llm.harness.messages import ImagePart, Message, Role
+from src.features.llm.harness.messages import Message, Role
 from src.features.llm.harness.ndjson import NDJSONFramer
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
-from src.features.llm.harness.rendering import bearer_headers, image_data, reasoning_text, result_text
-from src.features.llm.harness.think_tags import CLOSED, THINKING, ThinkTagStage
+from src.features.llm.harness.rendering import bearer_headers, image_data, last_user_index, reasoning_text, selected_image
+from src.features.llm.harness.think_tags import TEXT, THINKING, ThinkTagStage
 from src.features.llm.harness.tool_args import arguments_object, object_from_wire
 from src.features.llm.harness.transport import HttpAdapter
 from src.features.llm.model_listing import (
@@ -58,6 +58,9 @@ OPTION_KEYS = (
     "stop",
 )
 
+REASONING_BLOCK = 0
+TEXT_BLOCK = 1
+FIRST_TOOL_BLOCK = 2
 KEEP_ALIVE_LOADED = "5m"
 TRAINED_WINDOW_CAP_TOKENS = 32768
 _MODELFILE_NUM_CTX = re.compile(r"^\s*num_ctx\s+(\d+)\s*$", re.MULTILINE)
@@ -131,11 +134,7 @@ def render_messages(request: RenderRequest, profile: CapabilityProfile, system: 
         if message.role is Role.SYSTEM:
             rendered.append({"role": "system", "content": message.text()})
         elif message.role is Role.USER:
-            entry: Dict[str, Any] = {"role": "user", "content": user_text(message)}
-            images = [image_data(part) for part in message.parts if isinstance(part, ImagePart)]
-            if images:
-                entry["images"] = images
-            rendered.append(entry)
+            rendered.append({"role": "user", "content": user_text(message)})
         elif message.role is Role.ASSISTANT:
             rendered.append(_assistant(message, ids, inline_tools))
         else:
@@ -143,14 +142,18 @@ def render_messages(request: RenderRequest, profile: CapabilityProfile, system: 
                 if inline_tools:
                     rendered.append({
                         "role": "user",
-                        "content": prompt_tools.result_text(result.name, result_text(result)),
+                        "content": prompt_tools.result_text(result.name, result.text()),
                     })
                 else:
                     rendered.append({
                         "role": "tool",
-                        "content": result_text(result),
+                        "content": result.text(),
                         "tool_call_id": ids.get(result.call_id, result.call_id),
                     })
+    index = last_user_index(rendered)
+    image = selected_image(request.messages)
+    if image is not None and index is not None:
+        rendered[index]["images"] = [image_data(image)]
     return rendered
 
 
@@ -169,9 +172,10 @@ def _assistant(message: Message, ids: Dict[str, str], inline_tools: bool) -> Dic
                 }
                 for call in calls
             ]
-    thinking = reasoning_text(message)
-    if thinking:
-        entry["thinking"] = thinking
+    if calls:
+        thinking = reasoning_text(message)
+        if thinking:
+            entry["thinking"] = thinking
     return entry
 
 
@@ -196,7 +200,6 @@ class OllamaChatDecoder:
     def __init__(
         self,
         seed: str,
-        inline_tools: bool,
         classify: Callable[[WireFailure], HarnessError],
         label: str = "ollama-chat",
     ) -> None:
@@ -204,10 +207,6 @@ class OllamaChatDecoder:
         self._classify = classify
         self._framer = NDJSONFramer(label)
         self._think = ThinkTagStage()
-        self._inline = prompt_tools.PromptToolStage() if inline_tools else None
-        self._next_block = 0
-        self._kind: Optional[str] = None
-        self._block = 0
         self._calls = 0
         self._finished = False
 
@@ -240,7 +239,7 @@ class OllamaChatDecoder:
         if isinstance(message, dict):
             thinking = message.get("thinking")
             if isinstance(thinking, str) and thinking:
-                events.append(ReasoningDelta(block=self._use("reasoning"), text=thinking))
+                events.append(ReasoningDelta(block=REASONING_BLOCK, text=thinking))
             content = message.get("content")
             if isinstance(content, str) and content:
                 events.extend(self._text(self._think.feed(content)))
@@ -252,33 +251,13 @@ class OllamaChatDecoder:
             events.extend(self._finish(data.get("done_reason"), usage_from(data)))
         return events
 
-    def _use(self, kind: str) -> int:
-        if kind != self._kind:
-            self._kind = kind
-            self._block = self._next_block
-            self._next_block += 1
-        return self._block
-
     def _text(self, pieces) -> List[StreamEvent]:
         events: List[StreamEvent] = []
         for piece in pieces:
             if piece.kind == THINKING:
-                events.append(ReasoningDelta(block=self._use("reasoning"), text=piece.text))
-            elif piece.kind == CLOSED:
-                self._kind = None
-            elif self._inline is None:
-                events.append(TextDelta(block=self._use("text"), text=piece.text))
-            else:
-                events.extend(self._inline_items(self._inline.feed(piece.text)))
-        return events
-
-    def _inline_items(self, items) -> List[StreamEvent]:
-        events: List[StreamEvent] = []
-        for item in items:
-            if isinstance(item, prompt_tools.TextItem):
-                events.append(TextDelta(block=self._use("text"), text=item.text))
-            else:
-                events.extend(self._emit_call(None, item.name, item.args, item.raw if item.args is None else None))
+                events.append(ReasoningDelta(block=REASONING_BLOCK, text=piece.text))
+            elif piece.kind == TEXT:
+                events.append(TextDelta(block=TEXT_BLOCK, text=piece.text))
         return events
 
     def _native_call(self, call: Any) -> List[StreamEvent]:
@@ -287,22 +266,13 @@ class OllamaChatDecoder:
         function = call.get("function")
         function = function if isinstance(function, dict) else {}
         arguments = function.get("arguments")
-        wire_id = call.get("id") if isinstance(call.get("id"), str) and call.get("id") else None
         args = object_from_wire(arguments)
-        raw = arguments if isinstance(arguments, str) and args is None else None
-        return self._emit_call(wire_id, str(function.get("name") or ""), args, raw)
-
-    def _emit_call(
-        self, wire_id: Optional[str], name: str, args: Optional[Dict[str, Any]], raw: Optional[str],
-    ) -> List[StreamEvent]:
-        block = self._next_block
-        self._next_block += 1
-        self._kind = "tool"
-        call_id = wire_id or tool_ids.mint_call_id(self._seed, self._calls)
+        block = FIRST_TOOL_BLOCK + self._calls
+        call_id = tool_ids.mint_call_id(self._seed, self._calls)
         self._calls += 1
-        events: List[StreamEvent] = [ToolCallStart(block=block, call_id=call_id, name=name, wire_id=wire_id)]
-        if raw is not None:
-            events.append(ToolArgsDelta(block=block, text=raw))
+        events: List[StreamEvent] = [ToolCallStart(block=block, call_id=call_id, name=str(function.get("name") or ""))]
+        if isinstance(arguments, str) and args is None:
+            events.append(ToolArgsDelta(block=block, text=arguments))
             events.append(ToolCallEnd(block=block))
         else:
             events.append(ToolCallEnd(block=block, args=args))
@@ -311,8 +281,6 @@ class OllamaChatDecoder:
     def _finish(self, raw_reason: Optional[str], usage: Optional[Usage] = None) -> List[StreamEvent]:
         self._finished = True
         events = self._text(self._think.finish())
-        if self._inline is not None:
-            events.extend(self._inline_items(self._inline.finish()))
         if usage is not None:
             events.append(UsageReported(usage))
         reason = finish_reasons.with_tool_calls(finish_reasons.from_ollama(raw_reason), self._calls > 0)
@@ -328,7 +296,7 @@ class OllamaChatAdapter(HttpAdapter):
         inline_tools = bool(request.tools) and profile.prompt_tools
         system = request.system
         if inline_tools:
-            system = (system or "") + prompt_tools.render_tools_text(request.tools)
+            system = (system or "") + prompt_tools.build_prompt_tools_text(request.tools)
         body: Dict[str, Any] = {
             "model": request.config.model,
             "messages": render_messages(request, profile, system, inline_tools),
@@ -353,7 +321,6 @@ class OllamaChatAdapter(HttpAdapter):
     def decoder(self, request: RenderRequest, profile: CapabilityProfile) -> OllamaChatDecoder:
         return OllamaChatDecoder(
             seed=tool_ids.seed_for(request.messages),
-            inline_tools=bool(request.tools) and profile.prompt_tools,
             classify=self.classify_error,
             label=self.name,
         )
@@ -389,17 +356,29 @@ class OllamaChatAdapter(HttpAdapter):
             ))
         return sorted_models(models)
 
+    async def show(self, base_url: str, api_key: Optional[str], model: str) -> Any:
+        return await fetch_json(
+            self.display_name,
+            base_url,
+            "/api/show",
+            bearer_headers(api_key),
+            body={"model": model},
+            timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+        )
+
+    async def discover_context_window(
+        self, base_url: str, api_key: Optional[str], model: str,
+    ) -> Optional[DiscoveredWindow]:
+        try:
+            return parse_show_window(await self.show(base_url, api_key, model))
+        except Exception:
+            logging.debug("%s context window probe failed for %s", self.display_name, model, exc_info=True)
+            return None
+
     async def discover(self, config: LLMConfig) -> ProfileLayer:
         fields: Dict[str, Any] = {}
         try:
-            payload = await fetch_json(
-                self.display_name,
-                config.base_url,
-                "/api/show",
-                bearer_headers(config.api_key),
-                body={"model": config.model},
-                timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
-            )
+            payload = await self.show(config.base_url, config.api_key, config.model)
         except Exception:
             logging.debug("%s discovery failed for %s", self.display_name, config.model, exc_info=True)
             return ProfileLayer(ProfileSource.DISCOVERED, fields)

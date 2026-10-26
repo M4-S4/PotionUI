@@ -18,16 +18,23 @@ from src.features.llm.harness.events import (
     Usage,
     UsageReported,
 )
-from src.features.llm.harness.messages import ImagePart, Message, Role
-from src.features.llm.harness.rendering import bearer_headers, image_data_uri, reasoning_text, result_text
+from src.features.llm.harness.messages import ImagePart, Role
+from src.features.llm.harness.rendering import (
+    bearer_headers,
+    image_data_uri,
+    last_user_index,
+    reasoning_text,
+    selected_image,
+)
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, ReasoningKind, ToolIdRule
 from src.features.llm.harness.sse import DONE_SENTINEL, SSEFramer, SSERecord
-from src.features.llm.harness.think_tags import CLOSED, TEXT, THINKING, ThinkTagStage
+from src.features.llm.harness.think_tags import TEXT, THINKING, ThinkTagStage
 from src.features.llm.harness.tool_args import arguments_text
 from src.features.llm.harness.transport import HttpAdapter
 from src.features.llm.model_listing import (
     CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
     DiscoveredModel,
+    DiscoveredWindow,
     ModelListingError,
     fetch_json,
     positive_int,
@@ -35,6 +42,9 @@ from src.features.llm.model_listing import (
 )
 from src.features.llm.repository import LLMConfig
 
+REASONING_BLOCK = 0
+TEXT_BLOCK = 1
+FIRST_TOOL_BLOCK = 2
 DEFAULT_REASONING_FIELD = "reasoning_content"
 REASONING_FIELDS = ("reasoning_content", "reasoning")
 CONTEXT_WINDOW_KEYS = ("context_length", "max_model_len", "context_window")
@@ -90,14 +100,13 @@ def sampling_params(request: RenderRequest, profile: CapabilityProfile) -> Dict[
     return {key: value for key, value in params.items() if key not in dropped}
 
 
-def user_content(message: Message) -> Any:
-    text = user_text(message)
-    images = [part for part in message.parts if isinstance(part, ImagePart)]
-    if not images:
-        return text
-    return [
-        *({"type": "image_url", "image_url": {"url": image_data_uri(image)}} for image in images),
-        {"type": "text", "text": text},
+def attach_image(rendered: List[Dict[str, Any]], image: Optional[ImagePart]) -> None:
+    index = last_user_index(rendered)
+    if image is None or index is None:
+        return
+    rendered[index]["content"] = [
+        {"type": "image_url", "image_url": {"url": image_data_uri(image)}},
+        {"type": "text", "text": rendered[index]["content"]},
     ]
 
 
@@ -109,7 +118,7 @@ def render_messages(request: RenderRequest, profile: CapabilityProfile) -> List[
         if message.role is Role.SYSTEM:
             rendered.append({"role": "system", "content": message.text()})
         elif message.role is Role.USER:
-            rendered.append({"role": "user", "content": user_content(message)})
+            rendered.append({"role": "user", "content": user_text(message)})
         elif message.role is Role.ASSISTANT:
             entry: Dict[str, Any] = {"role": "assistant", "content": message.text()}
             calls = message.tool_calls()
@@ -122,20 +131,21 @@ def render_messages(request: RenderRequest, profile: CapabilityProfile) -> List[
                     }
                     for call in calls
                 ]
-            thinking = reasoning_text(message)
-            if thinking:
-                entry[field] = thinking
+                thinking = reasoning_text(message)
+                if thinking:
+                    entry[field] = thinking
             rendered.append(entry)
         else:
             for result in message.tool_results():
                 tool_entry: Dict[str, Any] = {
                     "role": "tool",
-                    "content": result_text(result),
+                    "content": result.text(),
                     "tool_call_id": ids.get(result.call_id, result.call_id),
                 }
                 if result.name:
                     tool_entry["name"] = result.name
                 rendered.append(tool_entry)
+    attach_image(rendered, selected_image(request.messages))
     return rendered
 
 
@@ -209,9 +219,6 @@ class OpenAIChatDecoder:
         self._label = label
         self._framer = SSEFramer(label)
         self._think = ThinkTagStage()
-        self._next_block = 0
-        self._kind: Optional[str] = None
-        self._block = 0
         self._calls: List[_Call] = []
         self._by_index: Dict[Any, _Call] = {}
         self._finish_raw: Optional[str] = None
@@ -287,7 +294,7 @@ class OpenAIChatDecoder:
         for key in REASONING_FIELDS:
             text = delta.get(key)
             if isinstance(text, str) and text:
-                events.append(ReasoningDelta(block=self._use("reasoning"), text=text))
+                events.append(ReasoningDelta(block=REASONING_BLOCK, text=text))
                 break
         content = delta.get("content")
         if isinstance(content, str) and content:
@@ -299,22 +306,13 @@ class OpenAIChatDecoder:
                     events.extend(self._fragment(fragment))
         return events
 
-    def _use(self, kind: str) -> int:
-        if kind != self._kind:
-            self._kind = kind
-            self._block = self._next_block
-            self._next_block += 1
-        return self._block
-
     def _pieces(self, pieces) -> List[StreamEvent]:
         events: List[StreamEvent] = []
         for piece in pieces:
             if piece.kind == TEXT:
-                events.append(TextDelta(block=self._use("text"), text=piece.text))
+                events.append(TextDelta(block=TEXT_BLOCK, text=piece.text))
             elif piece.kind == THINKING:
-                events.append(ReasoningDelta(block=self._use("reasoning"), text=piece.text))
-            elif piece.kind == CLOSED:
-                self._kind = None
+                events.append(ReasoningDelta(block=REASONING_BLOCK, text=piece.text))
         return events
 
     def _flush_text(self) -> List[StreamEvent]:
@@ -348,9 +346,7 @@ class OpenAIChatDecoder:
         if call is not None and wire_id and call.wire_id and wire_id != call.wire_id:
             call = None
         if call is None:
-            self._kind = "tool"
-            call = _Call(self._next_block)
-            self._next_block += 1
+            call = _Call(FIRST_TOOL_BLOCK + len(self._calls))
             self._by_index[key] = call
             self._calls.append(call)
         return call
@@ -444,26 +440,33 @@ class OpenAIChatAdapter(HttpAdapter):
             ))
         return sorted_models(models)
 
-    async def discover(self, config: LLMConfig) -> ProfileLayer:
-        fields: Dict[str, Any] = {}
+    async def discover_context_window(
+        self, base_url: str, api_key: Optional[str], model: str,
+    ) -> Optional[DiscoveredWindow]:
         try:
             payload = await fetch_json(
                 self.display_name,
-                config.base_url,
+                base_url,
                 "/models",
-                bearer_headers(config.api_key),
+                bearer_headers(api_key),
                 timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
             )
             entries = payload.get("data") if isinstance(payload, dict) else None
             for entry in entries if isinstance(entries, list) else []:
-                if not isinstance(entry, dict) or entry.get("id") != config.model:
+                if not isinstance(entry, dict) or entry.get("id") != model:
                     continue
                 for key in CONTEXT_WINDOW_KEYS:
                     tokens = positive_int(entry.get(key))
                     if tokens:
-                        fields["context_window"] = tokens
-                        break
-                break
+                        return DiscoveredWindow(tokens=tokens, kind="runtime")
+            return None
         except Exception:
-            logging.debug("%s discovery failed for %s", self.display_name, config.model, exc_info=True)
+            logging.debug("%s context window probe failed for %s", self.display_name, model, exc_info=True)
+            return None
+
+    async def discover(self, config: LLMConfig) -> ProfileLayer:
+        fields: Dict[str, Any] = {}
+        window = await self.discover_context_window(config.base_url, config.api_key, config.model)
+        if window is not None:
+            fields["context_window"] = window.tokens
         return ProfileLayer(ProfileSource.DISCOVERED, fields)

@@ -15,41 +15,41 @@
   },
   {
     "type": "tool_call_start",
-    "block": 1,
+    "block": 2,
     "call_id": "chatcmpl-tool-aa11",
     "name": "get_preset",
     "wire_id": "chatcmpl-tool-aa11"
   },
   {
     "type": "tool_args_delta",
-    "block": 1,
+    "block": 2,
     "text": "{\"name\": "
   },
   {
     "type": "tool_args_delta",
-    "block": 1,
+    "block": 2,
     "text": "\"fast\"}"
   },
   {
     "type": "tool_call_start",
-    "block": 2,
+    "block": 3,
     "call_id": "chatcmpl-tool-bb22",
     "name": "get_preset",
     "wire_id": "chatcmpl-tool-bb22"
   },
   {
     "type": "tool_args_delta",
-    "block": 2,
+    "block": 3,
     "text": "{\"name\": \"slow\"}"
   },
   {
     "type": "tool_call_end",
-    "block": 1,
+    "block": 2,
     "args": null
   },
   {
     "type": "tool_call_end",
-    "block": 2,
+    "block": 3,
     "args": null
   },
   {

@@ -8,7 +8,6 @@ from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.errors import InvalidRequest
 from src.features.llm.harness.messages import (
     ImagePart,
-    JsonPart,
     Message,
     Origin,
     ReasoningPart,
@@ -106,22 +105,29 @@ def test_reasoning_uses_the_field_name_the_profile_names():
     assert "reasoning_content" not in body["messages"][2]
 
 
-def test_redacted_and_empty_reasoning_parts_are_not_sent():
-    assistant = Message(
-        "a", Role.ASSISTANT,
-        (ReasoningPart(text="secret", redacted=True), ReasoningPart(text=""), TextPart("hi")),
-        origin=ORIGIN,
-    )
-    request = RenderRequest(config=make_config("openai"), system="", messages=(assistant,))
+def _reasoned_call(*parts):
+    call = ToolCallPart(call_id="c1", name="t", args={}, wire_id="c1")
+    assistant = Message("a", Role.ASSISTANT, (*parts, call), origin=ORIGIN)
+    return RenderRequest(config=make_config("openai"), system="", messages=(assistant,))
 
-    assert render(request).body["messages"][1] == {"role": "assistant", "content": "hi"}
+
+def test_redacted_and_empty_reasoning_parts_are_not_sent():
+    request = _reasoned_call(ReasoningPart(text="secret", redacted=True), ReasoningPart(text=""), TextPart("hi"))
+
+    assert "reasoning_content" not in render(request).body["messages"][1]
 
 
 def test_several_reasoning_parts_join_into_one_field():
-    assistant = Message("a", Role.ASSISTANT, (ReasoningPart(text="one "), ReasoningPart(text="two"), TextPart("x")), origin=ORIGIN)
-    request = RenderRequest(config=make_config("openai"), system="", messages=(assistant,))
+    request = _reasoned_call(ReasoningPart(text="one "), ReasoningPart(text="two"))
 
     assert render(request).body["messages"][1]["reasoning_content"] == "one two"
+
+
+def test_reasoning_goes_back_only_on_assistant_messages_that_have_tool_calls():
+    assistant = Message("a", Role.ASSISTANT, (ReasoningPart(text="why"), TextPart("hi")), origin=ORIGIN)
+    request = RenderRequest(config=make_config("openai"), system="", messages=(assistant,))
+
+    assert render(request).body["messages"][1] == {"role": "assistant", "content": "hi"}
 
 
 def _call_message(call_id="local_1", wire_id="srv_1", args_raw=None, args=None):
@@ -187,13 +193,13 @@ def test_a_tool_message_with_several_results_becomes_several_wire_messages():
     ]
 
 
-def test_a_tool_result_renders_its_text_and_json_content_in_order():
+def test_a_tool_result_renders_its_text_parts_only():
     result = ToolResultPart(
-        call_id="c1", name="t", content=(TextPart("a "), JsonPart({"k": [1, 2]}), TextPart(" z")),
+        call_id="c1", name="t", content=(TextPart("a "), ImagePart(media_type="image/png", data=IMAGE_B64), TextPart("z")),
     )
     request = RenderRequest(config=make_config("openai"), system="", messages=(Message("t", Role.TOOL, (result,)),))
 
-    assert render(request).body["messages"][1]["content"] == 'a {"k": [1, 2]} z'
+    assert render(request).body["messages"][1]["content"] == "a z"
 
 
 def test_context_parts_render_the_way_the_legacy_context_block_did():
@@ -205,14 +211,69 @@ def test_context_parts_render_the_way_the_legacy_context_block_did():
     assert render(request).body["messages"][1]["content"] == "question\n\n<context>\nnotes\n</context>"
 
 
-def test_images_go_before_the_text_in_the_same_message():
-    message = Message("u", Role.USER, (TextPart("q"), ImagePart(media_type="image/png", data=IMAGE_B64)))
+def _image(media_type="image/png", data=IMAGE_B64):
+    return ImagePart(media_type=media_type, data=data)
+
+
+def _wire_image(data=IMAGE_B64, media_type="image/png"):
+    return {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}}
+
+
+def test_the_users_image_goes_before_the_text_of_the_last_user_message():
+    message = Message("u", Role.USER, (TextPart("q"), _image()))
     request = RenderRequest(config=make_config("openai"), system="", messages=(message,))
 
-    assert render(request).body["messages"][1]["content"] == [
-        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{IMAGE_B64}"}},
-        {"type": "text", "text": "q"},
-    ]
+    assert render(request).body["messages"][1]["content"] == [_wire_image(), {"type": "text", "text": "q"}]
+
+
+def test_only_the_newest_user_image_is_sent_and_it_lands_on_the_last_user_message():
+    older = Message("u1", Role.USER, (TextPart("first"), _image(data="b2xk")))
+    newer = Message("u2", Role.USER, (TextPart("second"), _image(data="bmV3")))
+    last = Message("u3", Role.USER, (TextPart("third"),))
+    request = RenderRequest(config=make_config("openai"), system="", messages=(older, newer, last))
+
+    messages = render(request).body["messages"]
+
+    assert [m["content"] for m in messages[1:3]] == ["first", "second"]
+    assert messages[3]["content"] == [_wire_image("bmV3"), {"type": "text", "text": "third"}]
+
+
+def test_an_image_a_tool_returned_wins_when_the_request_ends_with_that_tool_message():
+    call = ToolCallPart(call_id="c1", name="t", args={}, wire_id="c1")
+    result = ToolResultPart(call_id="c1", name="t", content=(TextPart("see"), _image(data="dG9vbA==")))
+    messages = (
+        Message("u", Role.USER, (TextPart("go"), _image())),
+        Message("a", Role.ASSISTANT, (call,), origin=ORIGIN),
+        Message("t", Role.TOOL, (result,)),
+    )
+    request = RenderRequest(config=make_config("openai"), system="", messages=messages)
+
+    wire = render(request).body["messages"]
+
+    assert wire[1]["content"] == [_wire_image("dG9vbA=="), {"type": "text", "text": "go"}]
+    assert wire[3]["content"] == "see"
+
+
+def test_a_tool_image_from_an_earlier_round_is_not_sent_again():
+    call = ToolCallPart(call_id="c1", name="t", args={}, wire_id="c1")
+    result = ToolResultPart(call_id="c1", name="t", content=(_image(data="dG9vbA=="),))
+    messages = (
+        Message("u", Role.USER, (TextPart("go"),)),
+        Message("a", Role.ASSISTANT, (call,), origin=ORIGIN),
+        Message("t", Role.TOOL, (result,)),
+        Message("a2", Role.ASSISTANT, (TextPart("done"),), origin=ORIGIN),
+        Message("u2", Role.USER, (TextPart("thanks"),)),
+    )
+    request = RenderRequest(config=make_config("openai"), system="", messages=messages)
+
+    assert all("image" not in json.dumps(m) for m in render(request).body["messages"])
+
+
+def test_a_request_with_no_user_message_sends_no_image():
+    result = ToolResultPart(call_id="c1", name="t", content=(_image(),))
+    request = RenderRequest(config=make_config("openai"), system="", messages=(Message("t", Role.TOOL, (result,)),))
+
+    assert "image_url" not in json.dumps(render(request).body)
 
 
 def test_tools_are_left_out_when_the_profile_says_the_model_has_none():

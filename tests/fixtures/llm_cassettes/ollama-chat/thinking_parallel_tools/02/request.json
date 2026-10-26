@@ -21,7 +21,7 @@
         "content": "",
         "tool_calls": [
           {
-            "id": "call_79b0aa00_0",
+            "id": "call_e94be7d82e0bd75f3ae25b51",
             "type": "function",
             "function": {
               "name": "get_preset",
@@ -31,7 +31,7 @@
             }
           },
           {
-            "id": "call_79b0aa00_1",
+            "id": "call_f115f0628847151f07259925",
             "type": "function",
             "function": {
               "name": "get_preset",
@@ -46,12 +46,12 @@
       {
         "role": "tool",
         "content": "{\"name\":\"fast\",\"steps\":4}",
-        "tool_call_id": "call_79b0aa00_0"
+        "tool_call_id": "call_e94be7d82e0bd75f3ae25b51"
       },
       {
         "role": "tool",
         "content": "{\"name\":\"slow\",\"steps\":30}",
-        "tool_call_id": "call_79b0aa00_1"
+        "tool_call_id": "call_f115f0628847151f07259925"
       }
     ],
     "stream": true,

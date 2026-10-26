@@ -103,7 +103,7 @@ def test_a_plain_answer_is_text_then_usage_then_finish_with_one_block():
     events = decode(delta("hi") + usage_chunk() + DONE)
 
     assert events == [
-        TextDelta(block=0, text="hi"),
+        TextDelta(block=1, text="hi"),
         UsageReported(Usage(
             input_tokens=20, output_tokens=10, total_tokens=30,
             raw={"total_tokens": 30, "prompt_tokens": 20, "completion_tokens": 10},
@@ -221,13 +221,13 @@ def test_tool_call_fragments_are_assembled_by_index():
     events = decode(split(raw, 90, 200, 330))
 
     assert events == [
-        ToolCallStart(block=0, call_id="call_a", name="get_form", wire_id="call_a"),
-        ToolArgsDelta(block=0, text='{"sc'),
-        ToolArgsDelta(block=0, text='ope": 1}'),
-        ToolCallStart(block=1, call_id="call_b", name="other", wire_id="call_b"),
-        ToolArgsDelta(block=1, text="{}"),
-        ToolCallEnd(block=0),
-        ToolCallEnd(block=1),
+        ToolCallStart(block=2, call_id="call_a", name="get_form", wire_id="call_a"),
+        ToolArgsDelta(block=2, text='{"sc'),
+        ToolArgsDelta(block=2, text='ope": 1}'),
+        ToolCallStart(block=3, call_id="call_b", name="other", wire_id="call_b"),
+        ToolArgsDelta(block=3, text="{}"),
+        ToolCallEnd(block=2),
+        ToolCallEnd(block=3),
         Finish(reason=FinishReason.TOOL_CALLS, raw_reason="tool_calls"),
     ]
     message = assemble(events)
@@ -327,8 +327,21 @@ def test_stop_with_tool_calls_is_reported_as_tool_calls_and_keeps_the_raw_reason
     assert decode(raw)[-1] == Finish(reason=FinishReason.TOOL_CALLS, raw_reason="stop")
 
 
-def test_parts_come_out_in_the_order_the_stream_produced_them():
-    raw = reasoning("think ") + reasoning("more") + delta("answer") + call_chunk(0, "c1", "t", "{}") + DONE
+def test_blocks_are_fixed_reasoning_zero_text_one_and_tool_calls_from_two():
+    raw = delta("answer") + reasoning("think") + call_chunk(0, "c1", "t", "{}") + call_chunk(1, "c2", "u", "{}") + DONE
+
+    events = decode(raw)
+
+    assert [(type(e).__name__, e.block) for e in events if hasattr(e, "block") and not isinstance(e, (ToolArgsDelta, ToolCallEnd))] == [
+        ("TextDelta", 1),
+        ("ReasoningDelta", 0),
+        ("ToolCallStart", 2),
+        ("ToolCallStart", 3),
+    ]
+
+
+def test_parts_come_out_in_block_order_whatever_order_the_stream_produced_them():
+    raw = delta("answer") + reasoning("think ") + reasoning("more") + call_chunk(0, "c1", "t", "{}") + DONE
 
     message = assemble(decode(raw))
 

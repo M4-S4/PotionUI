@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
 from src.plugin_api import plugin_settings
 from src.plugin_api.llm import CapabilityProfile, OpenAIChatAdapter, RenderRequest
@@ -24,12 +24,7 @@ def lacks_reasoning(body: Dict[str, Any]) -> bool:
 class DeepSeekAdapter(OpenAIChatAdapter):
     display_name = "DeepSeek"
 
-    def __init__(
-        self,
-        settings: Callable[[], Dict[str, Any]] = lambda: plugin_settings(PLUGIN_ID),
-        trace: Optional[Callable[..., None]] = None,
-    ) -> None:
-        super().__init__(trace=trace)
+    def __init__(self, settings: Callable[[], Dict[str, Any]] = lambda: plugin_settings(PLUGIN_ID)) -> None:
         self._settings = settings
 
     def _thinking(self, body: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,7 +1,6 @@
 import json
-import logging
 from abc import ABC, abstractmethod
-from typing import Any, AsyncIterator, Callable, List, Optional
+from typing import Any, AsyncIterator, List, Optional
 
 import httpx
 
@@ -20,9 +19,8 @@ from src.features.llm.harness.errors import (
 )
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer
 from src.features.llm.model_listing import DiscoveredModel
+from src.features.llm.repository import LLMConfig
 from src.platform.http.tls import client_ssl_context
-
-TraceHook = Callable[[WireRequest, bytes], None]
 
 _BODY_DETAIL_CHARS = 4000
 _QUOTA_MARKERS = ("insufficient_quota", "exceeded your current quota", "billing", "credit balance")
@@ -38,8 +36,8 @@ _OVERFLOW_MARKERS = (
 )
 
 
-def stream_timeout(timeout: float) -> httpx.Timeout:
-    return httpx.Timeout(connect=timeout, read=None, write=timeout, pool=timeout)
+def stream_timeout(config: LLMConfig) -> httpx.Timeout:
+    return httpx.Timeout(connect=config.timeout, read=None, write=config.timeout, pool=config.timeout)
 
 
 def error_text(body: bytes) -> str:
@@ -87,9 +85,6 @@ def error_code(body: bytes) -> Optional[str]:
 class HttpAdapter(ABC):
     name: str = ""
 
-    def __init__(self, trace: Optional[TraceHook] = None) -> None:
-        self.trace = trace
-
     @abstractmethod
     def render(self, request: RenderRequest, profile: CapabilityProfile) -> WireRequest: ...
 
@@ -103,19 +98,16 @@ class HttpAdapter(ABC):
     async def list_models(self, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]: ...
 
     async def send(self, wire: WireRequest, request: RenderRequest) -> AsyncIterator[bytes]:
-        received = bytearray() if self.trace is not None else None
         started = False
         try:
             async with httpx.AsyncClient(
-                timeout=stream_timeout(request.config.timeout), verify=client_ssl_context()
+                timeout=stream_timeout(request.config), verify=client_ssl_context()
             ) as client:
                 async with client.stream(
                     wire.method, wire.url, headers=dict(wire.headers), content=wire.content()
                 ) as response:
                     if not response.is_success:
                         body = await response.aread()
-                        if received is not None:
-                            received.extend(body)
                         raise self.classify_error(
                             WireFailure(status=response.status_code, body=body, headers=dict(response.headers))
                         )
@@ -123,20 +115,9 @@ class HttpAdapter(ABC):
                     async for chunk in response.aiter_bytes():
                         if not chunk:
                             continue
-                        if received is not None:
-                            received.extend(chunk)
                         yield chunk
         except httpx.HTTPError as exc:
             raise self.classify_error(WireFailure(status=None, in_stream=started, cause=exc)) from exc
-        finally:
-            if self.trace is not None and received is not None:
-                self._trace(wire, bytes(received))
-
-    def _trace(self, wire: WireRequest, received: bytes) -> None:
-        try:
-            self.trace(wire, received)
-        except Exception:
-            logging.warning(f"[{self.name}] trace hook failed", exc_info=True)
 
     def classify_error(self, failure: WireFailure) -> HarnessError:
         status = failure.status

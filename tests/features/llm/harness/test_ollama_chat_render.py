@@ -138,11 +138,19 @@ def test_a_call_without_a_server_id_goes_back_with_its_internal_id():
     assert sent[2] == {"role": "tool", "content": "done", "tool_call_id": "call_ab_0"}
 
 
-def test_plain_assistant_text_with_reasoning_carries_its_thinking():
-    assistant = Message("a", Role.ASSISTANT, (ReasoningPart(text="because"), TextPart("hi")), origin=ORIGIN)
-    request = RenderRequest(config=make_config("ollama"), system="", messages=(assistant,))
+def test_thinking_goes_back_only_on_assistant_messages_that_have_tool_calls():
+    plain = Message("a", Role.ASSISTANT, (ReasoningPart(text="because"), TextPart("hi")), origin=ORIGIN)
+    with_call = Message(
+        "b", Role.ASSISTANT,
+        (ReasoningPart(text="so"), ToolCallPart(call_id="c1", name="t", args={}, wire_id="c1")),
+        origin=ORIGIN,
+    )
+    request = RenderRequest(config=make_config("ollama"), system="", messages=(plain, with_call))
 
-    assert render(request).body["messages"][0] == {"role": "assistant", "content": "hi", "thinking": "because"}
+    first, second = render(request).body["messages"]
+
+    assert first == {"role": "assistant", "content": "hi"}
+    assert second["thinking"] == "so"
 
 
 def test_an_unresolved_image_reference_is_refused_rather_than_dropped():
@@ -153,11 +161,46 @@ def test_an_unresolved_image_reference_is_refused_rather_than_dropped():
         render(request)
 
 
-def test_images_are_sent_as_bare_base64_next_to_the_text():
-    message = Message("u", Role.USER, (TextPart("q"), ImagePart(media_type="image/png", data=IMAGE_B64)))
-    request = RenderRequest(config=make_config("ollama"), system="", messages=(message,))
+def test_the_newest_user_image_is_sent_as_bare_base64_on_the_last_user_message():
+    older = Message("u1", Role.USER, (TextPart("a"), ImagePart(media_type="image/png", data="b2xk")))
+    newer = Message("u2", Role.USER, (TextPart("b"), ImagePart(media_type="image/png", data=IMAGE_B64)))
+    last = Message("u3", Role.USER, (TextPart("c"),))
+    request = RenderRequest(config=make_config("ollama"), system="", messages=(older, newer, last))
 
-    assert render(request).body["messages"][0] == {"role": "user", "content": "q", "images": [IMAGE_B64]}
+    messages = render(request).body["messages"]
+
+    assert messages[0] == {"role": "user", "content": "a"}
+    assert messages[1] == {"role": "user", "content": "b"}
+    assert messages[2] == {"role": "user", "content": "c", "images": [IMAGE_B64]}
+
+
+def test_a_tool_returned_image_wins_and_rides_on_the_last_user_role_wire_message():
+    call = ToolCallPart(call_id="c1", name="t", args={}, wire_id="c1")
+    result = ToolResultPart(
+        call_id="c1", name="t", content=(TextPart("see"), ImagePart(media_type="image/png", data="dG9vbA==")),
+    )
+    messages = (
+        Message("u", Role.USER, (TextPart("go"), ImagePart(media_type="image/png", data=IMAGE_B64))),
+        Message("a", Role.ASSISTANT, (call,), origin=ORIGIN),
+        Message("t", Role.TOOL, (result,)),
+    )
+    tools = tuple(ToolSpec.from_schema(schema) for schema in tool_schemas())
+    request = RenderRequest(config=make_config("ollama"), system="", messages=messages, tools=tools)
+
+    native = render(request).body["messages"]
+    inline = render(request, prompt_tools=True).body["messages"]
+
+    assert native[0] == {"role": "user", "content": "go", "images": ["dG9vbA=="]}
+    assert native[2] == {"role": "tool", "content": "see", "tool_call_id": "c1"}
+    assert inline[1] == {"role": "user", "content": "go"}
+    assert inline[3] == {"role": "user", "content": "[Tool Result: t]\nsee", "images": ["dG9vbA=="]}
+
+
+def test_a_request_with_no_user_wire_message_sends_no_image():
+    result = ToolResultPart(call_id="c1", name="t", content=(ImagePart(media_type="image/png", data="dG9vbA=="),))
+    request = RenderRequest(config=make_config("ollama"), system="", messages=(Message("t", Role.TOOL, (result,)),))
+
+    assert "images" not in json.dumps(render(request).body)
 
 
 def test_context_parts_render_the_way_the_legacy_context_block_did():
