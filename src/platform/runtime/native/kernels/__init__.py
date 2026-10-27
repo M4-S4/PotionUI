@@ -1,3 +1,16 @@
+from .attention import (
+    BACKEND_PRIORITY,
+    PIN_ONLY_BACKENDS,
+    attention,
+    available_backends,
+    get_attention_backend,
+    get_backend_override,
+    grouped_attention,
+    known_backends,
+    reset_backend_cache,
+    set_backend_override,
+    supports_grouped_kv,
+)
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
@@ -14,7 +27,9 @@ from .hardware import (
 )
 
 __all__ = [
+    "BACKEND_PRIORITY",
     "FLASH",
+    "PIN_ONLY_BACKENDS",
     "SAGE",
     "SAGE2",
     "SAGE3",
@@ -24,7 +39,16 @@ __all__ = [
     "DeviceCapabilities",
     "GemmSupport",
     "GpuGeneration",
+    "attention",
+    "available_backends",
     "capabilities",
     "gemm_support",
+    "get_attention_backend",
+    "get_backend_override",
+    "grouped_attention",
+    "known_backends",
     "refresh_capabilities",
+    "reset_backend_cache",
+    "set_backend_override",
+    "supports_grouped_kv",
 ]

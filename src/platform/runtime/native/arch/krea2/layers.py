@@ -109,7 +109,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor
 
-from ...attention import grouped_attention as _dispatch_grouped_attention
+from ...kernels import grouped_attention as _dispatch_grouped_attention
 from ...nag import apply_nag
 from vendor.gpl.comfyui.flux.math_ops import rope as _flux_rope
 

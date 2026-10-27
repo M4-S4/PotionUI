@@ -98,7 +98,7 @@ def test_attention_dispatcher_matches_direct_sdpa():
     import torch.nn.functional as F
 
     import vendor.gpl.comfyui.anima.layers as anima_layers
-    from src.platform.runtime.native.attention import attention as dispatch_attention
+    from src.platform.runtime.native.kernels import attention as dispatch_attention
     from vendor.gpl.comfyui.anima.layers import _AdapterAttention, _Attention
 
     torch.manual_seed(0)

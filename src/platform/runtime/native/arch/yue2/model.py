@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ...attention import grouped_attention
+from ...kernels import grouped_attention
 from ...base import NativeArchModule
 from ...text_encoders._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device
 from .config import YuE2Config

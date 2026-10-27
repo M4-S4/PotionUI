@@ -40,7 +40,7 @@ import torch
 import torch.nn as nn
 
 from ...base import NativeArchModule
-from ...attention import grouped_attention
+from ...kernels import grouped_attention
 from ...text_encoders._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device
 from .config import MiniMaxMusic3TextEncoderConfig
 from .depth_decoder import DepthDecoderModule

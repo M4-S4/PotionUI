@@ -86,8 +86,12 @@ bounds fall back to `sdpa`.
   `sage`, `flash`, or the universal `sdpa` fallback.
 - `sage` needed a numerical workaround for one architecture: its kernel can overflow fp16 internally
   on very large activations at large joint-sequence attention shapes, producing NaNs. PotionUI's
-  dispatcher pre-scales the value tensor down by a constant factor before the call and scales the
-  output back up afterward (mathematically exact, no extra GPU sync), with a final `nan_to_num` as a
-  zero-cost safety net — so this is handled for you and does not require any setting.
+  dispatcher pre-scales the value tensor down by 256 before the call and scales the output back up
+  afterward (mathematically exact, no extra GPU sync), with a final `nan_to_num` as a zero-cost
+  safety net — so this is handled for you and does not require any setting. The pre-scale engages
+  only when the largest value magnitude exceeds 1024: applying it unconditionally pushed small
+  values toward fp16's subnormal range and left a film-grain pattern across LTX 2.3 generations.
+  From 32768 rows up the dispatcher checks that magnitude with one host sync instead, because the
+  two full-size copies the sync-free form needs cost gigabytes at that size.
 - `sparge`'s quality varies by content; benchmark and inspect outputs on your own workloads before
   relying on it for production generations.

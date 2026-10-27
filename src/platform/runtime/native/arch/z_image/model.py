@@ -61,7 +61,7 @@ from vendor.gpl.comfyui.z_image.layers import (
     set_attention_backend,
 )
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
 from ...ops.padding import pad_to_patch

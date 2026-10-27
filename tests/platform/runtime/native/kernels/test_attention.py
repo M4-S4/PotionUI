@@ -1,17 +1,17 @@
-"""Tests for the native attention backend dispatcher."""
-
 from __future__ import annotations
 
+import importlib
 import logging
 import math
 
 import pytest
 import torch
 
-import src.platform.runtime.native.attention as att
 from src.platform.runtime.native.kernels import FLASH, SAGE, SAGE2, SAGE3, SDPA, SPARGE
 from src.platform.settings import runtime_flags
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities, fake_device, hopper
+
+att = importlib.import_module("src.platform.runtime.native.kernels.attention")
 
 
 @pytest.fixture(autouse=True)
@@ -184,11 +184,9 @@ def test_unknown_backend_warning_lists_pin_only_names(install_capabilities, capl
 
 
 def test_known_backends_is_union_of_priority_and_pin_only():
-    # The single source of truth callers validating a user-supplied pin (e.g.
-    # the admin API) should use instead of duplicating a name list.
     known = att.known_backends()
     assert known == frozenset(att.BACKEND_PRIORITY) | att.PIN_ONLY_BACKENDS
-    assert "sparge" in known  # pin-only, still a KNOWN (valid-to-request) name
+    assert "sparge" in known
     for name in att.BACKEND_PRIORITY:
         assert name in known
 
@@ -279,10 +277,6 @@ def test_backend_override_normalizes_case_and_whitespace(monkeypatch, install_ca
     assert att.get_attention_backend() == "flash"
 
 
-# --------------------------------------------------------------------------- #
-# sdpa correctness
-# --------------------------------------------------------------------------- #
-
 def _manual_attention(q, k, v, mask=None):
     d = q.shape[-1]
     scores = (q @ k.transpose(-2, -1)) / math.sqrt(d)
@@ -312,7 +306,7 @@ def test_sdpa_matches_manual_with_additive_mask(install_capabilities):
     k = torch.randn(1, 2, 4, 8, dtype=torch.float64)
     v = torch.randn(1, 2, 4, 8, dtype=torch.float64)
     mask = torch.zeros(1, 2, 4, 4, dtype=torch.float64)
-    mask[..., 3] = float("-inf")  # forbid attending to last key
+    mask[..., 3] = float("-inf")
     out = att.attention(q, k, v, mask=mask)
     assert torch.allclose(out, _manual_attention(q, k, v, mask), atol=1e-12)
 
@@ -341,10 +335,6 @@ def test_accelerated_backend_falls_back_to_sdpa_for_fp32_and_mask(monkeypatch, i
     assert torch.equal(att.attention(q, q, q), ref)
 
 
-# --------------------------------------------------------------------------- #
-# cross-backend agreement — only if the kernels are actually installed here
-# --------------------------------------------------------------------------- #
-
 def test_cross_backend_agreement_if_installed():
     att.reset_backend_cache()
     backends = att.available_backends()
@@ -365,14 +355,7 @@ def test_cross_backend_agreement_if_installed():
         assert torch.allclose(out, ref, atol=2e-2, rtol=2e-2), b
 
 
-# --------------------------------------------------------------------------- #
-# per-device availability cache (multi-GPU correctness, roadmap E15)
-# --------------------------------------------------------------------------- #
-
 class _FakeCudaTensor:
-    """Duck-types just enough of torch.Tensor for attention()'s dispatch path
-    up to (but not including) the actual kernel call, which the test stubs
-    out — real CUDA tensors don't allow overriding .is_cuda/.device."""
 
     def __init__(self, device_index, dtype=torch.float16, shape=(1, 2, 4, 8)):
         self.ndim = len(shape)
@@ -427,9 +410,6 @@ def test_reset_backend_cache_rearms_the_one_shot_warning(install_capabilities, c
 
 
 def test_attention_dispatch_validates_against_q_device_not_current_device(monkeypatch):
-    """The regression this exists to prevent: attention() must resolve
-    availability from q.device, never from whatever CUDA device happens to be
-    "current" on this thread (e.g. a text encoder spilled to a second card)."""
     seen_device_indices = []
 
     def fake_get_attention_backend(backend=None, device_index=None):
@@ -456,28 +436,12 @@ def test_attention_dispatch_device_index_is_none_for_cpu_tensors(monkeypatch):
         return "sdpa"
 
     monkeypatch.setattr(att, "get_attention_backend", fake_get_attention_backend)
-    q = torch.randn(1, 2, 4, 8)  # real CPU tensor
+    q = torch.randn(1, 2, 4, 8)
     att.attention(q, q, q)
     assert seen_device_indices == [None]
 
 
-# --------------------------------------------------------------------------- #
-# conditional sage V-scale and nan_to_num safety net
-#
-# The original unconditional V-prescale (/256 then *256) protected Qwen-Image's
-# hot V (~N(0, 5000^2)) from overflowing sage's fp16 internals (task #43 black
-# images), but for LTX 2.3's small-magnitude V it introduced fp16 rounding
-# noise that compounded into film-grain over ~1500 attention calls.
-# _sage() now scales CONDITIONALLY: raw pass-through (ComfyUI-identical) below
-# _SAGE_V_SAFE_MAX, the exact /256 path above it, decided on-GPU with no host
-# sync; nan_to_num remains the non-finite safety floor in both regimes.
-# --------------------------------------------------------------------------- #
-
 class _FakeSageModule:
-    """Stand-in for the ``sageattention`` package: records the exact tensor it
-    was called with and returns a caller-controlled tensor, so the pass-through
-    wiring in ``_sage`` can be verified without CUDA or the real package
-    installed."""
 
     def __init__(self, return_value):
         self.return_value = return_value
@@ -495,9 +459,7 @@ def _patch_sageattention(monkeypatch, fake_module):
 
 
 def test_sage_passes_small_v_through_to_the_kernel_unscaled(monkeypatch):
-    """LTX regime: max|V| below _SAGE_V_SAFE_MAX must reach the kernel
-    bit-identical (no prescale -> no fp16 subnormal noise -> no film grain)."""
-    v = torch.full((1, 2, 4, 8), 160.0)  # LTX 2.3-typical magnitude
+    v = torch.full((1, 2, 4, 8), 160.0)
     fake = _FakeSageModule(return_value=torch.zeros(1, 2, 4, 8))
     _patch_sageattention(monkeypatch, fake)
 
@@ -507,9 +469,7 @@ def test_sage_passes_small_v_through_to_the_kernel_unscaled(monkeypatch):
 
     assert len(fake.calls) == 1
     called_v = fake.calls[0]["v"]
-    # V must arrive at the kernel UNCHANGED -- v / 1.0 is IEEE-exact.
     assert torch.equal(called_v, v)
-    # q/k also pass through unscaled.
     assert torch.equal(fake.calls[0]["q"], q)
     assert torch.equal(fake.calls[0]["k"], k)
 
@@ -519,18 +479,14 @@ def test_sage_small_v_returns_kernel_output_without_postscale(monkeypatch):
     fake = _FakeSageModule(return_value=kernel_out)
     _patch_sageattention(monkeypatch, fake)
 
-    q = k = v = torch.randn(1, 2, 4, 8)  # randn -> max|V| well below threshold
+    q = k = v = torch.randn(1, 2, 4, 8)
     out = att._sage(q, k, v)
 
-    # Output must equal the kernel output directly (scale == 1.0).
     assert torch.allclose(out, kernel_out)
 
 
 def test_sage_hot_v_engages_the_256_prescale(monkeypatch):
-    """Qwen regime: max|V| above _SAGE_V_SAFE_MAX must engage the exact
-    production-validated /256 prescale (the task #43 overflow guard) and
-    multiply the kernel output back by 256."""
-    v = torch.full((1, 2, 4, 8), 5000.0)  # Qwen-Image-repro magnitude
+    v = torch.full((1, 2, 4, 8), 5000.0)
     kernel_out = torch.full((1, 2, 4, 8), 3.0)
     fake = _FakeSageModule(return_value=kernel_out)
     _patch_sageattention(monkeypatch, fake)
@@ -540,38 +496,29 @@ def test_sage_hot_v_engages_the_256_prescale(monkeypatch):
     out = att._sage(q, k, v)
 
     assert len(fake.calls) == 1
-    # V must arrive prescaled by exactly 1/256 (power of two -> exact).
     assert torch.equal(fake.calls[0]["v"], v / 256.0)
-    # q/k are never scaled.
     assert torch.equal(fake.calls[0]["q"], q)
     assert torch.equal(fake.calls[0]["k"], k)
-    # Kernel output must be scaled back up by 256.
     assert torch.allclose(out, kernel_out * 256.0)
 
 
 def test_sage_round_trips_a_linear_kernel_exactly_in_both_regimes(monkeypatch):
-    """A linear-in-V mock kernel must reproduce its own result exactly through
-    _sage in BOTH regimes: scale 1.0 trivially, and /256 * 256 exactly because
-    the scale is a power of two."""
 
     def linear_in_v(q, k, v, tensor_layout="HND", is_causal=False):
-        return v * 2.0  # stand-in "kernel": any linear function of V
+        return v * 2.0
 
     fake = _FakeSageModule(return_value=None)
     fake.sageattn = linear_in_v
     _patch_sageattention(monkeypatch, fake)
 
     q = k = torch.randn(1, 2, 4, 8)
-    for magnitude in (10.0, 5000.0):  # below / above _SAGE_V_SAFE_MAX
+    for magnitude in (10.0, 5000.0):
         v = torch.randn(1, 2, 4, 8) * magnitude
         out = att._sage(q, k, v)
         assert torch.equal(out, v * 2.0), f"round-trip broke at magnitude {magnitude}"
 
 
 def test_sage_output_is_never_nan_or_inf_even_if_the_kernel_returns_them(monkeypatch):
-    """Defensive floor: nan_to_num must prevent ``_sage`` from ever handing a
-    non-finite tensor back to its caller (the mechanism that produced task #43's
-    black images)."""
     poisoned = torch.tensor([[[[float("nan"), float("inf"), float("-inf"), 1.0]]]])
     fake = _FakeSageModule(return_value=poisoned)
     _patch_sageattention(monkeypatch, fake)
@@ -580,21 +527,11 @@ def test_sage_output_is_never_nan_or_inf_even_if_the_kernel_returns_them(monkeyp
     out = att._sage(q, k, v)
 
     assert torch.isfinite(out).all()
-    # nan/posinf/neginf all map to 0.0; the one finite value passes through as-is.
     assert out[0, 0, 0, 0].item() == 0.0
     assert out[0, 0, 0, 1].item() == 0.0
     assert out[0, 0, 0, 2].item() == 0.0
     assert out[0, 0, 0, 3].item() == pytest.approx(1.0)
 
-
-# --------------------------------------------------------------------------- #
-# Large-row regime (task: H3 upscale refine OOM at ~78k rows): above
-# _SAGE_SYNC_ROWS, _sage pays one host sync to decide the V-prescale so the
-# pass-through case allocates NO V copy at all (the torch.where path's
-# `v / scale` + `out * scale` cost ~2.3GB there). Numerics are identical in
-# both regimes -- only allocation behavior changes, and only above the
-# threshold.
-# --------------------------------------------------------------------------- #
 
 def _large_row_tensors(magnitude: float):
     rows = att._SAGE_SYNC_ROWS
@@ -611,7 +548,6 @@ def test_sage_large_rows_small_v_skips_the_copy_entirely(monkeypatch):
 
     att._sage(q, k, v)
 
-    # THE SAME OBJECT, not an equal copy -- the entire point of the branch.
     assert fake.calls[0]["v"] is v
     assert fake.calls[0]["q"] is q
     assert fake.calls[0]["k"] is k
@@ -630,9 +566,6 @@ def test_sage_large_rows_hot_v_still_prescales_exactly(monkeypatch):
 
 
 def test_sage_below_the_row_threshold_keeps_the_sync_free_path(monkeypatch):
-    # The validated hot path still goes through torch.where's `v / scale`,
-    # which materializes a copy -- pinned here so a "simplification" can't
-    # silently swap the small-sequence regime onto the syncing branch.
     v = torch.full((1, 2, 4, 8), 160.0)
     fake = _FakeSageModule(return_value=torch.zeros(1, 2, 4, 8))
     _patch_sageattention(monkeypatch, fake)
@@ -645,9 +578,6 @@ def test_sage_below_the_row_threshold_keeps_the_sync_free_path(monkeypatch):
 
 
 def test_absmax_matches_abs_amax_without_the_full_size_temp():
-    # _absmax must equal abs().amax() on mixed-sign, all-negative, and
-    # all-positive tensors -- the all-negative case is the one a naive
-    # `t.amax()` alone would get wrong.
     for t in (torch.randn(3, 5) * 100, -torch.rand(4, 4) - 5.0, torch.rand(2, 8) + 3.0):
         assert torch.equal(att._absmax(t), t.abs().amax())
 
