@@ -825,9 +825,6 @@ def test_native_checkpoints_listing_includes_adopted_te_flagged(tmp_path):
     assert len(te) == 1
     assert te[0].name == "text_encoders/qwen3-te.safetensors"
     assert te[0].supported is True
-    # An adoptable single-file checkpoint can also be bnb-quantized in
-    # place (NativeRuntime._quantize_adopted_module), same modes as an
-    # HF-directory checkpoint.
     from src.features.llm.native_library import NATIVE_LLM_QUANT_MODES
 
     assert te[0].quant_modes == list(NATIVE_LLM_QUANT_MODES)

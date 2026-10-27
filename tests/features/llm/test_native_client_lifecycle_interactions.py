@@ -144,11 +144,6 @@ async def test_chat_turn_end_lease_never_sweeps_other_presets_entries(client, mo
     # A chat turn runs on the SAME manager.
     await client.generate_with_history([{"role": "user", "content": "hi"}], _chat_config(name), "sys")
 
-    # If NativeDriver ever started calling begin_generation(), this chat
-    # turn's end_lease would stamp owner=None and (with owner is not None
-    # required for the sweep) still be safe — but if someone "fixed" it to
-    # tag chat turns with a real owner, a mismatched sweep could fire and
-    # this would catch it either way.
     assert "dit" in models_manager._entries
 
 

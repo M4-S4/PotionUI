@@ -27,10 +27,7 @@ pytest.importorskip("transformers")
 from src.features.llm.repository import LLMConfig  # noqa: E402
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle  # noqa: E402
 
-try:
-    from tests.fixtures.native_runtime import NativeDriver
-except ImportError:
-    NativeDriver = None  # patch not applied yet
+from tests.fixtures.native_runtime import NativeDriver
 
 from tests.fixtures.model_roots import make_roots
 
