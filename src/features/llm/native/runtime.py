@@ -450,18 +450,6 @@ class NativeRuntime:
         ref = self._checkpoint_refs.get(self._cache_key(path, is_te))
         return ref() if ref is not None else None
 
-    async def discover_context_window(
-        self, base_url: str, api_key: Optional[str], model: str,
-    ) -> Optional[DiscoveredWindow]:
-        try:
-            path, is_te = self._resolve_model(model)
-            if is_te or not os.path.isdir(path):
-                return None
-            return read_checkpoint_context_window(path)
-        except Exception:
-            logger.debug("Native context window probe failed for %s", model, exc_info=True)
-            return None
-
     def probe(self, model: str) -> Dict[str, Any]:
         fields: Dict[str, Any] = {}
         try:

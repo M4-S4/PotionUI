@@ -14,12 +14,6 @@ from src.features.llm.types import LLMType, LLMTypes
 class Probe:
     name = "probe"
 
-    def __init__(self, window=None):
-        self.window = window
-
-    async def discover_context_window(self, base_url, api_key, model):
-        return self.window
-
 
 ORIGIN = Origin(adapter="openai-chat", provider="openai", model="m1")
 

@@ -144,8 +144,8 @@ carries (from its last turn, when there is more than one) — labeled
 ``measured: true`` because, unlike ``latency_ms``/``memory_mb`` below, this
 is an actual number the backend reported, not something this script inferred.
 
-``completion`` (the normalized `{"reason", "raw"}` shape from
-``src.features.llm.clients.completion`` — see LLM-08) is read from the same
+``completion`` (the normalized `{"reason", "raw"}` shape of the turn outcome)
+is read from the same
 persisted ``behavior_trace`` as ``thinking_mode`` and follows the identical
 rule: always ``null`` in ``replay`` mode (an authored canned fixture was never
 a real ``done`` event and so never carried one), the real persisted value in

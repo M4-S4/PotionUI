@@ -4,7 +4,7 @@ import pytest
 from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.profile import CapabilityProfile, ProfileSource, ReasoningKind
-from src.features.llm.model_listing import DiscoveredWindow, ModelListingError
+from src.features.llm.model_listing import ModelListingError
 from tests.features.llm.harness.history import make_config
 from tests.features.llm.harness.wire_peer import install_peer
 
@@ -187,42 +187,6 @@ async def test_ollama_discovery_never_raises(monkeypatch):
     fields, _ = await discover_ollama(monkeypatch, {"error": "nope"}, status=404)
 
     assert fields == {}
-
-
-async def test_openai_context_window_probe_returns_the_reported_window_as_a_runtime_window(monkeypatch):
-    install_peer(monkeypatch, reply({"data": [{"id": "golden-model", "max_model_len": 4096}]}))
-
-    window = await OpenAIChatAdapter().discover_context_window("http://srv.local:8000/v1", "k", "golden-model")
-
-    assert window == DiscoveredWindow(tokens=4096, kind="runtime")
-
-
-async def test_openai_context_window_probe_is_none_for_an_unlisted_model_or_a_dead_server(monkeypatch):
-    install_peer(monkeypatch, reply({"data": [{"id": "other", "context_length": 5}]}))
-    assert await OpenAIChatAdapter().discover_context_window("http://srv.local:8000/v1", None, "golden-model") is None
-
-    def refuse(request):
-        raise httpx.ConnectError("refused", request=request)
-
-    install_peer(monkeypatch, refuse)
-    assert await OpenAIChatAdapter().discover_context_window("http://srv.local:8000/v1", None, "golden-model") is None
-
-
-async def test_ollama_context_window_probe_keeps_the_trained_length_uncapped_and_labelled(monkeypatch):
-    peer = install_peer(monkeypatch, reply({"model_info": {"llama.context_length": 131072}}))
-
-    window = await OllamaChatAdapter().discover_context_window("http://ollama.local:11434", "k", "m")
-
-    assert window == DiscoveredWindow(tokens=131072, kind="trained")
-    assert peer.body == {"model": "m"} and peer.requests[0].headers["authorization"] == "Bearer k"
-
-
-async def test_ollama_context_window_probe_prefers_the_modelfile_num_ctx_and_never_raises(monkeypatch):
-    install_peer(monkeypatch, reply({"parameters": "num_ctx 16384", "model_info": {"x.context_length": 262144}}))
-    assert await OllamaChatAdapter().discover_context_window("http://o", None, "m") == DiscoveredWindow(tokens=16384, kind="runtime")
-
-    install_peer(monkeypatch, reply({"error": "nope"}, status=500))
-    assert await OllamaChatAdapter().discover_context_window("http://o", None, "m") is None
 
 
 async def test_release_unloads_the_model_with_a_zero_keep_alive(monkeypatch):

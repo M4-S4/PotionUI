@@ -74,15 +74,3 @@ class TestDiscovery:
 
         assert dict(layer.fields) == {}
 
-    async def test_the_context_window_probe_is_available_to_the_gateway(self, monkeypatch):
-        peer = install_peer(monkeypatch, json_reply({"data": [{"id": "gpt-5.6", "context_length": 400000}]}))
-
-        window = await ADAPTER.discover_context_window("https://api.openai.com/v1", "test-key-a", "gpt-5.6")
-
-        assert (window.tokens, window.kind) == (400000, "runtime")
-        assert peer.requests[0].headers["authorization"] == "Bearer test-key-a"
-
-    async def test_a_model_the_server_does_not_list_has_no_window(self, monkeypatch):
-        install_peer(monkeypatch, json_reply({"data": [{"id": "other", "context_length": 1000}]}))
-
-        assert await ADAPTER.discover_context_window("https://api.openai.com/v1", None, "gpt-5.6") is None

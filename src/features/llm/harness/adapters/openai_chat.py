@@ -460,15 +460,6 @@ class OpenAIChatAdapter(HttpAdapter):
         owner = listed.get("owned_by") if listed else None
         return KNOWN_SERVERS.get(owner) if isinstance(owner, str) else None
 
-    async def discover_context_window(
-        self, base_url: str, api_key: Optional[str], model: str,
-    ) -> Optional[DiscoveredWindow]:
-        try:
-            return self.window_of(await self.probe_entries(base_url, api_key), model)
-        except Exception:
-            logging.debug("%s context window probe failed for %s", self.display_name, model, exc_info=True)
-            return None
-
     async def discover(self, config: LLMConfig) -> ProfileLayer:
         fields: Dict[str, Any] = {}
         try:

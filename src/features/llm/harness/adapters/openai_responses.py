@@ -48,7 +48,7 @@ from src.features.llm.harness.messages import (
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ReasoningKind
 from src.features.llm.harness.sse import SSEFramer, SSERecord
 from src.features.llm.harness.transport import HttpAdapter
-from src.features.llm.model_listing import DiscoveredModel, DiscoveredWindow
+from src.features.llm.model_listing import DiscoveredModel
 
 ENCRYPTED_REASONING = "reasoning.encrypted_content"
 SKELETON_FIELDS = {
@@ -653,11 +653,6 @@ class OpenAIResponsesAdapter(HttpAdapter):
 
     async def discover(self, config: Any) -> ProfileLayer:
         return await self._models.discover(config)
-
-    async def discover_context_window(
-        self, base_url: str, api_key: Optional[str], model: str,
-    ) -> Optional[DiscoveredWindow]:
-        return await self._models.discover_context_window(base_url, api_key, model)
 
     async def list_models(self, base_url: str, api_key: Optional[str] = None) -> List[DiscoveredModel]:
         return await self._models.list_models(base_url, api_key)

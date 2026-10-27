@@ -21,7 +21,7 @@ from src.features.llm.harness.messages import Message, Role
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
 from src.features.llm.harness.rendering import image_data, last_user_index, selected_image
 from src.features.llm.harness.think_tags import TEXT, THINKING, ThinkTagStage
-from src.features.llm.model_listing import DiscoveredModel, DiscoveredWindow, sorted_models
+from src.features.llm.model_listing import DiscoveredModel, sorted_models
 from src.features.llm.native.runtime import NativeOutOfMemory, NativeRuntime, RunStats
 from src.features.llm.repository import LLMConfig
 from src.platform.filesystem.model_roots import ModelRootResolver
@@ -191,11 +191,6 @@ class NativeAdapter:
             DiscoveredModel(id=entry["name"], details={"model_type": entry["model_type"], "vision": entry["vision"]})
             for entry in self.runtime.list_checkpoints()
         ])
-
-    async def discover_context_window(
-        self, base_url: str, api_key: Optional[str], model: str,
-    ) -> Optional[DiscoveredWindow]:
-        return await self.runtime.discover_context_window(base_url, api_key, model)
 
     async def release(self, config: LLMConfig) -> bool:
         return await self.runtime.release(config)

@@ -364,15 +364,6 @@ class OllamaChatAdapter(HttpAdapter):
             timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
         )
 
-    async def discover_context_window(
-        self, base_url: str, api_key: Optional[str], model: str,
-    ) -> Optional[DiscoveredWindow]:
-        try:
-            return parse_show_window(await self.show(base_url, api_key, model))
-        except Exception:
-            logging.debug("%s context window probe failed for %s", self.display_name, model, exc_info=True)
-            return None
-
     async def discover(self, config: LLMConfig) -> ProfileLayer:
         fields: Dict[str, Any] = {}
         try:
