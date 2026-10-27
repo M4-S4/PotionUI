@@ -159,8 +159,8 @@ def test_tap_is_sensitive_to_the_index_neighbors_differ():
 
 def test_post_load_survives_an_int8_quantized_embed_tokens():
     """MiniMax-H3's real nvfp4_awq TE quantizes `model.embed_tokens` int8
-    (verified against ai/minimax_h3/te_nvfp4_awq_header.json). The vendored
-    int8 Embedding (vendor/gpl/comfyui/ops.py) clears `.weight` to `None`
+    (verified against ai/minimax_h3/te_nvfp4_awq_header.json). The int8
+    Embedding (``kernels/casting.py``) clears `.weight` to `None`
     after loading its dequant state into other buffers — the SAME pattern
     Nvfp4Linear already used — so `recompute_inv_freq`'s old
     `self.embed_tokens.weight.device` read would AttributeError on
@@ -311,7 +311,7 @@ def _build_h3_trimmed_nvfp4_awq_sd() -> dict[str, torch.Tensor]:
     unquantized throughout (never quantized in the real checkpoint either).
     Real widths (5120/50-layer/151936-vocab) would be multi-GB to build here
     — shrunk to tiny dims that preserve every divisibility constraint nvfp4's
-    16-wide blocks need (`_nvfp4_ref.py`'s `_NVFP4_BLOCK`), same convention
+    16-wide blocks need (`io/quant_formats.py`'s `NVFP4_BLOCK`), same convention
     tests/platform/runtime/native/text_encoders/test_loader_awq_sidecars.py
     already uses for the key-gate-only check this test goes further than.
     """

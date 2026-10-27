@@ -325,7 +325,7 @@ metadata is the only reliable way to tell which shape a given pre-2.5 file is.
   and DFR are separate features; DFR is partly implemented — see below.)
 - **int8-convrot DiT** — untested. Quantized 2.5 split files load through the
   same generic quant path as every other family (`detect_quant_format` + the
-  vendored int8_tensorwise/ConvRot and nvfp4 ops): the **nvfp4 DiT** and the
+  int8_tensorwise/ConvRot and nvfp4 layers in `kernels/`): the **nvfp4 DiT** and the
   **int8-convrot Gemma4 TE** are GPU-confirmed in real generations
   (2026-08-12). Only the int8-convrot *DiT* has never been loaded — relevant
   because it is the one 2.5 repack that carries the trained

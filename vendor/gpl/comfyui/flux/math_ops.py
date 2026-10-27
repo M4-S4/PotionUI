@@ -3,12 +3,6 @@
 # vendor/gpl/comfyui/flux/ from src/platform/runtime/native/arch/flux/ as part
 # of the license-relocation workstream, BE-97).
 # License: GPL-3.0 (see ../LICENSE). Copyright (c) comfyanonymous and contributors.
-# Local modification (BE-97): the native engine's attention-kernel dispatcher
-# (src/platform/runtime/native/attention.py) can't be imported here — this
-# package must not depend on src. attention() calls a module-level backend
-# hook instead; src wires it via set_attention_backend() (see arch/flux/
-# model.py, the one importer that constructs Flux and therefore must run
-# before any attention() call).
 
 """Rotary positional embedding + attention math for the Flux DiT.
 

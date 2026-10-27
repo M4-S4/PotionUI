@@ -933,21 +933,6 @@ class MiniMaxH3Model(NativeArchModule):
         video_embeds, audio_embeds = self._process_input(hidden_states, audio_hidden_states)
         prepared_context: PreparedTextContext | None = kwargs.pop("prepared_context", None)
         weight_revision = kwargs.pop("weight_revision", None)
-        # `condition_proj.weight` is RESTING storage, not the compute contract:
-        # under partial residency (memory/partial.py's ModuleStreamer) a
-        # streamed leaf's weight stays on pinned CPU for the whole placement
-        # while every forward casts an ephemeral GPU copy to match the
-        # activation (ops.py's cast_bias_weight), and a quantized leaf's
-        # weight dtype is the STORAGE format, not the dequantized output
-        # dtype -- reading either here would report every streamed/quantized
-        # call as a device/dtype mismatch and defeat the hoist precisely
-        # where it matters most. The caller (one ``_MiniMaxH3Forward`` per
-        # window) knows the real contract -- the DiT wrapper's own
-        # ``compute_dtype``/``device`` (set once at load / by the placement
-        # that just ran, unaffected by a leaf's internal streaming) -- and
-        # passes it as ``compute_dtype=``/``compute_device=``; the resting
-        # weight is only a fallback for a caller with no placement context of
-        # its own (e.g. a direct unit-level forward call).
         compute_dtype = kwargs.pop("compute_dtype", None)
         if compute_dtype is None:
             compute_dtype = self.condition_proj.weight.dtype

@@ -4,11 +4,6 @@
 # src/platform/runtime/native/arch/seedvr2/ as part of the license-relocation
 # workstream, BE-97).
 # License: Apache-2.0 (see LICENSE).
-# Local modification (BE-97): the native engine's attention-kernel dispatcher
-# (src/platform/runtime/native/attention.py) can't be imported here — this
-# package must not depend on src. The fallback path calls a module-level
-# backend hook instead; src wires it via set_attention_backend() (see
-# arch/seedvr2/model.py, the one importer that constructs SeedVR2/SeedVR27B).
 # Local modification (PotionUI): the packed-block boundaries (``cu_seqlens``)
 # are read once into a ``VarlenGeometry`` instead of being re-derived per
 # attention block. The NaDiT builds its shape tensors on the compute device, so
@@ -66,10 +61,6 @@ def set_attention_backend(fn: "Callable[..., torch.Tensor]") -> None:
     _attention_backend = fn
 
 
-# Module-level probe cache for the real flash-varlen kernel. Separate from
-# ``src.platform.runtime.native.attention`` because that dispatcher's contract is
-# head-split (B, H, L, D) plain attention; flash_attn_varlen_func wants packed
-# (total, H, D) with cu_seqlens, a different-enough shape story to keep local.
 _flash_varlen_func = None
 _flash_varlen_probed = False
 

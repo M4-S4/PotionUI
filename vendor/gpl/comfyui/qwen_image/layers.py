@@ -4,11 +4,6 @@
 # src/platform/runtime/native/arch/qwen_image/model.py as part of the
 # license-relocation workstream, BE-97).
 # License: GPL-3.0 (see ../LICENSE). Copyright (c) comfyanonymous and contributors.
-# Local modification (BE-97): the native engine's attention-kernel dispatcher
-# (src/platform/runtime/native/attention.py) can't be imported here — this
-# package must not depend on src. _JointAttention.forward calls a module-level
-# backend hook instead; src wires it via set_attention_backend() (see
-# arch/qwen_image/model.py, the one importer that constructs QwenImageDiT).
 
 """Qwen-Image MMDiT building blocks — timestep embedding, GELU-tanh feed-forward,
 dual-stream joint attention, and the modulated transformer block + final layer.

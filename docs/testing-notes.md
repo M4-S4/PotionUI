@@ -170,7 +170,7 @@ mistake shows up as `Directory not empty` from an `rmdir`.
 
 Symptom: xdist workers die with `Windows fatal exception: code 0xc000001d`
 (STATUS_ILLEGAL_INSTRUCTION), with the top frame in `torch.nn.Linear.forward`
-(reached through `vendor/gpl/comfyui/ops.py`) in bf16 or fp8 native-engine
+(reached through the cast-on-forward layers in `src/platform/runtime/native/kernels/casting.py`) in bf16 or fp8 native-engine
 tests, across unrelated files at once. A hosted runner VM can advertise
 AVX-512 BF16 or AMX to PyTorch's CPU dispatch without being able to execute
 it, so the same commit can pass on a runner with a different CPU. When the

@@ -1,9 +1,9 @@
 """Tests for MiniMaxH3Attention's chunked qkv/out_proj projection loops reusing
 ONE prepared weight/bias operand per projection call (see
-``CastWeightBiasOp.prepared_linear`` / ``Fp8ScaledLinear.prepared_linear`` in
-``vendor/gpl/comfyui/ops.py``), instead of re-dequantising (or, with the
-opt-in fp8 GEMM gate on, re-staging) the same unchanged weight on every chunk
-of ``seq_chunk_rows`` low-VRAM sequence chunking.
+``CastWeightBiasOp.prepared_linear`` in ``kernels/casting.py`` and
+``Fp8ScaledLinear.prepared_linear`` in ``kernels/fp8_linear.py``), instead of
+re-dequantising (or, with the opt-in fp8 GEMM gate on, re-staging) the same
+unchanged weight on every chunk of ``seq_chunk_rows`` low-VRAM sequence chunking.
 """
 
 from __future__ import annotations

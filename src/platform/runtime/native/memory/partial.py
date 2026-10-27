@@ -494,12 +494,12 @@ class LayerPrefetcher:
     """Overlaps a streamed leaf's H2D weight copy with the previous leaf's compute.
 
     Under partial residency each streamed leaf copies its weight from pinned CPU
-    RAM to the GPU *inside* its own forward (``cast_bias_weight`` in ops), so the
-    PCIe transfer serialises with compute. This stages leaf N+1's weight on a
+    RAM to the GPU *inside* its own forward (``cast_bias_weight`` in
+    ``kernels/casting.py``), so the PCIe transfer serialises with compute. This stages leaf N+1's weight on a
     dedicated copy stream while leaf N runs, then hands the already-resident copy
     to N+1's forward — turning a PCIe-bound stream into a mostly compute-bound one.
 
-    **No ops/arch changes.** The staged GPU weight is swapped into
+    **No kernels/arch changes.** The staged GPU weight is swapped into
     ``module.weight.data`` in a forward-pre-hook; the leaf's existing
     ``cast_to(module.weight, dtype, input.device)`` then sees a tensor *already on
     the device* and skips the copy (a plain bf16 leaf becomes a true no-op; an fp8
