@@ -56,7 +56,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
-| **LLM** — contributing an LLM configuration type | `.llm` | `OpenAIClient`, `OpenAIRequest`, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
+| **LLM** — contributing an LLM configuration type | `.llm` | `Adapter`, `HttpAdapter`, `OpenAIChatAdapter`, `RenderRequest`, `WireRequest`, `CapabilityProfile`, `ProfileLayer`, `Settings`, `ToolSpec`, the message parts, stream events and provider errors, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
@@ -648,31 +648,36 @@ Declare it under `llm_providers:`:
 llm_providers:
   - type: acme
     label: Acme
-    backend: backend.client:AcmeClient   # "module.path:ClassName"
+    backend: backend.adapter:AcmeAdapter   # "module.path:ClassName"
     default_base_url: https://api.acme.example/v1
 ```
 
 `backend` is loaded and instantiated once when the plugin enables, like a
 `recipe_steps[].backend`, and every configuration whose `type` is `acme` is then sent through
-that object. For a service that speaks the OpenAI chat-completions schema, subclass
-`OpenAIClient` from `src.plugin_api.llm` and adjust the request in `adapt_request`, which the
-buffered, tool-calling and streamed paths all call with the built request before it goes out:
+that object. The object is an `Adapter`: it renders a `RenderRequest` (the typed messages,
+tools and settings of one model call) into a `WireRequest`, sends it, and decodes the reply
+into stream events. For a service that speaks the OpenAI chat-completions schema, subclass
+`OpenAIChatAdapter` from `src.plugin_api.llm` and adjust the request body in `build_body`,
+which every call (streamed, buffered and tool-calling) goes through before it is sent:
 
 ```python
-from src.plugin_api.llm import LLMConfig, OpenAIClient, OpenAIRequest
+from src.plugin_api.llm import CapabilityProfile, OpenAIChatAdapter, RenderRequest
 
-class AcmeClient(OpenAIClient):
+class AcmeAdapter(OpenAIChatAdapter):
     display_name = "Acme"
 
-    def adapt_request(self, request: OpenAIRequest, config: LLMConfig) -> OpenAIRequest:
-        request.payload["max_tokens"] = request.payload.pop("max_completion_tokens")
-        return request
+    def build_body(self, request: RenderRequest, profile: CapabilityProfile) -> dict:
+        body = super().build_body(request, profile)
+        body["max_tokens"] = body.pop("max_completion_tokens")
+        return body
 ```
 
-The inherited `list_models` and `discover_context_window` read the service's `/models`
-listing, so the model picker and the context window work without more code; override them
-(they return `DiscoveredModel` and `DiscoveredWindow`) when the service lists models another
-way. The form lists `label` after the built-in types. When the admin picks a type, it puts
+The inherited `list_models` and `discover` read the service's `/models` listing, so the
+model picker and the model's context window work without more code; override them (they
+return `DiscoveredModel` entries and a `ProfileLayer`) when the service lists models another
+way. A service with its own wire format subclasses `HttpAdapter` and implements `render`,
+`decoder`, `discover` and `list_models`; override `classify_error` when its error replies
+need a different mapping to the typed provider errors. The form lists `label` after the built-in types. When the admin picks a type, it puts
 that type's `default_base_url` in the Base URL if the field is empty or still holds another
 type's default, and leaves a URL the admin typed alone. A `type` named like a built-in one
 (`openai`, `ollama`, `native`) is ignored, and a type another enabled plugin already owns

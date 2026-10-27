@@ -1,5 +1,3 @@
-from src.features.llm.clients.openai import OpenAIClient
-from src.features.llm.clients.openai_wire import OpenAIRequest
 from src.features.llm.harness.adapter import (
     Adapter,
     RenderRequest,
@@ -96,8 +94,6 @@ __all__ = [
     "OpaqueViolation",
     "OpenAIChatAdapter",
     "OpenAIChatDecoder",
-    "OpenAIClient",
-    "OpenAIRequest",
     "Origin",
     "Overloaded",
     "Prices",

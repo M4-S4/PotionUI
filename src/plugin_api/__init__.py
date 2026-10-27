@@ -84,8 +84,7 @@ from src.plugin_api.llm import (
     DiscoveredModel,
     DiscoveredWindow,
     LLMConfig,
-    OpenAIClient,
-    OpenAIRequest,
+    OpenAIChatAdapter,
 )
 
 # Contributing an engine.
@@ -389,8 +388,7 @@ __all__ = [
     "DiscoveredModel",
     "DiscoveredWindow",
     "LLMConfig",
-    "OpenAIClient",
-    "OpenAIRequest",
+    "OpenAIChatAdapter",
     # Backends and engines
     "BackendHealth",
     "BackendModel",

@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.llm.clients.openai import OpenAIClient
 from src.features.llm.gateway import LLMGateway
+from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.platform.plugins.llm_providers import LLMProviderRegistry
 from src.platform.plugins.registry import PluginRegistry
-from tests.fixtures.llm_engine import client_gateway
+from tests.fixtures.llm_engine import core_gateway
 
 PLUGIN_ID = "deepseek-provider"
 PACKAGE = "deepseek_provider"
@@ -45,19 +45,19 @@ def registry(tmp_path, providers):
 def test_enabling_the_plugin_adds_deepseek_to_the_configuration_types(registry, providers):
     assert registry.enable_plugin(PLUGIN_ID)
 
-    types = client_gateway(SimpleNamespace(), provider_registry=providers).provider_types()
+    types = core_gateway(SimpleNamespace(), provider_registry=providers).provider_types()
 
     assert types[-1] == {
         "type": "deepseek",
         "label": "DeepSeek",
-        "adapter": "deepseek",
+        "adapter": "openai-chat",
         "default_base_url": "https://api.deepseek.com",
         "supports_model_listing": True,
         "source": PLUGIN_ID,
     }
-    client = providers.get("deepseek").adapter
-    assert isinstance(client, OpenAIClient)
-    assert type(client).__module__ == f"{PACKAGE}.backend.client"
+    adapter = providers.get("deepseek").adapter
+    assert isinstance(adapter, OpenAIChatAdapter)
+    assert type(adapter).__module__ == f"{PACKAGE}.backend.adapter"
 
 
 def test_disabling_the_plugin_takes_the_type_away(registry, providers):
@@ -70,7 +70,7 @@ def test_disabling_the_plugin_takes_the_type_away(registry, providers):
 
 def test_the_manifest_version_matches_the_backend(registry):
     manifest = next(m for m in registry.loader.discover_plugins() if m.id == PLUGIN_ID)
-    backend = registry.loader.load_plugin_module(manifest, "backend.client")
+    backend = registry.loader.load_plugin_module(manifest, "backend.adapter")
 
     assert manifest.validation_error is None
     assert (manifest.id, manifest.version) == (backend.PLUGIN_ID, backend.PLUGIN_VERSION)

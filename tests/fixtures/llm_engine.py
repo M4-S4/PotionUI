@@ -3,6 +3,9 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
+from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
+from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
+from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
 from src.features.llm.harness.baseline import InMemoryTurnStore, StaticProfileResolver
 from src.features.llm.harness.engine import TurnEngine
 from src.features.llm.harness.retry import BackoffRetry
@@ -106,6 +109,19 @@ def tool_context(llm_id: str = "cfg-scripted") -> ToolContext:
 
 async def drain(events: Any) -> List[Any]:
     return [event async for event in events]
+
+
+def core_gateway(llm_repository: Any, provider_registry: Any = None) -> LLMGateway:
+    types = LLMTypes(
+        core=(
+            LLMType(type="ollama", adapter=OllamaChatAdapter()),
+            LLMType(type="openai", adapter=OpenAIResponsesAdapter()),
+            LLMType(type="openai-compatible", adapter=OpenAIChatAdapter()),
+        ),
+        provider_registry=provider_registry,
+    )
+    windows = ContextWindows(types)
+    return LLMGateway(llm_repository, types, StaticProfileResolver(types, windows), windows)
 
 
 def client_gateway(

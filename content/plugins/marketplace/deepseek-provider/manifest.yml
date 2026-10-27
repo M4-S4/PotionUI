@@ -13,7 +13,7 @@ capabilities:
 llm_providers:
   - type: "deepseek"
     label: "DeepSeek"
-    backend: "backend.client:DeepSeekClient"
+    backend: "backend.adapter:DeepSeekAdapter"
     default_base_url: "https://api.deepseek.com"
 
 settings:
