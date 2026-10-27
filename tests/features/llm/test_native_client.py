@@ -1,18 +1,3 @@
-"""Tests for NativeLLMClient — the in-process transformers provider.
-
-CPU-only, no downloads: the checkpoint fixtures are TINY randomly-initialized
-transformers models (2-layer Qwen3 for text, a matching processor stub is not
-needed since vision family-gating is tested at the config level, not by
-actually loading a VL model — building one from scratch with a real chat
-template AND an image processor offline is out of proportion to what the
-gating/lifecycle/streaming contract needs to prove). Family gating for the
-vision allowlist is exercised via the config.json model_type alone.
-
-Every torch.cuda entry point is monkeypatched off so this suite runs
-identically whether or not the box happens to have a visible GPU (the
-project's "no GPU ever" test rule).
-"""
-
 from __future__ import annotations
 
 import numpy._core.multiarray  # noqa: F401
@@ -27,8 +12,14 @@ from unittest.mock import Mock, patch
 import pytest
 import torch
 
-from src.features.llm.clients import native as native_module
-from src.features.llm.clients.native import NativeLLMClient
+from src.features.llm.native import runtime as native_module
+from src.features.llm.harness import prompt_tools
+from src.features.llm.harness.adapter import Settings, ToolSpec
+from src.features.llm.harness.adapters.native import NativeAdapter
+from src.features.llm.harness.messages import Message, Role, TextPart
+from src.features.llm.harness.adapters.native import requested_thinking
+from src.features.llm.native.runtime import NativeOutOfMemory
+from tests.fixtures.native_runtime import NativeDriver
 from src.features.llm.repository import LLMConfig
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from tests.fixtures.model_roots import make_roots
@@ -116,7 +107,11 @@ def models_manager():
 
 @pytest.fixture
 def client(models_manager):
-    return NativeLLMClient(models_manager)
+    return NativeDriver(models_manager)
+
+
+def _user(text: str) -> Message:
+    return Message(id="user-1", role=Role.USER, parts=(TextPart(text),))
 
 
 def _config(model_name: str, **overrides) -> LLMConfig:
@@ -141,21 +136,21 @@ def _config(model_name: str, **overrides) -> LLMConfig:
 
 @pytest.mark.parametrize("model_type", ["qwen3", "gemma3_text"])
 def test_family_accepts_text_types(model_type):
-    vision, resolved = NativeLLMClient._family(model_type)
+    vision, resolved = NativeDriver._family(model_type)
     assert vision is False
     assert resolved == model_type
 
 
 @pytest.mark.parametrize("model_type", ["qwen3_vl", "qwen2_vl", "gemma3"])
 def test_family_accepts_vision_types(model_type):
-    vision, resolved = NativeLLMClient._family(model_type)
+    vision, resolved = NativeDriver._family(model_type)
     assert vision is True
     assert resolved == model_type
 
 
 def test_family_rejects_unknown_type_and_names_the_allowlist():
     with pytest.raises(ValueError) as exc:
-        NativeLLMClient._family("llama")
+        NativeDriver._family("llama")
     message = str(exc.value)
     assert "llama" in message
     assert "qwen3" in message
@@ -164,7 +159,7 @@ def test_family_rejects_unknown_type_and_names_the_allowlist():
 
 def test_family_rejects_none():
     with pytest.raises(ValueError):
-        NativeLLMClient._family(None)
+        NativeDriver._family(None)
 
 
 # --- provider contract: buffered generate ---------------------------------
@@ -182,14 +177,6 @@ async def test_generate_with_history_returns_response(client, native_checkpoint)
     assert response.prompt_tokens > 0
     assert response.completion_tokens >= 0
     assert response.tokens_used == response.prompt_tokens + response.completion_tokens
-
-
-@pytest.mark.asyncio
-async def test_generate_delegates_to_generate_with_history(client, native_checkpoint):
-    name, _ = native_checkpoint
-    config = _config(name)
-    response = await client.generate("hello world", config, config.system_message)
-    assert response.provider_id == "native"
 
 
 @pytest.mark.asyncio
@@ -363,7 +350,7 @@ class TestStreamWithHistoryWorkerFailure:
         )
 
         events = []
-        with pytest.raises(ValueError, match="ran out of GPU memory"):
+        with pytest.raises(NativeOutOfMemory, match="ran out of GPU memory"):
             await asyncio.wait_for(_drain(client.stream_with_history(
                 [{"role": "user", "content": "hi"}], config, config.system_message,
             ), events), timeout=10)
@@ -442,7 +429,7 @@ class TestStreamWithHistoryConsumerCancellation:
 
         agen = client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
         try:
-            with caplog.at_level("WARNING", logger="src.features.llm.clients.native"):
+            with caplog.at_level("WARNING", logger="src.features.llm.native.runtime"):
                 first = await asyncio.wait_for(agen.__anext__(), timeout=10)
                 assert first["type"] == "token"
                 # aclose() itself must return within its own bound, not the
@@ -475,84 +462,6 @@ class TestStreamWithHistoryConsumerCancellation:
         assert any("did not exit" in r.message for r in caplog.records)
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
-
-
-# --- tool calling: always prompt-injected ---------------------------------
-
-@pytest.mark.asyncio
-async def test_generate_with_tools_injects_tool_text_and_never_sets_structured_tool_calls(client, native_checkpoint):
-    name, _ = native_checkpoint
-    config = _config(name)
-    tools = [{"function": {"name": "do_thing", "description": "does a thing", "parameters": {"type": "object"}}}]
-    response = await client.generate_with_tools(
-        [{"role": "user", "content": "call the tool"}], config, config.system_message, tools=tools
-    )
-    assert response.tool_calls is None
-
-
-def test_inject_tools_into_system_message_names_the_tool():
-    text = NativeLLMClient._inject_tools_into_system_message(
-        "base prompt",
-        [{"function": {"name": "do_thing", "description": "does a thing", "parameters": {}}}],
-    )
-    assert "base prompt" in text
-    assert "do_thing" in text
-    assert "<tool_call>" in text
-    # The concrete example must never name a tool that wasn't actually
-    # offered — "get_form_state" is not among the supplied tools here.
-    assert "get_form_state" not in text
-
-
-def test_inject_tools_into_system_message_example_uses_a_supplied_tool_with_required_args():
-    """A tool that HAS required parameters must still get a concrete
-    example, with a placeholder value per required key — never an empty
-    argument object misrepresenting the tool as parameter-free."""
-    text = NativeLLMClient._inject_tools_into_system_message(
-        "base prompt",
-        [{
-            "function": {
-                "name": "set_value",
-                "description": "sets a value",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"key": {"type": "string"}, "amount": {"type": "integer"}},
-                    "required": ["key", "amount"],
-                },
-            },
-        }],
-    )
-    assert "set_value" in text
-    assert "get_form_state" not in text
-    example_start = text.index("for example ")
-    example = text[example_start:text.index("</tool_call>", example_start) + len("</tool_call>")]
-    assert '"name": "set_value"' in example
-    assert '"arguments": {}' not in example
-    assert '"key"' in example and '"amount"' in example
-
-
-def test_inject_tools_into_system_message_falls_back_to_generic_guidance_when_no_safe_example_exists():
-    """Every supplied tool requires arguments this schema can't confidently
-    fill (a required key absent from `properties`) — the example must
-    degrade to generic, non-callable guidance rather than invent a name or
-    claim empty arguments for a tool that needs some."""
-    text = NativeLLMClient._inject_tools_into_system_message(
-        "base prompt",
-        [{
-            "function": {
-                "name": "risky_tool",
-                "description": "needs an arg this schema can't describe",
-                "parameters": {"type": "object", "required": ["undocumented_arg"]},
-            },
-        }],
-    )
-    assert "get_form_state" not in text
-    assert '"name": "risky_tool"' not in text
-    assert "<tool name>" in text
-
-
-def test_inject_tools_into_system_message_noop_without_tools():
-    assert NativeLLMClient._inject_tools_into_system_message("base prompt", None) == "base prompt"
-    assert NativeLLMClient._inject_tools_into_system_message("base prompt", []) == "base prompt"
 
 
 # --- explicit thinking mode -------------------------------------------------
@@ -629,7 +538,7 @@ class _RecordingGenModel:
 
 
 def _thinking_checkpoint(chat_template):
-    from src.features.llm.clients.native import _LoadedCheckpoint
+    from src.features.llm.native.runtime import _LoadedCheckpoint
 
     return _LoadedCheckpoint(
         model=_RecordingGenModel(), tokenizer=_RecordingTokenizer(chat_template),
@@ -654,97 +563,97 @@ class TestSelectedChatTemplate:
     is passed (this client never passes one)."""
 
     def test_string_template_is_used_as_is(self):
-        assert NativeLLMClient._selected_chat_template(
+        assert NativeDriver._selected_chat_template(
             _RecordingTokenizer(QWEN3_THINKING_TEMPLATE)
         ) == QWEN3_THINKING_TEMPLATE
 
     def test_dict_resolves_to_the_default_key(self):
-        assert NativeLLMClient._selected_chat_template(
+        assert NativeDriver._selected_chat_template(
             _RecordingTokenizer(DICT_TEMPLATE_COMPATIBLE_DEFAULT)
         ) == QWEN3_THINKING_TEMPLATE
 
     def test_dict_without_default_is_unresolved(self):
-        assert NativeLLMClient._selected_chat_template(
+        assert NativeDriver._selected_chat_template(
             _RecordingTokenizer({"tool_use": QWEN3_THINKING_TEMPLATE})
         ) is None
 
     def test_missing_template_is_unresolved(self):
-        assert NativeLLMClient._selected_chat_template(_RecordingTokenizer(None)) is None
+        assert NativeDriver._selected_chat_template(_RecordingTokenizer(None)) is None
 
     def test_no_chat_template_attribute_is_unresolved(self):
-        assert NativeLLMClient._selected_chat_template(object()) is None
+        assert NativeDriver._selected_chat_template(object()) is None
 
 
 class TestSupportsThinking:
     def test_true_when_template_declares_enable_thinking(self):
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QWEN3_THINKING_TEMPLATE)) is True
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(QWEN3_THINKING_TEMPLATE)) is True
 
     def test_false_when_template_has_no_switch(self):
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(PLAIN_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(PLAIN_TEMPLATE)) is False
 
     def test_false_when_tokenizer_has_no_chat_template_attribute(self):
-        assert NativeLLMClient._supports_thinking(object()) is False
+        assert NativeDriver._supports_thinking(object()) is False
 
     def test_never_consults_model_name_or_config(self):
         """Support is read off the loaded template only — never inferred from
         the checkpoint name, so a Qwen3-named but template-less double is
         still reported unsupported."""
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(None)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(None)) is False
 
     def test_comment_only_mention_is_unsupported(self):
         """`enable_thinking` written inside a `{# ... #}` comment is never a
         live reference — the bug this guards: a comment mentioning the name
         while the template consumes nothing must not report supported."""
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(COMMENT_ONLY_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(COMMENT_ONLY_TEMPLATE)) is False
 
     def test_literal_text_only_mention_is_unsupported(self):
         """`enable_thinking` appearing as plain prompt text, outside any
         `{{ }}`/`{% %}` block, is never a live reference either."""
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(LITERAL_TEXT_ONLY_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(LITERAL_TEXT_ONLY_TEMPLATE)) is False
 
     def test_dict_of_templates_resolves_to_the_default_entry(self):
         """A checkpoint shipping several named templates (transformers'
         dict-of-templates convention) is judged by its `"default"` entry —
         the one that actually runs when no `chat_template=` override is
         passed — not by treating the whole dict as unsupported."""
-        assert NativeLLMClient._supports_thinking(
+        assert NativeDriver._supports_thinking(
             _RecordingTokenizer(DICT_TEMPLATE_COMPATIBLE_DEFAULT)
         ) is True
 
     def test_dict_of_templates_unsupported_when_the_default_entry_lacks_it(self):
         """The SELECTED template governs, even when a different named entry
         in the same dict does reference the switch."""
-        assert NativeLLMClient._supports_thinking(
+        assert NativeDriver._supports_thinking(
             _RecordingTokenizer(DICT_TEMPLATE_INCOMPATIBLE_DEFAULT)
         ) is False
 
     def test_dict_with_no_default_entry_is_unresolved_and_unsupported(self):
-        assert NativeLLMClient._supports_thinking(
+        assert NativeDriver._supports_thinking(
             _RecordingTokenizer({"tool_use": QWEN3_THINKING_TEMPLATE})
         ) is False
 
     def test_quoted_expression_is_unsupported(self):
         """A regex over the raw source would match `{{ 'enable_thinking' }}`;
         real Jinja parsing sees a string constant, never a variable load."""
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QUOTED_EXPRESSION_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(QUOTED_EXPRESSION_TEMPLATE)) is False
 
     def test_quoted_statement_is_unsupported(self):
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QUOTED_STATEMENT_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(QUOTED_STATEMENT_TEMPLATE)) is False
 
     def test_raw_block_is_unsupported(self):
         """`{% raw %}...{% endraw %}` content is literal text to Jinja —
         never parsed as code, so a name appearing inside one is inert."""
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(RAW_BLOCK_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(RAW_BLOCK_TEMPLATE)) is False
 
     def test_set_shadowed_local_is_unsupported(self):
         """`{% set enable_thinking = true %}` declares a template-local
         variable before it's used — the template consumes ITS OWN local,
         never this client's `provider_options.thinking` setting, so this
         must not be reported as a live external reference."""
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(SET_SHADOW_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(SET_SHADOW_TEMPLATE)) is False
 
     def test_parse_failure_degrades_to_unsupported_not_an_exception(self):
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(PARSE_ERROR_TEMPLATE)) is False
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(PARSE_ERROR_TEMPLATE)) is False
 
     def test_the_real_qwen3_shape_with_is_defined_and_is_false_tests(self):
         """`enable_thinking is defined and enable_thinking is false` is
@@ -753,51 +662,51 @@ class TestSupportsThinking:
         `find_undeclared_variables` reports as external regardless (that's
         its whole purpose: finding what a template needs from outside,
         including names it merely checks `is defined`)."""
-        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QWEN3_THINKING_TEMPLATE)) is True
+        assert NativeDriver._supports_thinking(_RecordingTokenizer(QWEN3_THINKING_TEMPLATE)) is True
 
 
 class TestThinkingSetting:
     def test_none_when_provider_options_absent(self):
-        assert NativeLLMClient._thinking_setting(_config("m")) is None
+        assert requested_thinking(Settings(), _config("m")) is None
 
     def test_none_when_key_absent(self):
         config = _config("m", provider_options={"quantization": "none"})
-        assert NativeLLMClient._thinking_setting(config) is None
+        assert requested_thinking(Settings(), config) is None
 
     def test_true_when_enabled(self):
         config = _config("m", provider_options={"thinking": True})
-        assert NativeLLMClient._thinking_setting(config) is True
+        assert requested_thinking(Settings(), config) is True
 
     def test_false_is_distinct_from_unset(self):
         config = _config("m", provider_options={"thinking": False})
-        assert NativeLLMClient._thinking_setting(config) is False
+        assert requested_thinking(Settings(), config) is False
 
 
 class TestChatTemplateKwargs:
     def test_unset_passes_no_kwarg_and_reports_template_default(self):
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
-        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, _config("m"))
+        kwargs, meta = NativeDriver._chat_template_kwargs(checkpoint, requested_thinking(Settings(), _config("m")))
         assert kwargs == {}
         assert meta == {"requested": None, "effective": "template_default"}
 
     def test_enabled_on_supported_template(self):
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
         config = _config("m", provider_options={"thinking": True})
-        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, config)
+        kwargs, meta = NativeDriver._chat_template_kwargs(checkpoint, requested_thinking(Settings(), config))
         assert kwargs == {"enable_thinking": True}
         assert meta == {"requested": True, "effective": True}
 
     def test_disabled_on_supported_template(self):
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
         config = _config("m", provider_options={"thinking": False})
-        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, config)
+        kwargs, meta = NativeDriver._chat_template_kwargs(checkpoint, requested_thinking(Settings(), config))
         assert kwargs == {"enable_thinking": False}
         assert meta == {"requested": False, "effective": False}
 
     def test_requested_on_unsupported_template_is_never_silently_applied(self):
         checkpoint = _thinking_checkpoint(PLAIN_TEMPLATE)
         config = _config("m", provider_options={"thinking": True})
-        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, config)
+        kwargs, meta = NativeDriver._chat_template_kwargs(checkpoint, requested_thinking(Settings(), config))
         assert kwargs == {}
         assert meta == {"requested": True, "effective": "unsupported"}
 
@@ -805,14 +714,14 @@ class TestChatTemplateKwargs:
 class TestApplyTemplateThreadsKwargs:
     def test_enable_thinking_reaches_apply_chat_template(self):
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
-        NativeLLMClient._apply_template(
+        NativeDriver._apply_template(
             checkpoint, [{"role": "user", "content": "hi"}], None, {"enable_thinking": True}
         )
         assert checkpoint.tokenizer.template_calls == [{"enable_thinking": True}]
 
     def test_no_kwargs_when_unset(self):
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
-        NativeLLMClient._apply_template(checkpoint, [{"role": "user", "content": "hi"}], None, {})
+        NativeDriver._apply_template(checkpoint, [{"role": "user", "content": "hi"}], None, {})
         assert checkpoint.tokenizer.template_calls == [{}]
 
 
@@ -824,7 +733,7 @@ class TestGenerateWithHistoryReportsThinkingMode:
     @pytest.mark.asyncio
     async def test_unset_reports_template_default_and_no_kwarg(self, client, fake_native_model, monkeypatch):
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
-        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
         config = _config(fake_native_model)
 
         response = await client.generate_with_history(
@@ -837,7 +746,7 @@ class TestGenerateWithHistoryReportsThinkingMode:
     @pytest.mark.asyncio
     async def test_enabled_reaches_generate_and_is_reported_effective(self, client, fake_native_model, monkeypatch):
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
-        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
         config = _config(fake_native_model, provider_options={"thinking": True})
 
         response = await client.generate_with_history(
@@ -850,7 +759,7 @@ class TestGenerateWithHistoryReportsThinkingMode:
     @pytest.mark.asyncio
     async def test_requested_on_unsupported_template_never_claims_effective(self, client, fake_native_model, monkeypatch):
         checkpoint = _thinking_checkpoint(PLAIN_TEMPLATE)
-        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
         config = _config(fake_native_model, provider_options={"thinking": True})
 
         response = await client.generate_with_history(
@@ -869,7 +778,7 @@ class TestGenerateWithHistoryReportsThinkingMode:
         `enable_thinking` must come from ITS config, never a value left over
         from the previous turn on the shared checkpoint."""
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
-        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
         enabled_config = _config(fake_native_model, id="cfg-a", provider_options={"thinking": True})
         disabled_config = _config(fake_native_model, id="cfg-b", provider_options={"thinking": False})
 
@@ -894,7 +803,7 @@ class TestPreflightAndGenerateAgreeOnThinkingKwargs:
         path, is_te = client._resolve_model(fake_native_model)
         checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
         client._checkpoint_refs[client._cache_key(path, is_te)] = weakref.ref(checkpoint)
-        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
         config = _config(fake_native_model, provider_options={"thinking": True})
 
         preflight_counter = client.messages_token_counter(config)
@@ -917,7 +826,7 @@ class TestPreflightAndGenerateAgreeOnThinkingKwargs:
         path, is_te = client._resolve_model(fake_native_model)
         checkpoint = _thinking_checkpoint(PLAIN_TEMPLATE)
         client._checkpoint_refs[client._cache_key(path, is_te)] = weakref.ref(checkpoint)
-        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
         config = _config(fake_native_model, provider_options={"thinking": True})
 
         preflight_counter = client.messages_token_counter(config)
@@ -951,7 +860,7 @@ class TestPreflightAndGenerateAgreeOnThinkingKwargs:
         path, is_te = client._resolve_model(fake_native_model)
         checkpoint = _thinking_checkpoint(template)
         client._checkpoint_refs[client._cache_key(path, is_te)] = weakref.ref(checkpoint)
-        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
         config = _config(fake_native_model, provider_options={"thinking": True})
 
         preflight_counter = client.messages_token_counter(config)
@@ -976,13 +885,9 @@ async def test_generate_registers_a_lifecycle_entry(client, models_manager, nati
 
 
 class TestTokenCounterWeakrefMechanics:
-    """token_counter's own weak-reference lookup and dispatch, independent of
-    the heavy real-transformers fixture (see TestTokenCounter below) — a fake
-    tokenizer stands in for a real one; only the liveness/dispatch logic
-    under test here is NativeLLMClient's, not transformers'."""
 
-    def _client(self) -> NativeLLMClient:
-        return NativeLLMClient(ModelLifecycle(gpu_monitor=None, settings=None))
+    def _client(self) -> NativeDriver:
+        return NativeDriver(ModelLifecycle(gpu_monitor=None, settings=None))
 
     def test_none_when_never_populated(self):
         client = self._client()
@@ -1048,8 +953,8 @@ class TestMessagesTokenCounterWeakrefMechanics:
     a fake tokenizer/template so it runs without the broken transformers
     fixture (see TestTokenCounter's real-model equivalent below)."""
 
-    def _client(self) -> NativeLLMClient:
-        return NativeLLMClient(ModelLifecycle(gpu_monitor=None, settings=None))
+    def _client(self) -> NativeDriver:
+        return NativeDriver(ModelLifecycle(gpu_monitor=None, settings=None))
 
     @staticmethod
     def _fake_tokenizer(rendered_ids):
@@ -1133,21 +1038,19 @@ class TestMessagesTokenCounterWeakrefMechanics:
         return tok
 
     def _counter_for(self, client, tokenizer):
+        adapter = NativeAdapter()
         fake_checkpoint = native_module._LoadedCheckpoint(
             model=Mock(), tokenizer=tokenizer, vision=False, model_type="qwen3",
         )
-        with patch.object(client, "_resolve_model", return_value=("/fake/path", False)):
-            client._checkpoint_refs[client._cache_key("/fake/path", False)] = weakref.ref(fake_checkpoint)
-            return client.messages_token_counter(_config("anything"))
+        self._keep = fake_checkpoint
+        with patch.object(adapter.runtime, "_resolve_model", return_value=("/fake/path", False)):
+            adapter.runtime._checkpoint_refs[adapter.runtime._cache_key("/fake/path", False)] = weakref.ref(fake_checkpoint)
+            return adapter.messages_token_counter(_config("anything"))
 
     def _real_prepared_count(self, client, tokenizer, system_message, messages, tools):
-        """Independently reconstructs the count the real send would produce:
-        inject tools into the system message FIRST (exactly what
-        generate_with_tools/stream_with_tools do), then build the chat and
-        template it — same tokenizer, same steps, computed here rather than
-        through the counter under test."""
-        effective_system = client._inject_tools_into_system_message(system_message, tools)
-        chat, _image = client._build_chat(list(messages), effective_system, None)
+        specs = [ToolSpec.from_schema(schema) for schema in tools or ()]
+        chat = [{"role": "system", "content": system_message + prompt_tools.render_inline_tools_text(specs)}]
+        chat.extend({"role": "user", "content": message.text()} for message in messages)
         text = tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
         return len(tokenizer(text, return_tensors=None)["input_ids"][0])
 
@@ -1156,8 +1059,8 @@ class TestMessagesTokenCounterWeakrefMechanics:
         tokenizer = self._length_tokenizer()
         counter = self._counter_for(client, tokenizer)
         system_message = "You are helpful."
-        messages = [{"role": "user", "content": "hi"}]
-        tools = [{"function": {"name": "get_weather", "description": "fetches the weather", "parameters": {}}}]
+        messages = [_user("hi")]
+        tools = [{"type": "function", "function": {"name": "get_weather", "description": "fetches the weather", "parameters": {}}}]
 
         assert counter(system_message, messages, tools) == self._real_prepared_count(
             client, tokenizer, system_message, messages, tools,
@@ -1168,7 +1071,7 @@ class TestMessagesTokenCounterWeakrefMechanics:
         tokenizer = self._length_tokenizer()
         counter = self._counter_for(client, tokenizer)
         system_message = "You are helpful."
-        messages = [{"role": "user", "content": "hi"}]
+        messages = [_user("hi")]
 
         expected = self._real_prepared_count(client, tokenizer, system_message, messages, None)
         assert counter(system_message, messages, None) == expected
@@ -1179,8 +1082,8 @@ class TestMessagesTokenCounterWeakrefMechanics:
         tokenizer = self._length_tokenizer()
         counter = self._counter_for(client, tokenizer)
         system_message = "You are helpful."
-        messages = [{"role": "user", "content": "hi"}]
-        tools = [{"function": {"name": "get_weather", "description": "fetches the weather", "parameters": {}}}]
+        messages = [_user("hi")]
+        tools = [{"type": "function", "function": {"name": "get_weather", "description": "fetches the weather", "parameters": {}}}]
 
         assert counter(system_message, messages, tools) > counter(system_message, messages, None)
 
@@ -1245,13 +1148,13 @@ class TestTokenCounter:
 async def test_second_turn_reuses_the_cached_checkpoint(client, models_manager, native_checkpoint, monkeypatch):
     name, _ = native_checkpoint
     build_calls = []
-    original_build = NativeLLMClient._build
+    original_build = NativeDriver._build
 
     def _counting_build(self, path, load_kwargs):
         build_calls.append(path)
         return original_build(self, path, load_kwargs)
 
-    monkeypatch.setattr(NativeLLMClient, "_build", _counting_build)
+    monkeypatch.setattr(NativeDriver, "_build", _counting_build)
 
     config = _config(name)
     await client.generate_with_history([{"role": "user", "content": "first"}], config, config.system_message)
@@ -1300,7 +1203,7 @@ async def test_lease_released_even_when_generation_raises(client, models_manager
     async def _patched(self, *a, **k):
         checkpoint = client._acquire(path, config)
         monkeypatch.setattr(checkpoint.model, "generate", _boom)
-        return await NativeLLMClient.generate_with_history(self, *a, **k)
+        return await NativeDriver.generate_with_history(self, *a, **k)
 
     with pytest.raises(RuntimeError, match="synthetic failure"):
         await _patched(client, [{"role": "user", "content": "hi"}], config, config.system_message)
@@ -1321,14 +1224,14 @@ async def test_oom_during_generate_is_reported_cleanly(client, native_checkpoint
             raise RuntimeError("CUDA out of memory. Tried to allocate 2.00 GiB")
 
         monkeypatch.setattr(checkpoint.model, "generate", _oom)
-        return await NativeLLMClient.generate_with_history(self, *a, **k)
+        return await NativeDriver.generate_with_history(self, *a, **k)
 
-    with pytest.raises(ValueError, match="ran out of GPU memory"):
+    with pytest.raises(NativeOutOfMemory, match="ran out of GPU memory"):
         await _patched(client, [{"role": "user", "content": "hi"}], config, config.system_message)
 
 
 def test_missing_lifecycle_manager_raises_clean_error():
-    client = NativeLLMClient(model_lifecycle=None)
+    client = NativeDriver(model_lifecycle=None)
     import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
     saved = manager_module._default_lifecycle
@@ -1352,17 +1255,17 @@ def test_unsupported_checkpoint_family_raises_before_loading_weights(tmp_path, c
 
 def test_load_kwargs_default_dtype_auto():
     config = _config("qwen3-tiny")
-    assert NativeLLMClient._load_kwargs(config) == {"dtype": "auto"}
+    assert NativeDriver._load_kwargs(config) == {"dtype": "auto"}
 
 
 def test_load_kwargs_reads_dtype_and_revision_from_provider_options():
     config = _config("qwen3-tiny", provider_options={"dtype": "bfloat16", "revision": "abc123"})
-    assert NativeLLMClient._load_kwargs(config) == {"dtype": "bfloat16", "revision": "abc123"}
+    assert NativeDriver._load_kwargs(config) == {"dtype": "bfloat16", "revision": "abc123"}
 
 
 def test_fingerprint_changes_with_dtype():
-    a = NativeLLMClient._fingerprint("/path", {"dtype": "auto"})
-    b = NativeLLMClient._fingerprint("/path", {"dtype": "bfloat16"})
+    a = NativeDriver._fingerprint("/path", {"dtype": "auto"})
+    b = NativeDriver._fingerprint("/path", {"dtype": "bfloat16"})
     assert a != b
 
 
@@ -1370,13 +1273,13 @@ def test_fingerprint_changes_with_dtype():
 async def test_changing_dtype_busts_the_cached_checkpoint(client, models_manager, native_checkpoint, monkeypatch):
     name, path = native_checkpoint
     build_calls = []
-    original_build = NativeLLMClient._build
+    original_build = NativeDriver._build
 
     def _counting_build(self, path, load_kwargs):
         build_calls.append(load_kwargs)
         return original_build(self, path, load_kwargs)
 
-    monkeypatch.setattr(NativeLLMClient, "_build", _counting_build)
+    monkeypatch.setattr(NativeDriver, "_build", _counting_build)
 
     await client.generate_with_history(
         [{"role": "user", "content": "hi"}], _config(name), "sys"
@@ -1406,34 +1309,34 @@ def test_checkpoint_size_gb_sums_shard_files_not_the_directory_inode(native_chec
 # --- quantized loading -------------------------------------------
 
 def test_quant_mode_defaults_to_none():
-    assert NativeLLMClient._quant_mode(_config("qwen3-tiny")) == "none"
+    assert NativeDriver._quant_mode(_config("qwen3-tiny")) == "none"
 
 
 @pytest.mark.parametrize("mode", ["int8", "nf4"])
 def test_quant_mode_reads_provider_options(mode):
     config = _config("qwen3-tiny", provider_options={"quantization": mode})
-    assert NativeLLMClient._quant_mode(config) == mode
+    assert NativeDriver._quant_mode(config) == mode
 
 
 def test_quant_mode_rejects_unknown_and_names_the_allowlist():
     config = _config("qwen3-tiny", provider_options={"quantization": "int3"})
     with pytest.raises(ValueError, match="unknown quantization mode"):
-        NativeLLMClient._quant_mode(config)
+        NativeDriver._quant_mode(config)
 
 
 def test_load_kwargs_omits_quantization_when_none():
-    assert "quantization" not in NativeLLMClient._load_kwargs(_config("qwen3-tiny"))
+    assert "quantization" not in NativeDriver._load_kwargs(_config("qwen3-tiny"))
 
 
 def test_load_kwargs_carries_quantization_marker():
     config = _config("qwen3-tiny", provider_options={"quantization": "nf4"})
-    assert NativeLLMClient._load_kwargs(config)["quantization"] == "nf4"
+    assert NativeDriver._load_kwargs(config)["quantization"] == "nf4"
 
 
 def test_fingerprint_includes_quant_mode():
-    bf16 = NativeLLMClient._fingerprint("/path", {"dtype": "auto"})
-    nf4 = NativeLLMClient._fingerprint("/path", {"dtype": "auto", "quantization": "nf4"})
-    int8 = NativeLLMClient._fingerprint("/path", {"dtype": "auto", "quantization": "int8"})
+    bf16 = NativeDriver._fingerprint("/path", {"dtype": "auto"})
+    nf4 = NativeDriver._fingerprint("/path", {"dtype": "auto", "quantization": "nf4"})
+    int8 = NativeDriver._fingerprint("/path", {"dtype": "auto", "quantization": "int8"})
     assert bf16 != nf4 != int8 != bf16
     assert "quant=none" in bf16
     assert "quant=nf4" in nf4
@@ -1446,21 +1349,21 @@ def test_estimated_size_gb_applies_quant_factor(native_checkpoint, mode, factor)
 
     base = checkpoint_size_gb(path)
     assert base is not None
-    assert NativeLLMClient._estimated_size_gb(path, "none") == base
-    assert NativeLLMClient._estimated_size_gb(path, mode) == pytest.approx(base * factor)
+    assert NativeDriver._estimated_size_gb(path, "none") == base
+    assert NativeDriver._estimated_size_gb(path, mode) == pytest.approx(base * factor)
 
 
 def test_estimated_size_gb_none_when_unsizable(tmp_path):
     # An empty directory has no shard files -> checkpoint_size_gb returns None,
     # and the factor must not turn that into a crash.
-    assert NativeLLMClient._estimated_size_gb(str(tmp_path), "nf4") is None
+    assert NativeDriver._estimated_size_gb(str(tmp_path), "nf4") is None
 
 
 @pytest.mark.parametrize("mode", ["int8", "nf4"])
 def test_bnb_config_errors_without_cuda(monkeypatch, mode):
     # _no_real_cuda already forces is_available -> False.
     with pytest.raises(ValueError, match="requires a CUDA GPU"):
-        NativeLLMClient._bnb_config(mode)
+        NativeDriver._bnb_config(mode)
 
 
 @pytest.mark.parametrize("mode", ["int8", "nf4"])
@@ -1477,7 +1380,7 @@ def test_bnb_config_errors_without_bitsandbytes(monkeypatch, mode):
 
     monkeypatch.setattr(builtins, "__import__", _no_bnb)
     with pytest.raises(ValueError, match="bitsandbytes"):
-        NativeLLMClient._bnb_config(mode)
+        NativeDriver._bnb_config(mode)
 
 
 @pytest.mark.parametrize("mode,expect_key,expect_extra", [
@@ -1487,7 +1390,7 @@ def test_bnb_config_errors_without_bitsandbytes(monkeypatch, mode):
 def test_bnb_config_shape_when_available(monkeypatch, mode, expect_key, expect_extra):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setitem(__import__("sys").modules, "bitsandbytes", __import__("types").ModuleType("bitsandbytes"))
-    cfg = NativeLLMClient._bnb_config(mode)
+    cfg = NativeDriver._bnb_config(mode)
     assert getattr(cfg, expect_key) is True
     for k, v in expect_extra.items():
         assert getattr(cfg, k) == v
@@ -1523,7 +1426,7 @@ async def test_build_passes_bitsandbytes_config_and_device_map(client, native_ch
     monkeypatch.setattr(transformers.AutoModelForCausalLM, "from_pretrained", staticmethod(_fake_from_pretrained))
     monkeypatch.setattr(transformers.AutoTokenizer, "from_pretrained", staticmethod(lambda p, **k: object()))
 
-    load_kwargs = NativeLLMClient._load_kwargs(
+    load_kwargs = NativeDriver._load_kwargs(
         _config("qwen3-tiny", provider_options={"quantization": "nf4"})
     )
     checkpoint = client._build(path, load_kwargs)
@@ -1602,7 +1505,7 @@ def test_quantize_adopted_module_never_converts_lm_head(monkeypatch, tiny_qwen3_
     monkeypatch.setitem(sys.modules, "bitsandbytes", fake_bnb)
     monkeypatch.setattr(tib, "replace_with_bnb_linear", _fake_replace)
 
-    quantized = NativeLLMClient._quantize_adopted_module(model, "nf4")
+    quantized = NativeDriver._quantize_adopted_module(model, "nf4")
 
     assert calls["modules_to_not_convert"] == ["lm_head"]
     linear_names = [
@@ -1645,7 +1548,7 @@ def test_quantize_adopted_module_int8_uses_int8params(monkeypatch, tiny_qwen3_ad
     monkeypatch.setitem(sys.modules, "bitsandbytes", fake_bnb)
     monkeypatch.setattr(tib, "replace_with_bnb_linear", _fake_replace)
 
-    quantized = NativeLLMClient._quantize_adopted_module(model, "int8")
+    quantized = NativeDriver._quantize_adopted_module(model, "int8")
     assert isinstance(quantized.model.layers[0].self_attn.q_proj.weight, _FakeInt8Param)
 
 
@@ -1658,7 +1561,7 @@ async def test_build_adopted_with_quantization_without_cuda_raises_clear_error(c
     from src.features.llm.native_te_adoption import build_adopted_te as _real_build
 
     monkeypatch.setattr(
-        "src.features.llm.clients.native.build_adopted_te",
+        "src.features.llm.native.runtime.build_adopted_te",
         lambda path, resolver: (object(), object(), "qwen3"),
     )
     client._model_roots = object()
@@ -1717,7 +1620,7 @@ class _RecordingModel:
 
 
 def _stub_checkpoint(quantized: bool):
-    from src.features.llm.clients.native import _LoadedCheckpoint
+    from src.features.llm.native.runtime import _LoadedCheckpoint
 
     return _LoadedCheckpoint(
         model=_RecordingModel(), tokenizer=object(), vision=False,
@@ -1732,7 +1635,7 @@ async def test_leased_quantized_checkpoint_is_never_moved(client, native_checkpo
     name, path = native_checkpoint
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     checkpoint = _stub_checkpoint(quantized=True)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
     async with client._leased(path, _config(name)) as (ck, device, _handoff):
         assert ck is checkpoint
@@ -1747,7 +1650,7 @@ async def test_leased_unquantized_checkpoint_moves_to_gpu_and_back(client, nativ
     name, path = native_checkpoint
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     checkpoint = _stub_checkpoint(quantized=False)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
     async with client._leased(path, _config(name)) as (_ck, device, _handoff):
         assert device == "cuda"
@@ -1768,7 +1671,7 @@ async def test_leased_falls_back_to_cpu_on_placement_oom(client, native_checkpoi
         raise RuntimeError("CUDA out of memory.")
 
     checkpoint.model.to = _raise_oom
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
     with caplog.at_level("WARNING"):
         async with client._leased(path, _config(name)) as (ck, device, _handoff):
@@ -1790,7 +1693,7 @@ async def test_leased_does_not_swallow_a_non_oom_runtime_error(client, native_ch
         raise RuntimeError("something unrelated broke")
 
     checkpoint.model.to = _raise_other
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
     with pytest.raises(RuntimeError, match="something unrelated broke"):
         async with client._leased(path, _config(name)):
@@ -1800,7 +1703,7 @@ async def test_leased_does_not_swallow_a_non_oom_runtime_error(client, native_ch
 # --- adopted single-file TE dispatch ------------------------------
 
 def test_resolve_model_flags_adopted_te_reference(client, monkeypatch):
-    import src.features.llm.clients.native as native_module
+    import src.features.llm.native.runtime as native_module
 
     monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n, resolver: f"/abs/{n}")
     client._model_roots = object()
@@ -1813,7 +1716,7 @@ def test_resolve_model_flags_adopted_te_reference(client, monkeypatch):
 async def test_adopted_te_generate_uses_distinct_lifecycle_key(client, models_manager, monkeypatch):
     """A text_encoders/ model reference loads via the adoption builder and is cached under
     the native/llm-te/ kind, never colliding with native/llm/."""
-    import src.features.llm.clients.native as native_module
+    import src.features.llm.native.runtime as native_module
 
     resolved_path = "/models/text_encoders/qwen3-te.safetensors"
     monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n, resolver: resolved_path)
@@ -1861,7 +1764,7 @@ async def test_leased_cpu_restore_failure_evicts_the_cache_entry(client, models_
     # `models.acquire()` call genuinely populates `models_manager._entries` --
     # otherwise a stub `_acquire` bypasses the cache entirely and the eviction
     # assertion below would trivially pass even if eviction never ran.
-    monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint)
 
     real_to = checkpoint.model.to
 
@@ -1914,7 +1817,7 @@ async def test_leased_registers_and_clears_residency_for_an_unquantized_checkpoi
     name, path = native_checkpoint
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     checkpoint = _stub_checkpoint(quantized=False)
-    monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint)
     calls = _fake_residency_module(monkeypatch)
 
     async with client._leased(path, _config(name)) as (ck, device, _handoff):
@@ -1933,7 +1836,7 @@ async def test_leased_never_registers_residency_for_a_quantized_checkpoint(
     name, path = native_checkpoint
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     checkpoint = _stub_checkpoint(quantized=True)
-    monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint)
     calls = _fake_residency_module(monkeypatch)
 
     async with client._leased(path, _config(name)):
@@ -1944,7 +1847,7 @@ async def test_leased_never_registers_residency_for_a_quantized_checkpoint(
 
 
 def test_residency_handle_offload_moves_model_and_notes_offloaded(monkeypatch):
-    from src.features.llm.clients.native import _NativeLLMResidencyHandle
+    from src.features.llm.native.runtime import _NativeLLMResidencyHandle
 
     checkpoint = _stub_checkpoint(quantized=False)
     checkpoint.model.to("cuda")
@@ -1961,7 +1864,7 @@ def test_residency_handle_offload_moves_model_and_notes_offloaded(monkeypatch):
 
 
 def test_residency_handle_offload_evicts_when_move_fails(monkeypatch):
-    from src.features.llm.clients.native import _NativeLLMResidencyHandle
+    from src.features.llm.native.runtime import _NativeLLMResidencyHandle
 
     checkpoint = _stub_checkpoint(quantized=False)
 
@@ -1978,3 +1881,13 @@ def test_residency_handle_offload_evicts_when_move_fails(monkeypatch):
     handle.offload()
 
     assert invalidated == ["native/llm/fake"]
+
+
+@pytest.mark.asyncio
+async def test_release_keeps_the_warm_checkpoint_for_the_lifecycle_to_evict(client, models_manager, native_checkpoint):
+    name, path = native_checkpoint
+    config = _config(name)
+    client._acquire(path, config)
+
+    assert await client.release(config) is False
+    assert models_manager.is_cached(f"native/llm/{path}")

@@ -143,9 +143,9 @@ from src.features.segments.repository import (
     SegmentTemplateRepository,
 )
 from src.features.llm.gateway import LLMGateway
-from src.features.llm.clients import NativeLLMClient
 from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessagesAdapter
 from src.features.llm.harness.adapters.gemini_interactions import GeminiInteractionsAdapter
+from src.features.llm.harness.adapters.native import NativeAdapter
 from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
@@ -833,7 +833,7 @@ def build_container() -> AppContainer:
                 adapter=GeminiInteractionsAdapter(),
                 default_base_url="https://generativelanguage.googleapis.com",
             ),
-            LLMType(type="native", adapter=NativeLLMClient(model_lifecycle, model_roots)),
+            LLMType(type="native", adapter=NativeAdapter(model_lifecycle, model_roots)),
         ),
         provider_registry=llm_provider_registry,
     )

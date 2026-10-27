@@ -854,7 +854,7 @@ class TestSendMessageBehaviorTrace:
     @pytest.mark.asyncio
     async def test_thinking_mode_persisted_from_the_llm_response(self):
         """`LLMResponse.thinking_mode` (the native provider's explicit
-        thinking-mode outcome — see `NativeLLMClient._chat_template_kwargs`)
+        thinking-mode outcome — see `NativeRuntime._chat_template_kwargs`)
         is forwarded into the persisted behavior trace exactly like
         `rescues`/`tool_failures`, so an admin can see which mode actually
         applied to a turn."""
@@ -2358,12 +2358,14 @@ class TestToolCallFormatGuidance:
         assert "{{" not in rendered
 
     def test_native_client_injects_concrete_tool_call_example(self):
-        from src.features.llm.clients.native import NativeLLMClient
+        from src.features.llm.harness.adapters.native import render_chat
+        from src.features.llm.harness.adapter import ToolSpec
 
-        injected = NativeLLMClient._inject_tools_into_system_message(
+        injected = render_chat(
             "sys",
-            [{"function": {"name": "get_form_state", "description": "d", "parameters": {}}}],
-        )
+            [],
+            [ToolSpec.from_schema({"function": {"name": "get_form_state", "description": "d", "parameters": {}}})],
+        )[0]["content"]
 
         assert '<tool_call>{"name": "get_form_state", "arguments": {}}</tool_call>' in injected
         assert "<tool_action>" in injected  # names the format NOT to use

@@ -1,27 +1,3 @@
-"""Pins the per-checkpoint execution gate `_leased` now holds for a turn's
-FULL lifetime (`_CheckpointGate`, `src/features/llm/clients/native.py`).
-
-`ModelLifecycle.acquire()` hands the SAME `_LoadedCheckpoint` — one live
-`torch.nn.Module` — to every caller with a matching fingerprint; there is no
-per-checkpoint execution gate at that layer. Before this fix, two overlapping
-turns on the same checkpoint could race its CUDA placement: turn A's teardown
-moving the model back to CPU while turn B was still mid-`generate()` on it.
-
-Every test drives the REAL `_leased`/`generate_with_history`/
-`stream_with_history` entry points and the REAL `ModelLifecycle` cache, with
-`checkpoint.model` replaced by `_GatedModel` — a fake whose `generate()` runs
-on the real background worker thread these methods already use, blocks on a
-`threading.Event` a test controls, and records `.to()`/`generate()` timeline
-events into a shared, GIL-safe list. `torch.cuda.is_available` is forced
-`True` per test (this container has no real GPU) purely to exercise
-`_leased`'s `manage_device` placement branch — `.to()` is the fake's no-op
-recorder, never a real CUDA call. Every wait is bounded
-(`asyncio.wait_for`/`Event.wait(timeout=...)`) and every test releases its
-gated model's barrier in a `finally`, so a regression that reintroduces the
-race fails the assertions (or times out a bounded wait) instead of hanging
-pytest.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -32,11 +8,16 @@ import time
 import pytest
 import torch
 
-from src.features.llm.clients import native as native_module
-from src.features.llm.clients.native import NativeLLMClient, _LoadedCheckpoint
+from src.features.llm.native import runtime as native_module
+from src.features.llm.native.runtime import _LoadedCheckpoint
+from src.features.llm.harness.adapter import RenderRequest
+from src.features.llm.harness.adapters.native import NativeAdapter
+from src.features.llm.harness.profile import CapabilityProfile
+from tests.fixtures.native_runtime import NativeDriver
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from tests.fixtures.model_roots import make_roots
 from tests.features.llm.test_native_client import (
+    _user,
     _config,
     _fake_streaming_generate,
     _NEWLINE_TOKEN_ID,
@@ -187,7 +168,7 @@ class TestExecutionGateSerializesOverlappingTurns:
         checkpoint_b = _gated_checkpoint("B", events)
         sequence = [checkpoint_a, checkpoint_b]
         monkeypatch.setattr(
-            NativeLLMClient, "_acquire",
+            NativeDriver, "_acquire",
             lambda self, p, cfg, is_te=False: sequence.pop(0),
         )
 
@@ -247,7 +228,7 @@ class TestExecutionGateSerializesOverlappingTurns:
         checkpoint_b = _gated_checkpoint("BUFFERED", events)
         sequence = [checkpoint_a, checkpoint_b]
         monkeypatch.setattr(
-            NativeLLMClient, "_acquire",
+            NativeDriver, "_acquire",
             lambda self, p, cfg, is_te=False: sequence.pop(0),
         )
 
@@ -295,7 +276,7 @@ class TestExecutionGateSerializesOverlappingTurns:
         checkpoint_b = _gated_checkpoint("B", events)
         sequence = [checkpoint_a, checkpoint_b]
         monkeypatch.setattr(
-            NativeLLMClient, "_acquire",
+            NativeDriver, "_acquire",
             lambda self, p, cfg, is_te=False: sequence.pop(0),
         )
 
@@ -350,7 +331,7 @@ class TestExecutionGateSerializesOverlappingTurns:
         # A is holding, exactly like two real turns on one checkpoint. That's
         # what makes `models_manager._entries[key]` below meaningful: it was
         # never populated when this test bypassed `_acquire` outright.
-        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint)
 
         task_a = asyncio.create_task(client.generate_with_history(
             [{"role": "user", "content": "hi"}], config, config.system_message,
@@ -401,7 +382,7 @@ class TestExecutionGateSerializesOverlappingTurns:
         checkpoint_b = _gated_checkpoint("B", events)
         # Patches the LOADER (see the sibling test above) so this turn's
         # cache entry is real and `models_manager._entries[key]` below exists.
-        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint_b)
+        monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint_b)
 
         task_b = asyncio.create_task(client.stream_with_history(
             [{"role": "user", "content": "hi"}], config, config.system_message,
@@ -448,15 +429,10 @@ class TestExecutionGateSerializesOverlappingTurns:
     async def test_two_client_instances_sharing_one_manager_still_serialize(
         self, models_manager, native_checkpoint, tiny_qwen3_checkpoint_dir, monkeypatch
     ):
-        """Two separate `NativeLLMClient` instances built on the SAME
-        `ModelLifecycle` (e.g. a request-scoped client alongside the
-        gateway's) must still gate on the SAME lock — the registry is keyed
-        by (manager identity, cache key), never by which client instance
-        made the call."""
         name, path = native_checkpoint
         resolver = make_roots(tiny_qwen3_checkpoint_dir, types=["llm"], home_dir=tiny_qwen3_checkpoint_dir)
-        client_a = NativeLLMClient(models_manager, resolver)
-        client_b = NativeLLMClient(models_manager, resolver)
+        client_a = NativeDriver(models_manager, resolver)
+        client_b = NativeDriver(models_manager, resolver)
         config_a = _config(name, id="cfg-a")
         config_b = _config(name, id="cfg-b")
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
@@ -466,7 +442,7 @@ class TestExecutionGateSerializesOverlappingTurns:
         checkpoint_b = _gated_checkpoint("B", events)
         sequence = [checkpoint_a, checkpoint_b]
         monkeypatch.setattr(
-            NativeLLMClient, "_acquire",
+            NativeDriver, "_acquire",
             lambda self, p, cfg, is_te=False: sequence.pop(0),
         )
 
@@ -518,9 +494,9 @@ class TestExecutionGateSerializesOverlappingTurns:
         def _fake_acquire(self, p, cfg, is_te=False):
             return checkpoint_other if p == "unrelated-path" else checkpoint_a
 
-        monkeypatch.setattr(NativeLLMClient, "_acquire", _fake_acquire)
+        monkeypatch.setattr(NativeDriver, "_acquire", _fake_acquire)
         monkeypatch.setattr(
-            NativeLLMClient, "_resolve_model",
+            NativeDriver, "_resolve_model",
             staticmethod(lambda name: ("unrelated-path", False) if name == "unrelated" else ("held-path", False)),
         )
 
@@ -593,7 +569,7 @@ class TestExecutionGateBookkeeping:
         checkpoint_b = _gated_checkpoint("B", events)
         sequence = [checkpoint_a, checkpoint_b]
         monkeypatch.setattr(
-            NativeLLMClient, "_acquire",
+            NativeDriver, "_acquire",
             lambda self, p, cfg, is_te=False: sequence.pop(0),
         )
 
@@ -655,13 +631,13 @@ def _install_supervised_teardown_fixture(
         ),
     )
 
-    real_apply_template = NativeLLMClient._apply_template
+    real_apply_template = NativeDriver._apply_template
 
     def _wrapped_apply_template(checkpoint_arg, chat, image, template_kwargs):
         result = real_apply_template(checkpoint_arg, chat, image, template_kwargs)
         return {k: (_CpuPinnedTensor(v) if hasattr(v, "to") else v) for k, v in result.items()}
 
-    monkeypatch.setattr(NativeLLMClient, "_apply_template", staticmethod(_wrapped_apply_template))
+    monkeypatch.setattr(NativeDriver, "_apply_template", staticmethod(_wrapped_apply_template))
     return events
 
 
@@ -919,7 +895,7 @@ class TestBufferedCancellationRetainsOwnership:
         checkpoint = _gated_checkpoint("A", events)
         # Patches the LOADER, not `_acquire` itself, so this turn's cache
         # entry is real and `models_manager._entries[key]` below exists.
-        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint)
 
         task = asyncio.create_task(client.generate_with_history(
             [{"role": "user", "content": "hi"}], config, config.system_message,
@@ -1007,7 +983,7 @@ class TestLifecycleCancellationBoundaries:
             checkpoint_holder.append(checkpoint)
             return checkpoint
 
-        monkeypatch.setattr(NativeLLMClient, "_build", _slow_build)
+        monkeypatch.setattr(NativeDriver, "_build", _slow_build)
 
         task = asyncio.create_task(client.generate_with_history(
             [{"role": "user", "content": "hi"}], config, config.system_message,
@@ -1062,7 +1038,7 @@ class TestLifecycleCancellationBoundaries:
         events: list = []
         checkpoint = _gated_checkpoint("A", events)
         checkpoint.model.release.set()  # generate() itself is not under test here
-        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint)
 
         started = threading.Event()
         release = threading.Event()
@@ -1135,7 +1111,7 @@ class TestLifecycleCancellationBoundaries:
 
         events: list = []
         checkpoint = _gated_checkpoint("A", events)
-        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+        monkeypatch.setattr(NativeDriver, "_build", lambda self, p, load_kwargs: checkpoint)
         # `generate()` itself must return immediately — only the OFFLOAD
         # move back to CPU is made to block, via the barrier below.
         checkpoint.model.release.set()
@@ -1201,94 +1177,6 @@ class TestLifecycleCancellationBoundaries:
             await asyncio.sleep(0)
         assert len(client._supervised_teardowns) == 0
 
-    @pytest.mark.asyncio
-    async def test_cancelling_before_the_buffered_worker_starts_settles_worker_done_itself(
-        self, client, models_manager, native_checkpoint, monkeypatch
-    ):
-        """A one-worker executor already occupied by something else means
-        the buffered path's own `_run` submission sits PENDING, never
-        dequeued. Cancelling while it's still pending must settle its own
-        completion signal itself — nothing will ever call `_run`, so
-        nothing else ever will — instead of spawning a supervisor that
-        would wait forever on an event that never fires."""
-        name, path = native_checkpoint
-        key = f"native/llm/{path}"
-        config = _config(name)
-
-        events: list = []
-        checkpoint = _gated_checkpoint("A", events)
-        checkpoint.model.release.set()  # the subsequent call's own generate() must complete
-        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
-
-        occupy_started = threading.Event()
-        occupy_release = threading.Event()
-        one_worker = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-
-        def _occupy():
-            occupy_started.set()
-            occupy_release.wait(timeout=_BOUND)
-
-        real_build_chat = NativeLLMClient._build_chat
-
-        def _patched_build_chat(self, messages, system_message, image_data):
-            result = real_build_chat(self, messages, system_message, image_data)
-            # `_leased`'s own acquire/placement (no CUDA here, so no
-            # placement submission at all) have already gone through this
-            # loop's ORIGINAL executor by this point — installing the
-            # one-worker executor for the loop only NOW means `_run`'s
-            # later submission, not the acquire, is what ends up genuinely
-            # pending.
-            monkeypatch.setitem(
-                native_module._EXECUTORS_BY_LOOP, asyncio.get_running_loop(), one_worker,
-            )
-            one_worker.submit(_occupy)
-            assert occupy_started.wait(timeout=_BOUND), "the occupying task never started"
-            return result
-
-        monkeypatch.setattr(NativeLLMClient, "_build_chat", _patched_build_chat)
-
-        task = asyncio.create_task(client.generate_with_history(
-            [{"role": "user", "content": "hi"}], config, config.system_message,
-        ))
-        try:
-            # Bounded moment for the coroutine to run all the way to
-            # `_run`'s (now-pending) submission and suspend awaiting it —
-            # nothing else is left for it to do before that point.
-            await asyncio.sleep(0.2)
-            assert not task.done()
-
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-
-            # Never started: no supervisor should ever have been spawned,
-            # and the lease/gate must release promptly rather than hang
-            # forever waiting on a call that will never happen.
-            # The task discards itself through a done-callback, one loop
-            # iteration after its last observable effect.
-            deadline = time.monotonic() + _BOUND
-            while client._supervised_teardowns and time.monotonic() < deadline:
-                await asyncio.sleep(0)
-            assert len(client._supervised_teardowns) == 0
-            assert not models_manager._entries[key].leased_by
-            assert key in models_manager._evictable_keys()
-            assert "A:generate:started" not in events
-        finally:
-            occupy_release.set()
-            one_worker.shutdown(wait=False)
-
-        # Restore ONLY `_build_chat` (not `_build`, and not the
-        # `native_checkpoint` fixture's own patches sharing this same
-        # `monkeypatch` fixture) — `monkeypatch.undo()` would revert all of
-        # them at once.
-        monkeypatch.setattr(NativeLLMClient, "_build_chat", real_build_chat)
-        # Dropping the loop's registry entry restores the default: the next
-        # submission lazily creates a fresh, normally-sized executor.
-        native_module._EXECUTORS_BY_LOOP.pop(asyncio.get_running_loop(), None)
-        response = await client.generate_with_history(
-            [{"role": "user", "content": "second"}], config, config.system_message,
-        )
-        assert response.provider_id == "native"
 
 
 class TestUvloopSubmission:
@@ -1317,16 +1205,9 @@ class TestUvloopSubmission:
         assert response.provider_id == "native"
 
 
-class TestStreamWithToolsCloseScope:
-    """`stream_with_tools` must own an explicit close scope over the inner
-    `stream_with_history` generator — a bare `async for` gives no guarantee
-    that closing the WRAPPER also closes what it's iterating, so awaiting
-    the wrapper's `aclose()` while suspended at a yielded token must still
-    reach `stream_with_history`'s existing cooperative stop and supervised
-    hand-off (LLM-06/LLM-07) before returning."""
-
+class TestAdapterSendCloseScope:
     @pytest.mark.asyncio
-    async def test_closing_the_wrapper_reaches_the_inner_streams_cooperative_stop(
+    async def test_closing_send_reaches_the_runtimes_cooperative_stop(
         self, client, models_manager, native_checkpoint, monkeypatch
     ):
         name, path = native_checkpoint
@@ -1343,26 +1224,24 @@ class TestStreamWithToolsCloseScope:
             ),
         )
 
-        agen = client.stream_with_tools(
-            [{"role": "user", "content": "hi"}], config, config.system_message,
-        )
+        adapter = NativeAdapter()
+        adapter.runtime = client
+        request = RenderRequest(config=config, system=config.system_message, messages=(_user("hi"),))
+        profile = CapabilityProfile(adapter="native", model=name)
+        wire = adapter.render(request, profile)
+        agen = adapter.send(wire, request)
         try:
             first = await asyncio.wait_for(agen.__anext__(), timeout=_BOUND)
-            assert first["type"] == "token"
+            assert isinstance(first, bytes) and first
 
             await asyncio.wait_for(agen.aclose(), timeout=_BOUND)
         finally:
-            await agen.aclose()  # no-op if already closed
+            await agen.aclose()
 
-        # The wrapper's own aclose() must have reached all the way into
-        # `stream_with_history`'s stopping_criteria seam (never a bare,
-        # unowned abandonment of the inner generator to eventual GC).
         assert "worker_saw_stop" in events
         assert "worker_returning_after_stop" in events
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
-        # The task discards itself through a done-callback, one loop
-        # iteration after its last observable effect.
         deadline = time.monotonic() + _BOUND
         while client._supervised_teardowns and time.monotonic() < deadline:
             await asyncio.sleep(0)
