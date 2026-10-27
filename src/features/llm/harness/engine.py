@@ -19,7 +19,9 @@ from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.recovery import CANCELLED_REASON, FAILED_REASON, interrupted_tool_step
 from src.features.llm.harness.retry import retry_notice
 from src.features.llm.harness.truncation import TruncationAction, decide_truncation
+from src.features.llm.harness.tool_runner import batch_results
 from src.features.llm.harness.turn_state import (
+    Decision,
     Notice,
     NoticeRaised,
     PendingCall,
@@ -68,6 +70,7 @@ class TurnInput:
     mode: Optional[str] = None
     turn_id: Optional[str] = None
     tools_in_use: Tuple[ToolSpec, ...] = ()
+    resume: Optional[Tuple[Decision, ...]] = None
 
 
 @dataclass
@@ -166,6 +169,21 @@ class TurnEngine:
         self._retry = retry
         self._sleep = sleep
 
+    @property
+    def store(self) -> TurnStore:
+        return self._store
+
+    async def settle(self, state: TurnState, call: ToolCallPart, decision: Decision, tool_context: Any) -> ToolFinished:
+        round_ = ToolRound(tool_context=tool_context, allowed_tools=None, deferred_tools={}, guard=ToolCallGuard())
+        finished: Optional[ToolFinished] = None
+        async with aclosing(self._runner.run((call,), state, round_, (decision,))) as items:
+            async for item in items:
+                if isinstance(item, ToolFinished):
+                    finished = item
+        if finished is None:
+            raise ValueError(f"no result for call {call.call_id}")
+        return finished
+
     async def run(self, turn: TurnInput) -> AsyncIterator[Any]:
         run = _Run(self, turn)
         async with aclosing(run.events()) as events:
@@ -180,7 +198,11 @@ class _Run:
         self.turn_id = turn.turn_id or new_id("turn")
         self.working: List[Message] = list(turn.history)
         self.steps: List[StepRecord] = []
+        self.prior: List[StepRecord] = []
         self.first_seq: Optional[int] = None
+        self.resumed: Optional[TurnState] = None
+        self.applied_calls: FrozenSet[str] = frozenset(turn.applied_calls)
+        self.max_rounds = turn.max_rounds
         self.round = ToolRound(
             tool_context=turn.tool_context,
             allowed_tools=list(turn.allowed_tools) if turn.allowed_tools is not None else None,
@@ -210,13 +232,74 @@ class _Run:
     def tools_on(self) -> bool:
         return self.turn.tool_context is not None
 
+    def _restore(self) -> None:
+        state = self.engine._store.load_state(self.turn_id)
+        if state is None or state.status is not TurnStatus.AWAITING_DECISION or state.session_id != self.turn.session_id:
+            raise ValueError(f"turn {self.turn_id} is not waiting for a decision")
+        self.resumed = state
+        self.profile = state.snapshot.profile
+        self.system = state.snapshot.system
+        self.first_seq = state.first_seq
+        self.max_rounds = state.max_rounds
+        self.rounds_used = state.rounds_used
+        self.rescue_retries = state.rescue_retries
+        self.notices = list(state.notices)
+        self.pending = state.pending
+        self.gathered = state.gathered
+        self.applied_calls = state.applied_calls | self.applied_calls
+        self.round.guard = ToolCallGuard(set(self.applied_calls))
+        self.round.guard.restore(state.failed_calls, state.tool_failures)
+        self.prior = self.engine._store.turn_steps(state.turn_id)
+
+    async def _settle_paused(self) -> AsyncIterator[Any]:
+        state = self.resumed
+        last = next(
+            (step for step in reversed(self.prior) if step.message.role is Role.ASSISTANT and step.message.tool_calls()),
+            None,
+        )
+        if last is None:
+            raise ValueError(f"turn {state.turn_id} has no tool calls to resume")
+        calls = last.message.tool_calls()
+        results: List[ToolResultPart] = list(state.gathered)
+        pending: List[PendingCall] = []
+        async with aclosing(
+            self.engine._runner.run(calls, self._state(TurnStatus.RUNNING), self.round, self.turn.resume)
+        ) as items:
+            async for item in items:
+                if isinstance(item, PendingCall):
+                    pending.append(item)
+                    continue
+                if isinstance(item, ToolFinished):
+                    results.append(item.result)
+                    self.gathered = tuple(result for result in results if result.content)
+                yield item
+        if pending:
+            waiting = {call.call_id for call in pending}
+            self.pending = tuple(pending)
+            self.gathered = tuple(result for result in results if result.call_id not in waiting)
+            yield self._outcome("", PENDING, TurnStatus.AWAITING_DECISION)
+            return
+        yield self._commit(
+            Message(id=new_id("msg"), role=Role.TOOL, parts=batch_results(calls, results)), StepStatus.COMPLETED,
+        )
+        self.pending = ()
+        self.gathered = ()
+
     async def events(self) -> AsyncIterator[Any]:
+        if self.turn.resume is not None:
+            self._restore()
         try:
             if self.tools_on:
                 registered = self._registered()
                 self.sent_tools = tuple(spec for spec in self.turn.tools_in_use if spec.name in registered)
                 self._tool_specs()
             self.engine._store.save_state(self._state(TurnStatus.RUNNING))
+            if self.resumed is not None:
+                async for event in self._settle_paused():
+                    yield event
+                if self.finished:
+                    await self._release()
+                    return
             for message in self.turn.new_messages:
                 yield self._commit(message, StepStatus.COMPLETED)
             if self.tools_on:
@@ -253,7 +336,7 @@ class _Run:
         yield self._outcome(message.text(), ANSWER, TurnStatus.COMPLETED)
 
     async def _tool_loop(self) -> AsyncIterator[Any]:
-        for _ in range(self.turn.max_rounds):
+        for _ in range(self.max_rounds - self.rounds_used):
             self.rounds_used += 1
             box = _StepBox()
             async for event in self._step(box, self._tool_specs(), filtered=True, retry_empty=True, keep_loaded=True):
@@ -298,8 +381,8 @@ class _Run:
                 self.nudged = True
                 yield self._commit(context_message("nudge", self.turn.iteration_nudge), StepStatus.COMPLETED)
 
-        logger.warning("[TurnEngine] tool budget of %s round(s) reached, making a final call without tools", self.turn.max_rounds)
-        yield BudgetExhausted(self.turn.max_rounds)
+        logger.warning("[TurnEngine] tool budget of %s round(s) reached, making a final call without tools", self.max_rounds)
+        yield BudgetExhausted(self.max_rounds)
         yield self._commit(context_message("budget", TOOL_BUDGET_EXHAUSTED_MESSAGE), StepStatus.COMPLETED)
         box = _StepBox()
         async for event in self._step(box, (), filtered=True, retry_empty=False, keep_loaded=False):
@@ -450,14 +533,15 @@ class _Run:
 
     def _commit(self, message: Message, status: StepStatus, *, final: bool = False) -> StepCommitted:
         store = self.engine._store
+        seq = store.next_seq(self.turn.session_id)
         if self.first_seq is None:
-            self.first_seq = store.next_seq(self.turn.session_id)
+            self.first_seq = seq
         modelled = final and message.role is Role.ASSISTANT
         step = StepRecord(
             id=new_id("step"),
             session_id=self.turn.session_id,
             turn_id=self.turn_id,
-            seq=self.first_seq + len(self.steps),
+            seq=seq,
             message=message,
             status=status,
             usage=self.last_usage if modelled else None,
@@ -492,10 +576,10 @@ class _Run:
         )
         state = self._state(turn_status, error=error_json)
         closing = interrupted_tool_step(
-            self.steps,
+            [*self.prior, *self.steps],
             state,
             step_id=new_id("step"),
-            seq=self.first_seq + len(self.steps) if self.first_seq is not None else 0,
+            seq=self.engine._store.next_seq(self.turn.session_id),
             status=step_status,
             reason=CANCELLED_REASON if turn_status is TurnStatus.CANCELLED else FAILED_REASON,
         )
@@ -520,12 +604,12 @@ class _Run:
             ),
             first_seq=self.first_seq if self.first_seq is not None else self.engine._store.next_seq(self.turn.session_id),
             rounds_used=self.rounds_used,
-            max_rounds=self.turn.max_rounds,
+            max_rounds=self.max_rounds,
             pending=self.pending,
             gathered=self.gathered,
-            failed_calls=frozenset(self.round.guard.failed_call_keys()),
+            failed_calls=self.round.guard.failed_calls(),
             tool_failures=dict(self.round.guard.tool_failures),
-            applied_calls=frozenset(self.turn.applied_calls),
+            applied_calls=self.applied_calls,
             loaded_tool_groups=self._loaded_groups(),
             rescue_retries=self.rescue_retries,
             notices=tuple(self.notices),

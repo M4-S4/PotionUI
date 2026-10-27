@@ -71,6 +71,21 @@ class InMemoryTurnStore:
     def steps(self, session_id: str) -> List[StepRecord]:
         return list(self._steps.get(session_id, []))
 
+    def turn_steps(self, turn_id: str) -> List[StepRecord]:
+        return [step for steps in self._steps.values() for step in steps if step.turn_id == turn_id]
+
+    def steps_by_turn(self, turn_ids: Sequence[str]) -> Dict[str, List[StepRecord]]:
+        wanted = set(turn_ids)
+        grouped: Dict[str, List[StepRecord]] = {}
+        for steps in self._steps.values():
+            for step in steps:
+                if step.turn_id in wanted:
+                    grouped.setdefault(step.turn_id, []).append(step)
+        return grouped
+
+    def states(self, turn_ids: Sequence[str]) -> Dict[str, TurnState]:
+        return {turn_id: self._states[turn_id] for turn_id in turn_ids if turn_id in self._states}
+
     def next_seq(self, session_id: str) -> int:
         return len(self._steps.get(session_id, []))
 

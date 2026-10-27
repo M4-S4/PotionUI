@@ -292,7 +292,7 @@ async def test_a_failed_call_is_not_rerun_with_the_same_arguments():
     results = adapter.requests[2].messages[-1].tool_results()
     assert results[0].is_error and "already called broken" in results[0].text()
     assert outcome_of(events).tool_failures == {"broken": 2}
-    assert outcome_of(events).state.failed_calls == frozenset({'broken:{}'})
+    assert outcome_of(events).state.failed_calls == {'broken:{}': 'disk on fire'}
 
 
 async def test_a_tool_image_travels_inside_the_tool_result():

@@ -85,7 +85,7 @@ class TurnState:
     max_rounds: int = 20
     pending: Tuple[PendingCall, ...] = ()
     gathered: Tuple[ToolResultPart, ...] = ()
-    failed_calls: FrozenSet[str] = frozenset()
+    failed_calls: Mapping[str, str] = field(default_factory=dict)
     tool_failures: Mapping[str, int] = field(default_factory=dict)
     applied_calls: FrozenSet[str] = frozenset()
     loaded_tool_groups: Tuple[str, ...] = ()

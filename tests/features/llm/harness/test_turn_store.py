@@ -126,7 +126,7 @@ class TurnStoreContract:
             rounds_used=2,
             pending=(PendingCall(call_id="c2", name="delete_prompt", decision=DecisionKind.APPROVAL, preview={"before": ["a"]}),),
             gathered=(ToolResultPart(call_id="c1", name="search", content=(TextPart(text="2 hits"),)),),
-            failed_calls=frozenset({"search:{}"}),
+            failed_calls={"search:{}": "no index"},
             tool_failures={"search": 1},
             applied_calls=frozenset({"a", "b"}),
             loaded_tool_groups=("gallery",),

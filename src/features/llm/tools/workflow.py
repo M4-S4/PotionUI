@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from src.features.llm.tools import tool_call_rescue
 
@@ -108,5 +108,9 @@ class ToolCallGuard:
     def already_applied(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
         return self.call_key(tool_name, arguments) in self._applied_calls
 
-    def failed_call_keys(self) -> List[str]:
-        return list(self._failed_calls)
+    def failed_calls(self) -> Dict[str, str]:
+        return dict(self._failed_calls)
+
+    def restore(self, failed_calls: Mapping[str, str], tool_failures: Mapping[str, int]) -> None:
+        self._failed_calls = dict(failed_calls)
+        self.tool_failures = dict(tool_failures)
