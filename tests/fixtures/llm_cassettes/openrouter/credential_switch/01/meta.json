@@ -1,0 +1,29 @@
+{
+  "adapter": "openrouter",
+  "provider": "openrouter",
+  "model": "anthropic/claude-sonnet-5.5",
+  "source": "hand-built",
+  "doc_url": "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens",
+  "doc_urls": [
+    "https://openrouter.ai/docs/guides/best-practices/reasoning-tokens",
+    "https://openrouter.ai/docs/api_reference/streaming"
+  ],
+  "recorded_at": null,
+  "profile_overrides": {
+    "reasoning": "effort",
+    "reasoning_levels": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ],
+    "parallel_tools": true,
+    "tool_choice": [
+      "auto",
+      "none",
+      "named"
+    ],
+    "context_window": 200000,
+    "max_output_tokens": 64000
+  }
+}
