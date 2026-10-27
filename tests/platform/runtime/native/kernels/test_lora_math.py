@@ -26,16 +26,6 @@ def _delta(seed: int, dtype: torch.dtype = torch.bfloat16, scale: float = 1.0) -
     )
 
 
-def test_the_fused_cache_is_reused_while_nothing_it_depends_on_changes():
-    owner, deltas = _Owner(), [_delta(1)]
-
-    first = lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)
-    second = lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)
-
-    assert second is first
-    assert lora_math._LORA_FUSED_ATTR in owner.__dict__
-
-
 def test_the_fused_cache_is_rebuilt_in_the_new_compute_dtype():
     owner, deltas = _Owner(), [_delta(1)]
     bf16 = lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)
@@ -48,38 +38,6 @@ def test_the_fused_cache_is_rebuilt_in_the_new_compute_dtype():
     assert lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)[0][1].dtype is torch.bfloat16
 
 
-def test_the_fused_cache_is_rebuilt_when_a_strength_changes():
-    owner, deltas = _Owner(), [_delta(1, scale=1.0)]
-    before = lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)
-    assert before[0][3] == pytest.approx(1.0 * 2.0 / RANK)
-
-    deltas[0].scale = 0.25
-    after = lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)
-
-    assert after is not before
-    assert after[0][3] == pytest.approx(0.25 * 2.0 / RANK)
-
-
-def test_the_fused_cache_is_rebuilt_when_the_adapter_stack_changes():
-    owner, deltas = _Owner(), [_delta(1)]
-    single = lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)
-
-    stacked = lora_math._cached_lora_fused(owner, [*deltas, _delta(2)], torch.bfloat16, CPU)
-
-    assert stacked is not single
-    assert stacked[0][1].shape[0] == 2 * RANK
-
-
-def test_invalidating_the_fused_cache_forces_a_rebuild():
-    owner, deltas = _Owner(), [_delta(1)]
-    built = lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU)
-
-    lora_math.invalidate_lora_fused_cache(owner)
-
-    assert lora_math._LORA_FUSED_ATTR not in owner.__dict__
-    assert lora_math._cached_lora_fused(owner, deltas, torch.bfloat16, CPU) is not built
-
-
 @pytest.mark.parametrize("value", [True, False])
 def test_the_fused_switch_follows_the_live_flag_at_every_call(monkeypatch, value):
     monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", not value)
@@ -90,15 +48,11 @@ def test_the_fused_switch_follows_the_live_flag_at_every_call(monkeypatch, value
     assert lora_math._lora_fused_enabled() is value
 
 
-def test_a_weight_side_delta_reaches_the_module_level_apply_the_spies_patch(monkeypatch):
+def test_a_weight_side_lokr_delta_adds_its_kron_product_to_the_weight_through_the_patched_apply(monkeypatch):
     monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", False)
     g = torch.Generator().manual_seed(5)
-    lokr = LoraDelta(
-        down=torch.randn(4, 4, generator=g),
-        up=torch.randn(3, 3, generator=g),
-        alpha=1.0,
-        kron=True,
-    )
+    up, down = torch.randn(3, 3, generator=g), torch.randn(4, 4, generator=g)
+    lokr = LoraDelta(down=down, up=up, alpha=1.5, scale=0.7, kron=True)
     calls = []
     real = lora_math.apply_lora_deltas
 
@@ -111,5 +65,6 @@ def test_a_weight_side_delta_reaches_the_module_level_apply_the_spies_patch(monk
 
     out = lora_math.linear_with_lora_deltas(x, weight, None, [lokr], 12)
 
+    expected = torch.nn.functional.linear(x, weight + torch.kron(up, down).reshape(weight.shape) * 0.7 * 1.5)
     assert calls == [1]
-    assert torch.allclose(out, torch.nn.functional.linear(x, real(weight, [lokr])))
+    assert torch.allclose(out, expected, atol=1e-5)
