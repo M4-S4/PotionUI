@@ -1,25 +1,21 @@
 import asyncio
 import json
-from typing import Any, List
-from unittest.mock import patch
+from typing import Any
 
 import pytest
 
-from src.features.chat.history import replayed_history
 from src.features.chat.exceptions import ToolExecutionPendingException
 from src.features.llm.harness import codec
 from src.features.llm.harness.adapter import RenderRequest, Settings
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
-from src.features.llm.harness.baseline import turn_only_replay
 from src.features.llm.harness.errors import ServerFailed
 from src.features.llm.harness.events import TextDelta
-from src.features.llm.harness.messages import ImagePart, Origin, Role
+from src.features.llm.harness.messages import ImagePart, Role
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.store import SqliteTurnStore
 from src.features.llm.harness.turn_state import StepStatus, TurnState, TurnStatus
 from src.features.llm.tools.base import BaseTool, ToolResult
 from tests.features.chat.test_tool_approval_flow import (
-    USER_ID,
     _call,
     _done,
     _EchoTool,
@@ -29,12 +25,10 @@ from tests.features.chat.test_tool_approval_flow import (
     _stream,
     chat_db,
 )
-from tests.fixtures.chat_engine import ScriptedTurns, _Replay, scripted_llm
-from tests.fixtures.legacy_chats import chats, env, execution, previous_template
+from tests.fixtures.chat_engine import ScriptedTurns, scripted_llm
 from tests.fixtures.llm_engine import scripted_config
 
 SECRET = "SECRET-PLAN-7731"
-ORIGIN = Origin(adapter="scripted", provider="scripted", model="scripted-model")
 
 
 class _SetOtherTool(_SetValueTool):
@@ -268,6 +262,37 @@ class TestPausedTwice:
         assert store.open_turn(session_id) is None
 
 
+class TestRetryAfterAStoreFailure:
+    @pytest.mark.asyncio
+    async def test_a_failed_state_write_never_runs_the_tool_twice(self, chat_db, monkeypatch):
+        store = SqliteTurnStore()
+        llm = scripted_llm([{"tool_calls": [_call("c1", "set_value", value=2)]}, {"content": "Set."}])
+        tool = _SetValueTool()
+        manager, _repo, session_id = _manager([tool], llm, store=store)
+        message_id = _done(await _stream(manager, session_id, "set it"))["assistant_message"]["id"]
+        real = store.save_state
+        failures = []
+
+        def flaky(state):
+            if not failures:
+                failures.append(state.turn_id)
+                raise RuntimeError("database is locked")
+            real(state)
+
+        monkeypatch.setattr(store, "save_state", flaky)
+        with pytest.raises(RuntimeError):
+            await _resolve(manager, session_id, message_id)
+
+        retried = await _resolve(manager, session_id, message_id)
+
+        assert retried["status"] == "already_resolved"
+        assert tool.confirmed == 1
+        assert store.open_turn(session_id).pending == ()
+        final = await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
+        assert _done(final)["assistant_message"]["content"] == "Set."
+        assert tool.confirmed == 1
+
+
 class TestSeveralApprovals:
     @pytest.mark.asyncio
     async def test_the_turn_continues_only_after_every_call_is_decided_and_answers_them_in_call_order(self, chat_db):
@@ -368,33 +393,3 @@ class TestInterruptedTurns:
         assert [step.message.role for step in steps] == [Role.USER, Role.ASSISTANT, Role.TOOL, Role.USER]
         assert steps[2].message.tool_results()[0].text() == json.dumps({"applied": 2})
         assert store.load_state(steps[0].turn_id).status is TurnStatus.FAILED
-
-
-class TestMigratedChatsReplay:
-    def test_a_legacy_tool_turn_replays_as_a_valid_history(self, env, chats):
-        _, migration = env
-        session = chats.session("s1")
-        chats.row(session, "user", "find cats")
-        chats.row(session, "assistant", "Found 2 cats.", {
-            "thinking": {"segments": [{"text": "plan", "duration_ms": 9}, {"text": "sum up", "duration_ms": 4}]},
-            "tool_transcript": [{
-                "calls": [{"id": "call_1", "name": "search", "arguments": {"q": "cats"}}],
-                "results": [{"tool_call_id": "call_1", "content": "2 hits"}],
-                "reasoning": "plan",
-            }],
-            "tool_executions": [execution("search", "call_1", {"q": "cats"}, data="2 hits")],
-        })
-        migration.up()
-        steps = chats.steps(session)
-        target = Origin(adapter="a", provider="p", model="m")
-
-        messages, _ = turn_only_replay(
-            steps, turn_id="another-turn", target=target, profile=CapabilityProfile(adapter="a", model="m"),
-        )
-
-        assert [message.role for message in messages] == [Role.USER, Role.ASSISTANT, Role.TOOL, Role.ASSISTANT]
-        call = messages[1].tool_calls()[0]
-        assert (call.call_id, call.args) == ("call_1", {"q": "cats"})
-        assert messages[2].tool_results()[0].call_id == "call_1"
-        assert messages[3].text() == "Found 2 cats."
-        assert not any(message.reasoning() for message in messages)

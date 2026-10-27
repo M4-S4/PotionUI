@@ -1,6 +1,7 @@
 import time
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
+from src.features.chat.projection import metadata_without_reasoning
 from src.features.llm.harness.events import ReasoningDelta
 
 REASONING_EVENTS = frozenset({"reasoning", "reasoning_end"})
@@ -55,14 +56,6 @@ def config_shows_thinking(llm_service: Any, llm_config_id: Optional[str]) -> boo
     return getattr(config, "show_thinking", False) is True
 
 
-def _metadata_without_thinking(metadata: Dict[str, Any]) -> Dict[str, Any]:
-    cleaned = {key: value for key, value in metadata.items() if key != "thinking"}
-    trace = cleaned.get("behavior_trace")
-    if isinstance(trace, dict) and "thinking_visible" in trace:
-        cleaned["behavior_trace"] = {key: value for key, value in trace.items() if key != "thinking_visible"}
-    return cleaned
-
-
 def hide_thinking_in_event(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     kind = event.get("event")
     data = event.get("data")
@@ -82,7 +75,7 @@ def hide_thinking_in_event(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if kind == "done":
         message = data.get("assistant_message")
         if isinstance(message, dict) and isinstance(message.get("metadata"), dict):
-            redacted = {**message, "metadata": _metadata_without_thinking(message["metadata"])}
+            redacted = {**message, "metadata": metadata_without_reasoning(message["metadata"])}
             return {**event, "data": {**data, "assistant_message": redacted}}
     return event
 

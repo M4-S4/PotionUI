@@ -12,7 +12,8 @@ from src.features.chat.exceptions import (
     MessageCreationFailedException,
     ToolExecutionPendingException,
 )
-from src.features.llm.harness.messages import ToolCallPart
+from src.features.llm.harness.messages import TextPart, ToolCallPart, ToolResultPart
+from src.features.llm.harness.tool_runner import rejection_text
 from src.features.llm.harness.tool_runner import APPROVED, FAILED, PENDING, REJECTED
 from src.features.llm.harness.turn_state import Decision, DecisionKind, PendingCall, TurnState, TurnStatus
 from src.features.llm.tools.base import ToolContext, serialize_approval_preview
@@ -88,6 +89,34 @@ class ToolCallDispatcher:
             gathered=tuple(part for part in state.gathered if part.call_id != call_id),
         )
 
+    def _reconcile(self, state: Optional[TurnState], execution: Dict[str, Any]) -> None:
+        call_id = execution.get("tool_call_id")
+        if state is None or state.status is not TurnStatus.AWAITING_DECISION:
+            return
+        if not any(item.call_id == call_id for item in state.pending):
+            return
+        record = execution.get("result") or {}
+        if execution.get("approval_status") == REJECTED:
+            text = rejection_text(execution.get("approval_reason"))
+        elif record.get("success"):
+            text = record.get("data") or ""
+        else:
+            text = f"Error: {record.get('error') or 'unknown error'}"
+        waiting = next(item for item in state.pending if item.call_id == call_id)
+        part = ToolResultPart(
+            call_id=call_id, name=waiting.name, content=(TextPart(text=text),),
+            is_error=execution.get("approval_status") != APPROVED,
+        )
+        applied = state.applied_calls
+        if execution.get("approval_status") == APPROVED:
+            applied = applied | {ToolCallGuard.call_key(waiting.name, dict(execution.get("arguments") or {}))}
+        self._store.save_state(replace(
+            state,
+            pending=tuple(item for item in state.pending if item.call_id != call_id),
+            gathered=(*(item for item in state.gathered if item.call_id != call_id), part),
+            applied_calls=applied,
+        ))
+
     async def resolve_tool_execution(
         self,
         session_id: str,
@@ -108,6 +137,10 @@ class ToolCallDispatcher:
             execution = executions[tool_index]
             status = execution.get("approval_status")
             state = self._turn_state(message)
+            settled = status in (APPROVED, REJECTED) or (status == FAILED and not approved)
+            if settled:
+                self._reconcile(state, execution)
+                return self._resolution("already_resolved", message_id, tool_index, execution)
             if approved and status == FAILED:
                 state = self._reopened(state, execution.get("tool_call_id"))
             try:

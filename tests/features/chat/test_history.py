@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from src.features.chat.history import replayed_history, without_tool_exchanges
 from src.features.llm.harness.baseline import InMemoryTurnStore, turn_only_replay
 from src.features.llm.harness.messages import (
@@ -11,6 +13,7 @@ from src.features.llm.harness.messages import (
 )
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.turn_state import StepRecord, StepStatus
+from tests.fixtures.llm_turns import state
 
 ORIGIN = Origin(adapter="a", provider="p", model="m")
 PROFILE = CapabilityProfile(adapter="a", model="m")
@@ -80,3 +83,32 @@ def test_history_without_tools_drops_the_tool_exchanges():
     history = replayed_history(seeded_store(), turn_only_replay, "s1", "t2", ORIGIN, PROFILE, tools_enabled=False)
 
     assert [message.id for message in history] == ["m1", "m2", "m4"]
+
+
+def spying_selector(seen):
+    def select(steps, *, turn_id, target, profile, **extra):
+        seen.append(extra)
+        return tuple(step.message for step in steps), ()
+
+    return select
+
+
+def test_a_recorded_prefix_change_reaches_the_selector():
+    store = seeded_store()
+    store.load_state = lambda turn_id: SimpleNamespace(prefix_changed_at=3)
+    seen = []
+
+    replayed_history(store, spying_selector(seen), "s1", "t2", ORIGIN, PROFILE, tools_enabled=True)
+
+    assert seen == [{"prefix_changed_at": 3}]
+
+
+def test_a_session_without_a_recorded_prefix_change_calls_the_selector_plainly():
+    store = seeded_store()
+    store.save_state(state())
+    seen = []
+
+    replayed_history(store, spying_selector(seen), "s1", "t2", ORIGIN, PROFILE, tools_enabled=True)
+    replayed_history(InMemoryTurnStore(), spying_selector(seen), "s1", "t2", ORIGIN, PROFILE, tools_enabled=True)
+
+    assert seen == [{}, {}]
