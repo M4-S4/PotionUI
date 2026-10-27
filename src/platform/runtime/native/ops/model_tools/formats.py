@@ -6,6 +6,7 @@ import math
 import torch
 
 from ...io.quant_formats import (
+    NVFP4_BLOCK,
     build_convrot_hadamard,
     convrot_unrotate_weight,
     dequantize_nvfp4,
@@ -19,7 +20,6 @@ from .format import SCALE2_SUFFIX, SCALE_SUFFIX, WEIGHT_SUFFIX
 CONVROT_GROUPSIZE = 256
 INT8_CODE_MAX = 127
 INT4_CODE_MAX = 7
-NVFP4_BLOCK = 16
 
 Shape = tuple[int, ...]
 LayerSpec = tuple[str, str, Shape]

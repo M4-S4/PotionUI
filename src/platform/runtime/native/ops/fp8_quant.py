@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 _warned_bad_fp8_policy = False
 
 FP8_E4M3 = torch.float8_e4m3fn
-_E4M3_MAX = torch.finfo(FP8_E4M3).max
 
 # Substrings marking a 2D weight that must stay at its original dtype. Norm
 # weights are 1D (already skipped by the rank test) but listed for clarity; the

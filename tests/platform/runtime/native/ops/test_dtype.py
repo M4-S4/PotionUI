@@ -68,6 +68,7 @@ def test_unreadable_capability_computes_in_fp16(install_capabilities):
     "sd_dtype, storage",
     [
         pytest.param(torch.float8_e4m3fn, torch.float8_e4m3fn, id="fp8-stays-fp8"),
+        pytest.param(torch.float8_e5m2, torch.float8_e5m2, id="fp8-e5m2-stays-fp8"),
         pytest.param(torch.bfloat16, torch.bfloat16, id="bf16-stays-bf16"),
         pytest.param(torch.float16, torch.float16, id="fp16-stays-fp16"),
         pytest.param(torch.float32, torch.float16, id="fp32-takes-the-compute-dtype"),

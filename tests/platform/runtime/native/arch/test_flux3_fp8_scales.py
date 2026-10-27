@@ -59,6 +59,14 @@ def test_only_one_dimensional_scales_of_fp8_weights_are_reshaped():
     assert sd["a.weight_scale"].shape == (8,)
 
 
+def test_scales_of_e5m2_weights_are_reshaped_like_e4m3():
+    e5m2_weight = torch.zeros(8, 16).to(torch.float8_e5m2)
+
+    out = convert_flux3_state_dict({"a.weight": e5m2_weight, "a.weight_scale": torch.ones(8)})
+
+    assert out["a.weight_scale"].shape == (8, 1)
+
+
 def test_comfy_attention_hints_are_dropped():
     sd = {
         "single_blocks.0.attn.qkv.weight": torch.ones(2, 2),
