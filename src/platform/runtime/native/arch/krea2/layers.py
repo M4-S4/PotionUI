@@ -80,13 +80,6 @@
 #     the installed diffusers source. Despite living in the file the old
 #     header called a Wan2GP "faithful port", this formula is diffusers-
 #     identical, not a Wan2GP expression that happens to coincide.
-#   * `attention` is our own native seam (`src/platform/runtime/native/attention.py`),
-#     not diffusers' `dispatch_attention_fn`. GQA (unequal q/kv head counts)
-#     goes through that seam's `grouped_attention()`, which — like diffusers'
-#     own backend dispatch — passes grouped kv heads to backends that take
-#     them (`enable_gqa=True` on torch SDPA) and repeat_interleaves them for
-#     the ones that don't. This is integration glue for OUR seam's contract,
-#     carrying no distinctive Wan2GP expression to attribute or replace.
 #   * FBCache's block-0 probe/skip seam (BE-?, `run_blocks` in model.py) and
 #     the ref_latents in-context edit hook (model.py) are additive to
 #     our sampler/plugin integration; diffusers' upstream carries neither.

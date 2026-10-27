@@ -1213,11 +1213,6 @@ class TestBackendOptimizations:
     async def test_set_attention_backend_accepts_sparge_against_real_dispatcher(
         self, controller, admin_user, native_backend
     ):
-        # Same regression, but exercised against the REAL src.platform.runtime.native.attention
-        # module (no mocking) -- "sparge" must be accepted as a name regardless of
-        # whether the sparge package is actually installed on this machine; pin
-        # validity is about NAME recognition, not runtime availability (an
-        # unavailable pin still falls back to sdpa with a warning at dispatch time).
         controller.backend_config_store.get_backend.return_value = native_backend
         response = await controller.set_attention_backend("native-1", "sparge", user=admin_user)
         assert response.success is True

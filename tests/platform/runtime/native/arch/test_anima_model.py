@@ -88,13 +88,6 @@ def test_tiny_forward_shape_with_fusion():
 
 
 def test_attention_dispatcher_matches_direct_sdpa():
-    # Anima's two attention modules route through the shared dispatcher
-    # (src/platform/runtime/native/attention.py, injected into the vendored
-    # layers module via set_attention_backend()) instead of calling
-    # F.scaled_dot_product_attention directly. On CPU/fp32 the dispatcher always
-    # falls back to its own sdpa path, so this pins that fallback to be bit-exact
-    # with a direct F.scaled_dot_product_attention call on identical inputs -
-    # i.e. the refactor is a pure routing change, not a numeric one.
     import torch.nn.functional as F
 
     import vendor.gpl.comfyui.anima.layers as anima_layers

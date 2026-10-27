@@ -4,7 +4,6 @@
 # attention/modules.py (MultiHeadRMSNorm, MultiHeadAttention) + attention/rope.py
 # (RotaryPositionEmbedder). Adapted to the native ``operations`` seam (torch.nn.Linear
 # -> operations.Linear) and the native attention dispatcher
-# (src/platform/runtime/native/attention.py) in place of the vendored full_attn sdpa
 # branch. Submodule attribute names and nesting are kept IDENTICAL to upstream (incl.
 # the block's ``mlp.mlp.*`` double-nesting from FeedForwardNet) so a checkpoint's
 # ``model.structure_model.*`` state dict loads with no key remapping.
