@@ -8,6 +8,7 @@ routing end-to-end through a real ToolRegistry + ToolExecutor with a fake LLM,
 plus confirm typing "/enhance" literally is no longer special-cased.
 """
 
+from src.features.llm.harness.baseline import turn_only_replay
 import json
 import pytest
 from types import SimpleNamespace
@@ -132,6 +133,7 @@ def make_tool_chat_manager(enhancement_manager=None, turns=None):
         tool_executor=executor,
         tool_services=ToolServices(prompt_enhancement_manager=enhancement_manager or make_enhancement_manager()),
         turn_engine=turn_engine_for(llm_service, executor),
+        replay_selector=turn_only_replay,
     )
     return manager, repo, llm_service
 

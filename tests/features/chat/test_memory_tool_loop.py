@@ -17,6 +17,7 @@ service that scripts exactly what a flaky local model does: a tool call, then
 a genuinely empty completion, then a real answer on retry.
 """
 
+from src.features.llm.harness.baseline import turn_only_replay
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -103,6 +104,7 @@ def make_memory_chat_manager(scripts):
         tool_executor=executor,
         tool_services=ToolServices(llm_memory_repository=make_memory_repository()),
         turn_engine=turn_engine_for(llm_service, executor),
+        replay_selector=turn_only_replay,
     )
     return manager, repo, llm_service
 

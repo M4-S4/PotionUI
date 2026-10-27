@@ -1,3 +1,4 @@
+from src.features.llm.harness.baseline import turn_only_replay
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -41,6 +42,7 @@ def _runtime(owner="user-1"):
         chat_mode_registry=mode_registry(),
         tool_services=ToolServices(tab_drafts=drafts),
         turn_engine=engine,
+        replay_selector=turn_only_replay,
     )
     return runtime, engine
 

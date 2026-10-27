@@ -1,3 +1,4 @@
+from src.features.llm.harness.baseline import turn_only_replay
 import asyncio
 from src.features.chat.reply_contract import approval_continuation_message
 from src.features.llm.tools.base import ToolServices
@@ -131,6 +132,7 @@ def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None, store=No
         tool_executor=executor,
         tool_services=ToolServices(generation_orchestrator=generation_orchestrator, tab_drafts=tab_drafts),
         turn_engine=turn_engine_for(llm, executor, store=store),
+        replay_selector=turn_only_replay,
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id

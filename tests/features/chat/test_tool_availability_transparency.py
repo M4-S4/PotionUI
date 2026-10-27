@@ -10,6 +10,7 @@ ChatContextBuilder.inject_tool_availability_block (the system warning), and
 their wiring into ConversationRunner.send_message's persisted behavior trace.
 """
 
+from src.features.llm.harness.baseline import turn_only_replay
 import io
 import sys
 from unittest.mock import AsyncMock, Mock, patch
@@ -263,6 +264,7 @@ class TestSendMessageToolAvailabilityTransparency:
 
         manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,

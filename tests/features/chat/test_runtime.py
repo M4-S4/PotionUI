@@ -1,5 +1,6 @@
 """Tests for ChatRuntime."""
 
+from src.features.llm.harness.baseline import turn_only_replay
 from dataclasses import replace
 import pytest
 from types import SimpleNamespace
@@ -42,6 +43,7 @@ class TestValidationHelpers:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -119,6 +121,7 @@ class TestCreateSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -210,6 +213,7 @@ class TestGetSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -261,6 +265,7 @@ class TestDeleteSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -307,6 +312,7 @@ class TestUpdateSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=Mock(),
@@ -363,6 +369,7 @@ class TestSendMessage:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -719,6 +726,7 @@ class TestSendMessageBehaviorTrace:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -968,6 +976,7 @@ class TestMemoryCountedInHistoryBudget:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1060,6 +1069,7 @@ class TestResolveToolExecutionPreservesBehaviorTrace:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1131,6 +1141,7 @@ class TestAcceptSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1184,6 +1195,7 @@ class TestRejectSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1230,6 +1242,7 @@ class TestHookExecution:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1304,6 +1317,7 @@ class TestSendMessageResources:
         registry.register(FakeProvider())
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1418,6 +1432,7 @@ class TestInjectMemoryBlock:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1480,6 +1495,7 @@ class TestInjectMemoryBlock:
     def test_no_manager_does_nothing(self):
         manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1605,6 +1621,7 @@ class TestInjectWorkspaceBlock:
         # checkpoint/LoRA split relies on each model's own DB model_type.
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1810,6 +1827,7 @@ class TestInjectWorkspaceBlockMusicDirector:
         self.engine = ScriptedTurnEngine()
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1897,6 +1915,7 @@ class TestInjectWorkspaceBlockVideoDirector:
         self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = None
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -2034,6 +2053,7 @@ class TestInjectWorkspaceBlockLLMContext:
         self.mock_preset_collaborators = Mock()
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -2474,6 +2494,7 @@ class TestBehaviorTraceToolFailures:
 
         manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,
@@ -2548,6 +2569,7 @@ class TestSendMessageToolsPathIterationNudge:
 
         manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,

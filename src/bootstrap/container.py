@@ -148,7 +148,7 @@ from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
 from src.features.llm.context_windows import ContextWindows
-from src.features.llm.harness.baseline import StaticProfileResolver
+from src.features.llm.harness.baseline import StaticProfileResolver, turn_only_replay
 from src.features.llm.harness.engine import TurnEngine
 from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.store import SqliteTurnStore
@@ -1754,6 +1754,7 @@ def build_container() -> AppContainer:
             generation_parameter_repository=generation_parameter_repository,
             generation_model_repository=generation_model_repository,
             turn_engine=turn_engine,
+            replay_selector=turn_only_replay,
         )
     )
     chat.pre_chat_action_registry.discover_actions()

@@ -1,5 +1,6 @@
 """Tests for ChatRuntime.send_message_stream method."""
 
+from src.features.llm.harness.baseline import turn_only_replay
 from dataclasses import replace
 import asyncio
 
@@ -87,6 +88,7 @@ class BaseStreamingTest:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -915,6 +917,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1238,6 +1241,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1439,6 +1443,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         ))
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -2105,6 +2110,7 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,

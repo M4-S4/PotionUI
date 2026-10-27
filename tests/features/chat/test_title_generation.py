@@ -1,5 +1,6 @@
 """Tests for ChatTitleGenerator and the title SSE event in send_message_stream."""
 
+from src.features.llm.harness.baseline import turn_only_replay
 import pytest
 
 from src.features.chat.dto import MessageResponse
@@ -160,6 +161,7 @@ class TestStreamTitleEvent:
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
         )
 
         session = _session()

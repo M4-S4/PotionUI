@@ -2,6 +2,7 @@
 as a background task after a turn, never awaited by the response path, and
 only actually calls the LLM once its own gating conditions are met."""
 
+from src.features.llm.harness.baseline import turn_only_replay
 from dataclasses import replace
 import asyncio
 import pytest
@@ -57,6 +58,7 @@ class TestReflectionFiresOnSend:
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
             turn_engine=self.engine,
+            replay_selector=turn_only_replay,
         )
         # Late-bound the same way the composition root does.
         self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=self.mock_memory)
