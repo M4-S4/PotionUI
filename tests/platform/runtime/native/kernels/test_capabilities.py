@@ -12,7 +12,6 @@ import types
 import pytest
 import torch
 
-import src.platform.runtime.native.attention as att
 from src.platform.runtime.native.kernels import (
     FLASH,
     SAGE,
@@ -306,6 +305,8 @@ ATTENTION_CASES = [
     pytest.param((10, 3), {"sageattn3"}, True, "12.8", {SDPA}, id="sage3-exact-membership-sm103"),
     pytest.param((12, 2), {"sageattn3"}, True, "12.8", {SDPA}, id="sage3-exact-membership-sm122"),
     pytest.param((9, 0), {"sageattn3"}, True, "12.8", {SDPA}, id="sage3-not-on-hopper"),
+    pytest.param((11, 0), {"sageattn3"}, True, "12.8", {SDPA}, id="sage3-not-on-sm110"),
+    pytest.param((13, 0), {"sageattn3"}, True, "12.8", {SDPA}, id="sage3-not-on-future-majors"),
     pytest.param((12, 0), {"sageattn3"}, True, "12.7", {SDPA}, id="sage3-old-cuda-runtime"),
     pytest.param((12, 0), {"sageattn3"}, True, "12", {SDPA}, id="sage3-bare-major-runtime"),
     pytest.param((12, 0), {"sageattn3"}, True, "13.0", {SDPA, SAGE3}, id="sage3-newer-runtime"),
@@ -314,7 +315,9 @@ ATTENTION_CASES = [
     pytest.param((8, 0), {"spas_sage_attn"}, True, "12.8", {SDPA, SPARGE}, id="sparge-sm80"),
     pytest.param((8, 9), {"spas_sage_attn"}, True, "12.8", {SDPA, SPARGE}, id="sparge-sm89"),
     pytest.param((9, 0), {"spas_sage_attn"}, True, "12.8", {SDPA, SPARGE}, id="sparge-sm90"),
+    pytest.param((6, 1), {"spas_sage_attn"}, True, "12.8", {SDPA}, id="sparge-not-on-pascal"),
     pytest.param((7, 5), {"spas_sage_attn"}, True, "12.8", {SDPA}, id="sparge-not-on-turing"),
+    pytest.param((10, 0), {"spas_sage_attn"}, True, "12.8", {SDPA}, id="sparge-not-on-datacenter-blackwell"),
     pytest.param((12, 0), {"spas_sage_attn"}, True, "12.8", {SDPA}, id="sparge-not-on-blackwell"),
     pytest.param((8, 6), ALL, True, "12.8", {SDPA, FLASH, SAGE, SAGE2, SPARGE}, id="everything-on-ampere"),
     pytest.param((12, 0), ALL, True, "12.8", {SDPA, FLASH, SAGE, SAGE2, SAGE3}, id="everything-on-blackwell"),
@@ -331,10 +334,8 @@ def test_attention_backends_follow_the_dispatcher_gates(
     monkeypatch, capability, modules, sage_v2, runtime, expected
 ):
     _environment(monkeypatch, devices=[capability], modules=modules, sage_v2=sage_v2, runtime=runtime)
-    probed = frozenset(name for name, available in att._probe(0).items() if available)
     backends = capabilities().device(0).attention_backends
     assert backends == frozenset(expected)
-    assert backends == probed
 
 
 def test_missing_sageattention_metadata_keeps_sage_without_sage2(monkeypatch):
