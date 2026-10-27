@@ -1,3 +1,12 @@
+from .dispatch import (
+    BACKEND_PRIORITY,
+    attention,
+    available_backends,
+    get_attention_backend,
+    get_backend_override,
+    known_backends,
+    reset_backend_cache,
+)
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
@@ -15,6 +24,7 @@ from .hardware import (
 from .linear import FastPath, FastPathKind, QuantFormat, fast_path
 
 __all__ = [
+    "BACKEND_PRIORITY",
     "FLASH",
     "SAGE",
     "SAGE2",
@@ -28,8 +38,14 @@ __all__ = [
     "GemmSupport",
     "GpuGeneration",
     "QuantFormat",
+    "attention",
+    "available_backends",
     "capabilities",
     "fast_path",
     "gemm_support",
+    "get_attention_backend",
+    "get_backend_override",
+    "known_backends",
     "refresh_capabilities",
+    "reset_backend_cache",
 ]

@@ -16,7 +16,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ...attention import grouped_attention
+from ...kernels import attention
 from ...base import NativeArchModule
 from ...text_encoders._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device
 from .config import YuE2Config
@@ -51,7 +51,7 @@ class Attention(nn.Module):
         return q, k, v
 
     def _attend(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor:
-        out = grouped_attention(q, k, v, heads=self.num_heads, kvheads=self.num_kv_heads, mask=mask, backend="sdpa")
+        out = attention(q, k, v, heads=self.num_heads, kvheads=self.num_kv_heads, mask=mask, backend="sdpa")
         return out.transpose(1, 2).reshape(q.shape[0], -1, self.num_heads * self.head_dim)
 
     def prefill(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,

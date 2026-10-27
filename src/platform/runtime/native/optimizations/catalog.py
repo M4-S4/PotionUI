@@ -135,11 +135,11 @@ class AttentionBackendOptimization(Optimization):
     def activate(self) -> dict:
         import importlib
 
-        from src.platform.runtime.native import attention
+        from src.platform.runtime.native.kernels import get_attention_backend, reset_backend_cache
 
         importlib.invalidate_caches()
-        attention.reset_backend_cache()
-        return {"active_backend": attention.get_attention_backend()}
+        reset_backend_cache()
+        return {"active_backend": get_attention_backend()}
 
 
 def _cap_at_least(probe: SystemProbe, major: int, minor: int = 0) -> bool:
@@ -455,11 +455,11 @@ class SpargeAttention(AttentionBackendOptimization):
     UNLIKE every other entry in this catalog, this is an APPROXIMATION, not a
     numerically near-lossless kernel swap — output quality depends on content
     and the sparsity/accuracy tradeoff (its tune-free default is ``topk=0.5``;
-    see ``attention.py``'s ``_sparge`` wrapper). For that reason the dispatcher
-    never auto-selects it (``attention.PIN_ONLY_BACKENDS``): installing it only
+    see ``kernels/dispatch.py``'s ``_sparge`` wrapper). For that reason the dispatcher
+    never auto-selects it (``PIN_ONLY_BACKENDS`` in ``kernels/dispatch.py``): installing it only
     makes it available as an explicit ``$NATIVE_ATTENTION=sparge`` / admin pin
     (this panel's activate control), never picked automatically no matter how
-    available it is — see ``attention.get_attention_backend``.
+    available it is — see ``kernels.get_attention_backend``.
 
     Compute capability: ``thu-ml/SpargeAttn``'s own ``setup.py``
     ``SUPPORTED_ARCHS`` lists 8.0/8.6/8.7/8.9/9.0 only (Ampere/Ada/Hopper) — no

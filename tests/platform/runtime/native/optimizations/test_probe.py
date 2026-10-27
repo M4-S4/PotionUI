@@ -402,10 +402,8 @@ class TestProbeSystem:
         versions = {"sageattention": "2.1.0", "sageattn3": "1.0.0", "spas_sage_attn": "0.1.0", "triton": "3.0.0"}
         monkeypatch.setattr(probe_mod, "_package_version", lambda name: versions.get(name))
 
-        import src.platform.runtime.native.attention as attention
-
-        monkeypatch.setattr(attention, "get_attention_backend", lambda: "sage2")
-        monkeypatch.setattr(attention, "available_backends", lambda: ["sage2", "sage", "sdpa"])
+        monkeypatch.setattr(probe_mod, "get_attention_backend", lambda: "sage2")
+        monkeypatch.setattr(probe_mod, "available_backends", lambda: ["sage2", "sage", "sdpa"])
 
         report = probe_system()
 
@@ -435,10 +433,8 @@ class TestProbeSystem:
         monkeypatch.setattr(probe_mod, "_find_venv_nvcc", lambda major: None)
         monkeypatch.setattr(probe_mod, "_package_version", lambda name: None)
 
-        import src.platform.runtime.native.attention as attention
-
-        monkeypatch.setattr(attention, "get_attention_backend", lambda: "sdpa")
-        monkeypatch.setattr(attention, "available_backends", lambda: ["sdpa"])
+        monkeypatch.setattr(probe_mod, "get_attention_backend", lambda: "sdpa")
+        monkeypatch.setattr(probe_mod, "available_backends", lambda: ["sdpa"])
 
         report = probe_system()
 

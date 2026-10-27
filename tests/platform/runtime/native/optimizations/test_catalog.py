@@ -456,51 +456,51 @@ class TestFlashAttnRequirements:
 
 class TestActivate:
     def test_sage_activate_resets_cache_and_returns_active_backend(self, monkeypatch):
-        import src.platform.runtime.native.attention as attention
+        from src.platform.runtime.native import kernels
 
         called = {"reset": False}
-        monkeypatch.setattr(attention, "reset_backend_cache", lambda: called.__setitem__("reset", True))
-        monkeypatch.setattr(attention, "get_attention_backend", lambda: "sage2")
+        monkeypatch.setattr(kernels, "reset_backend_cache", lambda: called.__setitem__("reset", True))
+        monkeypatch.setattr(kernels, "get_attention_backend", lambda: "sage2")
 
         result = SageAttention2().activate()
         assert called["reset"] is True
         assert result == {"active_backend": "sage2"}
 
     def test_sage3_activate_resets_cache_and_returns_active_backend(self, monkeypatch):
-        import src.platform.runtime.native.attention as attention
+        from src.platform.runtime.native import kernels
 
         called = {"reset": False}
-        monkeypatch.setattr(attention, "reset_backend_cache", lambda: called.__setitem__("reset", True))
-        monkeypatch.setattr(attention, "get_attention_backend", lambda: "sage3")
+        monkeypatch.setattr(kernels, "reset_backend_cache", lambda: called.__setitem__("reset", True))
+        monkeypatch.setattr(kernels, "get_attention_backend", lambda: "sage3")
 
         result = SageAttention3().activate()
         assert called["reset"] is True
         assert result == {"active_backend": "sage3"}
 
     def test_sparge_activate_resets_cache_and_returns_active_backend(self, monkeypatch):
-        import src.platform.runtime.native.attention as attention
+        from src.platform.runtime.native import kernels
 
         called = {"reset": False}
-        monkeypatch.setattr(attention, "reset_backend_cache", lambda: called.__setitem__("reset", True))
-        monkeypatch.setattr(attention, "get_attention_backend", lambda: "sparge")
+        monkeypatch.setattr(kernels, "reset_backend_cache", lambda: called.__setitem__("reset", True))
+        monkeypatch.setattr(kernels, "get_attention_backend", lambda: "sparge")
 
         result = SpargeAttention().activate()
         assert called["reset"] is True
         assert result == {"active_backend": "sparge"}
 
     def test_flash_activate_resets_cache_and_returns_active_backend(self, monkeypatch):
-        import src.platform.runtime.native.attention as attention
+        from src.platform.runtime.native import kernels
 
         called = {"reset": False}
-        monkeypatch.setattr(attention, "reset_backend_cache", lambda: called.__setitem__("reset", True))
-        monkeypatch.setattr(attention, "get_attention_backend", lambda: "flash")
+        monkeypatch.setattr(kernels, "reset_backend_cache", lambda: called.__setitem__("reset", True))
+        monkeypatch.setattr(kernels, "get_attention_backend", lambda: "flash")
 
         result = FlashAttn().activate()
         assert called["reset"] is True
         assert result == {"active_backend": "flash"}
 
     def test_activate_picks_up_a_backend_installed_after_the_snapshot_was_built(self, monkeypatch, install_capabilities):
-        import src.platform.runtime.native.attention as attention
+        import src.platform.runtime.native.kernels.dispatch as attention
 
         monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
         install_capabilities(fake_capabilities(ampere()))

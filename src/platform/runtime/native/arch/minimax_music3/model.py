@@ -46,7 +46,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 
 MINIMAX_MUSIC3_DIT = "minimax_music3_dit"

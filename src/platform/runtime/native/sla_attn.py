@@ -6,7 +6,7 @@ with one small matmul, and keeps only the top-``k`` fraction of key blocks per
 query block — exact attention over just those blocks, nothing else. Like
 Sol-Attn it is an **approximation**: the same inputs produce a different — not
 merely differently-rounded — output than
-:mod:`~src.platform.runtime.native.attention`'s dense backends. That is why
+:mod:`~src.platform.runtime.native.kernels.dispatch`'s dense backends. That is why
 nothing here is ever reached unless a caller hands over an
 :class:`SlaAttnContext`, and why every preset that exposes it defaults to off.
 

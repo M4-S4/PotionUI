@@ -159,7 +159,7 @@ class NumericsWatchdog(BaseStepHook):
         if bad_tensor is not None:
             backend = None
             try:  # best-effort — never let backend resolution mask the real error
-                from ..attention import get_attention_backend
+                from ..kernels import get_attention_backend
                 backend = get_attention_backend()
             except Exception:  # noqa: BLE001
                 pass

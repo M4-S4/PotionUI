@@ -23,8 +23,7 @@ from typing import Optional
 
 import torch
 
-from src.platform.runtime.native import attention
-from src.platform.runtime.native.kernels import capabilities
+from src.platform.runtime.native.kernels import available_backends, capabilities, get_attention_backend
 
 _NVCC_RELEASE_RE = re.compile(r"release (\d+)\.(\d+)")
 
@@ -233,6 +232,6 @@ def probe_system() -> SystemProbe:
         triton_version=_package_version("triton"),
         flash_attn_version=_package_version("flash_attn"),
         xformers_version=_package_version("xformers"),
-        active_backend=attention.get_attention_backend(),
-        available_backends=attention.available_backends(),
+        active_backend=get_attention_backend(),
+        available_backends=available_backends(),
     )

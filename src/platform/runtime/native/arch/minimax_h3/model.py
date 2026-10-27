@@ -65,7 +65,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 
 # The OOM-rescue attention core (module-level so tests can stub it): plain
 # SDPA on (B, H, L, D) -- see the fallback comment in MiniMaxH3Attention.
