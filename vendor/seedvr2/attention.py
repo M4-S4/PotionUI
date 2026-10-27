@@ -59,7 +59,7 @@ def set_attention_backend(fn: "Callable[..., torch.Tensor]") -> None:
     """Wire the attention-kernel dispatcher the fallback path calls into.
 
     ``fn(q, k, v, mask=...) -> Tensor`` — same contract as
-    ``src.platform.runtime.native.attention.attention``. Idempotent; safe to
+    ``src.platform.runtime.native.kernels.attention``. Idempotent; safe to
     call more than once (later calls replace the backend).
     """
     global _attention_backend

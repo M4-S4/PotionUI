@@ -78,7 +78,7 @@ confirmation of two facts documented in neither checkpoint's config (a
 non-persistent resampler filter; log-space Snake alpha/beta) — observing what
 another project does is not deriving from it.
 
-`src/platform/runtime/native/attention.py` was also credited to it ("Modelled on
+`src/platform/runtime/native/kernels/dispatch.py` (formerly `native/attention.py`) was also credited to it ("Modelled on
 Wan2GP's `shared/attention.py`"). That was never a lineage claim either — the
 module is locally written, and its per-backend functions are short adapters onto
 the attention kernel packages' own public entry points — so the note has been
