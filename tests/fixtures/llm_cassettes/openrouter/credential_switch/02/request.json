@@ -1,0 +1,72 @@
+{
+  "method": "POST",
+  "url": "https://openrouter.ai/api/v1/chat/completions",
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": "[scrubbed]",
+    "HTTP-Referer": "https://potionui.com",
+    "X-OpenRouter-Title": "PotionUI"
+  },
+  "body": {
+    "model": "anthropic/claude-sonnet-5.5",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a careful assistant. Use tools when they help."
+      },
+      {
+        "role": "user",
+        "content": "Is the weather fine in Paris?"
+      },
+      {
+        "role": "assistant",
+        "content": "Checking.",
+        "tool_calls": [
+          {
+            "id": "toolu_01A",
+            "type": "function",
+            "function": {
+              "name": "lookup_weather",
+              "arguments": "{\"city\": \"Paris\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "Paris: 21C, sunny",
+        "tool_call_id": "toolu_01A",
+        "name": "lookup_weather"
+      }
+    ],
+    "temperature": 0.7,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "lookup_weather",
+          "description": "Current weather for a city.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        }
+      }
+    ],
+    "max_tokens": 4096,
+    "reasoning": {
+      "effort": "medium"
+    }
+  }
+}

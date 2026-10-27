@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from src.platform.plugins.llm_providers import LLMProviderRegistry
 
-OPENAI_TYPES = ("openai", "openai-compatible")
+OPENAI_TYPES = ("openai", "openai-compatible", "openrouter")
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,38 @@
+{
+  "messages": [
+    {
+      "id": "tool_01",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01A",
+          "name": "lookup_weather",
+          "content": [
+            {
+              "type": "text",
+              "text": "Paris: 21C, sunny",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        },
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01B",
+          "name": "lookup_weather",
+          "content": [
+            {
+              "type": "text",
+              "text": "Zurich: 14C, rain",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
