@@ -258,32 +258,6 @@ def _activation_bytes(tokens: int, inner_dim: int, ffn_dim: int | None, ffn_chun
         return attention + tokens * _ffn_transient_bytes_per_token(ffn_dim)
     return max(attention, _chunked_ffn_phase_bytes(tokens, inner_dim, ffn_dim, ffn_chunk_rows))
 
-# LoRA cost terms. A resident runtime LoRA delta (quantized-storage Linears
-# -- lora/apply.py's ``_needs_runtime_deltas``) is applied per forward by
-# ``vendor/gpl/comfyui/ops.py`` on one of two sides, and the two cost
-# completely different shapes of memory:
-#
-#   * ACTIVATION side, the default for every plain (non-LoKr) delta:
-#     ``linear_with_lora_deltas`` -> ``_add_lora_output_branch`` accumulates
-#     ``(x @ down.T) @ up.T`` straight INTO the layer's own ``F.linear``
-#     output, walking the token rows in chunks bounded by
-#     ``_NVFP4_LORA_BRANCH_CHUNK_BYTES`` (32MiB). Nothing here scales with
-#     ``S``: the live intermediates are ``(chunk_rows, rank)`` and
-#     ``(chunk_rows, out_features)``, tens of MB whatever the token count,
-#     already covered by :data:`_ACTIVATION_RESERVE_FLOOR_GB`. Per-token
-#     cost: ZERO.
-#   * WEIGHT side, the fallback for a delta with no output-side form (LoKr,
-#     which ``_deltas_output_branch_ok`` rejects): ``apply_lora_deltas``
-#     clones the materialised ``(out, in)`` weight and builds an
-#     ``(out, in)`` delta beside it. Weight-shaped, NOT token-shaped -- a
-#     flat reserve of twice the widest such Linear's weight, independent of
-#     ``S``, and only one Linear's forward is alive at a time.
-#
-# The estimate used to charge a flat ``4 * inner_dim * 2`` bytes/token
-# whenever ANY runtime LoRA was resident, back when every quantized-Linear
-# delta went through the weight-side path and only the GEMM fast paths had
-# an output branch. On an 8s MiniMax-H3 clip (S~61.5k, inner_dim 7168) that
-# stale term alone was ~3.8GB, enough to refuse a clip that fits.
 _COMPUTE_DTYPE_BYTES = 2
 # ``total`` inside ``_lora_output_branch`` plus the ``out + total`` result at
 # its call site -- both ``(S, out_features)``, both alive at once.

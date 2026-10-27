@@ -446,6 +446,17 @@ def test_a_lokr_delta_sends_a_gemm_layer_to_dequant_and_costs_nothing_per_token(
     assert profile.weight_side_bytes == 2 * 28672 * 5376 * 2
 
 
+def test_masked_deltas_alone_activate_the_profile_without_a_gemm_output_buffer(machine):
+    machine(fp8=True, fused=False)
+    layer = _fp8_layer(5376, 28672)
+    layer.lora_masked_deltas = [_plain_delta(5376, 28672)]
+    dit = SimpleNamespace(module=nn.Sequential(layer))
+    assert fast_path(layer).kind is FastPathKind.FP8_SCALED_MM
+    profile = _dit_lora_profile(dit)
+    assert profile.active is True
+    assert profile.output_buffer_out_features == 0
+
+
 _GEMM_IN, _GEMM_OUT = 5120, 13824
 
 _ON_A_GEMM = {
