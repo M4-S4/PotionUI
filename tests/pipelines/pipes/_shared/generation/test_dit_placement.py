@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import types
+from contextlib import ExitStack
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -34,6 +35,8 @@ from src.platform.settings import runtime_flags
 from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
 
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
+from src.platform.runtime.native.kernels import FastPathKind, fast_path, gemm
+from src.platform.runtime.native.memory.partial import plan_residency_split
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
     _ACTIVATION_SAFETY_MARGIN,
@@ -50,6 +53,10 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     guard_sampling_oom,
     place_dit_for_sequence,
 )
+
+from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, fake_capabilities
+from tests.fixtures.kernel_gemm import installed_gemm_verdicts
+from tests.platform.runtime.native._nvfp4_ref import F4_MAX, F8_MAX, quantize_nvfp4
 
 _MOD = "src.pipelines.pipes._shared.generation.dit_placement"
 
@@ -218,17 +225,78 @@ def _linear_with_lokr_delta(in_features: int, out_features: int) -> nn.Linear:
     return linear
 
 
-def _quantized_linear(in_features: int, out_features: int, *, nvfp4: bool) -> nn.Linear:
-    """A Linear carrying the state a quantized vendored Linear's own forward
-    branches on -- ``_is_nvfp4`` for the nvfp4 GEMM path, ``weight_scale``
-    for the fp8 ``_scaled_mm`` one -- plus one output-side-eligible delta."""
-    linear = nn.Linear(in_features, out_features, device="meta")
-    if nvfp4:
-        linear._is_nvfp4 = True
-    else:
-        linear.weight_scale = torch.ones(())
-    linear.lora_deltas = [_plain_delta(in_features, out_features)]
-    return linear
+def _stored_layer(cls, in_features: int, out_features: int, dtype: torch.dtype):
+    layer = cls(in_features, out_features, device="meta", dtype=torch.bfloat16)
+    layer.weight = nn.Parameter(torch.empty(out_features, in_features, dtype=dtype, device="meta"), requires_grad=False)
+    return layer
+
+
+def _fp8_layer(in_features: int, out_features: int, *, dtype: torch.dtype = torch.float8_e4m3fn):
+    layer = _stored_layer(comfy_ops.Fp8ScaledLinear, in_features, out_features, dtype)
+    layer.weight_scale = torch.ones((), device="meta")
+    return layer
+
+
+def _int8_layer(in_features: int, out_features: int, *, convrot: bool = False):
+    layer = _fp8_layer(in_features, out_features, dtype=torch.int8)
+    if convrot:
+        layer.convrot_hadamard = torch.ones(16, 16, device="meta")
+    return layer
+
+
+def _nvfp4_layer(in_features: int, out_features: int):
+    layer = comfy_ops.Nvfp4Linear(in_features, out_features, device="meta", dtype=torch.bfloat16)
+    layer._is_nvfp4 = True
+    layer.weight = None
+    return layer
+
+
+def _loaded_nvfp4_layer(in_features: int = 32, out_features: int = 16):
+    torch.manual_seed(3)
+    weight = torch.randn(out_features, in_features) * 0.05
+    tensor_scale = (weight.abs().amax() / (F4_MAX * F8_MAX)).clamp(min=1e-8).detach()
+    packed, block, _, _ = quantize_nvfp4(weight, tensor_scale)
+    layer = comfy_ops.fp8_ops.Linear(in_features, out_features, bias=True)
+    layer.requires_grad_(False)
+    layer.load_state_dict(
+        {
+            "weight": packed,
+            "weight_scale": block,
+            "weight_scale_2": tensor_scale.clone(),
+            "bias": torch.zeros(out_features),
+        },
+        strict=False,
+        assign=True,
+    )
+    return layer
+
+
+def _quantized_linear(in_features: int, out_features: int, *, nvfp4: bool):
+    layer = _nvfp4_layer(in_features, out_features) if nvfp4 else _fp8_layer(in_features, out_features)
+    layer.lora_deltas = [_plain_delta(in_features, out_features)]
+    return layer
+
+
+@pytest.fixture
+def machine(install_capabilities, monkeypatch):
+    gemm._reset_verdicts()
+    with ExitStack() as stack:
+
+        def configure(*, fp8=False, nvfp4=False, fused=True, hardware=None):
+            if hardware is None:
+                install_capabilities(fake_capabilities(blackwell()))
+                stack.enter_context(installed_gemm_verdicts(fp8=True, nvfp4=True))
+            else:
+                install_capabilities(fake_capabilities(hardware()))
+                monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+            monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {
+                "native_fp8_matmul": fp8,
+                "native_nvfp4_matmul": nvfp4,
+                "native_lora_fused": fused,
+            })
+
+        yield configure
+    gemm._reset_verdicts()
 
 
 def test_dit_without_a_module_attribute_has_no_active_lora():
@@ -289,9 +357,8 @@ def test_the_gemm_fast_path_branch_still_preallocates_an_s_sized_buffer():
     assert branch.data_ptr() != x2d.data_ptr()
 
 
-def test_a_plain_delta_on_a_quantized_linear_costs_no_per_token_buffer_by_default():
-    # Both GEMM gates default to off, so the fast path is unreachable and the
-    # layer runs the chunked branch.
+def test_a_plain_delta_on_a_quantized_linear_costs_no_per_token_buffer_by_default(machine):
+    machine()
     dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
     profile = _dit_lora_profile(dit)
     assert profile.active is True
@@ -299,47 +366,45 @@ def test_a_plain_delta_on_a_quantized_linear_costs_no_per_token_buffer_by_defaul
     assert profile.weight_side_bytes == 0
 
 
-def test_an_nvfp4_linear_costs_the_per_token_buffer_once_its_gate_is_on():
+def test_an_nvfp4_linear_costs_the_per_token_buffer_once_its_gate_is_on(machine):
+    machine(nvfp4=True, fused=False)
     dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
-    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        profile = _dit_lora_profile(dit)
+    profile = _dit_lora_profile(dit)
     assert profile.output_buffer_out_features == 28672
     assert profile.output_buffer_bytes_per_token == 2 * 28672 * 2
 
 
-def test_an_fp8_scaled_linear_costs_the_per_token_buffer_once_its_gate_is_on():
+def test_an_fp8_scaled_linear_costs_the_per_token_buffer_once_its_gate_is_on(machine):
+    machine(fp8=True, fused=False)
     dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=False)))
-    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
-        profile = _dit_lora_profile(dit)
-    assert profile.output_buffer_out_features == 28672
+    assert _dit_lora_profile(dit).output_buffer_out_features == 28672
 
 
-def test_the_nvfp4_gate_does_not_enable_an_fp8_layer_and_vice_versa():
+def test_the_nvfp4_gate_does_not_enable_an_fp8_layer_and_vice_versa(machine):
+    machine(nvfp4=True, fused=False)
     fp8 = SimpleNamespace(module=nn.Sequential(_quantized_linear(512, 1024, nvfp4=False)))
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(fp8).output_buffer_out_features == 0
+    assert _dit_lora_profile(fp8).output_buffer_out_features == 0
+    machine(fp8=True, fused=False)
     nvfp4 = SimpleNamespace(module=nn.Sequential(_quantized_linear(512, 1024, nvfp4=True)))
-    with patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(nvfp4).output_buffer_out_features == 0
+    assert _dit_lora_profile(nvfp4).output_buffer_out_features == 0
 
 
-def test_an_unquantized_linear_never_reaches_a_gemm_fast_path():
+def test_an_unquantized_linear_never_reaches_a_gemm_fast_path(machine):
+    machine(fp8=True, nvfp4=True, fused=False)
     linear = nn.Linear(512, 1024)
     linear.lora_deltas = [_plain_delta(512, 1024)]
     dit = SimpleNamespace(module=nn.Sequential(linear))
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True), \
-         patch(f"{_MOD}._fp8_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(dit).output_buffer_out_features == 0
+    assert _dit_lora_profile(dit).output_buffer_out_features == 0
 
 
-def test_the_widest_fast_path_linear_sizes_the_per_token_buffer():
+def test_the_widest_fast_path_linear_sizes_the_per_token_buffer(machine):
+    machine(nvfp4=True, fused=False)
     dit = SimpleNamespace(module=nn.Sequential(
         _quantized_linear(5376, 5376, nvfp4=True),
         _quantized_linear(5376, 28672, nvfp4=True),
         _quantized_linear(14336, 5376, nvfp4=True),
     ))
-    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(dit).output_buffer_out_features == 28672
+    assert _dit_lora_profile(dit).output_buffer_out_features == 28672
 
 
 def test_a_lokr_delta_is_charged_weight_side_not_per_token():
@@ -358,18 +423,98 @@ def test_the_widest_lokr_linear_sizes_the_flat_weight_side_reserve():
     assert _dit_lora_profile(dit).weight_side_bytes == 2 * 28672 * 5376 * 2
 
 
-def test_a_mixed_stack_is_split_per_delta_the_way_the_forward_splits_it():
-    # One Linear carrying both a LoKr and a plain adapter: the plain one
-    # rides the activation, only the LoKr one pays a weight-shaped delta --
-    # partition_output_branch_deltas' own per-delta contract.
-    linear = nn.Linear(5376, 28672, device="meta")
-    linear._is_nvfp4 = True
-    linear.lora_deltas = [_lokr_delta(5376, 28672), _plain_delta(5376, 28672)]
-    dit = SimpleNamespace(module=nn.Sequential(linear))
-    with patch(f"{_MOD}._lora_fused_enabled", return_value=False), patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        profile = _dit_lora_profile(dit)
-    assert profile.output_buffer_out_features == 28672
+def test_a_mixed_stack_dequantises_a_gemm_layer_so_only_the_lokr_pays_a_weight_shaped_delta(machine):
+    machine(nvfp4=True, fused=False)
+    layer = _nvfp4_layer(5376, 28672)
+    layer.lora_deltas = [_lokr_delta(5376, 28672), _plain_delta(5376, 28672)]
+    dit = SimpleNamespace(module=nn.Sequential(layer))
+    assert fast_path(layer).kind is FastPathKind.DEQUANT
+    profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 0
     assert profile.weight_side_bytes == 2 * 28672 * 5376 * 2
+
+
+def test_a_lokr_delta_sends_a_gemm_layer_to_dequant_and_costs_nothing_per_token(machine):
+    machine(fp8=True, fused=True)
+    layer = _fp8_layer(5376, 28672)
+    layer.lora_deltas = [_lokr_delta(5376, 28672)]
+    dit = SimpleNamespace(module=nn.Sequential(layer))
+    assert fast_path(layer).kind is FastPathKind.DEQUANT
+    assert _dit_quant_activation_bytes_per_token(dit) == 0
+    profile = _dit_lora_profile(dit)
+    assert profile.output_buffer_out_features == 0
+    assert profile.weight_side_bytes == 2 * 28672 * 5376 * 2
+
+
+_GEMM_IN, _GEMM_OUT = 5120, 13824
+
+_ON_A_GEMM = {
+    "fp8-e4m3": (lambda: _fp8_layer(_GEMM_IN, _GEMM_OUT), {"fp8": True}, 5 * _GEMM_IN),
+    "fp8-e4m3-on-ada": (lambda: _fp8_layer(_GEMM_IN, _GEMM_OUT), {"fp8": True, "hardware": ada}, 5 * _GEMM_IN),
+    "nvfp4": (lambda: _nvfp4_layer(_GEMM_IN, _GEMM_OUT), {"nvfp4": True}, 12 * _GEMM_IN),
+}
+
+_FALLS_BACK_TO_DEQUANT = {
+    "fp8-flag-off": (lambda: _fp8_layer(_GEMM_IN, _GEMM_OUT), {"fp8": False, "nvfp4": True}),
+    "nvfp4-flag-off": (lambda: _nvfp4_layer(_GEMM_IN, _GEMM_OUT), {"fp8": True, "nvfp4": False}),
+    "fp8-on-ampere-without-the-gemm": (
+        lambda: _fp8_layer(_GEMM_IN, _GEMM_OUT), {"fp8": True, "hardware": ampere},
+    ),
+    "fp8-e5m2": (lambda: _fp8_layer(_GEMM_IN, _GEMM_OUT, dtype=torch.float8_e5m2), {"fp8": True}),
+    "int8": (lambda: _int8_layer(_GEMM_IN, _GEMM_OUT), {"fp8": True}),
+    "int8-convrot": (lambda: _int8_layer(_GEMM_IN, _GEMM_OUT, convrot=True), {"fp8": True}),
+    "fp8-input-not-a-multiple-of-16": (lambda: _fp8_layer(5130, _GEMM_OUT), {"fp8": True}),
+    "nvfp4-input-not-a-multiple-of-32": (lambda: _nvfp4_layer(5136, _GEMM_OUT), {"nvfp4": True}),
+}
+
+
+def _per_token_bytes(layer, *, with_delta: bool):
+    if with_delta:
+        layer.lora_deltas = [_plain_delta(layer.in_features, layer.out_features)]
+    dit = SimpleNamespace(module=nn.Sequential(layer))
+    return _dit_quant_activation_bytes_per_token(dit), _dit_lora_profile(dit).output_buffer_bytes_per_token
+
+
+@pytest.mark.parametrize("make, flags, quant_bytes", _ON_A_GEMM.values(), ids=list(_ON_A_GEMM))
+def test_a_layer_on_a_gemm_kernel_pays_the_quantiser_and_the_unfused_lora_buffer(machine, make, flags, quant_bytes):
+    machine(fused=False, **flags)
+    layer = make()
+    assert fast_path(layer).kind is not FastPathKind.DEQUANT
+    assert _per_token_bytes(layer, with_delta=True) == (quant_bytes, 2 * _GEMM_OUT * 2)
+
+
+@pytest.mark.parametrize("make, flags, quant_bytes", _ON_A_GEMM.values(), ids=list(_ON_A_GEMM))
+def test_a_fused_lora_on_a_gemm_layer_pays_no_output_buffer(machine, make, flags, quant_bytes):
+    machine(fused=True, **flags)
+    assert _per_token_bytes(make(), with_delta=True) == (quant_bytes, 0)
+
+
+@pytest.mark.parametrize("make, flags", _FALLS_BACK_TO_DEQUANT.values(), ids=list(_FALLS_BACK_TO_DEQUANT))
+def test_a_layer_whose_forward_falls_back_to_dequant_pays_nothing_per_token(machine, make, flags):
+    machine(fused=False, **flags)
+    layer = make()
+    assert fast_path(layer).kind is FastPathKind.DEQUANT
+    assert _per_token_bytes(layer, with_delta=True) == (0, 0)
+
+
+def test_the_per_token_terms_follow_the_live_flags_between_calls(machine):
+    machine(fp8=True, fused=False)
+    layer = _fp8_layer(_GEMM_IN, _GEMM_OUT)
+    assert _per_token_bytes(layer, with_delta=True) == (5 * _GEMM_IN, 2 * _GEMM_OUT * 2)
+    comfy_ops.RUNTIME_FLAGS["native_lora_fused"] = True
+    assert _per_token_bytes(layer, with_delta=False) == (5 * _GEMM_IN, 0)
+    comfy_ops.RUNTIME_FLAGS["native_fp8_matmul"] = False
+    assert _per_token_bytes(layer, with_delta=False) == (0, 0)
+
+
+def test_a_loaded_nvfp4_layer_is_never_planned_off_the_gpu(machine):
+    machine(nvfp4=True)
+    nvfp4 = _loaded_nvfp4_layer()
+    streamable = _fp8_layer(5120, _GEMM_OUT)
+    plan = plan_residency_split(nn.Sequential(nvfp4, streamable), 0.0)
+    assert fast_path(nvfp4).requires_resident_weight is True
+    assert plan.streamed_names == ("1",)
+    assert plan.resident_names == ()
 
 
 # -- test doubles --------------------------------------------------------------
@@ -1708,13 +1853,12 @@ def test_cold_placement_weight_budget_credits_the_idle_pool():
     assert calls["stream_to"] == []
 
 
-class _QuantLinear(nn.Module):
-    def __init__(self, in_features, *, nvfp4=False, fp8=False):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = 4096
-        self._is_nvfp4 = nvfp4
-        self.weight_scale = torch.ones(()) if fp8 else None
+def _quant_linear(in_features, *, nvfp4=False, fp8=False):
+    if nvfp4:
+        return _nvfp4_layer(in_features, 4096)
+    if fp8:
+        return _fp8_layer(in_features, 4096)
+    return nn.Linear(in_features, 4096, device="meta")
 
 
 def _dit_with(*linears, estimated_vram_gb=18.5, calls=None):
@@ -1729,20 +1873,15 @@ def _dit_with(*linears, estimated_vram_gb=18.5, calls=None):
     )
 
 
-def _fast_paths(monkeypatch, *, nvfp4, fp8):
-    monkeypatch.setattr(f"{_MOD}._nvfp4_matmul_enabled", lambda: nvfp4)
-    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: fp8)
-
-
-def test_nvfp4_fast_path_charges_the_quantiser_peak_of_the_widest_input(monkeypatch):
-    _fast_paths(monkeypatch, nvfp4=True, fp8=False)
-    dit = _dit_with(_QuantLinear(4096, nvfp4=True), _QuantLinear(16384, nvfp4=True), _QuantLinear(32768))
+def test_nvfp4_fast_path_charges_the_quantiser_peak_of_the_widest_input(machine):
+    machine(nvfp4=True)
+    dit = _dit_with(_quant_linear(4096, nvfp4=True), _quant_linear(16384, nvfp4=True), _quant_linear(32768))
     assert _dit_quant_activation_bytes_per_token(dit) == 12 * 16384
 
 
-def test_fp8_fast_path_charges_the_quantiser_peak(monkeypatch):
-    _fast_paths(monkeypatch, nvfp4=False, fp8=True)
-    dit = _dit_with(_QuantLinear(4096, fp8=True), _QuantLinear(16384, fp8=True))
+def test_fp8_fast_path_charges_the_quantiser_peak(machine):
+    machine(fp8=True)
+    dit = _dit_with(_quant_linear(4096, fp8=True), _quant_linear(16384, fp8=True))
     assert _dit_quant_activation_bytes_per_token(dit) == 5 * 16384
 
 
@@ -1779,9 +1918,9 @@ def test_the_quant_reserve_matches_the_quantisers_measured_peak(quantize, per_el
     assert per_element - 1 < peak_per_element <= per_element + 1e-3
 
 
-def test_no_fast_path_means_no_activation_quant_term(monkeypatch):
-    _fast_paths(monkeypatch, nvfp4=False, fp8=False)
-    dit = _dit_with(_QuantLinear(16384, nvfp4=True), _QuantLinear(16384, fp8=True))
+def test_no_fast_path_means_no_activation_quant_term(machine):
+    machine()
+    dit = _dit_with(_quant_linear(16384, nvfp4=True), _quant_linear(16384, fp8=True))
     assert _dit_quant_activation_bytes_per_token(dit) == 0
 
 
@@ -1798,51 +1937,39 @@ def test_reference_run_reserve_now_covers_the_nvfp4_activation_quant_peak():
     assert quant == pytest.approx(9.71, abs=0.1)
 
 
-def test_nvfp4_fast_path_forces_partial_residency_where_the_old_estimate_said_resident(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 26.0)
-    monkeypatch.setattr(f"{_MOD}.effective_free_vram_gb", lambda device: 26.0)
+def _cuda_placement_reserve(monkeypatch, layer, *, free_gb=26.0):
+    monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: free_gb)
+    monkeypatch.setattr(f"{_MOD}.effective_free_vram_gb", lambda device: free_gb)
     monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
     monkeypatch.setattr(f"{_MOD}.maybe_compile_dit", lambda *a, **k: None)
+    return place_dit_for_sequence(_dit_with(layer), "cuda", video_tokens=31_620)
 
-    _fast_paths(monkeypatch, nvfp4=False, fp8=False)
-    off_calls = []
-    off = place_dit_for_sequence(
-        _dit_with(_QuantLinear(16384, nvfp4=True), calls=off_calls), "cuda", video_tokens=31_620)
+
+def test_nvfp4_fast_path_forces_partial_residency_where_the_old_estimate_said_resident(machine, monkeypatch):
+    machine()
+    off = _cuda_placement_reserve(monkeypatch, _quant_linear(16384, nvfp4=True))
     assert off.mode == "resident"
 
-    _fast_paths(monkeypatch, nvfp4=True, fp8=False)
-    on_calls = []
-    on = place_dit_for_sequence(
-        _dit_with(_QuantLinear(16384, nvfp4=True), calls=on_calls), "cuda", video_tokens=31_620)
+    machine(nvfp4=True)
+    on = _cuda_placement_reserve(monkeypatch, _quant_linear(16384, nvfp4=True))
     assert on.mode == "partial"
     assert 0.0 < on.weight_budget_gb < 18.5
     assert on.activation_reserve_gb == pytest.approx(off.activation_reserve_gb + 6.66, abs=0.05)
 
 
-def test_the_fused_lora_path_drops_the_per_token_output_buffer_term():
-    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True), \
-            patch(f"{_MOD}._lora_fused_enabled", return_value=True):
-        profile = _dit_lora_profile(dit)
-    assert profile.output_buffer_out_features == 0
-    assert profile.active
-
-
-def test_the_unfused_lora_path_keeps_the_per_token_output_buffer_term():
-    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True), \
-            patch(f"{_MOD}._lora_fused_enabled", return_value=False):
-        profile = _dit_lora_profile(dit)
-    assert profile.output_buffer_out_features == 28672
-
-
-def test_native_lora_fused_flag_decides_the_term(monkeypatch):
-    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_lora_fused", False)
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(dit).output_buffer_out_features == 28672
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_lora_fused", True)
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(dit).output_buffer_out_features == 0
+@pytest.mark.parametrize("make", [
+    lambda: _fp8_layer(16384, 4096, dtype=torch.float8_e5m2),
+    lambda: _int8_layer(16384, 4096),
+    lambda: _int8_layer(16384, 4096, convrot=True),
+    lambda: _fp8_layer(16385, 4096),
+], ids=["e5m2", "int8", "int8-convrot", "misaligned"])
+def test_an_fp8_layer_that_cannot_reach_the_gemm_does_not_raise_the_placement_reserve(machine, monkeypatch, make):
+    machine()
+    off = _cuda_placement_reserve(monkeypatch, make())
+    machine(fp8=True)
+    on = _cuda_placement_reserve(monkeypatch, make())
+    gemm_layer = _cuda_placement_reserve(monkeypatch, _fp8_layer(16384, 4096))
+    assert on.activation_reserve_gb == off.activation_reserve_gb
+    assert gemm_layer.activation_reserve_gb > off.activation_reserve_gb

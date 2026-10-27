@@ -93,6 +93,7 @@ import torch
 
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
+from src.platform.runtime.native.kernels import FastPathKind, QuantFormat, fast_path
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -100,12 +101,7 @@ from src.platform.runtime.native.memory.residency import (
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
-from vendor.gpl.comfyui.ops import (
-    _fp8_matmul_enabled,
-    _lora_fused_enabled,
-    _nvfp4_matmul_enabled,
-    partition_output_branch_deltas,
-)
+from vendor.gpl.comfyui.ops import partition_output_branch_deltas
 
 logger = logging.getLogger(__name__)
 
@@ -276,17 +272,6 @@ def _activation_bytes(tokens: int, inner_dim: int, ffn_dim: int | None, ffn_chun
 #     ``(chunk_rows, out_features)``, tens of MB whatever the token count,
 #     already covered by :data:`_ACTIVATION_RESERVE_FLOOR_GB`. Per-token
 #     cost: ZERO.
-#   * ACTIVATION side through a native GEMM fast path
-#     (``Fp8ScaledLinear._forward_scaled_mm`` /
-#     ``Nvfp4Linear._forward_nvfp4_scaled_mm``, each behind its own env gate
-#     and hardware probe, both ``off`` by default): those add
-#     ``_lora_output_branch``'s RETURN VALUE to the raw GEMM output, and
-#     that function does still preallocate a full ``(S, out_features)``
-#     ``total`` at compute dtype -- with the ``out + total`` sum a second
-#     buffer of the same shape alive at the same moment, hence
-#     :data:`_LORA_OUTPUT_BUFFER_ALLOCATIONS`. Per-token cost: that, for the
-#     WIDEST Linear that can actually reach the fast path
-#     (:func:`_linear_takes_gemm_fast_path`).
 #   * WEIGHT side, the fallback for a delta with no output-side form (LoKr,
 #     which ``_deltas_output_branch_ok`` rejects): ``apply_lora_deltas``
 #     clones the materialised ``(out, in)`` weight and builds an
@@ -344,6 +329,10 @@ _NO_LORA = DitLoraProfile()
 
 _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT = 12
 _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT = 5
+_ACTIVATION_QUANT_BYTES_PER_ELEMENT = {
+    QuantFormat.NVFP4: _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+    QuantFormat.FP8: _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+}
 
 # Multiplicative safety margin over the raw per-token estimate -- covers
 # allocator fragmentation, cuBLAS/cuDNN workspace, and any minor uncounted
@@ -396,41 +385,16 @@ def estimate_activation_reserve_gb(
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
-def _linear_takes_gemm_fast_path(linear: Any) -> bool:
-    """True iff ``linear``'s forward can reach ``vendor/gpl/comfyui/ops.py``'s
-    ``_lora_output_branch`` -- the one LoRA path that still preallocates an
-    ``(S, out_features)`` buffer.
-
-    Only the two native ``_scaled_mm`` GEMM fast paths call it, and each is
-    reached solely when its own env gate plus hardware probe say so; every
-    other quantized Linear takes the dequant path, whose plain deltas ride
-    the chunked ``_add_lora_output_branch`` and allocate nothing
-    S-proportional. The gates are asked through the vendored predicates
-    rather than re-read here, so the policy has one source of truth. A layer
-    is nvfp4 or fp8-scaled by the same state its own forward branches on
-    (``_is_nvfp4``, ``weight_scale``), never by family or class name.
-    """
-    if getattr(linear, "_is_nvfp4", False):
-        return _nvfp4_matmul_enabled()
-    if getattr(linear, "weight_scale", None) is not None:
-        return _fp8_matmul_enabled()
-    return False
-
-
 def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
     walk = getattr(getattr(dit, "module", None), "modules", None)
     if not callable(walk):
         return 0
     widest = 0
     for m in walk():
-        in_features = int(getattr(m, "in_features", 0) or 0)
-        if not in_features:
+        path = fast_path(m)
+        if path is None or path.kind is FastPathKind.DEQUANT:
             continue
-        if getattr(m, "_is_nvfp4", False):
-            if _nvfp4_matmul_enabled():
-                widest = max(widest, _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT * in_features)
-        elif getattr(m, "weight_scale", None) is not None and _fp8_matmul_enabled():
-            widest = max(widest, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT * in_features)
+        widest = max(widest, _ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format] * m.in_features)
     return widest
 
 
@@ -476,8 +440,9 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
         in_features = int(getattr(m, "in_features", 0) or 0)
         if not out_features:
             continue
-        output_side, weight_side = partition_output_branch_deltas(deltas, out_features)
-        if output_side and not _lora_fused_enabled() and _linear_takes_gemm_fast_path(m):
+        _, weight_side = partition_output_branch_deltas(deltas, out_features)
+        path = fast_path(m) if deltas else None
+        if path is not None and path.kind is not FastPathKind.DEQUANT and not path.lora_fused:
             output_buffer_out_features = max(output_buffer_out_features, out_features)
         if (weight_side or any(getattr(d, "kron", False) for d in masked)) and in_features:
             weight_side_bytes = max(
