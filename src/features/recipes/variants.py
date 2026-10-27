@@ -49,11 +49,8 @@ def _generation_names(generations: Iterable[str]) -> str:
     return ", ".join(GENERATION_LABELS.get(g, g) for g in generations)
 
 
-def _unsupported_note(precision: str, gpu: GpuProfile) -> str:
-    required = generations_supporting(precision)
-    if required:
-        return f"{precision} needs an {_generation_names(required)} GPU"
-    return f"{precision} doesn't run on {gpu.generation_label}"
+def _unsupported_note(precision: str) -> str:
+    return f"{precision} needs an {_generation_names(generations_supporting(precision))} GPU"
 
 
 def _rule_miss_note(variant: RecipeArtifactVariant, gpu: GpuProfile) -> str:
@@ -84,7 +81,7 @@ def assess_variant(variant: RecipeArtifactVariant, gpu: GpuProfile) -> VariantAs
     recommended = supported and _rules_match(variant, gpu)
     note: Optional[str] = None
     if not supported:
-        note = _unsupported_note(variant.precision, gpu)
+        note = _unsupported_note(variant.precision)
     elif not recommended:
         note = _rule_miss_note(variant, gpu)
     elif not fast:

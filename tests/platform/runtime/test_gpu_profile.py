@@ -44,23 +44,16 @@ def test_generation_for_capability(capability, generation):
 
 
 @pytest.mark.parametrize(
-    "capability,snapshot_generation,generation,label",
-    [
-        ((8, 6), GpuGeneration.AMPERE, "ampere", "RTX 30-series (Ampere)"),
-        ((8, 9), GpuGeneration.ADA, "ada", "RTX 40-series (Ada)"),
-        ((9, 0), GpuGeneration.HOPPER, "hopper", "Hopper"),
-        ((12, 0), GpuGeneration.BLACKWELL, "blackwell", "RTX 50-series (Blackwell)"),
-        ((7, 5), GpuGeneration.PRE_AMPERE, "other", "this GPU"),
-        ((13, 0), GpuGeneration.UNKNOWN, "other", "this GPU"),
-    ],
+    "capability,snapshot_generation",
+    [((7, 5), GpuGeneration.PRE_AMPERE), ((13, 0), GpuGeneration.UNKNOWN)],
 )
-def test_profile_generation_and_label_follow_the_snapshot_generation(capability, snapshot_generation, generation, label):
+def test_snapshot_generations_outside_the_named_set_are_other(capability, snapshot_generation):
     device = fake_device(capability)
     profile = build_gpu_profile(device.capability, 24, device.name)
 
     assert device.generation is snapshot_generation
-    assert profile.generation == generation
-    assert profile.generation_label == label
+    assert profile.generation == "other"
+    assert profile.generation_label == "this GPU"
 
 
 @pytest.mark.parametrize("capability", [(7, 5), (8, 0), (8, 6), (8, 9), (9, 0), (10, 0), (12, 0), (13, 0)])

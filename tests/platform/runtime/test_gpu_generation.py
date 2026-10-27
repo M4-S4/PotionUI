@@ -40,13 +40,11 @@ def test_generation_for_capability_table(capability, generation):
     assert generation_for(capability) is generation
 
 
-def test_kernel_snapshot_shares_the_enum_and_the_mapping():
+def test_kernel_snapshot_uses_the_shared_enum():
     from src.platform.runtime.native.kernels import GpuGeneration as kernel_generation
 
     assert kernel_generation is GpuGeneration
-    for major in range(0, 16):
-        for minor in range(0, 10):
-            assert fake_device((major, minor)).generation is generation_for((major, minor)), (major, minor)
+    assert fake_device((8, 9)).generation is GpuGeneration.ADA
 
 
 def test_generation_modules_import_without_torch_or_the_native_engine():

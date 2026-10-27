@@ -26,10 +26,12 @@ class NativeHardwareDefaults:
 @lru_cache(maxsize=1)
 def detect_native_hardware_defaults() -> NativeHardwareDefaults:
     try:
-        from src.platform.runtime.native.kernels import capabilities
+        import torch
     except ImportError:
         logger.warning("[NATIVE_HARDWARE] torch not importable; defaulting device=cpu dtype=float32")
         return NativeHardwareDefaults(device="cpu", dtype="float32", gpu_max_vram=0)
+
+    from src.platform.runtime.native.kernels import capabilities
 
     snapshot = capabilities()
     if not snapshot.devices:

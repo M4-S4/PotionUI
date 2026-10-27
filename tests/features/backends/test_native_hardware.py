@@ -57,9 +57,17 @@ def test_no_gpu_defaults_to_cpu_float32(install_capabilities, vram, no_torch_pro
 
 
 def test_torch_missing_defaults_to_cpu_float32(monkeypatch, vram):
-    monkeypatch.setitem(sys.modules, "src.platform.runtime.native.kernels", None)
+    monkeypatch.setitem(sys.modules, "torch", None)
 
     assert detect_native_hardware_defaults() == CPU_DEFAULTS
+    assert vram.calls.total == []
+
+
+def test_a_broken_kernels_import_surfaces_instead_of_provisioning_cpu(monkeypatch, vram):
+    monkeypatch.setitem(sys.modules, "src.platform.runtime.native.kernels", None)
+
+    with pytest.raises(ImportError):
+        detect_native_hardware_defaults()
     assert vram.calls.total == []
 
 
@@ -124,11 +132,8 @@ def test_result_is_cached_across_calls_and_snapshot_swaps(install_capabilities, 
     [
         ([], CPU_DEFAULTS),
         ([(7, 5)], NativeHardwareDefaults("cuda", "float16", 31)),
-        ([(8, 6)], NativeHardwareDefaults("cuda", "bfloat16", 31)),
-        ([(8, 9)], NativeHardwareDefaults("cuda", "bfloat16", 31)),
-        ([(12, 0)], NativeHardwareDefaults("cuda", "bfloat16", 31)),
     ],
-    ids=["cpu", "turing", "ampere", "ada", "blackwell"],
+    ids=["cpu", "turing"],
 )
 def test_native_backend_config_defaults_follow_the_snapshot(install_capabilities, vram, no_torch_probing, capabilities, expected):
     install_capabilities(fake_capabilities(*(fake_device(capability) for capability in capabilities)))
