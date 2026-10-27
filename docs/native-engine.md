@@ -92,13 +92,13 @@ One line per package, in loading order:
 
 ### The kernel layer
 
-`kernels/` owns every decision that depends on the GPU in front of the process. Code outside it asks
-a question and gets an answer; it never probes a device, never picks an attention backend and never
+`kernels/` owns every decision that depends on the GPU in front of the process. Code in `src/` outside it
+asks a question and gets an answer; it never probes a device, never picks an attention backend and never
 reads a GEMM capability itself.
 
 | Module | Public names | Role |
 |---|---|---|
-| `hardware.py` | `capabilities()`, `refresh_capabilities()`, `Capabilities`, `DeviceCapabilities`, `GpuGeneration`, the backend names `SDPA`/`FLASH`/`SAGE`/`SAGE2`/`SAGE3`/`SPARGE` | A per-process snapshot of every visible GPU (compute capability, name, generation, which attention backends are importable and eligible), built lazily once, allocation-free, cached. `Capabilities.device(index)` returns the entry for one device; an unknown or CUDA-less device answers with a CPU entry of capability `(0, 0)`, and a probe that fails never raises. `refresh_capabilities()` rebuilds it after an in-process install of an attention package. The only place that calls `torch.cuda.get_device_capability`. |
+| `hardware.py` | `capabilities()`, `refresh_capabilities()`, `Capabilities`, `DeviceCapabilities`, `GpuGeneration`, the backend names `SDPA`/`FLASH`/`SAGE`/`SAGE2`/`SAGE3`/`SPARGE` | A per-process snapshot of every visible GPU (compute capability, name, generation, which attention backends are importable and eligible), built lazily once, allocation-free, cached. `Capabilities.device(index)` returns the entry for one device; an unknown or CUDA-less device answers with a CPU entry of capability `(0, 0)`, and a probe that fails never raises. `refresh_capabilities()` rebuilds it after an in-process install of an attention package. The only place in `src/` that calls `torch.cuda.get_device_capability`; the vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`. |
 | `gemm.py` | `gemm_support(device)`, `GemmSupport` | Whether `torch._scaled_mm` (fp8) and `torch._scaled_mm_v2` (nvfp4) work on a device, with a reason string when not. Probed lazily per device and cached; the nvfp4 trial GEMM runs only on the first ask. The live flags `native_fp8_matmul` / `native_nvfp4_matmul` are not part of it. |
 | `linear.py` | `fast_path(layer)`, `quant_format(layer)`, `FastPath`, `FastPathKind`, `QuantFormat` | The static answer to "which path will this quantised linear take": the layer's format, `gemm_support` for its device and the live flags combined into a kind (`fp8_scaled_mm` / `nvfp4_gemm` / `dequant`), whether runtime LoRA output branches are fused, and the reason when the fast kind is not taken. `None` for layers that are not quantised linears. Value-dependent conditions (zero, NaN or negative scales) are outside the static answer. |
 | `dispatch.py` | `attention(q, k, v, ...)`, `available_backends`, `get_attention_backend`, `get_backend_override`, `known_backends`, `reset_backend_cache`, `BACKEND_PRIORITY` | The one attention call every arch module shares: a uniform `(B, H, L, D)` contract over sdpa/flash/sage/sage2/sage3 (sparge by pin only), picked by availability from the snapshot, with grouped-KV and mask handling. |
@@ -116,7 +116,8 @@ hardware with the `install_capabilities` fixture (`tests/fixtures/kernel_capabil
 - Nothing in `src/` or `vendor/` references `vendor.gpl.comfyui.ops`; the file stays deleted. The
   GPL-derived layer code now lives in `kernels/{casting,fp8_linear,nvfp4_linear,operations}.py` and
   `io/quant_formats.py` (see `vendor/NOTICE.md`).
-- `get_device_capability` is referenced only inside `kernels/`; everything else reads the snapshot.
+- `get_device_capability` is referenced in `src/` only inside `kernels/`; everything else in `src/` reads the
+  snapshot. The vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`.
 - `scaled_dot_product_attention` is called directly outside `kernels/` only from the files in
   `DIRECT_ATTENTION_ALLOWLIST`, each with a written reason (a once-per-prompt, once-per-image or
   once-per-decode call where the dispatcher buys nothing). An entry whose file stops calling it

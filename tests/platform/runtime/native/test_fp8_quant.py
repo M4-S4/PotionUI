@@ -55,6 +55,16 @@ def test_scale_maps_amax_near_e4m3_max():
     assert (w.abs().amax() / scale) <= E4M3_MAX + 1e-3
 
 
+@pytest.mark.parametrize("fp8", [torch.float8_e4m3fn, torch.float8_e5m2], ids=["e4m3", "e5m2"])
+def test_weights_already_stored_as_fp8_are_not_quantised_again(fp8):
+    weight = torch.randn(8, 8).to(fp8)
+
+    out, count = quantize_state_dict_to_fp8({"a.weight": weight})
+
+    assert count == 0
+    assert out == {"a.weight": weight}
+
+
 def test_state_dict_quantises_only_big_2d_weights():
     torch.manual_seed(1)
     sd = {
