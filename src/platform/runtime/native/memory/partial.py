@@ -42,7 +42,7 @@ from typing import Iterator, Sequence
 import torch
 import torch.nn as nn
 
-from vendor.gpl.comfyui.ops import CastWeightBiasOp
+from src.platform.runtime.native.kernels import CastWeightBiasOp
 from src.platform.observability.profiling import add_pinned_bytes, get_profiler
 from src.platform.settings.runtime_flags import runtime_flag
 

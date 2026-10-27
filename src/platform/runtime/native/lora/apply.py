@@ -42,7 +42,7 @@ import torch
 import torch.nn as nn
 
 from src.platform.observability.profiling import get_profiler
-from vendor.gpl.comfyui.ops import apply_lora_deltas, invalidate_lora_fused_cache
+from src.platform.runtime.native.kernels import QuantFormat, fast_path, invalidate_lora_fused_cache
 from ..ops.model_tools.delta import accumulate_delta
 from .key_mapping import LoraDelta, map_lora_keys
 from .row_mask import (
@@ -238,30 +238,14 @@ def _resolve_linear(module: nn.Module, param_name: str) -> tuple[nn.Module, str]
 
 
 def _needs_runtime_deltas(linear: nn.Module) -> bool:
-    """True iff ``linear``'s weight storage cannot be patched in place.
-
-    Storage dtype is the authoritative criterion (fp32/fp16/bf16 = patchable;
-    float8_* = not, regardless of whether a per-tensor scale happens to be set
-    — patching float8 storage with an fp32-computed delta cast back to float8
-    is lossy in a way plain float storage isn't). nvfp4 is checked via the
-    explicit ``_is_nvfp4`` marker (``Nvfp4Linear``) rather than dtype-sniffing:
-    a quantized nvfp4 layer clears ``self.weight`` entirely (packed uint8 codes
-    live in separate buffers, dequantised fresh every forward already), so
-    there is no weight tensor whose dtype would even mean "storage dtype".
-
-    ConvRot is likewise checked by marker, and for a reason dtype cannot express:
-    its stored weight is in a ROTATED basis while a LoRA delta is expressed in
-    the layer's original one, so adding the two in place is wrong at any storage
-    width. Only the dequantised compute weight — which the forward path has
-    already un-rotated — is in the basis the delta belongs to.
-    """
-    if getattr(linear, "_is_nvfp4", False):
+    path = fast_path(linear)
+    if path is not None and path.quant_format is QuantFormat.NVFP4:
         return True
     if getattr(linear, "convrot_hadamard", None) is not None:
         return True
     weight = getattr(linear, "weight", None)
     if weight is None:
-        return True  # defensive: nothing to patch
+        return True
     return weight.dtype not in _PATCHABLE_DTYPES
 
 
