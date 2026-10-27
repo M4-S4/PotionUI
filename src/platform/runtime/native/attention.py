@@ -56,8 +56,7 @@ otherwise crash instead of falling back).
 
 Selection: an explicit ``override`` or the ``NATIVE_ATTENTION`` env var wins if
 that backend is available, otherwise a warning is logged and the highest-
-priority available backend is used. Probe results are cached at import; call
-:func:`reset_backend_cache` to re-probe (tests).
+priority available backend is used.
 
 ``sparge`` (SpargeAttention, arXiv:2502.18137, ICML2025; thu-ml/SpargeAttn,
 pip/import name ``spas_sage_attn``) is training-free SPARSE attention built on
@@ -84,24 +83,26 @@ sage3).
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 
 import torch
 import torch.nn.functional as F
 
+from src.platform.runtime.native.kernels import (
+    FLASH,
+    SAGE,
+    SAGE2,
+    SAGE3,
+    SDPA,
+    SPARGE,
+    capabilities,
+    refresh_capabilities,
+)
 from src.platform.settings.runtime_flags import coerce_runtime_flag, runtime_flag, runtime_flag_values
 
 logger = logging.getLogger(__name__)
 
 Tensor = torch.Tensor
-
-SDPA = "sdpa"
-FLASH = "flash"
-SAGE = "sage"
-SAGE2 = "sage2"
-SAGE3 = "sage3"
-SPARGE = "sparge"
 
 # High -> low priority. sdpa is the always-present floor. PIN_ONLY backends
 # (below) are deliberately excluded — never auto-selected regardless of order.
@@ -113,33 +114,11 @@ BACKEND_PRIORITY: list[str] = [SAGE3, SAGE2, SAGE, FLASH, SDPA]
 # quality, unlike the numerically near-lossless backends in BACKEND_PRIORITY).
 PIN_ONLY_BACKENDS: frozenset[str] = frozenset({SPARGE})
 
-# sage3's CUDA extension is built with family-specific (`...a`-suffixed) arch
-# flags for exactly these three capabilities — see the module docstring. Not a
-# `>=` range: an sm130 (future) card would need its own rebuild, not "just work".
-_SAGE3_CAPABILITIES: frozenset[tuple[int, int]] = frozenset({(10, 0), (12, 0), (12, 1)})
-_SAGE3_MIN_CUDA_RUNTIME: tuple[int, int] = (12, 8)
-
-# sparge (SpargeAttn) compiles per-local-GPU at install time (unlike sage3's
-# prebuilt family-specific kernel), so any minor within a supported major is
-# fine — but thu-ml/SpargeAttn's setup.py SUPPORTED_ARCHS only lists 8.0/8.6/
-# 8.7/8.9/9.0, i.e. major 8 or 9 (Ampere/Ada/Hopper); Blackwell (10/12) is not
-# built at all as of this writing.
-_SPARGE_CAPABILITY_MAJORS: frozenset[int] = frozenset({8, 9})
 # spas_sage2_attn_meansim_topk_cuda's own hard requirements (its assertions):
 # "seq_len should be not less than 128", "headdim should be in [64, 128]".
 _SPARGE_MIN_SEQ_LEN = 128
 _SPARGE_VALID_HEAD_DIMS: frozenset[int] = frozenset({64, 128})
 
-
-# Module-level probe cache, keyed by CUDA device INDEX (availability only;
-# selection re-reads env each call). Per-device because compute capability is
-# a per-device property: a multi-GPU box (e.g. a text encoder spilled to a
-# second card while the DiT runs on cuda:0) can legitimately have a
-# Blackwell-only backend (sage3) available on one device and not the other —
-# a single global probe would report whichever device happened to be
-# ``torch.cuda.current_device()`` at first-probe time for every device
-# thereafter, silently dispatching a kernel built for the wrong GPU.
-_availability: dict[int, dict[str, bool]] = {}
 _warned_unavailable: set[str] = set()
 
 
@@ -151,133 +130,12 @@ def get_backend_override() -> str | None:
     return runtime_flag("native_attention_backend") or None
 
 
-def _has_module(name: str) -> bool:
-    try:
-        return importlib.util.find_spec(name) is not None
-    except (ImportError, ValueError):
-        return False
-
-
-def _cuda_capability_major(device_index: int | None = None) -> int:
-    if not torch.cuda.is_available():
-        return 0
-    try:
-        return torch.cuda.get_device_capability(device_index)[0]
-    except Exception:  # noqa: BLE001 — a driver hiccup must not break probing
-        return 0
-
-
-def _cuda_capability(device_index: int | None = None) -> tuple[int, int]:
-    """Full (major, minor) compute capability of ``device_index`` (``None`` =
-    ``torch.cuda.current_device()``, matching ``torch.cuda.get_device_capability``'s
-    own default) — sage3's exact-match gate needs the minor digit too (12.0 vs
-    12.1 are different physical dies)."""
-    if not torch.cuda.is_available():
-        return (0, 0)
-    try:
-        return torch.cuda.get_device_capability(device_index)
-    except Exception:  # noqa: BLE001 — a driver hiccup must not break probing
-        return (0, 0)
-
-
-def _cuda_runtime_version() -> tuple[int, int]:
-    """torch's CUDA runtime version as (major, minor), or (0, 0) if unknown
-    (CPU-only torch build, or a driver/parsing hiccup)."""
-    raw = getattr(torch.version, "cuda", None)
-    if not raw:
-        return (0, 0)
-    parts = raw.split(".")
-    try:
-        major = int(parts[0])
-        minor = int(parts[1]) if len(parts) > 1 else 0
-        return (major, minor)
-    except (ValueError, IndexError):
-        return (0, 0)
-
-
-def _sageattention_is_v2() -> bool:
-    try:
-        from importlib.metadata import version
-
-        return version("sageattention").startswith("2")
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def _probe(device_index: int | None = None) -> dict[str, bool]:
-    """Probe imports + hardware for each backend on ``device_index`` (``None`` =
-    ``torch.cuda.current_device()``). Cached per-device; see reset_backend_cache."""
-    cuda = torch.cuda.is_available()
-    cap = _cuda_capability_major(device_index)
-    has_triton = _has_module("triton")
-    has_sage = _has_module("sageattention")
-    has_flash = _has_module("flash_attn")
-    has_sage3 = _has_module("sageattn3")
-    has_sparge = _has_module("spas_sage_attn")
-
-    # sage needs Triton + a CUDA GPU (sm70+); sage2 additionally wants Ampere+
-    # (sm80+) and a 2.x sageattention build.
-    sage_ok = has_sage and has_triton and cuda and cap >= 7
-    sage2_ok = sage_ok and cap >= 8 and _sageattention_is_v2()
-    # sage3: exact-capability Blackwell dies only (no Triton needed — separate
-    # package, pure CUDA extension) + CUDA runtime >= 12.8 (the upstream
-    # build's own hard requirement). See module docstring for why this is an
-    # exact-membership check, not `cap >= (12, 0)`.
-    sage3_ok = (
-        has_sage3 and cuda
-        and _cuda_capability(device_index) in _SAGE3_CAPABILITIES
-        and _cuda_runtime_version() >= _SAGE3_MIN_CUDA_RUNTIME
-    )
-    # sparge: module present + CUDA + compute capability major 8 or 9 (see
-    # _SPARGE_CAPABILITY_MAJORS' docstring — no Triton needed, pure CUDA
-    # extension like sage3). Availability here is independent of PIN_ONLY
-    # status: "available" just means the probe found a working install; being
-    # pin-only only affects whether auto-selection may pick it.
-    sparge_ok = has_sparge and cuda and cap in _SPARGE_CAPABILITY_MAJORS
-
-    avail = {
-        SDPA: True,  # torch SDPA is always present
-        FLASH: has_flash and cuda,
-        SAGE: sage_ok,
-        SAGE2: sage2_ok,
-        SAGE3: sage3_ok,
-        SPARGE: sparge_ok,
-    }
-    logger.debug(
-        "attention backend availability: %s (cuda=%s device=%s cap=sm%d)",
-        avail, cuda, device_index, cap * 10,
-    )
-    return avail
-
-
-def _resolve_device_key(device_index: int | None) -> int:
-    """Pin ``None`` (\"current device\") to a concrete index for cache-keying
-    purposes — caching under a literal ``None`` key would reuse whichever
-    device happened to be current at the FIRST probe for every call
-    thereafter, defeating the whole point of a per-device cache."""
-    if device_index is not None:
-        return device_index
-    if not torch.cuda.is_available():
-        return -1
-    try:
-        return torch.cuda.current_device()
-    except Exception:  # noqa: BLE001 — a driver hiccup must not break probing
-        return -1
-
-
-def _get_availability(device_index: int | None = None) -> dict[str, bool]:
-    key = _resolve_device_key(device_index)
-    cached = _availability.get(key)
-    if cached is None:
-        cached = _probe(key)
-        _availability[key] = cached
-    return cached
+def _auto_selectable(available: frozenset[str]) -> list[str]:
+    return [b for b in BACKEND_PRIORITY if b in available]
 
 
 def reset_backend_cache() -> None:
-    """Drop the cached probe (and one-shot warnings) for EVERY device. Re-probes
-    each device again on its next use."""
-    _availability.clear()
+    refresh_capabilities()
     _warned_unavailable.clear()
     _noted_dispatch.clear()
     _grouped_capability.clear()
@@ -326,8 +184,7 @@ def available_backends(device_index: int | None = None) -> list[str]:
     :data:`PIN_ONLY_BACKENDS` (e.g. ``sparge``) even when available — those
     only ever come back from :func:`get_attention_backend` on an explicit
     request, never as "the best available backend"."""
-    avail = _get_availability(device_index)
-    return [b for b in BACKEND_PRIORITY if avail.get(b, False)]
+    return _auto_selectable(capabilities().device(device_index).attention_backends)
 
 
 def known_backends() -> frozenset[str]:
@@ -354,19 +211,17 @@ def get_attention_backend(override: str | None = None, device_index: int | None 
     otherwise never returned when ``requested`` is ``None``. A requested-but-
     unavailable or unknown choice logs a warning (once per name) and falls back
     to the best auto-selectable backend. No DB read happens here - this runs
-    per forward call. ``device_index`` matters because availability (esp.
-    sage3's exact-capability gate) is per-device — see the ``_availability``
-    cache's module-level comment.
+    per forward call.
     """
-    full_avail = _get_availability(device_index)  # every probed backend, incl. pin-only
-    auto_avail = available_backends(device_index)  # non-empty (sdpa floor); excludes pin-only
+    full_avail = capabilities().device(device_index).attention_backends
+    auto_avail = _auto_selectable(full_avail)
     requested = override or runtime_flag("native_attention_backend") or None
 
     if requested is None:
         return auto_avail[0]
 
     requested = requested.strip().lower()
-    if full_avail.get(requested, False):
+    if requested in full_avail:
         return requested
 
     if requested not in _warned_unavailable:

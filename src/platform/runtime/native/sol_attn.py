@@ -42,6 +42,7 @@ from typing import Any, Callable, Optional
 import torch
 from torch import Tensor
 
+from src.platform.runtime.native.kernels import capabilities
 from src.platform.settings.runtime_flags import runtime_flag
 
 logger = logging.getLogger(__name__)
@@ -207,9 +208,9 @@ def _unsupported(q: Tensor) -> Optional[str]:
         return f"needs bfloat16 activations, got {q.dtype}"
     if q.shape[-1] != SOL_ATTN_HEAD_DIM:
         return f"needs head_dim {SOL_ATTN_HEAD_DIM}, got {q.shape[-1]}"
-    capability = torch.cuda.get_device_capability(q.device)
-    if capability < (8, 0):
-        return f"needs compute capability 8.0+, got {capability[0]}.{capability[1]}"
+    device = capabilities().device(q.device)
+    if not device.at_least(8):
+        return f"needs compute capability 8.0+, got {device.capability[0]}.{device.capability[1]}"
     return None
 
 

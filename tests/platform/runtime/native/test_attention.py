@@ -9,7 +9,9 @@ import pytest
 import torch
 
 import src.platform.runtime.native.attention as att
+from src.platform.runtime.native.kernels import FLASH, SAGE, SAGE2, SAGE3, SDPA, SPARGE
 from src.platform.settings import runtime_flags
+from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities, fake_device, hopper
 
 
 @pytest.fixture(autouse=True)
@@ -21,202 +23,133 @@ def _reset_cache():
     att.set_backend_override(None)
 
 
-def _configure(monkeypatch, *, cuda, cap, modules, sage_v2=True,
-                cap_full=None, cuda_runtime=(0, 0)):
-    """Simulate a hardware/import environment and re-probe.
-
-    ``cap`` is the legacy major-only capability (``_cuda_capability_major``);
-    ``cap_full``/``cuda_runtime`` additionally drive sage3's exact-capability +
-    CUDA-runtime gate (``_cuda_capability``/``_cuda_runtime_version``).
-    Defaults keep sage3 unavailable unless a test opts in.
-    """
-    # Accept (and ignore) an optional device_index positional arg — the real
-    # functions take one now (per-device probing/caching), but these tests
-    # simulate a single uniform environment regardless of device.
-    monkeypatch.setattr(att, "_has_module", lambda name: name in modules)
-    monkeypatch.setattr(att, "_cuda_capability_major", lambda device_index=None: cap)
-    monkeypatch.setattr(
-        att, "_cuda_capability",
-        lambda device_index=None: cap_full if cap_full is not None else (cap, 0),
-    )
-    monkeypatch.setattr(att, "_cuda_runtime_version", lambda: cuda_runtime)
-    monkeypatch.setattr(att, "_sageattention_is_v2", lambda: sage_v2)
-    monkeypatch.setattr(att.torch.cuda, "is_available", lambda: cuda)
-    att.reset_backend_cache()
+def _install(monkeypatch, install_capabilities, *names, device=ampere):
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    install_capabilities(fake_capabilities(device(attention_backends=frozenset({SDPA, *names}))))
 
 
-# --------------------------------------------------------------------------- #
-# availability matrix
-# --------------------------------------------------------------------------- #
-
-def test_sdpa_always_available_no_gpu(monkeypatch):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())
+def test_sdpa_always_available_no_gpu(install_capabilities):
+    install_capabilities(cpu_only())
     assert att.available_backends() == ["sdpa"]
 
 
-def test_flash_requires_module_and_cuda(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_flash_is_listed_only_on_a_device_that_has_it(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     assert att.available_backends() == ["flash", "sdpa"]
 
-    # flash present but no CUDA -> unavailable
-    _configure(monkeypatch, cuda=False, cap=0, modules={"flash_attn"})
+    install_capabilities(cpu_only())
     assert att.available_backends() == ["sdpa"]
 
 
-def test_sage_needs_triton_cuda_and_capability(monkeypatch):
-    # sm70, triton + sageattention v1 -> sage but not sage2
-    _configure(monkeypatch, cuda=True, cap=7, modules={"sageattention", "triton"}, sage_v2=False)
+def test_sage2_outranks_sage(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SAGE)
     assert att.available_backends() == ["sage", "sdpa"]
 
-    # sm80 + v2 -> sage2 and sage
-    _configure(monkeypatch, cuda=True, cap=8, modules={"sageattention", "triton"}, sage_v2=True)
+    _install(monkeypatch, install_capabilities, SAGE, SAGE2)
     assert att.available_backends() == ["sage2", "sage", "sdpa"]
 
-    # sageattention without triton -> neither
-    _configure(monkeypatch, cuda=True, cap=8, modules={"sageattention"}, sage_v2=True)
-    assert att.available_backends() == ["sdpa"]
 
-    # sage2 needs sm80: on sm70 with v2 build, only sage
-    _configure(monkeypatch, cuda=True, cap=7, modules={"sageattention", "triton"}, sage_v2=True)
-    assert att.available_backends() == ["sage", "sdpa"]
-
-
-def test_full_stack_priority_order(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=9,
-               modules={"sageattention", "triton", "flash_attn"}, sage_v2=True)
+def test_full_stack_priority_order(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH, SAGE, SAGE2, device=hopper)
     assert att.available_backends() == ["sage2", "sage", "flash", "sdpa"]
 
 
-# --------------------------------------------------------------------------- #
-# sage3 (SageAttention3 / Blackwell FP4) — exact-capability + CUDA-runtime gate
-# --------------------------------------------------------------------------- #
+HARDWARE_DECISIONS = [
+    pytest.param(ampere, (FLASH, SAGE, SAGE2, SPARGE), ["sage2", "sage", "flash", "sdpa"], "sage2", "sparge", id="ampere"),
+    pytest.param(ada, (FLASH, SAGE, SAGE2, SPARGE), ["sage2", "sage", "flash", "sdpa"], "sage2", "sparge", id="ada"),
+    pytest.param(hopper, (FLASH, SAGE, SAGE2, SPARGE), ["sage2", "sage", "flash", "sdpa"], "sage2", "sparge", id="hopper"),
+    pytest.param(
+        blackwell, (FLASH, SAGE, SAGE2, SAGE3), ["sage3", "sage2", "sage", "flash", "sdpa"], "sage3", "sage3", id="blackwell",
+    ),
+    pytest.param(None, (), ["sdpa"], "sdpa", "sdpa", id="cpu"),
+]
 
-def test_sage3_selected_on_sm120_with_module_and_new_enough_cuda(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=12, cap_full=(12, 0), cuda_runtime=(12, 8),
-               modules={"sageattn3"})
+
+@pytest.mark.parametrize("device, installed, available, auto, sparge_pin", HARDWARE_DECISIONS)
+def test_backend_decisions_follow_the_snapshot_of_each_generation(
+    monkeypatch, install_capabilities, device, installed, available, auto, sparge_pin
+):
+    if device is None:
+        install_capabilities(cpu_only())
+    else:
+        _install(monkeypatch, install_capabilities, *installed, device=device)
+    assert att.available_backends() == available
+    assert att.get_attention_backend() == auto
+    assert att.get_attention_backend("sparge") == sparge_pin
+
+
+def test_sage3_selected_on_blackwell(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SAGE3, device=blackwell)
     assert att.available_backends() == ["sage3", "sdpa"]
     assert att.get_attention_backend() == "sage3"
 
 
-@pytest.mark.parametrize("cap_full", [(10, 0), (12, 0), (12, 1)])
-def test_sage3_available_on_every_supported_blackwell_capability(monkeypatch, cap_full):
-    _configure(monkeypatch, cuda=True, cap=cap_full[0], cap_full=cap_full, cuda_runtime=(12, 8),
-               modules={"sageattn3"})
-    assert "sage3" in att.available_backends()
-
-
-@pytest.mark.parametrize("cap_full", [(9, 0), (11, 0), (12, 2), (13, 0)])
-def test_sage3_unavailable_on_non_blackwell_or_mismatched_capability(monkeypatch, cap_full):
-    # sage3's kernel is built with family-specific (`...a`-suffixed) arch flags
-    # for exactly (10,0)/(12,0)/(12,1) — this must be an EXACT-membership
-    # check, not `>= (12, 0)`: sm121 isn't in range for sm120's build and vice
-    # versa, and a hypothetical sm130 needs its own rebuild.
-    _configure(monkeypatch, cuda=True, cap=cap_full[0], cap_full=cap_full, cuda_runtime=(12, 8),
-               modules={"sageattn3"})
-    assert "sage3" not in att.available_backends()
-
-
-def test_sage3_unavailable_without_the_sageattn3_module(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=12, cap_full=(12, 0), cuda_runtime=(12, 8), modules=set())
-    assert "sage3" not in att.available_backends()
-
-
-def test_sage3_unavailable_on_old_cuda_runtime(monkeypatch):
-    # sage3 hard-requires CUDA >= 12.8 even on a supported GPU.
-    _configure(monkeypatch, cuda=True, cap=12, cap_full=(12, 0), cuda_runtime=(12, 6),
-               modules={"sageattn3"})
-    assert "sage3" not in att.available_backends()
-
-
-def test_sage3_outranks_sage2_in_priority(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=12, cap_full=(12, 0), cuda_runtime=(12, 8),
-               modules={"sageattn3", "sageattention", "triton", "flash_attn"}, sage_v2=True)
+def test_sage3_outranks_sage2_in_priority(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SAGE3, SAGE, SAGE2, FLASH, device=blackwell)
     assert att.available_backends() == ["sage3", "sage2", "sage", "flash", "sdpa"]
     assert att.get_attention_backend() == "sage3"
 
 
-def test_sage3_override_unavailable_warns_and_falls_back(monkeypatch, caplog):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())  # only sdpa
+def test_sage3_override_unavailable_warns_and_falls_back(install_capabilities, caplog):
+    install_capabilities(cpu_only())
     with caplog.at_level(logging.WARNING):
         chosen = att.get_attention_backend("sage3")
     assert chosen == "sdpa"
     assert any("unavailable" in r.message and "sage3" in r.message for r in caplog.records)
 
 
-def test_sage3_active_still_falls_back_to_sdpa_for_mask_or_fp32(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=12, cap_full=(12, 0), cuda_runtime=(12, 8),
-               modules={"sageattn3"})
+def test_sage3_active_still_falls_back_to_sdpa_for_mask_or_fp32(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SAGE3, device=blackwell)
     assert att.get_attention_backend() == "sage3"
 
-    # fp32 -> sdpa fallback, no crash into an uninstalled/uncalled kernel.
     q = torch.randn(1, 2, 4, 8)
     ref = torch.nn.functional.scaled_dot_product_attention(q, q, q, is_causal=False)
     assert torch.equal(att.attention(q, q, q), ref)
 
-    # fp16 + a dense mask -> sdpa fallback too (sage3 supports neither).
     q16 = torch.randn(1, 2, 4, 8, dtype=torch.float16)
     mask = torch.zeros(1, 2, 4, 4, dtype=torch.float16)
     ref16 = torch.nn.functional.scaled_dot_product_attention(q16, q16, q16, attn_mask=mask, is_causal=False)
     assert torch.equal(att.attention(q16, q16, q16, mask=mask), ref16)
 
 
-# --------------------------------------------------------------------------- #
-# sparge (SpargeAttention) — pin-only backend, never auto-selected
-# --------------------------------------------------------------------------- #
-
-def test_sparge_probes_available_on_ampere_and_hopper_with_module(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"spas_sage_attn"})
-    # available (probe found it) but NEVER in the auto-selectable list.
+def test_sparge_is_pinnable_but_never_listed_for_auto_selection(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SPARGE)
     assert att.get_attention_backend("sparge") == "sparge"
     assert "sparge" not in att.available_backends()
 
-    _configure(monkeypatch, cuda=True, cap=9, modules={"spas_sage_attn"})
+    _install(monkeypatch, install_capabilities, SPARGE, device=hopper)
     assert att.get_attention_backend("sparge") == "sparge"
 
 
-def test_sparge_unavailable_without_module(monkeypatch, caplog):
-    _configure(monkeypatch, cuda=True, cap=8, modules=set())
+def test_sparge_unavailable_warns_and_falls_back(monkeypatch, install_capabilities, caplog):
+    _install(monkeypatch, install_capabilities)
     with caplog.at_level(logging.WARNING):
         chosen = att.get_attention_backend("sparge")
     assert chosen == "sdpa"
     assert any("unavailable" in r.message and "sparge" in r.message for r in caplog.records)
 
 
-@pytest.mark.parametrize("cap", [7, 6, 10, 12])
-def test_sparge_unavailable_outside_ampere_hopper(monkeypatch, cap):
-    # thu-ml/SpargeAttn's setup.py only builds for compute-capability major 8
-    # or 9 (Ampere/Ada/Hopper) — no Blackwell (10/12) entry as of this writing.
-    _configure(monkeypatch, cuda=True, cap=cap, modules={"spas_sage_attn"})
-    assert att.get_attention_backend("sparge") == "sdpa"
-
-
-def test_sparge_never_auto_selected_even_when_only_backend_available(monkeypatch):
-    # The defining property: sparge is the ONLY non-sdpa backend the probe
-    # would find, yet auto-selection (no override/env/pin) must still land on
-    # sdpa, never sparge.
-    _configure(monkeypatch, cuda=True, cap=8, modules={"spas_sage_attn"})
+def test_sparge_never_auto_selected_even_when_only_backend_available(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SPARGE)
     assert att.available_backends() == ["sdpa"]
     assert att.get_attention_backend() == "sdpa"
 
 
-def test_sparge_explicit_pin_is_honored_over_auto_selection(monkeypatch):
-    # Even with sage2/flash also available (so auto-selection has a
-    # higher-priority choice), an explicit pin to sparge must win.
-    _configure(monkeypatch, cuda=True, cap=8,
-               modules={"spas_sage_attn", "sageattention", "triton", "flash_attn"}, sage_v2=True)
-    assert att.get_attention_backend() != "sparge"  # auto still prefers sage2
+def test_sparge_explicit_pin_is_honored_over_auto_selection(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SPARGE, SAGE, SAGE2, FLASH)
+    assert att.get_attention_backend() != "sparge"
     att.set_backend_override("sparge")
     assert att.get_attention_backend() == "sparge"
 
 
-def test_sparge_via_runtime_flag_is_honored(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=9, modules={"spas_sage_attn"})
+def test_sparge_via_runtime_flag_is_honored(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SPARGE, device=hopper)
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_attention_backend", "sparge")
     assert att.get_attention_backend() == "sparge"
 
 
-def test_sparge_active_falls_back_to_sdpa_for_mask_or_fp32(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"spas_sage_attn"})
+def test_sparge_active_falls_back_to_sdpa_for_mask_or_fp32(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SPARGE)
     att.set_backend_override("sparge")
     assert att.get_attention_backend() == "sparge"
 
@@ -230,26 +163,21 @@ def test_sparge_active_falls_back_to_sdpa_for_mask_or_fp32(monkeypatch):
     assert torch.equal(att.attention(q16, q16, q16, mask=mask), ref16)
 
 
-def test_sparge_active_falls_back_to_sdpa_for_short_sequence_or_bad_headdim(monkeypatch):
-    # SpargeAttn's kernel hard-requires seq_len >= 128 and head_dim in {64, 128}
-    # -- a call outside those bounds must still produce a correct (sdpa) result
-    # rather than crash into an unsupported kernel shape.
-    _configure(monkeypatch, cuda=True, cap=8, modules={"spas_sage_attn"})
+def test_sparge_active_falls_back_to_sdpa_for_short_sequence_or_bad_headdim(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SPARGE)
     att.set_backend_override("sparge")
 
-    # seq_len 64 < 128 -> shape fallback.
     q_short = torch.randn(1, 2, 64, 64, dtype=torch.float16)
     ref_short = torch.nn.functional.scaled_dot_product_attention(q_short, q_short, q_short, is_causal=False)
     assert torch.equal(att.attention(q_short, q_short, q_short), ref_short)
 
-    # head_dim 96 not in {64, 128} -> shape fallback.
     q_baddim = torch.randn(1, 2, 256, 96, dtype=torch.float16)
     ref_baddim = torch.nn.functional.scaled_dot_product_attention(q_baddim, q_baddim, q_baddim, is_causal=False)
     assert torch.equal(att.attention(q_baddim, q_baddim, q_baddim), ref_baddim)
 
 
-def test_unknown_backend_warning_lists_pin_only_names(monkeypatch, caplog):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())
+def test_unknown_backend_warning_lists_pin_only_names(install_capabilities, caplog):
+    install_capabilities(cpu_only())
     with caplog.at_level(logging.WARNING):
         att.get_attention_backend("totally-not-a-backend")
     assert any("sparge" in r.message for r in caplog.records if "unknown" in r.message.lower())
@@ -265,53 +193,48 @@ def test_known_backends_is_union_of_priority_and_pin_only():
         assert name in known
 
 
-# --------------------------------------------------------------------------- #
-# selection: override / env / fallback-warn
-# --------------------------------------------------------------------------- #
-
-def test_default_picks_highest_priority(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=9,
-               modules={"sageattention", "triton", "flash_attn"}, sage_v2=True)
+def test_default_picks_highest_priority(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SAGE, SAGE2, FLASH, device=hopper)
     assert att.get_attention_backend() == "sage2"
 
 
-def test_override_wins_when_available(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_override_wins_when_available(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     assert att.get_attention_backend("flash") == "flash"
     assert att.get_attention_backend("sdpa") == "sdpa"
 
 
-def test_runtime_flag_selects_backend(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_runtime_flag_selects_backend(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_attention_backend", "flash")
     assert att.get_attention_backend() == "flash"
     assert att.get_backend_override() == "flash"
 
 
-def test_override_arg_beats_runtime_flag(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_override_arg_beats_runtime_flag(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_attention_backend", "sdpa")
     assert att.get_attention_backend("flash") == "flash"
 
 
-def test_unavailable_override_warns_and_falls_back(monkeypatch, caplog):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())  # only sdpa
+def test_unavailable_override_warns_and_falls_back(install_capabilities, caplog):
+    install_capabilities(cpu_only())
     with caplog.at_level(logging.WARNING):
         chosen = att.get_attention_backend("flash")
     assert chosen == "sdpa"
     assert any("unavailable" in r.message and "flash" in r.message for r in caplog.records)
 
 
-def test_unknown_backend_warns_and_falls_back(monkeypatch, caplog):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())
+def test_unknown_backend_warns_and_falls_back(install_capabilities, caplog):
+    install_capabilities(cpu_only())
     with caplog.at_level(logging.WARNING):
         chosen = att.get_attention_backend("nonsense")
     assert chosen == "sdpa"
     assert any("unknown" in r.message.lower() for r in caplog.records)
 
 
-def test_fallback_warns_once_per_name(monkeypatch, caplog):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())
+def test_fallback_warns_once_per_name(install_capabilities, caplog):
+    install_capabilities(cpu_only())
     with caplog.at_level(logging.WARNING):
         att.get_attention_backend("flash")
         att.get_attention_backend("flash")
@@ -319,43 +242,38 @@ def test_fallback_warns_once_per_name(monkeypatch, caplog):
     assert len(flash_warnings) == 1
 
 
-# --------------------------------------------------------------------------- #
-# in-memory backend pin (admin "Optimizations" panel)
-# --------------------------------------------------------------------------- #
-
-def test_backend_override_used_when_no_override_arg_or_env(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_backend_override_used_when_no_override_arg_or_env(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     att.set_backend_override("flash")
     assert att.get_attention_backend() == "flash"
     assert att.get_backend_override() == "flash"
 
 
-def test_native_attention_env_var_is_ignored(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_native_attention_env_var_is_ignored(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     att.set_backend_override("flash")
     monkeypatch.setenv("NATIVE_ATTENTION", "sdpa")
     assert att.get_attention_backend() == "flash"
 
 
-def test_override_arg_beats_backend_override(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_override_arg_beats_backend_override(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     att.set_backend_override("sdpa")
     assert att.get_attention_backend("flash") == "flash"
 
 
 @pytest.mark.parametrize("cleared", ["auto", "", None])
-def test_backend_override_auto_and_empty_and_none_clear_pin(monkeypatch, cleared):
-    _configure(monkeypatch, cuda=True, cap=9,
-               modules={"sageattention", "triton", "flash_attn"}, sage_v2=True)
+def test_backend_override_auto_and_empty_and_none_clear_pin(monkeypatch, install_capabilities, cleared):
+    _install(monkeypatch, install_capabilities, SAGE, SAGE2, FLASH, device=hopper)
     att.set_backend_override("flash")
     assert att.get_backend_override() == "flash"
     att.set_backend_override(cleared)
     assert att.get_backend_override() is None
-    assert att.get_attention_backend() == "sage2"  # falls through to best-available
+    assert att.get_attention_backend() == "sage2"
 
 
-def test_backend_override_normalizes_case_and_whitespace(monkeypatch):
-    _configure(monkeypatch, cuda=True, cap=8, modules={"flash_attn"})
+def test_backend_override_normalizes_case_and_whitespace(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
     att.set_backend_override("  Flash  ")
     assert att.get_backend_override() == "flash"
     assert att.get_attention_backend() == "flash"
@@ -376,8 +294,8 @@ def _manual_attention(q, k, v, mask=None):
     return scores.softmax(dim=-1) @ v
 
 
-def test_sdpa_matches_manual_softmax(monkeypatch):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())
+def test_sdpa_matches_manual_softmax(install_capabilities):
+    install_capabilities(cpu_only())
     torch.manual_seed(0)
     q = torch.randn(2, 3, 5, 8, dtype=torch.float64)
     k = torch.randn(2, 3, 5, 8, dtype=torch.float64)
@@ -387,8 +305,8 @@ def test_sdpa_matches_manual_softmax(monkeypatch):
     assert torch.allclose(out, _manual_attention(q, k, v), atol=1e-12)
 
 
-def test_sdpa_matches_manual_with_additive_mask(monkeypatch):
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())
+def test_sdpa_matches_manual_with_additive_mask(install_capabilities):
+    install_capabilities(cpu_only())
     torch.manual_seed(1)
     q = torch.randn(1, 2, 4, 8, dtype=torch.float64)
     k = torch.randn(1, 2, 4, 8, dtype=torch.float64)
@@ -399,9 +317,8 @@ def test_sdpa_matches_manual_with_additive_mask(monkeypatch):
     assert torch.allclose(out, _manual_attention(q, k, v, mask), atol=1e-12)
 
 
-def test_dispatch_bit_identical_to_raw_sdpa(monkeypatch):
-    # The refactor must not perturb the sdpa numerics vs a direct F.sdpa call.
-    _configure(monkeypatch, cuda=False, cap=0, modules=set())
+def test_dispatch_bit_identical_to_raw_sdpa(install_capabilities):
+    install_capabilities(cpu_only())
     torch.manual_seed(2)
     q = torch.randn(2, 4, 7, 16)
     k = torch.randn(2, 4, 7, 16)
@@ -416,12 +333,10 @@ def test_heads_mismatch_raises():
         att.attention(q, q, q, heads=8)
 
 
-def test_accelerated_backend_falls_back_to_sdpa_for_fp32_and_mask(monkeypatch):
-    # Pretend sage2 is selected, but fp32 input must route through sdpa (correct,
-    # not a crash into an uninstalled kernel).
-    _configure(monkeypatch, cuda=True, cap=9, modules={"sageattention", "triton"}, sage_v2=True)
+def test_accelerated_backend_falls_back_to_sdpa_for_fp32_and_mask(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, SAGE, SAGE2, device=hopper)
     assert att.get_attention_backend() == "sage2"
-    q = torch.randn(1, 2, 4, 8)  # fp32 -> sdpa fallback
+    q = torch.randn(1, 2, 4, 8)
     ref = torch.nn.functional.scaled_dot_product_attention(q, q, q, is_causal=False)
     assert torch.equal(att.attention(q, q, q), ref)
 
@@ -467,50 +382,48 @@ class _FakeCudaTensor:
         self.device = torch.device(f"cuda:{device_index}")
 
 
-def test_get_availability_caches_independently_per_device(monkeypatch):
-    # device 0 has sage3-capable hardware, device 1 doesn't — a single global
-    # (device-unaware) cache could only ever report one of these.
-    def cap_for(device_index=None):
-        return (12, 0) if device_index == 0 else (7, 5)
-
-    monkeypatch.setattr(att, "_has_module", lambda name: name == "sageattn3")
-    monkeypatch.setattr(att, "_cuda_capability_major", lambda device_index=None: cap_for(device_index)[0])
-    monkeypatch.setattr(att, "_cuda_capability", cap_for)
-    monkeypatch.setattr(att, "_cuda_runtime_version", lambda: (12, 8))
-    monkeypatch.setattr(att.torch.cuda, "is_available", lambda: True)
-    att.reset_backend_cache()
+def test_availability_is_resolved_per_device(install_capabilities):
+    install_capabilities(fake_capabilities(
+        blackwell(attention_backends=frozenset({SDPA, SAGE3})),
+        fake_device((7, 5)),
+    ))
 
     assert "sage3" in att.available_backends(device_index=0)
     assert "sage3" not in att.available_backends(device_index=1)
-    # Re-checking device 0 must still see its own cached (favorable) result,
-    # not device 1's, proving the two are cached under separate keys.
     assert "sage3" in att.available_backends(device_index=0)
+    assert att.get_attention_backend("sage3", device_index=0) == "sage3"
+    assert att.get_attention_backend("sage3", device_index=1) == "sdpa"
 
 
-def test_reset_backend_cache_clears_every_device(monkeypatch):
+def test_reset_backend_cache_refreshes_the_snapshot(monkeypatch):
     calls = []
-
-    def counting_capability_major(device_index=None):
-        calls.append(device_index)
-        return 0
-
-    monkeypatch.setattr(att, "_has_module", lambda name: False)
-    monkeypatch.setattr(att, "_cuda_capability_major", counting_capability_major)
-    monkeypatch.setattr(att, "_cuda_capability", lambda device_index=None: (0, 0))
-    monkeypatch.setattr(att, "_cuda_runtime_version", lambda: (0, 0))
-    monkeypatch.setattr(att.torch.cuda, "is_available", lambda: True)
-    att.reset_backend_cache()
-
-    att.available_backends(device_index=0)
-    att.available_backends(device_index=1)
-    assert calls == [0, 1]
-    att.available_backends(device_index=0)  # cached: no new probe
-    assert calls == [0, 1]
+    monkeypatch.setattr(att, "refresh_capabilities", lambda: calls.append("refresh"))
 
     att.reset_backend_cache()
-    att.available_backends(device_index=0)
-    att.available_backends(device_index=1)
-    assert calls == [0, 1, 0, 1]  # both devices re-probed after reset
+    assert calls == ["refresh"]
+    att.reset_backend_cache()
+    assert calls == ["refresh", "refresh"]
+
+
+def test_reset_backend_cache_replaces_the_installed_snapshot_with_a_rebuilt_one(monkeypatch, install_capabilities):
+    _install(monkeypatch, install_capabilities, FLASH)
+    assert att.available_backends() == ["flash", "sdpa"]
+
+    att.reset_backend_cache()
+
+    assert att.available_backends() == ["sdpa"]
+
+
+def test_reset_backend_cache_rearms_the_one_shot_warning(install_capabilities, caplog):
+    install_capabilities(cpu_only())
+    with caplog.at_level(logging.WARNING):
+        att.get_attention_backend("flash")
+        att.get_attention_backend("flash")
+        assert len([r for r in caplog.records if "flash" in r.message]) == 1
+        att.reset_backend_cache()
+        install_capabilities(cpu_only())
+        att.get_attention_backend("flash")
+    assert len([r for r in caplog.records if "flash" in r.message]) == 2
 
 
 def test_attention_dispatch_validates_against_q_device_not_current_device(monkeypatch):

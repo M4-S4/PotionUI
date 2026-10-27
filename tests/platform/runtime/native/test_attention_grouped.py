@@ -15,6 +15,7 @@ import torch
 import torch.nn.functional as F
 
 import src.platform.runtime.native.attention as att
+from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
 
 
 @pytest.fixture(autouse=True)
@@ -165,13 +166,13 @@ def test_supported_backend_gets_the_grouped_layout(monkeypatch):
     assert seen == {"kv_heads": 2, "v_heads": 2, "grouped": True}
 
 
-def test_capability_is_asked_about_the_backend_actually_used(monkeypatch):
+def test_capability_is_asked_about_the_backend_actually_used(monkeypatch, install_capabilities):
     """A sage/flash call that falls back to sdpa (mask, fp32, CPU) must be
     judged as sdpa, not as the backend that was selected and abandoned."""
     asked = []
     monkeypatch.setattr(att, "supports_grouped_kv", lambda backend: asked.append(backend) or False)
-    monkeypatch.setattr(att, "_get_availability",
-                        lambda device_index=None: {att.SDPA: True, att.SAGE: True})
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    install_capabilities(fake_capabilities(ampere(attention_backends=frozenset({att.SDPA, att.SAGE}))))
     att.set_backend_override(att.SAGE)
 
     q, k, v = _qkv(heads=8, kvheads=2)  # fp32 on CPU: sage can take neither

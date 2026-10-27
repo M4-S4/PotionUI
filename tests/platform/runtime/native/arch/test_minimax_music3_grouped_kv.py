@@ -19,6 +19,7 @@ from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM, _GlobalAttention
 from src.platform.runtime.native.text_encoders._functional import optimized_attention
 from vendor.gpl.comfyui.ops import disable_weight_init
+from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
 
 
 def _old_prefill(self, x, cos, sin, cache_k, cache_v):
@@ -162,14 +163,16 @@ def test_decode_reads_the_cache_prefix_without_copying_it():
         assert k_ptr in storages and v_ptr in storages
 
 
-def test_lm_attention_stays_on_sdpa_whatever_the_dit_is_pinned_to(monkeypatch):
+def test_lm_attention_stays_on_sdpa_whatever_the_dit_is_pinned_to(monkeypatch, install_capabilities):
     """The AR core must not follow a global pin onto a quantizing kernel."""
     chosen = []
     real = att._resolve_dispatch
     monkeypatch.setattr(att, "_resolve_dispatch",
                         lambda q, mask, backend: chosen.append(backend) or real(q, mask, backend))
-    monkeypatch.setattr(att, "_get_availability",
-                        lambda device_index=None: {att.SDPA: True, att.SAGE: True, att.SAGE2: True})
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    install_capabilities(fake_capabilities(
+        ampere(attention_backends=frozenset({att.SDPA, att.SAGE, att.SAGE2}))
+    ))
     att.set_backend_override("sage2")
 
     _run(_build_lm(), decode_steps=2)

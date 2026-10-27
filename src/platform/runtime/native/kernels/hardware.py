@@ -21,13 +21,12 @@ _SAGE3_MIN_CUDA_RUNTIME: tuple[int, int] = (12, 8)
 _SPARGE_CAPABILITY_MAJORS: frozenset[int] = frozenset({8, 9})
 _PROBED_MODULES: tuple[str, ...] = ("triton", "sageattention", "flash_attn", "sageattn3", "spas_sage_attn")
 _CPU_NAME = "cpu"
-_UNNAMED_GPU = "CUDA GPU"
 
 
 @dataclass(frozen=True)
 class DeviceCapabilities:
     index: int | None
-    name: str
+    name: str | None
     capability: tuple[int, int]
     attention_backends: frozenset[str]
 
@@ -110,11 +109,11 @@ def _device_capability(index: int) -> tuple[int, int]:
         return (0, 0)
 
 
-def _device_name(index: int) -> str:
+def _device_name(index: int) -> str | None:
     try:
         return str(torch.cuda.get_device_name(index))
     except Exception:
-        return _UNNAMED_GPU
+        return None
 
 
 def _attention_backends(

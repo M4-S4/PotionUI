@@ -10,6 +10,7 @@ import torch
 
 import src.platform.runtime.native.optimizations.probe as probe_mod
 from src.platform.runtime.native.optimizations.probe import probe_system
+from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities, fake_device, hopper
 
 
 class _FakeVersionInfo:
@@ -20,63 +21,105 @@ class _FakeVersionInfo:
         self.minor = minor
 
 
-def _patch_common(monkeypatch, *, cuda, capability=None, torch_cuda_version="12.4"):
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: cuda)
-    if capability is not None:
-        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *a, **k: capability)
+def _patch_common(monkeypatch, *, torch_cuda_version="12.4"):
     monkeypatch.setattr(torch.version, "cuda", torch_cuda_version, raising=False)
 
 
+@pytest.fixture
+def no_nvml(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _blocked_import(name, *a, **k):
+        if name == "src.platform.runtime.gpu":
+            raise ImportError("blocked for test")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _blocked_import)
+
+
+def _current_device(monkeypatch, index):
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: index)
+
+
 class TestGpuInfo:
-    def test_no_cuda_reports_all_none(self, monkeypatch):
-        _patch_common(monkeypatch, cuda=False)
+    def test_no_cuda_reports_all_none(self, install_capabilities):
+        install_capabilities(cpu_only())
         cuda_available, cap, name, vram = probe_mod._gpu_info()
         assert cuda_available is False
         assert cap is None
         assert name is None
         assert vram is None
 
-    def test_cuda_available_reports_capability(self, monkeypatch):
-        # gpu_name comes from GpuMonitor/NVML when available (real hardware on
-        # this box), falling back to torch.cuda.get_device_name() otherwise -
-        # so this only pins down capability + presence of a non-empty name.
-        _patch_common(monkeypatch, cuda=True, capability=(9, 0))
-        monkeypatch.setattr(torch.cuda, "get_device_name", lambda *a, **k: "RTX 5090")
+    def test_cuda_available_reports_capability(self, monkeypatch, install_capabilities):
+        _current_device(monkeypatch, 0)
+        install_capabilities(fake_capabilities(hopper(name="RTX 5090")))
         cuda_available, cap, name, vram = probe_mod._gpu_info()
         assert cuda_available is True
         assert cap == (9, 0)
-        assert name  # non-empty, either NVML or the torch fallback
+        assert name
 
-    def test_cuda_available_falls_back_to_torch_name_without_nvml(self, monkeypatch):
-        _patch_common(monkeypatch, cuda=True, capability=(9, 0))
-        monkeypatch.setattr(torch.cuda, "get_device_name", lambda *a, **k: "RTX 5090 (torch fallback)")
-
-        def _raise(*a, **k):
-            raise RuntimeError("no NVML")
-
-        monkeypatch.setattr(probe_mod, "GpuMonitor", None, raising=False)
-        # Force the GpuMonitor import inside _gpu_info to fail.
-        import builtins
-
-        real_import = builtins.__import__
-
-        def _blocked_import(name, *a, **k):
-            if name == "src.platform.runtime.gpu":
-                raise ImportError("blocked for test")
-            return real_import(name, *a, **k)
-
-        monkeypatch.setattr(builtins, "__import__", _blocked_import)
+    @pytest.mark.parametrize(
+        "device, expected",
+        [
+            pytest.param(ampere(), (8, 6), id="ampere"),
+            pytest.param(ada(), (8, 9), id="ada"),
+            pytest.param(blackwell(), (12, 0), id="blackwell"),
+        ],
+    )
+    def test_capability_comes_from_the_snapshot_of_each_generation(
+        self, monkeypatch, install_capabilities, no_nvml, device, expected
+    ):
+        _current_device(monkeypatch, 0)
+        install_capabilities(fake_capabilities(device))
         cuda_available, cap, name, vram = probe_mod._gpu_info()
-        assert name == "RTX 5090 (torch fallback)"
+        assert cuda_available is True
+        assert cap == expected
+        assert name == device.name
         assert vram is None
 
-    def test_capability_probe_exception_is_swallowed(self, monkeypatch):
-        _patch_common(monkeypatch, cuda=True)
+    def test_cuda_available_falls_back_to_the_snapshot_name_without_nvml(
+        self, monkeypatch, install_capabilities, no_nvml
+    ):
+        _current_device(monkeypatch, 0)
+        install_capabilities(fake_capabilities(hopper(name="RTX 5090 (snapshot)")))
+        cuda_available, cap, name, vram = probe_mod._gpu_info()
+        assert name == "RTX 5090 (snapshot)"
+        assert vram is None
 
+    def test_unnamed_gpu_reports_no_name(self, monkeypatch, install_capabilities, no_nvml):
+        _current_device(monkeypatch, 0)
+        install_capabilities(fake_capabilities(ampere(name=None)))
+        cuda_available, cap, name, vram = probe_mod._gpu_info()
+        assert cuda_available is True
+        assert cap == (8, 6)
+        assert name is None
+
+    def test_capability_follows_the_current_device_and_the_name_is_device_zeros(
+        self, monkeypatch, install_capabilities, no_nvml
+    ):
+        install_capabilities(fake_capabilities(ampere(name="first card"), blackwell(name="second card")))
+        _current_device(monkeypatch, 1)
+        cuda_available, cap, name, vram = probe_mod._gpu_info()
+        assert cap == (12, 0)
+        assert name == "first card"
+        _current_device(monkeypatch, 0)
+        assert probe_mod._gpu_info()[1] == (8, 6)
+
+    def test_unreadable_capability_is_none(self, monkeypatch, install_capabilities, no_nvml):
+        _current_device(monkeypatch, 0)
+        install_capabilities(fake_capabilities(fake_device((0, 0))))
+        cuda_available, cap, name, vram = probe_mod._gpu_info()
+        assert cuda_available is True
+        assert cap is None
+
+    def test_unreadable_current_device_gives_no_capability(self, monkeypatch, install_capabilities, no_nvml):
         def _raise():
             raise RuntimeError("driver hiccup")
 
-        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *a, **k: _raise())
+        monkeypatch.setattr(torch.cuda, "current_device", _raise)
+        install_capabilities(fake_capabilities(hopper()))
         cuda_available, cap, name, vram = probe_mod._gpu_info()
         assert cuda_available is True
         assert cap is None
@@ -342,7 +385,7 @@ class TestPythonHFound:
 
 class TestProbeSystem:
     def test_full_probe_assembles_all_fields(self, monkeypatch):
-        _patch_common(monkeypatch, cuda=True, capability=(9, 0), torch_cuda_version="12.4")
+        _patch_common(monkeypatch, torch_cuda_version="12.4")
         monkeypatch.setattr(probe_mod.sys, "version_info", _FakeVersionInfo(3, 12))
         monkeypatch.setattr(torch.cuda, "get_device_name", lambda *a, **k: "RTX 5090")
         monkeypatch.setattr(probe_mod, "_gpu_info", lambda: (True, (9, 0), "RTX 5090", 32.0))
@@ -386,7 +429,7 @@ class TestProbeSystem:
         assert report.available_backends == ["sage2", "sage", "sdpa"]
 
     def test_probe_without_gpu_or_toolchain(self, monkeypatch):
-        _patch_common(monkeypatch, cuda=False)
+        _patch_common(monkeypatch)
         monkeypatch.setattr(probe_mod, "_gpu_info", lambda: (False, None, None, None))
         monkeypatch.setattr(probe_mod.shutil, "which", lambda name: None)
         monkeypatch.setattr(probe_mod, "_find_venv_nvcc", lambda major: None)
