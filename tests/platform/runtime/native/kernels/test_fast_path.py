@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +20,7 @@ from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities
 
 from .._nvfp4_ref import F4_MAX, F8_MAX, quantize_nvfp4
+from .._quant_layouts import descriptor_blob
 
 IN_FEATURES = 32
 OUT_FEATURES = 16
@@ -40,10 +40,6 @@ TWO_GPUS = {
 }
 
 
-def _blob(conf: dict) -> torch.Tensor:
-    return torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
-
-
 def _loaded(layer: torch.nn.Module, state: dict) -> torch.nn.Module:
     layer.requires_grad_(False)
     layer.load_state_dict(state, strict=False, assign=True)
@@ -56,7 +52,7 @@ def _fp8(cls=ops.Fp8ScaledLinear, dtype=torch.float8_e4m3fn, in_f=IN_FEATURES, s
         "weight": torch.randn(OUT_FEATURES, in_f).to(dtype),
         "weight_scale": torch.tensor(0.02) if scale is None else scale,
         "bias": torch.zeros(OUT_FEATURES),
-        "comfy_quant": _blob({"format": "float8_e4m3fn"}),
+        "comfy_quant": descriptor_blob({"format": "float8_e4m3fn"}),
     }
     if input_scale is not None:
         state["input_scale"] = input_scale
@@ -74,7 +70,7 @@ def _int8(convrot: bool):
         "weight": torch.randint(-8, 8, (OUT_FEATURES, IN_FEATURES), dtype=torch.int8),
         "weight_scale": scale,
         "bias": torch.zeros(OUT_FEATURES),
-        "comfy_quant": _blob(conf),
+        "comfy_quant": descriptor_blob(conf),
     })
 
 
@@ -111,8 +107,53 @@ PLAIN = {
     "manual-cast": lambda: ops.manual_cast.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
     "fp8-without-scale": lambda: ops.Fp8ScaledLinear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
     "nvfp4-class-without-scale": lambda: ops.Nvfp4Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
-    "conv": lambda: ops.manual_cast.Conv2d(3, 4, 1),
 }
+
+LORA_SCENARIOS = [("none", True), ("plain", True), ("plain", False), ("lokr", True), ("lokr", False)]
+FP8_GEMM_LAYERS = ["fp8-scaled-linear", "fp8-nvfp4-linear", "fp8-static-input-scale"]
+NEVER_GEMM_LAYERS = [
+    "fp8-e5m2",
+    "fp8-misaligned",
+    "fp8-per-channel-scale",
+    "fp8-per-channel-input-scale",
+    "int8",
+    "int8-convrot",
+    "nvfp4-misaligned",
+]
+
+
+def _case(name, hardware, fp8, nvfp4, resident, lora, fused):
+    label = "-".join([
+        name,
+        hardware,
+        "fp8" if fp8 else "nofp8",
+        "nvfp4" if nvfp4 else "nonvfp4",
+        "resident" if resident else "offgpu",
+        lora,
+        "fused" if fused else "unfused",
+    ])
+    return pytest.param(name, hardware, fp8, nvfp4, resident, lora, fused, id=label)
+
+
+def _matrix(fp8_layers, nvfp4_layers, never_layers, residency):
+    cases = []
+    for lora, fused in LORA_SCENARIOS:
+        for name in fp8_layers:
+            for hardware in HARDWARE:
+                for fp8 in (True, False):
+                    cases.append(_case(name, hardware, fp8, False, True, lora, fused))
+        for name in nvfp4_layers:
+            for hardware in HARDWARE:
+                for nvfp4 in (True, False):
+                    for resident in residency:
+                        cases.append(_case(name, hardware, True, nvfp4, resident, lora, fused))
+        for name in never_layers:
+            cases.append(_case(name, "blackwell", True, True, True, lora, fused))
+    return cases
+
+
+FORWARD_MATRIX = _matrix(FP8_GEMM_LAYERS, ["nvfp4"], NEVER_GEMM_LAYERS, (True, False))
+PREPARED_MATRIX = _matrix(["fp8-scaled-linear"], ["nvfp4"], ["fp8-e5m2", "fp8-per-channel-scale", "int8-convrot"], (True,))
 
 
 def _lora(kind: str, in_f: int):
@@ -171,13 +212,10 @@ def recorder(monkeypatch):
 
 
 @pytest.fixture
-def per_call_conditions_met(monkeypatch):
+def activation_on_cuda(monkeypatch):
     for name in ("_scaled_mm_fast_path_reject_reason", "_nvfp4_fast_path_reject_reason"):
         real = getattr(ops, name)
-        monkeypatch.setattr(
-            ops, name,
-            lambda real=real, **kwargs: real(**{**kwargs, "input_is_cuda": True, "weight_is_cuda": True}),
-        )
+        monkeypatch.setattr(ops, name, lambda real=real, **kwargs: real(**{**kwargs, "input_is_cuda": True}))
 
 
 @pytest.fixture(autouse=True)
@@ -210,46 +248,51 @@ def _forward(layer: torch.nn.Module, entry: str = "forward") -> torch.Tensor:
         return layer(x)
 
 
-def _assert_forward_took(layer: torch.nn.Module, expected: FastPath, seen: Recorder, entry: str) -> None:
+class _PackedOnGpu(torch.Tensor):
+    @property
+    def is_cuda(self):
+        return True
+
+
+def _resident(layer: torch.nn.Module) -> torch.nn.Module:
+    layer._buffers["nvfp4_packed"] = layer.nvfp4_packed.detach().as_subclass(_PackedOnGpu)
+    return layer
+
+
+def _assert_forward_took(
+    layer: torch.nn.Module, expected: FastPath, seen: Recorder, entry: str, resident: bool = True
+) -> None:
     out = _forward(layer, entry)
+    took = FastPathKind.DEQUANT if expected.requires_resident_weight and not resident else expected.kind
     assert out.shape == (2, 3, OUT_FEATURES)
-    assert set(seen.kinds) == {expected.kind}, expected
+    assert set(seen.kinds) == {took}, expected
     assert (seen.fused > 0) is expected.lora_fused, expected
-    assert (expected.reason is None) is (expected.kind is not FastPathKind.DEQUANT)
 
 
-@pytest.mark.parametrize("lora", ["none", "plain", "lokr"])
-@pytest.mark.parametrize("fused", [True, False], ids=["fused", "unfused"])
-@pytest.mark.parametrize("nvfp4", [True, False], ids=["nvfp4-on", "nvfp4-off"])
-@pytest.mark.parametrize("fp8", [True, False], ids=["fp8-on", "fp8-off"])
-@pytest.mark.parametrize("hardware", HARDWARE)
-@pytest.mark.parametrize("name", QUANTIZED)
+@pytest.mark.parametrize("name,hardware,fp8,nvfp4,resident,lora,fused", FORWARD_MATRIX)
 def test_fast_path_names_the_branch_the_real_forward_takes(
-    machine, recorder, per_call_conditions_met, name, hardware, fp8, nvfp4, fused, lora
+    machine, recorder, activation_on_cuda, name, hardware, fp8, nvfp4, resident, lora, fused
 ):
     machine(hardware, fp8=fp8, nvfp4=nvfp4, fused=fused)
     layer = QUANTIZED[name]()
+    if resident and getattr(layer, "_is_nvfp4", False):
+        _resident(layer)
     layer.lora_deltas = _lora(lora, layer.in_features)
 
     expected = fast_path(layer)
 
     assert expected is not None
-    _assert_forward_took(layer, expected, recorder, "forward")
+    _assert_forward_took(layer, expected, recorder, "forward", resident)
 
 
-@pytest.mark.parametrize("lora", ["none", "plain", "lokr"])
-@pytest.mark.parametrize("fused", [True, False], ids=["fused", "unfused"])
-@pytest.mark.parametrize("fp8", [True, False], ids=["fp8-on", "fp8-off"])
-@pytest.mark.parametrize("hardware", HARDWARE)
-@pytest.mark.parametrize(
-    "name",
-    ["fp8-scaled-linear", "fp8-e5m2", "fp8-per-channel-scale", "fp8-static-input-scale", "int8-convrot", "nvfp4"],
-)
+@pytest.mark.parametrize("name,hardware,fp8,nvfp4,resident,lora,fused", PREPARED_MATRIX)
 def test_fast_path_names_the_branch_prepared_linear_takes(
-    machine, recorder, per_call_conditions_met, name, hardware, fp8, fused, lora
+    machine, recorder, activation_on_cuda, name, hardware, fp8, nvfp4, resident, lora, fused
 ):
-    machine(hardware, fp8=fp8, nvfp4=True, fused=fused)
+    machine(hardware, fp8=fp8, nvfp4=nvfp4, fused=fused)
     layer = QUANTIZED[name]()
+    if getattr(layer, "_is_nvfp4", False):
+        _resident(layer)
     layer.lora_deltas = _lora(lora, layer.in_features)
 
     expected = fast_path(layer)
@@ -260,14 +303,24 @@ def test_fast_path_names_the_branch_prepared_linear_takes(
 
 @pytest.mark.parametrize("name", PLAIN)
 def test_layers_without_quantized_storage_have_no_fast_path_and_take_no_quantized_branch(
-    machine, recorder, per_call_conditions_met, name
+    machine, recorder, activation_on_cuda, name
 ):
     machine("blackwell", fp8=True, nvfp4=True)
     layer = PLAIN[name]()
 
     assert fast_path(layer) is None
-    if hasattr(layer, "in_features"):
-        _forward(layer)
+    _forward(layer)
+    assert recorder.kinds == []
+
+
+def test_a_conv_layer_has_no_fast_path_and_runs_no_quantized_branch(machine, recorder, activation_on_cuda):
+    machine("blackwell", fp8=True, nvfp4=True)
+    conv = ops.manual_cast.Conv2d(3, 4, 1, dtype=torch.bfloat16)
+
+    assert fast_path(conv) is None
+    out = conv(torch.randn(1, 3, 2, 2, dtype=torch.bfloat16))
+
+    assert out.shape == (1, 4, 2, 2)
     assert recorder.kinds == []
 
 
@@ -349,17 +402,31 @@ def test_unsupported_hardware_reports_the_gemm_support_reason(machine, name, har
 
 
 @pytest.mark.parametrize(
-    "name,hardware,kind",
+    "name,hardware,kind,quant_format,resident",
     [
-        ("fp8-scaled-linear", "ada", FastPathKind.FP8_SCALED_MM),
-        ("fp8-scaled-linear", "blackwell", FastPathKind.FP8_SCALED_MM),
-        ("nvfp4", "blackwell", FastPathKind.NVFP4_GEMM),
+        ("fp8-scaled-linear", "ada", FastPathKind.FP8_SCALED_MM, QuantFormat.FP8, False),
+        ("fp8-nvfp4-linear", "blackwell", FastPathKind.FP8_SCALED_MM, QuantFormat.FP8, False),
+        ("nvfp4", "blackwell", FastPathKind.NVFP4_GEMM, QuantFormat.NVFP4, True),
     ],
 )
-def test_a_capable_layer_with_its_flag_on_takes_the_gemm_kind_with_no_reason(machine, name, hardware, kind):
+def test_a_capable_layer_with_its_flag_on_takes_the_gemm_kind_with_no_reason(
+    machine, name, hardware, kind, quant_format, resident
+):
     machine(hardware, fp8=True, nvfp4=True)
+    assert fast_path(QUANTIZED[name]()) == FastPath(
+        kind=kind, quant_format=quant_format, requires_resident_weight=resident, lora_fused=False, reason=None
+    )
+
+
+@pytest.mark.parametrize("hardware,fp8,nvfp4", [("blackwell", True, True), ("ampere", True, True), ("blackwell", False, False)])
+@pytest.mark.parametrize("name", QUANTIZED)
+def test_a_reason_is_given_exactly_when_the_layer_dequantizes_and_only_the_nvfp4_gemm_needs_residency(
+    machine, name, hardware, fp8, nvfp4
+):
+    machine(hardware, fp8=fp8, nvfp4=nvfp4)
     result = fast_path(QUANTIZED[name]())
-    assert result == FastPath(kind=kind, quant_format=result.quant_format, lora_fused=False, reason=None)
+    assert (result.reason is None) is (result.kind is not FastPathKind.DEQUANT)
+    assert result.requires_resident_weight is (result.kind is FastPathKind.NVFP4_GEMM)
 
 
 def test_hardware_is_never_asked_while_the_flag_is_off_or_the_layer_can_never_take_the_kernel(machine, monkeypatch):
@@ -397,14 +464,9 @@ def _on_gpu(index: int):
     return OnGpu
 
 
-def _placed(layer: torch.nn.Module, where: str) -> torch.nn.Module:
-    if where == "cpu":
-        return layer
-    cls = _on_gpu(int(where))
-    if getattr(layer, "_is_nvfp4", False):
-        layer._buffers["nvfp4_packed"] = layer.nvfp4_packed.detach().as_subclass(cls)
-    else:
-        layer._parameters["weight"] = layer.weight.detach().as_subclass(cls)
+def _fp8_weight_on(layer: torch.nn.Module, where: str) -> torch.nn.Module:
+    if where != "cpu":
+        layer._parameters["weight"] = layer.weight.detach().as_subclass(_on_gpu(int(where)))
     return layer
 
 
@@ -412,11 +474,11 @@ def _placed(layer: torch.nn.Module, where: str) -> torch.nn.Module:
 @pytest.mark.parametrize("current", [0, 1])
 @pytest.mark.parametrize("where", ["cpu", "0", "1"])
 def test_the_gemm_support_asked_is_the_current_devices_whatever_device_the_weight_is_on(
-    machine, recorder, per_call_conditions_met, monkeypatch, where, current, lora
+    machine, recorder, activation_on_cuda, monkeypatch, where, current, lora
 ):
     machine("ampere+ada", fp8=True, nvfp4=True)
     monkeypatch.setattr(torch.cuda, "current_device", lambda: current)
-    layer = _placed(_fp8(), where)
+    layer = _fp8_weight_on(_fp8(), where)
     layer.lora_deltas = _lora(lora, layer.in_features)
 
     expected = fast_path(layer)
@@ -425,14 +487,34 @@ def test_the_gemm_support_asked_is_the_current_devices_whatever_device_the_weigh
     _assert_forward_took(layer, expected, recorder, "forward")
 
 
-@pytest.mark.parametrize("where", ["cpu", "0", "1"])
-def test_nvfp4_asks_the_current_device_whatever_device_the_packed_weight_is_on(machine, monkeypatch, where):
+@pytest.mark.parametrize("resident", [True, False], ids=["resident", "offgpu"])
+@pytest.mark.parametrize("lora", ["none", "plain"])
+@pytest.mark.parametrize("current", [0, 1])
+def test_nvfp4_asks_the_current_devices_gemm_support_in_the_real_forward(
+    machine, recorder, activation_on_cuda, monkeypatch, current, lora, resident
+):
     machine("blackwell+ada", fp8=True, nvfp4=True)
-    layer = _placed(_nvfp4(), where)
-    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
-    assert fast_path(layer).kind is FastPathKind.NVFP4_GEMM
-    monkeypatch.setattr(torch.cuda, "current_device", lambda: 1)
-    assert fast_path(layer).kind is FastPathKind.DEQUANT
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: current)
+    layer = _nvfp4()
+    if resident:
+        _resident(layer)
+    layer.lora_deltas = _lora(lora, layer.in_features)
+
+    expected = fast_path(layer)
+
+    assert expected.kind is (FastPathKind.NVFP4_GEMM if current == 0 else FastPathKind.DEQUANT)
+    _assert_forward_took(layer, expected, recorder, "forward", resident)
+
+
+def test_a_zero_weight_scale_is_a_value_condition_fast_path_documents_as_unseen(machine, recorder, activation_on_cuda):
+    machine("ada", fp8=True, nvfp4=False)
+    layer = _fp8(scale=torch.tensor(0.0))
+
+    expected = fast_path(layer)
+    _forward(layer)
+
+    assert expected.kind is FastPathKind.FP8_SCALED_MM
+    assert set(recorder.kinds) == {FastPathKind.DEQUANT}
 
 
 @pytest.mark.parametrize("name", ["fp8-scaled-linear", "nvfp4"])

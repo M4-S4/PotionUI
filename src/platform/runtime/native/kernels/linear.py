@@ -31,6 +31,7 @@ class QuantFormat(StrEnum):
 class FastPath:
     kind: FastPathKind
     quant_format: QuantFormat
+    requires_resident_weight: bool
     lora_fused: bool
     reason: str | None
 
@@ -48,9 +49,11 @@ def fast_path(layer: object) -> FastPath | None:
         reason = _scaled_mm_reason(layer)
         gemm_kind = FastPathKind.FP8_SCALED_MM
     output_side, _ = ops.partition_output_branch_deltas(layer.lora_deltas, layer.out_features)
+    kind = gemm_kind if reason is None else FastPathKind.DEQUANT
     return FastPath(
-        kind=gemm_kind if reason is None else FastPathKind.DEQUANT,
+        kind=kind,
         quant_format=quant_format,
+        requires_resident_weight=kind is FastPathKind.NVFP4_GEMM,
         lora_fused=bool(output_side) and ops._lora_fused_enabled(),
         reason=reason,
     )
