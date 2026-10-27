@@ -77,7 +77,7 @@ _FP8_DTYPES = {"F8_E4M3", "F8_E5M2", "F8_E4M3FN", "F8_E5M2FN"}
 
 # nvfp4 (4-bit) repacks (e.g. comfy-style "Sikaworld" mixed bf16/nvfp4 Gemma-3
 # TEs) carry a `<layer>.weight_scale_2` sibling (the per-tensor global scale of
-# the nvfp4 double-scale format — see vendor/gpl/comfyui/ops.py's NVFP4
+# the nvfp4 double-scale format — see io/quant_formats.py's nvfp4
 # section) alongside a `<layer>.weight_scale` PER-BLOCK scale stored as
 # F8_E4M3. That per-block scale tensor's dtype is what makes an nvfp4 file
 # ALSO match `_FP8_DTYPES` above — it is not itself fp8-quantized data, just an
@@ -476,9 +476,9 @@ _FAMILY_CONFIG_BUILDERS = {
 }
 
 # torch dtypes an fp8-scaled repack stores its quantized weights as — the same
-# two dtypes vendor/gpl/comfyui/ops.py's `_FP8_DTYPES` gates its own dequant
-# path on (kept as a separate literal here since that name is private to that
-# module; the *formula* below is reused, not the constant).
+# two dtypes io/quant_formats.py's `FP8_DTYPES` gates its own dequant
+# path on (kept as a separate literal here since this module reads header
+# dtype strings, not torch dtypes; the *formula* below is reused, not the constant).
 _FP8_TORCH_DTYPES = {"float8_e4m3fn", "float8_e5m2"}
 # The two scale-key spellings a comfy fp8-scaled repack uses, matching
 # Fp8ScaledLinear._load_from_state_dict's own two spellings exactly (modern
@@ -541,7 +541,7 @@ def _dequantize_nvfp4_state_dict(sd: dict) -> dict:
     decoder layers stay bf16, a middle band is nvfp4-quantized).
 
     Reuses the vendored, GPU-validated nvfp4 dequant reference
-    (``vendor.gpl.comfyui.ops.dequantize_nvfp4`` — the same LUT-gather /
+    (``src.platform.runtime.native.io.quant_formats.dequantize_nvfp4`` — the same LUT-gather /
     block-unswizzle math ``Nvfp4Linear.forward_comfy_cast_weights`` runs per
     forward for a live quantized module) rather than reimplementing the
     format. A layer that is NOT nvfp4-quantized in this repack has no

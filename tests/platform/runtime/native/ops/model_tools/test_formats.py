@@ -137,8 +137,7 @@ def test_the_convrot_descriptor_is_the_canonical_published_form():
     assert len(get_format("int8_convrot").descriptor_bytes) == canonical_length
 
 
-def test_the_convrot_writer_uses_the_loader_hadamard_not_a_copy():
-    assert formats.build_convrot_hadamard is quant_formats.build_convrot_hadamard
+def test_the_convrot_writer_uses_the_loader_unrotation_not_a_copy():
     assert formats.convrot_unrotate_weight is quant_formats.convrot_unrotate_weight
 
 

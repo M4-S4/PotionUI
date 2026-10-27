@@ -26,14 +26,6 @@ from .._quant_layouts import (
 _STATED_GROUPSIZE = 64
 
 
-def _blob(conf: dict) -> torch.Tensor:
-    return torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
-
-
-def _text_blob(text: str) -> torch.Tensor:
-    return torch.tensor(list(text.encode("utf-8")), dtype=torch.uint8)
-
-
 def test_parse_comfy_quant_none_for_missing_blob():
     assert parse_comfy_quant(None) is None
 
@@ -44,12 +36,12 @@ def test_parse_comfy_quant_none_for_corrupt_blob():
 
 
 def test_parse_comfy_quant_decodes_json():
-    assert parse_comfy_quant(_blob({"format": "float8_e4m3fn"})) == {"format": "float8_e4m3fn"}
+    assert parse_comfy_quant(descriptor_blob({"format": "float8_e4m3fn"})) == {"format": "float8_e4m3fn"}
 
 
-@pytest.mark.parametrize("text", ["[1, 2]", "3", '"format"', "null"])
-def test_a_blob_that_is_json_but_not_an_object_is_no_descriptor(text):
-    assert parse_comfy_quant(_text_blob(text)) is None
+@pytest.mark.parametrize("value", [[1, 2], 3, "format", None], ids=["list", "number", "string", "null"])
+def test_a_blob_that_is_json_but_not_an_object_is_no_descriptor(value):
+    assert parse_comfy_quant(descriptor_blob(value)) is None
 
 
 @pytest.mark.parametrize("conf", CONFIRMED_DESCRIPTORS)
@@ -73,7 +65,7 @@ def test_convrot_without_stated_groupsize_uses_the_format_default(caplog):
     with caplog.at_level("INFO"):
         convrot, groupsize = extract_convrot_config(conf, "proj")
     assert (convrot, groupsize) == (True, CONVROT_DEFAULT_GROUPSIZE)
-    assert "no group size" in caplog.text or "states no group size" in caplog.text
+    assert "states no group size" in caplog.text
 
 
 @pytest.mark.parametrize("form", CONVROT_WILD_FORMS, ids=lambda f: f"{f[0]}b")

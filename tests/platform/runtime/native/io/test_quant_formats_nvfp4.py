@@ -159,7 +159,6 @@ def test_quantize_nvfp4_dynamic_handles_all_zero_block_without_nan():
 def test_the_high_nibble_is_the_even_element_and_the_low_nibble_the_odd_one():
     packed = torch.tensor([[0x12, 0x9F]], dtype=torch.uint8)
     values = dequant_values(packed, 1, 4)
-    assert values.tolist() == [[_E2M1_LUT[1].item(), _E2M1_LUT[2].item(), _E2M1_LUT[9].item(), _E2M1_LUT[15].item()]]
     assert values.tolist() == [[0.5, 1.0, -0.5, -6.0]]
 
 
