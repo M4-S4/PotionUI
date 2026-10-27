@@ -10,6 +10,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
+import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.runtime.native.kernels import (
     GemmSupport,
     capabilities,
@@ -365,6 +366,73 @@ def test_concurrent_first_asks_probe_each_family_once(install_capabilities, monk
     assert len(trial_calls) == 1
     assert probe_counts.fp8 == 1
     assert probe_counts.nvfp4 == 1
+
+
+@pytest.fixture
+def bound_ops(monkeypatch):
+    flags: dict = {}
+    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", flags)
+    monkeypatch.setattr(comfy_ops, "GEMM_SUPPORT", gemm_support)
+    return flags
+
+
+def test_ops_flags_are_read_live_on_top_of_the_cached_support(
+    install_capabilities, current_device, trial, bound_ops
+):
+    install_capabilities(fake_capabilities(blackwell()))
+    assert comfy_ops._fp8_matmul_enabled() is False
+    assert comfy_ops._nvfp4_matmul_enabled() is False
+
+    bound_ops["native_fp8_matmul"] = True
+    assert comfy_ops._fp8_matmul_enabled() is True
+    assert comfy_ops._nvfp4_matmul_enabled() is False
+    bound_ops["native_fp8_matmul"] = False
+    assert comfy_ops._fp8_matmul_enabled() is False
+
+    bound_ops["native_nvfp4_matmul"] = True
+    assert comfy_ops._nvfp4_matmul_enabled() is True
+    bound_ops["native_nvfp4_matmul"] = False
+    assert comfy_ops._nvfp4_matmul_enabled() is False
+    bound_ops["native_nvfp4_matmul"] = True
+    assert comfy_ops._nvfp4_matmul_enabled() is True
+    assert len(trial.devices) == 1
+
+
+def test_ops_fp8_flag_never_triggers_the_nvfp4_trial(
+    install_capabilities, current_device, monkeypatch, bound_ops
+):
+    install_capabilities(fake_capabilities(blackwell()))
+    monkeypatch.setattr(gemm, "_nvfp4_trial_gemm", _fail)
+    bound_ops["native_fp8_matmul"] = True
+    assert comfy_ops._fp8_matmul_enabled() is True
+    assert gemm._nvfp4_verdicts == {}
+
+
+def test_ops_flags_stay_off_on_hardware_that_cannot_run_the_kernel(
+    install_capabilities, current_device, trial, bound_ops
+):
+    install_capabilities(fake_capabilities(ampere()))
+    bound_ops["native_fp8_matmul"] = True
+    bound_ops["native_nvfp4_matmul"] = True
+    assert comfy_ops._fp8_matmul_enabled() is False
+    assert comfy_ops._nvfp4_matmul_enabled() is False
+    assert trial.devices == []
+
+
+def test_ops_follow_the_current_device_when_it_changes(install_capabilities, current_device, bound_ops):
+    install_capabilities(fake_capabilities(hopper(), ampere()))
+    bound_ops["native_fp8_matmul"] = True
+    assert comfy_ops._fp8_matmul_enabled() is True
+    current_device.index = 1
+    assert comfy_ops._fp8_matmul_enabled() is False
+
+
+def test_ops_without_a_bound_support_provider_never_take_the_fast_paths(monkeypatch):
+    flags = {"native_fp8_matmul": True, "native_nvfp4_matmul": True}
+    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", flags)
+    monkeypatch.setattr(comfy_ops, "GEMM_SUPPORT", None)
+    assert comfy_ops._fp8_matmul_enabled() is False
+    assert comfy_ops._nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_trial_gemm_runs_on_real_blackwell_hardware():

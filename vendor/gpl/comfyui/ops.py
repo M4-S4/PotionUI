@@ -87,6 +87,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from contextlib import contextmanager
 
 import torch
@@ -105,49 +106,13 @@ _E4M3_MAX = 448.0
 # Native fp8 GEMM fast path (torch._scaled_mm) — see Fp8ScaledLinear.forward_comfy_cast_weights.
 NATIVE_FP8_MATMUL_ENV = "NATIVE_FP8_MATMUL"
 RUNTIME_FLAGS: dict = {}
-# torch._scaled_mm needs real fp8 tensor cores: Ada/Hopper/Blackwell (sm89+).
-_SCALED_MM_MIN_CAP = (8, 9)
-
-_scaled_mm_supported_cache: bool | None = None
-
-
-def _scaled_mm_supported() -> bool:
-    """Probe once: can this process run ``torch._scaled_mm`` (torch build exposes
-    it, CUDA available, device capability >= sm89)? Cached; see
-    :func:`reset_scaled_mm_probe` to re-probe (tests)."""
-    global _scaled_mm_supported_cache
-    if _scaled_mm_supported_cache is None:
-        ok = False
-        if hasattr(torch, "_scaled_mm") and torch.cuda.is_available():
-            try:
-                ok = torch.cuda.get_device_capability() >= _SCALED_MM_MIN_CAP
-            except Exception:  # noqa: BLE001 — a driver hiccup must not break probing
-                ok = False
-        _scaled_mm_supported_cache = ok
-        logger.debug("fp8 matmul: _scaled_mm_supported=%s", ok)
-    return _scaled_mm_supported_cache
-
-
-def reset_scaled_mm_probe() -> None:
-    """Drop the cached ``torch._scaled_mm`` support probe (tests only)."""
-    global _scaled_mm_supported_cache
-    _scaled_mm_supported_cache = None
+GEMM_SUPPORT: Callable[[], object] | None = None
 
 
 def _fp8_matmul_enabled() -> bool:
-    """Native fp8 GEMM fast-path policy, read from ``$NATIVE_FP8_MATMUL``.
-
-    ``off`` (default) never uses the fast path — GPU-unvalidated as of this
-    writing; it needs an A/B image-diff benchmark against the existing dequant
-    path on a real fp8 checkpoint (e.g. Klein fp8) before the default flips.
-    ``on``/``auto`` both require :func:`_scaled_mm_supported`; ``auto`` has no
-    extra heuristic yet (unlike ``NATIVE_FP8_QUANTIZE``'s VRAM-budget auto) so it
-    currently behaves like ``on``. An unknown value is treated as ``off`` (the
-    safe default), mirroring the unknown-policy handling in ``fp8_quant.py``.
-    """
     if not RUNTIME_FLAGS.get("native_fp8_matmul", False):
         return False
-    return _scaled_mm_supported()
+    return GEMM_SUPPORT is not None and GEMM_SUPPORT().fp8_scaled_mm
 
 
 def _scaled_mm_fast_path_reject_reason(
@@ -1910,93 +1875,12 @@ def dequantize_nvfp4(
 # Native nvfp4 GEMM fast path (torch._scaled_mm_v2 via F.scaled_mm) — see
 # Nvfp4Linear.forward_comfy_cast_weights.
 NATIVE_NVFP4_MATMUL_ENV = "NATIVE_NVFP4_MATMUL"
-# Packed fp4 x fp4 tensor cores are Blackwell-only (sm120+, e.g. RTX 5090).
-_NVFP4_MM_MIN_CAP = (12, 0)
-
-_nvfp4_scaled_mm_supported_cache: bool | None = None
-
-
-def _nvfp4_trial_gemm_ok() -> bool:
-    """Run one tiny real nvfp4 x nvfp4 GEMM on the current CUDA device.
-
-    A capability-number check alone (as the fp8 probe does) only proves the
-    driver *reports* the right SM version -- it says nothing about whether
-    this torch build's ``_scaled_mm_v2`` kernel is actually wired for the
-    two-level NVIDIA recipe on it. ``_scaled_mm_v2`` is a much newer, less
-    battle-tested surface than v1's ``_scaled_mm``, so a live trial run is the
-    only thing that proves the whole chain (dtype support, swizzle handling,
-    kernel dispatch) works, not just that the Python API exists.
-    """
-    try:
-        device = torch.device("cuda")
-        m, k, n = 16, 32, 16
-        a = torch.zeros(m, k // 2, dtype=torch.uint8, device=device).view(torch.float4_e2m1fn_x2)
-        b_row = torch.zeros(n, k // 2, dtype=torch.uint8, device=device).view(torch.float4_e2m1fn_x2)
-        num_blocks = k // _NVFP4_BLOCK
-        scale_a = _to_blocked(torch.ones(m, num_blocks, device=device)).to(torch.float8_e4m3fn)
-        scale_b = _to_blocked(torch.ones(n, num_blocks, device=device)).to(torch.float8_e4m3fn)
-        global_a = torch.ones((), dtype=torch.float32, device=device)
-        global_b = torch.ones((), dtype=torch.float32, device=device)
-        F.scaled_mm(
-            a, b_row.t(),
-            [scale_a, global_a], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
-            [scale_b, global_b], [F.ScalingType.BlockWise1x16, F.ScalingType.TensorWise],
-            swizzle_a=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
-            swizzle_b=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
-            output_dtype=torch.bfloat16,
-        )
-        return True
-    except Exception:  # noqa: BLE001 — any failure means "not usable here"
-        return False
-
-
-def _nvfp4_scaled_mm_supported() -> bool:
-    """Probe once: can this process run the nvfp4 x nvfp4 ``_scaled_mm_v2``
-    fast path (torch build exposes ``float4_e2m1fn_x2``/``F.scaled_mm``, CUDA
-    available, device capability >= sm120, AND a live trial GEMM succeeds)?
-    Cached; see :func:`reset_nvfp4_scaled_mm_probe` to re-probe (tests)."""
-    global _nvfp4_scaled_mm_supported_cache
-    if _nvfp4_scaled_mm_supported_cache is None:
-        ok = False
-        if (
-            hasattr(torch, "float4_e2m1fn_x2")
-            and hasattr(F, "scaled_mm")
-            and hasattr(F, "ScalingType")
-            and hasattr(F, "SwizzleType")
-            and torch.cuda.is_available()
-        ):
-            try:
-                if torch.cuda.get_device_capability() >= _NVFP4_MM_MIN_CAP:
-                    ok = _nvfp4_trial_gemm_ok()
-            except Exception:  # noqa: BLE001 — a driver hiccup must not break probing
-                ok = False
-        _nvfp4_scaled_mm_supported_cache = ok
-        logger.debug("nvfp4 matmul: _nvfp4_scaled_mm_supported=%s", ok)
-    return _nvfp4_scaled_mm_supported_cache
-
-
-def reset_nvfp4_scaled_mm_probe() -> None:
-    """Drop the cached nvfp4 ``_scaled_mm_v2`` support probe (tests only)."""
-    global _nvfp4_scaled_mm_supported_cache
-    _nvfp4_scaled_mm_supported_cache = None
 
 
 def _nvfp4_matmul_enabled() -> bool:
-    """Native nvfp4 GEMM fast-path policy, read from ``$NATIVE_NVFP4_MATMUL``.
-
-    ``off`` (default) never uses the fast path — GPU-unvalidated as of this
-    writing; it needs an A/B wall-time AND output-quality comparison against
-    the LUT dequant path on a real nvfp4 checkpoint before the default
-    flips (nvfp4 activation quantisation is lossier than fp8's dynamic
-    quant, so a quality regression is a real possibility, not just a perf
-    question). ``on``/``auto`` both require :func:`_nvfp4_scaled_mm_supported`;
-    ``auto`` has no extra heuristic yet, mirroring ``_fp8_matmul_enabled``'s
-    same "on until benchmarked" ``auto`` behavior. An unknown value is
-    treated as ``off``.
-    """
     if not RUNTIME_FLAGS.get("native_nvfp4_matmul", False):
         return False
-    return _nvfp4_scaled_mm_supported()
+    return GEMM_SUPPORT is not None and GEMM_SUPPORT().nvfp4
 
 
 def _deltas_output_branch_ok(deltas: "list | None", out_features: int) -> bool:

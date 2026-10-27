@@ -37,6 +37,7 @@ import torch.nn as nn
 import vendor.gpl.comfyui.ops as wo
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
+from tests.fixtures.kernel_gemm import gemm_provider
 from vendor.gpl.comfyui.ops import fp8_ops
 
 from .test_partial_prefetch import _install_fake_cuda
@@ -184,7 +185,7 @@ def test_prefetch_off_on_demand_stage_reaches_kernel_with_real_dequant_parity(mo
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     calls, fake_kernel = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         staged_out = m(x)
@@ -211,7 +212,7 @@ def test_recording_pass_with_prefetch_enabled_still_stages_on_demand(monkeypatch
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     calls, fake_kernel = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         out = m(x)  # forward #1: the prefetcher's OWN recording pass -- stages nothing
@@ -236,7 +237,7 @@ def test_prefetch_hit_reaches_kernel_with_zero_extra_on_demand_staging(monkeypat
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)  # forward #1: records execution order a -> b, no prefetch yet
@@ -257,7 +258,7 @@ def test_prefetch_hit_reaches_kernel_with_zero_extra_on_demand_staging(monkeypat
     monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
     calls2, fake_kernel2 = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel2)
     with torch.no_grad():
         out2 = m(x)  # forward #2: prefetch kicks in for b
@@ -282,7 +283,7 @@ def test_teardown_restores_leaf_storage_ownership_after_fp8_dispatch(monkeypatch
     streamer = _streamed(m, prefetch=True)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)
@@ -328,7 +329,7 @@ def test_eligible_staged_path_never_dequantizes_the_weight(monkeypatch):
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)
@@ -360,7 +361,7 @@ def test_staged_operand_weakref_dies_after_each_forward(monkeypatch):
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)
@@ -410,7 +411,7 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", _rejecting_kernel)
     with torch.no_grad():
         out = m(x)
@@ -470,7 +471,7 @@ def test_staged_path_matches_resident_path_and_dense_reference(monkeypatch, scen
     x = torch.randn(3, 16, dtype=torch.bfloat16)
 
     _, fake_kernel_staged = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel_staged)
     with torch.no_grad():
         staged_out = m(x)  # weight excluded -> on-demand staged
