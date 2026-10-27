@@ -7,8 +7,8 @@ Loads a SmilingWolf ``wd-*-tagger-v3`` timm checkpoint lazily on first use
 
 The checkpoint weights themselves are never held on this instance. They go
 through ``ModelLifecycle.acquire()`` on every ``tag_image`` call under
-a per-call lease (mirrors ``NativeLLMClient._leased`` in
-``src/features/llm/clients/native.py``), so the tagger participates in the
+a per-call lease (mirrors ``NativeRuntime._leased`` in
+``src/features/llm/native/runtime.py``), so the tagger participates in the
 same cache/eviction/RAM-admission machinery as every diffusion model: lazy
 loaded, evictable under RAM pressure between calls, unevictable only for the
 duration of one tag. Tag metadata (`_tag_names`, `_tag_categories`,

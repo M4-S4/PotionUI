@@ -19,8 +19,8 @@ pays their import cost at process boot (mirrors ``LocalEmbeddingProvider``).
 
 The model weights (``AutoModel``) are never held on this instance - they go
 through ``ModelLifecycle.acquire()`` on every embed call under a
-per-call lease (mirrors ``NativeLLMClient._leased`` in
-``src/features/llm/clients/native.py``), so the embedder participates in the
+per-call lease (mirrors ``NativeRuntime._leased`` in
+``src/features/llm/native/runtime.py``), so the embedder participates in the
 same cache/eviction/RAM-admission machinery as every diffusion model. The
 processor (tokenizer + image preprocessor) IS kept on the instance - it's
 lightweight and has nothing worth evicting.

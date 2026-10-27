@@ -523,21 +523,7 @@ class NativeRuntime:
         return _count
 
     async def release(self, config: LLMConfig) -> bool:
-        try:
-            path, is_te = self._resolve_model(config.model)
-        except Exception:
-            return False
-        key = self._cache_key(path, is_te)
-        ref = self._checkpoint_refs.get(key)
-        checkpoint = ref() if ref is not None else None
-        models = self._models()
-        if checkpoint is None or not models.is_cached(key):
-            return False
-        if any(value is checkpoint for value in models.leased_values()):
-            return False
-        models.invalidate(key)
-        self._checkpoint_refs.pop(key, None)
-        return True
+        return False
 
     def _note_resident(self, checkpoint: _LoadedCheckpoint, key: str, device: str) -> None:
         try:

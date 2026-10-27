@@ -1903,45 +1903,10 @@ def test_residency_handle_offload_evicts_when_move_fails(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_release_unloads_an_idle_checkpoint(client, models_manager, native_checkpoint):
+async def test_release_keeps_the_warm_checkpoint_for_the_lifecycle_to_evict(client, models_manager, native_checkpoint):
     name, path = native_checkpoint
     config = _config(name)
-    key = f"native/llm/{path}"
     client._acquire(path, config)
-    assert models_manager.is_cached(key)
 
-    assert await client.release(config) is True
-    assert not models_manager.is_cached(key)
     assert await client.release(config) is False
-
-
-@pytest.mark.asyncio
-async def test_release_leaves_a_leased_checkpoint_loaded(client, models_manager, native_checkpoint):
-    name, path = native_checkpoint
-    config = _config(name)
-    key = f"native/llm/{path}"
-    models_manager.begin_lease("turn-in-flight")
-    try:
-        client._acquire(path, config)
-        assert await client.release(config) is False
-        assert models_manager.is_cached(key)
-    finally:
-        models_manager.end_lease("turn-in-flight")
-
-
-@pytest.mark.asyncio
-async def test_release_of_an_unresolvable_model_is_a_noop(client):
-    assert await client.release(_config("missing")) is False
-
-
-@pytest.mark.asyncio
-async def test_release_of_a_checkpoint_the_lifecycle_already_evicted_reports_nothing_unloaded(
-    client, models_manager, native_checkpoint
-):
-    name, path = native_checkpoint
-    config = _config(name)
-    checkpoint = client._acquire(path, config)
-    models_manager.invalidate(f"native/llm/{path}")
-
-    assert checkpoint is not None
-    assert await client.release(config) is False
+    assert models_manager.is_cached(f"native/llm/{path}")

@@ -32,7 +32,6 @@ from src.platform.filesystem.model_roots import ModelRootResolver
 
 logger = logging.getLogger(__name__)
 
-# Keep in sync with the family gate in `src.features.llm.clients.native`.
 TEXT_MODEL_TYPES = {"qwen3", "gemma3_text"}
 VISION_MODEL_TYPES = {"qwen3_vl", "qwen2_vl", "gemma3"}
 SUPPORTED_MODEL_TYPES = TEXT_MODEL_TYPES | VISION_MODEL_TYPES
