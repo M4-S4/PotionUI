@@ -344,6 +344,7 @@ pipeline:
       # what actually wins once a profile is selected.
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       resolution: "{{ form.resolution }}"
+      reference_image_pixel_budget: "{{ form.reference_image_budget }}"
       # Seconds on the form, frames on the pipe: fixed 24 fps, floored here and
       # snapped UP to the next 17n+5 by the pipe itself. A document's own
       # `settings.duration` wins once one is attached -- see the

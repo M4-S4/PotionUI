@@ -325,6 +325,20 @@ def test_the_reference_pixel_budget_reaches_the_prompt_encoder(h3_template):
     assert cfg["image_pixel_budget"] == "2"
 
 
+@pytest.mark.parametrize(("form_over", "budget"), [({}, "0"), ({"reference_image_budget": "1"}, "1")])
+def test_the_reference_image_budget_reaches_the_generator_only(h3_template, form_over, budget):
+    pipes = _process(h3_template, form_over)
+    assert _pipe(pipes, "generator/video_minimax_h3")["config"]["reference_image_pixel_budget"] == budget
+    assert "reference_image_pixel_budget" not in _pipe(pipes, "prompt_encoder")["config"]
+
+
+def test_the_reference_image_budget_never_offers_to_enlarge(h3_template):
+    field = _named_field(h3_template, "references", "reference_image_budget")
+    assert field["default"] == "0"
+    assert [option["value"] for option in field["configuration"]["options"]] == ["0", "1", "2"]
+    assert "No value ever enlarges an image" in field["ai_hint"]
+
+
 def test_the_clip_length_in_seconds_reaches_the_generator_as_frames(h3_template):
     """With no Video Director document attached (a direct API/test request,
     per this mode's Generation tab header comment), the form's own Clip

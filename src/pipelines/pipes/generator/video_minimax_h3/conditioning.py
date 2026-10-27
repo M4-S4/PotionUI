@@ -37,8 +37,9 @@ an ordered list of :class:`ReferenceMedia` mixing images, videos and audio.
 The three differ in what they contribute:
 
 - an IMAGE contributes one visual condition latent, encoded at its own
-  2048-short-edge resolution, area-capped at `REFERENCE_IMAGE_MAX_PIXELS`,
-  or at its own size when that is smaller;
+  2048-short-edge resolution, area-capped at `REFERENCE_IMAGE_MAX_PIXELS`
+  or at the request's lower cap (`reference_image_max_pixels`), or at its
+  own size when that is smaller;
 - a VIDEO contributes one visual condition latent -- a frame stack, so the
   VAE's temporal chunking applies and the latent carries `5 * n + 2` frames
   rather than 1 -- at the canvas ITS OWN aspect ratio resolves to under the
@@ -141,6 +142,12 @@ def fit_keyframe_to_canvas(image: Image.Image, height: int, width: int, *, is_ge
     top = max(0, (resized_size[1] - height) // 2)
     resized = image.resize(resized_size, Image.Resampling.LANCZOS)
     return resized.crop((left, top, left + width, top + height))
+
+
+def reference_image_max_pixels(budget: float, width: int, height: int) -> int:
+    if budget <= 0:
+        return REFERENCE_IMAGE_MAX_PIXELS
+    return max(1, min(REFERENCE_IMAGE_MAX_PIXELS, int(budget * width * height)))
 
 
 def normalize_reference_image(
