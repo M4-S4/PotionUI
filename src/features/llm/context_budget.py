@@ -1,75 +1,3 @@
-"""Model-aware request budgeting shared by every ``LLMGateway`` send path.
-
-The chat history token budget (``conversation._apply_history_budget``) trims
-*displayed* history against an operator-configured setting before any of the
-per-turn context blocks (contributor, resource, memory, workspace, prompt
-state, reply-contract reminder) or tool schemas are added, and it never looks
-at what the target model can actually hold. That leaves the request the model
-receives unbounded: a tool loop resends the whole growing message list every
-round with no re-check, so a long tool conversation can silently exceed the
-model's real context window.
-
-This module is the one place request size is measured and enforced against
-that real capacity. ``LLMGateway`` calls ``enforce_budget`` immediately before
-every wire call (the first turn AND every tool-loop round AND the final
-wrap-up — see ``LLMGateway._budgeted``), so no provider path can bypass it.
-``ChatContextBuilder``/``ConversationRunner`` also call it once, before the
-first call, purely to report an honest pre-flight number into the persisted
-context ledger (see ``ConversationRunner._build_context_ledger``) — same
-function, same numbers, not a second heuristic.
-
-Capacity comes from explicit configuration (``provider_options`` — either the
-generic ``context_window`` key or, for an Ollama config, the existing
-``num_ctx`` knob already wired into the request), else from what the provider
-itself reported (``capacity_source="discovered"``). Nothing here ever
-infers a model's window from its name or parameter count: an unknown
-capacity is reported honestly as ``capacity_source="unknown"`` with a
-conservative, clearly-labelled default (see ``UNKNOWN_CAPACITY_TOKENS``)
-rather than a guess dressed up as a fact.
-
-Token counting has three tiers, reported per turn as ``accounting`` in the
-ledger:
-
-- ``"chat_template"`` / ``"chat_template_shrunk"`` — a whole-request count via
-  a warm native checkpoint's own tokenizer, applying its chat template (and,
-  when tools are given, the SAME prompt-injected tool text the real send
-  folds into the system message — see ``MessagesCounter``) to the
-  actually-kept system + history exactly as ``NativeLLMClient`` would before
-  generating (see ``NativeLLMClient.messages_token_counter``). The only tiers
-  that report ``measured=True`` (and only when no image is attached — a
-  successful exact count already includes the tools, so nothing else is
-  estimated) — everything else is honestly an estimate, never presented as
-  exact. The fragment-based trim below decides an initial candidate; when a
-  whole-request counter is available, ``enforce_budget`` then RECOUNTS that
-  candidate exactly and, if it's over budget, drops the next-oldest eligible
-  unit and recounts again (bounded by how many eligible units remain) —
-  ``"chat_template"`` means the first recount already fit,
-  ``"chat_template_shrunk"`` means one or more extra units had to go (see
-  ``chat_template_extra_dropped`` in the ledger). This can go either way
-  relative to the fragment estimate: the exact count may fit a candidate the
-  fragment/framing estimate thought didn't (framing is deliberately
-  conservative), or it may need to drop more than the fragment estimate
-  alone would have.
-- ``"fragments+framing"`` — a real per-fragment tokenizer (``counter``, e.g.
-  ``NativeLLMClient.token_counter``) summed message-by-message, plus
-  ``FRAMING_TOKENS_PER_MESSAGE`` per message. A per-fragment sum never sees
-  the chat template's role/special-token wrapping, so even with a real
-  tokenizer behind it this tier is always ``measured=False`` — it is what
-  drives the incremental per-unit trimming decision (a whole-request
-  chat-template count can't tell you what ONE candidate message costs). Also
-  the tier a whole-request counter falls back to if it raises partway
-  through the recount loop (``"chat_template_fallback"``, in the ledger's
-  ``accounting``) — continuing whole-unit trimming from wherever the exact
-  recount had already shrunk to, never resurrecting a larger candidate an
-  earlier exact recount already proved over capacity.
-- ``"estimate"`` — no tokenizer at all (Ollama/OpenAI never have one
-  in-process): the labelled chars-per-token heuristic throughout.
-
-An attached image always forces ``measured=False`` (its cost is inherently an
-estimate — see ``multimodal_allowance``) regardless of which tier text
-accounting used.
-"""
-
 from __future__ import annotations
 
 import json
@@ -138,19 +66,6 @@ COMPACT_TOOL_TIER_BELOW_TOKENS = 24576
 LARGE_TOOL_TIER_ABOVE_TOKENS = 65536
 
 TokenCounter = Callable[[str], int]
-# A whole-request counter: (system_message, kept_messages, tool_schemas) ->
-# exact token count of the ACTUALLY PREPARED request via a real chat template
-# (see `NativeLLMClient.messages_token_counter`) — when tool_schemas is given
-# and the provider is prompt-injected-tools, the count already includes the
-# tool text folded into the system message exactly as the real send builds
-# it, so `enforce_budget` never adds a separate tool-schema estimate on top
-# of a count this counter produced. Unlike `TokenCounter` this can't price a
-# single candidate message in isolation, so it is only used on the final kept
-# set `fit_messages` already decided on (and its shrink-loop candidates —
-# see `enforce_budget`), never inside the incremental per-unit trimming walk
-# itself. A provider that can't reproduce its own prepared tool-request shape
-# should raise rather than approximate — `enforce_budget` then falls back to
-# the fragment/framing tier exactly as it does for any other counter failure.
 MessagesCounter = Callable[[Optional[str], List[Message], Optional[List[Dict[str, Any]]]], int]
 
 

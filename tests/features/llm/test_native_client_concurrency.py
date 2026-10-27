@@ -642,13 +642,6 @@ def _install_supervised_teardown_fixture(
 
 
 class TestSupervisedTeardownOnStopTimeout:
-    """The consumer's bounded worker-exit wait giving up must never let
-    `_leased` offload, `end_lease`, or release the execution gate while the
-    streaming worker is still running past the bound (see `_LeaseHandoff`/
-    `_supervised_teardown`, `src/features/llm/clients/native.py`): teardown
-    is handed to a supervised cleanup that waits the REST of the way
-    unbounded, then runs the SAME offload/end_lease/gate-release exactly
-    once, only once the worker has actually exited."""
 
     @pytest.mark.asyncio
     async def test_caller_returns_within_bound_while_teardown_waits_for_the_real_worker(
@@ -950,18 +943,6 @@ class TestBufferedCancellationRetainsOwnership:
 
 
 class TestLifecycleCancellationBoundaries:
-    """`_leased`/`_teardown`/`generate_with_history` each submit blocking
-    calls (acquire, device placement, offload, the buffered generation
-    itself) to an executor via `_submit_cancellable`
-    (`src/features/llm/clients/native.py`) instead of a bare
-    `asyncio.to_thread`, because `await`ing an executor call does NOT stop
-    it — the underlying thread keeps running regardless of a cancellation
-    reaching that await. Each test here cancels at exactly one of those
-    boundaries while a barrier keeps the real call genuinely still running
-    (or, for the pending-future case, genuinely still queued), then proves
-    the lease/gate are never released before the real call's outcome is
-    known, a second caller on the same checkpoint queues rather than races
-    it, and a subsequent call still succeeds once everything settles."""
 
     @pytest.mark.asyncio
     async def test_cancelling_during_acquisition_defers_and_finishes_the_late_checkpoint(

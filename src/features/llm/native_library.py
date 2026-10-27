@@ -1,25 +1,3 @@
-"""Listing chat-capable HF-layout checkpoints for the native LLM provider.
-
-The models catalog (`src.features.models.indexer.ModelScanner`) now recognizes
-`models/llm/<name>/` as an HF-layout checkpoint directory (`config.json` +
-sharded safetensors) and indexes each one as one catalog row, keyed by
-directory name, with a config+shard-list fingerprint standing in for a content
-hash (see `ModelScanner.DIRECTORY_MODEL_TYPES`). That gives these
-checkpoints a stable id, tags, description and admin metadata like any other
-model.
-
-This module's own scan is deliberately kept as-is rather than rebased onto
-that catalog: the LLM config UI needs allowlist validation against
-`model_type`, vision-vs-text classification, and per-checkpoint quant-mode
-offers, none of which the generic model row carries - reading the catalog
-here would still require re-opening every `config.json` to get them, so
-nothing is saved by the indirection. The two stay independent, deliberately:
-this scan is what `resolve_native_checkpoint_path` and `NativeLLMClient`
-resolve a config's `model` value against; the catalog row is what the general
-model browser, tags and provider-info fetch operate on. Both read the same
-`models/llm/` directory, so they never disagree on what exists.
-"""
-
 from __future__ import annotations
 
 import json
@@ -36,9 +14,6 @@ TEXT_MODEL_TYPES = {"qwen3", "gemma3_text"}
 VISION_MODEL_TYPES = {"qwen3_vl", "qwen2_vl", "gemma3"}
 SUPPORTED_MODEL_TYPES = TEXT_MODEL_TYPES | VISION_MODEL_TYPES
 
-# Quantized-load modes NativeLLMClient accepts. "none" is the
-# bf16/auto default; "int8"/"nf4" go through transformers' BitsAndBytesConfig
-# and require a CUDA GPU plus bitsandbytes installed.
 NATIVE_LLM_QUANT_MODES = ("none", "int8", "nf4")
 
 # Resident-footprint multipliers vs. the bf16 shard sum, for the size estimate
@@ -77,10 +52,6 @@ _SHARD_EXTENSIONS = (".safetensors", ".bin", ".pt", ".pth", ".gguf")
 
 
 def checkpoint_size_gb(path: str) -> Optional[float]:
-    """Sum of shard weight file sizes under an HF-layout checkpoint
-    directory, in GB - the size estimate `NativeLLMClient` passes to
-    `ModelLifecycle.acquire(estimated_vram_gb=...)`. None if the
-    directory can't be read or holds no recognized shard files."""
     try:
         total = sum(
             f.stat().st_size
@@ -139,11 +110,6 @@ def list_native_checkpoints(resolver: ModelRootResolver) -> list[NativeCheckpoin
                 quant_modes=list(NATIVE_LLM_QUANT_MODES) if supported else [],
             ))
 
-    # Single-file text encoders already on disk that can be shared with chat,
-    # mapped into the same picker shape and flagged shared_te. An
-    # adoptable one can also be bnb-quantized in place — same modes
-    # as an HF-directory checkpoint, since NativeLLMClient routes both through
-    # the same BitsAndBytesConfig.
     from src.features.llm.native_te_adoption import list_adopted_te_checkpoints
 
     for te in list_adopted_te_checkpoints(resolver):

@@ -1142,13 +1142,6 @@ class ModelLifecycle:
             return sum(e.estimated_vram_gb or 0.0 for e in self._entries.values())
 
     def entry_size_gb(self, key: str) -> Optional[float]:
-        """The recorded ``estimated_vram_gb`` for a cached entry, or ``None``
-        if the key is absent or the size was never known. A read-only lookup
-        for a caller that needs the already-computed size estimate (recorded
-        once at ``acquire()`` time — see ``recorded_estimate`` there) rather
-        than re-deriving it — e.g. ``NativeLLMClient._note_resident`` handing
-        a size to ``GpuResidencyRegistry.note_resident``.
-        """
         with self._lock:
             entry = self._entries.get(key)
             return entry.estimated_vram_gb if entry is not None else None

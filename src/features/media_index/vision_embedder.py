@@ -231,10 +231,6 @@ class SiglipVisionEmbedder:
 
     @contextmanager
     def _leased_model(self):
-        """Acquire the model through ModelLifecycle for the duration
-        of one forward pass: unevictable while leased, evictable under RAM
-        pressure the instant it's released. Mirrors ``WDTaggerProvider.
-        tag_image`` and ``NativeLLMClient._leased``."""
         models = self._models()
         lease_id = f"vision-embedder-{uuid.uuid4().hex}"
         models.begin_generation(None)
