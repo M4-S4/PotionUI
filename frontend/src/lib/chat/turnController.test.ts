@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { chatSession } from '$lib/stores/chatSession';
 import {
@@ -1272,6 +1272,27 @@ describe('thinking events (createStreamEventHandler)', () => {
 
 		expect(assistant().thinking!.map((s) => s.text)).toEqual(['first', 'second look']);
 		expect(assistant().thinking![1].open).toBe(true);
+	});
+
+	it('announces each tool that ends to the page before the turn is done', async () => {
+		const deliver = await openStream();
+		const ended: unknown[] = [];
+		const page = new EventTarget();
+		page.addEventListener('potionui:tool-end', (event) => ended.push((event as CustomEvent).detail));
+		vi.stubGlobal('window', page);
+
+		await deliver({ type: 'tool_start', data: { tool_name: 'vp_add_shots' } });
+		await deliver({ type: 'tool_end', data: { tool_name: 'vp_add_shots', success: true } });
+		await deliver({ type: 'tool_end', data: { tool_name: 'vp_delete_shots', success: true, approval_status: 'pending' } });
+		await deliver({ type: 'tool_end', data: { tool_name: 'vp_status', success: false } });
+		await deliver({ type: 'tool_end', data: {} });
+		vi.unstubAllGlobals();
+
+		expect(ended).toEqual([
+			{ tool_name: 'vp_add_shots', success: true, pending: false },
+			{ tool_name: 'vp_delete_shots', success: true, pending: true },
+			{ tool_name: 'vp_status', success: false, pending: false }
+		]);
 	});
 
 	it('done without the thinking in its payload keeps what streamed', async () => {
