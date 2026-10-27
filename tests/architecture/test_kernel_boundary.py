@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.architecture.conftest import is_type_checking_test
+
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "src"
 OPS_MODULE = "vendor.gpl.comfyui.ops"
@@ -58,17 +60,9 @@ def _is_private(name: str) -> bool:
     return name.startswith("_") and not (name.startswith("__") and name.endswith("__"))
 
 
-def _is_type_checking_test(test: ast.expr) -> bool:
-    if isinstance(test, ast.Name):
-        return test.id == "TYPE_CHECKING"
-    if isinstance(test, ast.Attribute):
-        return test.attr == "TYPE_CHECKING"
-    return False
-
-
 def _runtime_nodes(node: ast.AST):
     for child in ast.iter_child_nodes(node):
-        if isinstance(child, ast.If) and _is_type_checking_test(child.test):
+        if isinstance(child, ast.If) and is_type_checking_test(child.test):
             for orelse in child.orelse:
                 yield orelse
                 yield from _runtime_nodes(orelse)
@@ -197,20 +191,32 @@ def test_from_import_records_every_name_including_lazy_ones():
     assert _names(source) == {"pick_operations", "_parse_comfy_quant", "cast_to"}
 
 
-def test_module_aliases_record_the_module_and_private_attributes_only():
-    source = (
-        "import vendor.gpl.comfyui.ops as a\n"
-        "from vendor.gpl.comfyui import ops as b\n"
-        "from vendor.gpl import comfyui\n"
-        "import vendor.gpl.comfyui.ops\n"
-        "a._one(a.public)\n"
-        "b._two()\n"
-        "comfyui.ops._three()\n"
-        "vendor.gpl.comfyui.ops._four()\n"
-        "a.__name__\n"
-    )
+@pytest.mark.parametrize("source", [
+    "from vendor.gpl.comfyui import ops\nops.pick_operations()\n",
+    "from vendor.gpl.comfyui import ops as a\na.pick_operations()\n",
+    "import vendor.gpl.comfyui.ops as a\na.pick_operations()\n",
+    "import vendor.gpl.comfyui.ops\nvendor.gpl.comfyui.ops.pick_operations()\n",
+    "from vendor.gpl import comfyui\ncomfyui.ops.pick_operations()\n",
+    "import vendor.gpl.comfyui as c\nc.ops.pick_operations()\n",
+])
+def test_each_module_spelling_records_the_module_alone(source):
+    assert _names(source) == {WHOLE_MODULE}
 
-    assert _names(source) == {WHOLE_MODULE, "_one", "_two", "_three", "_four"}
+
+@pytest.mark.parametrize("source", [
+    "from vendor.gpl.comfyui import ops\nops._hidden()\n",
+    "import vendor.gpl.comfyui.ops as a\na._hidden()\n",
+    "import vendor.gpl.comfyui.ops\nvendor.gpl.comfyui.ops._hidden()\n",
+    "from vendor.gpl import comfyui\ncomfyui.ops._hidden()\n",
+])
+def test_each_module_spelling_records_private_attributes(source):
+    assert "_hidden" in _names(source)
+
+
+def test_public_and_dunder_attributes_of_an_alias_are_not_private_names():
+    source = "import vendor.gpl.comfyui.ops as a\na.pick_operations\na.__name__\n"
+
+    assert _names(source) == {WHOLE_MODULE}
 
 
 def test_string_spellings_of_the_module_count():

@@ -9,6 +9,14 @@ import pytest
 PRUNED_DIRS = frozenset({"__pycache__", "node_modules", "venv", ".git"})
 
 
+def is_type_checking_test(test: ast.expr) -> bool:
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING"
+    return False
+
+
 class SourceIndex:
     def __init__(self) -> None:
         self._listings: dict[Path, list[Path]] = {}
