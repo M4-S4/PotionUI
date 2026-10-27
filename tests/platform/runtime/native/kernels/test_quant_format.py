@@ -11,11 +11,11 @@ from src.platform.runtime.native.kernels import (
     fp8_linear,
     gemm,
     linear,
+    lora_math,
     manual_cast,
     nvfp4_linear,
     quant_format,
 )
-from vendor.gpl.comfyui import ops
 
 from .test_fast_path import PLAIN, QUANTIZED
 
@@ -40,10 +40,6 @@ def _forbidden(*args, **kwargs):
     raise AssertionError("quant_format reached for hardware or a runtime flag")
 
 
-class _NoFlags(dict):
-    get = __getitem__ = __contains__ = _forbidden
-
-
 def test_every_layer_variant_of_the_fast_path_matrix_has_an_expected_format():
     assert set(EXPECTED) == set(BUILDERS)
 
@@ -56,7 +52,10 @@ def test_the_format_comes_from_the_layer_state_without_hardware_or_runtime_flags
     monkeypatch.setattr(gemm, "_nvfp4_trial_gemm", _forbidden)
     monkeypatch.setattr(fp8_linear, "gemm_support", _forbidden)
     monkeypatch.setattr(nvfp4_linear, "gemm_support", _forbidden)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", _NoFlags())
+    monkeypatch.setattr(linear, "runtime_flag", _forbidden)
+    monkeypatch.setattr(fp8_linear, "runtime_flag", _forbidden)
+    monkeypatch.setattr(nvfp4_linear, "runtime_flag", _forbidden)
+    monkeypatch.setattr(lora_math, "runtime_flag", _forbidden)
 
     assert quant_format(layer) is EXPECTED[name]
 

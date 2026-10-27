@@ -4,7 +4,6 @@ from unittest.mock import patch
 import pytest
 import torch
 import torch.nn.functional as F
-import vendor.gpl.comfyui.ops as comfy_ops
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts
 from src.platform.runtime.native.io.quant_formats import quantize_nvfp4_dynamic
 from src.platform.runtime.native.kernels import fp8_ops, nvfp4_linear
@@ -18,22 +17,23 @@ from src.platform.runtime.native.kernels.nvfp4_linear import (
 from .._nvfp4_ref import F4_MAX as _F4_MAX_REF
 from .._nvfp4_ref import F8_MAX as _F8_MAX_REF
 from .._nvfp4_ref import quantize_nvfp4 as _ref_quantize_nvfp4
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 
 def test_nvfp4_matmul_disabled_by_default(monkeypatch):
-    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
+    monkeypatch.setitem(runtime_flag_values(), "native_nvfp4_matmul", False)
     with installed_gemm_verdicts(nvfp4=True):
         assert _nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_nvfp4_matmul", False)
     with installed_gemm_verdicts(nvfp4=True):
         assert _nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_matmul_flag_on_requires_probe(monkeypatch):
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_nvfp4_matmul", True)
     with installed_gemm_verdicts(nvfp4=False):
         assert _nvfp4_matmul_enabled() is False
     with installed_gemm_verdicts(nvfp4=True):

@@ -9,7 +9,6 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.runtime.native.kernels import (
     GemmSupport,
     capabilities,
@@ -20,6 +19,7 @@ from src.platform.runtime.native.kernels import (
     refresh_capabilities,
 )
 from src.platform.runtime.native.kernels.hardware import _install_snapshot
+from src.platform.settings.runtime_flags import runtime_flag_values
 from tests.fixtures.kernel_capabilities import (
     ada,
     ampere,
@@ -357,8 +357,9 @@ def test_concurrent_first_asks_probe_each_family_once(install_capabilities, monk
 
 @pytest.fixture
 def bound_ops(monkeypatch):
-    flags: dict = {}
-    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", flags)
+    flags = runtime_flag_values()
+    monkeypatch.setitem(flags, "native_fp8_matmul", False)
+    monkeypatch.setitem(flags, "native_nvfp4_matmul", False)
     return flags
 
 

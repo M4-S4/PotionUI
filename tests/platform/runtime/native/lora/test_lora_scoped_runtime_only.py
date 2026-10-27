@@ -6,10 +6,10 @@ import pytest
 import torch
 
 from src.platform.runtime.native.lora.apply import apply_loras, remove_loras, temporarily_applied_loras
-from vendor.gpl.comfyui import ops
 from src.platform.runtime.native.kernels import pick_operations
 
 from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 
 def _weights(module) -> dict:
@@ -95,7 +95,7 @@ def _owns_storage(tensor) -> bool:
 
 
 def test_scope_exit_frees_the_scoped_rows_fused_into_a_resident_delta(monkeypatch):
-    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", True)
     m = _build()
     qkv = m.double_blocks[0].img_attn.qkv
     apply_loras(m, [(_kohya_lora(rank=4), 1.0)], runtime_only=True)

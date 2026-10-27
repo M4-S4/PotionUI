@@ -5,7 +5,6 @@ import pytest
 from src.platform.runtime.native import kernels
 from vendor.gpl.comfyui import ops
 
-VENDORED_NAMES_NATIVE_CODE_NEEDS = ["invalidate_lora_fused_cache"]
 KERNEL_CLASSES_AND_FUNCTIONS = [
     "CastWeightBiasOp",
     "Fp8ScaledLinear",
@@ -13,7 +12,10 @@ KERNEL_CLASSES_AND_FUNCTIONS = [
     "detect_quant_format",
     "disable_weight_init",
     "fp8_ops",
+    "invalidate_lora_fused_cache",
+    "log_lora_path_summary",
     "manual_cast",
+    "partition_output_branch_deltas",
     "pick_operations",
 ]
 KERNEL_PACKAGE = "src.platform.runtime.native.kernels"
@@ -35,6 +37,19 @@ MOVED_OUT_OF_VENDOR = [
     "_scaled_mm_fast_path_reject_reason",
     "_nvfp4_fast_path_reject_reason",
     "_quantize_fp8_dynamic",
+    "NATIVE_LORA_FUSED_ENV",
+    "RUNTIME_FLAGS",
+    "_LokrBranch",
+    "_NVFP4_LORA_BRANCH_CHUNK_BYTES",
+    "_add_lora_output_branch",
+    "_deltas_output_branch_ok",
+    "_lora_fused_enabled",
+    "_lora_output_branch",
+    "apply_lora_deltas",
+    "invalidate_lora_fused_cache",
+    "linear_with_lora_deltas",
+    "log_lora_path_summary",
+    "partition_output_branch_deltas",
     "QUANT_NVFP4",
     "_BYTE_ARANGE_I32",
     "_COMFY_QUANT_FP8_FORMATS",
@@ -66,12 +81,6 @@ MOVED_OUT_OF_VENDOR = [
     "dequantize_nvfp4",
     "precompute_nvfp4_scale",
 ]
-
-
-@pytest.mark.parametrize("name", VENDORED_NAMES_NATIVE_CODE_NEEDS)
-def test_the_ops_names_native_code_needs_are_public_kernel_exports(name):
-    assert name in kernels.__all__
-    assert getattr(kernels, name) is getattr(ops, name)
 
 
 @pytest.mark.parametrize("name", KERNEL_CLASSES_AND_FUNCTIONS)

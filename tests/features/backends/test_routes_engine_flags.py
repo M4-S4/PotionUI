@@ -22,7 +22,6 @@ from src.platform.runtime.native.optimizations import compile as torch_compile_m
 from src.platform.settings import runtime_flags
 from src.platform.settings.settings import Settings
 from src.platform.security.user import AccountType, User
-from vendor.gpl.comfyui import ops
 
 
 class _NoEngineFlagsConfig(BaseBackendConfig):
@@ -33,8 +32,6 @@ class _NoEngineFlagsConfig(BaseBackendConfig):
 def clean_flag_state(monkeypatch):
     values = runtime_flags.runtime_flag_values()
     snapshot = dict(values)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", ops.RUNTIME_FLAGS)
-    monkeypatch.setattr(runtime_flags, "_vendor_bound", runtime_flags._vendor_bound)
     values["native_torch_compile"] = False
     values["native_stream_prefetch"] = False
     yield

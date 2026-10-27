@@ -6,18 +6,7 @@ import logging
 import torch
 import torch.nn.functional as F
 
-from vendor.gpl.comfyui import ops
-from vendor.gpl.comfyui.ops import (
-    _add_lora_output_branch,
-    _deltas_output_branch_ok,
-    _lora_dequant_path,
-    _lora_fused_enabled,
-    _lora_output_branch,
-    _note_lora_path,
-    _with_lokr,
-    linear_with_lora_deltas,
-    partition_output_branch_deltas,
-)
+from src.platform.settings.runtime_flags import runtime_flag
 
 from ..io.quant_formats import (
     NVFP4_BLOCK,
@@ -29,6 +18,17 @@ from ..io.quant_formats import (
 from .casting import cast_to
 from .fp8_linear import Fp8ScaledLinear
 from .gemm import gemm_support
+from .lora_math import (
+    _add_lora_output_branch,
+    _deltas_output_branch_ok,
+    _lora_dequant_path,
+    _lora_fused_enabled,
+    _lora_output_branch,
+    _note_lora_path,
+    _with_lokr,
+    linear_with_lora_deltas,
+    partition_output_branch_deltas,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ NVFP4_MATMUL_FLAG = "native_nvfp4_matmul"
 
 
 def _nvfp4_matmul_enabled() -> bool:
-    if not ops.RUNTIME_FLAGS.get(NVFP4_MATMUL_FLAG, False):
+    if not runtime_flag(NVFP4_MATMUL_FLAG):
         return False
     return gemm_support().nvfp4
 

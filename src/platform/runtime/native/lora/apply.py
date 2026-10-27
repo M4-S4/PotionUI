@@ -19,7 +19,7 @@ safely patched in place — this is what "composes with the ops layer" means:
     nvfp4's packed uint8 with no float weight tensor at all): the deltas are
     attached to the Linear's ``lora_deltas`` list and applied to the
     *dequantised, compute-dtype* weight each forward
-    (:func:`vendor.gpl.comfyui.ops.apply_lora_deltas`). Quantized storage is never
+    (:func:`src.platform.runtime.native.kernels.lora_math.apply_lora_deltas`). Quantized storage is never
     touched. Their rank-sized ``up``/``down`` factors are staged onto the
     layer's compute device at apply time (see :func:`_stage_runtime_deltas`) —
     a LoRA state dict is read to CPU (mmapped from the safetensors file), so

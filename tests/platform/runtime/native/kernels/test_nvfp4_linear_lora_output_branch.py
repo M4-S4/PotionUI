@@ -7,10 +7,9 @@ import torch
 import torch.nn.functional as F
 
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui import ops as _ops_module
-from vendor.gpl.comfyui.ops import _deltas_output_branch_ok, _lora_output_branch
 from src.platform.runtime.native.io.quant_formats import dequantize_nvfp4
-from src.platform.runtime.native.kernels import fp8_ops, nvfp4_linear
+from src.platform.runtime.native.kernels import fp8_ops, lora_math, nvfp4_linear
+from src.platform.runtime.native.kernels.lora_math import _deltas_output_branch_ok, _lora_output_branch
 from src.platform.runtime.native.kernels.nvfp4_linear import _nvfp4_scaled_mm_fast_path_ok
 
 from .._nvfp4_ref import F4_MAX as _F4_MAX_REF
@@ -193,9 +192,9 @@ def test_chunked_matches_single_chunk_reference_nonaligned_boundary():
     deltas = _stacked_deltas([4, 6, 2], in_f, out_f, seed=201)
     x = torch.randn(m, in_f, dtype=torch.bfloat16)
 
-    with patch.object(_ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", 16 * out_f * 2):
+    with patch.object(lora_math, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", 16 * out_f * 2):
         chunked = _lora_output_branch(x, deltas, torch.bfloat16, out_f)
-    with patch.object(_ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", m * out_f * 2 * 4):
+    with patch.object(lora_math, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", m * out_f * 2 * 4):
         single_chunk = _lora_output_branch(x, deltas, torch.bfloat16, out_f)
 
     assert chunked.shape == (m, out_f)
@@ -207,9 +206,9 @@ def test_chunked_matches_single_chunk_reference_large_token_count():
     deltas = _stacked_deltas([4, 8], in_f, out_f, seed=202)
     x = torch.randn(m, in_f, dtype=torch.bfloat16)
 
-    with patch.object(_ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", 128 * out_f * 2):
+    with patch.object(lora_math, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", 128 * out_f * 2):
         chunked = _lora_output_branch(x, deltas, torch.bfloat16, out_f)
-    with patch.object(_ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", m * out_f * 2 * 4):
+    with patch.object(lora_math, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", m * out_f * 2 * 4):
         single_chunk = _lora_output_branch(x, deltas, torch.bfloat16, out_f)
 
     assert torch.equal(chunked, single_chunk)
@@ -224,9 +223,9 @@ def test_chunk_row_count_matches_byte_budget_formula():
     expected_chunk_rows = max(1, budget // (out_f * itemsize))
     assert expected_chunk_rows == 1
 
-    with patch.object(_ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", budget):
+    with patch.object(lora_math, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", budget):
         out = _lora_output_branch(x, deltas, torch.bfloat16, out_f)
-    with patch.object(_ops_module, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", m * out_f * itemsize * 4):
+    with patch.object(lora_math, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", m * out_f * itemsize * 4):
         expected = _lora_output_branch(x, deltas, torch.bfloat16, out_f)
     assert torch.equal(out, expected)
 

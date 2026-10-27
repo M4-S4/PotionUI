@@ -7,20 +7,7 @@ from contextlib import contextmanager
 import torch
 import torch.nn.functional as F
 
-from vendor.gpl.comfyui import ops
-from vendor.gpl.comfyui.ops import (
-    _add_lora_output_branch,
-    _deltas_output_branch_ok,
-    _lora_dequant_path,
-    _lora_fused_enabled,
-    _lora_output_branch,
-    _note_lora_path,
-    _with_lokr,
-    apply_lora_deltas,
-    linear_with_lora_deltas,
-    partition_output_branch_deltas,
-)
-
+from src.platform.settings.runtime_flags import runtime_flag
 from ..io.quant_formats import (
     COMFY_QUANT_INT8_TENSORWISE,
     E4M3_MAX,
@@ -34,6 +21,18 @@ from ..io.quant_formats import (
 )
 from .casting import cast_bias_weight, cast_to, manual_cast
 from .gemm import gemm_support
+from .lora_math import (
+    _add_lora_output_branch,
+    _deltas_output_branch_ok,
+    _lora_dequant_path,
+    _lora_fused_enabled,
+    _lora_output_branch,
+    _note_lora_path,
+    _with_lokr,
+    apply_lora_deltas,
+    linear_with_lora_deltas,
+    partition_output_branch_deltas,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ FP8_MATMUL_FLAG = "native_fp8_matmul"
 
 
 def _fp8_matmul_enabled() -> bool:
-    if not ops.RUNTIME_FLAGS.get(FP8_MATMUL_FLAG, False):
+    if not runtime_flag(FP8_MATMUL_FLAG):
         return False
     return gemm_support().fp8_scaled_mm
 

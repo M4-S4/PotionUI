@@ -12,6 +12,7 @@ from src.platform.runtime.native.kernels import fp8_ops
 from .._nvfp4_ref import F4_MAX as _F4_MAX
 from .._nvfp4_ref import F8_MAX as _F8_MAX
 from .._nvfp4_ref import quantize_nvfp4
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 
 def _nvfp4_sd(out_f: int, in_f: int, w: torch.Tensor, pre_quant_scale: torch.Tensor | None):
@@ -165,13 +166,12 @@ def _install_fake_cuda_residency(monkeypatch, *, streamed: list[torch.Tensor]):
 
 
 def test_prepared_linear_fast_branch_applies_pre_quant_scale_per_chunk(monkeypatch):
-    import vendor.gpl.comfyui.ops as wo
 
     out_f, in_f = 16, 32
     pqs = torch.rand(in_f, dtype=torch.bfloat16) * 0.5 + 0.75
     lin, q, scale = _fp8_scaled_leaf(out_f, in_f, pqs, seed=11)
     _install_fake_cuda_residency(monkeypatch, streamed=[lin.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     x = torch.randn(5, in_f, dtype=torch.bfloat16)
     expected = torch.nn.functional.linear(x * pqs.to(x.dtype), q.to(torch.bfloat16) * scale.to(torch.bfloat16), None)
@@ -202,13 +202,12 @@ def test_prepared_linear_fast_branch_applies_pre_quant_scale_per_chunk(monkeypat
 
 
 def test_prepared_linear_pre_quant_scale_not_doubled_after_kernel_rejection(monkeypatch):
-    import vendor.gpl.comfyui.ops as wo
 
     out_f, in_f = 16, 32
     pqs = torch.rand(in_f, dtype=torch.bfloat16) * 0.5 + 0.75
     lin, q, scale = _fp8_scaled_leaf(out_f, in_f, pqs, seed=12)
     _install_fake_cuda_residency(monkeypatch, streamed=[lin.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     x = torch.randn(5, in_f, dtype=torch.bfloat16)
     expected = torch.nn.functional.linear(x * pqs.to(x.dtype), q.to(torch.bfloat16) * scale.to(torch.bfloat16), None)

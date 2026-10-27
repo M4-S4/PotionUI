@@ -20,19 +20,18 @@ def _backend(**config_overrides) -> NativeBackend:
 class TestNativeBackendEngineFlagsPerRun(unittest.TestCase):
     def test_each_run_binds_this_backends_own_engine_values(self):
         from src.platform.settings.runtime_flags import runtime_flag
-        from vendor.gpl.comfyui import ops
+        from src.platform.runtime.native.kernels import lora_math
 
         fast = _backend(device="cpu", engine_flags={"native_fp8_matmul": True, "native_lora_fused": False})
         plain = _backend(device="cpu", engine_flags={})
 
         fast.prepare_pipes([{"name": "generator", "config": {}}])
         self.assertIs(runtime_flag("native_fp8_matmul"), True)
-        self.assertIs(ops._lora_fused_enabled(), False)
-        self.assertIs(ops.RUNTIME_FLAGS.get("native_fp8_matmul"), True)
+        self.assertIs(lora_math._lora_fused_enabled(), False)
 
         plain.prepare_pipes([{"name": "generator", "config": {}}])
         self.assertIs(runtime_flag("native_fp8_matmul"), False)
-        self.assertIs(ops._lora_fused_enabled(), True)
+        self.assertIs(lora_math._lora_fused_enabled(), True)
 
     def test_remote_backend_values_never_reach_this_process_engine(self):
         from src.features.backends.backend_config import NativeRemoteBackendConfig

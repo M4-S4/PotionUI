@@ -1,9 +1,6 @@
 import inspect
 import logging
-import os
 import re
-import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -208,74 +205,29 @@ def test_each_ignored_env_var_logs_once_with_its_new_home(caplog):
     assert any("POTIONUI_PROFILE" in m and "Diagnostics" in m for m in messages)
 
 
-def test_matmul_predicates_read_the_bound_dict_and_never_the_environment(monkeypatch):
-    from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear
-    from vendor.gpl.comfyui import ops
+def test_matmul_predicates_read_the_live_flags_and_never_the_environment():
+    from src.platform.runtime.native.kernels import fp8_linear, lora_math, nvfp4_linear
 
-    for module in (ops, fp8_linear, nvfp4_linear):
+    for module in (lora_math, fp8_linear, nvfp4_linear):
         source = inspect.getsource(module)
         assert "os.environ" not in source
         assert "getenv" not in source
         assert not hasattr(module, "os")
 
-    monkeypatch.setattr(runtime_flags, "_vendor_bound", False)
-
     with installed_gemm_verdicts(fp8=True, nvfp4=True):
         runtime_flags.activate_engine_flags({"native_fp8_matmul": True, "native_lora_fused": False})
         assert fp8_linear._fp8_matmul_enabled() is True
         assert nvfp4_linear._nvfp4_matmul_enabled() is False
-        assert ops._lora_fused_enabled() is False
+        assert lora_math._lora_fused_enabled() is False
 
         runtime_flags.activate_engine_flags({"native_nvfp4_matmul": True})
         assert fp8_linear._fp8_matmul_enabled() is False
         assert nvfp4_linear._nvfp4_matmul_enabled() is True
-        assert ops._lora_fused_enabled() is True
-
-
-def test_binding_a_module_installs_the_live_flag_dict_and_nothing_else():
-    import types
-
-    probe = types.ModuleType("probe")
-    initial = set(vars(probe))
-
-    runtime_flags.bind_runtime_flags(probe)
-
-    assert probe.RUNTIME_FLAGS is runtime_flags._values
-    assert set(vars(probe)) - initial == {"RUNTIME_FLAGS"}
-
-
-def test_importing_the_native_package_binds_the_live_flag_dict_to_the_vendor_ops():
-    root = Path(__file__).resolve().parents[3]
-    script = (
-        "import src.platform.runtime.native\n"
-        "from src.platform.settings import runtime_flags\n"
-        "from vendor.gpl.comfyui import ops\n"
-        "raise SystemExit(0 if ops.RUNTIME_FLAGS is runtime_flags.runtime_flag_values() else 1)\n"
-    )
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "POTIONUI_DB_PATH": "/proc/none.sqlite"}
-    completed = subprocess.run(
-        [sys.executable, "-c", script], cwd=root, env=env, capture_output=True, text=True, timeout=180,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-
-
-def test_binding_a_module_does_not_import_the_kernels_package():
-    root = Path(__file__).resolve().parents[3]
-    script = (
-        "import sys, types\n"
-        "from src.platform.settings import runtime_flags\n"
-        "runtime_flags.bind_runtime_flags(types.ModuleType('probe'))\n"
-        "raise SystemExit(1 if 'src.platform.runtime.native.kernels' in sys.modules else 0)\n"
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", script], cwd=root, capture_output=True, text=True, timeout=180,
-    )
-    assert completed.returncode == 0, completed.stdout + completed.stderr
+        assert lora_math._lora_fused_enabled() is True
 
 
 def test_matmul_predicates_never_ask_for_gemm_support_while_the_flag_is_off(monkeypatch):
     from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear
-    from vendor.gpl.comfyui import ops
 
     asked = []
 
@@ -285,7 +237,8 @@ def test_matmul_predicates_never_ask_for_gemm_support_while_the_flag_is_off(monk
 
     monkeypatch.setattr(fp8_linear, "gemm_support", provider)
     monkeypatch.setattr(nvfp4_linear, "gemm_support", provider)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", {"native_fp8_matmul": False, "native_nvfp4_matmul": False})
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_nvfp4_matmul", False)
 
     assert fp8_linear._fp8_matmul_enabled() is False
     assert nvfp4_linear._nvfp4_matmul_enabled() is False
@@ -296,7 +249,6 @@ def test_matmul_predicates_ask_for_gemm_support_at_every_call_once_the_flag_is_o
     from types import SimpleNamespace
 
     from src.platform.runtime.native.kernels import fp8_linear
-    from vendor.gpl.comfyui import ops
 
     state = {"fp8": False, "calls": 0}
 
@@ -305,7 +257,7 @@ def test_matmul_predicates_ask_for_gemm_support_at_every_call_once_the_flag_is_o
         return SimpleNamespace(fp8_scaled_mm=state["fp8"], nvfp4=False)
 
     monkeypatch.setattr(fp8_linear, "gemm_support", provider)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", {"native_fp8_matmul": True})
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_fp8_matmul", True)
 
     assert fp8_linear._fp8_matmul_enabled() is False
     state["fp8"] = True

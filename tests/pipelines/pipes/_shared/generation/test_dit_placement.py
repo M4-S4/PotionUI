@@ -30,10 +30,9 @@ from torch.multiprocessing.reductions import StorageWeakRef
 from torch.utils._python_dispatch import TorchDispatchMode
 from torch.utils._pytree import tree_flatten
 
-import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.runtime.native.io.quant_formats import quantize_nvfp4_dynamic
 from src.platform.settings import runtime_flags
-from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
+from src.platform.runtime.native.kernels.lora_math import _add_lora_output_branch, _lora_output_branch
 
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
 from src.platform.runtime.native.kernels import Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm
@@ -292,11 +291,10 @@ def machine(install_capabilities, monkeypatch):
             else:
                 install_capabilities(fake_capabilities(hardware()))
                 monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
-            monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {
-                "native_fp8_matmul": fp8,
-                "native_nvfp4_matmul": nvfp4,
-                "native_lora_fused": fused,
-            })
+            flags = runtime_flags.runtime_flag_values()
+            monkeypatch.setitem(flags, "native_fp8_matmul", fp8)
+            monkeypatch.setitem(flags, "native_nvfp4_matmul", nvfp4)
+            monkeypatch.setitem(flags, "native_lora_fused", fused)
 
         yield configure
     gemm._reset_verdicts()
@@ -515,9 +513,9 @@ def test_the_per_token_terms_follow_the_live_flags_between_calls(machine):
     machine(fp8=True, fused=False)
     layer = _fp8_layer(_GEMM_IN, _GEMM_OUT)
     assert _per_token_bytes(layer, with_delta=True) == (5 * _GEMM_IN, 2 * _GEMM_OUT * 2)
-    comfy_ops.RUNTIME_FLAGS["native_lora_fused"] = True
+    runtime_flags.runtime_flag_values()["native_lora_fused"] = True
     assert _per_token_bytes(layer, with_delta=False) == (5 * _GEMM_IN, 0)
-    comfy_ops.RUNTIME_FLAGS["native_fp8_matmul"] = False
+    runtime_flags.runtime_flag_values()["native_fp8_matmul"] = False
     assert _per_token_bytes(layer, with_delta=False) == (0, 0)
 
 

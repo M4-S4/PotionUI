@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import torch
+
+from src.platform.runtime.native.kernels import lora_math
 from src.platform.runtime.native.kernels.fp8_linear import _scaled_mm_fast_path_reject_reason
 from src.platform.runtime.native.kernels.nvfp4_linear import _nvfp4_fast_path_reject_reason
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 
 def test_deltas_output_branch_ok_accepts_full_width_and_dim0_slice():
-    import vendor.gpl.comfyui.ops as wo
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     full = LoraDelta(down=torch.randn(4, 32), up=torch.randn(16, 4), alpha=4.0, scale=1.0)
@@ -14,32 +16,30 @@ def test_deltas_output_branch_ok_accepts_full_width_and_dim0_slice():
         down=torch.randn(3, 32), up=torch.randn(6, 3), alpha=2.0, scale=1.0,
         target_slice=(0, 5, 6),
     )
-    assert wo._deltas_output_branch_ok([full], out_features=16) is True
-    assert wo._deltas_output_branch_ok([sliced], out_features=16) is True
-    assert wo._deltas_output_branch_ok([full, sliced], out_features=16) is True
+    assert lora_math._deltas_output_branch_ok([full], out_features=16) is True
+    assert lora_math._deltas_output_branch_ok([sliced], out_features=16) is True
+    assert lora_math._deltas_output_branch_ok([full, sliced], out_features=16) is True
 
 
 def test_deltas_output_branch_ok_rejects_lokr_only_with_the_kill_switch(monkeypatch):
-    import vendor.gpl.comfyui.ops as wo
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     lokr = LoraDelta(down=torch.randn(4, 4), up=torch.randn(4, 4), alpha=4.0, scale=1.0, kron=True)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_lora_fused", True)
-    assert wo._deltas_output_branch_ok([lokr], out_features=16) is True
-    assert wo._deltas_output_branch_ok([lokr], out_features=32) is False
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_lora_fused", False)
-    assert wo._deltas_output_branch_ok([lokr], out_features=16) is False
+    monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", True)
+    assert lora_math._deltas_output_branch_ok([lokr], out_features=16) is True
+    assert lora_math._deltas_output_branch_ok([lokr], out_features=32) is False
+    monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", False)
+    assert lora_math._deltas_output_branch_ok([lokr], out_features=16) is False
 
 
 def test_deltas_output_branch_ok_rejects_out_of_bounds_slice():
-    import vendor.gpl.comfyui.ops as wo
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     oob = LoraDelta(
         down=torch.randn(3, 32), up=torch.randn(6, 3), alpha=2.0, scale=1.0,
         target_slice=(0, 12, 6),
     )
-    assert wo._deltas_output_branch_ok([oob], out_features=16) is False
+    assert lora_math._deltas_output_branch_ok([oob], out_features=16) is False
 
 
 def test_scaled_mm_fast_path_reason_none_for_branch_ok_full_and_sliced_deltas():
@@ -97,7 +97,6 @@ def test_nvfp4_fast_path_reason_still_lora_deltas_for_lokr():
 
 
 def test_forward_scaled_mm_lora_output_branch_matches_dequant_parity():
-    import vendor.gpl.comfyui.ops as wo
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     torch.manual_seed(0)
@@ -111,12 +110,12 @@ def test_forward_scaled_mm_lora_output_branch_matches_dequant_parity():
         target_slice=(0, 5, 6),
     )
     deltas = [full, sliced]
-    assert wo._deltas_output_branch_ok(deltas, out_features=out_features) is True
+    assert lora_math._deltas_output_branch_ok(deltas, out_features=out_features) is True
 
-    expected_weight = wo.apply_lora_deltas(weight.clone(), deltas)
+    expected_weight = lora_math.apply_lora_deltas(weight.clone(), deltas)
     expected = x @ expected_weight.T
 
-    branch = wo._lora_output_branch(x, deltas, torch.float32, out_features)
+    branch = lora_math._lora_output_branch(x, deltas, torch.float32, out_features)
     actual = x @ weight.T + branch
 
     torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-4)

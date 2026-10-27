@@ -12,11 +12,7 @@ WHOLE_MODULE = "<module>"
 KERNELS_PACKAGE = Path("platform") / "runtime" / "native" / "kernels"
 REDIRECT = "new code must go through src.platform.runtime.native.kernels"
 
-ALLOWLIST = frozenset({
-    ("src/pipelines/pipes/_shared/generation/dit_placement.py", "partition_output_branch_deltas"),
-    ("src/platform/runtime/native/engine.py", "log_lora_path_summary"),
-    ("src/platform/settings/runtime_flags.py", "<module>"),
-})
+ALLOWLIST: frozenset[tuple[str, str]] = frozenset()
 
 CAPABILITY_PROBE = "get_device_capability"
 

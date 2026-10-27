@@ -6,11 +6,6 @@ from contextlib import contextmanager
 import torch
 import torch.nn.functional as F
 
-from vendor.gpl.comfyui.ops import (
-    _note_lora_path,
-    linear_with_lora_deltas,
-)
-
 from ..io.quant_formats import (
     COMFY_QUANT_INT8_TENSORWISE,
     FP8_DTYPES,
@@ -19,6 +14,7 @@ from ..io.quant_formats import (
     extract_convrot_config,
     parse_comfy_quant,
 )
+from .lora_math import _note_lora_path, linear_with_lora_deltas
 
 
 def cast_to(

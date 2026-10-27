@@ -5,11 +5,12 @@ from enum import StrEnum
 
 import torch
 
-from vendor.gpl.comfyui import ops
+from src.platform.settings.runtime_flags import runtime_flag
 
 from ..io.quant_formats import FP8_DTYPES
 from .fp8_linear import FP8_MATMUL_FLAG, Fp8ScaledLinear, _fp8_matmul_enabled, _scaled_mm_fast_path_reject_reason
 from .gemm import gemm_support
+from .lora_math import _lora_fused_enabled, partition_output_branch_deltas
 from .nvfp4_linear import NVFP4_MATMUL_FLAG, _nvfp4_fast_path_reject_reason, _nvfp4_matmul_enabled
 
 _ACTIVATION_DTYPE = torch.bfloat16
@@ -47,13 +48,13 @@ def fast_path(layer: object) -> FastPath | None:
     else:
         reason = _scaled_mm_reason(layer)
         gemm_kind = FastPathKind.FP8_SCALED_MM
-    output_side, _ = ops.partition_output_branch_deltas(layer.lora_deltas, layer.out_features)
+    output_side, _ = partition_output_branch_deltas(layer.lora_deltas, layer.out_features)
     kind = gemm_kind if reason is None else FastPathKind.DEQUANT
     return FastPath(
         kind=kind,
         quant_format=layer_format,
         requires_resident_weight=kind is FastPathKind.NVFP4_GEMM,
-        lora_fused=bool(output_side) and ops._lora_fused_enabled(),
+        lora_fused=bool(output_side) and _lora_fused_enabled(),
         reason=reason,
     )
 
@@ -93,7 +94,7 @@ def _scaled_mm_reason(layer: Fp8ScaledLinear) -> str | None:
         return "input_scale_not_scalar"
     if _fp8_matmul_enabled():
         return None
-    if not ops.RUNTIME_FLAGS.get(FP8_MATMUL_FLAG, False):
+    if not runtime_flag(FP8_MATMUL_FLAG):
         return f"{FP8_MATMUL_FLAG} is off"
     return gemm_support().fp8_reason
 
@@ -111,6 +112,6 @@ def _nvfp4_reason(layer: Fp8ScaledLinear) -> str | None:
         return reason
     if _nvfp4_matmul_enabled():
         return None
-    if not ops.RUNTIME_FLAGS.get(NVFP4_MATMUL_FLAG, False):
+    if not runtime_flag(NVFP4_MATMUL_FLAG):
         return f"{NVFP4_MATMUL_FLAG} is off"
     return gemm_support().nvfp4_reason

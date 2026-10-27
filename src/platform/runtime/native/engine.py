@@ -62,8 +62,14 @@ from .memory.tiering import (
 )
 from .ops.dtype import is_mixed_precision, pick_dtypes
 from .ops.fp8_quant import estimate_fp8_gb, quantize_state_dict_to_fp8, should_quantize_fp8
-from .kernels import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, manual_cast, pick_operations
-from vendor.gpl.comfyui.ops import log_lora_path_summary
+from .kernels import (
+    QUANT_FP8_SCALED,
+    detect_quant_format,
+    fp8_ops,
+    log_lora_path_summary,
+    manual_cast,
+    pick_operations,
+)
 from .sampling.denoise_loop import denoise, ensure_sampler_generator
 from .text_encoders.base import NativeTextEncoder
 from .text_encoders.loader import load_text_encoder

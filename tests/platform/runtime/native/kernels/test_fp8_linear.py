@@ -5,7 +5,6 @@ import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import vendor.gpl.comfyui.ops as comfy_ops
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts
 from tests.fixtures.kernel_ops import patch_ops_name
 from src.platform.runtime.native.kernels import fp8_linear, fp8_ops
@@ -16,6 +15,7 @@ from src.platform.runtime.native.kernels.fp8_linear import (
     _scaled_mm_fast_path_reject_reason,
     reset_scaled_mm_fast_path_rejection_log,
 )
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 
 def test_fp8_scaled_linear_load_and_forward():
@@ -63,19 +63,19 @@ def test_fp8_linear_falls_back_when_no_scale():
 
 
 def test_fp8_matmul_disabled_by_default(monkeypatch):
-    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     with installed_gemm_verdicts(fp8=True):
         assert _fp8_matmul_enabled() is False
 
 
 def test_fp8_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     with installed_gemm_verdicts(fp8=True):
         assert _fp8_matmul_enabled() is False
 
 
 def test_fp8_matmul_flag_on_requires_probe(monkeypatch):
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     with installed_gemm_verdicts(fp8=False):
         assert _fp8_matmul_enabled() is False
     with installed_gemm_verdicts(fp8=True):
@@ -260,7 +260,7 @@ def test_scaled_mm_math_matches_existing_dequant_forward():
 def test_forward_comfy_cast_weights_falls_back_when_non_branchable_lora_deltas_present(monkeypatch):
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     with installed_gemm_verdicts(fp8=True):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
@@ -276,7 +276,7 @@ def test_forward_comfy_cast_weights_falls_back_when_non_branchable_lora_deltas_p
 
 
 def test_forward_comfy_cast_weights_falls_back_on_cpu_even_when_gate_on(monkeypatch):
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     with installed_gemm_verdicts(fp8=True):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
@@ -400,7 +400,7 @@ def _install_fake_cuda_residency(monkeypatch):
 def test_forward_stages_streamed_cpu_weight_on_demand_and_reaches_kernel(monkeypatch):
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     resident_ids.add(id(x))
@@ -424,7 +424,7 @@ def test_forward_stages_streamed_cpu_weight_on_demand_and_reaches_kernel(monkeyp
 def test_forward_reuses_already_resident_weight_without_extra_copy(monkeypatch):
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     resident_ids.add(id(lin.weight))
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
@@ -443,7 +443,7 @@ def test_forward_reuses_already_resident_weight_without_extra_copy(monkeypatch):
 def test_forward_restages_every_call_with_no_cross_call_retention(monkeypatch):
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     resident_ids.add(id(x))
@@ -466,7 +466,7 @@ def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
 
     lin = _streamed_fp8_layer()
     resident_ids, _ = _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     resident_ids.add(id(x))
@@ -493,7 +493,7 @@ def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
 def test_forward_on_cpu_gate_off_is_byte_identical_to_dequant(monkeypatch):
     lin = _streamed_fp8_layer()
     _install_fake_cuda_residency(monkeypatch)
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
 
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     with patch("torch._scaled_mm", side_effect=AssertionError("must not run when gate is off")):
