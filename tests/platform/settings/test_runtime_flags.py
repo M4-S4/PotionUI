@@ -259,7 +259,7 @@ def test_importing_the_native_package_binds_the_live_flag_dict_to_the_vendor_ops
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_binding_the_vendor_ops_does_not_import_the_kernels_package():
+def test_binding_a_module_does_not_import_the_kernels_package():
     root = Path(__file__).resolve().parents[3]
     script = (
         "import sys, types\n"
@@ -267,9 +267,8 @@ def test_binding_the_vendor_ops_does_not_import_the_kernels_package():
         "runtime_flags.bind_runtime_flags(types.ModuleType('probe'))\n"
         "raise SystemExit(1 if 'src.platform.runtime.native.kernels' in sys.modules else 0)\n"
     )
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "POTIONUI_DB_PATH": "/proc/none.sqlite"}
     completed = subprocess.run(
-        [sys.executable, "-c", script], cwd=root, env=env, capture_output=True, text=True, timeout=180,
+        [sys.executable, "-c", script], cwd=root, capture_output=True, text=True, timeout=180,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
