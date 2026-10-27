@@ -21,6 +21,9 @@ rows = [
     ("hosted", "openai", "https://api.openai.com/v1"),
     ("local", "openai", "http://localhost:1234/v1"),
     ("router", "openai", "https://openrouter.ai/api/v1"),
+    ("router_chat", "openai-compatible", "https://openrouter.ai/api/v1/"),
+    ("router_custom", "openai", "https://OpenRouter.ai./api/v1"),
+    ("lookalike", "openai", "https://openrouter.ai.example.net/v1"),
     ("ollama", "ollama", "http://localhost:11434"),
 ]
 with db.get_cursor() as cursor:
@@ -30,7 +33,9 @@ with db.get_cursor() as cursor:
             "VALUES (?, ?, ?, ?, 'model-x', 'system')",
             (config_id, config_id, config_type, base_url),
         )
-    cursor.execute("DELETE FROM applied_migrations WHERE migration_name = '070_llm_openai_compatible'")
+    cursor.execute(
+        "DELETE FROM applied_migrations WHERE migration_name IN ('070_llm_openai_compatible', '071_llm_openrouter_type')"
+    )
 run_migrations_sync()
 
 container = build_container()
@@ -40,7 +45,7 @@ for config_id, _, _ in rows:
     config = gateway.repository.get_configuration(config_id)
     adapter = gateway.types.require(config.type).adapter
     entry = {"type": config.type}
-    if config.type.startswith("openai"):
+    if config.type in ("openai", "openai-compatible", "openrouter"):
         request = RenderRequest(
             config=config,
             system="system",
@@ -55,7 +60,7 @@ for config_id, _, _ in rows:
 described = {entry["type"]: entry for entry in gateway.provider_types()}
 report["described"] = {
     key: {"adapter": described[key]["adapter"], "default_base_url": described[key]["default_base_url"]}
-    for key in ("openai", "openai-compatible")
+    for key in ("openai", "openai-compatible", "openrouter")
 }
 print("TYPES_REPORT=" + json.dumps(report))
 """
@@ -99,10 +104,19 @@ def test_a_config_on_the_hosted_api_resolves_to_the_responses_adapter(report):
 
 @pytest.mark.parametrize("config_id, url", [
     ("local", "http://localhost:1234/v1/chat/completions"),
-    ("router", "https://openrouter.ai/api/v1/chat/completions"),
+    ("lookalike", "https://openrouter.ai.example.net/v1/chat/completions"),
 ])
 def test_a_migrated_config_resolves_to_the_chat_adapter(report, config_id, url):
     assert report[config_id] == {"type": "openai-compatible", "adapter": "openai-chat", "is_adapter": True, "url": url}
+
+
+@pytest.mark.parametrize("config_id, url", [
+    ("router", "https://openrouter.ai/api/v1/chat/completions"),
+    ("router_chat", "https://openrouter.ai/api/v1/chat/completions"),
+    ("router_custom", "https://OpenRouter.ai./api/v1/chat/completions"),
+])
+def test_a_migrated_openrouter_config_resolves_to_the_openrouter_adapter(report, config_id, url):
+    assert report[config_id] == {"type": "openrouter", "adapter": "openrouter", "is_adapter": True, "url": url}
 
 
 def test_other_types_are_left_alone_by_the_migration(report):
@@ -113,4 +127,5 @@ def test_both_types_are_offered_to_the_admin_ui(report):
     assert report["described"] == {
         "openai": {"adapter": "openai-responses", "default_base_url": "https://api.openai.com/v1"},
         "openai-compatible": {"adapter": "openai-chat", "default_base_url": None},
+        "openrouter": {"adapter": "openrouter", "default_base_url": "https://openrouter.ai/api/v1"},
     }
