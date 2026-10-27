@@ -8,14 +8,12 @@ from typing import Any, Iterator
 import torch
 import torch.nn as nn
 
-from src.platform.runtime.native.kernels import FastPath, FastPathKind, QuantFormat, fast_path
+from src.platform.runtime.native.kernels import FastPath, FastPathKind, Fp8ScaledLinear, QuantFormat, fast_path
 from src.platform.settings.runtime_flags import runtime_flag
 
 logger = logging.getLogger(__name__)
 
 _warned_compile_failed = False
-_COMPILABLE_FORMATS = frozenset({QuantFormat.FP8, QuantFormat.INT8, QuantFormat.INT8_CONVROT})
-_QUANTIZED_STORAGE = frozenset({torch.float8_e4m3fn, torch.float8_e5m2, torch.int8})
 
 def torch_compile_enabled() -> bool:
     return bool(runtime_flag("native_torch_compile"))
@@ -66,13 +64,8 @@ class CompileHandle:
         self.forwards = []
 
 
-def _quantized_storage(module: nn.Module) -> bool:
-    weight = getattr(module, "weight", None)
-    return isinstance(weight, torch.Tensor) and weight.dtype in _QUANTIZED_STORAGE
-
-
 def _quantized(module: nn.Module) -> bool:
-    return any(fast_path(m) is not None or _quantized_storage(m) for m in module.modules())
+    return any(isinstance(m, Fp8ScaledLinear) for m in module.modules())
 
 
 def _block_modules(module: nn.Module) -> Iterator[nn.Module]:
@@ -134,11 +127,8 @@ def compile_gate(native_model, *, resident: bool, is_cuda: bool) -> tuple[bool, 
         return False, "no-block-lists"
     blocks = list(_block_modules(module))
     paths = _block_fast_paths(blocks)
-    formats = {path.quant_format for path in paths}
-    if QuantFormat.NVFP4 in formats:
+    if any(path.quant_format is QuantFormat.NVFP4 for path in paths):
         return False, "nvfp4"
-    if formats - _COMPILABLE_FORMATS:
-        return False, "quantized"
     if any(path.kind is FastPathKind.FP8_SCALED_MM for path in paths):
         return False, "fp8-scaled-mm"
     if not resident and _has_leaf_hooks(blocks):

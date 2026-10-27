@@ -13,7 +13,6 @@ from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3
 from src.platform.runtime.native.arch.minimax_music3.depth_decoder import DepthDecoderModule
 from vendor.gpl.comfyui import ops as comfy_ops
 from vendor.gpl.comfyui.ops import _build_convrot_hadamard, disable_weight_init, fp8_ops, Fp8ScaledLinear
-from src.platform.runtime.native.kernels import QuantFormat
 from src.platform.runtime.native.optimizations import compile as tc
 from src.platform.settings import runtime_flags
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts
@@ -57,11 +56,8 @@ class _Blocks(nn.Module):
 
 
 class _MockNM:
-    """Stand-in for a NativeModel: only the fields the gate/compile path read."""
-
-    def __init__(self, module: nn.Module, quant_format=None) -> None:
+    def __init__(self, module: nn.Module) -> None:
         self.module = module
-        self.quant_format = quant_format
         self._compiled = None
 
 
@@ -291,39 +287,24 @@ def _case_no_triton(mp):
     return _MockNM(_Blocks()), True, True
 
 
-def _case_unknown_quant(mp):
-    mp.setattr(tc, "_COMPILABLE_FORMATS", frozenset({QuantFormat.FP8}))
-    return _MockNM(_QuantDit(_int8_linear), quant_format="fp8_scaled"), True, True
-
-
 def _case_fp8(make_linear):
-    return lambda mp: (_MockNM(_QuantDit(make_linear), quant_format="fp8_scaled"), True, True)
+    return lambda mp: (_MockNM(_QuantDit(make_linear)), True, True)
 
 
 def _case_fp8_streamed(mp):
-    nm = _streaming_nm(_QuantDit())
-    nm.quant_format = "fp8_scaled"
-    return nm, False, True
-
-
-def _case_nvfp4(mp):
-    dit = _QuantDit()
-    nvfp4 = fp8_ops.Linear(16, 16)
-    nvfp4._is_nvfp4 = True
-    dit.blocks[1].a = nvfp4
-    return _MockNM(dit, quant_format="fp8_scaled"), True, True
+    return _streaming_nm(_QuantDit()), False, True
 
 
 def _case_fp8_lora(mp):
     dit = _QuantDit()
     dit.blocks[0].a.lora_deltas = [object()]
-    return _MockNM(dit, quant_format="fp8_scaled"), True, True
+    return _MockNM(dit), True, True
 
 
 def _case_fp8_masked_lora(mp):
     dit = _QuantDit()
     dit.blocks[0].a.lora_masked_deltas = [object()]
-    return _MockNM(dit, quant_format="fp8_scaled"), True, True
+    return _MockNM(dit), True, True
 
 
 def _case_no_torch_compile(mp):
@@ -366,12 +347,8 @@ def _case_float_ok(mp):
         (_case_streamed_block_hook, (True, "ok")),
         (_case_resident_leaf_hooks, (True, "ok")),
         (_case_no_triton, (False, "no-triton")),
-        (_case_unknown_quant, (False, "quantized")),
-        (_case_fp8(_fp8_linear), (True, "ok")),
         (_case_fp8(_fp8_pre_scaled_linear), (True, "ok")),
-        (_case_fp8(_int8_convrot_linear), (True, "ok")),
         (_case_fp8_streamed, (True, "ok")),
-        (_case_nvfp4, (False, "nvfp4")),
         (_case_fp8_lora, (False, "runtime-lora")),
         (_case_fp8_masked_lora, (False, "runtime-lora")),
         (_case_no_torch_compile, (False, "torch-no-compile")),
@@ -403,7 +380,7 @@ FP8_GEMM_LAYERS = [
 def test_only_a_layer_the_fp8_gemm_takes_blocks_compile(monkeypatch, gemm_machine, make_linear, expected):
     _enable(monkeypatch)
     gemm_machine(flag=True, supported=True)
-    nm = _MockNM(_QuantDit(make_linear), quant_format="fp8_scaled")
+    nm = _MockNM(_QuantDit(make_linear))
     assert tc.compile_gate(nm, resident=True, is_cuda=True) == expected
 
 
@@ -422,13 +399,13 @@ def test_the_fp8_gemm_blocks_compile_only_with_its_flag_on_and_supporting_hardwa
 ):
     _enable(monkeypatch)
     gemm_machine(flag=flag, supported=supported)
-    nm = _MockNM(_QuantDit(), quant_format="fp8_scaled")
+    nm = _MockNM(_QuantDit())
     assert tc.compile_gate(nm, resident=True, is_cuda=True) == expected
 
 
 def test_the_gate_reads_the_fp8_flag_on_every_call(monkeypatch, gemm_machine):
     _enable(monkeypatch)
-    nm = _MockNM(_QuantDit(), quant_format="fp8_scaled")
+    nm = _MockNM(_QuantDit())
     gemm_machine(flag=False, supported=True)
     assert tc.compile_gate(nm, resident=True, is_cuda=True) == (True, "ok")
     gemm_machine(flag=True, supported=True)
@@ -444,7 +421,7 @@ def test_an_nvfp4_layer_blocks_compile_whatever_the_flag_and_hardware(monkeypatc
     gemm_machine(flag=flag, supported=supported)
     dit = _QuantDit()
     dit.blocks[1].a = _nvfp4_linear()
-    nm = _MockNM(dit, quant_format="fp8_scaled")
+    nm = _MockNM(dit)
     assert tc.compile_gate(nm, resident=True, is_cuda=True) == (False, "nvfp4")
 
 
@@ -453,7 +430,7 @@ def test_one_layer_on_the_gemm_blocks_blocks_whose_other_layers_dequantize(monke
     gemm_machine(flag=True, supported=True)
     dit = _QuantDit(_fp8_e5m2_linear)
     dit.blocks[1].b = _fp8_linear()
-    nm = _MockNM(dit, quant_format="fp8_scaled")
+    nm = _MockNM(dit)
     assert tc.compile_gate(nm, resident=True, is_cuda=True) == (False, "fp8-scaled-mm")
 
 
@@ -462,7 +439,7 @@ def test_a_gemm_layer_outside_the_compiled_blocks_does_not_block_compile(monkeyp
     gemm_machine(flag=True, supported=True)
     dit = _QuantDit(_fp8_e5m2_linear)
     dit.head = _fp8_linear()
-    nm = _MockNM(dit, quant_format="fp8_scaled")
+    nm = _MockNM(dit)
     assert tc.compile_gate(nm, resident=True, is_cuda=True) == (True, "ok")
 
 
@@ -589,7 +566,7 @@ def test_fp8_resident_compile_matches_eager_and_restores(monkeypatch):
     reference = dit(x)
     originals = list(dit.blocks)
 
-    nm = _MockNM(dit, quant_format="fp8_scaled")
+    nm = _MockNM(dit)
     tc.maybe_compile_dit(nm, resident=True, is_cuda=True)
 
     assert nm._compiled is not None and nm._compiled.active
@@ -851,24 +828,15 @@ def _raw_linear(dtype: torch.dtype) -> Fp8ScaledLinear:
 
 @pytest.mark.parametrize(
     "dtype",
-    [torch.float8_e4m3fn, torch.float8_e5m2, torch.int8],
-    ids=["fp8-e4m3", "fp8-e5m2", "int8"],
+    [torch.float32, torch.bfloat16, torch.float8_e4m3fn, torch.float8_e5m2, torch.int8],
+    ids=["fp32", "bf16", "fp8-e4m3", "fp8-e5m2", "int8"],
 )
-def test_music3_gate_rejects_a_scale_less_linear_stored_in_a_quantized_dtype(monkeypatch, dtype):
+def test_music3_gate_rejects_a_scale_less_fp8_scaled_linear_whatever_its_weight_dtype(monkeypatch, dtype):
     _enable(monkeypatch)
     decoder = _tiny_depth_decoder()
     decoder.projection = _raw_linear(dtype)
     ok, reason = tc.music3_ar_compile_gate(_MockNativeLM(decoder), resident=True, is_cuda=True)
     assert (ok, reason) == (False, "quantized-linear")
-
-
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
-def test_music3_gate_ignores_a_scale_less_linear_stored_in_a_float_dtype(monkeypatch, dtype):
-    _enable(monkeypatch)
-    decoder = _tiny_depth_decoder()
-    decoder.projection = _raw_linear(dtype)
-    ok, reason = tc.music3_ar_compile_gate(_MockNativeLM(decoder), resident=True, is_cuda=True)
-    assert (ok, reason) == (True, "ok")
 
 
 def test_music3_gate_rejects_runtime_lora(monkeypatch):
