@@ -3791,3 +3791,16 @@ def test_decode_tile_px_is_a_declared_config_choice():
     assert spec.default == 256
     assert GeneratorMinimaxH3Pipe.get_default_config()["decode_tile_px"] == 256
     assert set(spec.choices) == {0, 256, 512}
+
+
+@pytest.mark.parametrize(("upscale", "size"), [(False, (832, 480)), (True, (1888, 1088))])
+def test_reference_images_follow_the_reference_upscale_engine_setting(monkeypatch, upscale, size):
+    from PIL import Image
+
+    from src.platform.settings import runtime_flags
+
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_h3_reference_upscale", upscale)
+    normalized = GeneratorMinimaxH3Pipe._normalize_reference_media(
+        [("image", Image.new("RGB", (832, 480)))], num_frames=22,
+    )
+    assert normalized[0].image.size == size

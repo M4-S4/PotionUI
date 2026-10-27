@@ -101,6 +101,7 @@ Every native backend, the local one and each remote native worker, has its own *
 - **Fuse LoRAs into the model** (`native_lora_fused`, on) — apply a layer's LoRAs in one fused step; off is only for comparison. Next generation.
 - **Compile the model (torch.compile)** (`native_torch_compile`, off) — compile the model's repeated block when it is fully on the GPU. Next model load.
 - **Qwen3 text encoder in bf16** (`native_qwen3_te_bf16`, off) — run the Qwen3 text encoder in bf16 instead of fp32. Next generation.
+- **Enlarge small MiniMax-H3 references** (`native_h3_reference_upscale`, off) — scale MiniMax-H3 reference images and videos smaller than the released sizes up to them (a 2048 px short edge for an image, the 768 px canvas for a video), as MiniMax's own pipeline does. Off, they keep their own size, which makes every step of a reference-heavy take cheaper; turn it on only to compare against the released rule. Next generation.
 - **Sol-Attn implementation** (`native_sol_attn_backend`, Flex) — Flex or Kernel. Applies after a restart; for a remote worker, restart the worker.
 
 **Memory**

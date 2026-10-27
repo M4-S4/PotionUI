@@ -101,6 +101,20 @@ export const RUNTIME_SETTINGS: RuntimeSettingDescriptor[] = [
 		defaultValue: false
 	},
 	{
+		key: 'native_h3_reference_upscale',
+		applies: 'live',
+		group: 'speed',
+		scope: 'backend',
+		kind: 'bool',
+		label: 'Enlarge small MiniMax-H3 references',
+		description:
+			'Scales MiniMax-H3 reference images and videos smaller than the released sizes up to them (a 2048 px short edge for an image, the 768 px canvas for a video), as the released pipeline does.',
+		guidance:
+			'Leave off: an enlarged reference adds no detail and makes every step slower. Turn it on only to compare a take against the released rule.',
+		defaultLabel: 'Off',
+		defaultValue: false
+	},
+	{
 		key: 'native_sol_attn_backend',
 		applies: 'restart',
 		group: 'speed',

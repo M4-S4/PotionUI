@@ -233,12 +233,9 @@ def test_already_canvas_sized_image_passes_through_unchanged():
 
 # -- ref2va reference own-resolution fit -------------------------------------
 
-def test_reference_image_is_upscaled_to_its_own_short_edge():
-    # A small square image has no canvas to fit onto (unlike a keyframe) --
-    # it is scaled up so its short edge reaches REFERENCE_IMAGE_SHORT_EDGE,
-    # rounded to canvas_multiple, with NO upper pixel cap.
-    image = Image.new("RGB", (100, 200))  # short edge = 100
-    fitted = normalize_reference_image(image, canvas_multiple=32, short_edge=256)
+def test_reference_image_is_upscaled_to_its_own_short_edge_under_the_released_rule():
+    image = Image.new("RGB", (100, 200))
+    fitted = normalize_reference_image(image, canvas_multiple=32, short_edge=256, upscale=True)
     scale = 256 / 100
     expected_width = round(100 * scale / 32) * 32
     expected_height = round(200 * scale / 32) * 32
@@ -278,8 +275,20 @@ def test_reference_image_area_cap_is_twice_the_release_canvas():
 
 def test_reference_image_is_uncapped_when_max_pixels_allows_it():
     image = Image.new("RGB", (32, 32))
-    fitted = normalize_reference_image(image, canvas_multiple=32, short_edge=4096, max_pixels=4096 * 4096)
+    fitted = normalize_reference_image(
+        image, canvas_multiple=32, short_edge=4096, max_pixels=4096 * 4096, upscale=True,
+    )
     assert fitted.size == (4096, 4096)
+
+
+def test_reference_image_is_never_enlarged_by_default():
+    fitted = normalize_reference_image(Image.new("RGB", (100, 200)), canvas_multiple=32, short_edge=256)
+    assert fitted.size == (96, 192)
+
+
+def test_reference_image_at_its_own_size_passes_through_unchanged():
+    image = Image.new("RGB", (832, 480))
+    assert normalize_reference_image(image, canvas_multiple=32) is image
 
 
 def _condition_tokens(size: tuple[int, int]) -> int:
@@ -298,8 +307,8 @@ def test_reference_image_area_cap_cuts_condition_tokens(
     source, uncapped_size, uncapped_tokens, capped_size, capped_tokens,
 ):
     image = Image.new("RGB", source)
-    uncapped = normalize_reference_image(image, canvas_multiple=32, max_pixels=10**9)
-    capped = normalize_reference_image(image, canvas_multiple=32)
+    uncapped = normalize_reference_image(image, canvas_multiple=32, max_pixels=10**9, upscale=True)
+    capped = normalize_reference_image(image, canvas_multiple=32, upscale=True)
     assert (uncapped.size, _condition_tokens(uncapped.size)) == (uncapped_size, uncapped_tokens)
     assert (capped.size, _condition_tokens(capped.size)) == (capped_size, capped_tokens)
 
@@ -316,8 +325,29 @@ def test_capped_reference_image_keeps_aspect_and_patch_multiples(source):
 
 
 def test_reference_image_below_the_cap_keeps_the_released_short_edge_fit():
-    fitted = normalize_reference_image(Image.new("RGB", (100, 200)), canvas_multiple=32, short_edge=256)
+    fitted = normalize_reference_image(
+        Image.new("RGB", (100, 200)), canvas_multiple=32, short_edge=256, upscale=True,
+    )
     assert fitted.size == (256, 512)
+
+
+@pytest.mark.parametrize(
+    ("source", "size", "tokens", "released_size", "released_tokens"),
+    [
+        ((1920, 1080), (1920, 1088), 2040, (1920, 1088), 2040),
+        ((4000, 3000), (1664, 1248), 2028, (1664, 1248), 2028),
+        ((512, 512), (512, 512), 256, (1440, 1440), 2025),
+        ((832, 480), (832, 480), 390, (1888, 1088), 2006),
+    ],
+)
+def test_reference_image_condition_tokens_without_and_with_enlarging(
+    source, size, tokens, released_size, released_tokens,
+):
+    image = Image.new("RGB", source)
+    fitted = normalize_reference_image(image, canvas_multiple=32)
+    released = normalize_reference_image(image, canvas_multiple=32, upscale=True)
+    assert (fitted.size, _condition_tokens(fitted.size)) == (size, tokens)
+    assert (released.size, _condition_tokens(released.size)) == (released_size, released_tokens)
 
 
 def test_reference_video_keeps_the_canvas_rule_while_images_are_capped():
@@ -330,6 +360,24 @@ def test_reference_video_keeps_the_canvas_rule_while_images_are_capped():
     )
     assert normalized[0].image.size == (1920, 1088)
     assert np.asarray(normalized[1].frames).shape == (22, 768, 1344, 3)
+
+
+@pytest.mark.parametrize(("upscale", "image_size", "video_shape"), [
+    (False, (832, 480), (22, 480, 832, 3)),
+    (True, (1888, 1088), (22, 768, 1344, 3)),
+])
+def test_normalize_references_enlarges_draft_sized_references_only_under_the_released_rule(
+    upscale, image_size, video_shape,
+):
+    normalized = normalize_references(
+        [
+            ReferenceMedia(kind="image", image=Image.new("RGB", (832, 480))),
+            ReferenceMedia(kind="video", frames=np.zeros((22, 480, 832, 3), dtype=np.uint8), fps=24.0),
+        ],
+        num_frames=22, upscale=upscale,
+    )
+    assert normalized[0].image.size == image_size
+    assert np.asarray(normalized[1].frames).shape == video_shape
 
 
 # -- ref2va video/audio references: normalize -> encode -> pack --------------
@@ -458,6 +506,46 @@ def test_reference_video_already_normalized_passes_through_untouched():
     # No resample and no rescale: the frames come back as a view on the very
     # buffer they went in as, not a re-encoded copy.
     assert np.shares_memory(got, frames)
+
+
+def test_reference_video_smaller_than_the_canvas_keeps_its_own_size():
+    frames = _frames(5, height=480, width=832)
+    got = normalize_reference_video(frames, fps=24.0, num_frames=5)
+    assert got.shape == (5, 480, 832, 3)
+    assert np.shares_memory(got, frames)
+
+
+def test_reference_video_smaller_than_the_canvas_rounds_each_side_to_the_multiple():
+    got = normalize_reference_video(_frames(5, height=470, width=850), fps=24.0, num_frames=5)
+    assert got.shape == (5, 480, 864, 3)
+
+
+def test_reference_video_smaller_than_the_canvas_is_enlarged_under_the_released_rule():
+    got = normalize_reference_video(_frames(5, height=480, width=832), fps=24.0, num_frames=5, upscale=True)
+    assert got.shape == (5, 768, 1344, 3)
+
+
+@pytest.mark.parametrize("upscale", [False, True])
+def test_reference_video_larger_than_the_canvas_is_fitted_onto_it_either_way(upscale):
+    got = normalize_reference_video(
+        _frames(5, height=1080, width=1920), fps=24.0, num_frames=5, upscale=upscale,
+    )
+    assert got.shape == (5, 768, 1344, 3)
+
+
+@pytest.mark.parametrize(("frames", "upscale", "rows"), [
+    (56, False, 6630),
+    (56, True, 17136),
+    (22, False, 2730),
+    (73, False, 8580),
+    (73, True, 22176),
+])
+def test_draft_sized_reference_video_condition_rows(frames, upscale, rows):
+    got = normalize_reference_video(
+        np.zeros((frames, 480, 832, 3), dtype=np.uint8), fps=24.0, num_frames=frames, upscale=upscale,
+    )
+    snapped = snap_reference_video_frames(got.shape[0])
+    assert video_latent_num_frames(snapped) * (got.shape[1] // 32) * (got.shape[2] // 32) == rows
 
 
 def test_reference_video_accepts_a_chw_float_tensor():

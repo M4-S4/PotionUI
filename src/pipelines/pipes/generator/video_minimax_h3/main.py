@@ -163,6 +163,7 @@ from src.pipelines.pipes._shared.media.video_encode import (
     encode_frames_to_mp4,
 )
 from src.platform.util.video_stream import FFmpegNotFoundError, require_ffmpeg
+from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (
@@ -1672,7 +1673,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         PATHS, so the two file kinds are decoded here; `normalize_references`
         then puts every one of them on H3's own resolutions and rates in ONE
         pass, which is also where the released checkpoint's per-modality and
-        total reference rules are enforced (`validate_references`). A packed
+        total reference rules are enforced (`validate_references`); the
+        `native_h3_reference_upscale` engine setting decides whether a small
+        image or video is enlarged there, as the released pipeline does. A packed
         entry whose `media` is a `RefMod` (`_shared.generation.refmods`) is
         already an encoded latent -- carried straight into `ReferenceMedia.
         latent`, never touched by `_load_reference_video`/`_load_reference_
@@ -1688,7 +1691,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 loaded.append(_load_reference_video(media))
             else:
                 loaded.append(_load_reference_audio(media))
-        return tuple(normalize_references(loaded, num_frames=num_frames))
+        return tuple(normalize_references(
+            loaded, num_frames=num_frames, upscale=bool(runtime_flag("native_h3_reference_upscale")),
+        ))
 
     @staticmethod
     def _build_ref2va_layout(

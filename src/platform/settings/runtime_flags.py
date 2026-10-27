@@ -70,6 +70,11 @@ RUNTIME_FLAGS: tuple[RuntimeFlag, ...] = (
         "Run the Qwen3 text encoder in bf16 instead of fp32.",
     ),
     RuntimeFlag(
+        "native_h3_reference_upscale", None, "bool", False, "live", "speed", "backend",
+        "Enlarge MiniMax-H3 reference images and videos smaller than the released sizes, as the released "
+        "pipeline does.",
+    ),
+    RuntimeFlag(
         "native_attention_backend", "NATIVE_ATTENTION", "string", "", "live", "speed", "backend",
         "Pinned attention backend (empty = pick the fastest installed one).",
     ),

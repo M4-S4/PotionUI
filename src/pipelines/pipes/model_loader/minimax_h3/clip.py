@@ -95,6 +95,7 @@ from src.platform.runtime.native.text_encoders import image_content_fingerprint,
 from src.platform.runtime.native.text_encoders.qwen3 import MiniMaxH3Reference, MiniMaxH3TextEncoder
 from src.platform.runtime.native.text_encoders.qwen3_vl_vision import H3_VISION_MIN_PIXELS
 from src.platform.runtime.primitives.clip import ConditioningModel
+from src.platform.settings.runtime_flags import runtime_flag
 
 Tensor = torch.Tensor
 
@@ -116,7 +117,8 @@ def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
 
     Decodes every frame, then runs the SAME `normalize_reference_video` the
     generator pipe's condition-encode runs, truncated to the SAME
-    `num_frames`. The conditioner reads the result far more coarsely (every
+    `num_frames` and under the SAME `native_h3_reference_upscale` engine
+    setting. The conditioner reads the result far more coarsely (every
     twelfth frame) than the video VAE does, but it has to read the same
     frames: the `<t seconds>` timestamps it labels its vision blocks with are
     derived from position in this sequence.
@@ -141,7 +143,10 @@ def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
             "to the generated clip's frame count"
         )
     frames, fps = read_video_frames(video)
-    normalized = normalize_reference_video(frames, fps=fps, num_frames=align_num_frames(int(num_frames)))
+    normalized = normalize_reference_video(
+        frames, fps=fps, num_frames=align_num_frames(int(num_frames)),
+        upscale=bool(runtime_flag("native_h3_reference_upscale")),
+    )
     return torch.from_numpy(normalized.copy()).float() / 255.0
 
 
@@ -232,7 +237,7 @@ class MiniMaxH3ClipTextEncoder(SequentialWindowClipTextEncoder):
                  encoder_role: str = MiniMaxH3TextEncoder.role) -> None:
         self._te_factory = te_factory
         self.device = device
-        self._model_fingerprint = model_fingerprint
+        self._loaded_fingerprint = model_fingerprint
         # The resolved encoder is ALWAYS a `MiniMaxH3TextEncoder` (this
         # adapter's only consumer), whose `role` is the fixed
         # `"qwen3vl_32b"` variant tag the loader dispatches on
@@ -244,6 +249,12 @@ class MiniMaxH3ClipTextEncoder(SequentialWindowClipTextEncoder):
         # (`_encode_fn_and_key` below) never has to force `self.encoder` --
         # see "Lazy TE acquisition" above.
         self._encoder_role = encoder_role
+
+    @property
+    def _model_fingerprint(self) -> Optional[str]:
+        if not runtime_flag("native_h3_reference_upscale"):
+            return self._loaded_fingerprint
+        return f"{self._loaded_fingerprint}|reference_upscale"
 
     @property
     def encoder(self) -> Any:
