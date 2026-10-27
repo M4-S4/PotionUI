@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.platform.runtime.native.kernels import FastPath, FastPathKind, QuantFormat, fast_path, gemm
+from src.platform.runtime.native.kernels import FastPathKind, QuantFormat, fast_path, gemm
 from src.platform.runtime.native.lora import apply as apply_mod
 from src.platform.runtime.native.lora.apply import _needs_runtime_deltas, apply_loras_with_report
 from tests.fixtures.kernel_capabilities import blackwell, cpu_only, fake_capabilities
@@ -31,12 +31,6 @@ def _nvfp4_layer() -> torch.nn.Module:
         {"weight": packed, "weight_scale": block, "weight_scale_2": scale_2.clone()}, "", {}, True, [], [], []
     )
     return lin
-
-
-def _answer(kind: FastPathKind, quant_format: QuantFormat) -> FastPath:
-    return FastPath(
-        kind=kind, quant_format=quant_format, requires_resident_weight=False, lora_fused=False, reason=None
-    )
 
 
 @pytest.fixture
@@ -76,14 +70,14 @@ def test_an_nvfp4_layer_takes_runtime_deltas_whatever_gemm_kind_the_machine_give
 @pytest.mark.parametrize(
     "answer,marker,expected",
     [
-        (_answer(FastPathKind.DEQUANT, QuantFormat.NVFP4), False, True),
-        (_answer(FastPathKind.NVFP4_GEMM, QuantFormat.NVFP4), False, True),
+        (QuantFormat.NVFP4, False, True),
         (None, True, False),
-        (_answer(FastPathKind.DEQUANT, QuantFormat.FP8), True, False),
+        (QuantFormat.FP8, True, False),
+        (QuantFormat.INT8, True, False),
     ],
-    ids=["nvfp4-dequant", "nvfp4-gemm", "marker-without-format", "fp8-format"],
+    ids=["nvfp4", "marker-without-format", "fp8-format", "int8-format"],
 )
-def test_the_nvfp4_routing_follows_what_fast_path_answers_not_the_layer_marker(
+def test_the_nvfp4_routing_follows_the_kernels_format_answer_not_the_layer_marker(
     monkeypatch, answer, marker, expected
 ):
     layer = ops.manual_cast.Linear(8, 8, bias=False, dtype=torch.bfloat16)
@@ -94,7 +88,7 @@ def test_the_nvfp4_routing_follows_what_fast_path_answers_not_the_layer_marker(
         asked.append(candidate)
         return answer
 
-    monkeypatch.setattr(apply_mod, "fast_path", stub)
+    monkeypatch.setattr(apply_mod, "quant_format", stub)
 
     assert _needs_runtime_deltas(layer) is expected
     assert asked == [layer]

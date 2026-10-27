@@ -42,7 +42,7 @@ import torch
 import torch.nn as nn
 
 from src.platform.observability.profiling import get_profiler
-from src.platform.runtime.native.kernels import QuantFormat, fast_path, invalidate_lora_fused_cache
+from src.platform.runtime.native.kernels import QuantFormat, invalidate_lora_fused_cache, quant_format
 from ..ops.model_tools.delta import accumulate_delta
 from .key_mapping import LoraDelta, map_lora_keys
 from .row_mask import (
@@ -238,8 +238,7 @@ def _resolve_linear(module: nn.Module, param_name: str) -> tuple[nn.Module, str]
 
 
 def _needs_runtime_deltas(linear: nn.Module) -> bool:
-    path = fast_path(linear)
-    if path is not None and path.quant_format is QuantFormat.NVFP4:
+    if quant_format(linear) is QuantFormat.NVFP4:
         return True
     if getattr(linear, "convrot_hadamard", None) is not None:
         return True

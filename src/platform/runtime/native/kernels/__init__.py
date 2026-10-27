@@ -12,7 +12,7 @@ from .hardware import (
     capabilities,
     refresh_capabilities,
 )
-from .linear import FastPath, FastPathKind, QuantFormat, fast_path
+from .linear import FastPath, FastPathKind, QuantFormat, fast_path, quant_format
 from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED, CastWeightBiasOp, invalidate_lora_fused_cache
 
 __all__ = [
@@ -36,4 +36,5 @@ __all__ = [
     "CastWeightBiasOp",
     "QUANT_FP8_SCALED",
     "invalidate_lora_fused_cache",
+    "quant_format",
 ]
