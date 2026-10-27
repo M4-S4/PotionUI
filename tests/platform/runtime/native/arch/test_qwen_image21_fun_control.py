@@ -21,7 +21,7 @@ from src.platform.runtime.native.detect.patch_detect import QWEN_IMAGE21_FUN_CON
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeEngineLoader, RunCache
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 from .test_qwen_image21_parity import _load_reference_module
 

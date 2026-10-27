@@ -34,7 +34,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
 from src.pipelines.pipes._shared.generation.loader_lifecycle import NO_LORAS, sync_loras
 from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 TINY = {
     "image_model": "flux2", "hidden_size": 64, "num_heads": 2, "depth": 1,

@@ -8,11 +8,13 @@ import pytest
 import torch
 
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel
+from src.platform.runtime.native.kernels import fp8_ops, pick_operations
 from src.platform.runtime.native.lora import LoraStepWindow, LoraStepWindowHook
 from src.platform.runtime.native.lora.apply import apply_loras, remove_loras
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from vendor.gpl.comfyui import ops
 
+from tests.fixtures.kernel_ops import patch_ops_name
 from tests.platform.runtime.native._nvfp4_ref import F4_MAX, F8_MAX, quantize_nvfp4
 from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
 
@@ -68,7 +70,7 @@ def _input(dtype, seed=3):
 
 
 def _fp8_layer(bias):
-    lin = ops.fp8_ops.Linear(IN, OUT, bias=bias)
+    lin = fp8_ops.Linear(IN, OUT, bias=bias)
     g = torch.Generator().manual_seed(7)
     sd = {"weight": (torch.randn(OUT, IN, generator=g) * 0.05).to(torch.float8_e4m3fn),
           "weight_scale": torch.tensor(1.0)}
@@ -79,7 +81,7 @@ def _fp8_layer(bias):
 
 
 def _nvfp4_layer(bias):
-    lin = ops.fp8_ops.Linear(IN, OUT, bias=bias)
+    lin = fp8_ops.Linear(IN, OUT, bias=bias)
     g = torch.Generator().manual_seed(11)
     w = torch.randn(OUT, IN, generator=g) * 0.05
     pts = (w.abs().amax() / (F4_MAX * F8_MAX)).clamp(min=1e-8)
@@ -212,7 +214,7 @@ def _spy(monkeypatch, name):
         calls.append(k.get("owner"))
         return real(*a, **k)
 
-    monkeypatch.setattr(ops, name, spy)
+    patch_ops_name(monkeypatch, name, spy)
     return calls
 
 
@@ -305,7 +307,7 @@ def test_set_change_rebuilds_and_matches(monkeypatch):
 
 def _fp8_flux(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    m = _build(ops.pick_operations(torch.float8_e4m3fn, torch.bfloat16))
+    m = _build(pick_operations(torch.float8_e4m3fn, torch.bfloat16))
     qkv = m.double_blocks[0].img_attn.qkv
     qkv.weight.data = qkv.weight.data.to(torch.float8_e4m3fn)
     return m, qkv

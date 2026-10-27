@@ -61,7 +61,7 @@ from src.platform.runtime.native.lora.adaln_translate import (
 # diffusers, PEFT with an adapter-name infix). Re-deriving it here would drift
 # from the key map that actually resolves these stems.
 from src.platform.runtime.native.lora.key_mapping import _iter_stems
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 __all__ = [
     "VdnAttachment",

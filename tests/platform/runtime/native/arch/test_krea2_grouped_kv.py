@@ -18,7 +18,7 @@ from src.platform.runtime.native.arch.krea2.layers import (
     PositionalEncoding,
     _sdpa_gqa,
 )
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 AXDIMS = [4, 6, 6]
 HEADDIM = sum(AXDIMS)

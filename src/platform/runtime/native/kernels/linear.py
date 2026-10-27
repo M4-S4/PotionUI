@@ -7,10 +7,10 @@ import torch
 
 from vendor.gpl.comfyui import ops
 
+from .fp8_linear import FP8_MATMUL_FLAG, Fp8ScaledLinear, _fp8_matmul_enabled, _scaled_mm_fast_path_reject_reason
 from .gemm import gemm_support
+from .nvfp4_linear import NVFP4_MATMUL_FLAG, _nvfp4_fast_path_reject_reason, _nvfp4_matmul_enabled
 
-_FP8_FLAG = "native_fp8_matmul"
-_NVFP4_FLAG = "native_nvfp4_matmul"
 _ACTIVATION_DTYPE = torch.bfloat16
 
 
@@ -58,7 +58,7 @@ def fast_path(layer: object) -> FastPath | None:
 
 
 def quant_format(layer: object) -> QuantFormat | None:
-    if not isinstance(layer, ops.Fp8ScaledLinear):
+    if not isinstance(layer, Fp8ScaledLinear):
         return None
     if getattr(layer, "_is_nvfp4", False):
         return QuantFormat.NVFP4
@@ -72,8 +72,8 @@ def quant_format(layer: object) -> QuantFormat | None:
     return None
 
 
-def _scaled_mm_reason(layer: ops.Fp8ScaledLinear) -> str | None:
-    reason = ops._scaled_mm_fast_path_reject_reason(
+def _scaled_mm_reason(layer: Fp8ScaledLinear) -> str | None:
+    reason = _scaled_mm_fast_path_reject_reason(
         weight_dtype=layer.weight.dtype,
         has_weight_scale=True,
         lora_deltas=layer.lora_deltas,
@@ -90,14 +90,15 @@ def _scaled_mm_reason(layer: ops.Fp8ScaledLinear) -> str | None:
         return "weight_scale_not_scalar"
     if layer.input_scale is not None and layer.input_scale.numel() != 1:
         return "input_scale_not_scalar"
-    if not ops.RUNTIME_FLAGS.get(_FP8_FLAG, False):
-        return f"{_FP8_FLAG} is off"
-    support = gemm_support()
-    return None if support.fp8_scaled_mm else support.fp8_reason
+    if _fp8_matmul_enabled():
+        return None
+    if not ops.RUNTIME_FLAGS.get(FP8_MATMUL_FLAG, False):
+        return f"{FP8_MATMUL_FLAG} is off"
+    return gemm_support().fp8_reason
 
 
-def _nvfp4_reason(layer: ops.Fp8ScaledLinear) -> str | None:
-    reason = ops._nvfp4_fast_path_reject_reason(
+def _nvfp4_reason(layer: Fp8ScaledLinear) -> str | None:
+    reason = _nvfp4_fast_path_reject_reason(
         lora_deltas=layer.lora_deltas,
         input_dtype=_ACTIVATION_DTYPE,
         input_is_cuda=True,
@@ -107,7 +108,8 @@ def _nvfp4_reason(layer: ops.Fp8ScaledLinear) -> str | None:
     )
     if reason is not None:
         return reason
-    if not ops.RUNTIME_FLAGS.get(_NVFP4_FLAG, False):
-        return f"{_NVFP4_FLAG} is off"
-    support = gemm_support()
-    return None if support.nvfp4 else support.nvfp4_reason
+    if _nvfp4_matmul_enabled():
+        return None
+    if not ops.RUNTIME_FLAGS.get(NVFP4_MATMUL_FLAG, False):
+        return f"{NVFP4_MATMUL_FLAG} is off"
+    return gemm_support().nvfp4_reason

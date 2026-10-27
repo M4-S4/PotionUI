@@ -51,7 +51,7 @@ def is_nvfp4_packed(sd: dict[str, torch.Tensor], weight_key: str) -> bool:
     shape is ``[out, in // 2]`` rather than the model's true ``[out, in]``.
 
     Detected via the sibling ``weight_scale_2`` key -- the nvfp4 marker consumed
-    by ``vendor.gpl.comfyui.ops.Nvfp4Linear`` -- rather than dtype, since a
+    by ``kernels.nvfp4_linear.Nvfp4Linear`` -- rather than dtype, since a
     packed nvfp4 tensor is plain ``torch.uint8``, indistinguishable from any
     other byte tensor by dtype alone. Never true for Conv weights or raw
     Parameters (nvfp4 packing in ComfyUI checkpoints applies to ``nn.Linear``

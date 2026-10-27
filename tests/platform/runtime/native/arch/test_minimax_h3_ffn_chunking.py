@@ -14,7 +14,9 @@ from src.platform.runtime.native.arch.minimax_h3.model import (
     effective_mlp_chunk_rows,
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui.ops import disable_weight_init, fp8_ops
+from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import fp8_ops
+from tests.fixtures.kernel_ops import patch_ops_name
 
 from .._quant_layouts import int8_state_dict
 from .test_minimax_h3_model import TINY_FULL, _build_ready, _fbcache_forward, _fbcache_inputs, _tiny_layout
@@ -193,7 +195,7 @@ def test_lora_deltas_ride_the_activation_side_of_every_chunk(dequant_only, monke
         folded.append(len(deltas or []))
         return real_apply(weight, deltas)
 
-    monkeypatch.setattr(wo, "apply_lora_deltas", recording_apply)
+    patch_ops_name(monkeypatch, "apply_lora_deltas", recording_apply)
 
     whole = _run(mlp, x, 0)
     chunked = _run(mlp, x, 5)
@@ -215,7 +217,7 @@ def test_a_delta_with_no_activation_side_form_is_still_folded_into_the_prepared_
         folded.append(len(deltas or []))
         return real_apply(weight, deltas)
 
-    monkeypatch.setattr(wo, "apply_lora_deltas", recording_apply)
+    patch_ops_name(monkeypatch, "apply_lora_deltas", recording_apply)
 
     whole = _run(mlp, x, 0)
     folded_whole = list(folded)

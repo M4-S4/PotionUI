@@ -9,7 +9,7 @@ import torch.nn as nn
 from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import ModelSpec
 from src.platform.runtime.native.errors import NativeEngineLoadIntegrityError
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 
 class _Tiny(NativeArchModule):

@@ -32,8 +32,8 @@ from src.platform.runtime.native.kernels import SAGE2, SDPA
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
 from src.platform.runtime.native.sla_attn import SlaAttnContext
 from src.platform.runtime.native.sol_attn import SolAttnContext
+from src.platform.runtime.native.kernels import pick_operations
 from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
-from vendor.gpl.comfyui.ops import pick_operations
 
 from .._header_listings import load_header
 from .._native_ops import fp32_ops

@@ -24,7 +24,7 @@ from src.platform.runtime.native.lora.apply import (
     remove_loras,
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
 

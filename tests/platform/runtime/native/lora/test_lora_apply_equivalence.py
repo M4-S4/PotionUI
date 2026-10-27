@@ -29,12 +29,8 @@ from src.platform.runtime.native.lora.apply import (
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from vendor.gpl.comfyui import ops as _ops_module
-from vendor.gpl.comfyui.ops import (
-    _add_lora_output_branch,
-    apply_lora_deltas,
-    partition_output_branch_deltas,
-    pick_operations,
-)
+from vendor.gpl.comfyui.ops import _add_lora_output_branch, apply_lora_deltas, partition_output_branch_deltas
+from src.platform.runtime.native.kernels import pick_operations
 
 HIDDEN, RANK = 16, 16
 OUT = HIDDEN * 3          # a fused qkv

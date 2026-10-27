@@ -7,7 +7,7 @@ faster and higher-throughput than streaming weights over PCIe (at a small,
 grid-level precision cost noted in the tier table).
 
 The output is exactly the per-tensor scaled-e4m3 format the runtime already
-consumes (``vendor.gpl.comfyui.ops.Fp8ScaledLinear``): a quantised layer's ``weight``
+consumes (``kernels.fp8_linear.Fp8ScaledLinear``): a quantised layer's ``weight``
 becomes ``float8_e4m3fn`` and gains a ``<layer>.weight_scale`` scalar sidecar such
 that ``weight.to(compute) * weight_scale`` recovers the original. No new runtime
 path is introduced — quantise-at-load simply feeds the validated fp8

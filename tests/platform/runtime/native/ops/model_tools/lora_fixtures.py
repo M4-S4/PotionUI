@@ -7,7 +7,7 @@ from safetensors.torch import save_file
 
 from src.platform.runtime.native.arch.moss_image.config import MossImageConfig
 from src.platform.runtime.native.arch.moss_image.model import MossImage
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 DIM = 16
 CFG = MossImageConfig(

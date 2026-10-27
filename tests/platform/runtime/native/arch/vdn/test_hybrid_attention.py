@@ -335,7 +335,7 @@ def test_bf16_model_forward_with_a_layout_is_finite():
     from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
     from src.platform.runtime.native.base import load_into_module
     from src.platform.runtime.native.detect.registry import match_model_spec
-    from vendor.gpl.comfyui.ops import pick_operations
+    from src.platform.runtime.native.kernels import pick_operations
 
     torch.manual_seed(37)
     model = MiniMaxH3Model(

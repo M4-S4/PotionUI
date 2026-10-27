@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import torch
 
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 
 def fp32_ops():

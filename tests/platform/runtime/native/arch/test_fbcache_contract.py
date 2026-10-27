@@ -8,7 +8,7 @@ import torch
 
 from src.platform.runtime.native.arch.z_image.model import ZImageDiT
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 from . import test_anima_model, test_flux_model, test_krea2_model, test_qwen_image21_model
 from . import test_qwen_image_model, test_wan_model

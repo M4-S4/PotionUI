@@ -22,7 +22,8 @@ from src.platform.runtime.native.arch.trellis2.config import (
 from src.platform.runtime.native.arch.trellis2.slat_flow import SLatFlowModel
 from src.platform.runtime.native.arch.trellis2.ss_flow import SSFlowDiT
 from src.platform.runtime.native.sparse3d import SparseTensor
-from vendor.gpl.comfyui.ops import manual_cast, pick_operations
+from vendor.gpl.comfyui.ops import manual_cast
+from src.platform.runtime.native.kernels import pick_operations
 
 TINY_SS = SSFlowConfig(
     resolution=2, in_channels=4, model_channels=16, cond_channels=8, out_channels=4, num_blocks=2,

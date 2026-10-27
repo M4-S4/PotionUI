@@ -7,6 +7,7 @@ from .dispatch import (
     known_backends,
     reset_backend_cache,
 )
+from .fp8_linear import Fp8ScaledLinear
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
@@ -22,7 +23,8 @@ from .hardware import (
     refresh_capabilities,
 )
 from .linear import FastPath, FastPathKind, QuantFormat, fast_path, quant_format
-from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED, CastWeightBiasOp, Fp8ScaledLinear, invalidate_lora_fused_cache
+from .operations import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
+from vendor.gpl.comfyui.ops import CastWeightBiasOp, invalidate_lora_fused_cache
 
 __all__ = [
     "BACKEND_PRIORITY",
@@ -42,11 +44,14 @@ __all__ = [
     "attention",
     "available_backends",
     "capabilities",
+    "detect_quant_format",
     "fast_path",
+    "fp8_ops",
     "gemm_support",
     "get_attention_backend",
     "get_backend_override",
     "known_backends",
+    "pick_operations",
     "refresh_capabilities",
     "reset_backend_cache",
     "CastWeightBiasOp",

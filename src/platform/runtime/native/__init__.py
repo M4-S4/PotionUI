@@ -31,7 +31,6 @@ from .errors import (
 )
 from .io.safetensors_loader import load_torch_file
 from .ops.dtype import pick_dtypes
-from vendor.gpl.comfyui.ops import detect_quant_format, pick_operations
 from src.platform.settings.runtime_flags import bind_vendor_runtime_flags
 
 bind_vendor_runtime_flags()
@@ -51,7 +50,6 @@ __all__ = [
     "NativeModel",
     "PlacementPlan",
     "arch_registry",
-    "detect_quant_format",
     "detect_te_config",
     "detect_unet_config",
     "detect_vae_config",
@@ -60,6 +58,5 @@ __all__ = [
     "make_device_plan",
     "match_model_spec",
     "pick_dtypes",
-    "pick_operations",
     "plan_placement",
 ]

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.platform.runtime.native.kernels import QuantFormat
+from src.platform.runtime.native.kernels import QuantFormat, pick_operations
 from src.platform.runtime.native.lora import apply as apply_mod
 from src.platform.runtime.native.lora.apply import _needs_runtime_deltas, apply_loras_with_report
 from tests.platform.runtime.native.kernels.test_fast_path import _nvfp4, machine
@@ -14,7 +14,7 @@ from vendor.gpl.comfyui import ops
 def test_an_nvfp4_layer_takes_runtime_deltas_on_a_machine_that_runs_the_nvfp4_gemm(machine, monkeypatch):
     machine("blackwell", fp8=True, nvfp4=True)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    model = _build(ops.pick_operations(torch.float8_e4m3fn, torch.bfloat16))
+    model = _build(pick_operations(torch.float8_e4m3fn, torch.bfloat16))
     block = model.double_blocks[0].img_attn
     block.qkv = _nvfp4()
 

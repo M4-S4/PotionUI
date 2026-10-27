@@ -8,7 +8,8 @@ import torch
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.io.safetensors_loader import expand_int4_layers, unpack_int4
 from src.platform.runtime.native.lora.apply import _needs_runtime_deltas
-from vendor.gpl.comfyui.ops import _parse_comfy_quant, detect_quant_format, fp8_ops
+from vendor.gpl.comfyui.ops import _parse_comfy_quant
+from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops
 
 from ._quant_layouts import reference_hadamard, reference_rotate
 

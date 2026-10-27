@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from src.platform.runtime.native.arch.flux3.model import convert_flux3_state_dict
-from vendor.gpl.comfyui.ops import fp8_ops
+from src.platform.runtime.native.kernels import fp8_ops
 
 FP8 = torch.float8_e4m3fn
 

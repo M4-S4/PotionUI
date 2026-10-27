@@ -44,7 +44,7 @@ class NativeArchModule(nn.Module, ABC):
     def from_config(cls, config: dict[str, Any], operations: Any) -> "NativeArchModule":
         """Construct the module (empty weights) from a detected config dict.
 
-        ``operations`` is an ops namespace from ``vendor.gpl.comfyui.ops`` exposing
+        ``operations`` is an ops namespace (``disable_weight_init``, ``manual_cast`` or ``fp8_ops``) exposing
         ``Linear``/``Conv2d``/``Conv3d``/``GroupNorm``/``LayerNorm``/``RMSNorm``/
         ``Embedding``. All parameterised layers must be built from it.
         """

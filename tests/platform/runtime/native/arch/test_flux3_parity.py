@@ -10,7 +10,7 @@ import torch
 from src.platform.runtime.native.arch.flux3.model import Flux3, convert_flux3_state_dict
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "flux3_reference_dit.py"
 

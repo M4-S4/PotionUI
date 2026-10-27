@@ -8,7 +8,7 @@ from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator, NativeModel
 from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
 from src.platform.runtime.native.text_encoders.base import NativeTextEncoder
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 DIM, HEADS, FFN, DEPTH, TEXT_DIM, FREQ, CHANNELS, SEQ = 64, 2, 96, 3, 48, 32, 16, 5
 

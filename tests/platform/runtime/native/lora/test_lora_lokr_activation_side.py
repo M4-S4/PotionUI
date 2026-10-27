@@ -9,11 +9,13 @@ from src.platform.runtime.native.arch.krea2.model import Krea2
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeModel
+from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear, pick_operations
 from src.platform.runtime.native.lora import LoraStepWindow, LoraStepWindowHook
 from src.platform.runtime.native.lora.apply import apply_loras, remove_loras
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from vendor.gpl.comfyui import ops
 
+from tests.fixtures.kernel_ops import patch_ops_name
 from tests.platform.runtime.native.lora.test_lora_fused_fast_path import (
     IN, OUT, _dequant, _delta, _fp8_fast, _fp8_layer, _input, _nvfp4_fast, _nvfp4_layer,
 )
@@ -189,7 +191,7 @@ def _weight_side_spy(monkeypatch):
             calls.append(len(deltas))
         return real(weight, deltas)
 
-    monkeypatch.setattr(ops, "apply_lora_deltas", spy)
+    patch_ops_name(monkeypatch, "apply_lora_deltas", spy)
     return calls
 
 
@@ -255,9 +257,9 @@ def test_fast_path_no_longer_rejects_lokr():
     kwargs = dict(input_dtype=torch.bfloat16, input_is_cuda=True, weight_is_cuda=True,
                   in_features=IN, out_features=OUT)
     assert ops._deltas_output_branch_ok(lin.lora_deltas, OUT) is True
-    assert ops._scaled_mm_fast_path_reject_reason(
+    assert fp8_linear._scaled_mm_fast_path_reject_reason(
         weight_dtype=torch.float8_e4m3fn, has_weight_scale=True, lora_deltas=lin.lora_deltas, **kwargs) is None
-    assert ops._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) is None
+    assert nvfp4_linear._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) is None
 
 
 def test_a_lokr_that_does_not_tile_the_output_stays_weight_side_for_that_delta_only():
@@ -278,7 +280,7 @@ def test_kill_switch_restores_the_weight_side_lokr(monkeypatch):
     kwargs = dict(input_dtype=torch.bfloat16, input_is_cuda=True, weight_is_cuda=True,
                   in_features=IN, out_features=OUT)
     assert ops._deltas_output_branch_ok(lin.lora_deltas, OUT) is False
-    assert ops._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) == "lora_deltas"
+    assert nvfp4_linear._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) == "lora_deltas"
     x = _input(torch.bfloat16)
     got = _dequant(lin, x)
     assert weight_side == [1]
@@ -297,7 +299,7 @@ def test_grad_enabled_branch_matches(monkeypatch):
 
 
 def _fp8_krea2():
-    m = Krea2.from_config(TINY, ops.pick_operations(torch.float8_e4m3fn, torch.bfloat16))
+    m = Krea2.from_config(TINY, pick_operations(torch.float8_e4m3fn, torch.bfloat16))
     sd = {k: torch.randn_like(v.float()) * 0.02 if v.is_floating_point() else v.clone()
           for k, v in m.state_dict().items()}
     load_into_module(m, sd, match_model_spec(TINY))

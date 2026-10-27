@@ -203,7 +203,7 @@ def test_a_quantised_ops_namespace_still_holds_the_unquantised_branch():
     every scale as a non-persistent buffer, so it assign-loads unchanged and
     runs through the plain cast path. Pinned because the alternative -- building
     the branch under a second namespace -- would be a real design change."""
-    from vendor.gpl.comfyui.ops import fp8_ops
+    from src.platform.runtime.native.kernels import fp8_ops
 
     with torch.device("meta"):
         linear = fp8_ops.Linear(8, 4, bias=False, dtype=torch.bfloat16)

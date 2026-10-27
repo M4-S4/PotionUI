@@ -29,7 +29,7 @@ from src.platform.runtime.native.arch.trellis2.slat_flow import SLatFlowModel
 from src.platform.runtime.native.arch.trellis2.ss_flow import SSFlowDiT
 from src.platform.runtime.native.arch.trellis2.ss_vae import SSVAEDecoder
 from src.platform.runtime.native.sparse3d import SparseConv3d, SparseTensor
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 BF16 = torch.bfloat16
 DINO = DinoV3Config(hidden_size=64, num_hidden_layers=2, num_attention_heads=4, intermediate_size=128)

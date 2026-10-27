@@ -21,7 +21,7 @@ from safetensors.torch import save_file
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.te_detect import detect_te_config
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 from src.platform.runtime.native.text_encoders.loader import _SPECS, _build_config, load_text_encoder
 from src.platform.runtime.native.text_encoders.qwen3 import (
     MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX,
