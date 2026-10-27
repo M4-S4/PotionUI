@@ -4,6 +4,7 @@ from src.features.chat.dto import MessageResponse, NoticeResponse, ReasoningBloc
 from src.features.llm.harness.events import Usage
 from src.features.llm.harness.messages import ReasoningPart, Role, ToolCallPart, ToolResultPart
 from src.features.llm.harness.turn_state import StepRecord, TurnState
+from src.features.llm.tools.base import ToolExecution, serialize_approval_preview
 
 STEP_RANGE_KEY = "step_range"
 
@@ -69,6 +70,24 @@ def segment_notices(state: Optional[TurnState], first: int, last: int, closes_tu
         if (notice.step_seq is None and closes_turn)
         or (notice.step_seq is not None and first <= notice.step_seq <= last)
     ]
+
+
+def execution_record(execution: ToolExecution) -> Dict[str, Any]:
+    return {
+        "tool_name": execution.tool_name,
+        "arguments": execution.arguments,
+        "result": {
+            "success": execution.result.success,
+            "data": execution.result.data,
+            "error": execution.result.error,
+        },
+        "duration_ms": execution.duration_ms,
+        "approval_status": execution.approval_status,
+        "approval_reason": None,
+        "skipped": execution.skipped,
+        "preview": serialize_approval_preview(execution.result.preview),
+        "tool_call_id": execution.tool_call_id,
+    }
 
 
 def tool_executions(
@@ -156,13 +175,15 @@ def assistant_metadata(
     return metadata
 
 
-def metadata_without_reasoning(metadata: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def metadata_without_reasoning(
+    metadata: Optional[Dict[str, Any]], keep_visibility_flag: bool = False,
+) -> Optional[Dict[str, Any]]:
     if not metadata:
         return metadata
     transcript = metadata.get("tool_transcript")
     trace = metadata.get("behavior_trace")
     carries_round = isinstance(transcript, list) and any(isinstance(item, dict) and "reasoning" in item for item in transcript)
-    carries_trace = isinstance(trace, dict) and "thinking_visible" in trace
+    carries_trace = isinstance(trace, dict) and "thinking_visible" in trace and not keep_visibility_flag
     if "thinking" not in metadata and not carries_round and not carries_trace:
         return metadata
     cleaned = {key: value for key, value in metadata.items() if key != "thinking"}
@@ -186,7 +207,7 @@ def present(
     presented: List[MessageResponse] = []
     for item in messages:
         update: Dict[str, Any] = {}
-        cleaned = metadata_without_reasoning(item.metadata)
+        cleaned = metadata_without_reasoning(item.metadata, keep_visibility_flag=show_thinking)
         if cleaned is not item.metadata:
             update["metadata"] = cleaned
         window = step_range(item.metadata) if item.role == "assistant" and item.turn_id else None

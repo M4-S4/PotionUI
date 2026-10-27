@@ -729,7 +729,6 @@ class TestPersistenceSurvivesDisconnect:
         session.mode = "generation"
         session.metadata = None
         repo.get_session.return_value = session
-        repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-user", session_id="session-123", role="user", content="hi")
         assistant_msg = MessageResponse(

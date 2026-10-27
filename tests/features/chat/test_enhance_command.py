@@ -149,7 +149,6 @@ def _wire_repo(repo, content):
     """Wire chat_repository so add_message returns messages and captures the assistant save."""
     session = make_session()
     repo.get_session.return_value = session
-    repo.get_conversation_history.return_value = [{"role": "user", "content": content}]
     repo.count_messages.return_value = 2
     user_message = make_message("um-1", content)
     saved = {}
@@ -256,7 +255,6 @@ class TestEnhancePromptToolNonStreaming:
             turns=[{"tool_calls": ENHANCE_TOOL_CALL}, {"text": "here's a richer version"}]
         )
         repo.get_session.return_value = make_session()
-        repo.get_conversation_history.return_value = [{"role": "user", "content": "make it richer"}]
         repo.count_messages.return_value = 2
         saved = {}
 

@@ -629,44 +629,6 @@ class TestChatRepository(PersistenceTestBase):
 
         self.assertIsNone(message)
 
-    def test_get_conversation_history(self):
-        """Test getting conversation history for LLM"""
-        session = self.repo.create_session(user_id=self.test_user_id)
-
-        self.repo.add_message(session.id, 'user', 'Hello')
-        self.repo.add_message(session.id, 'assistant', 'Hi there!')
-        self.repo.add_message(session.id, 'user', 'How are you?')
-
-        history = self.repo.get_conversation_history(session.id)
-
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0]['role'], 'user')
-        self.assertEqual(history[0]['content'], 'Hello')
-        self.assertEqual(history[1]['role'], 'assistant')
-        self.assertEqual(history[2]['role'], 'user')
-
-    def test_get_conversation_history_replays_reasoning_only_for_the_named_messages(self):
-        session = self.repo.create_session(user_id=self.test_user_id)
-        transcript = [{
-            'calls': [{'id': 'c1', 'name': 'echo', 'arguments': {}}],
-            'results': [{'tool_call_id': 'c1', 'content': 'ok'}],
-            'reasoning': 'weighing the options',
-        }]
-        self.repo.add_message(session.id, 'user', 'first')
-        self.repo.add_message(session.id, 'assistant', 'done', metadata={'tool_transcript': transcript})
-        self.repo.add_message(session.id, 'user', 'second')
-        current = self.repo.add_message(session.id, 'assistant', '', metadata={'tool_transcript': transcript})
-
-        history = self.repo.get_conversation_history(
-            session.id, include_tool_transcript=True, reasoning_message_ids={current.id},
-        )
-        without = self.repo.get_conversation_history(session.id, include_tool_transcript=True)
-
-        flagged = [message for message in history if message.get('tool_calls')]
-        self.assertEqual(['reasoning' in message for message in flagged], [False, True])
-        self.assertEqual(flagged[1]['reasoning'], 'weighing the options')
-        self.assertFalse(any('reasoning' in message for message in without))
-
     def test_accept_session(self):
         """Test accepting a session"""
         session = self.repo.create_session(user_id=self.test_user_id)

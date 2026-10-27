@@ -273,7 +273,6 @@ class TestSendMessageToolAvailabilityTransparency:
 
         session = _tool_session(tools_enabled=tools_enabled, disabled_tools=disabled_tools)
         mock_repo.get_session.return_value = session
-        mock_repo.get_conversation_history.return_value = []
 
         from src.features.chat.dto import MessageResponse
         user_msg = MessageResponse(id="msg-1", session_id="s", role="user", content="Hello")

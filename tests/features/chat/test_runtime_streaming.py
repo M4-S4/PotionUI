@@ -256,7 +256,6 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         """Configure mocks for a simple streaming scenario."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst", role="assistant", content="".join(chunks))
@@ -409,7 +408,6 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         chunks = ["one", " ", "two"]
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         # Processor returns what we send; assistant message will be saved with joined chunks
@@ -437,7 +435,6 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         session = self._make_active_session(llm_config_id="llm-abc", mode="generation")
         self.mock_repo.get_session.return_value = session
         history = [{"role": "user", "content": "hi"}]
-        self.mock_repo.get_conversation_history.return_value = history
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst")
@@ -486,7 +483,6 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         """An empty stream should still emit message_created and done."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst", content="")
@@ -520,7 +516,6 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         """User message should be saved to DB before the stream begins."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst")
@@ -547,7 +542,6 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         """Assistant message should be saved to DB after all tokens are collected."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst", content="full response")
@@ -573,7 +567,6 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         """Exactly two add_message calls should be made: user then assistant."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst")
@@ -599,7 +592,6 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
 
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst", content=expected)
@@ -627,7 +619,6 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         buffered send path."""
         session = self._make_active_session(mode="generation")
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst")
@@ -656,7 +647,6 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         self.manager.chat_mode_registry.register(ChatMode(id="lora-dataset", name="LoRA Dataset"))
         session = self._make_active_session(mode="lora-dataset")
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst")
@@ -681,7 +671,6 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         """Should yield error event (not raise) when assistant message save returns None."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         # Second add_message returns None → assistant save fails
@@ -712,7 +701,6 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
     def _setup_successful_stream(self):
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst")
@@ -790,7 +778,6 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
         """after_save and after_send hooks should NOT be called if assistant save fails."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         self.mock_repo.add_message.side_effect = [user_msg, None]
@@ -814,7 +801,6 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
         """CHAT_MESSAGE_BEFORE_SEND hook should be able to modify the content."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user", content="modified content")
         assistant_msg = make_message_response("msg-asst")
@@ -846,7 +832,6 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
         self.mock_repo.get_session.return_value = session
         original_history = [{"role": "user", "content": "hi"}]
         modified_history = messages_from_dicts([{"role": "system", "content": "injected"}, {"role": "user", "content": "hi"}])[0]
-        self.mock_repo.get_conversation_history.return_value = original_history
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst")
@@ -906,7 +891,6 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
     def _setup_tools_session(self, tool_executions: list, llm_content: str = "final answer"):
         session = self._make_active_session(metadata={"enable_tools": True})
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst", content=llm_content)
@@ -1085,7 +1069,6 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
         """When tool_executor is None, streaming path should be used even if enable_tools=True."""
         session = self._make_active_session(metadata={"enable_tools": True})
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst")
@@ -1181,7 +1164,6 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
         """An exception raised during streaming should emit an error event."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         self.mock_repo.add_message.return_value = user_msg
@@ -1210,7 +1192,6 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
     async def test_error_event_hides_exception_text_from_regular_users(self):
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
         self.mock_repo.add_message.return_value = make_message_response("msg-user", role="user")
 
         async def failing_stream(**_kwargs):
@@ -1238,7 +1219,6 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
         """An exception in tool_executor should emit an error event."""
         session = self._make_active_session(metadata={"enable_tools": True})
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         self.mock_repo.add_message.return_value = user_msg
@@ -1284,7 +1264,6 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
         """message_created should still appear even if the stream later errors."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         self.mock_repo.add_message.return_value = user_msg
@@ -1311,7 +1290,6 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
         """done event should NOT be emitted when streaming raises an exception."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         self.mock_repo.add_message.return_value = user_msg
@@ -1338,7 +1316,6 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
         """Stream errors should be yielded as events, not propagated as exceptions."""
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         self.mock_repo.add_message.return_value = user_msg
@@ -1394,9 +1371,6 @@ class TestSendMessageStreamResources(BaseStreamingTest):
 
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = [
-            {"role": "user", "content": "check @fake.known"},
-        ]
         user_msg = make_message_response("msg-user", role="user", content="check @fake.known")
         assistant_msg = make_message_response("msg-asst", role="assistant", content="ok")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
@@ -1478,7 +1452,6 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         session = self._make_active_session(mode=mode)
         self.mock_repo.get_session.return_value = session
         history = [{"role": "user", "content": "hello"}]
-        self.mock_repo.get_conversation_history.return_value = history
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
@@ -1642,7 +1615,6 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
 
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst", content=llm_content)
@@ -1992,7 +1964,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
 
         user_msg = make_message_response("msg-user", role="user")
 
-        def _add_message(session_id, role, content, parsed_content=None, metadata=None):
+        def _add_message(session_id, role, content, parsed_content=None, metadata=None, turn_id=None):
             if role == "user":
                 return user_msg
             return MessageResponse(
@@ -2067,7 +2039,6 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
     async def test_early_close_after_a_token_closes_the_provider_and_makes_no_further_call(self):
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
         self.mock_repo.add_message.side_effect = [make_message_response("msg-user", role="user")]
 
         provider_calls = {"count": 0}
@@ -2105,7 +2076,6 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
     async def test_early_close_after_a_tool_start_closes_the_provider_and_dispatches_no_further_tool(self):
         session = self._make_active_session(metadata={"enable_tools": True})
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
         self.mock_repo.add_message.side_effect = [make_message_response("msg-user", role="user")]
 
         mock_tool_executor = Mock()

@@ -27,7 +27,6 @@ def _runtime(owner="user-1"):
     repo = Mock()
     session = Mock(id="session-1", user_id="user-1", status="active", llm_config_id="llm-1", mode="generation", metadata=None)
     repo.get_session.return_value = session
-    repo.get_conversation_history.return_value = []
     repo.add_message.side_effect = [
         MessageResponse(id="m-user", session_id="session-1", role="user", content="hi"),
         MessageResponse(id="m-asst", session_id="session-1", role="assistant", content="ok"),

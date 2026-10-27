@@ -1,5 +1,6 @@
 import json
 from contextlib import aclosing
+from dataclasses import replace
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
 
 from src.features.llm import trace_collector
@@ -22,9 +23,20 @@ from src.features.llm.harness.events import (
     Usage,
     UsageReported,
 )
-from src.features.llm.harness.messages import ImagePart, Message, Role, ToolCallPart, ToolResultPart
+from src.features.llm.harness.build import new_id
+from src.features.llm.harness.messages import ImagePart, Message, Origin, ReasoningPart, Role, TextPart, ToolCallPart, ToolResultPart
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
-from src.features.llm.harness.turn_state import ToolFinished, ToolStarted, TurnSnapshot, TurnState, TurnStatus
+from src.features.llm.harness.turn_state import (
+    DecisionKind,
+    PendingCall,
+    StepRecord,
+    StepStatus,
+    ToolFinished,
+    ToolStarted,
+    TurnSnapshot,
+    TurnState,
+    TurnStatus,
+)
 from src.features.llm.tools.base import ToolApprovalPreview, ToolExecution, ToolResult, ToolSource
 from src.features.llm.tools.executor import ToolExecutor
 from tests.fixtures.llm_engine import scripted_config, scripted_gateway
@@ -198,9 +210,16 @@ class ScriptedTurnEngine:
     def __init__(self) -> None:
         self.inputs: List[Any] = []
         self._script: Any = None
+        self.store = InMemoryTurnStore()
 
     def script(self, source: Any) -> None:
         self._script = source
+
+    async def settle(self, state: Any, call: Any, decision: Any, tool_context: Any) -> Any:
+        engine = TurnEngine(
+            gateway=None, tools=None, runner=ParallelToolRunner(None), store=self.store, retry=BackoffRetry(max_retries=0),
+        )
+        return await engine.settle(state, call, decision, tool_context)
 
     @property
     def call_kwargs(self) -> Dict[str, Any]:
@@ -243,11 +262,20 @@ class ScriptedTurnEngine:
             source = _tokens(source)
         done: Optional[Dict[str, Any]] = None
         usage_data: Dict[str, Any] = {}
+        spoken: List[str] = []
+        reasoned: List[str] = []
+        thinking_open = False
         async with aclosing(source) as stream:
             async for event in stream:
                 kind = event.get("type")
                 data = event.get("data") if isinstance(event.get("data"), dict) else event
+                if kind == "thinking":
+                    if not thinking_open:
+                        reasoned.append("")
+                    reasoned[-1] += data.get("content", "")
+                thinking_open = kind == "thinking"
                 if kind == "token":
+                    spoken.append(data.get("content", ""))
                     yield TextDelta(block=1, text=data.get("content", ""))
                 elif kind == "thinking":
                     yield ReasoningDelta(block=0, text=data.get("content", ""))
@@ -262,7 +290,7 @@ class ScriptedTurnEngine:
                     usage_data = data
                 elif kind == "done":
                     done = data
-        yield _outcome(turn, done, usage_data)
+        yield _outcome(turn, done, usage_data, "".join(spoken), reasoned, self.store)
 
 
 async def _tokens(chunks: Sequence[str]) -> AsyncIterator[Dict[str, Any]]:
@@ -270,34 +298,74 @@ async def _tokens(chunks: Sequence[str]) -> AsyncIterator[Dict[str, Any]]:
         yield {"type": "token", "content": chunk}
 
 
-def _outcome(turn: Any, done: Optional[Dict[str, Any]], usage_data: Dict[str, Any]) -> TurnOutcome:
+def _outcome(
+    turn: Any, done: Optional[Dict[str, Any]], usage_data: Dict[str, Any], spoken: str, reasoned: List[str], store: Any,
+) -> TurnOutcome:
     summary = done if done is not None else usage_data
     finish, finish_raw = _legacy_finish(summary.get("completion"))
     pending = bool((done or {}).get("pending_tool_approval"))
+    executions = tuple(
+        replace(record, tool_call_id=record.tool_call_id or f"call_{index}")
+        for index, record in enumerate((done or {}).get("tool_executions") or ())
+    )
+    usage = _legacy_usage(summary)
+    text = spoken or (done or {}).get("full_content", "")
+    calls = tuple(
+        ToolCallPart(call_id=record.tool_call_id or f"call_{index}", name=record.tool_name, args=dict(record.arguments))
+        for index, record in enumerate(executions)
+    )
+    waiting = tuple(
+        PendingCall(call_id=call.call_id, name=call.name, decision=DecisionKind.APPROVAL)
+        for call, record in zip(calls, executions)
+        if record.approval_status == "pending"
+    )
+    messages = [*turn.new_messages]
+    parts: List[Any] = [*(ReasoningPart(text=chunk) for chunk in reasoned), *([TextPart(text=text)] if text else []), *calls]
+    messages.append(Message(
+        id=new_id("msg"), role=Role.ASSISTANT, parts=tuple(parts),
+        origin=Origin(adapter="scripted", provider="scripted", model="scripted-model"),
+    ))
+    if calls and not waiting:
+        messages.append(Message(id=new_id("msg"), role=Role.TOOL, parts=tuple(
+            ToolResultPart(call_id=call.call_id, name=call.name, content=(TextPart(text=record.result.data or ""),))
+            for call, record in zip(calls, executions)
+        )))
     state = TurnState(
-        turn_id="turn-scripted",
+        turn_id=turn.turn_id,
         session_id=turn.session_id,
         status=TurnStatus.AWAITING_DECISION if pending else TurnStatus.COMPLETED,
         snapshot=TurnSnapshot(
             llm_config_id=turn.llm_id, system=turn.system or "", tools=(), settings=turn.settings,
             profile=CapabilityProfile(adapter="scripted", model="scripted-model"),
         ),
-        first_seq=0,
+        first_seq=store.next_seq(turn.session_id),
+        pending=waiting,
     )
+    store.save_state(state)
+    steps = []
+    for message in messages:
+        modelled = message.role is Role.ASSISTANT
+        step = StepRecord(
+            id=new_id("step"), session_id=turn.session_id, turn_id=turn.turn_id,
+            seq=store.next_seq(turn.session_id), message=message, status=StepStatus.COMPLETED,
+            usage=usage if modelled else None, finish=finish if modelled else None,
+        )
+        store.append(step)
+        steps.append(step)
     return TurnOutcome(
         content=(done or {}).get("full_content", ""),
         reason="pending" if pending else "answer",
         state=state,
-        executions=tuple((done or {}).get("tool_executions") or ()),
+        executions=executions,
         transcript=tuple((done or {}).get("tool_transcript") or ()),
         rescues=(done or {}).get("rescues"),
         tool_failures=(done or {}).get("tool_failures"),
         rounds_used=(done or {}).get("rounds_used") or 0,
-        usage=_legacy_usage(summary),
-        last_usage=_legacy_usage(summary),
+        usage=usage,
+        last_usage=usage,
         finish=finish,
         finish_raw=finish_raw,
-        steps=(),
+        steps=tuple(steps),
     )
 
 
@@ -392,3 +460,16 @@ def scripted_llm_from_events(scripts: Sequence[Sequence[Dict[str, Any]]], **conf
     gateway = scripted_llm(turns, **config)
     gateway.adapter.default = turns[-1]
     return gateway
+
+
+def seed_history(store: Any, session_id: str, entries: Sequence[Dict[str, Any]], turn_id: str = "turn-seed") -> None:
+    from src.features.llm.harness.legacy import messages_from_dicts
+
+    origin = Origin(adapter="scripted", provider="scripted", model="scripted-model")
+    for message in messages_from_dicts(list(entries))[0]:
+        if message.role is Role.ASSISTANT:
+            message = replace(message, origin=origin)
+        store.append(StepRecord(
+            id=new_id("step"), session_id=session_id, turn_id=turn_id, seq=store.next_seq(session_id),
+            message=message, status=StepStatus.COMPLETED,
+        ))

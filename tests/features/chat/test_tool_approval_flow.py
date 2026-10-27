@@ -16,7 +16,6 @@ from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.repository import ChatRepository
 from src.features.chat.routes import ChatController
 from src.features.chat.runtime import ChatRuntime
-from src.features.chat.tool_transcript import replay_messages
 from src.features.chat.turns import ChatTurnRegistry
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
@@ -113,7 +112,7 @@ def chat_db(mock_db):
     return mock_db
 
 
-def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None):
+def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None, store=None):
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
@@ -131,7 +130,7 @@ def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None):
         chat_mode_registry=mode_registry(),
         tool_executor=executor,
         tool_services=ToolServices(generation_orchestrator=generation_orchestrator, tab_drafts=tab_drafts),
-        turn_engine=turn_engine_for(llm, executor),
+        turn_engine=turn_engine_for(llm, executor, store=store),
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id
@@ -184,7 +183,7 @@ class TestStepEvents:
 class TestPause:
     @pytest.mark.asyncio
     async def test_pending_call_is_recorded_and_siblings_are_skipped(self, chat_db):
-        _manager_, repo, _sid, _llm, message_id, events = await _paused(_SetValueTool(), siblings=True)
+        manager, repo, session_id, _llm, message_id, events = await _paused(_SetValueTool(), siblings=True)
 
         tool_end = next(e for e in events if e["event"] == "tool_end")["data"]
         assert tool_end["approval_status"] == "pending"
@@ -201,13 +200,11 @@ class TestPause:
         assert skipped["approval_status"] is None
         assert skipped["result"]["error"] == "Not run: waiting for approval of set_value."
 
-        [round_] = metadata["tool_transcript"]
-        assert [c["id"] for c in round_["calls"]] == ["c1", "c2"]
-        assert round_["calls"][0]["arguments"] == {"value": 2}
-        assert round_["results"] == [{
-            "tool_call_id": "c2",
-            "content": "Not run: waiting for approval of set_value. Call it again if still needed.",
-        }]
+        state = manager.turn_engine.store.open_turn(session_id)
+        assert [call.call_id for call in state.pending] == ["c1"]
+        assert [(part.call_id, part.text()) for part in state.gathered] == [(
+            "c2", "Not run: waiting for approval of set_value. Call it again if still needed.",
+        )]
         assert metadata["turn_rounds"] == 1
 
 
@@ -257,8 +254,11 @@ class TestResolve:
         retried = await _resolve(manager, session_id, message_id)
         assert retried["status"] == "approved"
         assert tool.confirmed == 2
-        [round_] = repo.get_message(message_id).metadata["tool_transcript"]
-        assert round_["results"] == [{"tool_call_id": "c1", "content": json.dumps({"applied": 2})}]
+        state = manager.turn_engine.store.open_turn(session_id)
+        assert [(part.call_id, part.text(), part.is_error) for part in state.gathered] == [
+            ("c1", json.dumps({"applied": 2}), False),
+        ]
+        assert state.pending == ()
 
     @pytest.mark.asyncio
     async def test_continuation_asks_for_a_one_sentence_confirmation(self, chat_db):
@@ -388,7 +388,7 @@ class TestContinuation:
         names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.adapter.calls]
         assert names[0] == ["echo", "use_tools"]
         assert names[1] == ["echo", "use_tools", "set_value"]
-        assert names[2] == ["set_value", "echo"]
+        assert names[2] == ["echo", "set_value"]
 
     @pytest.mark.asyncio
     async def test_continuation_while_pending_is_refused(self, chat_db):
@@ -502,7 +502,7 @@ class TestSendWhilePending:
         messages = llm.adapter.calls[-1]["messages"]
         assert messages[-2] == {
             "role": "tool", "tool_call_id": "c1", "name": "set_value",
-            "content": "User rejected this and replied instead.",
+            "content": "User rejected this. Reason: no, make it 3",
         }
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"].startswith("no, make it 3")
@@ -529,7 +529,6 @@ class TestSendWhilePending:
 
         assert response.resolved_message["id"] == message_id
         assert repo.get_message(message_id).metadata["tool_executions"][0]["approval_status"] == "rejected"
-        assert response.assistant_message.metadata["tool_transcript"] == []
         assert response.assistant_message.content == "Fine."
 
 
@@ -585,37 +584,6 @@ class TestHistoryBudget:
         assert plain["truncated"] is False
         assert reasoned["truncated"] is True
         assert [m.role.value for m in history] == ["assistant", "user"]
-
-
-class TestReplay:
-    def test_unresolved_call_still_gets_a_result(self):
-        metadata = {
-            "tool_transcript": [{"calls": [{"id": "c1", "name": "set_value", "arguments": {}}], "results": []}],
-            "tool_executions": [{"tool_call_id": "c1", "approval_status": "pending"}],
-        }
-
-        messages = replay_messages("", metadata)
-
-        assert [m["role"] for m in messages] == ["assistant", "tool"]
-        assert messages[1]["tool_call_id"] == "c1"
-        assert messages[1]["content"]
-
-    def test_row_without_transcript_is_plain_text(self):
-        assert replay_messages("hello", {}) == [{"role": "assistant", "content": "hello"}]
-
-    def test_final_text_follows_the_rounds(self):
-        metadata = {
-            "tool_transcript": [{
-                "calls": [{"id": "e1", "name": "echo", "arguments": {}}],
-                "results": [{"tool_call_id": "e1", "content": "echoed"}],
-            }],
-            "tool_executions": [{"tool_call_id": "e1", "approval_status": None}],
-        }
-
-        messages = replay_messages("answer", metadata)
-
-        assert [m["role"] for m in messages] == ["assistant", "tool", "assistant"]
-        assert messages[-1]["content"] == "answer"
 
 
 class TestFormStateSyncAcrossChainedApprovals:

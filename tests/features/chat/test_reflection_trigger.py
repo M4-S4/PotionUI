@@ -81,7 +81,6 @@ class TestReflectionFiresOnSend:
             id="msg-1", session_id="session-1", role=kwargs.get("role", "assistant"),
             content=kwargs.get("content", ""),
         )
-        self.mock_repo.get_conversation_history.return_value = [{"role": "user", "content": "hi"}]
         self.mock_repo.count_messages.return_value = 2
         # title_generator needs >=2 messages; irrelevant to this test beyond not erroring.
         self.mock_repo.get_messages.return_value = _transcript(MIN_UNREFLECTED_USER_MESSAGES)
