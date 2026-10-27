@@ -55,6 +55,29 @@ CAPABILITY_PROBE = "get_device_capability"
 
 CAPABILITY_ALLOWLIST: frozenset[str] = frozenset()
 
+DIRECT_ATTENTION = "scaled_dot_product_attention"
+
+DIRECT_ATTENTION_ALLOWLIST: dict[str, str] = {
+    "src/platform/runtime/native/arch/ltx/duration_head.py":
+        "one learned query pooled once per prompt, attention is under 0.1% of the head",
+    "src/platform/runtime/native/arch/minimax_h3/model.py":
+        "query-chunked rescue after an accelerated kernel ran out of memory must be plain sdpa",
+    "src/platform/runtime/native/arch/moge/model.py":
+        "camera estimator backbone runs once per input image, not per denoise step",
+    "src/platform/runtime/native/text_encoders/_functional.py":
+        "text encoders run once per prompt (4% of encoder cost) and pass a scale the dispatcher does not take",
+    "src/platform/runtime/native/text_encoders/qwen35.py":
+        "text encoder runs once per prompt, 1% of encoder cost",
+    "src/platform/runtime/native/vae/ae_2d.py":
+        "VAE bottleneck runs once per decode as a single 512-wide head",
+    "src/platform/runtime/native/vae/causal_3d.py":
+        "VAE bottleneck runs once per decode as a single 384-wide head",
+    "src/platform/runtime/native/vae/minimax_h3_audio.py":
+        "audio encoder runs once per reference clip in fp32, where the dispatcher always lands on sdpa",
+    "src/platform/runtime/native/vae/minimax_h3_video.py":
+        "VAE decoder runs once per tile per decode, not per denoise step",
+}
+
 
 def _is_private(name: str) -> bool:
     return name.startswith("_") and not (name.startswith("__") and name.endswith("__"))
@@ -299,22 +322,26 @@ def test_listed_usage_passes_and_an_unused_entry_is_stale(tmp_path, source_index
     ]
 
 
-def _capability_references(tree: ast.Module) -> list[int]:
+def _references(tree: ast.Module, name: str) -> list[int]:
     lines = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
-            hit = node.attr == CAPABILITY_PROBE
+            hit = node.attr == name
         elif isinstance(node, ast.Name):
-            hit = node.id == CAPABILITY_PROBE
+            hit = node.id == name
         elif isinstance(node, ast.Constant):
-            hit = node.value == CAPABILITY_PROBE
+            hit = node.value == name
         elif isinstance(node, ast.ImportFrom):
-            hit = any(alias.name == CAPABILITY_PROBE for alias in node.names)
+            hit = any(alias.name == name for alias in node.names)
         else:
             hit = False
         if hit:
             lines.append(node.lineno)
     return sorted(lines)
+
+
+def _capability_references(tree: ast.Module) -> list[int]:
+    return _references(tree, CAPABILITY_PROBE)
 
 
 def _scan_capability_references(base: Path, source_index) -> dict[str, int]:
@@ -413,3 +440,115 @@ def test_listed_capability_reference_passes_and_an_unused_entry_is_stale(tmp_pat
         "src/features/gone.py no longer references get_device_capability; remove it from the capability allowlist"
     ]
 
+
+def _scan_direct_attention(base: Path, source_index) -> dict[str, int]:
+    found: dict[str, int] = {}
+    for relative, tree in _walk_outside_kernels(base, source_index):
+        lines = _references(tree, DIRECT_ATTENTION)
+        if lines:
+            found[relative] = lines[0]
+    return found
+
+
+def _unlisted_direct_attention(found: dict[str, int], allowlist: dict[str, str]) -> list[str]:
+    return [
+        f"{path}:{line} references {DIRECT_ATTENTION}; {REDIRECT} (attention)"
+        for path, line in sorted(found.items())
+        if path not in allowlist
+    ]
+
+
+def _stale_direct_attention(found: dict[str, int], allowlist: dict[str, str]) -> list[str]:
+    return [
+        f"{path} no longer references {DIRECT_ATTENTION}; remove it from the direct attention allowlist"
+        for path in sorted(allowlist.keys() - found.keys())
+    ]
+
+
+@pytest.fixture(scope="module")
+def direct_attention(source_index) -> dict[str, int]:
+    return _scan_direct_attention(SOURCE, source_index)
+
+
+def test_no_new_direct_attention_callers_outside_the_kernels_package(direct_attention):
+    problems = _unlisted_direct_attention(direct_attention, DIRECT_ATTENTION_ALLOWLIST)
+    assert not problems, "scaled dot product attention called outside the kernels package:\n" + "\n".join(problems)
+
+
+def test_direct_attention_allowlist_only_shrinks(direct_attention):
+    problems = _stale_direct_attention(direct_attention, DIRECT_ATTENTION_ALLOWLIST)
+    assert not problems, "stale direct attention allowlist entries:\n" + "\n".join(problems)
+
+
+def test_every_direct_attention_entry_gives_a_one_line_reason():
+    for path, reason in DIRECT_ATTENTION_ALLOWLIST.items():
+        assert path.startswith("src/") and path.endswith(".py"), path
+        assert reason.strip() and "\n" not in reason, path
+
+
+@pytest.mark.parametrize("source, lines", [
+    ("import torch.nn.functional as F\nout = F.scaled_dot_product_attention(q, k, v)\n", [2]),
+    ("import torch\nout = torch.nn.functional.scaled_dot_product_attention(q, k, v)\n", [2]),
+    ("import torch.nn.functional as F\nrescue = F.scaled_dot_product_attention\n", [2]),
+    ("from torch.nn.functional import scaled_dot_product_attention\nscaled_dot_product_attention(q, k, v)\n", [1, 2]),
+    ("import torch.nn.functional as F\nout = [F.scaled_dot_product_attention(q, k, v) for q in qs]\n", [2]),
+], ids=["attribute-call", "fully-qualified", "bare-reference", "imported-name", "comprehension"])
+def test_every_reference_to_direct_attention_is_recorded(source, lines):
+    assert _references(ast.parse(source), DIRECT_ATTENTION) == lines
+
+
+@pytest.mark.parametrize("source", [
+    "import torch.nn.functional as F\nrun = getattr(F, 'scaled_dot_product_attention')\n",
+    "from torch.nn.functional import scaled_dot_product_attention as sdpa\nsdpa(q, k, v)\n",
+], ids=["string-constant", "aliased-import"])
+def test_string_and_import_spellings_of_direct_attention_are_recorded(source):
+    assert len(_references(ast.parse(source), DIRECT_ATTENTION)) == 1
+
+
+@pytest.mark.parametrize("source", [
+    "from ..kernels import attention\nattention(q, k, v)\n",
+    "from .attention import sparse_scaled_dot_product_attention\nsparse_scaled_dot_product_attention(q, k, v)\n",
+    '"""F.scaled_dot_product_attention is the plain pytorch call"""\n',
+    "def plain_scaled_dot_product_attention_text():\n    return 'uses F.scaled_dot_product_attention'\n",
+], ids=["dispatcher-call", "sparse-lookalike", "docstring-sentence", "string-and-lookalike-name"])
+def test_dispatcher_calls_and_sentences_are_not_direct_attention(source):
+    assert _references(ast.parse(source), DIRECT_ATTENTION) == []
+
+
+def test_direct_attention_scan_skips_the_kernels_package_and_keys_by_repo_relative_path(tmp_path, source_index):
+    base = tmp_path / "src"
+    call = "import torch.nn.functional as F\nx = 1\nF.scaled_dot_product_attention(q, k, v)\n"
+    _write(base, "features/user.py", call)
+    _write(base, "platform/runtime/native/kernels/impl.py", call)
+    _write(base, "platform/runtime/native/vae/block.py", call)
+    _write(base, "platform/runtime/native/vae/clean.py", "x = 1\n")
+
+    assert _scan_direct_attention(base, source_index) == {
+        "src/features/user.py": 3,
+        "src/platform/runtime/native/vae/block.py": 3,
+    }
+
+
+def test_unlisted_direct_attention_names_file_line_and_the_kernels_package(tmp_path, source_index):
+    base = tmp_path / "src"
+    _write(base, "features/user.py", "import torch.nn.functional as F\nx = 1\nF.scaled_dot_product_attention(q, k, v)\n")
+
+    problems = _unlisted_direct_attention(_scan_direct_attention(base, source_index), {})
+
+    assert len(problems) == 1
+    assert "src/features/user.py:3" in problems[0]
+    assert DIRECT_ATTENTION in problems[0]
+    assert "src.platform.runtime.native.kernels" in problems[0]
+
+
+def test_listed_direct_attention_passes_and_an_unused_entry_is_stale(tmp_path, source_index):
+    base = tmp_path / "src"
+    _write(base, "features/user.py", "import torch.nn.functional as F\nF.scaled_dot_product_attention(q, k, v)\n")
+    found = _scan_direct_attention(base, source_index)
+    allowlist = {"src/features/user.py": "kept on purpose", "src/features/gone.py": "kept on purpose"}
+
+    assert _unlisted_direct_attention(found, allowlist) == []
+    assert _stale_direct_attention(found, allowlist) == [
+        "src/features/gone.py no longer references scaled_dot_product_attention; "
+        "remove it from the direct attention allowlist"
+    ]
