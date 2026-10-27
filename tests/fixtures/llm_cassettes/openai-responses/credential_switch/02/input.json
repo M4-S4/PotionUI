@@ -1,0 +1,28 @@
+{
+  "config": {
+    "id": "cfg_cassette",
+    "name": "OpenAI",
+    "type": "openai",
+    "enabled": true,
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "cassette-key-b",
+    "model": "gpt-5.6",
+    "system_message": "",
+    "show_thinking": true
+  },
+  "messages": [
+    {
+      "id": "user_03",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "And the next one?",
+          "phase": null
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "error": {
+    "kind": "server_error",
+    "message": "The server had an error while processing your request. Sorry about that!",
+    "status": null,
+    "code": "server_error",
+    "retry_after": null,
+    "detail": {
+      "code": "server_error",
+      "in_stream": true
+    }
+  }
+}

@@ -1,0 +1,196 @@
+[
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 2252,
+      "output_tokens": 1,
+      "total_tokens": 2253,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 1840,
+      "cost": null,
+      "raw": {
+        "input_tokens": 412,
+        "cache_creation_input_tokens": 1840,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 1840,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 1
+      }
+    }
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "The user wants the weather in two cities ",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "and the time in Tokyo. The weather lookups are independent, so I can run both at once.",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "signature",
+    "value": "ErUBCkYIARgCIkB-hand-built-signature-1"
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 1,
+    "text": "",
+    "summary": false,
+    "redacted": true
+  },
+  {
+    "type": "opaque_delta",
+    "block": 1,
+    "key": "data",
+    "value": "EmwKAhgBEgy3va3pzix-hand-built-redacted-1"
+  },
+  {
+    "type": "text_delta",
+    "block": 2,
+    "text": "I'll check Paris and Tokyo (東京) ",
+    "phase": null
+  },
+  {
+    "type": "text_delta",
+    "block": 2,
+    "text": "right away.",
+    "phase": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 3,
+    "call_id": "toolu_01HandBuiltParis",
+    "name": "get_weather",
+    "wire_id": "toolu_01HandBuiltParis"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": ""
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "{\"city\": "
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "\"Paris\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 3,
+    "args": {
+      "city": "Paris"
+    }
+  },
+  {
+    "type": "tool_call_start",
+    "block": 4,
+    "call_id": "toolu_01HandBuiltTokyo",
+    "name": "get_weather",
+    "wire_id": "toolu_01HandBuiltTokyo"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 4,
+    "text": ""
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 4,
+    "text": "{\"ci"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 4,
+    "text": "ty\": \"Tokyo\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 4,
+    "args": {
+      "city": "Tokyo"
+    }
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 2252,
+      "output_tokens": 187,
+      "total_tokens": 2439,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 1840,
+      "cost": null,
+      "raw": {
+        "input_tokens": 412,
+        "cache_creation_input_tokens": 1840,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 1840,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 187
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "tool_use",
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "The user wants the weather in two cities and the time in Tokyo. The weather lookups are independent, so I can run both at once.",
+          "signature": "ErUBCkYIARgCIkB-hand-built-signature-1"
+        },
+        {
+          "type": "redacted_thinking",
+          "data": "EmwKAhgBEgy3va3pzix-hand-built-redacted-1"
+        },
+        {
+          "type": "text",
+          "text": "I'll check Paris and Tokyo (東京) right away."
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01HandBuiltParis",
+          "name": "get_weather",
+          "input": {
+            "city": "Paris"
+          }
+        },
+        {
+          "type": "tool_use",
+          "id": "toolu_01HandBuiltTokyo",
+          "name": "get_weather",
+          "input": {
+            "city": "Tokyo"
+          }
+        }
+      ],
+      "sha256": "7a9852343147082d6efa39364109bca366cfdaad5aeb5a31ce27a7a0a27205c7",
+      "prefix": "55515cf6fb18d9f2ed933e79be883ac1670dee98e16acaa96aff842f59479249"
+    }
+  }
+]

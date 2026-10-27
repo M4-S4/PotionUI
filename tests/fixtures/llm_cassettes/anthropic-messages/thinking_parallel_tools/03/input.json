@@ -1,0 +1,38 @@
+{
+  "messages": [
+    {
+      "id": "t2",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01HandBuiltTime",
+          "name": "get_time",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"local_time\": \"21:42\"}",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        }
+      ],
+      "origin": null,
+      "raw": null
+    },
+    {
+      "id": "u2",
+      "role": "user",
+      "parts": [
+        {
+          "type": "context",
+          "kind": "turn_note",
+          "text": "Two of four tool rounds are used."
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}
