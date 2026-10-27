@@ -88,6 +88,14 @@ class TestGpuInfo:
         assert name == "RTX 5090 (snapshot)"
         assert vram is None
 
+    def test_unnamed_gpu_reports_no_name(self, monkeypatch, install_capabilities, no_nvml):
+        _current_device(monkeypatch, 0)
+        install_capabilities(fake_capabilities(ampere(name=None)))
+        cuda_available, cap, name, vram = probe_mod._gpu_info()
+        assert cuda_available is True
+        assert cap == (8, 6)
+        assert name is None
+
     def test_capability_follows_the_current_device_and_the_name_is_device_zeros(
         self, monkeypatch, install_capabilities, no_nvml
     ):

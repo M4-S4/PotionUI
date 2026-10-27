@@ -57,9 +57,7 @@ ALLOWLIST = frozenset({
 
 CAPABILITY_PROBE = "get_device_capability"
 
-CAPABILITY_ALLOWLIST = frozenset({
-    "src/features/backends/native_hardware.py",
-})
+CAPABILITY_ALLOWLIST: frozenset[str] = frozenset()
 
 
 def _is_private(name: str) -> bool:
@@ -124,15 +122,19 @@ def _usages(tree: ast.Module) -> list[tuple[str, int]]:
     return sorted(found, key=lambda usage: (usage[1], usage[0]))
 
 
-def _scan(base: Path, source_index) -> dict[tuple[str, str], int]:
+def _walk_outside_kernels(base: Path, source_index):
     exempt = base / KERNELS_PACKAGE
-    found: dict[tuple[str, str], int] = {}
     for path in source_index.py_files(base):
         if path.is_relative_to(exempt):
             continue
         tree = source_index.tree(path)
         assert tree is not None, f"{path} does not parse"
-        relative = path.relative_to(base.parent).as_posix()
+        yield path.relative_to(base.parent).as_posix(), tree
+
+
+def _scan(base: Path, source_index) -> dict[tuple[str, str], int]:
+    found: dict[tuple[str, str], int] = {}
+    for relative, tree in _walk_outside_kernels(base, source_index):
         for name, line in _usages(tree):
             found.setdefault((relative, name), line)
     return found
@@ -301,40 +303,36 @@ def test_listed_usage_passes_and_an_unused_entry_is_stale(tmp_path, source_index
     ]
 
 
-def _capability_calls(tree: ast.Module) -> list[int]:
+def _capability_references(tree: ast.Module) -> list[int]:
     lines = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Attribute):
-            name = func.attr
-        elif isinstance(func, ast.Name):
-            name = func.id
+        if isinstance(node, ast.Attribute):
+            hit = node.attr == CAPABILITY_PROBE
+        elif isinstance(node, ast.Name):
+            hit = node.id == CAPABILITY_PROBE
+        elif isinstance(node, ast.Constant):
+            hit = node.value == CAPABILITY_PROBE
+        elif isinstance(node, ast.ImportFrom):
+            hit = any(alias.name == CAPABILITY_PROBE for alias in node.names)
         else:
-            continue
-        if name == CAPABILITY_PROBE:
+            hit = False
+        if hit:
             lines.append(node.lineno)
     return sorted(lines)
 
 
-def _scan_capability_calls(base: Path, source_index) -> dict[str, int]:
-    exempt = base / KERNELS_PACKAGE
+def _scan_capability_references(base: Path, source_index) -> dict[str, int]:
     found: dict[str, int] = {}
-    for path in source_index.py_files(base):
-        if path.is_relative_to(exempt):
-            continue
-        tree = source_index.tree(path)
-        assert tree is not None, f"{path} does not parse"
-        lines = _capability_calls(tree)
+    for relative, tree in _walk_outside_kernels(base, source_index):
+        lines = _capability_references(tree)
         if lines:
-            found[path.relative_to(base.parent).as_posix()] = lines[0]
+            found[relative] = lines[0]
     return found
 
 
-def _unlisted_capability_calls(found: dict[str, int], allowlist: frozenset) -> list[str]:
+def _unlisted_capability_references(found: dict[str, int], allowlist: frozenset) -> list[str]:
     return [
-        f"{path}:{line} calls {CAPABILITY_PROBE}; {REDIRECT}"
+        f"{path}:{line} references {CAPABILITY_PROBE}; {REDIRECT}"
         for path, line in sorted(found.items())
         if path not in allowlist
     ]
@@ -342,84 +340,80 @@ def _unlisted_capability_calls(found: dict[str, int], allowlist: frozenset) -> l
 
 def _stale_capability_entries(found: dict[str, int], allowlist: frozenset) -> list[str]:
     return [
-        f"{path} no longer calls {CAPABILITY_PROBE}; remove it from the capability allowlist"
+        f"{path} no longer references {CAPABILITY_PROBE}; remove it from the capability allowlist"
         for path in sorted(allowlist - found.keys())
     ]
 
 
 @pytest.fixture(scope="module")
-def capability_calls(source_index) -> dict[str, int]:
-    return _scan_capability_calls(SOURCE, source_index)
+def capability_references(source_index) -> dict[str, int]:
+    return _scan_capability_references(SOURCE, source_index)
 
 
-def test_no_new_capability_probes_outside_the_kernels_package(capability_calls):
-    problems = _unlisted_capability_calls(capability_calls, CAPABILITY_ALLOWLIST)
+def test_no_new_capability_probes_outside_the_kernels_package(capability_references):
+    problems = _unlisted_capability_references(capability_references, CAPABILITY_ALLOWLIST)
     assert not problems, "device capability probed outside the kernels package:\n" + "\n".join(problems)
 
 
-def test_capability_allowlist_only_shrinks(capability_calls):
-    problems = _stale_capability_entries(capability_calls, CAPABILITY_ALLOWLIST)
+def test_capability_allowlist_only_shrinks(capability_references):
+    problems = _stale_capability_entries(capability_references, CAPABILITY_ALLOWLIST)
     assert not problems, "stale capability allowlist entries:\n" + "\n".join(problems)
 
 
-@pytest.mark.parametrize("source", [
-    "import torch\ntorch.cuda.get_device_capability()\n",
-    "import torch\ntorch.cuda.get_device_capability(0)\n",
-    "import torch as t\nt.cuda.get_device_capability(t.device('cuda'))\n",
-    "def probe(cuda):\n    return cuda.get_device_capability()\n",
-    "from torch.cuda import get_device_capability\nget_device_capability()\n",
-    "x = [torch.cuda.get_device_capability(i) for i in range(2)]\n",
-], ids=["attribute", "attribute-with-index", "aliased-module", "unrelated-receiver", "bare-name", "comprehension"])
-def test_every_capability_call_spelling_is_recorded(source):
-    assert len(_capability_calls(ast.parse(source))) == 1
+@pytest.mark.parametrize("source, lines", [
+    ("import torch\ntorch.cuda.get_device_capability()\n", [2]),
+    ("from torch.cuda import get_device_capability\nget_device_capability()\n", [1, 2]),
+    ("x = [torch.cuda.get_device_capability(i) for i in range(2)]\n", [1]),
+    ("import torch\nprobe = torch.cuda.get_device_capability\n", [2]),
+], ids=["attribute-call", "bare-name-call", "comprehension", "bare-reference"])
+def test_every_reference_to_the_capability_probe_is_recorded(source, lines):
+    assert _capability_references(ast.parse(source)) == lines
 
 
 @pytest.mark.parametrize("source", [
-    "import torch\nprobe = torch.cuda.get_device_capability\n",
+    "import torch\nprobe = getattr(torch.cuda, 'get_device_capability')\n",
+    "from torch.cuda import get_device_capability as probe\n",
+], ids=["string-constant", "aliased-import"])
+def test_string_and_import_spellings_of_the_capability_probe_are_recorded(source):
+    assert len(_capability_references(ast.parse(source))) == 1
+
+
+@pytest.mark.parametrize("source", [
     "import torch\ntorch.cuda.get_device_name(0)\n",
-    "import torch\ntorch.cuda.get_device_properties(0)\n",
     "def get_device_capability_text():\n    return 'torch.cuda.get_device_capability()'\n",
     '"""torch.cuda.get_device_capability() reads the compute capability"""\n',
     "from src.platform.runtime.native.kernels import capabilities\ncapabilities().device(0).capability\n",
-], ids=["bare-reference", "device-name", "device-properties", "string-and-lookalike-name", "docstring", "snapshot-read"])
-def test_mentions_and_other_device_queries_are_not_capability_calls(source):
-    assert _capability_calls(ast.parse(source)) == []
+], ids=["device-name", "string-and-lookalike-name", "docstring-sentence", "snapshot-read"])
+def test_other_device_queries_and_sentences_are_not_capability_references(source):
+    assert _capability_references(ast.parse(source)) == []
 
 
-def test_capability_calls_are_listed_by_line_in_order():
+def test_capability_references_are_listed_by_line_in_order():
     source = "import torch\nx = 1\ntorch.cuda.get_device_capability()\ny = torch.cuda.get_device_capability(1)\n"
 
-    assert _capability_calls(ast.parse(source)) == [3, 4]
+    assert _capability_references(ast.parse(source)) == [3, 4]
 
 
-def test_capability_scan_skips_the_kernels_package_and_keys_by_repo_relative_path(tmp_path, source_index):
-    base = tmp_path / "src"
-    _write(base, "features/user.py", "import torch\nx = 1\ntorch.cuda.get_device_capability()\n")
-    _write(base, "platform/runtime/native/kernels/hardware.py", "import torch\ntorch.cuda.get_device_capability(0)\n")
-    _write(base, "platform/runtime/native/other.py", "import torch\ntorch.cuda.get_device_name(0)\n")
-
-    assert _scan_capability_calls(base, source_index) == {"src/features/user.py": 3}
-
-
-def test_unlisted_capability_call_names_file_line_and_the_kernels_package(tmp_path, source_index):
+def test_unlisted_capability_reference_names_file_line_and_the_kernels_package(tmp_path, source_index):
     base = tmp_path / "src"
     _write(base, "features/user.py", "import torch\nx = 1\ntorch.cuda.get_device_capability()\n")
 
-    problems = _unlisted_capability_calls(_scan_capability_calls(base, source_index), frozenset())
+    problems = _unlisted_capability_references(_scan_capability_references(base, source_index), frozenset())
 
     assert len(problems) == 1
     assert "src/features/user.py:3" in problems[0]
-    assert CAPABILITY_PROBE in problems[0]
+    assert "get_device_capability" in problems[0]
     assert "src.platform.runtime.native.kernels" in problems[0]
 
 
-def test_listed_capability_call_passes_and_an_unused_entry_is_stale(tmp_path, source_index):
+def test_listed_capability_reference_passes_and_an_unused_entry_is_stale(tmp_path, source_index):
     base = tmp_path / "src"
     _write(base, "features/user.py", "import torch\ntorch.cuda.get_device_capability()\n")
-    found = _scan_capability_calls(base, source_index)
+    found = _scan_capability_references(base, source_index)
     allowlist = frozenset({"src/features/user.py", "src/features/gone.py"})
 
-    assert _unlisted_capability_calls(found, allowlist) == []
+    assert _unlisted_capability_references(found, allowlist) == []
     assert _stale_capability_entries(found, allowlist) == [
-        f"src/features/gone.py no longer calls {CAPABILITY_PROBE}; remove it from the capability allowlist"
+        "src/features/gone.py no longer references get_device_capability; remove it from the capability allowlist"
     ]
+

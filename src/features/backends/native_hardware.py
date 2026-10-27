@@ -54,6 +54,6 @@ def detect_native_hardware_defaults() -> NativeHardwareDefaults:
     logger.info(
         "[NATIVE_HARDWARE] Detected %s, %.1fGB VRAM, sm%d%d; defaulting "
         "device=cuda dtype=%s gpu_max_vram=%dGB (%.1fGB total - %.1fGB reserve)",
-        gpu.name, total_gb, major, minor, dtype, gpu_max_vram, total_gb, reserve_gb,
+        gpu.name or "CUDA GPU", total_gb, major, minor, dtype, gpu_max_vram, total_gb, reserve_gb,
     )
     return NativeHardwareDefaults(device="cuda", dtype=dtype, gpu_max_vram=gpu_max_vram)

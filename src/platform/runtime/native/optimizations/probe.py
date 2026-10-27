@@ -80,7 +80,7 @@ def _gpu_info() -> tuple[bool, Optional[tuple[int, int]], Optional[str], Optiona
         return False, None, None, None
 
     current = snapshot.device()
-    capability = current.capability if current.at_least(1) else None
+    capability = current.capability if current.capability != (0, 0) else None
 
     gpu_name: Optional[str] = None
     gpu_vram_gb: Optional[float] = None

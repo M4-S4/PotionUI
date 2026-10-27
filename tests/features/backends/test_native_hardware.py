@@ -1,3 +1,4 @@
+import logging
 import sys
 from types import SimpleNamespace
 
@@ -96,6 +97,16 @@ def test_first_device_decides_on_a_multi_gpu_host(install_capabilities, vram, no
     install_capabilities(fake_capabilities(fake_device((7, 5)), blackwell()))
 
     assert detect_native_hardware_defaults().dtype == "float16"
+
+
+@pytest.mark.parametrize("name, logged", [(None, "Detected CUDA GPU,"), ("RTX 5090", "Detected RTX 5090,")], ids=["unnamed", "named"])
+def test_detected_gpu_is_logged_by_name_with_a_generic_fallback(install_capabilities, vram, no_torch_probing, caplog, name, logged):
+    install_capabilities(fake_capabilities(ampere(name=name)))
+
+    with caplog.at_level(logging.INFO):
+        detect_native_hardware_defaults()
+
+    assert logged in caplog.text
 
 
 def test_gpu_max_vram_derives_from_total_minus_reserve(install_capabilities, vram, no_torch_probing):

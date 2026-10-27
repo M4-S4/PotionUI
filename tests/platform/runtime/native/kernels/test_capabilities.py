@@ -151,7 +151,7 @@ def test_unreadable_device_name_keeps_the_device(monkeypatch):
     _environment(monkeypatch, devices=[(9, 0)], modules=PROBED)
     monkeypatch.setattr(torch.cuda, "get_device_name", _raise)
     gpu = capabilities().device(0)
-    assert gpu.name == "CUDA GPU"
+    assert gpu.name is None
     assert gpu.capability == (9, 0)
 
 

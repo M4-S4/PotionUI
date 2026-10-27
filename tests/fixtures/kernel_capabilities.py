@@ -9,6 +9,8 @@ import pytest
 if TYPE_CHECKING:
     from src.platform.runtime.native.kernels import Capabilities, DeviceCapabilities
 
+DEFAULT_NAME = object()
+
 AMPERE_CAPABILITY = (8, 6)
 ADA_CAPABILITY = (8, 9)
 HOPPER_CAPABILITY = (9, 0)
@@ -19,14 +21,14 @@ def fake_device(
     capability: tuple[int, int],
     *,
     index: int = 0,
-    name: Optional[str] = None,
+    name: object = DEFAULT_NAME,
     attention_backends: Optional[frozenset[str]] = None,
 ) -> DeviceCapabilities:
     from src.platform.runtime.native.kernels import SDPA, DeviceCapabilities
 
     return DeviceCapabilities(
         index=index,
-        name=name or f"Fake GPU sm{capability[0]}{capability[1]}",
+        name=f"Fake GPU sm{capability[0]}{capability[1]}" if name is DEFAULT_NAME else name,
         capability=capability,
         attention_backends=frozenset({SDPA}) if attention_backends is None else attention_backends,
     )
