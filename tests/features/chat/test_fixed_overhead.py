@@ -13,7 +13,8 @@ from src.features.chat.modes import (
     build_prompts_mode,
 )
 from src.features.llm import context_budget
-from src.features.llm.clients.ollama_wire import build_prompt_tools_text
+from src.features.llm.harness.adapter import ToolSpec
+from src.features.llm.harness.prompt_tools import build_prompt_tools_text
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.use_tools import use_tools_schema
@@ -71,7 +72,7 @@ def _wire(builder, tools, mode_id, tier, form_state=None):
         _session(mode_id), form_state=form_state, tool_tier=tier,
     )
     schemas = tools.get_schemas(allowed) + ([use_tools_schema(deferred)] if deferred else [])
-    return prompt, json.dumps(schemas), build_prompt_tools_text(schemas)
+    return prompt, json.dumps(schemas), build_prompt_tools_text([ToolSpec.from_schema(schema) for schema in schemas])
 
 
 @pytest.mark.parametrize("mode_id,tier", sorted(_FIXED_OVERHEAD_CHARS))

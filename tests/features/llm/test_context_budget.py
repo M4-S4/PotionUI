@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from src.features.llm import context_budget
-from src.features.llm.clients import ollama_wire
+from src.features.llm.harness.adapter import RenderRequest, ToolSpec
+from src.features.llm.harness.adapters import ollama_chat
+from src.features.llm.harness.build import user_message
 from src.features.llm.context_budget import (
     CapacityInfo,
     ContextBudgetExceededError,
@@ -167,27 +169,28 @@ def _ollama_tool():
 
 
 class TestResolveThinkingEnabledMatchesTheRealWirePayload:
-    def _compare(self, provider_options, tools, tool_mode):
+    def _compare(self, provider_options, tools):
         config = _config(type="ollama", model="test-model", temperature=0.7, provider_options=provider_options)
-        request = ollama_wire.build_ollama_chat_request(
-            config, [{"role": "user", "content": "hi"}], "sys", tools=tools, tool_mode=tool_mode,
+        request = RenderRequest(
+            config=config, system="sys", messages=(user_message("hi"),),
+            tools=tuple(ToolSpec.from_schema(tool) for tool in tools or ()),
         )
-        return request.payload["think"], resolve_thinking_enabled(config)
+        return ollama_chat.render_think(request), resolve_thinking_enabled(config)
 
     def test_unset_think_agrees_off_without_tools(self):
-        wire_think, budget_think = self._compare(None, None, ollama_wire.TOOLS_NONE)
+        wire_think, budget_think = self._compare(None, None)
         assert wire_think is False
         assert budget_think is False
 
     def test_null_think_agrees_off_with_native_tools(self):
-        wire_think, budget_think = self._compare({"think": None}, [_ollama_tool()], ollama_wire.TOOLS_AUTO)
+        wire_think, budget_think = self._compare({"think": None}, [_ollama_tool()])
         assert wire_think is False
         assert budget_think is False
 
     @pytest.mark.parametrize("value", [True, "low", "high"])
-    @pytest.mark.parametrize("tools,mode", [(None, ollama_wire.TOOLS_NONE), ([_ollama_tool()], ollama_wire.TOOLS_AUTO)])
-    def test_an_explicit_value_goes_out_as_given_and_budgets_on(self, value, tools, mode):
-        wire_think, budget_think = self._compare({"think": value}, tools, mode)
+    @pytest.mark.parametrize("tools", [None, [_ollama_tool()]])
+    def test_an_explicit_value_goes_out_as_given_and_budgets_on(self, value, tools):
+        wire_think, budget_think = self._compare({"think": value}, tools)
         assert wire_think == value
         assert budget_think is True
 
