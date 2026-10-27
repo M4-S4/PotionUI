@@ -13,17 +13,49 @@ from src.features.llm.context_budget import (
     MIN_RESERVE_TOKENS,
     THINKING_ALLOWANCE_CAP_TOKENS,
     THINKING_ALLOWANCE_FRACTION,
-    count_messages,
     count_text,
     count_tool_schemas,
-    enforce_budget,
-    fit_messages,
     multimodal_allowance,
     resolve_capacity,
     resolve_reserve,
     resolve_sent_max_tokens,
     resolve_thinking_enabled,
 )
+
+
+from dataclasses import replace
+
+from src.features.llm.harness.build import attach_context, context_message
+from src.features.llm.harness.legacy import messages_from_dicts
+from src.features.llm.harness.messages import Role
+from tests.fixtures.chat_engine import legacy_dicts
+
+
+def _as_messages(entries):
+    entries = list(entries)
+    if entries and isinstance(entries[0], dict):
+        return messages_from_dicts(entries)[0]
+    return entries
+
+
+def count_messages(entries, counter):
+    return context_budget.count_messages(_as_messages(entries), counter)
+
+
+def fit_messages(entries, **kwargs):
+    result = context_budget.fit_messages(_as_messages(entries), **kwargs)
+    return replace(result, messages=legacy_dicts(result.messages), kept_units=[legacy_dicts(unit) for unit in result.kept_units])
+
+
+def enforce_budget(*, messages, image_data=None, messages_counter=None, **kwargs):
+    counter = None
+    if messages_counter is not None:
+        def counter(system, kept, tools):
+            return messages_counter(system, legacy_dicts(kept), tools)
+    outcome = context_budget.enforce_budget(
+        messages=_as_messages(messages), image_attached=bool(image_data), messages_counter=counter, **kwargs,
+    )
+    return context_budget.BudgetOutcome(messages=legacy_dicts(outcome.messages), ledger=outcome.ledger)
 
 
 def _config(**overrides):
@@ -703,34 +735,7 @@ class TestResolveImageTokenOverride:
         assert outcome.ledger["image_tokens"] == 77
 
 
-# ---------------------------------------------------------------------------
-# Current-turn protection against realistic ToolWorkflow-built message lists
-# ---------------------------------------------------------------------------
-
-def _workflow(messages, iteration_nudge=None, wrap_up_on_limit=True):
-    from unittest.mock import Mock
-
-    from src.features.llm.tools.workflow import ToolWorkflow
-
-    return ToolWorkflow(
-        executor=Mock(),
-        messages=messages,
-        tool_context=Mock(),
-        allowed_tools=None,
-        max_iterations=5,
-        iteration_nudge=iteration_nudge,
-        wrap_up_on_limit=wrap_up_on_limit,
-    )
-
-
-class TestCurrentTurnProtectionAcrossWorkflowCalls:
-    """The current turn — its injected context blocks, its tool rounds, and
-    any trailing nudge the workflow appends — must survive trimming at every
-    stage of a tool loop, built through the SAME `ToolWorkflow` helpers the
-    real send paths use so the message shape can't drift from what this
-    test exercises.
-    """
-
+class TestCurrentTurnProtectionAcrossEngineSteps:
     OLD_HISTORY = [
         {"role": "user", "content": "an old unrelated question " + "x" * 300},
         {"role": "assistant", "content": "an old unrelated answer " + "x" * 300},
@@ -742,104 +747,53 @@ class TestCurrentTurnProtectionAcrossWorkflowCalls:
     QUESTION = {"role": "user", "content": "What resolution does the Anime preset render at?"}
     TOOL_CALL = {
         "role": "assistant", "content": "",
-        "tool_calls": [{"function": {"name": "get_model_info", "arguments": {}}}],
+        "tool_calls": [{"id": "1", "function": {"name": "get_model_info", "arguments": {}}}],
     }
     TOOL_RESULT = {"role": "tool", "content": "resolution: 896x1152", "tool_call_id": "1"}
-
-    # Small enough that the old history is clearly dropped, large enough
-    # that the current turn's own stack (question + context + one tool
-    # round + a nudge) fits.
     BUDGET_TOKENS = 400
 
     def _base_messages(self):
-        messages = list(self.OLD_HISTORY) + [dict(self.QUESTION)]
+        messages = messages_from_dicts(list(self.OLD_HISTORY) + [dict(self.QUESTION)])[0]
         for block in self.CONTEXT_BLOCKS:
-            context_budget.attach_context_block(messages, block)
+            attach_context(messages, "context", block)
         return messages
 
-    def _folded_question(self):
-        """The QUESTION message as it looks once every CONTEXT_BLOCKS entry
-        has folded into it, matching what `_base_messages` builds."""
-        messages = [dict(self.QUESTION)]
-        for block in self.CONTEXT_BLOCKS:
-            context_budget.attach_context_block(messages, block)
-        return messages[0]
+    def _with_round(self, note_kind, note_text):
+        return [*self._base_messages(), *messages_from_dicts([self.TOOL_CALL, self.TOOL_RESULT])[0], context_message(note_kind, note_text)]
 
     def _assert_current_turn_survived(self, sent):
-        contents = [m.get("content") or "" for m in sent]
-        assert not any("old unrelated" in c for c in contents)
-        assert any("resolution does the Anime preset" in c for c in contents)
-        assert any("dark mode" in c for c in contents)
-        assert any("SDXL-Anime" in c for c in contents)
+        contents = [entry.get("content") or "" for entry in sent]
+        assert not any("old unrelated" in content for content in contents)
+        assert any("resolution does the Anime preset" in content for content in contents)
+        assert any("dark mode" in content for content in contents)
+        assert any("SDXL-Anime" in content for content in contents)
 
     def test_first_call(self):
-        """The turn's very first request — no tool round has happened yet."""
-        messages = self._base_messages()
         outcome = enforce_budget(
             capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
-            system_message=None, messages=messages, counter=len,
+            system_message=None, messages=self._base_messages(), counter=len,
         )
         self._assert_current_turn_survived(outcome.messages)
-        assert outcome.messages[-1] == self._folded_question()
+        assert outcome.messages[-1]["content"].startswith(self.QUESTION["content"] + "\n\n<context>\nrecalled memory")
 
-    def test_next_call_with_the_iteration_nudge(self):
-        """A tool round has completed; the workflow's own `_next_request`
-        appends the iteration nudge exactly as it would for a live turn —
-        built through the real method, not a hand-rolled equivalent."""
-        nudge = "Reminder: call a tool or answer now."
-        workflow = _workflow(self._base_messages(), iteration_nudge=nudge)
-        workflow.working_messages.append(dict(self.TOOL_CALL))
-        workflow.working_messages.append(dict(self.TOOL_RESULT))
-        workflow._any_tool_round_completed = True
-
-        request = workflow._next_request()
-
+    @pytest.mark.parametrize("kind, note", [("nudge", "Reminder: call a tool or answer now."), ("budget", "Answer now.")])
+    def test_a_later_step_keeps_the_round_and_the_trailing_note(self, kind, note):
         outcome = enforce_budget(
             capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
-            system_message=None, messages=request.messages, counter=len,
+            system_message=None, messages=self._with_round(kind, note), counter=len,
         )
         self._assert_current_turn_survived(outcome.messages)
-        sent_roles = [m["role"] for m in outcome.messages]
-        assert "tool" in sent_roles  # the completed round's result must survive
-        assert not any(m["role"] == "system" for m in outcome.messages)
-        question = next(m for m in outcome.messages if m["content"].startswith(self.QUESTION["content"]))
-        expected = [self._folded_question()]
-        context_budget.attach_context_block(expected, nudge)
-        assert question["content"] == expected[0]["content"]
+        assert [entry["role"] for entry in outcome.messages] == ["user", "assistant", "tool", "user"]
+        assert outcome.messages[-1]["content"] == f"<context>\n{note}\n</context>"
 
-    def test_final_call_with_the_budget_exhausted_message(self):
-        """The tool-iteration budget ran out; `_final_request` appends the
-        real `TOOL_BUDGET_EXHAUSTED_MESSAGE`, built the same way the live
-        wrap-up call does."""
-        workflow = _workflow(self._base_messages(), wrap_up_on_limit=True)
-        workflow.working_messages.append(dict(self.TOOL_CALL))
-        workflow.working_messages.append(dict(self.TOOL_RESULT))
-
-        request = workflow._final_request()
-
-        outcome = enforce_budget(
-            capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
-            system_message=None, messages=request.messages, counter=len,
-        )
-        self._assert_current_turn_survived(outcome.messages)
-        assert not any(m["role"] == "system" for m in outcome.messages)
-        question = next(m for m in outcome.messages if m["content"].startswith(self.QUESTION["content"]))
-        expected = [self._folded_question()]
-        context_budget.attach_context_block(expected, workflow.TOOL_BUDGET_EXHAUSTED_MESSAGE)
-        assert question["content"] == expected[0]["content"]
+    def test_a_trailing_note_is_never_mistaken_for_the_turn_anchor(self):
+        units = context_budget.atomic_units(self._with_round("nudge", "go on"))
+        assert context_budget.current_turn_anchor(units) == 2
+        assert units[-1][0].role is Role.USER
 
     def test_irreducible_current_turn_raises_rather_than_trimming_into_it(self):
-        """When the current turn's own stack alone doesn't fit, the request
-        must be refused, never silently trimmed into the question, its
-        context blocks, or its tool round."""
-        workflow = _workflow(self._base_messages(), iteration_nudge="go on")
-        workflow.working_messages.append(dict(self.TOOL_CALL))
-        workflow.working_messages.append(dict(self.TOOL_RESULT))
-        workflow._any_tool_round_completed = True
-        request = workflow._next_request()
-
         with pytest.raises(ContextBudgetExceededError):
             enforce_budget(
                 capacity_tokens=20, capacity_source="config", reserve_tokens=5,
-                system_message=None, messages=request.messages, counter=len,
+                system_message=None, messages=self._with_round("nudge", "go on"), counter=len,
             )

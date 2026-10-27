@@ -1,8 +1,9 @@
 from src.features.llm import context_budget as cb
+from src.features.llm.harness.legacy import messages_from_dicts
 
 
 def _messages(count):
-    return [{"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 400} for i in range(count)]
+    return messages_from_dicts([{"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 400} for i in range(count)])[0]
 
 
 def _enforce(messages, *, counter, messages_counter=None, capacity=100000):

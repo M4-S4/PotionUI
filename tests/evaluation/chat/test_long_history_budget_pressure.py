@@ -15,6 +15,7 @@ direct, standalone proof that the recompute path's numbers are real.
 
 from src.features.llm import context_budget
 from tests.evaluation.chat import fixtures
+from src.features.llm.harness.legacy import messages_from_dicts
 
 
 def _pressure_assumption():
@@ -48,7 +49,7 @@ class TestBudgetPressureIsReal:
             capacity_source="test",
             reserve_tokens=pressure["reserve_tokens"],
             system_message=None,
-            messages=history,
+            messages=messages_from_dicts(history)[0],
             tool_schemas=None,
         )
         ledger = outcome.ledger
@@ -69,10 +70,10 @@ class TestBudgetPressureIsReal:
             capacity_source="test",
             reserve_tokens=pressure["reserve_tokens"],
             system_message=None,
-            messages=history,
+            messages=messages_from_dicts(history)[0],
             tool_schemas=None,
         )
-        kept_contents = [m["content"] for m in outcome.messages]
+        kept_contents = [m.text() for m in outcome.messages]
         assert latest_question in kept_contents, "the current turn's own question must never be trimmed away"
         # It must survive specifically because it's protected, not by luck of
         # fitting anyway - prove real pressure forced something else out.
@@ -89,7 +90,7 @@ class TestBudgetPressureIsReal:
             capacity_source="test",
             reserve_tokens=pressure["reserve_tokens"],
             system_message=None,
-            messages=history,
+            messages=messages_from_dicts(history)[0],
             tool_schemas=None,
         )
         assert outcome.ledger["messages_dropped"] == 0
