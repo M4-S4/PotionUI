@@ -8,7 +8,8 @@ import torch.nn.functional as F
 
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from vendor.gpl.comfyui import ops as _ops_module
-from vendor.gpl.comfyui.ops import _deltas_output_branch_ok, _lora_output_branch, dequantize_nvfp4
+from vendor.gpl.comfyui.ops import _deltas_output_branch_ok, _lora_output_branch
+from src.platform.runtime.native.io.quant_formats import dequantize_nvfp4
 from src.platform.runtime.native.kernels import fp8_ops, nvfp4_linear
 from src.platform.runtime.native.kernels.nvfp4_linear import _nvfp4_scaled_mm_fast_path_ok
 

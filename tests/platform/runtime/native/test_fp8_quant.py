@@ -22,7 +22,6 @@ from src.platform.runtime.native.ops.fp8_quant import (  # noqa: E402
     quantize_tensor_to_fp8_scaled,
     should_quantize_fp8,
 )
-from vendor.gpl.comfyui.ops import _parse_comfy_quant
 from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops
 
 
@@ -195,19 +194,6 @@ def test_estimate_fp8_gb_roughly_halves_bf16():
 
 def _blob(conf: dict) -> torch.Tensor:
     return torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
-
-
-def test_parse_comfy_quant_none_for_missing_blob():
-    assert _parse_comfy_quant(None) is None
-
-
-def test_parse_comfy_quant_none_for_corrupt_blob():
-    garbage = torch.tensor([0xFF, 0xFE, 0x00, 0x01], dtype=torch.uint8)
-    assert _parse_comfy_quant(garbage) is None
-
-
-def test_parse_comfy_quant_decodes_json():
-    assert _parse_comfy_quant(_blob({"format": "float8_e4m3fn"})) == {"format": "float8_e4m3fn"}
 
 
 def test_fp8_layer_with_comfy_quant_blob_loads_unchanged():

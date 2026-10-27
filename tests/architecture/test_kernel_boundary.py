@@ -13,17 +13,8 @@ KERNELS_PACKAGE = Path("platform") / "runtime" / "native" / "kernels"
 REDIRECT = "new code must go through src.platform.runtime.native.kernels"
 
 ALLOWLIST = frozenset({
-    ("src/features/llm/native_te_adoption.py", "_parse_comfy_quant"),
-    ("src/features/llm/native_te_adoption.py", "dequantize_nvfp4"),
     ("src/pipelines/pipes/_shared/generation/dit_placement.py", "partition_output_branch_deltas"),
     ("src/platform/runtime/native/engine.py", "log_lora_path_summary"),
-    ("src/platform/runtime/native/io/safetensors_loader.py", "_extract_convrot_config"),
-    ("src/platform/runtime/native/io/safetensors_loader.py", "_parse_comfy_quant"),
-    ("src/platform/runtime/native/io/state_dict_utils.py", "_parse_comfy_quant"),
-    ("src/platform/runtime/native/ops/model_tools/formats.py", "_build_convrot_hadamard"),
-    ("src/platform/runtime/native/ops/model_tools/formats.py", "_convrot_unrotate_weight"),
-    ("src/platform/runtime/native/ops/model_tools/formats.py", "_quantize_nvfp4_dynamic"),
-    ("src/platform/runtime/native/ops/model_tools/formats.py", "dequantize_nvfp4"),
     ("src/platform/settings/runtime_flags.py", "<module>"),
 })
 

@@ -8,22 +8,24 @@ import torch.nn.functional as F
 
 from vendor.gpl.comfyui import ops
 from vendor.gpl.comfyui.ops import (
-    _NVFP4_BLOCK,
     _add_lora_output_branch,
     _deltas_output_branch_ok,
-    _dequant_values,
     _lora_dequant_path,
     _lora_fused_enabled,
     _lora_output_branch,
     _note_lora_path,
-    _quantize_nvfp4_dynamic,
-    _scale_values,
     _with_lokr,
     linear_with_lora_deltas,
     partition_output_branch_deltas,
-    precompute_nvfp4_scale,
 )
 
+from ..io.quant_formats import (
+    NVFP4_BLOCK,
+    dequant_values,
+    precompute_nvfp4_scale,
+    quantize_nvfp4_dynamic,
+    scale_values,
+)
 from .casting import cast_to
 from .fp8_linear import Fp8ScaledLinear
 from .gemm import gemm_support
@@ -169,9 +171,9 @@ class Nvfp4Linear(Fp8ScaledLinear):
         if self.lora_deltas:
             output_side, weight_side = partition_output_branch_deltas(self.lora_deltas, self.out_features)
             _note_lora_path(self, _lora_dequant_path(weight_side, dequant_reason, output_side))
-        values = _dequant_values(self.nvfp4_packed, self.out_features, self.in_features)
-        num_blocks = self.in_features // _NVFP4_BLOCK
-        weight = _scale_values(values, self.nvfp4_scale, self.out_features, self.in_features, num_blocks)
+        values = dequant_values(self.nvfp4_packed, self.out_features, self.in_features)
+        num_blocks = self.in_features // NVFP4_BLOCK
+        weight = scale_values(values, self.nvfp4_scale, self.out_features, self.in_features, num_blocks)
         weight = weight.to(device=input.device, dtype=input.dtype)
         bias = None if self.bias is None else self.bias.to(input.dtype)
         return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features, owner=self)
@@ -191,7 +193,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
             x2d = x2d.contiguous()
 
         try:
-            x_packed, x_block, x_global = _quantize_nvfp4_dynamic(x2d)
+            x_packed, x_block, x_global = quantize_nvfp4_dynamic(x2d)
         except Exception:
             logger.debug("nvfp4 matmul: activation quant failed; using dequant path", exc_info=True)
             return None

@@ -17,9 +17,9 @@ from safetensors import safe_open
 from safetensors.torch import load_file
 
 from src.platform.runtime.model_headers.signatures import detect_denoiser_prefix
-from vendor.gpl.comfyui.ops import _extract_convrot_config, _parse_comfy_quant
 
 from ..errors import NativeEngineUnsupportedError
+from .quant_formats import extract_convrot_config, parse_comfy_quant
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def _int8_convrot_descriptor(groupsize: int) -> torch.Tensor:
 
 def expand_int4_layers(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     for key in [k for k in state_dict if k.endswith(_DESCRIPTOR_SUFFIX)]:
-        conf = _parse_comfy_quant(state_dict[key])
+        conf = parse_comfy_quant(state_dict[key])
         if conf is None or conf.get("format") != CONVROT_W4A4:
             continue
         base = key[: -len(_DESCRIPTOR_SUFFIX)]
@@ -49,7 +49,7 @@ def expand_int4_layers(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.T
         scale = state_dict.get(base + ".weight_scale")
         if weight is None or scale is None:
             raise NativeEngineUnsupportedError(f"int4 layer '{base}' is missing its weight or weight_scale")
-        _, groupsize = _extract_convrot_config(conf, base)
+        _, groupsize = extract_convrot_config(conf, base)
         state_dict[base + ".weight"] = unpack_int4(weight)
         state_dict[base + ".weight_scale"] = scale.to(torch.float32).reshape(-1, 1)
         state_dict[key] = _int8_convrot_descriptor(groupsize)
