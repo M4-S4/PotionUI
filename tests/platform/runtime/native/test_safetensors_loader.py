@@ -14,7 +14,7 @@ from src.platform.runtime.native.io.safetensors_loader import (
     load_torch_file_prefixed,
     load_torch_file_stripped,
 )
-from vendor.gpl.comfyui.ops import _parse_comfy_quant
+from src.platform.runtime.native.io.quant_formats import parse_comfy_quant
 
 
 def test_load_safetensors_roundtrip(tmp_path):
@@ -275,16 +275,16 @@ def test_int4_convrot_layers_load_as_int8_convrot(tmp_path, load, prefix):
     loaded, _ = load(_int4_file(tmp_path / "int4.safetensors", prefix))
     assert torch.equal(loaded["blocks.0.q.weight"], INT4_CODES)
     assert torch.equal(loaded["blocks.0.q.weight_scale"], torch.tensor([[0.25], [0.5]]))
-    assert _parse_comfy_quant(loaded["blocks.0.q.comfy_quant"]) == {
+    assert parse_comfy_quant(loaded["blocks.0.q.comfy_quant"]) == {
         "format": "int8_tensorwise", "convrot": True, "convrot_groupsize": 64,
     }
     assert loaded["blocks.0.k.weight"].dtype == torch.float8_e4m3fn
-    assert _parse_comfy_quant(loaded["blocks.0.k.comfy_quant"]) == {"format": "float8_e4m3fn"}
+    assert parse_comfy_quant(loaded["blocks.0.k.comfy_quant"]) == {"format": "float8_e4m3fn"}
 
 
 def test_int4_without_a_stated_group_size_uses_the_format_default(tmp_path):
     loaded, _ = load_torch_file(_int4_file(tmp_path / "int4.safetensors", descriptor={"format": "convrot_w4a4"}))
-    assert _parse_comfy_quant(loaded["blocks.0.q.comfy_quant"])["convrot_groupsize"] == 256
+    assert parse_comfy_quant(loaded["blocks.0.q.comfy_quant"])["convrot_groupsize"] == 256
 
 
 def test_int4_layer_without_a_scale_is_refused(tmp_path):

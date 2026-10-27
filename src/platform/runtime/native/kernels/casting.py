@@ -7,14 +7,17 @@ import torch
 import torch.nn.functional as F
 
 from vendor.gpl.comfyui.ops import (
-    _COMFY_QUANT_INT8_TENSORWISE,
-    _FP8_DTYPES,
-    _build_convrot_hadamard,
-    _convrot_unrotate_weight,
-    _extract_convrot_config,
     _note_lora_path,
-    _parse_comfy_quant,
     linear_with_lora_deltas,
+)
+
+from ..io.quant_formats import (
+    COMFY_QUANT_INT8_TENSORWISE,
+    FP8_DTYPES,
+    build_convrot_hadamard,
+    convrot_unrotate_weight,
+    extract_convrot_config,
+    parse_comfy_quant,
 )
 
 
@@ -195,10 +198,10 @@ class disable_weight_init:
             missing_keys, unexpected_keys, error_msgs,
         ) -> None:
             quant_blob = state_dict.pop(prefix + "comfy_quant", None)
-            layer_conf = _parse_comfy_quant(quant_blob)
+            layer_conf = parse_comfy_quant(quant_blob)
             if layer_conf is not None:
                 fmt = layer_conf.get("format")
-                if fmt != _COMFY_QUANT_INT8_TENSORWISE:
+                if fmt != COMFY_QUANT_INT8_TENSORWISE:
                     raise ValueError(
                         f"embedding quant format {fmt!r} is not supported (layer '{prefix.rstrip('.')}')"
                     )
@@ -210,10 +213,10 @@ class disable_weight_init:
                     )
                 self._int8_weight = weight if weight.dtype == torch.int8 else weight.view(torch.int8)
                 self._int8_weight_scale = scale.to(torch.float32)
-                convrot, groupsize = _extract_convrot_config(layer_conf, prefix.rstrip("."))
+                convrot, groupsize = extract_convrot_config(layer_conf, prefix.rstrip("."))
                 if convrot:
                     self._int8_convrot_groupsize = groupsize
-                    self._int8_convrot_hadamard = _build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32).clone()
+                    self._int8_convrot_hadamard = build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32).clone()
                 self.weight = None
             super()._load_from_state_dict(
                 state_dict, prefix, local_metadata, strict,
@@ -238,12 +241,12 @@ class disable_weight_init:
                     orig_shape = x.shape
                     flat = x.reshape(-1, orig_shape[-1])
                     hadamard = cast_to(self._int8_convrot_hadamard, flat.dtype, flat.device)
-                    flat = _convrot_unrotate_weight(flat, hadamard, self._int8_convrot_groupsize)
+                    flat = convrot_unrotate_weight(flat, hadamard, self._int8_convrot_groupsize)
                     x = flat.reshape(orig_shape)
                 return x.to(target)
             target = out_dtype
             if target is None:
-                target = self.weight.dtype if self.weight.dtype not in _FP8_DTYPES else torch.bfloat16
+                target = self.weight.dtype if self.weight.dtype not in FP8_DTYPES else torch.bfloat16
             weight = cast_to(self.weight, target, self.weight.device)
             return F.embedding(
                 input, weight, self.padding_idx, self.max_norm,

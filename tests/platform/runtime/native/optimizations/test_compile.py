@@ -12,7 +12,7 @@ from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.depth_decoder import DepthDecoderModule
 from vendor.gpl.comfyui import ops as comfy_ops
-from vendor.gpl.comfyui.ops import _build_convrot_hadamard
+from src.platform.runtime.native.io.quant_formats import build_convrot_hadamard
 from src.platform.runtime.native.kernels import fp8_ops, Fp8ScaledLinear, disable_weight_init
 from src.platform.runtime.native.optimizations import compile as tc
 from src.platform.settings import runtime_flags
@@ -104,7 +104,7 @@ def _fp8_pre_scaled_linear(dim: int = 16) -> Fp8ScaledLinear:
 def _int8_convrot_linear(dim: int = 16) -> Fp8ScaledLinear:
     layer = _fp8_linear(dim)
     layer.weight = nn.Parameter(torch.randint(-5, 5, (dim, dim), dtype=torch.int8), requires_grad=False)
-    layer.convrot_hadamard = _build_convrot_hadamard(dim, device="cpu", dtype=torch.float32).clone()
+    layer.convrot_hadamard = build_convrot_hadamard(dim, device="cpu", dtype=torch.float32).clone()
     layer.convrot_groupsize = dim
     return layer
 

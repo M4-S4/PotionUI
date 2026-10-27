@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import _E4M3_MAX
+from src.platform.runtime.native.io.quant_formats import E4M3_MAX
 from src.platform.runtime.native.kernels import fp8_ops
 from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
 
@@ -43,7 +43,7 @@ def _reference_forward_scaled_mm(self, input: torch.Tensor) -> "torch.Tensor | N
         x_scale = x_scale_t.to(device=device, dtype=torch.float32).reshape(())
         if not bool(torch.isfinite(x_scale)) or float(x_scale) <= 0.0:
             return None
-        x_fp8 = (x2d.to(torch.float32) / x_scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
+        x_fp8 = (x2d.to(torch.float32) / x_scale).clamp(-E4M3_MAX, E4M3_MAX).to(torch.float8_e4m3fn)
     else:
         x_fp8, x_scale = _quantize_fp8_dynamic(x2d)
     weight = self.weight if self.weight.is_contiguous() else self.weight.contiguous()
@@ -293,7 +293,7 @@ def test_changed_valid_scale_changes_output_correctly():
     torch.manual_seed(1)
     real_w = torch.randn(16, 16) * 0.05
     calib_scale = torch.tensor(0.01)
-    w_fp8 = (real_w / calib_scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
+    w_fp8 = (real_w / calib_scale).clamp(-E4M3_MAX, E4M3_MAX).to(torch.float8_e4m3fn)
     bias = torch.randn(16)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     lin = _fp8_layer(torch.tensor(0.01), weight=w_fp8, bias=bias)

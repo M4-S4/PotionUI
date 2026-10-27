@@ -199,14 +199,14 @@ def _unsupported_quantization(header: dict) -> Optional[str]:
 
 
 def _drop_quant_descriptors(sd: dict) -> dict:
-    from vendor.gpl.comfyui.ops import _parse_comfy_quant
+    from src.platform.runtime.native.io.quant_formats import parse_comfy_quant
 
     out: dict[str, Any] = {}
     for key, tensor in sd.items():
         if key != _DESCRIPTOR_KEY and not key.endswith("." + _DESCRIPTOR_KEY):
             out[key] = tensor
             continue
-        conf = _parse_comfy_quant(tensor)
+        conf = parse_comfy_quant(tensor)
         fmt = conf.get("format") if conf is not None else None
         if conf is not None and fmt not in _ADOPTABLE_QUANT_FORMATS:
             raise ValueError(
@@ -559,7 +559,7 @@ def _dequantize_nvfp4_state_dict(sd: dict) -> dict:
     to this dequant step; see the regression test naming this bug.
     """
     import torch
-    from vendor.gpl.comfyui.ops import dequantize_nvfp4
+    from src.platform.runtime.native.io.quant_formats import dequantize_nvfp4
 
     global_scales: dict[str, Any] = {}
     block_scales: dict[str, Any] = {}

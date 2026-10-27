@@ -10,6 +10,7 @@ from safetensors.torch import save_file
 from src.platform.runtime.native.arch.moss_image.model import MossImage, convert_moss_image_state_dict
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
+from src.platform.runtime.native.io import quant_formats
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file, unpack_int4
 from src.platform.runtime.native.kernels import fp8_ops, pick_operations
 from src.platform.runtime.native.ops.model_tools import formats
@@ -23,7 +24,6 @@ from tests.platform.runtime.native._quant_layouts import (
     reference_quantize_convrot,
     reference_rotate,
 )
-from vendor.gpl.comfyui import ops as comfy_ops
 
 COMFY_QUANT_ALGOS = {
     "float8_e4m3fn": (torch.float8_e4m3fn, {"weight_scale", "input_scale"}),
@@ -138,8 +138,8 @@ def test_the_convrot_descriptor_is_the_canonical_published_form():
 
 
 def test_the_convrot_writer_uses_the_loader_hadamard_not_a_copy():
-    assert formats._build_convrot_hadamard is comfy_ops._build_convrot_hadamard
-    assert formats._convrot_unrotate_weight is comfy_ops._convrot_unrotate_weight
+    assert formats.build_convrot_hadamard is quant_formats.build_convrot_hadamard
+    assert formats.convrot_unrotate_weight is quant_formats.convrot_unrotate_weight
 
 
 def test_int8_convrot_codes_match_the_independent_reference():

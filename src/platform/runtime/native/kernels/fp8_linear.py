@@ -9,27 +9,29 @@ import torch.nn.functional as F
 
 from vendor.gpl.comfyui import ops
 from vendor.gpl.comfyui.ops import (
-    _COMFY_QUANT_INT8_TENSORWISE,
-    _E4M3_MAX,
-    _FP8_DTYPES,
     _add_lora_output_branch,
-    _build_convrot_hadamard,
-    _check_quant_format_supported,
-    _convrot_unrotate_weight,
     _deltas_output_branch_ok,
-    _extract_convrot_config,
     _lora_dequant_path,
     _lora_fused_enabled,
     _lora_output_branch,
     _note_lora_path,
-    _parse_comfy_quant,
-    _reject_ambiguous_int8,
     _with_lokr,
     apply_lora_deltas,
     linear_with_lora_deltas,
     partition_output_branch_deltas,
 )
 
+from ..io.quant_formats import (
+    COMFY_QUANT_INT8_TENSORWISE,
+    E4M3_MAX,
+    FP8_DTYPES,
+    build_convrot_hadamard,
+    check_quant_format_supported,
+    convrot_unrotate_weight,
+    extract_convrot_config,
+    parse_comfy_quant,
+    reject_ambiguous_int8,
+)
 from .casting import cast_bias_weight, cast_to, manual_cast
 from .gemm import gemm_support
 
@@ -119,13 +121,13 @@ def reset_scaled_mm_fast_path_rejection_log() -> None:
 
 def _quantize_fp8_dynamic(x2d: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     amax = x2d.detach().abs().amax().clamp(min=1e-8).to(torch.float32)
-    scale = amax / _E4M3_MAX
+    scale = amax / E4M3_MAX
     return _quantize_fp8(x2d, scale), scale
 
 
 def _quantize_fp8(x2d: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     x = x2d.to(torch.float32, copy=True)
-    return x.div_(scale).clamp_(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
+    return x.div_(scale).clamp_(-E4M3_MAX, E4M3_MAX).to(torch.float8_e4m3fn)
 
 
 class _PreparedLinearOperand:
@@ -202,16 +204,16 @@ class Fp8ScaledLinear(manual_cast.Linear):
             is_ = state_dict.pop(prefix + "scale_input", None)
         pqs = state_dict.pop(prefix + "pre_quant_scale", None)
         quant_blob = state_dict.pop(prefix + "comfy_quant", None)
-        layer_conf = _parse_comfy_quant(quant_blob)
+        layer_conf = parse_comfy_quant(quant_blob)
         if layer_conf is not None:
-            _check_quant_format_supported(layer_conf, prefix.rstrip("."))
-            if layer_conf.get("format") == _COMFY_QUANT_INT8_TENSORWISE:
-                convrot, groupsize = _extract_convrot_config(layer_conf, prefix.rstrip("."))
+            check_quant_format_supported(layer_conf, prefix.rstrip("."))
+            if layer_conf.get("format") == COMFY_QUANT_INT8_TENSORWISE:
+                convrot, groupsize = extract_convrot_config(layer_conf, prefix.rstrip("."))
                 if convrot:
                     self.convrot_groupsize = groupsize
-                    self.convrot_hadamard = _build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32).clone()
+                    self.convrot_hadamard = build_convrot_hadamard(groupsize, device="cpu", dtype=torch.float32).clone()
         else:
-            _reject_ambiguous_int8(state_dict.get(prefix + "weight"), ws, prefix.rstrip("."))
+            reject_ambiguous_int8(state_dict.get(prefix + "weight"), ws, prefix.rstrip("."))
         if ws is not None:
             self.weight_scale = ws
         if is_ is not None:
@@ -272,12 +274,12 @@ class Fp8ScaledLinear(manual_cast.Linear):
         if isinstance(deltas, _Unset):
             deltas = self.lora_deltas
         nb = self.stream_non_blocking
-        dt = dtype if dtype not in _FP8_DTYPES else torch.bfloat16
+        dt = dtype if dtype not in FP8_DTYPES else torch.bfloat16
         weight = cast_to(self.weight, dt, device, non_blocking=nb)
         weight = weight * cast_to(self.weight_scale, dt, device, non_blocking=nb)
         if self.convrot_hadamard is not None:
             hadamard = cast_to(self.convrot_hadamard, dt, device, non_blocking=nb)
-            weight = _convrot_unrotate_weight(weight, hadamard, self.convrot_groupsize)
+            weight = convrot_unrotate_weight(weight, hadamard, self.convrot_groupsize)
         bias = cast_to(self.bias, dt, device, non_blocking=nb) if self.bias is not None else None
         weight = apply_lora_deltas(weight, deltas)
         return weight, bias, dt

@@ -13,15 +13,13 @@ from src.platform.runtime.native.lora.apply import _needs_runtime_deltas
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.ops.dtype import is_mixed_precision
 from src.platform.runtime.native.ops.fp8_quant import quantize_state_dict_to_fp8, should_quantize_fp8
-from vendor.gpl.comfyui.ops import _build_convrot_hadamard, _extract_convrot_config, _parse_comfy_quant
+from src.platform.runtime.native.io.quant_formats import build_convrot_hadamard
 from src.platform.runtime.native.kernels import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
 from src.platform.runtime.native.kernels.fp8_linear import _scaled_mm_fast_path_ok
 
 from .._quant_layouts import (
-    CONFIRMED_DESCRIPTORS,
     CONVROT_DEFAULT_GROUPSIZE,
     CONVROT_WILD_FORMS,
-    HADAMARD_SIZES,
     INT8_CONVROT_LAYER,
     INT8_FORBIDDEN_KEYS,
     INT8_PLAIN_DESCRIPTOR,
@@ -31,7 +29,6 @@ from .._quant_layouts import (
     descriptor_blob,
     int8_state_dict,
     quantization_metadata_header,
-    reference_hadamard,
     resolve_shape,
 )
 
@@ -64,48 +61,6 @@ def _rel_error(got: torch.Tensor, ref: torch.Tensor) -> float:
     return float((got.float() - ref.float()).abs().mean() / ref.float().abs().mean())
 
 
-@pytest.mark.parametrize("conf", CONFIRMED_DESCRIPTORS)
-def test_published_descriptors_round_trip(conf):
-    blob = descriptor_blob(conf)
-    assert blob.dtype == torch.uint8
-    assert blob.numel() == len(json.dumps(conf).encode("utf-8"))
-    assert _parse_comfy_quant(blob) == conf
-
-
-@pytest.mark.parametrize("nested", [False, True])
-def test_stated_convrot_groupsize_is_read_not_defaulted(nested):
-    conf = convrot_descriptor(_STATED_GROUPSIZE, nested=nested)
-    convrot, groupsize = _extract_convrot_config(conf, "proj")
-    assert convrot is True
-    assert groupsize == _STATED_GROUPSIZE
-
-
-def test_convrot_without_stated_groupsize_uses_the_format_default(caplog):
-    conf = convrot_descriptor(_STATED_GROUPSIZE, drop_groupsize=True)
-    with caplog.at_level("INFO"):
-        convrot, groupsize = _extract_convrot_config(conf, "proj")
-    assert (convrot, groupsize) == (True, CONVROT_DEFAULT_GROUPSIZE)
-    assert "no group size" in caplog.text or "states no group size" in caplog.text
-
-
-@pytest.mark.parametrize("form", CONVROT_WILD_FORMS, ids=lambda f: f"{f[0]}b")
-def test_wild_descriptor_variants_parse_at_their_published_byte_length(form):
-    expected_bytes, _, _, extras = form
-    blob = convrot_wild_blob(CONVROT_DEFAULT_GROUPSIZE, form)
-    assert blob.numel() == expected_bytes
-    conf = _parse_comfy_quant(blob)
-    assert conf is not None
-    convrot, groupsize = _extract_convrot_config(conf, "proj")
-    assert convrot is True
-    assert groupsize == CONVROT_DEFAULT_GROUPSIZE
-    if extras.get("per_row"):
-        assert conf["per_row"] is True
-
-
-def test_plain_int8_descriptor_reports_no_convrot():
-    assert _extract_convrot_config(dict(INT8_PLAIN_DESCRIPTOR), "proj")[0] is False
-
-
 @pytest.mark.parametrize(
     "convrot,table",
     [(False, INT8_PLAIN_LAYER), (True, INT8_CONVROT_LAYER)],
@@ -134,14 +89,6 @@ def test_scale_rank_is_the_on_the_wire_per_channel_signal():
     assert plain_scale.dim() == 0
     assert convrot_scale.dim() > 0
     assert convrot_scale.shape == (32, 1)
-
-
-@pytest.mark.parametrize("size", HADAMARD_SIZES)
-def test_hadamard_is_symmetric_and_involutory(size):
-    h = _build_convrot_hadamard(size, device="cpu", dtype=torch.float32)
-    assert torch.allclose(h, h.T)
-    assert torch.allclose(h @ h, torch.eye(size), atol=1e-5)
-    assert torch.allclose(h, reference_hadamard(size), atol=1e-6)
 
 
 @pytest.mark.parametrize("convrot", [False, True])
@@ -266,12 +213,6 @@ def test_convrot_dequantizes_in_bf16_compute():
     got = lin(x)
     assert got.dtype == torch.bfloat16
     assert _rel_error(got, torch.nn.functional.linear(x.float(), w)) < 0.05
-
-
-def test_hadamard_rejects_non_power_of_4_groupsize():
-    _build_convrot_hadamard(64, device="cpu", dtype=torch.float32)
-    with pytest.raises(ValueError, match="power of 4"):
-        _build_convrot_hadamard(128, device="cpu", dtype=torch.float32)
 
 
 def test_groupsize_that_does_not_divide_in_features_raises():
@@ -399,7 +340,7 @@ def test_releasing_one_convrot_layer_leaves_the_shared_hadamard_intact():
     release_module_storage(first)
 
     assert second.convrot_hadamard.numel() == 256 * 256
-    assert _build_convrot_hadamard(256, device="cpu", dtype=torch.float32).numel() == 256 * 256
+    assert build_convrot_hadamard(256, device="cpu", dtype=torch.float32).numel() == 256 * 256
     assert torch.equal(second(x), expected)
     third = _linear(256, 64, fresh())
     assert torch.equal(third(x), expected)

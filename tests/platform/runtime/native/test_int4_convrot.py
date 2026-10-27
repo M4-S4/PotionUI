@@ -8,7 +8,7 @@ import torch
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.io.safetensors_loader import expand_int4_layers, unpack_int4
 from src.platform.runtime.native.lora.apply import _needs_runtime_deltas
-from vendor.gpl.comfyui.ops import _parse_comfy_quant
+from src.platform.runtime.native.io.quant_formats import parse_comfy_quant
 from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops
 
 from ._quant_layouts import reference_hadamard, reference_rotate
@@ -64,7 +64,7 @@ def test_an_int4_layer_is_read_as_an_int8_convrot_layer():
     expanded = unprefixed(expand_int4_layers(dict(sd)))
     assert torch.equal(expanded["weight"], codes)
     assert expanded["weight_scale"].shape == (16, 1)
-    assert _parse_comfy_quant(expanded["comfy_quant"]) == {
+    assert parse_comfy_quant(expanded["comfy_quant"]) == {
         "format": "int8_tensorwise", "convrot": True, "convrot_groupsize": STATED_GROUPSIZE,
     }
 

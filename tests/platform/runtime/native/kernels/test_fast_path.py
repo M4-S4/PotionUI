@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 
 import vendor.gpl.comfyui.ops as ops
+from src.platform.runtime.native.io import quant_formats
 from src.platform.runtime.native.kernels import (
     FastPath,
     FastPathKind,
@@ -195,7 +196,7 @@ def recorder(monkeypatch):
         return torch.zeros(a.shape[0], b.shape[1], dtype=kwargs["output_dtype"])
 
     real_prepare = Fp8ScaledLinear._prepare_dequant_operand
-    real_values = ops._dequant_values
+    real_values = quant_formats.dequant_values
     real_fused = ops._add_fused_lora_branch
 
     def prepare(self, *args, **kwargs):
@@ -213,7 +214,7 @@ def recorder(monkeypatch):
     monkeypatch.setattr(torch, "_scaled_mm", scaled_mm)
     monkeypatch.setattr(F, "scaled_mm", nvfp4_gemm)
     monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", prepare)
-    patch_ops_name(monkeypatch, "_dequant_values", values)
+    patch_ops_name(monkeypatch, "dequant_values", values)
     monkeypatch.setattr(ops, "_add_fused_lora_branch", fused)
     return seen
 
