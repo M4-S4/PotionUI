@@ -10,6 +10,7 @@
 	import { onDestroy } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
+	import { authStore } from '$lib/stores/auth';
 	import { artifactRendererRegistry } from '$lib/registries/artifactRendererRegistry';
 	import { extensionRegistrations } from '$lib/plugin-api/extensionRefresh';
 	import Icon from '$lib/components/Icon.svelte';
@@ -93,6 +94,8 @@
 		renderers = resolved;
 	}
 
+	let isAdmin = $derived($authStore.user?.account_type === 'ADMIN');
+
 	function pipeKey(artifact: RunReportArtifact): string {
 		return artifact.pipe_id != null ? String(artifact.pipe_id) : 'unknown';
 	}
@@ -141,7 +144,7 @@
 							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">
 								{artifact.artifact_type.replace(/_/g, ' ')}
 							</span>
-							{#if artifact.pipe_id != null}
+							{#if isAdmin && artifact.pipe_id != null}
 								<span class="font-mono text-2xs text-fg-subtle truncate">{artifact.pipe_id}</span>
 							{/if}
 						</div>

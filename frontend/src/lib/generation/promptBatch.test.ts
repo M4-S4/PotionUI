@@ -4,15 +4,18 @@ import { tabsStore } from '$lib/stores/tabs';
 import type { Segment } from '$lib/types/segments';
 import type { PromptTabData, Tab } from '$lib/types/tabs';
 import {
+	LOCKED_BATCH_COPY,
 	MAX_BATCH_IMAGES,
 	activePromptIndex,
 	addPrompt,
+	addPromptState,
 	batchLine,
 	batchSummary,
 	canBatchPrompts,
 	deletePrompt,
 	duplicatePrompt,
 	firstEmptyPrompt,
+	imageWord,
 	mirrorActivePrompt,
 	promptCount,
 	promptList,
@@ -194,6 +197,43 @@ describe('batch cap', () => {
 		expect(quantityOf({ quantity: 0 })).toBe(1);
 		expect(quantityOf({})).toBe(1);
 		expect(quantityOf(undefined)).toBe(1);
+	});
+});
+
+describe('adding a prompt', () => {
+	const room = { canBatch: true, count: 2, maxPrompts: 10, perPrompt: 2 };
+
+	it('is open, with nothing to explain, while there is room', () => {
+		expect(addPromptState(room)).toEqual({ atLimit: false, disabled: false, explanation: null });
+	});
+
+	it('is locked with the one-prompt copy for a preset that cannot batch, whatever the count', () => {
+		expect(addPromptState({ ...room, canBatch: false })).toEqual({
+			atLimit: false,
+			disabled: true,
+			explanation: LOCKED_BATCH_COPY
+		});
+		expect(addPromptState({ ...room, canBatch: false, count: 50 }).explanation).toBe(LOCKED_BATCH_COPY);
+	});
+
+	it('closes at the cap and quotes the image cap and the prompt cap', () => {
+		const full = addPromptState({ ...room, count: 10 });
+		expect(full.atLimit).toBe(true);
+		expect(full.disabled).toBe(true);
+		expect(full.explanation).toBe(
+			`A run can make up to ${MAX_BATCH_IMAGES} images. At 2 images each, that is 10 prompts.`
+		);
+	});
+
+	it('stays open one prompt short of the cap and closes past it', () => {
+		expect(addPromptState({ ...room, count: 9 }).disabled).toBe(false);
+		expect(addPromptState({ ...room, count: 11 }).disabled).toBe(true);
+	});
+
+	it('says image in the singular for one image per prompt', () => {
+		expect(imageWord(1)).toBe('image');
+		expect(imageWord(2)).toBe('images');
+		expect(addPromptState({ ...room, count: 20, maxPrompts: 20, perPrompt: 1 }).explanation).toContain('At 1 image each');
 	});
 });
 

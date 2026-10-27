@@ -14,7 +14,7 @@
 	import { appliedStyleTag, applyStyleToPrompt, clearStyle } from '$lib/prompt/styleSegments';
 	import { countUsagesInSegments } from '$lib/utils/promptVariables';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
-	import PromptPicker from '$lib/components/PromptPicker.svelte';
+	import PromptTabs from '$lib/components/PromptTabs.svelte';
 	import { Alert, Button } from '$lib/components/ui';
 	import {
 		BATCH_CAP_MESSAGE,
@@ -295,7 +295,7 @@
 				on:negativeSegmentsChange={(e) => tabHandlers.handleNegativePromptSegmentsChange(e.detail)}
 			>
 				{#snippet titleExtra()}
-					<PromptPicker
+					<PromptTabs
 						{prompts}
 						active={activePrompt}
 						perPrompt={summary.perPrompt}

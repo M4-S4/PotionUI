@@ -143,4 +143,24 @@ describe('ui/Menu', () => {
 		expect(onselect).toHaveBeenCalledWith('delete');
 		expect(menu()).toBeNull();
 	});
+
+	it('anchors to an explicit point instead of its trigger', async () => {
+		const rect = { x: 120, y: 80, left: 120, right: 120, top: 80, bottom: 80, width: 0, height: 0, toJSON: () => ({}) };
+		component = createClassComponent({
+			component: Menu as never,
+			target,
+			props: {
+				label: 'More actions for X',
+				items,
+				align: 'left',
+				anchor: { getBoundingClientRect: () => rect },
+				open: true
+			}
+		});
+		await settle();
+
+		const style = menu()!.getAttribute('style') ?? '';
+		expect(style).toContain('left: 120px');
+		expect(style).toContain('top: 84px');
+	});
 });

@@ -1,99 +1,138 @@
-export interface ToolbarFitInput {
-	available: number;
-	gap: number;
-	order: string[];
-	collapseOrder: string[];
-	widths: Record<string, number>;
+export type HeaderActionKey = 'styles' | 'variables' | 'library';
+
+export interface HeaderStage {
+	wrap: boolean;
+	icons: HeaderActionKey[];
+	folded: HeaderActionKey[];
 }
 
-export function fitToolbar({ available, gap, order, collapseOrder, widths }: ToolbarFitInput): string[] {
-	const hidden = new Set<string>();
-	const used = () => {
-		const shown = order.filter((key) => !hidden.has(key));
-		return shown.reduce((sum, key) => sum + (widths[key] ?? 0), 0) + gap * shown.length;
+export interface HeaderStageInput {
+	actions: HeaderActionKey[];
+	tabs: boolean;
+	compact?: boolean;
+}
+
+const FOLD_ORDER: HeaderActionKey[] = ['variables', 'styles'];
+
+export function headerStages({ actions, tabs, compact = false }: HeaderStageInput): HeaderStage[] {
+	const present: HeaderActionKey[] = actions.filter((key) => key !== 'library');
+	const everything: HeaderActionKey[] = [...present, 'library'];
+	const stages: HeaderStage[] = [{ wrap: false, icons: [], folded: [] }];
+	if (tabs) stages.push({ wrap: true, icons: [], folded: [] });
+	if (present.length > 0) stages.push({ wrap: tabs, icons: [...present], folded: [] });
+	stages.push({ wrap: tabs, icons: everything, folded: [] });
+	const folded: HeaderActionKey[] = [];
+	for (const key of FOLD_ORDER) {
+		if (!present.includes(key)) continue;
+		folded.push(key);
+		stages.push({ wrap: tabs, icons: everything, folded: [...folded] });
+	}
+	const start = compact ? stages.findIndex((stage) => stage.icons.length > 0) : 0;
+	return start > 0 ? stages.slice(start) : stages;
+}
+
+export function pickStage<T>(stages: T[], apply: (stage: T) => void, fits: () => boolean): number {
+	for (let i = 0; i < stages.length; i++) {
+		apply(stages[i]);
+		if (fits()) return i;
+	}
+	return stages.length - 1;
+}
+
+const MIN_STRIP_WIDTH = 220;
+
+export interface HeaderMeasure {
+	scrollWidth: number;
+	clientWidth: number;
+	wrapped: boolean;
+	strip: { clientWidth: number; scrollWidth: number } | null;
+}
+
+export function headerFits(measure: HeaderMeasure): boolean {
+	if (measure.scrollWidth > measure.clientWidth + 1) return false;
+	if (measure.strip && !measure.wrapped && measure.strip.clientWidth < Math.min(measure.strip.scrollWidth, MIN_STRIP_WIDTH)) {
+		return false;
+	}
+	return true;
+}
+
+export function stageSignature(stage: HeaderStage): string {
+	return `${stage.wrap ? 'wrap' : 'row'}|${stage.icons.join(' ')}|${stage.folded.join(' ')}`;
+}
+
+export interface HeaderFitParams {
+	stages: HeaderStage[];
+	onChange?: (stage: HeaderStage) => void;
+}
+
+const STRIP = '[data-header-strip]';
+const FITTING = 'is-fitting';
+
+function writeStage(node: HTMLElement, stage: HeaderStage) {
+	if (stage.wrap) node.dataset.wrap = '1';
+	else delete node.dataset.wrap;
+	node.dataset.icons = stage.icons.join(' ');
+	node.dataset.folded = stage.folded.join(' ');
+}
+
+function measureHeader(node: HTMLElement): HeaderMeasure {
+	const strip = node.querySelector<HTMLElement>(STRIP);
+	return {
+		scrollWidth: node.scrollWidth,
+		clientWidth: node.clientWidth,
+		wrapped: node.dataset.wrap === '1',
+		strip: strip ? { clientWidth: strip.clientWidth, scrollWidth: strip.scrollWidth } : null
 	};
-	for (const key of collapseOrder) {
-		if (used() <= available) break;
-		if (order.includes(key)) hidden.add(key);
-	}
-	return order.filter((key) => hidden.has(key));
 }
 
-export function isOutOfFlow(child: HTMLElement): boolean {
-	return child.offsetParent === null && getComputedStyle(child).position === 'fixed';
-}
-
-export function fixedChildWidth(offsetWidth: number, shrinkMin: number | null): number {
-	return shrinkMin === null ? offsetWidth : Math.min(offsetWidth, shrinkMin);
-}
-
-export interface ToolbarFitParams {
-	order: string[];
-	collapseOrder: string[];
-	onChange: (hidden: string[]) => void;
-}
-
-const SLOT = '[data-toolbar-action]';
-const MORE = '[data-toolbar-more]';
-const SHRINK = 'toolbarShrink';
-const MORE_FALLBACK_WIDTH = 28;
-
-export function toolbarFit(node: HTMLElement, initial: ToolbarFitParams) {
+export function headerFit(node: HTMLElement, initial: HeaderFitParams) {
 	let params = initial;
-	let last = '';
-	const widths: Record<string, number> = {};
-	const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => compute());
-
-	function px(value: string) {
-		const n = parseFloat(value);
-		return Number.isFinite(n) ? n : 0;
-	}
+	let signature = '';
+	let width = -1;
+	let destroyed = false;
+	const resize =
+		typeof ResizeObserver === 'undefined'
+			? null
+			: new ResizeObserver(() => {
+					if (node.clientWidth !== width) compute();
+				});
+	const mutation = typeof MutationObserver === 'undefined' ? null : new MutationObserver(() => compute());
 
 	function compute() {
-		if (node.clientWidth === 0) return;
-		const style = getComputedStyle(node);
-		const gap = px(style.columnGap) || 8;
-		let fixed = 0;
-		let fixedCount = 0;
-		let moreWidth = MORE_FALLBACK_WIDTH;
-		for (const child of Array.from(node.children) as HTMLElement[]) {
-			if (child.matches(SLOT)) {
-				widths[child.dataset.toolbarAction as string] = child.offsetWidth;
-				observer?.observe(child);
-			} else if (child.matches(MORE)) {
-				moreWidth = child.offsetWidth || MORE_FALLBACK_WIDTH;
-			} else if (!child.classList.contains('toolbar-spacer') && !isOutOfFlow(child)) {
-				const shrink = Number.parseFloat(child.dataset[SHRINK] ?? '');
-				fixed += fixedChildWidth(child.offsetWidth, Number.isFinite(shrink) ? shrink : null);
-				fixedCount += 1;
-			}
+		if (destroyed || node.clientWidth === 0 || params.stages.length === 0) return;
+		width = node.clientWidth;
+		node.classList.add(FITTING);
+		let index = 0;
+		try {
+			index = pickStage(
+				params.stages,
+				(stage) => writeStage(node, stage),
+				() => headerFits(measureHeader(node))
+			);
+		} finally {
+			node.classList.remove(FITTING);
 		}
-		const inner = node.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
-		const available = inner - fixed - gap * fixedCount - moreWidth - gap;
-		const hidden = fitToolbar({
-			available,
-			gap,
-			order: params.order,
-			collapseOrder: params.collapseOrder,
-			widths
-		});
-		const signature = hidden.join('|');
-		if (signature !== last) {
-			last = signature;
-			params.onChange(hidden);
-		}
+		const stage = params.stages[index];
+		const next = stageSignature(stage);
+		if (next === signature) return;
+		signature = next;
+		params.onChange?.(stage);
 	}
 
-	observer?.observe(node);
+	resize?.observe(node);
+	mutation?.observe(node, { childList: true, subtree: true, characterData: true });
 	queueMicrotask(compute);
+	void document.fonts?.ready.then(compute);
 
 	return {
-		update(next: ToolbarFitParams) {
+		update(next: HeaderFitParams) {
 			params = next;
 			queueMicrotask(compute);
 		},
 		destroy() {
-			observer?.disconnect();
+			destroyed = true;
+			resize?.disconnect();
+			mutation?.disconnect();
 		}
 	};
 }

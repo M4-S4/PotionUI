@@ -154,7 +154,10 @@ class BaseGeneratorPipe(BasePipe):
                 if ctx.is_cancelled():
                     break
                 if batch_layout is not None:
+                    progress.scope_item(i, len(seeds), batch_layout.per_prompt, batch_layout.count)
                     progress.state(batch_layout.status(i, len(seeds)))
+                else:
+                    progress.scope_item(i, len(seeds))
                 with self.generation_scope(ctx, i):
                     result = self.generate_one(ctx, i, seed, progress)
                 if ctx.is_cancelled():

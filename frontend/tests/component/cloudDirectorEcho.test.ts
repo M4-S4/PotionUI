@@ -77,7 +77,7 @@ describe('the editor when the page hands its own changes back late', () => {
 		}
 		await ticks();
 		const last = emitted[emitted.length - 1];
-		expect(target.textContent!.match(/\d+ segments?/)?.[0]).toBe('1 segment');
+		expect(target.querySelectorAll('[role="list"][aria-label="Prompt"] [role="listitem"]')).toHaveLength(1);
 		expect(target.querySelectorAll('[role="textbox"]').length).toBeGreaterThan(0);
 		expect(last.chain.segments[0].prompt_segments.length).toBeGreaterThan(0);
 		expect(last.chain.segments[0].duration).toBe(3);
@@ -98,10 +98,10 @@ describe('the editor when the page hands its own changes back late', () => {
 		await ticks();
 		instance.$set({ value: saved });
 		await ticks();
-		expect(target.textContent!.match(/\d+ segments?/)?.[0]).toBe('1 segment');
+		expect(target.querySelectorAll('[role="list"][aria-label="Prompt"] [role="listitem"]')).toHaveLength(1);
 		instance.$set({ value: undefined, capabilities: img, selectedMode: 'img2video' });
 		await ticks();
-		expect(target.textContent!.match(/\d+ segments?/)?.[0]).toBe('1 segment');
+		expect(target.querySelectorAll('[role="list"][aria-label="Prompt"] [role="listitem"]')).toHaveLength(1);
 		expect(target.querySelectorAll('[role="textbox"]').length).toBeGreaterThan(0);
 		instance.$destroy();
 	});

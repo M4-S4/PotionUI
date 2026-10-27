@@ -34,7 +34,7 @@ function running(progress: number | null, overrides: Partial<GenerationState> = 
 	return generation({
 		isGenerating: true,
 		currentGeneration: { id: 'run-1', status: 'running' },
-		currentProgress: { step: 'Sampling', progress, current_step: 'Sampling' },
+		currentProgress: { step: 'Sampling', progress, current_step: 'Sampling', pipe_name: 'generator' },
 		startedAt: Date.now(),
 		...overrides
 	});
@@ -180,9 +180,9 @@ describe('generation deck status', () => {
 
 	it('keeps the percentage and the step in the secondary line', () => {
 		mounted = mount({ generation: running(0.64), isGenerating: true });
-		expect(detail()).toBe('64% · Sampling');
-		mounted.set({ generation: running(0.64, { currentProgress: { step: 'Sampling', progress: 0.64, current_step: 'Sampling <<PROGRESS:18/28>>' } }) });
-		expect(detail()).toBe('64% · Sampling · Step 18 / 28');
+		expect(detail()).toBe('64% · Generating');
+		mounted.set({ generation: running(0.64, { currentProgress: { step: 'Sampling', progress: 0.64, current_step: 'Sampling <<PROGRESS:18/28>>', pipe_name: 'generator' } }) });
+		expect(detail()).toBe('64% · Generating · Step 18 / 28');
 	});
 });
 
@@ -219,7 +219,7 @@ describe('generation deck copy and dot', () => {
 
 	it('shows the progress meta while running', () => {
 		mounted = mount({ generation: running(0.64, { lastDurationMs: 18400 }), isGenerating: true });
-		expect(detail()).toBe('64% · Sampling');
+		expect(detail()).toBe('64% · Generating');
 		expect(q('.deck-eyebrow')!.textContent).toBe('Now generating');
 	});
 

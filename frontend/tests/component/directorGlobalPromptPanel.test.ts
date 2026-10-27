@@ -159,7 +159,7 @@ describe('VideoDirectorEditor header: Global prompt panel', () => {
 		expect(dialog!.querySelector('[role="list"][aria-label="Negative prompt"]')).toBeTruthy();
 	});
 
-	it('renders the full image-tab toolbar row (Prompts/Segments/Templates + More) for each editor, not the stripped-down embedded rail', async () => {
+	it('renders the full header with a Library menu for each editor, not the stripped-down embedded rail', async () => {
 		mounted = mountEditor(docWith('A cinematic teaser', 'blurry hands'));
 		await settleFlush();
 
@@ -167,9 +167,10 @@ describe('VideoDirectorEditor header: Global prompt panel', () => {
 		await settleFlush();
 
 		const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement;
+		expect(dialog.querySelectorAll('header.composer-toolbar')).toHaveLength(2);
+		expect(dialog.querySelectorAll('button[aria-label="Library"]')).toHaveLength(2);
 		const buttonLabels = Array.from(dialog.querySelectorAll('button')).map((button) => button.textContent?.trim());
-		expect(buttonLabels).toEqual(expect.arrayContaining(['Prompts', 'Segments', 'Templates']));
-		expect(dialog.querySelectorAll('[aria-label="More prompt actions"]').length).toBe(2);
+		expect(buttonLabels).not.toEqual(expect.arrayContaining(['Prompts']));
 	});
 
 	it('a typed edit in the panel reaches onChange', async () => {
