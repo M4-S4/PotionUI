@@ -276,14 +276,6 @@ class MiniMaxH3Attention(nn.Module):
                 # copy (~1.1GB at 78k rows), which on a real 5090 run starved
                 # this very fallback by 224MB. Past the except block those
                 # frames are freed and empty_cache() can actually reclaim them.
-                #
-                # Query-chunked SDPA, NOT the normal dispatch: sage re-quantizes
-                # the FULL key/value set per call (k_int8 + v_transposed_permutted
-                # + v_fp8, several GB at ~78k rows), so a sage retry keeps the
-                # exact transients that just OOM'd. SDPA's flash/mem-efficient
-                # kernels allocate no full-size copies, need no V-prescale guard
-                # (no fp16 quant internals), and full-key softmax per query
-                # chunk is exact.
                 chunk = seq_chunk_rows if seq_chunk_rows else 16384
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()

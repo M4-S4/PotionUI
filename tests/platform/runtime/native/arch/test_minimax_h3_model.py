@@ -1141,12 +1141,14 @@ def test_oom_rescue_never_returns_to_the_failed_kernel_through_the_real_dispatch
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, fp32_ops(), dtype=torch.bfloat16)
     _init_attn_weights(attn)
     x = torch.randn(1, s, 8, dtype=torch.bfloat16)
+    dense = attn(x, None)
+    calls.clear()
 
     out = attn(x.as_subclass(_CudaLike), None, None, 4)
 
     assert calls == [("_sage", s, s), ("_sdpa", 4, s), ("_sdpa", 4, s), ("_sdpa", 2, s)]
-    assert out.shape == (1, s, 8)
-    assert torch.isfinite(out.float()).all()
+    assert out.shape == dense.shape
+    assert torch.allclose(out.float(), dense.float(), atol=2e-2, rtol=2e-2)
 
 
 # --- rotary tables cached in the consumed dtype ------------------------------
