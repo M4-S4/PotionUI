@@ -76,7 +76,7 @@ class TESpec:
 # per-input-channel activation smoothing) is genuinely consumed by
 # Fp8ScaledLinear/Nvfp4Linear._load_from_state_dict — it is applied to the
 # activation at forward time, not folded into the weight, so it is popped
-# unconditionally (see vendor/gpl/comfyui/ops.py) rather than silently dropped.
+# unconditionally (see kernels/fp8_linear.py) rather than silently dropped.
 _QUANT_SIDECAR = {
     "*.weight_scale", "*.input_scale", "*.scale_weight", "*.scale_input", "*.weight_scale_2",
     "*.pre_quant_scale", "*.comfy_quant", "scaled_fp8",
