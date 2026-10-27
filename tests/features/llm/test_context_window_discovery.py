@@ -11,7 +11,7 @@ from src.features.chat.conversation import ConversationRunner
 from src.features.llm import context_budget
 from src.features.llm import routes as llm_mod
 from src.features.llm import ttl_cache
-from src.features.llm.clients.native import NativeLLMClient, read_checkpoint_context_window
+from src.features.llm.native.runtime import NativeRuntime, read_checkpoint_context_window
 from src.features.llm.clients.ollama import OllamaClient, parse_show_context_window
 from src.features.llm.clients.openai import OpenAIClient
 from src.features.llm.gateway import LLMGateway
@@ -159,14 +159,14 @@ class TestNativeReading:
     @pytest.mark.asyncio
     async def test_client_resolves_the_checkpoint_and_reads_local_files_only(self, tmp_path):
         write_json(tmp_path / "config.json", {"max_position_embeddings": 32768})
-        client = NativeLLMClient()
+        client = NativeRuntime()
         client._resolve_model = lambda name: (str(tmp_path), False)
 
         assert await client.discover_context_window("", None, "qwen") == window(32768, "trained")
 
     @pytest.mark.asyncio
     async def test_adopted_text_encoder_and_unresolvable_names_yield_nothing(self, tmp_path):
-        client = NativeLLMClient()
+        client = NativeRuntime()
         client._resolve_model = lambda name: (str(tmp_path / "te.safetensors"), True)
         assert await client.discover_context_window("", None, "text_encoders/te.safetensors") is None
 

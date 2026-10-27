@@ -3,7 +3,7 @@ provider — see LLM-08.
 
 The native engine has no wire-level `finish_reason` to read: it has to infer
 the boundary itself from the effective generation config
-(`NativeLLMClient._eos_token_ids`/`_completion_outcome`, wired into both
+(`NativeDriver._eos_token_ids`/`_finish_reason`, wired into both
 `generate_with_history` and `stream_with_history`). This file is independent
 of `test_native_client.py` (owned by another lane) by design — it duplicates
 the small checkpoint-building fixtures it needs rather than importing that
@@ -28,9 +28,9 @@ from src.features.llm.repository import LLMConfig  # noqa: E402
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle  # noqa: E402
 
 try:
-    from src.features.llm.clients.native import NativeLLMClient
+    from tests.fixtures.native_runtime import NativeDriver
 except ImportError:
-    NativeLLMClient = None  # patch not applied yet
+    NativeDriver = None  # patch not applied yet
 
 from tests.fixtures.model_roots import make_roots
 
@@ -96,7 +96,7 @@ def models_manager():
 
 @pytest.fixture
 def client(models_manager):
-    return NativeLLMClient(models_manager)
+    return NativeDriver(models_manager)
 
 
 def _config(model_name: str, **overrides) -> LLMConfig:
@@ -144,74 +144,74 @@ def _scripted_streaming_generate(token_ids):
 class TestEosTokenIds:
     def test_none_normalizes_to_empty_list(self):
         checkpoint = SimpleNamespace(model=SimpleNamespace(generation_config=SimpleNamespace(eos_token_id=None)))
-        assert NativeLLMClient._eos_token_ids(checkpoint) == []
+        assert NativeDriver._eos_token_ids(checkpoint) == []
 
     def test_int_normalizes_to_a_singleton_list(self):
         checkpoint = SimpleNamespace(model=SimpleNamespace(generation_config=SimpleNamespace(eos_token_id=3)))
-        assert NativeLLMClient._eos_token_ids(checkpoint) == [3]
+        assert NativeDriver._eos_token_ids(checkpoint) == [3]
 
     def test_list_passes_through(self):
         checkpoint = SimpleNamespace(model=SimpleNamespace(generation_config=SimpleNamespace(eos_token_id=[3, 7])))
-        assert NativeLLMClient._eos_token_ids(checkpoint) == [3, 7]
+        assert NativeDriver._eos_token_ids(checkpoint) == [3, 7]
 
 
 class TestCompletionOutcome:
     def test_eos_as_last_token_is_stop(self):
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=3, completion_tokens=2, max_new_tokens=10, eos_ids=[3],
         )
-        assert outcome == {"reason": "stop", "raw": None}
+        assert outcome == "stop"
 
     def test_eos_as_last_token_wins_even_exactly_at_the_limit(self):
         """The card's explicit edge case: hitting max_new_tokens must never
         shadow a real EOS that happened to land exactly there."""
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=3, completion_tokens=10, max_new_tokens=10, eos_ids=[3],
         )
-        assert outcome == {"reason": "stop", "raw": None}
+        assert outcome == "stop"
 
     def test_limit_reached_without_eos_is_length(self):
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=5, completion_tokens=10, max_new_tokens=10, eos_ids=[3],
         )
-        assert outcome == {"reason": "length", "raw": None}
+        assert outcome == "length"
 
     def test_neither_eos_nor_limit_is_unknown_not_guessed(self):
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=5, completion_tokens=2, max_new_tokens=10, eos_ids=[3],
         )
-        assert outcome == {"reason": "unknown", "raw": None}
+        assert outcome is None
 
     def test_no_generated_tokens_is_unknown(self):
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=None, completion_tokens=0, max_new_tokens=10, eos_ids=[3],
         )
-        assert outcome == {"reason": "unknown", "raw": None}
+        assert outcome is None
 
     def test_no_eos_ids_configured_still_reports_length_at_the_limit(self):
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=5, completion_tokens=10, max_new_tokens=10, eos_ids=[],
         )
-        assert outcome == {"reason": "length", "raw": None}
+        assert outcome == "length"
 
     def test_no_eos_ids_configured_below_the_limit_is_unknown(self):
         """No EOS id known at all (e.g. a checkpoint whose `generation_config`
         the client couldn't read) AND the limit wasn't reached either —
         nothing to infer a reason from, so it stays unknown rather than
         defaulting either way."""
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=5, completion_tokens=3, max_new_tokens=10, eos_ids=[],
         )
-        assert outcome == {"reason": "unknown", "raw": None}
+        assert outcome is None
 
     def test_multiple_eos_ids_any_of_them_as_last_token_is_stop(self):
         """`generation_config.eos_token_id` as a list (some chat models have
         more than one valid turn-end token) — any member landing as the
         last generated token is `stop`, not just the first in the list."""
-        outcome = NativeLLMClient._completion_outcome(
+        outcome = NativeDriver._finish_reason(
             last_token_id=7, completion_tokens=4, max_new_tokens=10, eos_ids=[3, 7, 99],
         )
-        assert outcome == {"reason": "stop", "raw": None}
+        assert outcome == "stop"
 
 
 # ---------------------------------------------------------------------------
@@ -232,8 +232,7 @@ class TestGenerateWithHistoryCompletionReason:
             [{"role": "user", "content": "hi"}], config, config.system_message,
         )
 
-        assert response.completion == {"reason": "stop", "raw": None}
-        assert response.finish_reason is None
+        assert response.finish == "stop"
 
     @pytest.mark.asyncio
     async def test_max_new_tokens_reached_without_eos_reports_length(self, client, native_checkpoint, monkeypatch):
@@ -247,7 +246,7 @@ class TestGenerateWithHistoryCompletionReason:
             [{"role": "user", "content": "hi"}], config, config.system_message,
         )
 
-        assert response.completion == {"reason": "length", "raw": None}
+        assert response.finish == "length"
 
     @pytest.mark.asyncio
     async def test_eos_exactly_at_the_limit_still_reports_stop(self, client, native_checkpoint, monkeypatch):
@@ -262,7 +261,7 @@ class TestGenerateWithHistoryCompletionReason:
             [{"role": "user", "content": "hi"}], config, config.system_message,
         )
 
-        assert response.completion == {"reason": "stop", "raw": None}
+        assert response.finish == "stop"
 
     @pytest.mark.asyncio
     async def test_generation_config_with_multiple_eos_ids_is_honored(self, client, native_checkpoint, monkeypatch):
@@ -281,7 +280,7 @@ class TestGenerateWithHistoryCompletionReason:
             [{"role": "user", "content": "hi"}], config, config.system_message,
         )
 
-        assert response.completion == {"reason": "stop", "raw": None}
+        assert response.finish == "stop"
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +305,7 @@ class TestStreamWithHistoryCompletionReason:
 
         usage = events[-1]
         assert usage["type"] == "usage"
-        assert usage["completion"] == {"reason": "stop", "raw": None}
+        assert usage["finish"] == "stop"
 
     @pytest.mark.asyncio
     async def test_max_new_tokens_reached_without_eos_reports_length_on_the_usage_event(
@@ -326,4 +325,4 @@ class TestStreamWithHistoryCompletionReason:
 
         usage = events[-1]
         assert usage["type"] == "usage"
-        assert usage["completion"] == {"reason": "length", "raw": None}
+        assert usage["finish"] == "length"

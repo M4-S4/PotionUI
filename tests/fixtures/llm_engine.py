@@ -112,12 +112,13 @@ def client_gateway(
     model_lifecycle: Any = None,
     model_roots: Any = None,
 ) -> LLMGateway:
-    from src.features.llm.clients import NativeLLMClient, OllamaClient, OpenAIClient
+    from src.features.llm.clients import OllamaClient, OpenAIClient
+    from src.features.llm.harness.adapters.native import NativeAdapter
 
     clients = {
         "ollama": OllamaClient(),
         "openai": OpenAIClient(),
-        "native": NativeLLMClient(model_lifecycle, model_roots),
+        "native": NativeAdapter(model_lifecycle, model_roots),
     }
     types = LLMTypes(
         core=tuple(LLMType(type=type_id, adapter=client) for type_id, client in clients.items()),

@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from src.features.llm.clients.native import NativeLLMClient
 from src.features.llm.clients.ollama import OllamaClient
 from src.features.llm.clients.ollama_wire import build_prompt_tools_text
 from src.features.llm.clients.openai import OpenAIClient
@@ -23,11 +22,6 @@ from tests.features.llm.wire_capture import (
 @pytest.mark.parametrize("schemas", [tool_schemas(), COMPLEX, COMPLEX[1:]], ids=["simple", "complex", "unsynthesisable"])
 def test_the_system_tool_text_matches_the_legacy_ollama_text(schemas):
     assert prompt_tools.build_prompt_tools_text(specs(schemas)) == build_prompt_tools_text(schemas)
-
-
-@pytest.mark.parametrize("schemas", [tool_schemas(), COMPLEX, COMPLEX[1:]], ids=["simple", "complex", "unsynthesisable"])
-def test_the_inline_tool_text_matches_the_legacy_native_text(schemas):
-    assert prompt_tools.render_inline_tools_text(specs(schemas)) == NativeLLMClient._inject_tools_into_system_message("", schemas)
 
 
 GOLDENS = Path(__file__).resolve().parents[3] / "fixtures" / "llm_goldens"

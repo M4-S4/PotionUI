@@ -122,7 +122,7 @@ class TestOpenAICompatibleLister:
 class TestGatewayCapability:
     def test_types_report_listing_support(self):
         types = {t["type"]: t["supports_model_listing"] for t in client_gateway(Mock()).provider_types()}
-        assert types == {"ollama": True, "openai": True, "native": False}
+        assert types == {"ollama": True, "openai": True, "native": True}
 
     @pytest.mark.asyncio
     async def test_unsupported_type_raises(self):
