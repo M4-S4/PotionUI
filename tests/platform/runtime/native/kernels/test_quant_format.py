@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from src.platform.runtime.native.kernels import QuantFormat, fast_path, gemm, linear, quant_format
+from src.platform.runtime.native.kernels import QuantFormat, fast_path, fp8_linear, gemm, linear, nvfp4_linear, quant_format
 from vendor.gpl.comfyui import ops
 
 from .test_fast_path import PLAIN, QUANTIZED
@@ -45,7 +45,8 @@ def test_the_format_comes_from_the_layer_state_without_hardware_or_runtime_flags
     monkeypatch.setattr(linear, "gemm_support", _forbidden)
     monkeypatch.setattr(gemm, "capabilities", _forbidden)
     monkeypatch.setattr(gemm, "_nvfp4_trial_gemm", _forbidden)
-    monkeypatch.setattr(ops, "GEMM_SUPPORT", _forbidden)
+    monkeypatch.setattr(fp8_linear, "gemm_support", _forbidden)
+    monkeypatch.setattr(nvfp4_linear, "gemm_support", _forbidden)
     monkeypatch.setattr(ops, "RUNTIME_FLAGS", _NoFlags())
 
     assert quant_format(layer) is EXPECTED[name]

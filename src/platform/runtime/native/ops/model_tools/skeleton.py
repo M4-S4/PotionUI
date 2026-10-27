@@ -8,10 +8,10 @@ import torch
 import torch.nn as nn
 
 from src.platform.runtime.model_headers.signatures import detect_denoiser_prefix
-from vendor.gpl.comfyui.ops import pick_operations
 
 from ...detect.registry import match_model_spec
 from ...detect.unet_detect import detect_unet_config
+from ...kernels import pick_operations
 from .errors import UnsupportedFamilyError
 from .lora_io import BakeError, SUPPORTED_SPEC_FAMILIES, resolve_family
 from .spec import DTYPE_TO_TORCH, TensorSpec

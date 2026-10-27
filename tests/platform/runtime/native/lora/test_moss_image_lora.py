@@ -7,7 +7,7 @@ from src.platform.runtime.native.arch.moss_image.config import MossImageConfig
 from src.platform.runtime.native.arch.moss_image.model import MossImage
 from src.platform.runtime.native.lora import apply_loras, map_lora_keys, remove_loras
 from src.platform.runtime.native.lora.key_mapping import _select_key_map, build_moss_image_lora_key_map
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 DIM = 16
 RANK = 4

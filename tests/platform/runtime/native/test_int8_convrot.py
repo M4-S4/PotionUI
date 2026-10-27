@@ -21,16 +21,9 @@ from src.platform.runtime.native.lora.apply import _needs_runtime_deltas
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.ops.dtype import is_mixed_precision
 from src.platform.runtime.native.ops.fp8_quant import quantize_state_dict_to_fp8, should_quantize_fp8
-from vendor.gpl.comfyui.ops import (
-    QUANT_FP8_SCALED,
-    _build_convrot_hadamard,
-    _extract_convrot_config,
-    _parse_comfy_quant,
-    _scaled_mm_fast_path_ok,
-    detect_quant_format,
-    fp8_ops,
-    pick_operations,
-)
+from vendor.gpl.comfyui.ops import _build_convrot_hadamard, _extract_convrot_config, _parse_comfy_quant
+from src.platform.runtime.native.kernels import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
+from src.platform.runtime.native.kernels.fp8_linear import _scaled_mm_fast_path_ok
 
 from ._quant_layouts import (
     CONFIRMED_DESCRIPTORS,

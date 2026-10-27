@@ -208,25 +208,27 @@ def test_each_ignored_env_var_logs_once_with_its_new_home(caplog):
     assert any("POTIONUI_PROFILE" in m and "Diagnostics" in m for m in messages)
 
 
-def test_vendor_ops_reads_the_bound_dict_and_never_the_environment(monkeypatch):
+def test_matmul_predicates_read_the_bound_dict_and_never_the_environment(monkeypatch):
+    from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear
     from vendor.gpl.comfyui import ops
 
-    source = inspect.getsource(ops)
-    assert "os.environ" not in source
-    assert "getenv" not in source
-    assert not hasattr(ops, "os")
+    for module in (ops, fp8_linear, nvfp4_linear):
+        source = inspect.getsource(module)
+        assert "os.environ" not in source
+        assert "getenv" not in source
+        assert not hasattr(module, "os")
 
     monkeypatch.setattr(runtime_flags, "_vendor_bound", False)
 
     with installed_gemm_verdicts(fp8=True, nvfp4=True):
         runtime_flags.activate_engine_flags({"native_fp8_matmul": True, "native_lora_fused": False})
-        assert ops._fp8_matmul_enabled() is True
-        assert ops._nvfp4_matmul_enabled() is False
+        assert fp8_linear._fp8_matmul_enabled() is True
+        assert nvfp4_linear._nvfp4_matmul_enabled() is False
         assert ops._lora_fused_enabled() is False
 
         runtime_flags.activate_engine_flags({"native_nvfp4_matmul": True})
-        assert ops._fp8_matmul_enabled() is False
-        assert ops._nvfp4_matmul_enabled() is True
+        assert fp8_linear._fp8_matmul_enabled() is False
+        assert nvfp4_linear._nvfp4_matmul_enabled() is True
         assert ops._lora_fused_enabled() is True
 
 
@@ -258,50 +260,43 @@ def test_importing_the_native_package_binds_the_vendor_gemm_support():
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-def test_vendor_ops_without_a_bound_gemm_support_keep_both_fast_paths_off(monkeypatch):
-    from vendor.gpl.comfyui import ops
-
-    monkeypatch.setattr(ops, "GEMM_SUPPORT", None)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", {"native_fp8_matmul": True, "native_nvfp4_matmul": True})
-
-    assert ops._fp8_matmul_enabled() is False
-    assert ops._nvfp4_matmul_enabled() is False
-
-
-def test_vendor_ops_never_ask_for_gemm_support_while_the_flag_is_off(monkeypatch):
+def test_matmul_predicates_never_ask_for_gemm_support_while_the_flag_is_off(monkeypatch):
+    from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear
     from vendor.gpl.comfyui import ops
 
     asked = []
 
-    def provider():
+    def provider(device=None):
         asked.append(1)
         raise AssertionError("must not be asked")
 
-    monkeypatch.setattr(ops, "GEMM_SUPPORT", provider)
+    monkeypatch.setattr(fp8_linear, "gemm_support", provider)
+    monkeypatch.setattr(nvfp4_linear, "gemm_support", provider)
     monkeypatch.setattr(ops, "RUNTIME_FLAGS", {"native_fp8_matmul": False, "native_nvfp4_matmul": False})
 
-    assert ops._fp8_matmul_enabled() is False
-    assert ops._nvfp4_matmul_enabled() is False
+    assert fp8_linear._fp8_matmul_enabled() is False
+    assert nvfp4_linear._nvfp4_matmul_enabled() is False
     assert asked == []
 
 
-def test_vendor_ops_ask_for_gemm_support_at_every_call_once_the_flag_is_on(monkeypatch):
+def test_matmul_predicates_ask_for_gemm_support_at_every_call_once_the_flag_is_on(monkeypatch):
     from types import SimpleNamespace
 
+    from src.platform.runtime.native.kernels import fp8_linear
     from vendor.gpl.comfyui import ops
 
     state = {"fp8": False, "calls": 0}
 
-    def provider():
+    def provider(device=None):
         state["calls"] += 1
         return SimpleNamespace(fp8_scaled_mm=state["fp8"], nvfp4=False)
 
-    monkeypatch.setattr(ops, "GEMM_SUPPORT", provider)
+    monkeypatch.setattr(fp8_linear, "gemm_support", provider)
     monkeypatch.setattr(ops, "RUNTIME_FLAGS", {"native_fp8_matmul": True})
 
-    assert ops._fp8_matmul_enabled() is False
+    assert fp8_linear._fp8_matmul_enabled() is False
     state["fp8"] = True
-    assert ops._fp8_matmul_enabled() is True
+    assert fp8_linear._fp8_matmul_enabled() is True
     assert state["calls"] == 2
 
 

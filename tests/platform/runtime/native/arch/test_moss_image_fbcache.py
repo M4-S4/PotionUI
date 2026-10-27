@@ -9,7 +9,7 @@ import torch
 from src.platform.runtime.native.arch.moss_image.config import MossImageConfig
 from src.platform.runtime.native.arch.moss_image.model import MossImage
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 from .test_moss_image_parity import CONFIG, CHANNELS, TEXT_DIM, _inputs, _sigma
 

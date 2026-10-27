@@ -9,7 +9,7 @@ from src.platform.runtime.native.memory.tiering import (
     ref_latents_headroom_gb,
     sampling_headroom_gb,
 )
-from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED
+from src.platform.runtime.native.kernels import QUANT_FP8_SCALED
 
 
 def _single(device: str = "cuda:0") -> DevicePlan:

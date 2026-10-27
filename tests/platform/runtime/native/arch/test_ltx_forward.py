@@ -19,7 +19,7 @@ from src.platform.runtime.native.arch.ltx.model import (  # noqa: E402
     _ltx_attention,
 )
 from src.platform.runtime.native.nag import apply_nag  # noqa: E402
-from vendor.gpl.comfyui.ops import pick_operations  # noqa: E402
+from src.platform.runtime.native.kernels import pick_operations
 
 # 19b-shaped: ungated, caption projection present. audio_in_channels = 8·16 = 128
 # (num_audio_channels · audio_frequency_bins are fixed arch constants).

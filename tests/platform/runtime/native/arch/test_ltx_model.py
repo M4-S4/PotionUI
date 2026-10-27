@@ -20,7 +20,7 @@ from src.platform.runtime.native.arch.ltx.model import LTXAVModel
 from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 from .._native_ops import fp32_ops
 
 _CKPT_DIR = Path("models/checkpoints")

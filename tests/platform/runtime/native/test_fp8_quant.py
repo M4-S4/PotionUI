@@ -22,11 +22,8 @@ from src.platform.runtime.native.ops.fp8_quant import (  # noqa: E402
     quantize_tensor_to_fp8_scaled,
     should_quantize_fp8,
 )
-from vendor.gpl.comfyui.ops import (  # noqa: E402
-    _parse_comfy_quant,
-    detect_quant_format,
-    fp8_ops,
-)
+from vendor.gpl.comfyui.ops import _parse_comfy_quant
+from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops
 
 
 def _dequant(q: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:

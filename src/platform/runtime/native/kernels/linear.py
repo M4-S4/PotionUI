@@ -7,7 +7,9 @@ import torch
 
 from vendor.gpl.comfyui import ops
 
+from .fp8_linear import Fp8ScaledLinear, _scaled_mm_fast_path_reject_reason
 from .gemm import gemm_support
+from .nvfp4_linear import _nvfp4_fast_path_reject_reason
 
 _FP8_FLAG = "native_fp8_matmul"
 _NVFP4_FLAG = "native_nvfp4_matmul"
@@ -58,7 +60,7 @@ def fast_path(layer: object) -> FastPath | None:
 
 
 def quant_format(layer: object) -> QuantFormat | None:
-    if not isinstance(layer, ops.Fp8ScaledLinear):
+    if not isinstance(layer, Fp8ScaledLinear):
         return None
     if getattr(layer, "_is_nvfp4", False):
         return QuantFormat.NVFP4
@@ -72,8 +74,8 @@ def quant_format(layer: object) -> QuantFormat | None:
     return None
 
 
-def _scaled_mm_reason(layer: ops.Fp8ScaledLinear) -> str | None:
-    reason = ops._scaled_mm_fast_path_reject_reason(
+def _scaled_mm_reason(layer: Fp8ScaledLinear) -> str | None:
+    reason = _scaled_mm_fast_path_reject_reason(
         weight_dtype=layer.weight.dtype,
         has_weight_scale=True,
         lora_deltas=layer.lora_deltas,
@@ -96,8 +98,8 @@ def _scaled_mm_reason(layer: ops.Fp8ScaledLinear) -> str | None:
     return None if support.fp8_scaled_mm else support.fp8_reason
 
 
-def _nvfp4_reason(layer: ops.Fp8ScaledLinear) -> str | None:
-    reason = ops._nvfp4_fast_path_reject_reason(
+def _nvfp4_reason(layer: Fp8ScaledLinear) -> str | None:
+    reason = _nvfp4_fast_path_reject_reason(
         lora_deltas=layer.lora_deltas,
         input_dtype=_ACTIVATION_DTYPE,
         input_is_cuda=True,

@@ -22,7 +22,7 @@ from src.platform.runtime.native.arch.seedvr2.model import SeedVR2
 from src.platform.runtime.native.arch.seedvr2_7b.config import SeedVR27BConfig
 from src.platform.runtime.native.arch.seedvr2_7b.model import SeedVR27B
 from src.platform.runtime.native.kernels import attention as _dispatch_attention
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 TINY_3B = dict(
     vid_in_channels=8, vid_out_channels=4, vid_dim=32, txt_in_dim=16, emb_dim=192,

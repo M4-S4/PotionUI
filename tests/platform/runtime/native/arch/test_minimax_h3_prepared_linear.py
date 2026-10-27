@@ -23,7 +23,9 @@ from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Attention
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
 from tests.fixtures.kernel_gemm import install_gemm_verdicts, installed_gemm_verdicts
-from vendor.gpl.comfyui.ops import disable_weight_init, fp8_ops
+from tests.fixtures.kernel_ops import patch_ops_name
+from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import Fp8ScaledLinear, fp8_linear, fp8_ops
 
 from .._quant_layouts import int8_state_dict
 from ..memory.test_partial_prefetch import _install_fake_cuda
@@ -113,7 +115,7 @@ def _install_fake_cuda_residency(monkeypatch, *, streamed: list[torch.Tensor]):
         return tensor.detach().to(dtype=dtype).clone()
 
     monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda self: id(self) not in streamed_ids))
-    monkeypatch.setattr(wo, "cast_to", _fake_cast_to)
+    patch_ops_name(monkeypatch, "cast_to", _fake_cast_to)
 
     def stage_calls_for(tensor):
         return [c for c in calls if c[0] == id(tensor)]
@@ -457,7 +459,7 @@ def _spy_stage_with_weakrefs(monkeypatch, leaf) -> list:
     """Wrap `leaf`'s `_stage_scaled_mm_weight` to record a weakref (never the
     tensor itself) of every genuinely-staged (non-resident) result."""
     refs: list[weakref.ReferenceType] = []
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy(self, device):
         result = real_stage(self, device)
@@ -465,7 +467,7 @@ def _spy_stage_with_weakrefs(monkeypatch, leaf) -> list:
             refs.append(weakref.ref(result))
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy)
     return refs
 
 
@@ -528,14 +530,14 @@ def test_staged_operand_weakref_dies_before_dense_fallback_on_kernel_rejection(m
 
     refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
     dead_before_dequant: list[bool] = []
-    real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
+    real_prepare = Fp8ScaledLinear._prepare_dequant_operand
 
     def _spy_prepare(self, dtype, device, **kwargs):
         gc.collect()
         dead_before_dequant.append(all(r() is None for r in refs))
         return real_prepare(self, dtype, device, **kwargs)
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
+    monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
     install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(
         torch, "_scaled_mm",
@@ -558,14 +560,14 @@ def test_prepared_linear_logs_why_the_fast_path_was_skipped(monkeypatch, caplog)
     upstream has and this file's single-call site closes with a one-shot,
     per-reason log. prepared_linear decides eligibility ONCE per loop, so a
     silent decision here hides a whole projection, not one call."""
-    wo.reset_scaled_mm_fast_path_rejection_log()
+    fp8_linear.reset_scaled_mm_fast_path_rejection_log()
     attn = _fp8_attn()
     monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
     install_gemm_verdicts(monkeypatch, fp8=True)
     # float32 activation: the fast path takes float16/bfloat16 only.
     x = torch.randn(1, 9, 16)
 
-    with caplog.at_level(logging.WARNING, logger=wo.logger.name):
+    with caplog.at_level(logging.WARNING, logger=fp8_linear.logger.name):
         with torch.no_grad(), attn.qkv_proj.prepared_linear(x) as proj:
             for c in x.split(4, dim=1):
                 proj(c)
@@ -574,7 +576,7 @@ def test_prepared_linear_logs_why_the_fast_path_was_skipped(monkeypatch, caplog)
     assert any(
         "fast path unavailable" in m and "input_dtype=torch.float32" in m for m in messages
     ), messages
-    wo.reset_scaled_mm_fast_path_rejection_log()
+    fp8_linear.reset_scaled_mm_fast_path_rejection_log()
 
 
 # --- ground-truth parity: bias, ConvRot rotation, adapter deltas ------------

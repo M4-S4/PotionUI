@@ -19,7 +19,8 @@ from src.platform.runtime.native.arch.minimax_music3 import ar_loop, flow
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM
 from src.platform.runtime.native.arch.minimax_music3.model import MINIMAX_MUSIC3_DIT, MiniMaxMusic3Model
-from vendor.gpl.comfyui.ops import disable_weight_init, pick_operations
+from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import pick_operations
 
 _HIDDEN_SIZE = 16  # must match the DiT's condition_hidden_dim -- see the docstring below.
 

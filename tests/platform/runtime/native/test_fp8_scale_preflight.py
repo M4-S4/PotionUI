@@ -23,11 +23,9 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import (
-    _E4M3_MAX,
-    _quantize_fp8_dynamic,
-    fp8_ops,
-)
+from vendor.gpl.comfyui.ops import _E4M3_MAX
+from src.platform.runtime.native.kernels import fp8_ops
+from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
 
 
 def _fp8_layer(w_scale, *, input_scale=None, bias=False, in_f=16, out_f=16, weight=None):

@@ -38,7 +38,8 @@ import vendor.gpl.comfyui.ops as wo
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
 from tests.fixtures.kernel_gemm import install_gemm_verdicts
-from vendor.gpl.comfyui.ops import fp8_ops
+from tests.fixtures.kernel_ops import patch_ops_name
+from src.platform.runtime.native.kernels import Fp8ScaledLinear, fp8_ops
 
 from .test_partial_prefetch import _install_fake_cuda
 
@@ -160,7 +161,7 @@ def _install_fp8_residency(monkeypatch, *, excluded: set[int]):
         return tensor.detach().to(dtype=dtype).clone()
 
     monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda self: self.data_ptr() not in excluded))
-    monkeypatch.setattr(wo, "cast_to", _fake_cast_to)
+    patch_ops_name(monkeypatch, "cast_to", _fake_cast_to)
 
 
 def _dense_reference(m: nn.Module, x: torch.Tensor, monkeypatch) -> torch.Tensor:
@@ -247,7 +248,7 @@ def test_prefetch_hit_reaches_kernel_with_zero_extra_on_demand_staging(monkeypat
     # LayerPrefetcher._consume/_prefetch_after choreography, swapping
     # b.weight.data to a resident clone before b's forward ever runs.
     b_on_demand_calls: list = []
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy_stage(self, device):
         result = real_stage(self, device)
@@ -255,7 +256,7 @@ def test_prefetch_hit_reaches_kernel_with_zero_extra_on_demand_staging(monkeypat
             b_on_demand_calls.append(1)
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
     calls2, fake_kernel2 = _recording_scaled_mm()
 
     install_gemm_verdicts(monkeypatch, fp8=True)
@@ -318,13 +319,13 @@ def test_eligible_staged_path_never_dequantizes_the_weight(monkeypatch):
     monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
 
     dequant_calls: list = []
-    real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
+    real_prepare = Fp8ScaledLinear._prepare_dequant_operand
 
     def _spy_prepare(self, dtype, device, **kwargs):
         dequant_calls.append(1)
         return real_prepare(self, dtype, device, **kwargs)
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
+    monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
@@ -348,7 +349,7 @@ def test_staged_operand_weakref_dies_after_each_forward(monkeypatch):
     monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
 
     refs: list[weakref.ReferenceType] = []
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy_stage(self, device):
         result = real_stage(self, device)
@@ -356,7 +357,7 @@ def test_staged_operand_weakref_dies_after_each_forward(monkeypatch):
             refs.append(weakref.ref(result))  # id/weakref only -- never the tensor itself
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
@@ -382,7 +383,7 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
     monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
 
     staged_ref_by_leaf: dict[int, weakref.ReferenceType] = {}
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy_stage(self, device):
         result = real_stage(self, device)
@@ -390,10 +391,10 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
             staged_ref_by_leaf[id(self)] = weakref.ref(result)
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
 
     dead_before_dequant: dict[int, bool] = {}
-    real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
+    real_prepare = Fp8ScaledLinear._prepare_dequant_operand
 
     def _spy_prepare(self, dtype, device, **kwargs):
         gc.collect()
@@ -402,7 +403,7 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
             dead_before_dequant[id(self)] = ref() is None
         return real_prepare(self, dtype, device, **kwargs)
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
+    monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
 
     # Every kernel call is rejected (a real capability-probe-style rejection),
     # for BOTH leaves -- each independently falls back to dense dequant.

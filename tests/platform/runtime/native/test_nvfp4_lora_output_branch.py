@@ -19,13 +19,9 @@ import torch.nn.functional as F
 
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from vendor.gpl.comfyui import ops as _ops_module
-from vendor.gpl.comfyui.ops import (
-    _deltas_output_branch_ok,
-    _lora_output_branch,
-    _nvfp4_scaled_mm_fast_path_ok,
-    dequantize_nvfp4,
-    fp8_ops,
-)
+from vendor.gpl.comfyui.ops import _deltas_output_branch_ok, _lora_output_branch, dequantize_nvfp4
+from src.platform.runtime.native.kernels import fp8_ops, nvfp4_linear
+from src.platform.runtime.native.kernels.nvfp4_linear import _nvfp4_scaled_mm_fast_path_ok
 
 from ._nvfp4_ref import F4_MAX as _F4_MAX_REF
 from ._nvfp4_ref import F8_MAX as _F8_MAX_REF
@@ -164,15 +160,13 @@ def test_predicate_rejects_out_of_bounds_target_slice_delta():
 
 
 def test_lokr_delta_falls_back_gemm_helper_not_called():
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _nvfp4_layer(in_f=32, out_f=16)
     w1 = torch.randn(4, 4) * 0.1  # kron(w1, w2) -> (16, 32), matches (out, in)
     w2 = torch.randn(4, 8) * 0.1
     lin.lora_deltas = [LoraDelta(down=w2, up=w1, alpha=1.0, scale=1.0, kron=True)]
 
     x = torch.randn(1, 32, dtype=torch.bfloat16)
-    with patch.object(wo, "_nvfp4_matmul_enabled", return_value=True), \
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
          patch.object(lin, "_forward_nvfp4_scaled_mm") as mock_gemm:
         out = lin.forward_comfy_cast_weights(x)
     mock_gemm.assert_not_called()
@@ -181,8 +175,6 @@ def test_lokr_delta_falls_back_gemm_helper_not_called():
 
 
 def test_target_slice_delta_falls_back_gemm_helper_not_called():
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _nvfp4_layer(in_f=32, out_f=16)
     lin.lora_deltas = [
         LoraDelta(down=torch.randn(4, 32) * 0.1, up=torch.randn(8, 4) * 0.1,
@@ -190,7 +182,7 @@ def test_target_slice_delta_falls_back_gemm_helper_not_called():
     ]
 
     x = torch.randn(1, 32, dtype=torch.bfloat16)
-    with patch.object(wo, "_nvfp4_matmul_enabled", return_value=True), \
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
          patch.object(lin, "_forward_nvfp4_scaled_mm") as mock_gemm:
         out = lin.forward_comfy_cast_weights(x)
     mock_gemm.assert_not_called()
@@ -211,13 +203,11 @@ def test_no_deltas_gate_off_uses_dequant_path():
 
 
 def test_no_deltas_gate_on_uses_emulated_gemm_path():
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _nvfp4_layer(in_f=32, out_f=16)
     x = torch.randn(1, 32, dtype=torch.bfloat16)
     fake = _fake_scaled_mm_dequant_reference(lin)
     fake.last_x2d = x.reshape(-1, 32)
-    with patch.object(wo, "_nvfp4_matmul_enabled", return_value=True), \
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
          patch("torch.nn.functional.scaled_mm", side_effect=fake):
         out = lin.forward_comfy_cast_weights(x)
     dequant_out = _dequant_path_output(lin, x)

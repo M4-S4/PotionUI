@@ -12,25 +12,11 @@ import torch.nn.functional as F
 import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.runtime.native.ops.dtype import pick_dtypes
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts
-from vendor.gpl.comfyui.ops import (
-    QUANT_FP8_SCALED,
-    _fp8_matmul_enabled,
-    _nvfp4_fast_path_reject_reason,
-    _nvfp4_matmul_enabled,
-    _nvfp4_scaled_mm_fast_path_ok,
-    _quantize_fp8_dynamic,
-    _quantize_nvfp4_dynamic,
-    _scaled_mm_fast_path_ok,
-    _scaled_mm_fast_path_reject_reason,
-    detect_quant_format,
-    disable_weight_init,
-    dequantize_nvfp4,
-    fp8_ops,
-    manual_cast,
-    pick_operations,
-    reset_nvfp4_fast_path_rejection_log,
-    reset_scaled_mm_fast_path_rejection_log,
-)
+from tests.fixtures.kernel_ops import patch_ops_name
+from vendor.gpl.comfyui.ops import _quantize_nvfp4_dynamic, disable_weight_init, dequantize_nvfp4, manual_cast
+from src.platform.runtime.native.kernels import QUANT_FP8_SCALED, detect_quant_format, fp8_linear, fp8_ops, nvfp4_linear, pick_operations
+from src.platform.runtime.native.kernels.fp8_linear import _fp8_matmul_enabled, _quantize_fp8_dynamic, _scaled_mm_fast_path_ok, _scaled_mm_fast_path_reject_reason, reset_scaled_mm_fast_path_rejection_log
+from src.platform.runtime.native.kernels.nvfp4_linear import _nvfp4_fast_path_reject_reason, _nvfp4_matmul_enabled, _nvfp4_scaled_mm_fast_path_ok, reset_nvfp4_fast_path_rejection_log
 
 from ._nvfp4_ref import F4_MAX as _F4_MAX_REF  # noqa: E402
 from ._nvfp4_ref import F8_MAX as _F8_MAX_REF  # noqa: E402
@@ -561,8 +547,6 @@ def test_forward_scaled_mm_moves_scales_and_bias_to_input_device():
 def test_forward_falls_back_to_dequant_when_fast_path_bails():
     # The caller takes the dequant path (correct output) when _forward_scaled_mm
     # returns None, instead of crashing.
-    import vendor.gpl.comfyui.ops as wo
-
     real_w = torch.randn(16, 16) * 0.05
     w_scale = torch.tensor(0.01)
     w_fp8 = (real_w / w_scale).to(torch.float8_e4m3fn)
@@ -575,8 +559,8 @@ def test_forward_falls_back_to_dequant_when_fast_path_bails():
     # still pass on a CPU box (where the real reason is `input_not_cuda`) while
     # proving nothing about the kernel-bailed path. `assert_called_once` is what
     # keeps it that way: it fails the moment the fast branch stops being entered.
-    with patch.object(wo, "_fp8_matmul_enabled", return_value=True), \
-         patch.object(wo, "_scaled_mm_fast_path_reject_reason", return_value=None), \
+    with patch.object(fp8_linear, "_fp8_matmul_enabled", return_value=True), \
+         patch.object(fp8_linear, "_scaled_mm_fast_path_reject_reason", return_value=None), \
          patch.object(lin, "_forward_scaled_mm", return_value=None) as attempted:
         out = lin.forward_comfy_cast_weights(x)
     attempted.assert_called_once()
@@ -623,8 +607,6 @@ def _install_fake_cuda_residency(monkeypatch):
     which they always do here. Returns ``(resident_ids, stage_calls_for)``:
     ``stage_calls_for(tensor)`` returns the (dtype, device, non_blocking) log
     for casts of that tensor."""
-    import vendor.gpl.comfyui.ops as wo
-
     resident_ids: set[int] = set()
     calls: list[tuple[int, torch.dtype, torch.device, bool]] = []
 
@@ -637,7 +619,7 @@ def _install_fake_cuda_residency(monkeypatch):
         return clone
 
     monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda self: id(self) in resident_ids))
-    monkeypatch.setattr(wo, "cast_to", _fake_cast_to)
+    patch_ops_name(monkeypatch, "cast_to", _fake_cast_to)
 
     def stage_calls_for(tensor):
         return [c for c in calls if c[0] == id(tensor)]
@@ -742,7 +724,7 @@ def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
             raise torch.cuda.OutOfMemoryError("simulated staging OOM")
         return real_cast_to(tensor, dtype, device, non_blocking=non_blocking)
 
-    monkeypatch.setattr(wo, "cast_to", _oom_once_for_weight)
+    patch_ops_name(monkeypatch, "cast_to", _oom_once_for_weight)
 
     with installed_gemm_verdicts(fp8=True), \
          patch("torch._scaled_mm", side_effect=AssertionError("must not run after staging OOM")):
@@ -792,12 +774,10 @@ def test_forward_comfy_cast_weights_logs_scaled_mm_fast_path_rejection_reason(ca
     # straight through to dequant with zero indication of why -- exactly how a
     # streamed fp8 leaf silently skipping the fast path on every forward went
     # unnoticed. Must fire at least once, and must say WHY.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _loaded_fp8_layer()
     x_wrong_dtype = torch.randn(1, 16, dtype=torch.float32)  # rejects on input_dtype
 
-    with patch.object(wo, "_fp8_matmul_enabled", return_value=True), \
+    with patch.object(fp8_linear, "_fp8_matmul_enabled", return_value=True), \
          patch("torch._scaled_mm", side_effect=AssertionError("must not run")), \
          caplog.at_level("WARNING"):
         lin.forward_comfy_cast_weights(x_wrong_dtype)
@@ -809,12 +789,10 @@ def test_forward_comfy_cast_weights_logs_scaled_mm_fast_path_rejection_reason(ca
 def test_forward_comfy_cast_weights_logs_scaled_mm_fast_path_rejection_only_once_per_reason(caplog):
     # Hard requirement: NOT per-Linear-per-forward (~350 linears x N steps
     # would flood the log) -- one line per distinct reason for the process.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _loaded_fp8_layer()
     x_wrong_dtype = torch.randn(1, 16, dtype=torch.float32)
 
-    with patch.object(wo, "_fp8_matmul_enabled", return_value=True), \
+    with patch.object(fp8_linear, "_fp8_matmul_enabled", return_value=True), \
          patch("torch._scaled_mm", side_effect=AssertionError("must not run")), \
          caplog.at_level("WARNING"):
         for _ in range(5):
@@ -828,14 +806,12 @@ def test_forward_comfy_cast_weights_does_not_log_when_fp8_fast_path_eligible(cap
     # Force eligibility past the predicate (CPU-box tensors can never really
     # satisfy is_cuda) so this exercises the "took the fast path, no
     # rejection to log" branch instead of the always-false-on-CPU device check.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _loaded_fp8_layer()
     x = torch.randn(1, 16, dtype=torch.bfloat16)
     fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
 
-    with patch.object(wo, "_fp8_matmul_enabled", return_value=True), \
-         patch.object(wo, "_scaled_mm_fast_path_reject_reason", return_value=None), \
+    with patch.object(fp8_linear, "_fp8_matmul_enabled", return_value=True), \
+         patch.object(fp8_linear, "_scaled_mm_fast_path_reject_reason", return_value=None), \
          patch("torch._scaled_mm", return_value=(fake_out, torch.zeros(1, 16))), \
          patch.object(lin, "_forward_scaled_mm", return_value=fake_out), \
          caplog.at_level("WARNING"):
@@ -1092,16 +1068,14 @@ def test_forward_nvfp4_scaled_mm_bails_on_mixed_devices():
 
 
 def test_forward_falls_back_to_dequant_when_nvfp4_fast_path_bails():
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _nvfp4_layer(in_f=32, out_f=16)
     x = torch.randn(1, 32, dtype=torch.bfloat16)
     expected = lin(x)  # dequant path (fast path not enabled by default)
 
     # See the fp8 sibling above for why this patches the reason function rather
     # than the `_ok` predicate the call site no longer reads.
-    with patch.object(wo, "_nvfp4_matmul_enabled", return_value=True), \
-         patch.object(wo, "_nvfp4_fast_path_reject_reason", return_value=None), \
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
+         patch.object(nvfp4_linear, "_nvfp4_fast_path_reject_reason", return_value=None), \
          patch.object(lin, "_forward_nvfp4_scaled_mm", return_value=None) as attempted:
         out = lin.forward_comfy_cast_weights(x)
     attempted.assert_called_once()
@@ -1157,12 +1131,10 @@ def test_forward_comfy_cast_weights_logs_nvfp4_fast_path_rejection_reason(monkey
     # straight through to dequant with zero indication of why -- which is
     # exactly how every Linear silently taking the LUT dequant path went
     # unnoticed. Must fire at least once, and must say WHY.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _nvfp4_layer(in_f=32, out_f=16)
     x_wrong_dtype = torch.randn(1, 32, dtype=torch.float32)  # rejects on input_dtype
 
-    with patch.object(wo, "_nvfp4_matmul_enabled", return_value=True), \
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
          patch("torch.nn.functional.scaled_mm", side_effect=AssertionError("must not run")), \
          caplog.at_level("WARNING"):
         lin.forward_comfy_cast_weights(x_wrong_dtype)
@@ -1174,12 +1146,10 @@ def test_forward_comfy_cast_weights_logs_nvfp4_fast_path_rejection_reason(monkey
 def test_forward_comfy_cast_weights_logs_nvfp4_fast_path_rejection_only_once_per_reason(monkeypatch, caplog):
     # Hard requirement: NOT per-Linear-per-forward (~350 linears x N steps
     # would flood the log) -- one line per distinct reason for the process.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _nvfp4_layer(in_f=32, out_f=16)
     x_wrong_dtype = torch.randn(1, 32, dtype=torch.float32)
 
-    with patch.object(wo, "_nvfp4_matmul_enabled", return_value=True), \
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
          patch("torch.nn.functional.scaled_mm", side_effect=AssertionError("must not run")), \
          caplog.at_level("WARNING"):
         for _ in range(5):
@@ -1195,14 +1165,12 @@ def test_forward_comfy_cast_weights_does_not_log_when_fast_path_eligible(monkeyp
     # eligibility past the predicate so this exercises the "took the fast
     # path, no rejection to log" branch instead of the always-false-on-CPU
     # real device check.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _nvfp4_layer(in_f=32, out_f=16)
     x = torch.randn(1, 32, dtype=torch.bfloat16)
     fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
 
-    with patch.object(wo, "_nvfp4_matmul_enabled", return_value=True), \
-         patch.object(wo, "_nvfp4_fast_path_reject_reason", return_value=None), \
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
+         patch.object(nvfp4_linear, "_nvfp4_fast_path_reject_reason", return_value=None), \
          patch("torch.nn.functional.scaled_mm", return_value=fake_out), \
          caplog.at_level("WARNING"):
         lin.forward_comfy_cast_weights(x)

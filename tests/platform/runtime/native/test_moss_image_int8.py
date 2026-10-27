@@ -7,7 +7,7 @@ import torch
 from src.platform.runtime.native.arch.moss_image.model import MossImage, convert_moss_image_state_dict
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from vendor.gpl.comfyui.ops import fp8_ops, pick_operations
+from src.platform.runtime.native.kernels import fp8_ops, pick_operations
 
 from ._quant_layouts import convrot_descriptor, descriptor_blob, reference_quantize_convrot
 

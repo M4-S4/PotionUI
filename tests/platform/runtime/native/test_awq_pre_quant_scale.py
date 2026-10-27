@@ -15,7 +15,9 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from tests.fixtures.kernel_gemm import install_gemm_verdicts
-from vendor.gpl.comfyui.ops import dequantize_nvfp4, fp8_ops  # noqa: E402
+from tests.fixtures.kernel_ops import patch_ops_name
+from vendor.gpl.comfyui.ops import dequantize_nvfp4
+from src.platform.runtime.native.kernels import fp8_ops
 
 from ._nvfp4_ref import F4_MAX as _F4_MAX  # noqa: E402
 from ._nvfp4_ref import F8_MAX as _F8_MAX  # noqa: E402
@@ -199,8 +201,6 @@ def _install_fake_cuda_residency(monkeypatch, *, streamed: list[torch.Tensor]):
     idiom as tests/platform/runtime/native/arch/test_minimax_h3_prepared_linear.py):
     `.is_cuda` defaults True for everything except the named streamed
     weights; `cast_to` always clones on a cast of one of them."""
-    import vendor.gpl.comfyui.ops as wo
-
     streamed_ids = {id(t) for t in streamed}
 
     def _fake_cast_to(tensor, dtype, device, *, non_blocking=False):
@@ -211,7 +211,7 @@ def _install_fake_cuda_residency(monkeypatch, *, streamed: list[torch.Tensor]):
         return tensor.detach().to(dtype=dtype).clone()
 
     monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda self: id(self) not in streamed_ids))
-    monkeypatch.setattr(wo, "cast_to", _fake_cast_to)
+    patch_ops_name(monkeypatch, "cast_to", _fake_cast_to)
 
 
 def test_prepared_linear_fast_branch_applies_pre_quant_scale_per_chunk(monkeypatch):

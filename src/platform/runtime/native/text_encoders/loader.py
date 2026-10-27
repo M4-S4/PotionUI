@@ -24,7 +24,7 @@ from ..detect.te_detect import detect_te_config
 from ..errors import NativeEngineUnsupportedError
 from ..io.safetensors_loader import load_torch_file
 from ..io.state_dict_utils import count_blocks, weight_dtype
-from vendor.gpl.comfyui.ops import detect_quant_format, pick_operations
+from ..kernels import detect_quant_format, pick_operations
 from .base import NativeTextEncoder
 from .clip_l import CLIPLModel, CLIPLTextEncoder
 from .gemma3 import Gemma3Model, Gemma3TextEncoder

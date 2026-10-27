@@ -10,14 +10,19 @@ import vendor.gpl.comfyui.ops as ops
 from src.platform.runtime.native.kernels import (
     FastPath,
     FastPathKind,
+    Fp8ScaledLinear,
     QuantFormat,
     fast_path,
+    fp8_ops,
+    fp8_linear,
     gemm,
-    gemm_support,
     linear,
+    nvfp4_linear,
 )
+from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities
+from tests.fixtures.kernel_ops import patch_ops_name
 
 from .._nvfp4_ref import F4_MAX, F8_MAX, quantize_nvfp4
 from .._quant_layouts import descriptor_blob
@@ -46,7 +51,7 @@ def _loaded(layer: torch.nn.Module, state: dict) -> torch.nn.Module:
     return layer
 
 
-def _fp8(cls=ops.Fp8ScaledLinear, dtype=torch.float8_e4m3fn, in_f=IN_FEATURES, scale=None, input_scale=None):
+def _fp8(cls=Fp8ScaledLinear, dtype=torch.float8_e4m3fn, in_f=IN_FEATURES, scale=None, input_scale=None):
     torch.manual_seed(1)
     state = {
         "weight": torch.randn(OUT_FEATURES, in_f).to(dtype),
@@ -66,7 +71,7 @@ def _int8(convrot: bool):
     if convrot:
         conf = {**conf, "convrot": True, "convrot_groupsize": 16}
         scale = torch.full((OUT_FEATURES, 1), 0.05)
-    return _loaded(ops.fp8_ops.Linear(IN_FEATURES, OUT_FEATURES, bias=True), {
+    return _loaded(fp8_ops.Linear(IN_FEATURES, OUT_FEATURES, bias=True), {
         "weight": torch.randint(-8, 8, (OUT_FEATURES, IN_FEATURES), dtype=torch.int8),
         "weight_scale": scale,
         "bias": torch.zeros(OUT_FEATURES),
@@ -79,7 +84,7 @@ def _nvfp4(in_f=IN_FEATURES):
     weight = torch.randn(OUT_FEATURES, in_f) * 0.05
     tensor_scale = (weight.abs().amax() / (F4_MAX * F8_MAX)).clamp(min=1e-8).detach()
     packed, block, _, _ = quantize_nvfp4(weight, tensor_scale)
-    return _loaded(ops.fp8_ops.Linear(in_f, OUT_FEATURES, bias=True), {
+    return _loaded(fp8_ops.Linear(in_f, OUT_FEATURES, bias=True), {
         "weight": packed,
         "weight_scale": block,
         "weight_scale_2": tensor_scale.clone(),
@@ -89,7 +94,7 @@ def _nvfp4(in_f=IN_FEATURES):
 
 QUANTIZED = {
     "fp8-scaled-linear": _fp8,
-    "fp8-nvfp4-linear": lambda: _fp8(ops.Nvfp4Linear),
+    "fp8-nvfp4-linear": lambda: _fp8(Nvfp4Linear),
     "fp8-e5m2": lambda: _fp8(dtype=torch.float8_e5m2),
     "fp8-misaligned": lambda: _fp8(in_f=24),
     "fp8-per-channel-scale": lambda: _fp8(scale=torch.full((OUT_FEATURES, 1), 0.02)),
@@ -105,8 +110,8 @@ PLAIN = {
     "torch-linear": lambda: torch.nn.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
     "disable-weight-init": lambda: ops.disable_weight_init.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
     "manual-cast": lambda: ops.manual_cast.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
-    "fp8-without-scale": lambda: ops.Fp8ScaledLinear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
-    "nvfp4-class-without-scale": lambda: ops.Nvfp4Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
+    "fp8-without-scale": lambda: Fp8ScaledLinear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
+    "nvfp4-class-without-scale": lambda: Nvfp4Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
 }
 
 LORA_SCENARIOS = [("none", True), ("plain", True), ("plain", False), ("lokr", True), ("lokr", False)]
@@ -187,7 +192,7 @@ def recorder(monkeypatch):
         seen.kinds.append(FastPathKind.NVFP4_GEMM)
         return torch.zeros(a.shape[0], b.shape[1], dtype=kwargs["output_dtype"])
 
-    real_prepare = ops.Fp8ScaledLinear._prepare_dequant_operand
+    real_prepare = Fp8ScaledLinear._prepare_dequant_operand
     real_values = ops._dequant_values
     real_fused = ops._add_fused_lora_branch
 
@@ -205,17 +210,20 @@ def recorder(monkeypatch):
 
     monkeypatch.setattr(torch, "_scaled_mm", scaled_mm)
     monkeypatch.setattr(F, "scaled_mm", nvfp4_gemm)
-    monkeypatch.setattr(ops.Fp8ScaledLinear, "_prepare_dequant_operand", prepare)
-    monkeypatch.setattr(ops, "_dequant_values", values)
+    monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", prepare)
+    patch_ops_name(monkeypatch, "_dequant_values", values)
     monkeypatch.setattr(ops, "_add_fused_lora_branch", fused)
     return seen
 
 
 @pytest.fixture
 def activation_on_cuda(monkeypatch):
-    for name in ("_scaled_mm_fast_path_reject_reason", "_nvfp4_fast_path_reject_reason"):
-        real = getattr(ops, name)
-        monkeypatch.setattr(ops, name, lambda real=real, **kwargs: real(**{**kwargs, "input_is_cuda": True}))
+    for module, name in (
+        (fp8_linear, "_scaled_mm_fast_path_reject_reason"),
+        (nvfp4_linear, "_nvfp4_fast_path_reject_reason"),
+    ):
+        real = getattr(module, name)
+        monkeypatch.setattr(module, name, lambda real=real, **kwargs: real(**{**kwargs, "input_is_cuda": True}))
 
 
 @pytest.fixture(autouse=True)
@@ -229,7 +237,6 @@ def _fresh_verdicts():
 def machine(install_capabilities, monkeypatch):
     monkeypatch.setattr(gemm, "_nvfp4_trial_gemm", lambda device: None)
     monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
-    monkeypatch.setattr(ops, "GEMM_SUPPORT", gemm_support)
 
     def configure(hardware: str, *, fp8: bool, nvfp4: bool, fused: bool = True) -> None:
         gemm._reset_verdicts()

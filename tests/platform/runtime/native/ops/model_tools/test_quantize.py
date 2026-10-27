@@ -19,7 +19,7 @@ from src.platform.runtime.native.ops.model_tools.errors import (
 from src.platform.runtime.native.ops.model_tools.formats import get_format
 from src.platform.runtime.native.ops.model_tools.quantize import quantize_file, quantize_stream
 from src.platform.runtime.native.ops.model_tools.source import read_stream
-from vendor.gpl.comfyui.ops import detect_quant_format, fp8_ops
+from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops
 
 from .fixtures import FAMILY_LAYOUTS, make_tensors, write_family_fixture
 

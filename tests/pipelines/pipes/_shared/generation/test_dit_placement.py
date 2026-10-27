@@ -35,7 +35,9 @@ from src.platform.settings import runtime_flags
 from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
 
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
-from src.platform.runtime.native.kernels import FastPathKind, fast_path, gemm
+from src.platform.runtime.native.kernels import Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm
+from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
+from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.memory.partial import plan_residency_split
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
@@ -232,7 +234,7 @@ def _stored_layer(cls, in_features: int, out_features: int, dtype: torch.dtype):
 
 
 def _fp8_layer(in_features: int, out_features: int, *, dtype: torch.dtype = torch.float8_e4m3fn):
-    layer = _stored_layer(comfy_ops.Fp8ScaledLinear, in_features, out_features, dtype)
+    layer = _stored_layer(Fp8ScaledLinear, in_features, out_features, dtype)
     layer.weight_scale = torch.ones((), device="meta")
     return layer
 
@@ -245,7 +247,7 @@ def _int8_layer(in_features: int, out_features: int, *, convrot: bool = False):
 
 
 def _nvfp4_layer(in_features: int, out_features: int):
-    layer = comfy_ops.Nvfp4Linear(in_features, out_features, device="meta", dtype=torch.bfloat16)
+    layer = Nvfp4Linear(in_features, out_features, device="meta", dtype=torch.bfloat16)
     layer._is_nvfp4 = True
     layer.weight = None
     return layer
@@ -256,7 +258,7 @@ def _loaded_nvfp4_layer(in_features: int = 32, out_features: int = 16):
     weight = torch.randn(out_features, in_features) * 0.05
     tensor_scale = (weight.abs().amax() / (F4_MAX * F8_MAX)).clamp(min=1e-8).detach()
     packed, block, _, _ = quantize_nvfp4(weight, tensor_scale)
-    layer = comfy_ops.fp8_ops.Linear(in_features, out_features, bias=True)
+    layer = fp8_ops.Linear(in_features, out_features, bias=True)
     layer.requires_grad_(False)
     layer.load_state_dict(
         {
@@ -1918,7 +1920,7 @@ class _LiveBytes(TorchDispatchMode):
 
 
 @pytest.mark.parametrize("quantize, per_element", [
-    (comfy_ops._quantize_fp8_dynamic, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
+    (_quantize_fp8_dynamic, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
     (comfy_ops._quantize_nvfp4_dynamic, _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
 ], ids=["fp8", "nvfp4"])
 def test_the_quant_reserve_matches_the_quantisers_measured_peak(quantize, per_element):
