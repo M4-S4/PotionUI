@@ -1,7 +1,13 @@
+import copy
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
+import yaml
+
 from src.features.llm.harness.profile import ProfileLayer, ProfileSource
-from src.features.llm.harness.profile_seed import SeedTable, default_seed
+from src.features.llm.harness.profile_catalog import render_seed
+from src.features.llm.harness.profile_seed import BASE_PATH, SeedRoot, SeedTable, default_seed, marketplace_root
 from src.features.llm.repository import LLMConfig
 
 
@@ -49,6 +55,45 @@ def tiny_seed(*rows: Mapping[str, Any], catalog: Optional[List[Mapping[str, Any]
             "catalog": list(catalog or []),
         }
     )
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEEPSEEK_PROFILES_DIR = REPO_ROOT / "content" / "plugins" / "marketplace" / "deepseek-provider" / "profiles"
+MODELS_DEV_PROVIDERS = {
+    "anthropic": "anthropic-messages",
+    "openai": "openai-responses",
+    "google": "gemini-interactions",
+    "deepseek": "openai-chat",
+}
+
+
+def shipped_roots() -> List[SeedRoot]:
+    return [marketplace_root(), SeedRoot("plugin:deepseek-provider", DEEPSEEK_PROFILES_DIR)]
+
+
+@lru_cache(maxsize=1)
+def shipped_seed() -> SeedTable:
+    return SeedTable.scan(shipped_roots())
+
+
+def shipped_mapping() -> Dict[str, Any]:
+    merged: Dict[str, Any] = {"version": 1, "sources": {}, "base": yaml.safe_load(BASE_PATH.read_text(encoding="utf-8"))["base"], "rows": [], "catalog": []}
+    for root in shipped_roots():
+        for path in sorted(root.path.glob("*.yml")):
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            merged["sources"].update(data["sources"])
+            merged["rows"].extend(data.get("rows") or [])
+            merged["catalog"].extend(data.get("catalog") or [])
+    return copy.deepcopy(merged)
+
+
+def combined_seed_text() -> str:
+    shipped = shipped_mapping()
+    head = yaml.safe_dump(
+        {"version": 1, "sources": shipped["sources"], "models_dev": MODELS_DEV_PROVIDERS, "rows": shipped["rows"]},
+        sort_keys=False,
+    )
+    return render_seed(f"{head}catalog: []\n", shipped["catalog"])
 
 
 class FakeClock:

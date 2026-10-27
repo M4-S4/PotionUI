@@ -16,6 +16,9 @@ llm_providers:
     backend: "backend.adapter:DeepSeekAdapter"
     default_base_url: "https://api.deepseek.com"
 
+llm_profiles:
+  - path: "profiles"
+
 settings:
   - name: "thinking"
     type: "select"

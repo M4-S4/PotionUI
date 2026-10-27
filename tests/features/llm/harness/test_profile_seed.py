@@ -2,26 +2,25 @@ import copy
 from collections import Counter
 
 import pytest
-import yaml
 
 from src.features.llm.harness.profile import LAYERED_FIELDS, CapabilityProfile, ProfileSource
-from src.features.llm.harness.profile_seed import SEED_PATH, SeedError, SeedKey, SeedTable, default_seed
-from tests.fixtures.llm_profiles import tiny_seed
+from src.features.llm.harness.profile_seed import CORE_ROOT, SeedError, SeedKey, SeedOrigin, SeedTable
+from tests.fixtures.llm_profiles import shipped_mapping, shipped_seed, tiny_seed
 
 CATALOG_OWNED = {"context_window", "max_output_tokens", "prices"}
 
 
 def profile_for(adapter: str, model: str, server: str = None) -> CapabilityProfile:
-    layer = default_seed().layer(SeedKey(adapter, model, server))
+    layer = shipped_seed().layer(SeedKey(adapter, model, server))
     return CapabilityProfile(adapter=adapter, model=model).layered([layer])
 
 
 def shipped() -> dict:
-    return copy.deepcopy(yaml.safe_load(SEED_PATH.read_text(encoding="utf-8")))
+    return shipped_mapping()
 
 
 def test_the_shipped_seed_loads_and_every_row_cites_known_sources():
-    table = SeedTable.load()
+    table = shipped_seed()
 
     assert len(table.rows) > 10
     assert table.catalog
@@ -31,22 +30,22 @@ def test_the_shipped_seed_loads_and_every_row_cites_known_sources():
 
 
 def test_every_source_except_the_catalog_one_is_cited_by_some_row():
-    table = default_seed()
+    table = shipped_seed()
     cited = {name for row in table.rows for name in row.sources}
 
     assert set(table.sources) - cited == {"models-dev"}
 
 
 def test_every_source_is_a_public_url():
-    assert all(url.startswith("https://") for url in default_seed().sources.values())
+    assert all(url.startswith("https://") for url in shipped_seed().sources.values())
 
 
 def test_the_base_row_states_every_profile_field():
-    assert set(default_seed().base) == set(LAYERED_FIELDS)
+    assert set(shipped_seed().base) == set(LAYERED_FIELDS)
 
 
 def test_curated_rows_leave_catalog_data_to_the_catalog():
-    for row in default_seed().rows:
+    for row in shipped_seed().rows:
         assert not (set(row.fields) & CATALOG_OWNED), row.id
 
 
@@ -284,7 +283,7 @@ def test_recommended_sampling_follows_the_model_card(adapter, model, expected):
 def test_every_recommended_sampling_value_passes_the_override_validation():
     from src.features.llm.harness.profile_schema import validate_overrides
 
-    for row in default_seed().rows:
+    for row in shipped_seed().rows:
         if "recommended_sampling" in row.fields:
             validate_overrides({"recommended_sampling": row.fields["recommended_sampling"]})
 
@@ -327,19 +326,21 @@ def test_patterns_written_with_capitals_still_match_lowercased_model_names():
 
 
 def test_applied_rows_are_listed_in_application_order():
-    assert default_seed().applied(SeedKey("anthropic-messages", "claude-sonnet-5")) == (
-        "base",
-        "catalog:claude-sonnet-5",
-        "anthropic-messages",
-        "anthropic-5x",
-        "anthropic-sonnet-5-cache-minimum",
-    )
+    applied = shipped_seed().applied(SeedKey("anthropic-messages", "claude-sonnet-5"))
+
+    assert [(item.id, item.origin) for item in applied] == [
+        ("base", SeedOrigin(CORE_ROOT, "profile_base.yml")),
+        ("catalog:claude-sonnet-5", SeedOrigin("marketplace", "anthropic.yml")),
+        ("anthropic-messages", SeedOrigin("marketplace", "anthropic.yml")),
+        ("anthropic-5x", SeedOrigin("marketplace", "anthropic.yml")),
+        ("anthropic-sonnet-5-cache-minimum", SeedOrigin("marketplace", "anthropic.yml")),
+    ]
 
 
 def test_a_layer_is_the_same_object_for_the_same_key():
     key = SeedKey("ollama-chat", "qwen3:8b")
 
-    assert default_seed().layer(key) is default_seed().layer(key)
+    assert shipped_seed().layer(key) is shipped_seed().layer(key)
 
 
 class TestRejectedSeedTables:
@@ -410,6 +411,6 @@ class TestRejectedSeedTables:
 
 
 def test_catalog_entries_are_unique_per_adapter_and_model():
-    counts = Counter((entry.adapter, entry.model) for entry in default_seed().catalog)
+    counts = Counter((entry.adapter, entry.model) for entry in shipped_seed().catalog)
 
     assert max(counts.values()) == 1

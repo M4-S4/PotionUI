@@ -4,16 +4,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 import yaml
 
 from src.features.llm.harness.profile_schema import PROFILE_FIELDS
-from src.features.llm.harness.profile_seed import SeedTable
+from src.features.llm.harness.profile_seed import SeedOrigin, parse_seed_file
 
 MODELS_DEV_URL = "https://models.dev/api.json"
-
-PROVIDER_ADAPTERS = {
-    "anthropic": "anthropic-messages",
-    "openai": "openai-responses",
-    "google": "gemini-interactions",
-    "deepseek": "openai-chat",
-}
 
 _CATALOG_HEADER = re.compile(r"^catalog:.*$", re.MULTILINE)
 _PRICE_FIELDS = {
@@ -119,9 +112,9 @@ def _is_chat_model(model: Mapping[str, Any]) -> bool:
     )
 
 
-def build_catalog(models_dev: Mapping[str, Any]) -> List[Dict[str, Any]]:
+def build_catalog(models_dev: Mapping[str, Any], providers: Mapping[str, str]) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
-    for provider, adapter in PROVIDER_ADAPTERS.items():
+    for provider, adapter in providers.items():
         models = (models_dev.get(provider) or {}).get("models") or {}
         for model_id in sorted(models):
             model = models[model_id]
@@ -149,7 +142,11 @@ def render_seed(seed_text: str, catalog: Sequence[Mapping[str, Any]]) -> str:
     return f"{head}catalog:\n{indented}"
 
 
+def seed_providers(seed_text: str) -> Dict[str, str]:
+    data = yaml.safe_load(seed_text)
+    return dict(data.get("models_dev") or {}) if isinstance(data, dict) else {}
+
 def refresh_seed(seed_text: str, models_dev: Mapping[str, Any]) -> str:
-    rendered = render_seed(seed_text, build_catalog(models_dev))
-    SeedTable.from_mapping(yaml.safe_load(rendered))
+    rendered = render_seed(seed_text, build_catalog(models_dev, seed_providers(seed_text)))
+    parse_seed_file(yaml.safe_load(rendered), SeedOrigin("refresh", "refresh"), strict=True)
     return rendered

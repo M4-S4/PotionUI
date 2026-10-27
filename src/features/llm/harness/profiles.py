@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Tuple, Union
 
 from src.features.llm.harness import codec
 from src.features.llm.harness.adapter import Adapter
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, Verification
 from src.features.llm.harness.profile_schema import PROFILE_FIELDS, clean_overrides
 from src.features.llm.harness.profile_seed import SeedKey, SeedTable, default_seed
+from src.features.llm.harness.profile_seed_catalog import SeedCatalog
 from src.features.llm.model_listing import ModelListingError
 from src.features.llm.ttl_cache import TTLCache
 from src.platform.database.rows import dt_iso, now_utc
@@ -82,7 +83,7 @@ class LayeredProfileResolver:
     def __init__(
         self,
         adapter_for: Callable[[LLMConfig], Adapter],
-        seed: Optional[SeedTable] = None,
+        seed: Optional[Union[SeedTable, SeedCatalog]] = None,
         *,
         now: Callable[[], datetime] = now_utc,
         clock: Optional[Callable[[], float]] = None,

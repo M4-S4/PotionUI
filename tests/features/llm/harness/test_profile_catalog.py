@@ -5,8 +5,9 @@ import pytest
 import yaml
 
 from scripts import llm_profiles_refresh
-from src.features.llm.harness.profile_catalog import PROVIDER_ADAPTERS, build_catalog, refresh_seed, render_seed
-from src.features.llm.harness.profile_seed import SEED_PATH, SeedKey, SeedTable
+from src.features.llm.harness.profile_catalog import build_catalog, refresh_seed, render_seed
+from src.features.llm.harness.profile_seed import SeedKey, SeedOrigin, SeedTable, parse_seed_file
+from tests.fixtures.llm_profiles import MODELS_DEV_PROVIDERS, combined_seed_text, shipped_roots
 
 FIXTURE = Path(__file__).resolve().parents[3] / "fixtures" / "llm_models_dev" / "api.json"
 
@@ -18,13 +19,13 @@ def models_dev() -> dict:
 
 @pytest.fixture
 def catalog(models_dev) -> dict:
-    return {(entry["adapter"], entry["model"]): entry["fields"] for entry in build_catalog(models_dev)}
+    return {(entry["adapter"], entry["model"]): entry["fields"] for entry in build_catalog(models_dev, MODELS_DEV_PROVIDERS)}
 
 
 @pytest.fixture
 def seed_copy(tmp_path) -> Path:
     path = tmp_path / "profiles.yml"
-    path.write_text(SEED_PATH.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+    path.write_text(combined_seed_text(), encoding="utf-8", newline="\n")
     return path
 
 
@@ -42,8 +43,8 @@ def test_only_chat_models_of_the_mapped_providers_are_kept(catalog):
 
 
 def test_entries_follow_provider_then_model_order(models_dev):
-    order = [(entry["adapter"], entry["model"]) for entry in build_catalog(models_dev)]
-    providers = list(PROVIDER_ADAPTERS.values())
+    order = [(entry["adapter"], entry["model"]) for entry in build_catalog(models_dev, MODELS_DEV_PROVIDERS)]
+    providers = list(MODELS_DEV_PROVIDERS.values())
 
     assert order == sorted(order, key=lambda item: (providers.index(item[0]), item[1]))
 
@@ -104,7 +105,8 @@ def test_prices_without_both_input_and_output_are_left_out_and_bad_numbers_are_i
                     "bare": {"modalities": {"input": ["text"], "output": ["text"]}, "reasoning": True},
                 }
             }
-        }
+        },
+        MODELS_DEV_PROVIDERS,
     )
     by_model = {entry["model"]: entry["fields"] for entry in entries}
 
@@ -115,19 +117,39 @@ def test_prices_without_both_input_and_output_are_left_out_and_bad_numbers_are_i
 
 
 def test_missing_providers_are_skipped():
-    assert build_catalog({}) == []
-    assert build_catalog({"anthropic": {}}) == []
+    assert build_catalog({}, MODELS_DEV_PROVIDERS) == []
+    assert build_catalog({"anthropic": {}}, MODELS_DEV_PROVIDERS) == []
 
 
-def test_the_shipped_catalog_is_in_the_format_the_script_writes():
-    text = SEED_PATH.read_text(encoding="utf-8")
-    shipped = yaml.safe_load(text)
+SHIPPED_FILES = [path for root in shipped_roots() for path in sorted(root.path.glob("*.yml"))]
+CATALOG_FILES = [path for path in SHIPPED_FILES if "models_dev" in path.read_text(encoding="utf-8")]
 
-    assert render_seed(text, shipped["catalog"]) == text
+
+@pytest.mark.parametrize("path", CATALOG_FILES, ids=lambda path: path.name)
+def test_every_shipped_catalog_is_in_the_format_the_script_writes(path):
+    text = path.read_text(encoding="utf-8")
+
+    assert render_seed(text, yaml.safe_load(text)["catalog"]) == text
+
+
+def test_the_files_without_a_catalog_declare_no_providers():
+    others = [path for path in SHIPPED_FILES if path not in CATALOG_FILES]
+
+    assert others
+    for path in others:
+        assert not yaml.safe_load(path.read_text(encoding="utf-8")).get("catalog")
+
+
+def test_the_providers_each_shipped_file_declares_cover_the_catalog_adapters():
+    declared = {}
+    for path in CATALOG_FILES:
+        declared.update(yaml.safe_load(path.read_text(encoding="utf-8"))["models_dev"])
+
+    assert declared == MODELS_DEV_PROVIDERS
 
 
 def test_refreshing_rewrites_only_the_catalog_and_keeps_the_curated_part_byte_for_byte(models_dev):
-    text = SEED_PATH.read_text(encoding="utf-8")
+    text = combined_seed_text()
     head = text[: text.index("\ncatalog:") + 1]
 
     refreshed = refresh_seed(text, models_dev)
@@ -138,13 +160,14 @@ def test_refreshing_rewrites_only_the_catalog_and_keeps_the_curated_part_byte_fo
 
 
 def test_refreshing_twice_changes_nothing_more(models_dev):
-    once = refresh_seed(SEED_PATH.read_text(encoding="utf-8"), models_dev)
+    once = refresh_seed(combined_seed_text(), models_dev)
 
     assert refresh_seed(once, models_dev) == once
 
 
 def test_a_refreshed_seed_resolves_catalog_data_into_profiles(models_dev):
-    table = SeedTable.from_mapping(yaml.safe_load(refresh_seed(SEED_PATH.read_text(encoding="utf-8"), models_dev)))
+    refreshed = parse_seed_file(yaml.safe_load(refresh_seed(combined_seed_text(), models_dev)), SeedOrigin("test", "refreshed.yml"), strict=True)
+    table = SeedTable.assemble(SeedTable.load_base(), [refreshed])
 
     layer = table.layer(SeedKey("openai-responses", "gpt-5.6"))
 
@@ -165,12 +188,12 @@ def test_a_seed_without_exactly_one_catalog_key_is_refused(text):
 
 def test_a_catalog_the_seed_loader_would_reject_is_never_written(models_dev):
     broken = {"anthropic": {"models": {"m": {"modalities": {"input": ["text"], "output": ["text"]}, "reasoning_options": []}}}}
-    entries = build_catalog(broken)
+    entries = build_catalog(broken, MODELS_DEV_PROVIDERS)
     entries[0]["fields"]["not_a_field"] = 1
-    bad = render_seed(SEED_PATH.read_text(encoding="utf-8"), entries)
+    bad = render_seed(combined_seed_text(), entries)
 
     with pytest.raises(Exception, match="not_a_field"):
-        SeedTable.from_mapping(yaml.safe_load(bad))
+        parse_seed_file(yaml.safe_load(bad), SeedOrigin("test", "bad.yml"), strict=True)
 
 
 class TestScript:

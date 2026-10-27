@@ -7,9 +7,12 @@ import pytest
 
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
+from src.features.llm.harness.profile_seed import CONTENT_DIR, SeedKey
+from src.features.llm.harness.profile_seed_catalog import SeedCatalog
 from src.platform.plugins.llm_providers import LLMProviderRegistry
 from src.platform.plugins.registry import PluginRegistry
 from tests.fixtures.llm_engine import core_gateway
+from tests.fixtures.llm_profiles import shipped_seed
 
 PLUGIN_ID = "deepseek-provider"
 PACKAGE = "deepseek_provider"
@@ -74,3 +77,24 @@ def test_the_manifest_and_the_backend_name_the_same_plugin(registry):
 
     assert manifest.validation_error is None
     assert manifest.id == backend.PLUGIN_ID
+
+
+def test_the_plugin_supplies_the_deepseek_profile_rows_only_while_enabled(registry):
+    catalog = SeedCatalog(CONTENT_DIR, registry)
+    key = SeedKey("openai-chat", "deepseek-v4-pro")
+    assert catalog.layer(key).fields["replay_required_with_tools"] is False
+
+    assert registry.enable_plugin(PLUGIN_ID)
+    enabled = catalog.layer(key).fields
+    assert enabled["replay_required_with_tools"] is True
+    assert enabled == shipped_seed().layer(key).fields
+
+    registry.disable_plugin(PLUGIN_ID)
+    assert catalog.layer(key).fields["replay_required_with_tools"] is False
+
+
+def test_the_manifest_declares_a_profiles_root_that_exists(registry):
+    manifest = next(m for m in registry.loader.discover_plugins() if m.id == PLUGIN_ID)
+
+    assert manifest.llm_profiles == [{"path": "profiles"}]
+    assert (PLUGIN_ROOT / "profiles" / "deepseek.yml").is_file()

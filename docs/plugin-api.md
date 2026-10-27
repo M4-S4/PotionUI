@@ -1017,6 +1017,22 @@ core profile id is reported as a load error and the core profile wins, the same 
 readers a profile can name are a closed set implemented in core. Check a profile with
 `python scripts/model_layout_lint.py`.
 
+## Contributing LLM profile rows
+
+A profile row tells the harness what a model can do (reasoning control, tool-choice limits,
+rejected sampling, prices). A provider plugin can ship the rows for its own models so core names
+none of them. Declare an `llm_profiles:` root in `manifest.yml`; no Python import is required:
+
+```yaml
+llm_profiles:
+  - path: "profiles"   # a dir in the plugin, relative to the plugin root
+```
+
+The dir is scanned for `*.yml` files in the format described in [LLM Capability
+Profiles](llm-profiles.md), only while the plugin is enabled. Plugin rows apply after the
+marketplace rows and before the admin's `content/llm-profiles/local/` rows; a row with the same
+`id` replaces the earlier one. A bad file or row is skipped and logged with its path.
+
 ## Contributing photo filters and filter ops
 
 A **filter** is a recipe of adjustment steps (plus an optional `.cube` LUT) the image editor and the server

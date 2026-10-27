@@ -257,6 +257,9 @@ class ModelLayoutsRootSpec(PluginRelativePathSpec):
 class FiltersRootSpec(PluginRelativePathSpec):
     pass
 
+class LLMProfilesRootSpec(PluginRelativePathSpec):
+    pass
+
 
 class FilterOpParamSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -828,6 +831,7 @@ class PluginManifestSchema(BaseModel):
     # content/recipes/ tree - see RecipesRootSpec.
     recipes: List[RecipesRootSpec] = Field(default_factory=list)
     model_layouts: List[ModelLayoutsRootSpec] = Field(default_factory=list)
+    llm_profiles: List[LLMProfilesRootSpec] = Field(default_factory=list)
     filters: List[FiltersRootSpec] = Field(default_factory=list)
     filter_ops: List[FilterOpSpec] = Field(default_factory=list)
     # Recipe step kinds this plugin contributes - see RecipeStepSpec.

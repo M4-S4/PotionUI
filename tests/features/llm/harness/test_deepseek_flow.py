@@ -6,7 +6,7 @@ from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.replay import missing_reasoning, must_disable_reasoning, policy_replay
 from src.features.llm.harness.turn_state import StepRecord, StepStatus
 from tests.fixtures.llm_harness import assemble, text_step, tool_step
-from tests.fixtures.llm_profiles import ProbeAdapter, adapter_for, make_config
+from tests.fixtures.llm_profiles import ProbeAdapter, adapter_for, make_config, shipped_seed
 
 BASE_URL = "https://api.deepseek.com"
 ORIGIN = Origin(
@@ -21,7 +21,7 @@ def deepseek_config(**overrides):
 
 
 def resolver() -> LayeredProfileResolver:
-    return LayeredProfileResolver(adapter_for(ProbeAdapter(name="openai-chat")))
+    return LayeredProfileResolver(adapter_for(ProbeAdapter(name="openai-chat")), shipped_seed())
 
 
 def step(seq: int, turn: str, msg) -> StepRecord:

@@ -9,13 +9,13 @@ from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
 from src.features.llm.harness.messages import TextPart, message
 from src.features.llm.harness.profiles import LayeredProfileResolver
-from tests.fixtures.llm_profiles import ProbeAdapter, adapter_for, make_config
+from tests.fixtures.llm_profiles import ProbeAdapter, adapter_for, make_config, shipped_seed
 
 
 def rendered(adapter, adapter_name, config_type, model, reasoning, **discovered):
     config = make_config(type=config_type, model=model, base_url="https://api.test", api_key="key")
     probe = ProbeAdapter(name=adapter_name, fields=discovered)
-    resolver = LayeredProfileResolver(adapter_for(probe))
+    resolver = LayeredProfileResolver(adapter_for(probe), shipped_seed())
     asyncio.run(resolver.ensure(config))
     profile = resolver.resolve(config)
     request = RenderRequest(config=config, system="s", messages=(message("u1", "user", TextPart("hi")),), settings=Settings(reasoning=reasoning))

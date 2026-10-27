@@ -152,6 +152,7 @@ from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAd
 from src.features.llm.harness.adapters.openrouter import DEFAULT_BASE_URL as OPENROUTER_BASE_URL, OpenRouterAdapter
 from src.features.llm.harness.replay import policy_replay
 from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.profile_seed_catalog import SeedCatalog
 from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.store import SqliteTurnStore
@@ -838,7 +839,10 @@ def build_container() -> AppContainer:
         ),
         provider_registry=llm_provider_registry,
     )
-    llm_profiles = LayeredProfileResolver(llm_types.adapter_for)
+    llm_profiles = LayeredProfileResolver(
+        llm_types.adapter_for,
+        SeedCatalog(Path(os.getenv("POTIONUI_LLM_PROFILES_DIR", "content/llm-profiles")), plugin_registry),
+    )
     llm_service = LLMGateway(
         llm_repository=llm_repository,
         types=llm_types,
