@@ -351,4 +351,5 @@ pytest_plugins = [
     'tests.fixtures.image_fixtures',
     'tests.fixtures.mesh_fixtures',
     'tests.fixtures.audio_fixtures',
+    'tests.fixtures.kernel_capabilities',
 ]
