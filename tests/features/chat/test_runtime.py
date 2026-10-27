@@ -8,7 +8,7 @@ from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from src.features.chat.runtime import ChatRuntime
-from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, seed_history, typed_history
+from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, seed_history, typed_history, llm_service_mock
 from tests.fixtures.chat_engine import ScriptedTurnEngine
 from src.features.llm.harness.adapter import Settings
 from src.features.llm.harness.profile import CapabilityProfile
@@ -37,7 +37,7 @@ class TestValidationHelpers:
         self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -110,7 +110,7 @@ class TestCreateSession:
         self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -215,7 +215,7 @@ class TestGetSession:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -267,7 +267,7 @@ class TestDeleteSession:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -308,7 +308,7 @@ class TestUpdateSession:
         self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
@@ -358,7 +358,7 @@ class TestSendMessage:
         self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -715,7 +715,7 @@ class TestSendMessageBehaviorTrace:
     def setup_method(self):
         self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -948,7 +948,7 @@ class TestMemoryCountedInHistoryBudget:
     def setup_method(self):
         self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -1063,7 +1063,7 @@ class TestResolveToolExecutionPreservesBehaviorTrace:
     def setup_method(self):
         self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -1143,7 +1143,7 @@ class TestAcceptSession:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -1197,7 +1197,7 @@ class TestRejectSession:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -1244,7 +1244,7 @@ class TestHookExecution:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -1306,7 +1306,7 @@ class TestSendMessageResources:
                 return [ResourceSuggestion(uri="fake.known", label="Known Thing")]
 
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
         mock_context = Mock()
@@ -1418,7 +1418,7 @@ class TestInjectMemoryBlock:
     def setup_method(self):
         self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
         self.mock_model_index = Mock()
@@ -1623,7 +1623,7 @@ class TestInjectWorkspaceBlock:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -1829,7 +1829,7 @@ class TestInjectWorkspaceBlockMusicDirector:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -1917,7 +1917,7 @@ class TestInjectWorkspaceBlockVideoDirector:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -2055,7 +2055,7 @@ class TestInjectWorkspaceBlockLLMContext:
             turn_engine=self.engine,
             replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -2486,7 +2486,7 @@ class TestBehaviorTraceToolFailures:
         pattern already used for rescues."""
         self.engine = ScriptedTurnEngine()
         mock_repo = Mock()
-        mock_llm = AsyncMock()
+        mock_llm = llm_service_mock(AsyncMock())
         mock_processor = Mock()
         mock_plugins = Mock()
         mock_context = Mock()
@@ -2542,7 +2542,7 @@ class TestSendMessageToolsPathIterationNudge:
     def _setup_tools_session(self, structured_reply: bool):
         self.engine = ScriptedTurnEngine()
         mock_repo = Mock()
-        mock_llm = AsyncMock()
+        mock_llm = llm_service_mock(AsyncMock())
         mock_processor = Mock()
         mock_plugins = Mock()
         mock_context = Mock()

@@ -1,4 +1,5 @@
 import json
+from unittest.mock import Mock
 from contextlib import aclosing
 from dataclasses import replace
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
@@ -44,6 +45,10 @@ from tests.fixtures.llm_engine import scripted_config, scripted_gateway
 DEFAULT_TURN: Dict[str, Any] = {"content": "All done."}
 SIDE_PURPOSES = frozenset({"title", "memory_reflection", "memory_compaction"})
 SIDE_TURN: Dict[str, Any] = {"content": "[]"}
+REPLAY_TARGET = (
+    Origin(adapter="scripted", provider="scripted", model="scripted-model"),
+    CapabilityProfile(adapter="scripted", model="scripted-model"),
+)
 THINKING_PIECE_CHARS = 2000
 
 
@@ -477,3 +482,9 @@ def seed_history(store: Any, session_id: str, entries: Sequence[Dict[str, Any]],
             id=new_id("step"), session_id=session_id, turn_id=turn_id, seq=store.next_seq(session_id),
             message=message, status=StepStatus.COMPLETED,
         ))
+
+
+def llm_service_mock(service: Any = None) -> Any:
+    service = service if service is not None else Mock()
+    service.replay_target = Mock(return_value=REPLAY_TARGET)
+    return service

@@ -68,9 +68,9 @@ def test_disabling_the_plugin_takes_the_type_away(registry, providers):
     assert providers.get("deepseek") is None
 
 
-def test_the_manifest_version_matches_the_backend(registry):
+def test_the_manifest_and_the_backend_name_the_same_plugin(registry):
     manifest = next(m for m in registry.loader.discover_plugins() if m.id == PLUGIN_ID)
     backend = registry.loader.load_plugin_module(manifest, "backend.adapter")
 
     assert manifest.validation_error is None
-    assert (manifest.id, manifest.version) == (backend.PLUGIN_ID, backend.PLUGIN_VERSION)
+    assert manifest.id == backend.PLUGIN_ID

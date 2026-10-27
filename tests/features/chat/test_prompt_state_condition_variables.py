@@ -8,7 +8,7 @@ from src.features.chat.runtime import ChatRuntime
 from src.features.llm.tools.base import ToolServices
 from tests.fixtures.chat_modes import mode_registry
 from tests.fixtures.fake_tab_drafts import TAB_ID, make_manager, seed
-from tests.fixtures.chat_engine import ScriptedTurnEngine
+from tests.fixtures.chat_engine import ScriptedTurnEngine, llm_service_mock
 
 CONTEXT = {
     "form_state": {"tab_id": TAB_ID, "preset": "sdxl/base"},
@@ -36,7 +36,7 @@ def _runtime(owner="user-1"):
     engine.script(["ok"])
     runtime = ChatRuntime(
         chat_repository=repo,
-        llm_service=Mock(),
+        llm_service=llm_service_mock(),
         response_processor=processor,
         plugin_registry=plugins,
         chat_mode_registry=mode_registry(),

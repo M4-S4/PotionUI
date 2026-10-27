@@ -29,7 +29,7 @@ from src.features.llm.harness.adapter import Settings
 from src.features.llm.harness.build import new_id, user_message
 from src.features.llm.harness.engine import BudgetExhausted, TurnInput, TurnOutcome
 from src.features.llm.harness.events import ReasoningDelta, TextDelta
-from src.features.llm.harness.messages import LEGACY_ORIGIN, ContextPart, Message, Origin, Role
+from src.features.llm.harness.messages import ContextPart, Message, Origin, Role
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.turn_state import NoticeRaised, StepCommitted, StepDiscarded, ToolFinished, ToolStarted, TurnState
 from src.features.llm.trace_repository import chat_call_trace_repository
@@ -642,14 +642,7 @@ class ConversationRunner:
             logger.debug("Could not prime LLM context window", exc_info=True)
 
     def _replay_target(self, session: SessionResponse) -> Tuple[Origin, CapabilityProfile]:
-        try:
-            service = self._m.llm_service
-            config = service.repository.get_configuration(session.llm_config_id)
-            adapter = service.types.require(config.type).adapter
-            return Origin.for_config(adapter.name, config), service.profiles.resolve(config)
-        except Exception:
-            logger.debug("Could not resolve the replay target for the session", exc_info=True)
-            return LEGACY_ORIGIN, CapabilityProfile(adapter=LEGACY_ORIGIN.adapter, model="")
+        return self._m.llm_service.replay_target(session.llm_config_id)
 
     def _tool_tier(self, session: SessionResponse) -> str:
         llm_config_id = getattr(session, "llm_config_id", None)

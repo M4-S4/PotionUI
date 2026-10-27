@@ -18,7 +18,7 @@ from src.features.chat.dto import MessageResponse, ToolResolveRequest
 from src.features.chat.routes import ChatController
 from src.features.chat.turns import ChatTurnRegistry, TurnAlreadyRunningError
 from src.platform.security.user import User
-from tests.fixtures.chat_engine import ScriptedTurnEngine
+from tests.fixtures.chat_engine import ScriptedTurnEngine, llm_service_mock
 
 
 async def _make_stream(events, *, delay=0.0):
@@ -743,7 +743,7 @@ class TestPersistenceSurvivesDisconnect:
                 yield {"type": "token", "content": c}
             yield {"type": "usage", "tokens_used": None, "prompt_tokens": None, "completion_tokens": None}
 
-        llm = Mock()
+        llm = llm_service_mock()
         engine = ScriptedTurnEngine()
         engine.script(_llm_gen())
 

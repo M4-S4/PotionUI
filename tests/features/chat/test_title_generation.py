@@ -10,7 +10,7 @@ from typing import AsyncGenerator, List
 from src.features.chat.runtime import ChatRuntime
 from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.title_generator import ChatTitleGenerator
-from tests.fixtures.chat_engine import ScriptedTurnEngine
+from tests.fixtures.chat_engine import ScriptedTurnEngine, llm_service_mock
 
 
 def _message(role: str, content: str) -> Mock:
@@ -80,7 +80,7 @@ class TestSanitize:
 
 class TestGenerate:
     def setup_method(self):
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_repo = Mock()
         self.generator = ChatTitleGenerator(self.mock_llm, self.mock_repo)
 
@@ -144,7 +144,7 @@ class TestStreamTitleEvent:
 
     def setup_method(self):
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 

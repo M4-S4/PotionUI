@@ -4,7 +4,6 @@ from src.plugin_api import plugin_settings
 from src.plugin_api.llm import CapabilityProfile, OpenAIChatAdapter, RenderRequest
 
 PLUGIN_ID = "deepseek-provider"
-PLUGIN_VERSION = "0.1.0"
 DEFAULT_THINKING = "auto"
 DEFAULT_REASONING_EFFORT = "high"
 

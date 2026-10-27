@@ -23,7 +23,7 @@ from src.features.chat.context_builder import ChatContextBuilder
 from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.runtime import ChatRuntime
 from src.features.llm.tools.governance import ToolGovernanceRepository
-from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, typed_history
+from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, typed_history, llm_service_mock
 
 
 @pytest.fixture
@@ -229,7 +229,7 @@ class TestSendMessageToolAvailabilityTransparency:
 
     def _setup(self, tools_enabled=True, disabled_tools=None):
         mock_repo = Mock()
-        mock_llm = AsyncMock()
+        mock_llm = llm_service_mock(AsyncMock())
         mock_processor = Mock()
         mock_plugins = Mock()
         mock_context = Mock()

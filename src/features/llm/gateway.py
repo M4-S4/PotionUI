@@ -187,6 +187,11 @@ class LLMGateway:
             raise ValueError(f"LLM configuration '{config.id}' is disabled")
         return config
 
+    def replay_target(self, target: Union[str, LLMConfig]) -> Tuple[Origin, CapabilityProfile]:
+        config = self._config(target)
+        entry = self.types.require(config.type)
+        return Origin.for_config(entry.adapter.name, config), self.profiles.resolve(config)
+
     async def prepare(
         self,
         target: Union[str, LLMConfig],
@@ -200,7 +205,8 @@ class LLMGateway:
         entry = self.types.require(config.type)
         if not isinstance(entry.adapter, Adapter):
             raise ValueError(f"LLM type '{config.type}' has no harness adapter")
-        profile = await self.profiles.ensure(config)
+        await self.profiles.ensure(config)
+        origin, profile = self.replay_target(config)
         settings = sampling.resolve_settings(config, profile, settings)
         choice = effective_tool_choice(settings, profile)
         notices: List[Notice] = [choice.notice] if choice.notice is not None else []
@@ -223,7 +229,6 @@ class LLMGateway:
                 kind=NoticeKind.REASONING_DROPPED, message=REASONING_WITHHELD_MESSAGE, detail={"reason": "missing_reasoning"},
             ))
         kept_ids = {message.id for message in kept}
-        origin = Origin.for_config(entry.adapter.name, config)
         request = RenderRequest(
             config=config, system=system_message, messages=kept, tools=tuple(tools), settings=settings,
         )

@@ -12,6 +12,7 @@ from src.features.chat.runtime import ChatRuntime
 from src.features.chat.tool_dispatcher import ToolCallDispatcher
 from src.features.llm.tools.base import ToolContext, ToolServices
 from src.features.llm.tools.governance import ToolGovernanceRepository, resolve_tool_scope
+from tests.fixtures.chat_engine import llm_service_mock
 
 
 class _CountingGovernance(ToolGovernanceRepository):
@@ -124,7 +125,7 @@ class TestToolServicesHolder:
 
     def test_dispatcher_builds_the_context_from_the_runtime_services(self):
         runtime = ChatRuntime(
-            chat_repository=Mock(), llm_service=Mock(), response_processor=Mock(), plugin_registry=Mock(),
+            chat_repository=Mock(), llm_service=llm_service_mock(), response_processor=Mock(), plugin_registry=Mock(),
             chat_mode_registry=Mock(),
             tool_services=ToolServices(llm_memory_repository="first", model_index_manager="models"),
         )

@@ -10,7 +10,7 @@ from typing import AsyncGenerator, List
 
 from src.features.chat.runtime import ChatRuntime
 from src.features.llm.harness.legacy import messages_from_dicts
-from tests.fixtures.chat_engine import ScriptedTurnEngine
+from tests.fixtures.chat_engine import ScriptedTurnEngine, llm_service_mock
 
 from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
@@ -74,7 +74,7 @@ class BaseStreamingTest:
     def setup_method(self):
         self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
