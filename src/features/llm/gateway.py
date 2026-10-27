@@ -3,7 +3,7 @@ import logging
 import time
 from contextlib import aclosing
 from dataclasses import dataclass, replace
-from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple, Union
 
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.context_windows import ContextWindows, WindowProbe
@@ -16,6 +16,8 @@ from src.features.llm.harness.events import FinishReason, StreamEvent, Usage
 from src.features.llm.harness.messages import Message, Origin
 from src.features.llm.harness.ports import ProfileResolver
 from src.features.llm.harness.profile import CapabilityProfile
+from src.features.llm.harness.tool_choice import effective_tool_choice
+from src.features.llm.harness.turn_state import Notice
 from src.features.llm.model_listing import DiscoveredModel
 from src.features.llm.repository import LLMConfig, LLMRepository
 from src.features.llm.types import LLMType, LLMTypes
@@ -35,6 +37,7 @@ class PreparedCall:
     request: RenderRequest
     origin: Origin
     ledger: Dict[str, Any]
+    notices: Tuple[Notice, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -202,6 +205,10 @@ class LLMGateway:
             raise ValueError(f"LLM type '{config.type}' has no harness adapter")
         await self.windows.ensure(config)
         profile = self.profiles.resolve(config)
+        choice = effective_tool_choice(settings, profile)
+        if choice.drop_tools:
+            tools = ()
+        settings = replace(settings, tool_choice=choice.choice)
         system_message = self.resolve_system(config, system)
         outcome = self.estimate_context_budget(config, system_message, messages, tools, settings)
         ledger = outcome.ledger
@@ -211,7 +218,10 @@ class LLMGateway:
         request = RenderRequest(
             config=config, system=system_message, messages=tuple(outcome.messages), tools=tuple(tools), settings=settings,
         )
-        return PreparedCall(config=config, entry=entry, profile=profile, request=request, origin=origin, ledger=ledger)
+        return PreparedCall(
+            config=config, entry=entry, profile=profile, request=request, origin=origin, ledger=ledger,
+            notices=(choice.notice,) if choice.notice is not None else (),
+        )
 
     async def run(self, prepared: PreparedCall) -> AsyncIterator[StreamEvent]:
         adapter = prepared.entry.adapter

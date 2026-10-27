@@ -1,9 +1,10 @@
+from dataclasses import replace
 from typing import Any, Dict, List
 
 import pytest
 
 from src.features.llm import trace_collector
-from src.features.llm.harness.adapter import Settings, ToolSpec
+from src.features.llm.harness.adapter import Settings, ToolChoice, ToolSpec
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.events import Finish, FinishReason, TextDelta, Usage
 from src.features.llm.harness.messages import (
@@ -17,6 +18,7 @@ from src.features.llm.harness.messages import (
     credential_fingerprint,
 )
 from src.features.llm.harness.profile import ReplayPolicy
+from src.features.llm.harness.turn_state import NoticeKind
 from tests.fixtures.llm_engine import drain, scripted_config, scripted_gateway
 from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, ScriptedAdapter, text_step, tool_step
 
@@ -174,3 +176,44 @@ async def test_provider_types_describe_core_entries():
         "type": "scripted", "label": None, "adapter": "scripted", "default_base_url": None,
         "supports_model_listing": True, "source": "core",
     }]
+
+
+class _ChoiceProfiles:
+    def __init__(self, inner, *modes):
+        self._inner = inner
+        self._modes = frozenset(modes)
+
+    def resolve(self, config):
+        return replace(self._inner.resolve(config), tool_choice=self._modes)
+
+    async def refresh(self, config):
+        return self.resolve(config)
+
+
+def _choice_gateway(*modes):
+    gateway = scripted_gateway(ScriptedAdapter())
+    gateway.profiles = _ChoiceProfiles(gateway.profiles, *modes)
+    return gateway
+
+
+_ECHO = ToolSpec(name="echo", description="Echoes.", parameters={"type": "object", "properties": {}})
+
+
+async def test_prepare_downgrades_a_tool_choice_the_model_cannot_honour_and_says_so():
+    prepared = await _choice_gateway("auto").prepare(
+        "cfg-scripted", [user_message("x")], tools=[_ECHO], settings=Settings(tool_choice=ToolChoice("required")),
+    )
+
+    assert prepared.request.settings.tool_choice == ToolChoice("auto")
+    assert prepared.request.tools == (_ECHO,)
+    assert [notice.kind for notice in prepared.notices] == [NoticeKind.TOOL_CHOICE_DOWNGRADED]
+
+
+async def test_prepare_drops_the_tools_when_none_cannot_be_sent_and_keeps_them_when_it_can():
+    settings = Settings(tool_choice=ToolChoice("none"))
+
+    dropped = await _choice_gateway("auto").prepare("cfg-scripted", [user_message("x")], tools=[_ECHO], settings=settings)
+    kept = await _choice_gateway("auto", "none").prepare("cfg-scripted", [user_message("x")], tools=[_ECHO], settings=settings)
+
+    assert dropped.request.tools == () and dropped.request.settings.tool_choice is None and dropped.notices == ()
+    assert kept.request.tools == (_ECHO,) and kept.request.settings.tool_choice == ToolChoice("none")

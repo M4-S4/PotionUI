@@ -402,7 +402,7 @@ class ConversationRunner:
             iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
             applied_calls=frozenset(continuation.applied_calls) if continuation else frozenset(),
             mode=mode.id,
-            tools_in_use=self._m.turn_engine.previous_tools(session_id) if tools_enabled else (),
+            tools_in_use=self._m.turn_engine.previous_tools(session_id),
         )
 
         with trace_collector.activate(session_id, user_id, purpose="chat_tools" if tools_enabled else "chat"):

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
 from src.features.llm.gateway import EMPTY_RESPONSE_ATTEMPTS
-from src.features.llm.harness.adapter import Settings, ToolSpec
+from src.features.llm.harness.adapter import Settings, ToolChoice, ToolSpec
 from src.features.llm.harness.assembler import StepAssembler, parse_args
 from src.features.llm.harness.build import context_message, new_id
 from src.features.llm.harness.cache import append_only
@@ -20,6 +20,7 @@ from src.features.llm.harness.ports import RetryPolicy, ToolRunner, TurnStore
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.recovery import CANCELLED_REASON, FAILED_REASON, interrupted_tool_step
 from src.features.llm.harness.retry import retry_notice
+from src.features.llm.harness.tool_choice import NONE
 from src.features.llm.harness.truncation import TruncationAction, decide_truncation
 from src.features.llm.harness.turn_state import (
     Notice,
@@ -233,6 +234,8 @@ class _Run:
                 registered = self._registered()
                 self.sent_tools = tuple(spec for spec in self.turn.tools_in_use if spec.name in registered)
                 self._tool_specs()
+            else:
+                self.sent_tools = self._history_tools()
             self.engine._store.save_state(self._state(TurnStatus.RUNNING))
             for message in self.turn.new_messages:
                 yield self._commit(message, StepStatus.COMPLETED)
@@ -260,9 +263,12 @@ class _Run:
 
     async def _single_answer(self) -> AsyncIterator[Any]:
         box = _StepBox()
-        async for event in self._step(box, (), filtered=False, retry_empty=True, keep_loaded=False):
+        tools = self.sent_tools
+        async for event in self._step(
+            box, tools, filtered=False, retry_empty=True, keep_loaded=False, tool_choice=ToolChoice(NONE) if tools else None,
+        ):
             yield event
-        message = box.message
+        message = self._rebuilt(box.message, box.message.text(), ())
         cut_off = self._cut_off(message)
         for raised in self._raised(cut_off):
             yield raised
@@ -319,7 +325,9 @@ class _Run:
         yield BudgetExhausted(self.turn.max_rounds)
         yield self._commit(context_message("budget", TOOL_BUDGET_EXHAUSTED_MESSAGE), StepStatus.COMPLETED)
         box = _StepBox()
-        async for event in self._step(box, (), filtered=True, retry_empty=False, keep_loaded=False):
+        async for event in self._step(
+            box, self.sent_tools, filtered=True, retry_empty=False, keep_loaded=False, tool_choice=ToolChoice(NONE),
+        ):
             yield event
         text = strip_tool_call_xml(box.message.text())
         cut_off = self._cut_off(box.message)
@@ -331,7 +339,14 @@ class _Run:
         yield self._outcome(text, BUDGET, TurnStatus.COMPLETED)
 
     async def _step(
-        self, box: _StepBox, tools: Tuple[ToolSpec, ...], *, filtered: bool, retry_empty: bool, keep_loaded: bool,
+        self,
+        box: _StepBox,
+        tools: Tuple[ToolSpec, ...],
+        *,
+        filtered: bool,
+        retry_empty: bool,
+        keep_loaded: bool,
+        tool_choice: Optional[ToolChoice] = None,
     ) -> AsyncIterator[Any]:
         self.box = box
         retry_attempt = 0
@@ -340,8 +355,11 @@ class _Run:
         while True:
             prepared = await self.engine._gateway.prepare(
                 self.turn.llm_id, tuple(self.working),
-                system=self.turn.system, settings=self._request_settings(keep_loaded), tools=tools,
+                system=self.turn.system, settings=self._request_settings(keep_loaded, tool_choice), tools=tools,
             )
+            for notice in prepared.notices:
+                for raised in self._raised(notice):
+                    yield raised
             box.profile = prepared.profile
             if self.profile is None:
                 self.profile = prepared.profile
@@ -435,8 +453,10 @@ class _Run:
         self.notices.append(notice)
         return [NoticeRaised(notice)]
 
-    def _request_settings(self, keep_loaded: bool) -> Settings:
+    def _request_settings(self, keep_loaded: bool, tool_choice: Optional[ToolChoice] = None) -> Settings:
         settings = replace(self.settings, keep_model_loaded=keep_loaded)
+        if tool_choice is not None:
+            settings = replace(settings, tool_choice=tool_choice)
         if settings.cache_ttl is None and any(self.engine._tools.requires_approval(spec.name) for spec in self.sent_tools):
             settings = replace(settings, cache_ttl=APPROVAL_CACHE_TTL)
         return settings
@@ -455,6 +475,14 @@ class _Run:
             for kind, value in text_filter.feed(event.text)
             if kind == TEXT and value
         ]
+
+    def _history_tools(self) -> Tuple[ToolSpec, ...]:
+        called = sorted({call.name for message in self.working for call in message.tool_calls()})
+        if not called:
+            return ()
+        if self.turn.tools_in_use:
+            return tuple(self.turn.tools_in_use)
+        return tuple(ToolSpec.from_schema(schema) for schema in self.engine._tools.turn_tool_schemas(called))
 
     def _registered(self) -> set:
         return self.engine._tools.registered_allowed(self.round.allowed_tools, self.round.deferred_tools)
