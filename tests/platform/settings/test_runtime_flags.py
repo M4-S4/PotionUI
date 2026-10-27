@@ -1,6 +1,9 @@
 import inspect
 import logging
+import os
 import re
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -241,11 +244,18 @@ def test_binding_the_vendor_ops_installs_the_kernel_gemm_support_function(monkey
 
 
 def test_importing_the_native_package_binds_the_vendor_gemm_support():
-    import src.platform.runtime.native
-    from src.platform.runtime.native.kernels import gemm_support
-    from vendor.gpl.comfyui import ops
-
-    assert ops.GEMM_SUPPORT is gemm_support
+    root = Path(__file__).resolve().parents[3]
+    script = (
+        "import src.platform.runtime.native\n"
+        "from src.platform.runtime.native.kernels import gemm_support\n"
+        "from vendor.gpl.comfyui import ops\n"
+        "raise SystemExit(0 if ops.GEMM_SUPPORT is gemm_support else 1)\n"
+    )
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "POTIONUI_DB_PATH": "/proc/none.sqlite"}
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=root, env=env, capture_output=True, text=True, timeout=180,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def test_vendor_ops_without_a_bound_gemm_support_keep_both_fast_paths_off(monkeypatch):

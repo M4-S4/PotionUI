@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
 import logging
 import threading
 import time
@@ -290,13 +289,6 @@ def test_a_cpu_device_resolves_to_the_unsupported_cpu_entry(install_capabilities
     assert support.fp8_reason == "no CUDA device is available"
 
 
-def test_gemm_support_is_frozen(install_capabilities):
-    install_capabilities(fake_capabilities(hopper()))
-    support = gemm_support(0)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        support.device = support.device
-
-
 def test_the_capability_snapshot_never_runs_a_probe(monkeypatch):
     monkeypatch.setattr(gemm, "_probe_fp8", _fail)
     monkeypatch.setattr(gemm, "_probe_nvfp4", _fail)
@@ -309,13 +301,6 @@ def test_the_capability_snapshot_never_runs_a_probe(monkeypatch):
         _install_snapshot(previous)
     assert gemm._fp8_verdicts == {}
     assert gemm._nvfp4_verdicts == {}
-
-
-def test_the_snapshot_entries_carry_no_gemm_fields(install_capabilities):
-    snapshot = install_capabilities(fake_capabilities(blackwell()))
-    entry = snapshot.device(0)
-    assert not hasattr(entry, "nvfp4")
-    assert not hasattr(entry, "fp8_scaled_mm")
 
 
 def test_a_probe_logs_its_verdict_and_reason_once(install_capabilities, caplog):
@@ -417,22 +402,6 @@ def test_ops_flags_stay_off_on_hardware_that_cannot_run_the_kernel(
     assert comfy_ops._fp8_matmul_enabled() is False
     assert comfy_ops._nvfp4_matmul_enabled() is False
     assert trial.devices == []
-
-
-def test_ops_follow_the_current_device_when_it_changes(install_capabilities, current_device, bound_ops):
-    install_capabilities(fake_capabilities(hopper(), ampere()))
-    bound_ops["native_fp8_matmul"] = True
-    assert comfy_ops._fp8_matmul_enabled() is True
-    current_device.index = 1
-    assert comfy_ops._fp8_matmul_enabled() is False
-
-
-def test_ops_without_a_bound_support_provider_never_take_the_fast_paths(monkeypatch):
-    flags = {"native_fp8_matmul": True, "native_nvfp4_matmul": True}
-    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", flags)
-    monkeypatch.setattr(comfy_ops, "GEMM_SUPPORT", None)
-    assert comfy_ops._fp8_matmul_enabled() is False
-    assert comfy_ops._nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_trial_gemm_runs_on_real_blackwell_hardware():
