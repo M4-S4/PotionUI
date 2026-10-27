@@ -37,9 +37,11 @@ from .gemm import gemm_support
 
 logger = logging.getLogger(__name__)
 
+FP8_MATMUL_FLAG = "native_fp8_matmul"
+
 
 def _fp8_matmul_enabled() -> bool:
-    if not ops.RUNTIME_FLAGS.get("native_fp8_matmul", False):
+    if not ops.RUNTIME_FLAGS.get(FP8_MATMUL_FLAG, False):
         return False
     return gemm_support().fp8_scaled_mm
 

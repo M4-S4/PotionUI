@@ -30,9 +30,11 @@ from .gemm import gemm_support
 
 logger = logging.getLogger(__name__)
 
+NVFP4_MATMUL_FLAG = "native_nvfp4_matmul"
+
 
 def _nvfp4_matmul_enabled() -> bool:
-    if not ops.RUNTIME_FLAGS.get("native_nvfp4_matmul", False):
+    if not ops.RUNTIME_FLAGS.get(NVFP4_MATMUL_FLAG, False):
         return False
     return gemm_support().nvfp4
 
