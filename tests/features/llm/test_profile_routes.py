@@ -102,6 +102,16 @@ def test_putting_overrides_stores_them_and_reports_the_new_profile(harness):
     assert data["fields"]["context_window"]["value"] == 4096
 
 
+def test_a_repository_that_refuses_the_write_reports_the_update_as_failed(harness):
+    harness.repository.set_profile_overrides = lambda config_id, overrides: False
+
+    response = harness.client().put("/api/llm/configurations/cfg-1/profile", json={"overrides": {"replay": "never"}})
+
+    assert response.json()["success"] is False
+    assert response.json()["error"] == "update_profile_failed"
+    assert harness.repository.configs["cfg-1"].profile_overrides is None
+
+
 def test_null_clears_an_override_and_other_overrides_stay(harness):
     client = harness.client()
     client.put("/api/llm/configurations/cfg-1/profile", json={"overrides": {"replay": "preserve", "context_window": 4096}})
@@ -207,19 +217,19 @@ def test_without_a_resolver_the_routes_say_profiles_are_unavailable(method, path
 
 
 def test_the_recommended_sampling_is_served_in_the_same_per_field_shape_as_every_other_field():
-    from src.features.llm.harness.profile_seed import default_seed
-
+    sampling = {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0}
+    seed = tiny_seed({"id": "all", "fields": {"recommended_sampling": sampling}})
     adapter = ProbeAdapter(name="ollama-chat")
-    resolver = LayeredProfileResolver(adapter_for(adapter), default_seed(), clock=FakeClock())
+    resolver = LayeredProfileResolver(adapter_for(adapter), seed, clock=FakeClock())
     harness = Harness(resolver, adapter)
     harness.repository.configs["cfg-1"] = make_config(id="cfg-1", model="qwen3.6:27b", type="ollama")
 
     field = harness.client().get("/api/llm/configurations/cfg-1/profile").json()["data"]["fields"]["recommended_sampling"]
 
     assert field == {
-        "value": {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0},
+        "value": sampling,
         "source": "seed",
-        "seed": {"temperature": 1.0, "top_p": 0.95, "top_k": 20.0, "min_p": 0.0},
+        "seed": sampling,
         "discovered": None,
         "override": None,
     }

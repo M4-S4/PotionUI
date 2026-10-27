@@ -311,11 +311,11 @@ def test_tool_choice_with_reasoning_uses_its_own_allowed_modes():
 @pytest.mark.parametrize(
     "toggle, reasoning, expected",
     [
-        ("reasoning_effort", False, {"reasoning_effort": "none"}),
-        ("reasoning_effort", "low", {"reasoning_effort": "low"}),
-        ("reasoning_effort", True, {}),
-        ("thinking", False, {"thinking": {"type": "disabled"}}),
-        ("thinking", True, {"thinking": {"type": "enabled"}}),
+        ("reasoning.effort", False, {"reasoning_effort": "none"}),
+        ("reasoning.effort", "low", {"reasoning_effort": "low"}),
+        ("reasoning.effort", True, {}),
+        ("thinking.type", False, {"thinking": {"type": "disabled"}}),
+        ("thinking.type", True, {"thinking": {"type": "enabled"}}),
         ("chat_template_kwargs.enable_thinking", False, {"chat_template_kwargs": {"enable_thinking": False}}),
         ("chat_template_kwargs.enable_thinking", "high", {"chat_template_kwargs": {"enable_thinking": True}}),
     ],
@@ -329,7 +329,7 @@ def test_the_thinking_toggle_lands_where_the_profile_says(toggle, reasoning, exp
 
 def test_the_thinking_toggle_is_absent_without_a_profile_location_or_a_setting():
     assert render(simple(settings=Settings(reasoning=False))).body == render(simple()).body
-    assert render(simple(), reasoning_toggle="thinking").body == render(simple()).body
+    assert render(simple(), reasoning_toggle="thinking.type").body == render(simple()).body
 
 
 def test_sampling_the_model_rejects_never_reaches_the_wire():

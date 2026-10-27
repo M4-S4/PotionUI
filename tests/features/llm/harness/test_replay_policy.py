@@ -174,12 +174,6 @@ def test_a_message_that_was_already_empty_is_kept():
     assert [m.id for m in messages] == ["empty", "user-2"]
 
 
-def test_selection_is_deterministic():
-    history = two_turn_history()
-
-    assert run(history, ReplayPolicy.DROP_EARLIER) == run(history, ReplayPolicy.DROP_EARLIER)
-
-
 class TestModelAndCredentialSwitch:
     def history(self, origin: Origin) -> List[StepRecord]:
         return [

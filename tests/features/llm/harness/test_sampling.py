@@ -1,7 +1,7 @@
 import pytest
 
 from src.features.llm.harness.adapter import Settings, ToolChoice
-from src.features.llm.harness.sampling import reasoning_from_options, resolve_settings
+from src.features.llm.harness.sampling import resolve_settings
 from tests.fixtures.llm_harness import scripted_profile
 from tests.fixtures.llm_profiles import make_config
 
@@ -39,6 +39,14 @@ def test_the_profile_recommendation_fills_only_what_nothing_else_sets():
     assert (bare.temperature, bare.top_p, bare.top_k, bare.min_p) == (0.7, 0.95, 20, 0.0)
     assert isinstance(bare.top_k, int)
     assert (tuned.top_p, tuned.top_k, tuned.min_p) == (0.5, 5, 0.1)
+
+
+def test_a_null_configured_temperature_falls_through_to_the_profile_recommendation():
+    profile = {"recommended_sampling": {"temperature": 0.6}}
+
+    assert resolved({"temperature": None}, profile).temperature == 0.6
+    assert resolved({"temperature": None}).temperature is None
+    assert resolved({"temperature": 0.0}, profile).temperature == 0.0
 
 
 def test_nothing_is_invented_without_a_recommendation():
@@ -85,7 +93,7 @@ def test_other_settings_pass_through_untouched():
     ],
 )
 def test_provider_options_map_to_one_reasoning_setting(options, expected):
-    assert reasoning_from_options(options) == expected
+    assert Settings.from_options(options).reasoning == expected
 
 
 def test_the_request_reasoning_beats_provider_options_even_when_it_switches_thinking_off():

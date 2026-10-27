@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import unittest
+from unittest import mock
 
 from tests.platform.database._support import MigrationCase
 
@@ -166,6 +167,32 @@ class TestMigration069LlmProfileOverrides(MigrationCase):
         self.assertEqual(self._row("safe")["temperature"], 0.7)
         self.assertTrue(self._notnull("temperature"))
         with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%069'")
+            self.assertEqual(cursor.fetchall(), [])
+
+    def test_a_failure_while_moving_provider_options_rolls_the_rebuild_back_too(self):
+        self._insert("safe", temperature=0.7, options={"context_window": 8192})
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO users (id, username, email, password_hash) VALUES ('u1', 'user', 'user@example.com', 'x')"
+            )
+            cursor.execute("INSERT INTO user_groups (id, name) VALUES ('g1', 'group')")
+            cursor.execute("INSERT INTO user_llms (id, user_id, llm_config_id) VALUES ('a1', 'u1', 'safe')")
+            cursor.execute("INSERT INTO user_group_llms (id, group_id, llm_config_id) VALUES ('a2', 'g1', 'safe')")
+        before = self._row("safe")
+
+        with mock.patch.object(self.migration, "_move_provider_options", side_effect=sqlite3.OperationalError("boom")):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.migration.up()
+
+        self.assertEqual(self._row("safe"), before)
+        self.assertTrue(self._notnull("temperature"))
+        self.assertNotIn("profile_overrides", self._row("safe"))
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT id FROM user_llms")
+            self.assertEqual([tuple(row) for row in cursor.fetchall()], [("a1",)])
+            cursor.execute("SELECT id FROM user_group_llms")
+            self.assertEqual([tuple(row) for row in cursor.fetchall()], [("a2",)])
             cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%069'")
             self.assertEqual(cursor.fetchall(), [])
 
