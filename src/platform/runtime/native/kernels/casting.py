@@ -12,10 +12,10 @@ from vendor.gpl.comfyui.ops import (
     _build_convrot_hadamard,
     _convrot_unrotate_weight,
     _extract_convrot_config,
-    _note_lora_path,
     _parse_comfy_quant,
-    linear_with_lora_deltas,
 )
+
+from .lora_math import _note_lora_path, linear_with_lora_deltas
 
 
 def cast_to(

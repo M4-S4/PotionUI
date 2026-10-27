@@ -93,7 +93,7 @@ import torch
 
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
-from src.platform.runtime.native.kernels import FastPathKind, QuantFormat, fast_path
+from src.platform.runtime.native.kernels import FastPathKind, QuantFormat, fast_path, partition_output_branch_deltas
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -101,7 +101,6 @@ from src.platform.runtime.native.memory.residency import (
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
-from vendor.gpl.comfyui.ops import partition_output_branch_deltas
 
 logger = logging.getLogger(__name__)
 

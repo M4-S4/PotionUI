@@ -24,8 +24,8 @@ from .hardware import (
     refresh_capabilities,
 )
 from .linear import FastPath, FastPathKind, QuantFormat, fast_path, quant_format
+from .lora_math import invalidate_lora_fused_cache, log_lora_path_summary, partition_output_branch_deltas
 from .operations import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
-from vendor.gpl.comfyui.ops import invalidate_lora_fused_cache
 
 __all__ = [
     "BACKEND_PRIORITY",
@@ -54,7 +54,9 @@ __all__ = [
     "get_attention_backend",
     "get_backend_override",
     "known_backends",
+    "log_lora_path_summary",
     "manual_cast",
+    "partition_output_branch_deltas",
     "pick_operations",
     "refresh_capabilities",
     "reset_backend_cache",

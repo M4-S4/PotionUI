@@ -362,13 +362,10 @@ class FlagProbePipe:
         return []
 
     def process(self, pipe_input, generation_outputs):
-        import src.platform.runtime.native
         from src.platform.settings.runtime_flags import runtime_flag
-        from vendor.gpl.comfyui import ops
 
         FlagProbePipe.seen.append((
             runtime_flag("native_fp8_matmul"),
-            ops.RUNTIME_FLAGS.get("native_fp8_matmul", False),
             runtime_flag("native_min_inference_memory_gb"),
         ))
         return PipeOutput(output={})
@@ -1310,7 +1307,7 @@ class TestEngineFlagsTravelWithTheJob(NativeRemoteBackendTestCase):
             _, plain_outputs = self._run_generation(plain, {"generation_id": "gen-plain", "pipes": pipes})
 
         self.assertFalse([o for o in fast_outputs + plain_outputs if isinstance(o, ErrorGenerationOutput)])
-        self.assertEqual(FlagProbePipe.seen, [(True, True, 3.0), (False, False, 1.0)])
+        self.assertEqual(FlagProbePipe.seen, [(True, 3.0), (False, 1.0)])
         self.assertEqual(self.repo.get_by_id("gen-fast").state, S.SUCCEEDED)
 
     def test_the_package_carries_the_resolved_values_of_its_backend(self):

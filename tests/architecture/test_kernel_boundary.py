@@ -15,8 +15,6 @@ REDIRECT = "new code must go through src.platform.runtime.native.kernels"
 ALLOWLIST = frozenset({
     ("src/features/llm/native_te_adoption.py", "_parse_comfy_quant"),
     ("src/features/llm/native_te_adoption.py", "dequantize_nvfp4"),
-    ("src/pipelines/pipes/_shared/generation/dit_placement.py", "partition_output_branch_deltas"),
-    ("src/platform/runtime/native/engine.py", "log_lora_path_summary"),
     ("src/platform/runtime/native/io/safetensors_loader.py", "_extract_convrot_config"),
     ("src/platform/runtime/native/io/safetensors_loader.py", "_parse_comfy_quant"),
     ("src/platform/runtime/native/io/state_dict_utils.py", "_parse_comfy_quant"),

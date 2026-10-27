@@ -208,11 +208,12 @@ def test_each_ignored_env_var_logs_once_with_its_new_home(caplog):
     assert any("POTIONUI_PROFILE" in m and "Diagnostics" in m for m in messages)
 
 
-def test_matmul_predicates_read_the_bound_dict_and_never_the_environment(monkeypatch):
+def test_matmul_predicates_read_the_live_flags_and_never_the_environment(monkeypatch):
     from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear
     from vendor.gpl.comfyui import ops
+    from src.platform.runtime.native.kernels import lora_math
 
-    for module in (ops, fp8_linear, nvfp4_linear):
+    for module in (ops, lora_math, fp8_linear, nvfp4_linear):
         source = inspect.getsource(module)
         assert "os.environ" not in source
         assert "getenv" not in source
@@ -224,12 +225,12 @@ def test_matmul_predicates_read_the_bound_dict_and_never_the_environment(monkeyp
         runtime_flags.activate_engine_flags({"native_fp8_matmul": True, "native_lora_fused": False})
         assert fp8_linear._fp8_matmul_enabled() is True
         assert nvfp4_linear._nvfp4_matmul_enabled() is False
-        assert ops._lora_fused_enabled() is False
+        assert lora_math._lora_fused_enabled() is False
 
         runtime_flags.activate_engine_flags({"native_nvfp4_matmul": True})
         assert fp8_linear._fp8_matmul_enabled() is False
         assert nvfp4_linear._nvfp4_matmul_enabled() is True
-        assert ops._lora_fused_enabled() is True
+        assert lora_math._lora_fused_enabled() is True
 
 
 def test_binding_a_module_installs_the_live_flag_dict_and_nothing_else():
@@ -275,7 +276,6 @@ def test_binding_a_module_does_not_import_the_kernels_package():
 
 def test_matmul_predicates_never_ask_for_gemm_support_while_the_flag_is_off(monkeypatch):
     from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear
-    from vendor.gpl.comfyui import ops
 
     asked = []
 
@@ -285,7 +285,8 @@ def test_matmul_predicates_never_ask_for_gemm_support_while_the_flag_is_off(monk
 
     monkeypatch.setattr(fp8_linear, "gemm_support", provider)
     monkeypatch.setattr(nvfp4_linear, "gemm_support", provider)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", {"native_fp8_matmul": False, "native_nvfp4_matmul": False})
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_nvfp4_matmul", False)
 
     assert fp8_linear._fp8_matmul_enabled() is False
     assert nvfp4_linear._nvfp4_matmul_enabled() is False
@@ -296,7 +297,6 @@ def test_matmul_predicates_ask_for_gemm_support_at_every_call_once_the_flag_is_o
     from types import SimpleNamespace
 
     from src.platform.runtime.native.kernels import fp8_linear
-    from vendor.gpl.comfyui import ops
 
     state = {"fp8": False, "calls": 0}
 
@@ -305,7 +305,7 @@ def test_matmul_predicates_ask_for_gemm_support_at_every_call_once_the_flag_is_o
         return SimpleNamespace(fp8_scaled_mm=state["fp8"], nvfp4=False)
 
     monkeypatch.setattr(fp8_linear, "gemm_support", provider)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", {"native_fp8_matmul": True})
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_fp8_matmul", True)
 
     assert fp8_linear._fp8_matmul_enabled() is False
     state["fp8"] = True

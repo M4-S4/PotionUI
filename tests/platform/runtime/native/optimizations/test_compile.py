@@ -11,7 +11,6 @@ import pytest
 from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.depth_decoder import DepthDecoderModule
-from vendor.gpl.comfyui import ops as comfy_ops
 from vendor.gpl.comfyui.ops import _build_convrot_hadamard
 from src.platform.runtime.native.kernels import fp8_ops, Fp8ScaledLinear, disable_weight_init
 from src.platform.runtime.native.optimizations import compile as tc
@@ -69,7 +68,8 @@ def _enable(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _gemm_flags_off(monkeypatch):
-    monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_nvfp4_matmul", False)
 
 
 @pytest.fixture
@@ -77,10 +77,11 @@ def gemm_machine(monkeypatch):
     with ExitStack() as stack:
 
         def configure(*, flag: bool, supported: bool, nvfp4_flag: bool | None = None) -> None:
-            monkeypatch.setattr(
-                comfy_ops,
-                "RUNTIME_FLAGS",
-                {"native_fp8_matmul": flag, "native_nvfp4_matmul": flag if nvfp4_flag is None else nvfp4_flag},
+            monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_fp8_matmul", flag)
+            monkeypatch.setitem(
+                runtime_flags.runtime_flag_values(),
+                "native_nvfp4_matmul",
+                flag if nvfp4_flag is None else nvfp4_flag,
             )
             stack.enter_context(installed_gemm_verdicts(fp8=supported, nvfp4=supported))
 

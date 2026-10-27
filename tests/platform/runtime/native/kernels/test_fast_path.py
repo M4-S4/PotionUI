@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 
 import vendor.gpl.comfyui.ops as ops
+from src.platform.runtime.native.kernels import lora_math
 from src.platform.runtime.native.kernels import (
     FastPath,
     FastPathKind,
@@ -23,6 +24,7 @@ from src.platform.runtime.native.kernels import (
 )
 from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
+from src.platform.settings.runtime_flags import runtime_flag_values
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities
 from tests.fixtures.kernel_ops import patch_ops_name
 
@@ -196,7 +198,7 @@ def recorder(monkeypatch):
 
     real_prepare = Fp8ScaledLinear._prepare_dequant_operand
     real_values = ops._dequant_values
-    real_fused = ops._add_fused_lora_branch
+    real_fused = lora_math._add_fused_lora_branch
 
     def prepare(self, *args, **kwargs):
         seen.kinds.append(FastPathKind.DEQUANT)
@@ -214,7 +216,7 @@ def recorder(monkeypatch):
     monkeypatch.setattr(F, "scaled_mm", nvfp4_gemm)
     monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", prepare)
     patch_ops_name(monkeypatch, "_dequant_values", values)
-    monkeypatch.setattr(ops, "_add_fused_lora_branch", fused)
+    monkeypatch.setattr(lora_math, "_add_fused_lora_branch", fused)
     return seen
 
 
@@ -243,7 +245,10 @@ def machine(install_capabilities, monkeypatch):
     def configure(hardware: str, *, fp8: bool, nvfp4: bool, fused: bool = True) -> None:
         gemm._reset_verdicts()
         install_capabilities({**HARDWARE, **TWO_GPUS}[hardware]())
-        monkeypatch.setattr(ops, "RUNTIME_FLAGS", {FP8_KEY: fp8, NVFP4_KEY: nvfp4, FUSED_KEY: fused})
+        flags = runtime_flag_values()
+        monkeypatch.setitem(flags, FP8_KEY, fp8)
+        monkeypatch.setitem(flags, NVFP4_KEY, nvfp4)
+        monkeypatch.setitem(flags, FUSED_KEY, fused)
 
     return configure
 

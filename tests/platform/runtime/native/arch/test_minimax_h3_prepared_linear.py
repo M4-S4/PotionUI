@@ -18,7 +18,6 @@ import torch
 import torch.nn.functional as F
 
 import src.platform.runtime.native.arch.minimax_h3.model as model_module
-import vendor.gpl.comfyui.ops as wo
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Attention
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
@@ -28,6 +27,7 @@ from src.platform.runtime.native.kernels import Fp8ScaledLinear, disable_weight_
 
 from .._quant_layouts import int8_state_dict
 from ..memory.test_partial_prefetch import _install_fake_cuda
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 
 def _stub_attention_core(monkeypatch) -> None:
@@ -141,7 +141,7 @@ def _spy(monkeypatch, instance, method_name: str) -> list:
 # --- dequant path (gate off / ineligible): prepared once per projection -----
 
 def test_dequant_operand_prepared_once_per_projection_regardless_of_chunk_count(monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     x = torch.randn(1, 9, 16)
 
     unchunked_attn = _fp8_attn()
@@ -163,7 +163,7 @@ def test_dequant_operand_prepared_once_per_projection_regardless_of_chunk_count(
 
 
 def test_dequant_preparation_failure_propagates_and_subsequent_call_recovers(monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     attn = _fp8_attn()
     x = torch.randn(1, 9, 16)
     reference = attn(x, None, None, 0)
@@ -185,7 +185,7 @@ def test_dequant_preparation_failure_propagates_and_subsequent_call_recovers(mon
 
 
 def test_changed_weight_between_calls_is_never_stale_cached(monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     attn = _fp8_attn()
     x = torch.randn(1, 9, 16)
     first = attn(x, None, None, seq_chunk_rows=4)
@@ -234,7 +234,7 @@ def test_fp8_fast_path_stages_weight_once_but_kernel_runs_once_per_chunk(monkeyp
     stage_calls_for = _install_fake_cuda_residency(
         monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight],
     )
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     # bf16: the fast path's dtype precondition (float16/bfloat16 only) -- the
     # layer itself stays fp32-registered, only the activation dtype matters.
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
@@ -284,7 +284,7 @@ def test_fp8_fast_path_kernel_rejection_downgrades_whole_projection_to_dequant(m
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     qkv_dequant_prep_calls = _spy(monkeypatch, attn.qkv_proj, "_prepare_dequant_operand")
@@ -315,7 +315,7 @@ def test_fp8_fast_path_kernel_rejection_downgrades_whole_projection_to_dequant(m
     # fully-dequantised (gate off) reference exactly (dequant math is
     # deterministic and identical either way); rebuild the model with the
     # SAME weights since the one under test now carries fast-path mock state.
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     ref_attn = _fp8_attn()
     with torch.no_grad():
         dense_reference = ref_attn(x, None, None, seq_chunk_rows=4)
@@ -326,7 +326,7 @@ def test_fp8_fast_path_staging_failure_falls_back_to_dequant_for_the_whole_proje
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     # Simulate an on-demand-staging OOM for BOTH projections: the fast path is
@@ -363,7 +363,7 @@ def test_prepared_linear_bails_to_passthrough_when_leaf_has_forward_hooks(monkey
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     hook_calls: list = []
@@ -405,7 +405,7 @@ def test_prepared_linear_resumes_amortising_once_hooks_are_removed(monkeypatch):
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     handle = attn.qkv_proj.register_forward_pre_hook(lambda mod, args: None)
@@ -431,7 +431,7 @@ def test_fp8_fast_path_prepared_chunked_matches_original_per_chunk_dispatch_by_v
     would show up as a real numeric mismatch, not just a shape match."""
     attn = _fp8_attn()
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
     chunks = list(x.split(4, dim=1))  # 4, 4, 1 -- ragged tail
 
@@ -478,7 +478,7 @@ def test_staged_operand_weakref_dies_at_the_attention_core_boundary(monkeypatch)
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
@@ -502,7 +502,7 @@ def test_staged_operand_weakref_dies_at_the_attention_core_boundary(monkeypatch)
 def test_staged_operand_weakref_dies_at_context_exit(monkeypatch):
     attn = _fp8_attn()
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
     chunks = list(x.split(4, dim=1))
 
@@ -523,7 +523,7 @@ def test_staged_operand_weakref_dies_at_context_exit(monkeypatch):
 def test_staged_operand_weakref_dies_before_dense_fallback_on_kernel_rejection(monkeypatch):
     attn = _fp8_attn()
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
     chunks = list(x.split(4, dim=1))
 
@@ -561,7 +561,7 @@ def test_prepared_linear_logs_why_the_fast_path_was_skipped(monkeypatch, caplog)
     silent decision here hides a whole projection, not one call."""
     fp8_linear.reset_scaled_mm_fast_path_rejection_log()
     attn = _fp8_attn()
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     install_gemm_verdicts(monkeypatch, fp8=True)
     # float32 activation: the fast path takes float16/bfloat16 only.
     x = torch.randn(1, 9, 16)
@@ -709,7 +709,7 @@ def test_fp8_fast_path_prepared_chunked_matches_the_ground_truth_dense_reference
     scale is non-scalar, which the fast path rejects by construction."""
     leaf, dense_weight, bias = _PARITY_LEAVES[leaf_kind][0]()
     _install_fake_cuda_residency(monkeypatch, streamed=[leaf.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     install_gemm_verdicts(monkeypatch, fp8=True)
     kernel_calls: list = []
     monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm(kernel_calls))

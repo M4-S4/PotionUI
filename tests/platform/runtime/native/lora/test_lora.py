@@ -19,7 +19,7 @@ from src.platform.runtime.native.lora.key_mapping import (
     build_flux_lora_key_map,
     map_lora_keys,
 )
-from vendor.gpl.comfyui.ops import apply_lora_deltas
+from src.platform.runtime.native.kernels.lora_math import apply_lora_deltas
 from src.platform.runtime.native.kernels import pick_operations
 
 TINY = {
