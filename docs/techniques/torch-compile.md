@@ -68,11 +68,19 @@ if it was set (`auto` is seeded as on); after that the variable is ignored.
   - `nvfp4`: `Nvfp4Linear` layers dequantise through a uint8 lookup-table gather into a full
     float32 weight; not validated under compile on a GPU.
   - `fp8-scaled-mm`: the opt-in native fp8 GEMM (`native_fp8_matmul`, `torch._scaled_mm`) reads
-    scale values back to the host and logs per call, which graph-breaks around every linear.
+    scale values back to the host and logs per call, which graph-breaks around every linear. Only
+    a block layer that really takes that GEMM counts: float8 e4m3 weights with a scalar weight
+    scale, a scalar or absent input scale and input and output sizes that are multiples of 16, on
+    hardware that supports it. fp8 e5m2 layers, misaligned layers and layers with per-channel
+    scales always dequantise, so they compile even with the flag on, as do int8 and int8 ConvRot
+    layers.
   - `streaming-hooks`: a streamed DiT with stream prefetch on installs forward hooks on every
     streamed leaf that swap `weight.data` per call; a compiled graph cannot follow that.
   - `no-triton`: Triton is not importable (typical on native Windows).
-  - `quantized`: any quantisation format other than fp8-scaled.
+  - `quantized`: a block layer in a quantisation format this regional compile has not been
+    validated for (anything besides fp8, int8 and int8 ConvRot; nvfp4 has its own reason above).
+    The MiniMax-Music3 depth decoder, which compiles whole with CUDA graphs, skips for any
+    quantised linear, including raw float8 or int8 weights stored without scales.
 - A DiT that flips from resident to streaming (co-tenant out-of-memory fallback) or leaves the GPU is
   restored to plain modules first; a streamed DiT is compiled again after the flip.
 - Any compile failure at first-forward time degrades gracefully to eager execution (logged, not

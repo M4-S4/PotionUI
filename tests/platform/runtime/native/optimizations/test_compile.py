@@ -843,10 +843,30 @@ def test_music3_gate_rejects_quantized_linear(monkeypatch, make_linear):
     assert (ok, reason) == (False, "quantized-linear")
 
 
-def test_music3_gate_ignores_a_linear_without_quantized_storage(monkeypatch):
+def _raw_linear(dtype: torch.dtype) -> Fp8ScaledLinear:
+    layer = Fp8ScaledLinear(8, 8)
+    layer.weight = nn.Parameter(torch.zeros(8, 8).to(dtype), requires_grad=False)
+    return layer
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [torch.float8_e4m3fn, torch.float8_e5m2, torch.int8],
+    ids=["fp8-e4m3", "fp8-e5m2", "int8"],
+)
+def test_music3_gate_rejects_a_scale_less_linear_stored_in_a_quantized_dtype(monkeypatch, dtype):
     _enable(monkeypatch)
     decoder = _tiny_depth_decoder()
-    decoder.projection = Fp8ScaledLinear(8, 8)
+    decoder.projection = _raw_linear(dtype)
+    ok, reason = tc.music3_ar_compile_gate(_MockNativeLM(decoder), resident=True, is_cuda=True)
+    assert (ok, reason) == (False, "quantized-linear")
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["fp32", "bf16"])
+def test_music3_gate_ignores_a_scale_less_linear_stored_in_a_float_dtype(monkeypatch, dtype):
+    _enable(monkeypatch)
+    decoder = _tiny_depth_decoder()
+    decoder.projection = _raw_linear(dtype)
     ok, reason = tc.music3_ar_compile_gate(_MockNativeLM(decoder), resident=True, is_cuda=True)
     assert (ok, reason) == (True, "ok")
 

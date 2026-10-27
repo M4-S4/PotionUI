@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _warned_compile_failed = False
 _COMPILABLE_FORMATS = frozenset({QuantFormat.FP8, QuantFormat.INT8, QuantFormat.INT8_CONVROT})
+_QUANTIZED_STORAGE = frozenset({torch.float8_e4m3fn, torch.float8_e5m2, torch.int8})
 
 def torch_compile_enabled() -> bool:
     return bool(runtime_flag("native_torch_compile"))
@@ -65,8 +66,13 @@ class CompileHandle:
         self.forwards = []
 
 
+def _quantized_storage(module: nn.Module) -> bool:
+    weight = getattr(module, "weight", None)
+    return isinstance(weight, torch.Tensor) and weight.dtype in _QUANTIZED_STORAGE
+
+
 def _quantized(module: nn.Module) -> bool:
-    return any(fast_path(m) is not None for m in module.modules())
+    return any(fast_path(m) is not None or _quantized_storage(m) for m in module.modules())
 
 
 def _block_modules(module: nn.Module) -> Iterator[nn.Module]:
