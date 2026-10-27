@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 import torch
 
+from src.platform.runtime.native.io import quant_formats
 from src.platform.runtime.native.io.quant_formats import build_convrot_hadamard, convrot_unrotate_weight
+from src.platform.runtime.native.kernels import casting, fp8_linear
+from src.platform.runtime.native.ops.model_tools import formats
 
 from .._quant_layouts import HADAMARD_SIZES, reference_hadamard, reference_rotate
 
@@ -50,3 +53,8 @@ def test_a_groupsize_that_does_not_divide_the_in_features_is_rejected():
     hadamard = build_convrot_hadamard(64, device="cpu", dtype=torch.float32)
     with pytest.raises(ValueError, match="in_features 48 not divisible by ConvRot group size 64"):
         convrot_unrotate_weight(torch.zeros(2, 48), hadamard, 64)
+
+
+@pytest.mark.parametrize("module", [casting, fp8_linear, formats], ids=["casting", "fp8_linear", "model_tools"])
+def test_every_consumer_builds_the_hadamard_through_the_one_shared_cache(module):
+    assert module.build_convrot_hadamard is quant_formats.build_convrot_hadamard
