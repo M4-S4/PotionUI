@@ -50,14 +50,17 @@ def _loaded(layer: torch.nn.Module, state: dict) -> torch.nn.Module:
     return layer
 
 
-def _fp8(cls=ops.Fp8ScaledLinear, dtype=torch.float8_e4m3fn, in_f=IN_FEATURES):
+def _fp8(cls=ops.Fp8ScaledLinear, dtype=torch.float8_e4m3fn, in_f=IN_FEATURES, scale=None, input_scale=None):
     torch.manual_seed(1)
-    return _loaded(cls(in_f, OUT_FEATURES, bias=True), {
+    state = {
         "weight": torch.randn(OUT_FEATURES, in_f).to(dtype),
-        "weight_scale": torch.tensor(0.02),
+        "weight_scale": torch.tensor(0.02) if scale is None else scale,
         "bias": torch.zeros(OUT_FEATURES),
         "comfy_quant": _blob({"format": "float8_e4m3fn"}),
-    })
+    }
+    if input_scale is not None:
+        state["input_scale"] = input_scale
+    return _loaded(cls(in_f, OUT_FEATURES, bias=True), state)
 
 
 def _int8(convrot: bool):
@@ -93,6 +96,9 @@ QUANTIZED = {
     "fp8-nvfp4-linear": lambda: _fp8(ops.Nvfp4Linear),
     "fp8-e5m2": lambda: _fp8(dtype=torch.float8_e5m2),
     "fp8-misaligned": lambda: _fp8(in_f=24),
+    "fp8-per-channel-scale": lambda: _fp8(scale=torch.full((OUT_FEATURES, 1), 0.02)),
+    "fp8-per-channel-input-scale": lambda: _fp8(input_scale=torch.full((2,), 0.5)),
+    "fp8-static-input-scale": lambda: _fp8(input_scale=torch.tensor(0.5)),
     "int8": lambda: _int8(False),
     "int8-convrot": lambda: _int8(True),
     "nvfp4": _nvfp4,
@@ -235,7 +241,10 @@ def test_fast_path_names_the_branch_the_real_forward_takes(
 @pytest.mark.parametrize("fused", [True, False], ids=["fused", "unfused"])
 @pytest.mark.parametrize("fp8", [True, False], ids=["fp8-on", "fp8-off"])
 @pytest.mark.parametrize("hardware", HARDWARE)
-@pytest.mark.parametrize("name", ["fp8-scaled-linear", "fp8-e5m2", "int8-convrot", "nvfp4"])
+@pytest.mark.parametrize(
+    "name",
+    ["fp8-scaled-linear", "fp8-e5m2", "fp8-per-channel-scale", "fp8-static-input-scale", "int8-convrot", "nvfp4"],
+)
 def test_fast_path_names_the_branch_prepared_linear_takes(
     machine, recorder, per_call_conditions_met, name, hardware, fp8, fused, lora
 ):
@@ -289,6 +298,8 @@ def test_the_quant_format_comes_from_the_layer_state(machine, name, quant_format
         ("int8", "weight_dtype=torch.int8"),
         ("int8-convrot", "weight_dtype=torch.int8"),
         ("fp8-misaligned", "in_features_not_multiple_of_16"),
+        ("fp8-per-channel-scale", "weight_scale_not_scalar"),
+        ("fp8-per-channel-input-scale", "input_scale_not_scalar"),
         ("nvfp4-misaligned", "in_features_not_multiple_of_32"),
     ],
 )
@@ -360,6 +371,7 @@ def test_hardware_is_never_asked_while_the_flag_is_off_or_the_layer_can_never_ta
     machine("blackwell", fp8=True, nvfp4=True)
     fast_path(_int8(True))
     fast_path(_fp8(in_f=24))
+    fast_path(_fp8(scale=torch.full((OUT_FEATURES, 1), 0.02)))
     fast_path(_nvfp4(in_f=48))
     assert asked == []
 

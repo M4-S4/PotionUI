@@ -83,6 +83,10 @@ def _scaled_mm_reason(layer: ops.Fp8ScaledLinear) -> str | None:
     )
     if reason is not None:
         return reason
+    if layer.weight_scale.numel() != 1:
+        return "weight_scale_not_scalar"
+    if layer.input_scale is not None and layer.input_scale.numel() != 1:
+        return "input_scale_not_scalar"
     if not ops.RUNTIME_FLAGS.get(_FP8_FLAG, False):
         return f"{_FP8_FLAG} is off"
     support = gemm_support()
