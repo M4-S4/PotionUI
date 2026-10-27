@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import torch
 
-from src.platform.runtime.native.io.quant_formats import E2M1_LUT, NVFP4_BLOCK, to_blocked, unblock_scale
+from src.platform.runtime.native.io.quant_formats import _E2M1_LUT, NVFP4_BLOCK, _to_blocked, _unblock_scale
 
 F4_MAX = 6.0
 F8_MAX = 448.0
@@ -35,7 +35,7 @@ def quantize_nvfp4(w: torch.Tensor, tensor_scale: torch.Tensor):
     mant = torch.where(exp > 0, (ax / (2.0 ** (exp - 1)) - 1.0) * 2.0, ax * 2.0).round().clamp(0, 1).to(torch.uint8)
     codes = ((sign << 3) | (exp.to(torch.uint8) << 1) | mant).reshape(out, inn)
     packed = (codes[:, 0::2] << 4) | codes[:, 1::2]
-    block_sw = to_blocked(block.to(torch.float32)).to(torch.float8_e4m3fn)
+    block_sw = _to_blocked(block.to(torch.float32)).to(torch.float8_e4m3fn)
     return packed, block_sw, codes.long(), block
 
 
@@ -49,8 +49,8 @@ def old_dequantize_nvfp4(
     codes = torch.empty(out_features, in_features, dtype=torch.long, device=device)
     codes[:, 0::2] = high.long()
     codes[:, 1::2] = low.long()
-    values = E2M1_LUT.to(device)[codes]
+    values = _E2M1_LUT.to(device)[codes]
     num_blocks = in_features // NVFP4_BLOCK
-    block_nat = unblock_scale(block_scale, out_features, num_blocks).to(device)
+    block_nat = _unblock_scale(block_scale, out_features, num_blocks).to(device)
     scale = (block_nat * tensor_scale.to(torch.float32).to(device)).repeat_interleave(NVFP4_BLOCK, dim=1)
     return values * scale

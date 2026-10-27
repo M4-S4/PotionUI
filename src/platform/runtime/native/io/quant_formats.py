@@ -102,18 +102,18 @@ def convrot_unrotate_weight(weight: torch.Tensor, hadamard: torch.Tensor, group_
     return torch.matmul(grouped, hadamard).reshape(out_f, in_f)
 
 
-E2M1_LUT = torch.tensor(
+_E2M1_LUT = torch.tensor(
     [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0,
      0.0, -0.5, -1.0, -1.5, -2.0, -3.0, -4.0, -6.0],
     dtype=torch.float32,
 )
 _BYTE_ARANGE_I32 = torch.arange(256, dtype=torch.int32)
-_E2M1_LUT_HIGH = E2M1_LUT[(_BYTE_ARANGE_I32 >> 4) & 0x0F]
-_E2M1_LUT_LOW = E2M1_LUT[_BYTE_ARANGE_I32 & 0x0F]
+_E2M1_LUT_HIGH = _E2M1_LUT[(_BYTE_ARANGE_I32 >> 4) & 0x0F]
+_E2M1_LUT_LOW = _E2M1_LUT[_BYTE_ARANGE_I32 & 0x0F]
 _INV_BLOCKED_CACHE: dict[tuple[int, int], torch.Tensor] = {}
 
 
-def to_blocked(m: torch.Tensor) -> torch.Tensor:
+def _to_blocked(m: torch.Tensor) -> torch.Tensor:
     rows, cols = m.shape
     nrb = (rows + 127) // 128
     ncb = (cols + 3) // 4
@@ -130,14 +130,14 @@ def _inv_blocked_index(rows: int, cols: int) -> torch.Tensor:
     key = (rows, cols)
     inv = _INV_BLOCKED_CACHE.get(key)
     if inv is None:
-        idx = to_blocked(torch.arange(rows * cols).reshape(rows, cols).float()).flatten().long()
+        idx = _to_blocked(torch.arange(rows * cols).reshape(rows, cols).float()).flatten().long()
         inv = torch.empty(rows * cols, dtype=torch.long)
         inv[idx] = torch.arange(rows * cols)
         _INV_BLOCKED_CACHE[key] = inv
     return inv
 
 
-def unblock_scale(block_stored: torch.Tensor, out_features: int, num_blocks: int) -> torch.Tensor:
+def _unblock_scale(block_stored: torch.Tensor, out_features: int, num_blocks: int) -> torch.Tensor:
     ph, pw = block_stored.shape
     inv = _inv_blocked_index(ph, pw).to(block_stored.device)
     natural = block_stored.to(torch.float32).flatten()[inv].reshape(ph, pw)
@@ -163,7 +163,7 @@ def precompute_nvfp4_scale(
     block_scale: torch.Tensor, tensor_scale: torch.Tensor, out_features: int, in_features: int,
 ) -> torch.Tensor:
     num_blocks = in_features // NVFP4_BLOCK
-    block_nat = unblock_scale(block_scale, out_features, num_blocks)
+    block_nat = _unblock_scale(block_scale, out_features, num_blocks)
     return block_nat * tensor_scale.to(torch.float32)
 
 
@@ -177,7 +177,7 @@ def dequantize_nvfp4(
     device = packed.device
     values = dequant_values(packed, out_features, in_features)
     num_blocks = in_features // NVFP4_BLOCK
-    scale = unblock_scale(block_scale, out_features, num_blocks).to(device) * tensor_scale.to(torch.float32).to(device)
+    scale = _unblock_scale(block_scale, out_features, num_blocks).to(device) * tensor_scale.to(torch.float32).to(device)
     return scale_values(values, scale, out_features, in_features, num_blocks)
 
 
@@ -202,5 +202,5 @@ def quantize_nvfp4_dynamic(x2d: torch.Tensor) -> tuple[torch.Tensor, torch.Tenso
     mant = mant.round_().clamp_(0, 1).to(torch.uint8)
     codes = ((sign << 3) | (exp_bits << 1) | mant).reshape(m, k)
     packed = (codes[:, 0::2] << 4) | codes[:, 1::2]
-    block_sw = to_blocked(block.to(torch.float32)).to(torch.float8_e4m3fn)
+    block_sw = _to_blocked(block.to(torch.float32)).to(torch.float8_e4m3fn)
     return packed, block_sw, tensor_scale.reshape(())
