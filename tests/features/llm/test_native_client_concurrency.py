@@ -1,27 +1,3 @@
-"""Pins the per-checkpoint execution gate `_leased` now holds for a turn's
-FULL lifetime (`_CheckpointGate`, `src/features/llm/clients/native.py`).
-
-`ModelLifecycle.acquire()` hands the SAME `_LoadedCheckpoint` — one live
-`torch.nn.Module` — to every caller with a matching fingerprint; there is no
-per-checkpoint execution gate at that layer. Before this fix, two overlapping
-turns on the same checkpoint could race its CUDA placement: turn A's teardown
-moving the model back to CPU while turn B was still mid-`generate()` on it.
-
-Every test drives the REAL `_leased`/`generate_with_history`/
-`stream_with_history` entry points and the REAL `ModelLifecycle` cache, with
-`checkpoint.model` replaced by `_GatedModel` — a fake whose `generate()` runs
-on the real background worker thread these methods already use, blocks on a
-`threading.Event` a test controls, and records `.to()`/`generate()` timeline
-events into a shared, GIL-safe list. `torch.cuda.is_available` is forced
-`True` per test (this container has no real GPU) purely to exercise
-`_leased`'s `manage_device` placement branch — `.to()` is the fake's no-op
-recorder, never a real CUDA call. Every wait is bounded
-(`asyncio.wait_for`/`Event.wait(timeout=...)`) and every test releases its
-gated model's barrier in a `finally`, so a regression that reintroduces the
-race fails the assertions (or times out a bounded wait) instead of hanging
-pytest.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -453,11 +429,6 @@ class TestExecutionGateSerializesOverlappingTurns:
     async def test_two_client_instances_sharing_one_manager_still_serialize(
         self, models_manager, native_checkpoint, tiny_qwen3_checkpoint_dir, monkeypatch
     ):
-        """Two separate `NativeDriver` instances built on the SAME
-        `ModelLifecycle` (e.g. a request-scoped client alongside the
-        gateway's) must still gate on the SAME lock — the registry is keyed
-        by (manager identity, cache key), never by which client instance
-        made the call."""
         name, path = native_checkpoint
         resolver = make_roots(tiny_qwen3_checkpoint_dir, types=["llm"], home_dir=tiny_qwen3_checkpoint_dir)
         client_a = NativeDriver(models_manager, resolver)

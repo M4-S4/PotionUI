@@ -1,18 +1,3 @@
-"""Tests for NativeDriver — the in-process transformers provider.
-
-CPU-only, no downloads: the checkpoint fixtures are TINY randomly-initialized
-transformers models (2-layer Qwen3 for text, a matching processor stub is not
-needed since vision family-gating is tested at the config level, not by
-actually loading a VL model — building one from scratch with a real chat
-template AND an image processor offline is out of proportion to what the
-gating/lifecycle/streaming contract needs to prove). Family gating for the
-vision allowlist is exercised via the config.json model_type alone.
-
-Every torch.cuda entry point is monkeypatched off so this suite runs
-identically whether or not the box happens to have a visible GPU (the
-project's "no GPU ever" test rule).
-"""
-
 from __future__ import annotations
 
 import numpy._core.multiarray  # noqa: F401
@@ -900,10 +885,6 @@ async def test_generate_registers_a_lifecycle_entry(client, models_manager, nati
 
 
 class TestTokenCounterWeakrefMechanics:
-    """token_counter's own weak-reference lookup and dispatch, independent of
-    the heavy real-transformers fixture (see TestTokenCounter below) — a fake
-    tokenizer stands in for a real one; only the liveness/dispatch logic
-    under test here is NativeDriver's, not transformers'."""
 
     def _client(self) -> NativeDriver:
         return NativeDriver(ModelLifecycle(gpu_monitor=None, settings=None))

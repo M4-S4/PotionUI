@@ -1,9 +1,3 @@
-"""min_p / repetition_penalty coverage for NativeDriver._generation_kwargs,
-exercised through the real generate_with_history / stream_with_history entry
-points (never the static method directly) with a fake, recording model —
-finite and GPU-free, no live checkpoint weights.
-"""
-
 from __future__ import annotations
 
 import weakref
@@ -11,7 +5,7 @@ import weakref
 import pytest
 import torch
 
-from src.features.llm.native.runtime import _LoadedCheckpoint
+from src.features.llm.native.runtime import RunStats, _LoadedCheckpoint
 from src.features.llm.harness.adapter import RenderRequest, Settings
 from src.features.llm.harness.adapters.native import NativeAdapter
 from src.features.llm.harness.messages import Message, Role, TextPart
@@ -49,8 +43,6 @@ class _RecordingTokenizer:
 
 
 class _RecordingGenModel:
-    """Records every kwarg NativeDriver hands to ``generate()`` beyond the
-    tensor inputs, without running any real inference."""
 
     def __init__(self):
         self.calls: list = []
@@ -259,3 +251,15 @@ async def test_adapter_with_unset_temperature_and_max_tokens_leaves_the_model_de
     call = checkpoint.model.calls[0]
     assert "do_sample" not in call and "temperature" not in call
     assert call["max_new_tokens"] == 11
+
+
+@pytest.mark.asyncio
+async def test_stream_without_max_new_tokens_reaches_generate_with_the_default(client, fake_model_name, monkeypatch):
+    checkpoint = _wire_fake_checkpoint(client, fake_model_name)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    config = _config(fake_model_name)
+
+    async for _text in client.stream(config, [{"role": "user", "content": "hi"}], {}, None, RunStats()):
+        pass
+
+    assert checkpoint.model.calls[0]["max_new_tokens"] == 4096
