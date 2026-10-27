@@ -106,6 +106,8 @@ class ToolCallGuard:
         if result.success:
             return
         self.tool_failures[tool_name] = self.tool_failures.get(tool_name, 0) + 1
+        if result.retryable:
+            return
         key = self.call_key(tool_name, arguments)
         if key not in self._failed_calls:
             self._failed_calls[key] = result.error or "unknown error"

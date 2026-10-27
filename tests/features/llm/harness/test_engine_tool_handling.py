@@ -409,3 +409,32 @@ async def test_the_same_notice_is_raised_once_per_turn():
     assert outcome(events).state.notices == tuple(raised)
     assert outcome(events).content == "done"
     assert len(rig.sleeps) == 2
+
+
+class FlakyTool(BaseTool):
+    name = "flaky"
+    description = "Times out once."
+    parameters = {"type": "object", "properties": {}}
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
+        self.calls += 1
+        if self.calls == 1:
+            raise TimeoutError("the service took too long")
+        return ToolResult(success=True, data="ok")
+
+
+async def test_a_call_that_raised_may_be_tried_again_with_the_same_arguments():
+    flaky = FlakyTool()
+    adapter = ScriptedAdapter(
+        tool_step({"id": "c1", "name": "flaky", "args": {}}), tool_step({"id": "c2", "name": "flaky", "args": {}}), text_step("done"),
+    )
+    rig = scripted_engine(adapter, [flaky])
+
+    events = await drain(rig.engine.run(turn()))
+
+    assert flaky.calls == 2
+    assert outcome(events).tool_failures == {"flaky": 1}
+    assert outcome(events).state.failed_calls == {}

@@ -205,6 +205,7 @@ class ToolExecutor:
                 success=False,
                 data="",
                 error=unexpected(tool_name, "run", e, context.is_admin),
+                retryable=True,
             ), False
 
     async def execute_tool_guarded(
@@ -222,9 +223,7 @@ class ToolExecutor:
             return ToolResult(success=True, data=guard.ALREADY_APPLIED_RESULT), False
         blocked = guard.blocked_repeat_error(tool_name, arguments)
         if blocked is not None:
-            result = ToolResult(success=False, data="", error=blocked)
-            guard.record(tool_name, arguments, result)
-            return result, False
+            return ToolResult(success=False, data="", error=blocked), False
         result, is_pending = await self._execute_tool(
             tool_name, context, arguments, allowed_tools=allowed_tools, deferred_tools=deferred_tools,
         )

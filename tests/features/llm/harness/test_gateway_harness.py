@@ -291,3 +291,19 @@ async def test_prepare_names_the_messages_its_budget_trimmed():
 
     assert [message.id for message in prepared.request.messages] == ["u1"]
     assert prepared.trimmed == ("u0", "a1")
+
+
+async def test_trimming_never_leaves_the_history_starting_with_an_assistant_reply():
+    gateway = scripted_gateway(ScriptedAdapter(), scripted_config(max_tokens=200, profile_overrides={"context_window": 1024}))
+    history = [
+        user_message("x" * 4000, message_id="u0"),
+        _answered(TextPart(text="first")),
+        user_message("z" * 4000, message_id="u1"),
+        Message(id="a2", role=Role.ASSISTANT, origin=SCRIPTED_ORIGIN, parts=(TextPart(text="second"),)),
+        user_message("now", message_id="u2"),
+    ]
+
+    prepared = await gateway.prepare("cfg-scripted", history)
+
+    assert [message.id for message in prepared.request.messages] == ["u2"]
+    assert prepared.trimmed == ("u0", "a1", "u1", "a2")

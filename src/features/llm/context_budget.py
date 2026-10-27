@@ -368,6 +368,13 @@ def _protected_unit_count(units: List[List[Message]]) -> int:
     return len(units) - protected_from
 
 
+def _from_a_user_message(units: List[List[Message]], protected_count: int) -> List[List[Message]]:
+    start = 0
+    while len(units) - start > protected_count and units[start][0].role is not Role.USER:
+        start += 1
+    return units[start:]
+
+
 def fit_messages(
     messages: Sequence[Message],
     *,
@@ -398,7 +405,9 @@ def fit_messages(
         used += c.tokens
         measured = measured and c.measured
 
-    kept_units = list(reversed(kept_units_reversed))
+    fitted = list(reversed(kept_units_reversed))
+    kept_units = _from_a_user_message(fitted, protected_count)
+    used -= sum(count_messages(unit, counter).tokens for unit in fitted[: len(fitted) - len(kept_units)])
     kept_messages = [m for unit in kept_units for m in unit]
     total_messages = sum(len(u) for u in units)
     kept_message_count = sum(len(u) for u in kept_units)
@@ -497,8 +506,9 @@ def enforce_budget(
                 break
             if len(kept_units) <= trim.protected_count:
                 break
-            kept_units.pop(0)
-            chat_template_extra_dropped += 1
+            shrunk = _from_a_user_message(kept_units[1:], trim.protected_count)
+            chat_template_extra_dropped += len(kept_units) - len(shrunk)
+            kept_units = shrunk
 
         if counter_ok:
             accounting = "chat_template_shrunk" if chat_template_extra_dropped else "chat_template"

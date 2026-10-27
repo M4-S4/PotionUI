@@ -66,6 +66,7 @@ class ToolResult:
     sources: Optional[List[ToolSource]] = None
     image_data: Optional[str] = None  # Base64 image to send via LLM vision on next call
     preview: Optional[ToolApprovalPreview] = None  # Set by requires_approval tools' preview execute()
+    retryable: bool = False
 
 
 def serialize_approval_preview(preview: Optional[ToolApprovalPreview]) -> Optional[Dict[str, Any]]:

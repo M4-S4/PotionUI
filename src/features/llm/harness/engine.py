@@ -15,7 +15,7 @@ from src.features.llm.harness.call_filter import TEXT, ToolCallTextFilter
 from src.features.llm.harness.cost import priced, total_usage
 from src.features.llm.harness.errors import HarnessError, OpaqueViolation
 from src.features.llm.harness.events import FinishReason, ReasoningDelta, TextDelta, Usage
-from src.features.llm.harness.messages import Message, Part, ReasoningPart, Role, TextPart, ToolCallPart, ToolResultPart
+from src.features.llm.harness.messages import ContextPart, Message, Part, ReasoningPart, Role, TextPart, ToolCallPart, ToolResultPart
 from src.features.llm.harness.ports import RetryPolicy, ToolRunner, TurnStore
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.recovery import CANCELLED_REASON, FAILED_REASON, interrupted_tool_step
@@ -51,6 +51,7 @@ TOOL_BUDGET_EXHAUSTED_MESSAGE = (
 MAX_RESCUE_RETRIES = 2
 RELEASE_TIMEOUT_SECONDS = 5.0
 APPROVAL_CACHE_TTL = "1h"
+NUDGE_KIND = "nudge"
 REASONING_DROPPED_MESSAGE = (
     "The provider refused the stored reasoning from earlier steps, so this request was sent without it."
 )
@@ -269,6 +270,10 @@ class _Run:
         self.applied_calls = state.applied_calls | self.applied_calls
         self.round.guard = ToolCallGuard(set(self.applied_calls), state.failed_calls, state.tool_failures)
         self.prior = self.engine._store.turn_steps(state.turn_id)
+        self.nudged = any(
+            isinstance(part, ContextPart) and part.kind == NUDGE_KIND
+            for step in self.prior for part in step.message.parts
+        )
 
     async def _settle_paused(self) -> AsyncIterator[Any]:
         state = self.resumed
@@ -406,7 +411,7 @@ class _Run:
             self.gathered = ()
             if self.turn.iteration_nudge and not self.nudged:
                 self.nudged = True
-                yield self._commit(context_message("nudge", self.turn.iteration_nudge), StepStatus.COMPLETED)
+                yield self._commit(context_message(NUDGE_KIND, self.turn.iteration_nudge), StepStatus.COMPLETED)
 
         logger.warning("[TurnEngine] tool budget of %s round(s) reached, making a final call without tools", self.max_rounds)
         yield BudgetExhausted(self.max_rounds)
@@ -439,10 +444,11 @@ class _Run:
         retry_attempt = 0
         empty_attempt = 0
         truncation_attempt = 0
+        raised_limit: Optional[int] = None
         while True:
             prepared = await self.engine._gateway.prepare(
                 self.turn.llm_id, tuple(self.working),
-                system=self.turn.system, settings=self._request_settings(keep_loaded, tool_choice), tools=tools,
+                system=self.turn.system, settings=self._request_settings(keep_loaded, tool_choice, raised_limit), tools=tools,
             )
             for notice in prepared.notices:
                 for raised in self._raised(notice):
@@ -456,23 +462,24 @@ class _Run:
             self.sent_limit = prepared.ledger.get("max_tokens_sent")
             box.assembler = StepAssembler(new_id("msg"), prepared.origin, clock=self.engine._clock)
             text_filter = ToolCallTextFilter(self._registered()) if filtered else None
-            received = False
             shown = False
             try:
                 async with aclosing(self.engine._gateway.run(prepared)) as stream:
                     async for event in stream:
-                        received = True
                         box.assembler.feed(event)
                         if isinstance(event, ReasoningDelta):
-                            shown = True
-                            yield event
+                            if event.text or event.redacted:
+                                shown = True
+                                yield event
                         elif isinstance(event, TextDelta):
                             for visible in self._visible(event, text_filter):
                                 shown = True
                                 yield visible
             except HarnessError as error:
-                if received:
+                if shown:
                     raise
+                self.usages.append(priced(box.assembler.usage, prepared.profile))
+                box.assembler = None
                 if isinstance(error, OpaqueViolation):
                     if self.degraded:
                         raise
@@ -510,7 +517,7 @@ class _Run:
                 truncation_attempt += 1
                 self.usages.append(priced(box.assembler.usage, prepared.profile))
                 box.assembler = None
-                self.settings = replace(self.settings, max_tokens=truncation.max_tokens)
+                raised_limit = truncation.max_tokens
                 if shown:
                     yield StepDiscarded(self._next_seq())
                 continue
@@ -542,8 +549,12 @@ class _Run:
         self.notices.append(notice)
         return [NoticeRaised(notice)]
 
-    def _request_settings(self, keep_loaded: bool, tool_choice: Optional[ToolChoice] = None) -> Settings:
+    def _request_settings(
+        self, keep_loaded: bool, tool_choice: Optional[ToolChoice] = None, max_tokens: Optional[int] = None,
+    ) -> Settings:
         settings = replace(self.settings, keep_model_loaded=keep_loaded)
+        if max_tokens is not None:
+            settings = replace(settings, max_tokens=max_tokens)
         if tool_choice is not None:
             settings = replace(settings, tool_choice=tool_choice)
         if settings.cache_ttl is None and any(self.engine._tools.requires_approval(spec.name) for spec in self.sent_tools):
@@ -558,9 +569,7 @@ class _Run:
             self.prefix_changed_at = earliest if self.prefix_changed_at is None else min(self.prefix_changed_at, earliest)
 
     def _next_seq(self) -> int:
-        if self.first_seq is None:
-            return self.engine._store.next_seq(self.turn.session_id)
-        return self.first_seq + len(self.steps)
+        return self.engine._store.next_seq(self.turn.session_id)
 
     @staticmethod
     def _visible(event: TextDelta, text_filter: Optional[ToolCallTextFilter]) -> List[TextDelta]:
@@ -669,7 +678,7 @@ class _Run:
     def _persist_abort(self, step_status: StepStatus, turn_status: TurnStatus, error: Optional[BaseException]) -> None:
         box = self.box
         if box is not None and box.message is None and box.assembler is not None:
-            partial = box.assembler.message()
+            partial = _without_empty_reasoning(box.assembler.message())
             if partial.parts:
                 self.last_usage = priced(box.assembler.usage, box.profile)
                 self._commit(partial, step_status, final=True)
@@ -727,9 +736,9 @@ class _Run:
         )
 
     def _outcome(self, content: str, reason: str, status: TurnStatus) -> TurnOutcome:
-        self.finished = True
         state = self._state(status)
         self.engine._store.save_state(state)
+        self.finished = True
         return TurnOutcome(
             content=content,
             reason=reason,
@@ -767,6 +776,14 @@ class _Run:
         if self.gathered and rounds:
             rounds[-1]["results"].extend(_transcript_result(part) for part in self.gathered)
         return rounds
+
+
+def _without_empty_reasoning(message: Message) -> Message:
+    parts = tuple(
+        part for part in message.parts
+        if not (isinstance(part, ReasoningPart) and not (part.text or part.summary or part.opaque or part.redacted))
+    )
+    return message if parts == message.parts else replace(message, parts=parts)
 
 
 def _without_replay(message: Message) -> Message:

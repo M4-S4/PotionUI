@@ -322,6 +322,17 @@ def _msg(role, content, **extra):
 
 
 class TestFitMessages:
+    def test_a_kept_history_never_starts_with_the_assistant_reply_to_a_dropped_question(self):
+        messages = [
+            _msg("user", "x" * 100), _msg("assistant", "y"), _msg("user", "z" * 100), _msg("assistant", "w"), _msg("user", "now"),
+        ]
+
+        result = fit_messages(messages, available_tokens=20, counter=len)
+
+        assert [m["content"] for m in result.messages] == ["now"]
+        assert (result.dropped_messages, result.dropped_groups) == (4, 4)
+        assert result.used_tokens == count_messages([_msg("user", "now")], len).tokens
+
     def test_everything_fits_when_under_budget(self):
         messages = [_msg("user", "a" * 10), _msg("assistant", "a" * 10), _msg("user", "a" * 10)]
         result = fit_messages(messages, available_tokens=10_000, counter=None)
@@ -534,24 +545,19 @@ class TestEnforceBudget:
         assert outcome.ledger["accounting"] == "chat_template"
         assert outcome.ledger["estimated_tokens"] == 1
 
-    def test_recount_drops_one_more_unit_when_the_exact_count_still_overflows(self):
-        """Fragment trimming decided to keep all three messages; the exact
-        recount disagrees, so the oldest eligible unit is dropped and
-        recounted again — bounded, one drop per failed recount."""
+    def test_recount_drops_units_until_the_history_starts_with_a_user_message(self):
         messages = [
             _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
         ]
-        # Exact cost scales with how many messages are in the candidate —
-        # 3 kept -> 300 (over), 2 kept -> 200 (fits at capacity 250).
         outcome = enforce_budget(
             capacity_tokens=250, capacity_source="config", reserve_tokens=0,
             system_message=None, messages=messages, counter=len,
             messages_counter=lambda s, m, t: len(m) * 100,
         )
-        assert [m["content"] for m in outcome.messages] == ["older", "current"]
+        assert [m["content"] for m in outcome.messages] == ["current"]
         assert outcome.ledger["accounting"] == "chat_template_shrunk"
-        assert outcome.ledger["chat_template_extra_dropped"] == 1
-        assert outcome.ledger["estimated_tokens"] == 200
+        assert outcome.ledger["chat_template_extra_dropped"] == 2
+        assert outcome.ledger["estimated_tokens"] == 100
         assert outcome.ledger["measured"] is True
 
     def test_recount_raises_when_even_the_protected_unit_alone_overflows_exactly(self):
@@ -572,20 +578,13 @@ class TestEnforceBudget:
         assert err.breakdown["chat_template_extra_dropped"] == 2
 
     def test_a_counter_that_raises_mid_shrink_never_resubmits_a_candidate_already_proved_over(self):
-        """The recount loop exactly proves the full 3-message candidate is
-        over capacity, drops the oldest unit, then the counter starts
-        failing on the reduced 2-message candidate — that candidate was
-        NEVER itself proved over, so it's fine to decide it with the
-        fragment/framing estimate (which fits here), but the original
-        3-message candidate the loop already proved over must never be
-        resurrected/returned just because the counter later broke."""
         messages = [
             _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
         ]
 
         def flaky(system_message, kept_messages, tools):
             if len(kept_messages) == 3:
-                return 300  # over budget at capacity 250 -> triggers one drop
+                return 300
             raise RuntimeError("template blew up on the shrunk candidate")
 
         outcome = enforce_budget(
@@ -593,13 +592,8 @@ class TestEnforceBudget:
             system_message=None, messages=messages, counter=len,
             messages_counter=flaky,
         )
-        # The proved-over 3-message set must never come back...
-        assert not any(m["content"] == "oldest" for m in outcome.messages)
-        # ...the reduced 2-message set the loop had already shrunk to is
-        # what gets decided (by the fragment estimate, which fits it).
-        assert [m["content"] for m in outcome.messages] == ["older", "current"]
+        assert [m["content"] for m in outcome.messages] == ["current"]
         assert outcome.ledger["accounting"] == "chat_template_fallback"
-        assert outcome.ledger["chat_template_extra_dropped"] == 0
         assert outcome.ledger["measured"] is False
 
     def test_a_counter_that_always_raises_on_an_irreducible_protected_floor_still_raises(self):

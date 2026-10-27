@@ -11,7 +11,9 @@ from src.features.llm.harness.engine import (
     TurnInput,
     TurnOutcome,
 )
-from src.features.llm.harness.errors import Overloaded
+from src.features.llm.harness.baseline import InMemoryTurnStore
+from src.features.llm.harness.errors import InvalidRequest, Overloaded
+from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.events import (
     Finish,
     FinishReason,
@@ -40,7 +42,7 @@ from src.features.llm.harness.turn_state import (
 )
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from tests.fixtures.llm_engine import drain, scripted_config, scripted_engine, tool_context
-from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, ScriptedAdapter, text_step, tool_step
+from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, FailMidStream, ScriptedAdapter, text_step, tool_step
 
 
 class EchoTool(BaseTool):
@@ -296,7 +298,7 @@ async def test_a_failed_call_is_not_rerun_with_the_same_arguments():
     assert broken.calls == 1
     results = adapter.requests[2].messages[-1].tool_results()
     assert results[0].is_error and "already called broken" in results[0].text()
-    assert outcome_of(events).tool_failures == {"broken": 2}
+    assert outcome_of(events).tool_failures == {"broken": 1}
     assert outcome_of(events).state.failed_calls == {"broken:{}": "disk on fire"}
 
 
@@ -436,3 +438,59 @@ def _prior_state():
         profile=CapabilityProfile(adapter="scripted", model="scripted-model"),
     )
     return TurnState(turn_id="t-old", session_id="s1", status=TurnStatus.COMPLETED, snapshot=snapshot, first_seq=0)
+
+
+def _plain_turn(**overrides):
+    values = dict(session_id="s1", llm_id="cfg-scripted", system="SYS", history=(), new_messages=(user_message("hi"),))
+    values.update(overrides)
+    return TurnInput(**values)
+
+
+async def test_a_retryable_error_before_anything_visible_is_retried_and_leaves_no_failed_step():
+    early = FailMidStream(
+        [UsageReported(Usage(input_tokens=12, output_tokens=0, total_tokens=12)), ReasoningDelta(block=0, text="")],
+        Overloaded("busy", status=529),
+    )
+    adapter = ScriptedAdapter(early, text_step("hello"))
+    rig = scripted_engine(adapter, retry=BackoffRetry(max_retries=1, jitter=lambda: 0.0))
+
+    events = await drain(rig.engine.run(_plain_turn()))
+
+    steps = rig.store.steps("s1")
+    assert [step.status for step in steps] == [StepStatus.COMPLETED, StepStatus.COMPLETED]
+    assert steps[-1].message.text() == "hello" and steps[-1].message.reasoning() == ()
+    assert outcome_of(events).content == "hello"
+    assert not [event for event in events if isinstance(event, ReasoningDelta)]
+
+
+@pytest.mark.parametrize("error", [InvalidRequest("bad request", status=400), RuntimeError("socket closed")])
+async def test_a_failure_after_only_empty_reasoning_stores_no_empty_failed_step(error):
+    early = FailMidStream([ReasoningDelta(block=0, text="")], error)
+    rig = scripted_engine(ScriptedAdapter(early))
+
+    with pytest.raises(type(error)):
+        await drain(rig.engine.run(_plain_turn()))
+
+    assert [step.message.role for step in rig.store.steps("s1")] == [Role.USER]
+
+
+class _FailsTheFinalSave(InMemoryTurnStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed = False
+
+    def save_state(self, state):
+        if state.status is TurnStatus.COMPLETED and not self.failed:
+            self.failed = True
+            raise OSError("disk full")
+        super().save_state(state)
+
+
+async def test_a_turn_whose_final_save_fails_is_recorded_failed_not_left_running():
+    store = _FailsTheFinalSave()
+    rig = scripted_engine(ScriptedAdapter(text_step("hello")), store=store)
+
+    with pytest.raises(OSError):
+        await drain(rig.engine.run(_plain_turn(turn_id="t-save")))
+
+    assert store.load_state("t-save").status is TurnStatus.FAILED

@@ -66,13 +66,14 @@ def scripted_engine(
     config: Optional[LLMConfig] = None,
     retry: Any = None,
     clock: Any = lambda: 0.0,
+    store: Any = None,
 ) -> EngineRig:
     gateway = scripted_gateway(adapter, config or scripted_config())
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
     executor = ToolExecutor(tool_registry=registry)
-    store = InMemoryTurnStore()
+    store = store if store is not None else InMemoryTurnStore()
     sleeps: List[float] = []
 
     async def sleep(seconds: float) -> None:

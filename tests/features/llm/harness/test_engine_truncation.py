@@ -50,7 +50,7 @@ async def test_a_cut_off_tool_call_is_retried_with_a_larger_limit_and_only_the_c
     events = await drain(rig.engine.run(engine_turn(settings=Settings(max_tokens=2000))))
 
     assert note.saved == [{"text": "a long note"}]
-    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 8000, 8000]
+    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 8000, 2000]
     (notice,) = truncation_notices(events)
     assert notice.detail == {"max_tokens": 8000, "previous": 2000}
     outcome = outcome_of(events)
@@ -109,7 +109,7 @@ async def test_the_retry_grows_the_limit_the_configuration_sends_when_the_turn_s
     events = await drain(rig.engine.run(engine_turn()))
 
     assert note.saved == [{"text": "a long note"}]
-    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 8000, 8000]
+    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 8000, 2000]
     assert [request.config.max_tokens for request in adapter.requests] == [2000, 2000, 2000]
     (notice,) = truncation_notices(events)
     assert notice.detail == {"max_tokens": 8000, "previous": 2000}
@@ -122,7 +122,7 @@ async def test_the_retry_stops_at_the_profile_maximum():
 
     await drain(rig.engine.run(engine_turn()))
 
-    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 5000, 5000]
+    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 5000, 2000]
 
 
 async def test_a_limit_that_cannot_be_raised_fails_at_once():

@@ -4,9 +4,10 @@ from typing import Any
 
 import pytest
 
-from src.features.llm.harness.messages import Role
+from src.features.llm.harness.events import Finish, FinishReason, TextDelta, ToolArgsDelta, ToolCallStart
+from src.features.llm.harness.messages import ContextPart, Role
 from src.features.llm.harness.recovery import CANCELLED_REASON
-from src.features.llm.harness.turn_state import Decision, StepStatus, TurnStatus
+from src.features.llm.harness.turn_state import Decision, StepCommitted, StepDiscarded, StepStatus, TurnStatus
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from tests.features.llm.harness.test_engine_durable import (
     EchoTool,
@@ -54,11 +55,11 @@ def resumed(waiting, history, decisions, **overrides: Any):
     return turn(turn_id=waiting.turn_id, history=history, new_messages=(), resume=tuple(decisions), **overrides)
 
 
-async def paused_rig(database, *calls, tools=None, more=()):
+async def paused_rig(database, *calls, tools=None, more=(), nudge=None):
     approval = ApprovalTool()
     adapter = ScriptedAdapter(tool_step(*calls), *more)
     rig = Rig(adapter, tools or [EchoTool(), approval])
-    outcome = outcome_of(await drain(rig.engine.run(turn())))
+    outcome = outcome_of(await drain(rig.engine.run(turn(iteration_nudge=nudge))))
     assert outcome.pending
     return rig, adapter, approval, outcome.state
 
@@ -229,3 +230,60 @@ async def test_a_resumed_turn_still_counts_and_remembers_the_failures_from_befor
 
     assert outcome.tool_failures == {"lookup": 1}
     assert outcome.state.failed_calls == {"lookup:{}": "index offline"}
+
+
+class WriteNote(BaseTool):
+    name = "write_note"
+    description = "Saves a note."
+    parameters = {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+
+    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
+        return ToolResult(success=True, data="saved")
+
+
+async def test_a_step_retried_after_a_resume_is_discarded_at_the_seq_its_retry_takes(database):
+    cut_off = [
+        TextDelta(block=1, text="Saving it. "),
+        ToolCallStart(block=2, call_id="t1", name="write_note"),
+        ToolArgsDelta(block=2, text='{"text": "a lo'),
+        Finish(reason=FinishReason.LENGTH, raw_reason="length"),
+    ]
+    rig, _adapter, _approval, waiting = await paused_rig(
+        database,
+        {"id": "c1", "name": "delete_prompt", "args": {"id": "p1"}},
+        tools=[WriteNote(), ApprovalTool()],
+        more=[cut_off, tool_step({"id": "t1", "name": "write_note", "args": {"text": "a long note"}}), text_step("Saved.")],
+    )
+    before = {step.seq for step in rig.fresh().steps("s1")}
+
+    events = await drain(rig.engine.run(resumed(waiting, stored_messages(rig), [Decision("c1", True)])))
+
+    (discarded,) = [event for event in events if isinstance(event, StepDiscarded)]
+    retried = next(
+        event.step for event in events[events.index(discarded):]
+        if isinstance(event, StepCommitted) and event.step.message.role is Role.ASSISTANT
+    )
+    assert discarded.seq == retried.seq
+    assert discarded.seq not in before
+
+
+async def test_a_resumed_turn_that_was_already_nudged_is_not_nudged_again(database):
+    rig, _adapter, _approval, waiting = await paused_rig(
+        database,
+        {"id": "c0", "name": "echo", "args": {"message": "a"}},
+        tools=[EchoTool(), ApprovalTool()],
+        more=[
+            tool_step({"id": "c1", "name": "delete_prompt", "args": {"id": "p1"}}),
+            tool_step({"id": "c2", "name": "echo", "args": {"message": "b"}}),
+            text_step("Done."),
+        ],
+        nudge="keep going",
+    )
+
+    await drain(rig.engine.run(resumed(waiting, stored_messages(rig), [Decision("c1", True)], iteration_nudge="keep going")))
+
+    nudges = [
+        part for step in rig.fresh().steps("s1") for part in step.message.parts
+        if isinstance(part, ContextPart) and part.kind == "nudge"
+    ]
+    assert len(nudges) == 1
