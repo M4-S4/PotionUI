@@ -30,7 +30,7 @@ can show why it doesn't qualify:
     (``_dequantize_fp8_state_dict``) — reusing the exact per-tensor
     ``weight * weight_scale`` formula (and ``cast_to`` helper) the native
     engine's own ``Fp8ScaledLinear.forward_comfy_cast_weights`` runs per-forward
-    (``vendor/gpl/comfyui/ops.py``), just applied once in bulk instead of on
+    (``kernels/fp8_linear.py``), just applied once in bulk instead of on
     every call. fp8 no longer gates adoption by itself; a fp8 file gates only
     for the same reasons a bf16 file of the same family would.
   * mixed bf16/nvfp4 repacks (e.g. "Sikaworld"-style Gemma-3 quantizations,
@@ -499,7 +499,7 @@ def _dequantize_fp8_state_dict(sd: dict) -> dict:
 
     Reuses the exact per-tensor ``weight.to(compute) * weight_scale`` formula
     (and the ``cast_to`` cast helper) that the native engine's own
-    ``Fp8ScaledLinear.forward_comfy_cast_weights`` (vendor/gpl/comfyui/ops.py)
+    ``Fp8ScaledLinear.forward_comfy_cast_weights`` (kernels/fp8_linear.py)
     runs on every forward pass for a live fp8-scaled module — applied once here
     instead, since adoption needs a plain bf16 state dict to load into a
     ``transformers`` model, not a live cast-on-forward module. Not a
