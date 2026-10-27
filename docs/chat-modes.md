@@ -111,12 +111,14 @@ waiting for approval" result, so each tool call the model made has an answer.
    message is stored. It returns 409 while the call is still pending, or when that
    message has already been continued.
 
-Every assistant row stores `metadata.tool_transcript`: the call/result rounds the model
-saw. History replays it as native `assistant(tool_calls)` / `tool` messages and trims
-whole rounds only, so a continuation sees its own calls and the resolved result. A round
-also stores the model's raw `reasoning` when it produced any, whatever the configuration's
-Show thinking switch says; history sends it back on the assistant message only for the
-rows of the user turn being continued, and the API strips it from every message it serves.
+A turn is stored as append-only steps (`chat_steps`) with its state in `chat_turns`; an
+assistant row records its `turn_id` and the `step_range` it covers, and the API builds its
+`reasoning`, `usage` and `notices` from those steps. History for a new turn is replayed from
+the steps, so a continuation sees its own calls and the resolved result. A paused turn keeps
+the model's reasoning, the results it already gathered and its failed-call memory in its
+state; continuing runs the decided calls, appends one tool step in call order and carries on
+in the same turn. Reasoning is stored whatever the configuration's Show thinking switch says,
+sent back only within the turn being continued, and served only while the switch is on.
 Admin LLM call traces (`chat_llm_call_traces`, in the admin session detail) are the one
 exception: they stay wire-exact, so they include replayed reasoning, which is meant for
 admin debugging.
@@ -125,7 +127,8 @@ repeats an already-approved call (same tool, same arguments) in that chain answe
 "Already applied earlier in this turn." instead of pausing again.
 
 Sending a normal message while a call is pending rejects it, with the message as the
-reason. The `done` event then carries `resolved_message: {id, tool_executions}`.
+reason, and answers it inside the same turn. The `done` event then carries
+`resolved_message: {id, tool_executions}`.
 
 MCP clients (`src/features/mcp/protocol.py`) run `execute_confirmed()` directly; they
 have no approval step.

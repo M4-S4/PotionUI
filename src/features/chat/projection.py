@@ -26,7 +26,15 @@ def segment(steps: Sequence[StepRecord], first: int, last: int) -> List[StepReco
 
 
 def segment_text(steps: Sequence[StepRecord]) -> str:
-    return "".join(step.message.text() for step in steps if step.message.role is Role.ASSISTANT)
+    text = ""
+    for step in steps:
+        piece = step.message.text() if step.message.role is Role.ASSISTANT else ""
+        if not piece:
+            continue
+        if text and not text[-1].isspace() and not piece[0].isspace():
+            text += "\n\n"
+        text += piece
+    return text
 
 
 def reasoning_block(part: ReasoningPart) -> ReasoningBlock:

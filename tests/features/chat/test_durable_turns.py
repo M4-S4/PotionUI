@@ -294,6 +294,22 @@ class TestSeveralApprovals:
         assert _done(final)["assistant_message"]["content"] == "Both applied."
 
 
+class TestRowText:
+    @pytest.mark.asyncio
+    async def test_the_row_text_is_everything_the_model_said_in_the_rows_steps(self, chat_db):
+        store = SqliteTurnStore()
+        llm = scripted_llm([
+            {"content": "Let me check. ", "tool_calls": [_call("e1", "echo")]},
+            {"content": "Found it."},
+        ])
+        manager, repo, session_id = _manager([_EchoTool()], llm, store=store)
+
+        done = _done(await _stream(manager, session_id, "look"))["assistant_message"]
+
+        assert done["content"] == "Let me check.\n\nFound it."
+        assert repo.get_message(done["id"]).content == "Let me check.\n\nFound it."
+
+
 class TestInterruptedTurns:
     @pytest.mark.asyncio
     async def test_a_provider_error_mid_stream_keeps_the_partial_step(self, chat_db):
