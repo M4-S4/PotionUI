@@ -26,6 +26,7 @@ __all__ = [
     "SessionNotFoundError",
     "SubmittedGeneration",
     "cancel_generation",
+    "generation_active",
     "generation_state",
     "get_session_snapshot",
     "list_generation_files",
@@ -132,6 +133,12 @@ async def cancel_generation(user, generation_id: str) -> bool:
     if cancelled:
         await container.output_broadcaster.broadcast_cancelled(generation_id)
     return cancelled
+
+
+def generation_active() -> bool:
+    """True while the application's generation queue holds a generation, pending or running, of any user on any backend."""
+    snapshot = get_container().generation_orchestrator.queue.snapshot()
+    return bool(snapshot["pending"]) or any(snapshot["running"].values())
 
 
 def generation_state(user, generation_id: str) -> Dict[str, Any]:
