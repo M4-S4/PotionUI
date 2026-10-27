@@ -4,7 +4,9 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
 
 from src.features.llm import trace_collector
 from src.features.llm.harness.adapter import RenderRequest, WireRequest
-from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry, SequentialToolRunner
+from src.features.llm.harness.baseline import InMemoryTurnStore
+from src.features.llm.harness.retry import BackoffRetry
+from src.features.llm.harness.tool_runner import ParallelToolRunner
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.engine import BudgetExhausted, TurnEngine, TurnOutcome
 from src.features.llm.harness.errors import HarnessError, InvalidRequest, WireFailure
@@ -162,9 +164,9 @@ def turn_engine_for(gateway: Any, tool_executor: ToolExecutor, store: Optional[I
     return TurnEngine(
         gateway=gateway,
         tools=tool_executor,
-        runner=SequentialToolRunner(tool_executor),
+        runner=ParallelToolRunner(tool_executor),
         store=store or InMemoryTurnStore(),
-        retry=NoRetry(),
+        retry=BackoffRetry(max_retries=0),
     )
 
 
@@ -292,6 +294,7 @@ def _outcome(turn: Any, done: Optional[Dict[str, Any]], usage_data: Dict[str, An
         tool_failures=(done or {}).get("tool_failures"),
         rounds_used=(done or {}).get("rounds_used") or 0,
         usage=_legacy_usage(summary),
+        last_usage=_legacy_usage(summary),
         finish=finish,
         finish_raw=finish_raw,
         steps=(),

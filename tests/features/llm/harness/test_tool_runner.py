@@ -37,7 +37,7 @@ class Rig:
             registry.register(Probe(
                 name, self.log, read_only=name.startswith("read_"), gated=name.startswith("gate_"), shared=self.shared,
             ))
-        self.executor = ToolExecutor(tool_registry=registry, llm_service=None)
+        self.executor = ToolExecutor(tool_registry=registry)
         self.runner = ParallelToolRunner(self.executor, **runner_options)
         self.round = ToolRound(
             tool_context=ToolContext(user_id="user-1"), allowed_tools=None, deferred_tools={}, guard=ToolCallGuard(),
@@ -330,7 +330,7 @@ async def test_a_failure_in_the_executor_becomes_an_error_result_and_the_batch_g
 async def test_a_tool_image_travels_with_its_result():
     registry = ToolRegistry()
     registry.register(Probe("read_snap", [], read_only=True, image="aW1n"))
-    executor = ToolExecutor(tool_registry=registry, llm_service=None)
+    executor = ToolExecutor(tool_registry=registry)
     round_ = ToolRound(tool_context=ToolContext(user_id="u"), allowed_tools=None, deferred_tools={}, guard=ToolCallGuard())
     events = [event async for event in ParallelToolRunner(executor).run([call("s", "read_snap")], turn_state(), round_)]
     (result,) = finished(events)
@@ -367,4 +367,4 @@ def test_batch_results_orders_by_the_calls_and_names_what_is_missing():
 
 def test_the_runner_rejects_a_concurrency_limit_below_one():
     with pytest.raises(ValueError):
-        ParallelToolRunner(ToolExecutor(tool_registry=ToolRegistry(), llm_service=None), max_concurrency=0)
+        ParallelToolRunner(ToolExecutor(tool_registry=ToolRegistry()), max_concurrency=0)

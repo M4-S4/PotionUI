@@ -22,7 +22,8 @@ from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolConte
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
 from tests.fixtures.fake_tab_drafts import make_manager
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
-from src.features.llm.harness.baseline import SequentialToolRunner
+from src.features.llm.harness.tool_runner import ParallelToolRunner
+from tests.features.llm.harness.stepping import turn_state
 from src.features.llm.harness.engine import ToolRound
 from src.features.llm.harness.turn_state import ToolFinished
 from src.features.llm.harness.messages import ToolCallPart
@@ -386,7 +387,7 @@ class TestContinuation:
 
         names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.adapter.calls]
         assert names[0] == ["echo", "use_tools"]
-        assert names[1] == ["set_value", "echo"]
+        assert names[1] == ["echo", "use_tools", "set_value"]
         assert names[2] == ["set_value", "echo"]
 
     @pytest.mark.asyncio
@@ -779,8 +780,8 @@ class TestApprovalPreviewPayload:
         )
 
         events = [
-            event async for event in SequentialToolRunner(executor).run(
-                [ToolCallPart(call_id="c1", name="set_value", args={"value": 2})], None, context,
+            event async for event in ParallelToolRunner(executor).run(
+                [ToolCallPart(call_id="c1", name="set_value", args={"value": 2})], turn_state(), context,
             )
         ]
 

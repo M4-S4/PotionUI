@@ -119,7 +119,7 @@ class TestUseToolsInTheLoop:
 
         sent = [[tool.name for tool in request.tools] for request in adapter.requests]
         assert sent[0] == ["echo", USE_TOOLS_NAME]
-        assert sent[1] == ["echo", "shout"]
+        assert sent[1] == ["echo", USE_TOOLS_NAME, "shout"]
         assert [e.tool_name for e in outcome.executions] == [USE_TOOLS_NAME, "shout"]
         assert all(e.result.success for e in outcome.executions)
         assert outcome.content == "done"
@@ -131,14 +131,14 @@ class TestUseToolsInTheLoop:
             text_step("done"),
         )
 
-        assert [tool.name for tool in adapter.requests[1].tools] == ["echo", "shout"]
+        assert [tool.name for tool in adapter.requests[1].tools] == ["echo", USE_TOOLS_NAME, "shout"]
 
     async def test_calling_a_deferred_tool_directly_loads_its_group_and_runs_it(self):
         adapter, outcome = await self._run(tool_step({"id": "c1", "name": "shout", "args": {}}), text_step("done"))
 
         assert outcome.executions[0].result.success
         assert outcome.executions[0].result.data == "shout ran"
-        assert [tool.name for tool in adapter.requests[1].tools] == ["echo", "shout"]
+        assert [tool.name for tool in adapter.requests[1].tools] == ["echo", USE_TOOLS_NAME, "shout"]
 
     async def test_a_tool_outside_every_group_is_still_refused(self):
         _, outcome = await self._run(tool_step({"id": "c1", "name": "ghost", "args": {}}), text_step("done"))
