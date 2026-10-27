@@ -1,0 +1,84 @@
+{
+  "message": {
+    "id": "asst_01",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "",
+        "redacted": true,
+        "opaque": {
+          "details_digest": "c07a65c2de72e10a301ad18c0abf7c4f35ad08d34c6bae75af41e6ec7022abc2"
+        },
+        "duration_ms": null
+      },
+      {
+        "type": "text",
+        "text": "Checking.",
+        "phase": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "toolu_01A",
+        "name": "lookup_weather",
+        "args": {
+          "city": "Paris"
+        },
+        "args_raw": "{\"city\": \"Paris\"}",
+        "wire_id": "toolu_01A",
+        "opaque": null
+      }
+    ],
+    "origin": {
+      "adapter": "openrouter",
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-5.5",
+      "credential": "1bcbaf32a5cf081b"
+    },
+    "raw": {
+      "provider": "Anthropic",
+      "reasoning_details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rd-enc-1",
+          "data": "R0VOQVJJQ0FMTFktZW5jcnlwdGVkLWJsb2I=",
+          "format": "anthropic-claude-v1",
+          "index": 0
+        }
+      ]
+    }
+  },
+  "usage": {
+    "input_tokens": 80,
+    "output_tokens": 20,
+    "total_tokens": 100,
+    "reasoning_tokens": null,
+    "cached_input_tokens": null,
+    "cache_write_tokens": null,
+    "cost": 0.0006,
+    "raw": {
+      "prompt_tokens": 80,
+      "completion_tokens": 20,
+      "total_tokens": 100,
+      "cost": 0.0006
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "tool_calls",
+    "raw": {
+      "provider": "Anthropic",
+      "reasoning_details": [
+        {
+          "type": "reasoning.encrypted",
+          "id": "rd-enc-1",
+          "data": "R0VOQVJJQ0FMTFktZW5jcnlwdGVkLWJsb2I=",
+          "format": "anthropic-claude-v1",
+          "index": 0
+        }
+      ]
+    }
+  }
+}

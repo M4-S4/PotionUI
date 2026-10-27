@@ -1,0 +1,19 @@
+{
+  "error": {
+    "kind": "server_error",
+    "message": "Provider disconnected unexpectedly (Anthropic)",
+    "status": 502,
+    "code": null,
+    "retry_after": null,
+    "detail": {
+      "body": "{\"id\": \"gen-or-1\", \"object\": \"chat.completion.chunk\", \"created\": 1790000000, \"model\": \"anthropic/claude-sonnet-5.5\", \"provider\": \"Anthropic\", \"error\": {\"code\": 502, \"message\": \"Provider disconnected unexpectedly\", \"metadata\": {\"provider_name\": \"Anthropic\", \"raw\": {\"type\": \"overloaded_error\"}}}, \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"\"}, \"finish_reason\": \"error\"}]}",
+      "in_stream": true,
+      "metadata": {
+        "provider_name": "Anthropic",
+        "raw": {
+          "type": "overloaded_error"
+        }
+      }
+    }
+  }
+}

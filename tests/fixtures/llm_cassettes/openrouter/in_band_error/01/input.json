@@ -1,0 +1,60 @@
+{
+  "config": {
+    "id": "cfg_cassette",
+    "name": "OpenRouter",
+    "type": "openrouter",
+    "enabled": true,
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key": "cassette-key",
+    "model": "anthropic/claude-sonnet-5.5",
+    "system_message": "",
+    "show_thinking": true
+  },
+  "system": "You are a careful assistant. Use tools when they help.",
+  "tools": [
+    {
+      "name": "lookup_weather",
+      "description": "Current weather for a city.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "city"
+        ]
+      },
+      "strict": false
+    }
+  ],
+  "settings": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "min_p": null,
+    "max_tokens": 4096,
+    "reasoning": "medium",
+    "tool_choice": null,
+    "response_schema": null,
+    "cache_key": "conv-cassette",
+    "cache_ttl": null,
+    "keep_model_loaded": false
+  },
+  "messages": [
+    {
+      "id": "user_01",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Summarise the plan in one line.",
+          "phase": null
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

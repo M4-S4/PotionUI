@@ -1,0 +1,109 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "Two cities, so two ",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "independent lookups.",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Checking both cities.",
+    "phase": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 2,
+    "call_id": "toolu_01A",
+    "name": "lookup_weather",
+    "wire_id": "toolu_01A"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 2,
+    "text": "{\"city\": "
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 2,
+    "text": "\"Paris\"}"
+  },
+  {
+    "type": "tool_call_start",
+    "block": 3,
+    "call_id": "toolu_01B",
+    "name": "lookup_weather",
+    "wire_id": "toolu_01B"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "{\"city\": \"Zurich\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 2,
+    "args": null
+  },
+  {
+    "type": "tool_call_end",
+    "block": 3,
+    "args": null
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 412,
+      "output_tokens": 96,
+      "total_tokens": 508,
+      "reasoning_tokens": 41,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": 384,
+      "cost": 0.002676,
+      "raw": {
+        "prompt_tokens": 412,
+        "completion_tokens": 96,
+        "total_tokens": 508,
+        "cost": 0.002676,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 384
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 41
+        }
+      }
+    }
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "details_digest",
+    "value": "3063ac50d52f66dee75901c2ad2d56ce46e0fa3e2479ed88ab0f22b859a57454"
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "tool_calls",
+    "raw": {
+      "provider": "Anthropic",
+      "reasoning_details": [
+        {
+          "type": "reasoning.text",
+          "text": "Two cities, so two independent lookups.",
+          "format": "anthropic-claude-v1",
+          "index": 0,
+          "signature": "EqQBCkYIBxgCKkD-sig-weather"
+        }
+      ]
+    }
+  }
+]

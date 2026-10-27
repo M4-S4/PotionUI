@@ -146,6 +146,7 @@ from src.features.llm.gateway import LLMGateway
 from src.features.llm.clients import NativeLLMClient, OllamaClient
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
+from src.features.llm.harness.adapters.openrouter import DEFAULT_BASE_URL as OPENROUTER_BASE_URL, OpenRouterAdapter
 from src.features.llm.context_windows import ContextWindows
 from src.features.llm.harness.baseline import StaticProfileResolver
 from src.features.llm.harness.engine import TurnEngine
@@ -823,6 +824,7 @@ def build_container() -> AppContainer:
             LLMType(type="ollama", adapter=OllamaClient()),
             LLMType(type="openai", adapter=OpenAIResponsesAdapter(), default_base_url="https://api.openai.com/v1"),
             LLMType(type="openai-compatible", adapter=OpenAIChatAdapter()),
+            LLMType(type="openrouter", adapter=OpenRouterAdapter(), default_base_url=OPENROUTER_BASE_URL),
             LLMType(type="native", adapter=NativeLLMClient(model_lifecycle, model_roots)),
         ),
         provider_registry=llm_provider_registry,
