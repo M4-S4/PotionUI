@@ -5,7 +5,7 @@ import pytest
 from src.platform.runtime.native import kernels
 from vendor.gpl.comfyui import ops
 
-NATIVE_CODE_NEEDS = ["CastWeightBiasOp", "QUANT_FP8_SCALED", "invalidate_lora_fused_cache"]
+NATIVE_CODE_NEEDS = ["CastWeightBiasOp", "Fp8ScaledLinear", "QUANT_FP8_SCALED", "invalidate_lora_fused_cache"]
 
 
 @pytest.mark.parametrize("name", NATIVE_CODE_NEEDS)
