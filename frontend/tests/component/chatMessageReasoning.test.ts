@@ -19,15 +19,15 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-describe('ChatMessage thinking block', () => {
-	it('puts the thinking block above the reply text', () => {
+describe('ChatMessage reasoning block', () => {
+	it('puts the reasoning block above the reply text', () => {
 		const target = mountComponent(ChatMessage, {
 			role: 'assistant',
 			content: 'the answer',
-			thinking: [{ text: 'weighing options', duration_ms: 4000 }]
+			reasoning: [{ kind: 'raw', text: 'weighing options', duration_ms: 4000 }]
 		});
 
-		const block = target.querySelector('[data-testid="thinking-block"]') as HTMLElement;
+		const block = target.querySelector('[data-testid="reasoning-block"]') as HTMLElement;
 		const copy = target.querySelector('.assistant-copy') as HTMLElement;
 		expect(block).not.toBeNull();
 		expect(block.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -35,10 +35,27 @@ describe('ChatMessage thinking block', () => {
 		expect(copy.textContent).not.toContain('weighing options');
 	});
 
-	it('renders no block when the message has no thinking', () => {
+	it('shows a summary and an omitted marker with their own wording', () => {
+		const summary = mountComponent(ChatMessage, {
+			role: 'assistant',
+			content: 'the answer',
+			reasoning: [{ kind: 'summary', text: 'Checked both tabs.', duration_ms: 1840 }]
+		});
+		const omitted = mountComponent(ChatMessage, {
+			role: 'assistant',
+			content: 'the answer',
+			reasoning: [{ kind: 'omitted', text: '', duration_ms: 2000 }]
+		});
+
+		expect(summary.querySelector('[data-testid="reasoning-block"]')?.textContent).toContain('Reasoned for 2s');
+		expect(omitted.querySelector('[data-testid="reasoning-block"]')?.textContent).toContain('Reasoned for 2s');
+		expect(omitted.querySelector('[data-testid="reasoning-toggle"]')).toBeNull();
+	});
+
+	it('renders no block when the message has no reasoning', () => {
 		const target = mountComponent(ChatMessage, { role: 'assistant', content: 'the answer' });
 
-		expect(target.querySelector('[data-testid="thinking-block"]')).toBeNull();
+		expect(target.querySelector('[data-testid="reasoning-block"]')).toBeNull();
 	});
 
 	it('streams a live block open beside the partial reply', () => {
@@ -46,21 +63,55 @@ describe('ChatMessage thinking block', () => {
 			role: 'assistant',
 			content: '',
 			isStreaming: true,
-			thinking: [{ text: 'reasoning so far', started_at: Date.now(), open: true }]
+			reasoning: [{ kind: 'raw', text: 'reasoning so far', started_at: Date.now(), open: true }]
 		});
 
-		expect(target.querySelector('[data-testid="thinking-block"]')?.getAttribute('data-state')).toBe('live');
-		expect(target.querySelector('[data-testid="thinking-body"]')?.textContent).toContain('reasoning so far');
+		expect(target.querySelector('[data-testid="reasoning-block"]')?.getAttribute('data-state')).toBe('live');
+		expect(target.querySelector('[data-testid="reasoning-body"]')?.textContent).toContain('reasoning so far');
 	});
 
-	it('never shows thinking on a user message', () => {
+	it('never shows reasoning on a user message', () => {
 		const target = mountComponent(ChatMessage, {
 			role: 'user',
 			content: 'hello',
-			thinking: [{ text: 'x', duration_ms: 1 }]
+			reasoning: [{ kind: 'raw', text: 'x', duration_ms: 1 }]
 		});
 
-		expect(target.querySelector('[data-testid="thinking-block"]')).toBeNull();
+		expect(target.querySelector('[data-testid="reasoning-block"]')).toBeNull();
+	});
+});
+
+describe('ChatMessage notices', () => {
+	it('shows each notice above the reasoning block and the reply', () => {
+		const target = mountComponent(ChatMessage, {
+			role: 'assistant',
+			content: 'the answer',
+			reasoning: [{ kind: 'raw', text: 'plan', duration_ms: 1000 }],
+			notices: [{ kind: 'reasoning_dropped', message: 'Reasoning made with a different API key was left out.' }]
+		});
+
+		const notice = target.querySelector('[data-testid="chat-notice"]') as HTMLElement;
+		const block = target.querySelector('[data-testid="reasoning-block"]') as HTMLElement;
+		const copy = target.querySelector('.assistant-copy') as HTMLElement;
+		expect(notice.textContent).toContain('Reasoning made with a different API key was left out.');
+		expect(notice.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(notice.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('renders nothing without notices', () => {
+		const target = mountComponent(ChatMessage, { role: 'assistant', content: 'the answer' });
+
+		expect(target.querySelector('[data-testid="chat-notices"]')).toBeNull();
+	});
+
+	it('never shows notices on a user message', () => {
+		const target = mountComponent(ChatMessage, {
+			role: 'user',
+			content: 'hello',
+			notices: [{ kind: 'retrying', message: 'x' }]
+		});
+
+		expect(target.querySelector('[data-testid="chat-notice"]')).toBeNull();
 	});
 });
 

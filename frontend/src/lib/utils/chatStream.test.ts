@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
 	applyToken,
-	applyThinking,
-	thinkingFromMetadata,
+	applyReasoning,
+	applyReasoningEnd,
+	applyStep,
+	applyStepDiscarded,
+	applyNotice,
+	mergeUsage,
+	reasoningFromMessage,
+	noticesFromMessage,
 	applyToolStart,
 	applyToolEnd,
 	applyStatus,
@@ -1327,7 +1333,7 @@ describe('recoverDurableMessage orchestration: identity matching, truncation, an
 	});
 });
 
-describe('applyThinking', () => {
+describe('applyReasoning', () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
@@ -1336,148 +1342,452 @@ describe('applyThinking', () => {
 		vi.useRealTimers();
 	});
 
-	it('opens the first segment on the streaming assistant message', () => {
-		const out = applyThinking(fixture(), 0, 'let me');
-		expect(out[1].thinking).toEqual([{ text: 'let me', started_at: Date.now(), open: true }]);
+	it('opens the first block on the streaming assistant message', () => {
+		const out = applyReasoning(fixture(), 0, 'raw', 'let me');
+		expect(out[1].reasoning).toEqual([{ kind: 'raw', text: 'let me', started_at: Date.now(), open: true }]);
 	});
 
-	it('replaces the same segment as the accumulated text grows, keeping its start time', () => {
-		const first = applyThinking(fixture(), 0, 'let');
+	it('carries the block kind', () => {
+		const out = applyReasoning(fixture(), 0, 'summary', 'Checked both tabs.');
+		expect(out[1].reasoning![0].kind).toBe('summary');
+	});
+
+	it('replaces the same block as the accumulated text grows, keeping its start time', () => {
+		const first = applyReasoning(fixture(), 0, 'raw', 'let');
 		vi.advanceTimersByTime(1500);
-		const out = applyThinking(first, 0, 'let me think');
-		expect(out[1].thinking).toHaveLength(1);
-		expect(out[1].thinking![0].text).toBe('let me think');
-		expect(out[1].thinking![0].started_at).toBe(first[1].thinking![0].started_at);
+		const out = applyReasoning(first, 0, 'raw', 'let me think');
+		expect(out[1].reasoning).toHaveLength(1);
+		expect(out[1].reasoning![0].text).toBe('let me think');
+		expect(out[1].reasoning![0].started_at).toBe(first[1].reasoning![0].started_at);
 	});
 
-	it('a new segment closes the previous one with its elapsed time', () => {
-		const first = applyThinking(fixture(), 0, 'turn one');
+	it('a new block closes the previous one with its elapsed time', () => {
+		const first = applyReasoning(fixture(), 0, 'raw', 'turn one');
 		vi.advanceTimersByTime(4000);
-		const out = applyThinking(first, 1, 'turn two');
-		expect(out[1].thinking![0]).toEqual({
+		const out = applyReasoning(first, 1, 'raw', 'turn two');
+		expect(out[1].reasoning![0]).toEqual({
+			kind: 'raw',
 			text: 'turn one',
-			started_at: first[1].thinking![0].started_at,
+			started_at: first[1].reasoning![0].started_at,
 			duration_ms: 4000
 		});
-		expect(out[1].thinking![1].open).toBe(true);
+		expect(out[1].reasoning![1].open).toBe(true);
 	});
 
 	it('does not mutate its input', () => {
 		const input = fixture();
-		applyThinking(input, 0, 'x');
-		expect(input[1].thinking).toBeUndefined();
+		applyReasoning(input, 0, 'raw', 'x');
+		expect(input[1].reasoning).toBeUndefined();
 	});
 
 	it('is a no-op when the last message is not an assistant message', () => {
 		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
-		expect(applyThinking(msgs, 0, 'x')).toBe(msgs);
+		expect(applyReasoning(msgs, 0, 'raw', 'x')).toBe(msgs);
 	});
 
-	it('an answer token closes the open segment and stamps its duration', () => {
-		const thinking = applyThinking(fixture(), 0, 'plan');
+	it('an answer token closes the open block and stamps its duration', () => {
+		const reasoning = applyReasoning(fixture(), 0, 'raw', 'plan');
 		vi.advanceTimersByTime(2500);
-		const out = applyToken(thinking, 'The answer');
-		expect(out[1].thinking![0].open).toBeUndefined();
-		expect(out[1].thinking![0].duration_ms).toBe(2500);
+		const out = applyToken(reasoning, 'The answer');
+		expect(out[1].reasoning![0].open).toBeUndefined();
+		expect(out[1].reasoning![0].duration_ms).toBe(2500);
 	});
 
-	it('whitespace-only answer text leaves the segment open', () => {
-		const thinking = applyThinking(fixture(), 0, 'plan');
-		const out = applyToken(thinking, '\n');
-		expect(out[1].thinking![0].open).toBe(true);
+	it('whitespace-only answer text leaves the block open', () => {
+		const reasoning = applyReasoning(fixture(), 0, 'raw', 'plan');
+		const out = applyToken(reasoning, '\n');
+		expect(out[1].reasoning![0].open).toBe(true);
 	});
 
-	it('a tool call closes the open segment', () => {
-		const thinking = applyThinking(fixture(), 0, 'need a tool');
+	it('a tool call closes the open block', () => {
+		const reasoning = applyReasoning(fixture(), 0, 'raw', 'need a tool');
 		vi.advanceTimersByTime(1000);
-		const out = applyToolStart(thinking, { tool_name: 'list_models', arguments: {} });
-		expect(out[1].thinking![0].open).toBeUndefined();
-		expect(out[1].thinking![0].duration_ms).toBe(1000);
-	});
-
-	it('done adopts the persisted segments, with their durations, over the live ones', () => {
-		const live = applyThinking(fixture(), 0, 'live text');
-		const out = applyDone(live, {
-			assistant_message: {
-				id: 'a1',
-				content: 'answer',
-				metadata: { thinking: { segments: [{ text: 'persisted text', duration_ms: 9000 }] } }
-			}
-		});
-		expect(out[1].thinking).toEqual([{ text: 'persisted text', duration_ms: 9000 }]);
-		expect(out[1].isStreaming).toBe(false);
-	});
-
-	it('done without persisted thinking closes whatever was live', () => {
-		const live = applyThinking(fixture(), 0, 'live text');
-		vi.advanceTimersByTime(3000);
-		const out = applyDone(live, { assistant_message: { id: 'a1', content: 'answer' } });
-		expect(out[1].thinking![0].text).toBe('live text');
-		expect(out[1].thinking![0].open).toBeUndefined();
-		expect(out[1].thinking![0].duration_ms).toBe(3000);
-	});
-
-	it('done whose metadata carries only the trace keeps the streamed segments', () => {
-		const live = applyThinking(fixture(), 0, 'streamed reasoning');
-		vi.advanceTimersByTime(5000);
-		const out = applyDone(live, {
-			assistant_message: {
-				id: 'a1',
-				content: 'answer',
-				metadata: { tokens_used: 7, behavior_trace: { steps: [], thinking_visible: true } }
-			}
-		});
-		expect(out[1].thinking).toEqual([
-			{ text: 'streamed reasoning', started_at: live[1].thinking![0].started_at, duration_ms: 5000 }
-		]);
-		expect(out[1].metadata).toMatchObject({ tokens_used: 7 });
-	});
-
-	it('done on a reply that never thought carries no thinking', () => {
-		const out = applyDone(fixture(), { assistant_message: { id: 'a1', content: 'answer' } });
-		expect(out[1].thinking).toBeUndefined();
+		const out = applyToolStart(reasoning, { tool_name: 'list_models', arguments: {} });
+		expect(out[1].reasoning![0].open).toBeUndefined();
+		expect(out[1].reasoning![0].duration_ms).toBe(1000);
 	});
 });
 
-describe('thinkingFromMetadata', () => {
-	it('reads the stored segments', () => {
-		expect(
-			thinkingFromMetadata({ thinking: { segments: [{ text: 'a', duration_ms: 5 }, { text: 'b' }] } })
-		).toEqual([
-			{ text: 'a', duration_ms: 5 },
-			{ text: 'b', duration_ms: undefined }
+describe('applyReasoningEnd', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('closes the block with the duration the server reported', () => {
+		const open = applyReasoning(fixture(), 0, 'summary', 'Checked both tabs.');
+		vi.advanceTimersByTime(900);
+		const out = applyReasoningEnd(open, 0, 1840);
+		expect(out[1].reasoning).toEqual([
+			{
+				kind: 'summary',
+				text: 'Checked both tabs.',
+				started_at: open[1].reasoning![0].started_at,
+				duration_ms: 1840
+			}
 		]);
 	});
 
-	it('returns undefined without usable segments', () => {
-		expect(thinkingFromMetadata(undefined)).toBeUndefined();
-		expect(thinkingFromMetadata({})).toBeUndefined();
-		expect(thinkingFromMetadata({ thinking: {} })).toBeUndefined();
-		expect(thinkingFromMetadata({ thinking: { segments: [] } })).toBeUndefined();
-		expect(thinkingFromMetadata({ thinking: { segments: [{ text: '  ' }, { text: 3 }] } })).toBeUndefined();
+	it('falls back to the elapsed time when the server sends none', () => {
+		const open = applyReasoning(fixture(), 0, 'raw', 'plan');
+		vi.advanceTimersByTime(2200);
+		expect(applyReasoningEnd(open, 0)[1].reasoning![0].duration_ms).toBe(2200);
 	});
 
-	it('maps a persisted message so a reopened chat has its thinking collapsed and ready', () => {
-		const mapped = mapPersistedMessage({
+	it('records an omitted block when no text ever streamed for it', () => {
+		const out = applyReasoningEnd(fixture(), 0, 3100);
+		expect(out[1].reasoning).toEqual([{ kind: 'omitted', text: '', duration_ms: 3100 }]);
+	});
+
+	it('leaves the other blocks as they were', () => {
+		const first = applyReasoning(fixture(), 0, 'raw', 'one');
+		const second = applyReasoning(first, 1, 'raw', 'two');
+		const out = applyReasoningEnd(second, 1, 500);
+		expect(out[1].reasoning![0]).toEqual(second[1].reasoning![0]);
+		expect(out[1].reasoning![1].open).toBeUndefined();
+	});
+
+	it('does not mutate its input and ignores a non-assistant tail', () => {
+		const input = fixture();
+		applyReasoningEnd(input, 0, 5);
+		expect(input[1].reasoning).toBeUndefined();
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyReasoningEnd(msgs, 0, 5)).toBe(msgs);
+	});
+});
+
+describe('applyStep', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('closes whatever reasoning was still open', () => {
+		const open = applyReasoning(fixture(), 0, 'raw', 'plan');
+		vi.advanceTimersByTime(1200);
+		const out = applyStep(open, {});
+		expect(out[1].reasoning![0].open).toBeUndefined();
+		expect(out[1].reasoning![0].duration_ms).toBe(1200);
+	});
+
+	it('adds the step usage to the message running total', () => {
+		const one = applyStep(fixture(), {
+			usage: { input_tokens: 100, output_tokens: 10, reasoning_tokens: 4, cached_input_tokens: 60, cost: 0.001 }
+		});
+		const two = applyStep(one, {
+			usage: { input_tokens: 150, output_tokens: 20, reasoning_tokens: 6, cached_input_tokens: 90, cost: 0.002 }
+		});
+		expect(two[1].usage).toEqual({
+			input_tokens: 250,
+			output_tokens: 30,
+			reasoning_tokens: 10,
+			cached_input_tokens: 150,
+			cache_write_tokens: undefined,
+			cost: 0.003
+		});
+	});
+
+	it('keeps the running total when a step reports no usage', () => {
+		const one = applyStep(fixture(), { usage: { input_tokens: 5, output_tokens: 1 } });
+		expect(applyStep(one, {})[1].usage).toEqual({ input_tokens: 5, output_tokens: 1 });
+	});
+
+	it('is a no-op when the last message is not an assistant message', () => {
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyStep(msgs, { usage: { input_tokens: 1 } })).toBe(msgs);
+	});
+});
+
+describe('applyStepDiscarded', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	const streaming = (content: string, blocks: Array<[ 'raw' | 'summary', string ]> = []) => {
+		let msgs = fixture();
+		blocks.forEach(([kind, text], index) => {
+			msgs = applyReasoning(msgs, index, kind, text);
+		});
+		return applyToken(msgs, content);
+	};
+
+	it('removes everything streamed since the turn start when no step has finished', () => {
+		const out = applyStepDiscarded(streaming('a cut-off tool ca', [['raw', 'thinking about it']]));
+
+		expect(out[1].content).toBe('');
+		expect(out[1].reasoning).toBeUndefined();
+	});
+
+	it('keeps the text and reasoning of earlier steps and removes only what came after the last step', () => {
+		let msgs = streaming('First step. ', [['raw', 'first thought']]);
+		msgs = applyStep(msgs, {});
+		msgs = applyReasoning(msgs, 1, 'raw', 'second thought');
+		msgs = applyToken(msgs, 'First step. Second step, cut off');
+
+		const out = applyStepDiscarded(msgs);
+
+		expect(out[1].content).toBe('First step. ');
+		expect(out[1].reasoning!.map((block) => block.text)).toEqual(['first thought']);
+	});
+
+	it('goes back to the same boundary when the retried step is discarded too', () => {
+		let msgs = applyStep(streaming('Kept. '), {});
+		msgs = applyStepDiscarded(applyToken(msgs, 'Kept. first try'));
+		msgs = applyStepDiscarded(applyToken(msgs, 'Kept. second try'));
+
+		expect(msgs[1].content).toBe('Kept. ');
+	});
+
+	it('leaves tool runs, notices and usage alone', () => {
+		let msgs = applyToolStart(streaming('Kept. '), { tool_name: 'list_models', arguments: {} });
+		msgs = applyNotice(msgs, { kind: 'retrying', message: 'Retrying with more room.' });
+		msgs = applyStep(msgs, { usage: { input_tokens: 5 } });
+		msgs = applyToken(msgs, 'Kept. dropped');
+
+		const out = applyStepDiscarded(msgs);
+
+		expect(out[1].tool_executions).toHaveLength(1);
+		expect(out[1].notices).toHaveLength(1);
+		expect(out[1].usage).toEqual({ input_tokens: 5 });
+		expect(out[1].isStreaming).toBe(true);
+	});
+
+	it('records the boundary a step ends at', () => {
+		const out = applyStep(streaming('Hello', [['raw', 'plan']]), {});
+
+		expect(out[1].stepMark).toEqual({ content: 5, reasoning: 1 });
+	});
+
+	it('does not mutate its input and ignores a non-assistant tail', () => {
+		const input = streaming('text');
+		applyStepDiscarded(input);
+		expect(input[1].content).toBe('text');
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyStepDiscarded(msgs)).toBe(msgs);
+	});
+});
+
+describe('mergeUsage', () => {
+	it('keeps an unreported cost unreported and sums a reported one', () => {
+		expect(mergeUsage({ input_tokens: 1 }, { input_tokens: 2 }).cost).toBeUndefined();
+		expect(mergeUsage({ cost: 0.5 }, { input_tokens: 2 }).cost).toBe(0.5);
+		expect(mergeUsage({ cost: null }, { cost: 0.25 }).cost).toBe(0.25);
+	});
+});
+
+describe('applyNotice', () => {
+	const retrying = (message: string) => ({ kind: 'retrying', message, detail: { retry_after: 4 } });
+
+	it('appends a notice to the streaming assistant message', () => {
+		const out = applyNotice(fixture(), retrying('Rate limited; retrying in 4 s.'));
+		expect(out[1].notices).toEqual([
+			{ kind: 'retrying', message: 'Rate limited; retrying in 4 s.', detail: { retry_after: 4 }, step_seq: null }
+		]);
+	});
+
+	it('replaces an earlier retry notice instead of stacking a countdown', () => {
+		const first = applyNotice(fixture(), retrying('Rate limited; retrying in 4 s.'));
+		const out = applyNotice(first, retrying('Rate limited; retrying in 8 s.'));
+		expect(out[1].notices!.map((n) => n.message)).toEqual(['Rate limited; retrying in 8 s.']);
+	});
+
+	it('keeps notices of other kinds beside a retry, in arrival order', () => {
+		const dropped = applyNotice(fixture(), { kind: 'reasoning_dropped', message: 'Reasoning was left out.', step_seq: 12 });
+		const out = applyNotice(dropped, retrying('Server busy; retrying in 2 s.'));
+		expect(out[1].notices!.map((n) => n.kind)).toEqual(['reasoning_dropped', 'retrying']);
+		expect(out[1].notices![0].step_seq).toBe(12);
+	});
+
+	it('ignores the same notice arriving twice', () => {
+		const first = applyNotice(fixture(), { kind: 'approval_expired', message: 'Approval expired.' });
+		expect(applyNotice(first, { kind: 'approval_expired', message: 'Approval expired.' })).toBe(first);
+	});
+
+	it('ignores a payload without a kind and a message', () => {
+		const msgs = fixture();
+		expect(applyNotice(msgs, {})).toBe(msgs);
+		expect(applyNotice(msgs, { kind: 'retrying' })).toBe(msgs);
+	});
+
+	it('does not mutate its input and ignores a non-assistant tail', () => {
+		const input = fixture();
+		applyNotice(input, retrying('x'));
+		expect(input[1].notices).toBeUndefined();
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyNotice(msgs, retrying('x'))).toBe(msgs);
+	});
+});
+
+describe('applyDone reasoning and notices', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('adopts the persisted blocks, with their durations, over the live ones', () => {
+		const live = applyReasoning(fixture(), 0, 'raw', 'live text');
+		const out = applyDone(live, {
+			assistant_message: {
+				id: 'a1',
+				content: 'answer',
+				reasoning: [{ kind: 'summary', text: 'persisted text', redacted: false, duration_ms: 9000 }]
+			}
+		});
+		expect(out[1].reasoning).toEqual([{ kind: 'summary', text: 'persisted text', duration_ms: 9000 }]);
+		expect(out[1].isStreaming).toBe(false);
+	});
+
+	it('without a reasoning field closes whatever was live', () => {
+		const live = applyReasoning(fixture(), 0, 'raw', 'live text');
+		vi.advanceTimersByTime(3000);
+		const out = applyDone(live, { assistant_message: { id: 'a1', content: 'answer' } });
+		expect(out[1].reasoning![0]).toMatchObject({ kind: 'raw', text: 'live text', duration_ms: 3000 });
+		expect(out[1].reasoning![0].open).toBeUndefined();
+	});
+
+	it('a reply that never reasoned carries no reasoning', () => {
+		const out = applyDone(fixture(), { assistant_message: { id: 'a1', content: 'answer' } });
+		expect(out[1].reasoning).toBeUndefined();
+	});
+
+	it('an empty persisted reasoning list means there was none to show', () => {
+		const live = applyReasoning(fixture(), 0, 'raw', 'live text');
+		const out = applyDone(live, { assistant_message: { id: 'a1', content: 'answer', reasoning: [] } });
+		expect(out[1].reasoning).toBeUndefined();
+	});
+
+	it('adopts the persisted notices and usage', () => {
+		const live = applyNotice(fixture(), { kind: 'retrying', message: 'retrying in 4 s' });
+		const out = applyDone(live, {
+			assistant_message: {
+				id: 'a1',
+				content: 'answer',
+				notices: [{ kind: 'reasoning_dropped', message: 'Left out.', step_seq: 3 }],
+				usage: { input_tokens: 9, output_tokens: 2, cost: 0.1 }
+			}
+		});
+		expect(out[1].notices).toEqual([{ kind: 'reasoning_dropped', message: 'Left out.', detail: null, step_seq: 3 }]);
+		expect(out[1].usage).toEqual({ input_tokens: 9, output_tokens: 2, cost: 0.1 });
+	});
+
+	it('keeps the live notices and usage when the persisted message has none', () => {
+		const live = applyStep(
+			applyNotice(fixture(), { kind: 'retrying', message: 'retrying in 4 s' }),
+			{ usage: { input_tokens: 7 } }
+		);
+		const out = applyDone(live, { assistant_message: { id: 'a1', content: 'answer' } });
+		expect(out[1].notices!.map((n) => n.kind)).toEqual(['retrying']);
+		expect(out[1].usage).toEqual({ input_tokens: 7 });
+	});
+});
+
+describe('reasoningFromMessage', () => {
+	it('maps the three kinds with their durations', () => {
+		expect(
+			reasoningFromMessage({
+				reasoning: [
+					{ kind: 'raw', text: 'a', redacted: false, duration_ms: 5 },
+					{ kind: 'summary', text: 'b', redacted: false, duration_ms: null },
+					{ kind: 'omitted', text: '', redacted: false, duration_ms: 7 }
+				]
+			})
+		).toEqual([
+			{ kind: 'raw', text: 'a', duration_ms: 5 },
+			{ kind: 'summary', text: 'b', duration_ms: null },
+			{ kind: 'omitted', text: '', duration_ms: 7 }
+		]);
+	});
+
+	it('shows a redacted block as omitted even when text came with it', () => {
+		expect(reasoningFromMessage({ reasoning: [{ kind: 'raw', text: 'secret', redacted: true, duration_ms: 3 }] })).toEqual([
+			{ kind: 'omitted', text: '', duration_ms: 3 }
+		]);
+	});
+
+	it('treats a block with no text as omitted and an unknown kind with text as raw', () => {
+		expect(
+			reasoningFromMessage({ reasoning: [{ kind: 'raw', text: '  ' }, { kind: 'mystery', text: 'x' }] })
+		).toEqual([
+			{ kind: 'omitted', text: '', duration_ms: null },
+			{ kind: 'raw', text: 'x', duration_ms: null }
+		]);
+	});
+
+	it('returns undefined when the field is absent, empty or junk', () => {
+		expect(reasoningFromMessage(undefined)).toBeUndefined();
+		expect(reasoningFromMessage({})).toBeUndefined();
+		expect(reasoningFromMessage({ reasoning: [] })).toBeUndefined();
+		expect(reasoningFromMessage({ reasoning: 'x' })).toBeUndefined();
+		expect(reasoningFromMessage({ reasoning: [null, 3] })).toBeUndefined();
+	});
+});
+
+describe('noticesFromMessage', () => {
+	it('maps well-formed notices and drops the rest', () => {
+		expect(
+			noticesFromMessage({
+				notices: [
+					{ kind: 'reasoning_dropped', message: 'Left out.', step_seq: 12 },
+					{ kind: 'retrying' },
+					null,
+					{ kind: 'approval_expired', message: 'Expired.', detail: { id: 'c1' } }
+				]
+			})
+		).toEqual([
+			{ kind: 'reasoning_dropped', message: 'Left out.', detail: null, step_seq: 12 },
+			{ kind: 'approval_expired', message: 'Expired.', detail: { id: 'c1' }, step_seq: null }
+		]);
+	});
+
+	it('returns undefined without usable notices', () => {
+		expect(noticesFromMessage(undefined)).toBeUndefined();
+		expect(noticesFromMessage({ notices: [] })).toBeUndefined();
+		expect(noticesFromMessage({ notices: [{ kind: 1 }] })).toBeUndefined();
+	});
+});
+
+describe('mapPersistedMessage reasoning', () => {
+	const persisted = (extra: Record<string, unknown> = {}) =>
+		({
 			id: 'a1',
 			session_id: 's',
 			role: 'assistant',
 			content: 'answer',
 			created_at: '2026-01-01T00:00:00Z',
-			metadata: { thinking: { segments: [{ text: 'stored', duration_ms: 2000 }] } }
-		} as ChatMessageResponse);
-		expect(mapped.thinking).toEqual([{ text: 'stored', duration_ms: 2000 }]);
+			...extra
+		}) as unknown as ChatMessageResponse;
+
+	it('maps stored reasoning, usage and notices so a reopened chat has them ready', () => {
+		const mapped = mapPersistedMessage(
+			persisted({
+				reasoning: [{ kind: 'summary', text: 'stored', redacted: false, duration_ms: 2000 }],
+				usage: { input_tokens: 5210, output_tokens: 312, cached_input_tokens: 4800, cost: 0.0031 },
+				notices: [{ kind: 'reasoning_dropped', message: 'Left out.', step_seq: 12 }]
+			})
+		);
+		expect(mapped.reasoning).toEqual([{ kind: 'summary', text: 'stored', duration_ms: 2000 }]);
+		expect(mapped.usage).toMatchObject({ cached_input_tokens: 4800, cost: 0.0031 });
+		expect(mapped.notices![0]).toMatchObject({ kind: 'reasoning_dropped', step_seq: 12 });
 	});
 
-	it('maps a persisted message without thinking to none', () => {
-		const mapped = mapPersistedMessage({
-			id: 'a1',
-			session_id: 's',
-			role: 'assistant',
-			content: 'answer',
-			created_at: '2026-01-01T00:00:00Z'
-		} as ChatMessageResponse);
-		expect(mapped.thinking).toBeUndefined();
+	it('maps a persisted message without any of them to none', () => {
+		const mapped = mapPersistedMessage(persisted());
+		expect(mapped.reasoning).toBeUndefined();
+		expect(mapped.usage).toBeUndefined();
+		expect(mapped.notices).toBeUndefined();
 	});
 });
 

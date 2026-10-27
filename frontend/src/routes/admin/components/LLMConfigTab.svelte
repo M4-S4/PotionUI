@@ -17,6 +17,8 @@
 	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
 	import { createLLMAssignmentAdapter } from '$lib/components/assignment/llmAssignmentAdapter';
 	import LLMConfigToolsetPanel from './LLMConfigToolsetPanel.svelte';
+	import LLMConfigProfilePanel from './llm/LLMConfigProfilePanel.svelte';
+	import { profileDraftCount, type ProfileDraft } from './llm/llmProfile';
 	import type { PreChatAction } from '$lib/types/llm';
 	import type { AssignmentSummary } from '$lib/services/admin-api';
 	import { adminSectionIcon } from '../adminSections';
@@ -24,7 +26,6 @@
 	import { llmConfigDetailTabHasFooter, type LLMConfigDetailTab } from './llmConfigDetailTabs';
 	import { assignmentCountLabel } from './llm/llmConfigColumns';
 	import { summarizeBulkOutcome, bulkOutcomeMessage } from './llm/bulkResult';
-	import { migrateLegacyContextWindow } from './llmProviderOptions';
 
 	let {
 		filters = DEFAULT_LLM_CONFIG_FILTERS,
@@ -74,10 +75,10 @@ Always be creative and helpful while staying focused on the image generation con
 			memory_reflection: config?.memory_reflection ?? true,
 			show_thinking: config?.show_thinking ?? false,
 			system_message: config?.system_message ?? defaultSystemMessage,
-			temperature: config?.temperature ?? 0.7,
-			max_tokens: config?.max_tokens || 1000,
+			temperature: config?.temperature ?? null,
+			max_tokens: config?.max_tokens ?? null,
 			timeout: config?.timeout || 30,
-			provider_options: migrateLegacyContextWindow(config?.provider_options ? { ...config.provider_options } : {}),
+			provider_options: config?.provider_options ? { ...config.provider_options } : {},
 			...overrides
 		};
 	}
@@ -86,14 +87,17 @@ Always be creative and helpful while staying focused on the image generation con
 	let editFormData = $state<LLMConfigFormData>(configFormFrom(null));
 	let editSnapshot = $state(JSON.stringify(configFormFrom(null)));
 	let editSaving = $state(false);
+	let profileDraft = $state<ProfileDraft>({});
 
 	const filteredConfigurations = $derived(applyLLMConfigFilters(configurations, filters));
 	const activeConfig = $derived(configurations.find((c) => c.id === selectedConfigId) ?? null);
 	const editDirty = $derived(JSON.stringify(editFormData) !== editSnapshot);
+	const profileDirty = $derived(profileDraftCount(profileDraft) > 0);
 	const llmDetailTabs = $derived(
 		activeConfig
 			? [
 					{ id: 'configuration', label: 'Configuration', icon: 'sliders' },
+					{ id: 'profile', label: 'Profile', icon: 'cpu' },
 					{ id: 'toolset', label: 'Toolset', icon: 'shield' },
 					{
 						id: 'access',
@@ -201,23 +205,25 @@ Always be creative and helpful while staying focused on the image generation con
 	}
 
 	async function selectConfig(id: string) {
-		if (editDirty && !(await confirmDialog({
+		if ((editDirty || profileDirty) && !(await confirmDialog({
 			title: 'Discard unsaved changes',
 			message: 'Discard unsaved changes to this configuration?',
 			variant: 'warning'
 		}))) return;
 		selectedConfigId = id;
 		detailTab = 'configuration';
+		profileDraft = {};
 		loadEditForm(configurations.find((c) => c.id === id) ?? null);
 	}
 
 	async function backToList() {
-		if (editDirty && !(await confirmDialog({
+		if ((editDirty || profileDirty) && !(await confirmDialog({
 			title: 'Discard unsaved changes',
 			message: 'Discard unsaved changes to this configuration?',
 			variant: 'warning'
 		}))) return;
 		selectedConfigId = null;
+		profileDraft = {};
 	}
 
 	function loadEditForm(config: any | null) {
@@ -233,8 +239,11 @@ Always be creative and helpful while staying focused on the image generation con
 		if (!activeConfig) return;
 		editSaving = true;
 		try {
+			const savedType = activeConfig.type;
+			const savedModel = activeConfig.model;
 			await adminApi.updateLLMConfiguration(activeConfig.id, editFormData);
 			toasts.success(`${editFormData.name || activeConfig.name} updated`);
+			if (editFormData.type !== savedType || editFormData.model !== savedModel) profileDraft = {};
 			await loadConfigurations();
 			loadEditForm(configurations.find((c) => c.id === activeConfig!.id) ?? null);
 		} catch (error) {
@@ -275,6 +284,7 @@ Always be creative and helpful while staying focused on the image generation con
 			await loadConfigurations();
 			if (wasSelected) {
 				selectedConfigId = null;
+				profileDraft = {};
 				loadEditForm(null);
 			}
 		} catch (error) {
@@ -375,6 +385,10 @@ Always be creative and helpful while staying focused on the image generation con
 					{/snippet}
 				</DetailLayout>
 			</DetailBody>
+		{:else if detailTab === 'profile'}
+			{#key `${activeConfig.id}:${activeConfig.type}:${activeConfig.model}`}
+				<LLMConfigProfilePanel configId={activeConfig.id} bind:draft={profileDraft} />
+			{/key}
 		{:else if detailTab === 'toolset'}
 			<DetailBody>
 				<DetailLayout>

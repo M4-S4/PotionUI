@@ -6,6 +6,7 @@ import type { Segment } from './segments';
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 import type { CompareConfig } from '$lib/generation/compare/types';
+import type { ChatNotice, MessageUsage } from './chat';
 
 export interface APIResponse<T = unknown> {
 	success: boolean;
@@ -688,6 +689,14 @@ export interface ChatMessageResponse {
 		result: { success: boolean; data: string; error?: string };
 		duration_ms: number;
 	}> | null;
+	reasoning?: Array<{
+		kind: 'raw' | 'summary' | 'omitted';
+		text: string;
+		redacted?: boolean;
+		duration_ms?: number | null;
+	}>;
+	usage?: MessageUsage | null;
+	notices?: ChatNotice[];
 }
 
 export interface ChatSessionResponse {
