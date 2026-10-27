@@ -67,8 +67,22 @@ class Settings:
             top_k=options.get("top_k"),
             min_p=options.get("min_p"),
             max_tokens=options.get("max_tokens"),
-            reasoning=options.get("think"),
+            reasoning=_reasoning_from_options(options),
         )
+
+
+EFFORT_OFF = "none"
+
+
+def _reasoning_from_options(options: Mapping[str, Any]) -> Union[bool, str, None]:
+    effort = options.get("reasoning_effort")
+    if isinstance(effort, str) and effort.strip():
+        return False if effort == EFFORT_OFF else effort
+    think = options.get("think")
+    if isinstance(think, bool) or (isinstance(think, str) and think.strip()):
+        return think
+    thinking = options.get("thinking")
+    return thinking if isinstance(thinking, bool) else None
 
 
 @dataclass(frozen=True)

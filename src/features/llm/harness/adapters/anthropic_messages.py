@@ -69,6 +69,7 @@ if TYPE_CHECKING:
 ADAPTER_NAME = "anthropic-messages"
 API_VERSION = "2026-10-21"
 DEFAULT_BASE_URL = "https://api.anthropic.com"
+FALLBACK_MAX_TOKENS = 4096
 MODEL_PAGE_SIZE = 1000
 TOOL_ID_MAX_LENGTH = 64
 BODY_DETAIL_CHARS = 4000
@@ -393,6 +394,8 @@ def tool_config(spec: ToolSpec, profile: CapabilityProfile) -> Dict[str, Any]:
 
 def max_tokens_for(request: RenderRequest, profile: CapabilityProfile) -> int:
     wanted = request.settings.max_tokens or request.config.max_tokens
+    if not wanted:
+        return profile.max_output_tokens or FALLBACK_MAX_TOKENS
     return min(wanted, profile.max_output_tokens) if profile.max_output_tokens else wanted
 
 

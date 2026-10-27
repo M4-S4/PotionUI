@@ -34,6 +34,7 @@ def _record(**overrides) -> LLMConfiguration:
 def db(tmp_path):
     database = fresh_file_database(tmp_path / "db.sqlite")
     load_migration("065_llm_show_thinking", database).up()
+    load_migration("069_llm_profile_overrides", database).up()
     configure_secret_cipher(SecretCipher([generate_key()]))
     with patch("src.platform.database.database.db", database):
         yield database

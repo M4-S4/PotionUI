@@ -58,8 +58,8 @@ PROVIDER_OPTION_KEYS = (
     "parallel_tool_calls",
 )
 
-TOGGLE_REASONING_EFFORT = "reasoning_effort"
-TOGGLE_THINKING = "thinking"
+TOGGLE_REASONING_EFFORT = "reasoning.effort"
+TOGGLE_THINKING = "thinking.type"
 TOGGLE_TEMPLATE_KWARGS = "chat_template_kwargs.enable_thinking"
 
 

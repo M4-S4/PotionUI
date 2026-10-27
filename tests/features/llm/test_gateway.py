@@ -9,7 +9,7 @@ from src.features.llm import context_budget
 from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapter import Settings, ToolSpec, WireRequest
-from src.features.llm.harness.baseline import StaticProfileResolver
+from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.errors import ConnectionFailed
 from src.features.llm.harness.legacy import messages_from_dicts
@@ -103,7 +103,7 @@ class CountingProbe(ProbeAdapter):
 def gateway_for(adapter, *configs) -> LLMGateway:
     types = LLMTypes(core=tuple(LLMType(type=type_id, adapter=adapter) for type_id in ("ollama", "openai", "native")))
     windows = ContextWindows(types)
-    return LLMGateway(ConfigRepository(*(configs or (make_config(),))), types, StaticProfileResolver(types, windows), windows)
+    return LLMGateway(ConfigRepository(*(configs or (make_config(),))), types, LayeredProfileResolver(types.adapter_for), windows)
 
 
 def history(turns=6, size=20):

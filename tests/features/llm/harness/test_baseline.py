@@ -2,16 +2,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.llm.context_windows import ContextWindows
-from src.features.llm.harness.baseline import InMemoryTurnStore, StaticProfileResolver, turn_only_replay
+from src.features.llm.harness.baseline import InMemoryTurnStore
 from src.features.llm.harness.build import user_message
-from src.features.llm.harness.messages import Message, Origin, ReasoningPart, Role, TextPart
-from src.features.llm.harness.profile import CapabilityProfile, ReasoningKind, ReplayPolicy
+from src.features.llm.harness.messages import Origin
+from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.turn_state import StepRecord, StepStatus, TurnSnapshot, TurnState, TurnStatus
 from src.features.llm.harness.adapter import Settings
-from src.features.llm.model_listing import DiscoveredWindow
 from src.features.llm.types import LLMType, LLMTypes
-from tests.fixtures.llm_engine import scripted_config
 
 
 class Probe:
@@ -24,72 +21,11 @@ class Probe:
         return self.window
 
 
-def resolver(window=None, type_id="scripted"):
-    types = LLMTypes(core=(LLMType(type=type_id, adapter=Probe(window)),))
-    windows = ContextWindows(types)
-    return StaticProfileResolver(types, windows), windows
-
-
-def test_the_static_profile_reads_the_configured_window_and_flags():
-    profiles, _ = resolver()
-
-    profile = profiles.resolve(scripted_config(provider_options={"context_window": 16000, "force_prompt_tools": True}, supports_vision=True))
-
-    assert profile.adapter == "probe" and profile.model == "scripted-model"
-    assert profile.context_window == 16000
-    assert profile.prompt_tools is True and profile.vision is True
-    assert profile.replay is ReplayPolicy.DROP_EARLIER
-    assert profile.reasoning is ReasoningKind.NONE
-
-
-def test_an_unknown_window_leaves_the_profile_window_empty():
-    profiles, _ = resolver()
-
-    assert profiles.resolve(scripted_config()).context_window is None
-
-
-async def test_refresh_uses_the_discovered_window():
-    profiles, _ = resolver(DiscoveredWindow(tokens=65536, kind="runtime"))
-
-    profile = await profiles.refresh(scripted_config())
-
-    assert profile.context_window == 65536
-
-
-def test_native_configs_always_use_prompt_tools_and_ollama_thinking_is_a_toggle():
-    native, _ = resolver(type_id="native")
-    ollama, _ = resolver(type_id="ollama")
-
-    assert native.resolve(scripted_config(type="native")).prompt_tools is True
-    thinking = ollama.resolve(scripted_config(type="ollama", provider_options={"think": True}))
-    assert thinking.reasoning is ReasoningKind.TOGGLE and thinking.prompt_tools is False
-
-
 ORIGIN = Origin(adapter="openai-chat", provider="openai", model="m1")
 
 
 def step(seq, turn_id, message):
     return StepRecord(id=f"st{seq}", session_id="s1", turn_id=turn_id, seq=seq, message=message, status=StepStatus.COMPLETED)
-
-
-def reasoned(message_id, origin=ORIGIN):
-    return Message(id=message_id, role=Role.ASSISTANT, origin=origin, parts=(ReasoningPart(text="why"), TextPart(text="ok")))
-
-
-def test_turn_only_replay_keeps_reasoning_of_the_current_turn_and_the_same_model_only():
-    steps = [
-        step(0, "t0", user_message("a")),
-        step(1, "t0", reasoned("old")),
-        step(2, "t1", user_message("b")),
-        step(3, "t1", reasoned("current")),
-        step(4, "t1", reasoned("other-model", Origin(adapter="openai-chat", provider="openai", model="m2"))),
-    ]
-
-    messages, notices = turn_only_replay(steps, turn_id="t1", target=ORIGIN, profile=CapabilityProfile(adapter="a", model="m1"))
-
-    assert notices == ()
-    assert [message.reasoning() != () for message in messages] == [False, False, False, True, False]
-    assert messages[1].text() == "ok"
 
 
 def state(turn_id, status):
@@ -141,3 +77,12 @@ def test_llm_types_merge_core_and_plugin_entries():
     }
     with pytest.raises(ValueError, match="Unsupported LLM type: nope"):
         types.require("nope")
+
+
+def test_llm_types_resolve_the_adapter_of_a_configuration():
+    probe = Probe()
+    types = LLMTypes(core=(LLMType(type="scripted", adapter=probe),))
+
+    assert types.adapter_for(SimpleNamespace(type="scripted")) is probe
+    with pytest.raises(ValueError, match="Unsupported LLM type: nope"):
+        types.adapter_for(SimpleNamespace(type="nope"))

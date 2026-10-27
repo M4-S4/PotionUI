@@ -26,14 +26,15 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = None
     model: str
     system_message: str
-    temperature: float = 0.7
-    max_tokens: int = 2000
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     timeout: int = 30
     supports_vision: bool = False
     disable_system_prompt: bool = False
     memory_reflection: bool = True
     show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
+    profile_overrides: Optional[Dict[str, Any]] = None
     api_key_unreadable: bool = False
 
 class LLMConfigurationRepository:
@@ -148,6 +149,12 @@ class LLMConfigurationRepository:
         except Exception:
             return False
     
+    def set_profile_overrides(self, config_id: str, overrides: Optional[Dict[str, Any]]) -> bool:
+        encoded = json.dumps(overrides, sort_keys=True, separators=(",", ":")) if overrides else None
+        with get_cursor() as cursor:
+            cursor.execute("UPDATE llm_configurations SET profile_overrides = ? WHERE id = ?", (encoded, config_id))
+            return cursor.rowcount > 0
+
     def delete(self, config_id: str) -> bool:
         """Delete LLM configuration"""
         with get_cursor() as cursor:
@@ -206,6 +213,7 @@ class LLMRepository:
             memory_reflection=db_config.memory_reflection,
             show_thinking=db_config.show_thinking,
             provider_options=db_config.provider_options,
+            profile_overrides=db_config.profile_overrides,
             api_key_unreadable=db_config.api_key_unreadable
         )
 
@@ -288,6 +296,12 @@ class LLMRepository:
             return updated
         except Exception:
             return False
+
+    def set_profile_overrides(self, config_id: str, overrides: Optional[Dict[str, Any]]) -> bool:
+        updated = self.config_repo.set_profile_overrides(config_id, overrides)
+        if updated:
+            self._config_cache.invalidate(config_id)
+        return updated
 
     def delete_configuration(self, config_id: str) -> bool:
         """Delete an LLM configuration"""

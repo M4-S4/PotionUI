@@ -9,7 +9,7 @@ from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapter import ToolSpec
 from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
-from src.features.llm.harness.baseline import StaticProfileResolver
+from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.build import user_message
 from src.features.llm.types import LLMType, LLMTypes
 from src.platform.plugins.llm_providers import LLMProviderRegistration, LLMProviderRegistry
@@ -53,7 +53,7 @@ def gateway_for(registry, config=None):
     )
     windows = ContextWindows(types)
     repository = SimpleNamespace(get_configuration=lambda config_id: config)
-    return LLMGateway(repository, types, StaticProfileResolver(types, windows), windows)
+    return LLMGateway(repository, types, LayeredProfileResolver(types.adapter_for), windows)
 
 
 async def send(gateway, config):

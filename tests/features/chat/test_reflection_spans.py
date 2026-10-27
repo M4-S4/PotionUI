@@ -26,7 +26,7 @@ from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapter import Settings, WireRequest
-from src.features.llm.harness.baseline import StaticProfileResolver
+from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.messages import Role
 from src.features.llm.types import LLMType, LLMTypes
@@ -891,7 +891,7 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
         sender = _FakeNativeSend()
         types = LLMTypes(core=(LLMType(type="native", adapter=sender),))
         windows = ContextWindows(types)
-        gateway = LLMGateway(ConfigRepository(config), types, StaticProfileResolver(types, windows), windows)
+        gateway = LLMGateway(ConfigRepository(config), types, LayeredProfileResolver(types.adapter_for), windows)
         return gateway, config, sender
 
     def _runtime_with_session(self, gateway, turns):

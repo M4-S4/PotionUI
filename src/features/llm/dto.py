@@ -2,7 +2,9 @@
 
 import math
 from typing import Dict, Optional, Any
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
+
+from src.features.llm.harness.profile_schema import validate_overrides
 
 from src.features.llm.types import OPENAI_TYPES
 
@@ -35,8 +37,8 @@ class LLMConfigRequest(BaseModel):
     api_key: Optional[str] = None
     model: str
     system_message: str
-    temperature: float = 0.7
-    max_tokens: int = 1000
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     timeout: int = 30
     supports_vision: bool = False
     disable_system_prompt: bool = False
@@ -183,6 +185,15 @@ class ModelDiscoveryRequest(BaseModel):
     config_id: Optional[str] = None
 
 
+class ProfileOverridesRequest(BaseModel):
+    overrides: Dict[str, Any]
+
+    @field_validator("overrides")
+    @classmethod
+    def _validate_overrides(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        return validate_overrides(value)
+
+
 class ContextWindowDiscoveryRequest(BaseModel):
     type: str
     base_url: Optional[str] = None
@@ -222,8 +233,8 @@ class LLMConfigResponse(BaseModel):
     api_key_set: bool = False
     model: str
     system_message: str
-    temperature: float
-    max_tokens: int
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     timeout: int
     supports_vision: bool = False
     disable_system_prompt: bool = False

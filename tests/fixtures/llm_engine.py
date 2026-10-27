@@ -6,11 +6,12 @@ from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
-from src.features.llm.harness.baseline import InMemoryTurnStore, StaticProfileResolver
+from src.features.llm.harness.baseline import InMemoryTurnStore
 from src.features.llm.harness.engine import TurnEngine
 from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.tool_runner import ParallelToolRunner
 from src.features.llm.harness.profile import Prices
+from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.repository import LLMConfig
 from src.features.llm.tools.base import BaseTool, ToolContext
 from src.features.llm.tools.executor import ToolExecutor
@@ -27,6 +28,7 @@ def scripted_config(**overrides: Any) -> LLMConfig:
         base_url="http://scripted.invalid",
         model="scripted-model",
         system_message="You are terse.",
+        max_tokens=2000,
     )
     values.update(overrides)
     return LLMConfig(**values)
@@ -46,7 +48,7 @@ def scripted_gateway(adapter: Any, *configs: LLMConfig) -> LLMGateway:
     return LLMGateway(
         llm_repository=ConfigRepository(*(configs or (scripted_config(),))),
         types=types,
-        profiles=StaticProfileResolver(types, windows),
+        profiles=LayeredProfileResolver(types.adapter_for),
         windows=windows,
     )
 
@@ -121,7 +123,7 @@ def core_gateway(llm_repository: Any, provider_registry: Any = None) -> LLMGatew
         provider_registry=provider_registry,
     )
     windows = ContextWindows(types)
-    return LLMGateway(llm_repository, types, StaticProfileResolver(types, windows), windows)
+    return LLMGateway(llm_repository, types, LayeredProfileResolver(types.adapter_for), windows)
 
 
 def client_gateway(
@@ -142,7 +144,7 @@ def client_gateway(
         provider_registry=provider_registry,
     )
     windows = ContextWindows(types)
-    gateway = LLMGateway(llm_repository, types, StaticProfileResolver(types, windows), windows)
+    gateway = LLMGateway(llm_repository, types, LayeredProfileResolver(types.adapter_for), windows)
     gateway._clients = clients
     gateway._ollama, gateway._openai, gateway._native = clients["ollama"], clients["openai"], clients["native"]
     return gateway

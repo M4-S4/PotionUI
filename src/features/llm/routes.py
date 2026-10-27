@@ -21,6 +21,7 @@ from src.features.llm.dto import (
     LLMConfigRequest,
     LLMGenerateRequest,
     ModelDiscoveryRequest,
+    ProfileOverridesRequest,
     UserLLMAssignmentRequest,
 )
 from src.features.llm import (
@@ -39,6 +40,8 @@ from src.features.llm import (
 from src.features.llm import operations
 from src.features.llm.mappers import config_to_response, assignment_config_to_response
 from src.features.llm import context_budget
+from src.features.llm.harness import codec
+from src.features.llm.harness.profile_schema import merge_overrides, schema_json
 from src.features.llm.model_listing import ModelListingError
 from src.features.llm.repository import LLMRepository
 from src.features.llm.gateway import LLMGateway
@@ -51,6 +54,7 @@ from src.platform.security.user import User, AccountType
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
     from src.features.downloads import DownloadQueue
+    from src.features.llm.harness.profiles import LayeredProfileResolver
     from src.features.llm.tools.governance import ToolGovernanceRepository
 
 logger = logging.getLogger(__name__)
@@ -68,6 +72,7 @@ class LLMController(BaseController):
         tool_governance_repository: Optional["ToolGovernanceRepository"] = None,
         download_queue: Optional["DownloadQueue"] = None,
         model_roots: Optional[ModelRootResolver] = None,
+        profile_resolver: Optional["LayeredProfileResolver"] = None,
     ):
         super().__init__()
         self.repository = llm_repository
@@ -79,6 +84,7 @@ class LLMController(BaseController):
         # every other endpoint works without it.
         self.download_queue = download_queue
         self.model_roots = model_roots
+        self.profile_resolver = profile_resolver
 
     # =========================================================================
     # Configuration Endpoints
@@ -415,6 +421,61 @@ class LLMController(BaseController):
         }
         return self.success_response(data=data)
 
+    def profile_schema(self) -> APIResponse:
+        return self.success_response(data=schema_json())
+
+    def _profile_config(self, config_id: str):
+        config = self.repository.get_configuration(config_id)
+        if not config:
+            raise ConfigurationNotFoundException(f"LLM configuration '{config_id}' not found")
+        return config
+
+    def _profiles_unavailable(self) -> APIResponse:
+        return self.error_api_response(
+            error="profiles_unavailable",
+            message="Model profiles are not available yet (the app container hasn't finished composing)",
+        )
+
+    @guarded(
+        {ConfigurationNotFoundException: Fail("configuration_not_found")},
+        Fail("get_profile_failed", "Failed to get the model profile", detail=raw_detail),
+    )
+    async def get_profile(self, config_id: str) -> APIResponse:
+        if self.profile_resolver is None:
+            return self._profiles_unavailable()
+        config = self._profile_config(config_id)
+        await self.profile_resolver.ensure(config)
+        return self.success_response(data=codec.to_json(self.profile_resolver.explain(config)))
+
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+            ConfigurationUpdateFailedException: Fail("update_profile_failed"),
+        },
+        Fail("update_profile_failed", "Failed to update the model profile", detail=raw_detail),
+    )
+    async def update_profile(self, config_id: str, request: ProfileOverridesRequest) -> APIResponse:
+        if self.profile_resolver is None:
+            return self._profiles_unavailable()
+        config = self._profile_config(config_id)
+        merged = merge_overrides(config.profile_overrides, request.overrides)
+        if not self.repository.set_profile_overrides(config_id, merged):
+            raise ConfigurationUpdateFailedException(f"Failed to update the profile of '{config_id}'")
+        updated = self._profile_config(config_id)
+        await self.profile_resolver.ensure(updated)
+        return self.success_response(data=codec.to_json(self.profile_resolver.explain(updated)))
+
+    @guarded(
+        {ConfigurationNotFoundException: Fail("configuration_not_found")},
+        Fail("refresh_profile_failed", "Failed to refresh the model profile", detail=raw_detail),
+    )
+    async def refresh_profile(self, config_id: str) -> APIResponse:
+        if self.profile_resolver is None:
+            return self._profiles_unavailable()
+        config = self._profile_config(config_id)
+        await self.profile_resolver.refresh(config)
+        return self.success_response(data=codec.to_json(self.profile_resolver.explain(config)))
+
     @guarded(
         {},
         Fail("get_assignment_summary_failed", "Failed to get LLM assignment summary", detail=raw_detail),
@@ -548,6 +609,26 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_llm_assignment_summary(current_user: User = Depends(get_current_admin_user)):
         """Direct-user and group assignment counts for every LLM configuration (admin only)."""
         return controller.get_llm_assignment_summary()
+
+    @router.get("/profile/schema", response_model=APIResponse, summary="Get LLM Profile Schema")
+    async def get_llm_profile_schema(current_user: User = Depends(get_current_admin_user)):
+        return controller.profile_schema()
+
+    @router.get("/configurations/{config_id}/profile", response_model=APIResponse, summary="Get LLM Configuration Profile")
+    async def get_llm_configuration_profile(config_id: str, current_user: User = Depends(get_current_admin_user)):
+        return await controller.get_profile(config_id)
+
+    @router.put("/configurations/{config_id}/profile", response_model=APIResponse, summary="Update LLM Configuration Profile")
+    async def update_llm_configuration_profile(
+        config_id: str, request: ProfileOverridesRequest, current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.update_profile(config_id, request)
+
+    @router.post(
+        "/configurations/{config_id}/profile/refresh", response_model=APIResponse, summary="Refresh LLM Configuration Profile",
+    )
+    async def refresh_llm_configuration_profile(config_id: str, current_user: User = Depends(get_current_admin_user)):
+        return await controller.refresh_profile(config_id)
 
     @router.get("/configurations/{config_id}/assignments", response_model=APIResponse, summary="Get LLM Configuration Assignments")
     async def get_llm_configuration_assignments(config_id: str, current_user: User = Depends(get_current_admin_user)):

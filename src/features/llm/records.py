@@ -14,8 +14,8 @@ class LLMConfiguration:
     api_key: Optional[str]
     model: str
     system_message: str
-    temperature: float = 0.7
-    max_tokens: int = 2000
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
     timeout: int = 30
     supports_vision: bool = False
     disable_system_prompt: bool = False
@@ -24,6 +24,7 @@ class LLMConfiguration:
     memory_reflection: bool = True
     show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
+    profile_overrides: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     # True when the stored api_key exists but cannot be decrypted with the
@@ -36,6 +37,7 @@ class LLMConfiguration:
     def from_row(cls, row) -> 'LLMConfiguration':
         """Create LLMConfiguration instance from database row"""
         provider_options = json_column(row['provider_options']) if 'provider_options' in row.keys() else None
+        profile_overrides = json_column(row['profile_overrides']) if 'profile_overrides' in row.keys() else None
 
         return cls(
             id=row['id'],
@@ -46,14 +48,15 @@ class LLMConfiguration:
             api_key=row['api_key'],
             model=row['model'],
             system_message=row['system_message'],
-            temperature=float(row['temperature']),
-            max_tokens=int(row['max_tokens']),
+            temperature=float(row['temperature']) if row['temperature'] is not None else None,
+            max_tokens=int(row['max_tokens']) if row['max_tokens'] is not None else None,
             timeout=int(row['timeout']),
             supports_vision=bool(row['supports_vision']) if 'supports_vision' in row.keys() else False,
             disable_system_prompt=bool(row['disable_system_prompt']) if 'disable_system_prompt' in row.keys() else False,
             memory_reflection=bool(row['memory_reflection']) if 'memory_reflection' in row.keys() else True,
             show_thinking=bool(row['show_thinking']) if 'show_thinking' in row.keys() else False,
             provider_options=provider_options,
+            profile_overrides=profile_overrides,
             created_at=dt_column(row['created_at']),
             updated_at=dt_column(row['updated_at'])
         )

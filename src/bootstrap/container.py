@@ -151,8 +151,8 @@ from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
 from src.features.llm.harness.adapters.openrouter import DEFAULT_BASE_URL as OPENROUTER_BASE_URL, OpenRouterAdapter
 from src.features.llm.context_windows import ContextWindows
-from src.features.llm.harness.baseline import StaticProfileResolver
 from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.store import SqliteTurnStore
 from src.features.llm.harness.tool_runner import ParallelToolRunner
@@ -839,10 +839,11 @@ def build_container() -> AppContainer:
         provider_registry=llm_provider_registry,
     )
     context_windows = ContextWindows(llm_types)
+    llm_profiles = LayeredProfileResolver(llm_types.adapter_for)
     llm_service = LLMGateway(
         llm_repository=llm_repository,
         types=llm_types,
-        profiles=StaticProfileResolver(llm_types, context_windows),
+        profiles=llm_profiles,
         windows=context_windows,
     )
 
@@ -999,6 +1000,7 @@ def build_container() -> AppContainer:
         tool_governance_repository=tool_governance_repository,
         download_queue=download_queue,
         model_roots=model_roots,
+        profile_resolver=llm_profiles,
     )
 
     # Initialize user components

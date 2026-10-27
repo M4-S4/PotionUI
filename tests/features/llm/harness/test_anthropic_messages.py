@@ -266,7 +266,7 @@ def test_an_unsupported_cache_ttl_is_refused():
 ])
 def test_max_tokens_comes_from_settings_then_config_and_is_capped(settings_tokens, cap, expected):
     profile = make_profile(max_output_tokens=cap) if cap else bare_profile()
-    request = make_request([USER], settings=Settings(max_tokens=settings_tokens))
+    request = make_request([USER], settings=Settings(max_tokens=settings_tokens), max_tokens=2000)
     assert render_body(request, profile)["max_tokens"] == expected
 
 
@@ -909,3 +909,11 @@ async def test_a_model_list_in_an_unexpected_shape_is_an_error(monkeypatch):
     monkeypatch.setattr(anthropic_messages, "fetch_json", fake)
     with pytest.raises(ModelListingError):
         await AnthropicMessagesAdapter().list_models("https://api.anthropic.com", API_KEY)
+
+
+@pytest.mark.parametrize("cap, expected", [(64000, 64000), (None, 4096)])
+def test_an_unset_max_tokens_falls_back_to_the_models_output_limit_because_the_api_requires_one(cap, expected):
+    profile = make_profile(max_output_tokens=cap) if cap else bare_profile()
+    request = make_request([USER], max_tokens=None)
+
+    assert render_body(request, profile)["max_tokens"] == expected
