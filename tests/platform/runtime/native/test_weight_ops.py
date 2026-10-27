@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.runtime.native.ops.dtype import pick_dtypes
-from tests.fixtures.kernel_gemm import gemm_provider
+from tests.fixtures.kernel_gemm import installed_gemm_verdicts
 from vendor.gpl.comfyui.ops import (
     QUANT_FP8_SCALED,
     _fp8_matmul_enabled,
@@ -220,21 +220,21 @@ def test_pick_dtypes_fp32_downcasts():
 
 def test_fp8_matmul_disabled_by_default(monkeypatch):
     monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
+    with installed_gemm_verdicts(fp8=True):
         assert _fp8_matmul_enabled() is False
 
 
 def test_fp8_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", False)
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
+    with installed_gemm_verdicts(fp8=True):
         assert _fp8_matmul_enabled() is False
 
 
 def test_fp8_matmul_flag_on_requires_probe(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=False)):
+    with installed_gemm_verdicts(fp8=False):
         assert _fp8_matmul_enabled() is False
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
+    with installed_gemm_verdicts(fp8=True):
         assert _fp8_matmul_enabled() is True
 
 
@@ -454,7 +454,7 @@ def test_forward_comfy_cast_weights_falls_back_when_non_branchable_lora_deltas_p
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
+    with installed_gemm_verdicts(fp8=True):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
         w_scale = torch.tensor(0.01)
@@ -474,7 +474,7 @@ def test_forward_comfy_cast_weights_falls_back_on_cpu_even_when_gate_on(monkeypa
     # path regardless of the env gate, because input.is_cuda/weight.is_cuda are
     # False on this test box -- torch._scaled_mm is a CUDA-only kernel.
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
+    with installed_gemm_verdicts(fp8=True):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
         w_scale = torch.tensor(0.01)
@@ -650,8 +650,6 @@ def test_forward_stages_streamed_cpu_weight_on_demand_and_reaches_kernel(monkeyp
     # itself: proves the production allow_weight_staging=True call site + the
     # new _forward_scaled_mm staging actually get an unstaged streamed leaf to
     # the fake kernel, rather than silently falling back to dequant.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
@@ -662,7 +660,7 @@ def test_forward_stages_streamed_cpu_weight_on_demand_and_reaches_kernel(monkeyp
 
     assert lin.weight.is_cuda is False  # streamed leaf: still off-device before the call
 
-    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
+    with installed_gemm_verdicts(fp8=True), \
          patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
         out = lin(x)
 
@@ -680,8 +678,6 @@ def test_forward_reuses_already_resident_weight_without_extra_copy(monkeypatch):
     # Mirrors a prefetch hit / a resident (non-streamed) leaf: the weight is
     # already on the activation's device when forward runs, so no staging call
     # should happen at all -- the existing tensor is used as-is.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
@@ -691,7 +687,7 @@ def test_forward_reuses_already_resident_weight_without_extra_copy(monkeypatch):
     resident_ids.add(id(x))
     fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
 
-    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
+    with installed_gemm_verdicts(fp8=True), \
          patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
         out = lin(x)
 
@@ -704,8 +700,6 @@ def test_forward_restages_every_call_with_no_cross_call_retention(monkeypatch):
     # Repeated forwards on an unstaged streamed leaf: each call stages its own
     # temporary operand (no cache reused across calls, no growth) and the
     # leaf's own weight identity/residency never changes.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _streamed_fp8_layer()
     resident_ids, stage_calls_for = _install_fake_cuda_residency(monkeypatch)
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
@@ -715,7 +709,7 @@ def test_forward_restages_every_call_with_no_cross_call_retention(monkeypatch):
     fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
     weight_id_before = id(lin.weight)
 
-    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
+    with installed_gemm_verdicts(fp8=True), \
          patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
         for _ in range(3):
             lin(x)
@@ -750,7 +744,7 @@ def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
 
     monkeypatch.setattr(wo, "cast_to", _oom_once_for_weight)
 
-    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
+    with installed_gemm_verdicts(fp8=True), \
          patch("torch._scaled_mm", side_effect=AssertionError("must not run after staging OOM")):
         out = lin(x)
 
@@ -762,8 +756,6 @@ def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
 def test_forward_on_cpu_gate_off_is_byte_identical_to_dequant(monkeypatch):
     # Default-off control: with the env gate off, on-demand staging is never
     # attempted and _forward_scaled_mm is never reached -- exact dequant output.
-    import vendor.gpl.comfyui.ops as wo
-
     lin = _streamed_fp8_layer()
     _install_fake_cuda_residency(monkeypatch)
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", False)
@@ -857,21 +849,21 @@ def test_forward_comfy_cast_weights_does_not_log_when_fp8_fast_path_eligible(cap
 
 def test_nvfp4_matmul_disabled_by_default(monkeypatch):
     monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=True)):
+    with installed_gemm_verdicts(nvfp4=True):
         assert _nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", False)
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=True)):
+    with installed_gemm_verdicts(nvfp4=True):
         assert _nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_matmul_flag_on_requires_probe(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", True)
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=False)):
+    with installed_gemm_verdicts(nvfp4=False):
         assert _nvfp4_matmul_enabled() is False
-    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=True)):
+    with installed_gemm_verdicts(nvfp4=True):
         assert _nvfp4_matmul_enabled() is True
 
 
