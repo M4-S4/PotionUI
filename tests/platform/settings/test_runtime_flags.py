@@ -232,26 +232,40 @@ def test_matmul_predicates_read_the_bound_dict_and_never_the_environment(monkeyp
         assert ops._lora_fused_enabled() is True
 
 
-def test_binding_the_vendor_ops_installs_the_kernel_gemm_support_function(monkeypatch):
-    from src.platform.runtime.native.kernels import gemm_support
-    from vendor.gpl.comfyui import ops
+def test_binding_a_module_installs_the_live_flag_dict_and_nothing_else():
+    import types
 
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", {})
-    monkeypatch.setattr(ops, "GEMM_SUPPORT", None)
+    probe = types.ModuleType("probe")
+    initial = set(vars(probe))
 
-    runtime_flags.bind_runtime_flags(ops)
+    runtime_flags.bind_runtime_flags(probe)
 
-    assert ops.RUNTIME_FLAGS is runtime_flags._values
-    assert ops.GEMM_SUPPORT is gemm_support
+    assert probe.RUNTIME_FLAGS is runtime_flags._values
+    assert set(vars(probe)) - initial == {"RUNTIME_FLAGS"}
 
 
-def test_importing_the_native_package_binds_the_vendor_gemm_support():
+def test_importing_the_native_package_binds_the_live_flag_dict_to_the_vendor_ops():
     root = Path(__file__).resolve().parents[3]
     script = (
         "import src.platform.runtime.native\n"
-        "from src.platform.runtime.native.kernels import gemm_support\n"
+        "from src.platform.settings import runtime_flags\n"
         "from vendor.gpl.comfyui import ops\n"
-        "raise SystemExit(0 if ops.GEMM_SUPPORT is gemm_support else 1)\n"
+        "raise SystemExit(0 if ops.RUNTIME_FLAGS is runtime_flags.runtime_flag_values() else 1)\n"
+    )
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "POTIONUI_DB_PATH": "/proc/none.sqlite"}
+    completed = subprocess.run(
+        [sys.executable, "-c", script], cwd=root, env=env, capture_output=True, text=True, timeout=180,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_binding_the_vendor_ops_does_not_import_the_kernels_package():
+    root = Path(__file__).resolve().parents[3]
+    script = (
+        "import sys, types\n"
+        "from src.platform.settings import runtime_flags\n"
+        "runtime_flags.bind_runtime_flags(types.ModuleType('probe'))\n"
+        "raise SystemExit(1 if 'src.platform.runtime.native.kernels' in sys.modules else 0)\n"
     )
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": "", "POTIONUI_DB_PATH": "/proc/none.sqlite"}
     completed = subprocess.run(
