@@ -1,28 +1,6 @@
 # Vendored from ComfyUI — https://github.com/comfyanonymous/ComfyUI
 # Upstream path: comfy/ops.py @ unknown; vendored ~2025
 # License: GPL-3.0 (see LICENSE in this directory). Copyright (c) comfyanonymous and contributors.
-# Local modifications: trimmed to the layer namespaces PotionUI's native engine uses; added
-# runtime LoRA deltas, partial-residency streaming flags, the torch._scaled_mm fp8 fast path,
-# nvfp4 dequantisation (ported from comfy/float.py + comfy/quant_ops.py), comfy_quant
-# descriptor parsing (unknown formats rejected at load; the descriptor also marks a
-# checkpoint as quantised for detect_quant_format), int8_tensorwise dequantisation plain
-# and ConvRot (written from the published on-disk format, NOT ported — see the ConvRot
-# section's own provenance note for what was and was not taken from where), and
-# a token-chunked, native-dtype rewrite of ``_lora_output_branch`` (originally
-# ``_nvfp4_lora_output_branch``, shared with the fp8 ``_scaled_mm`` fast path once it grew
-# the same LoRA output-branch seam; its original fp32-whole-activation form OOM'd on large
-# token counts; see the function's docstring), and
-# a one-shot, first-occurrence-per-reason log (``_nvfp4_fast_path_reject_reason`` /
-# ``_log_nvfp4_fast_path_rejection``, mirrored for fp8 as
-# ``_scaled_mm_fast_path_reject_reason`` / ``_log_scaled_mm_fast_path_rejection``)
-# distinguishing "took the native GEMM" from "fell through to dequant" and why --
-# upstream ComfyUI has no such observability, and its absence here previously let a
-# real fast-path-eligibility bug hide silently. The fp8 fast path also stages a
-# streamed leaf's still-CPU weight to the activation's device on demand for the
-# current call (Fp8ScaledLinear._forward_scaled_mm), instead of requiring the
-# weight already resident/prefetched -- upstream has no partial-residency
-# streaming concept at all, so this seam is PotionUI-original.
-#
 # ``linear_with_lora_deltas`` / ``partition_output_branch_deltas`` are PotionUI-original.
 # They move a plain LoRA delta off the weight and onto the activation for the DEQUANT
 # forwards, reusing the ``_lora_output_branch`` seam the fp8/nvfp4 GEMM fast paths already
@@ -30,19 +8,6 @@
 # materialised and no weight is cloned per forward. Deltas that have no such factorisation
 # (LoKr) keep the weight-side ``apply_lora_deltas`` path. Upstream ComfyUI bakes patches
 # into the weight through ``ModelPatcher`` instead and has no per-forward delta at all.
-#
-# int8_tensorwise Embedding dequantisation ported from the SAME commit's
-# ``MixedPrecisionOps.Embedding`` (comfy/ops.py, ``_load_from_state_dict`` +
-# ``forward_comfy_cast_weights``): gather the int8 rows for the requested indices, THEN
-# dequantise only those rows. The scale formula itself is not new — it is this file's own
-# already-vendored int8_tensorwise plain/ConvRot Linear formula (``weight.to(compute) *
-# weight_scale``, un-rotate after scaling), which is mathematically identical whether applied
-# before or after row selection since the per-row scale and the ConvRot rotation both act
-# within a row only, never across rows. Upstream's actual fused per-row kernel
-# (``TensorWiseINT8Layout.dequantize_embedding``) lives in the closed-source comfy_kitchen
-# package (not importable here, not vendored) — the formula was cross-checked against comfy/
-# ops.py's orchestration code (which IS available) and this file's own already-verified Linear
-# int8_tensorwise math, not against the kernel's internals.
 
 """Layer operation namespaces with cast-on-forward and scaled-fp8 support.
 
@@ -138,37 +103,6 @@ class CastWeightBiasOp:
 
     @contextmanager
     def prepared_linear(self, sample: torch.Tensor):
-        """Prepare this layer's effective weight/bias ONCE for ``sample``'s
-        dtype/device/cuda-ness, for reuse across a caller-driven loop of
-        several forward calls against inputs that share those (e.g. a
-        row-chunked projection: ``MiniMaxH3Attention._chunked_qkv``'s
-        ``qkv_proj`` loop, ``forward``'s ``out_proj`` loop — ``sample`` is the
-        loop's full-length, not-yet-chunked tensor, since every chunk of it
-        shares its dtype/device/cuda-ness by construction). Yields a callable
-        (:class:`_PreparedLinearOperand`) that runs one chunk; only
-        ``sample.dtype``/``.device``/``.is_cuda`` are read here (mirroring
-        ``forward_comfy_cast_weights``'s own ``input.is_cuda`` check) — the
-        tensor itself is never retained. Nothing prepared here is cached
-        beyond the ``with`` block, so a changed weight/LoRA-delta/dtype/device
-        on the NEXT call always re-prepares from current state instead of
-        reusing a stale operand -- there is no cross-context cache or key to
-        invalidate.
-
-        Default (this base + every ``CastWeightBiasOp`` layer that doesn't
-        override it, including a resident OR streamed plain ``Linear``):
-        there is no expensive per-forward preparation to amortize -- a
-        resident weight's per-forward cast is already a no-op
-        (:func:`cast_to` short-circuits on a device+dtype match), and a
-        streamed plain layer's cast is the one real cost, deliberately left
-        as ordinary per-call dispatch here (see the card this landed with:
-        reusing it would raise the streamed working set for a case with no
-        dequant/GEMM work to amortize). ``proj`` is simply ``self`` — calling
-        it runs the layer's normal ``forward`` unchanged, byte-identical to
-        not using this context at all. :class:`Fp8ScaledLinear` overrides
-        this with the one case that IS expensive: dequant (cast + scale +
-        ConvRot + LoRA) or, when the opt-in fp8 GEMM gate is on and eligible,
-        the staged fp8 weight.
-        """
         yield self
 
 
@@ -758,13 +692,6 @@ class manual_cast(disable_weight_init):
         comfy_cast_weights = True
 
 
-# ``comfy_quant`` per-layer descriptor formats this dequant path executes
-# correctly: both fp8 spellings and int8_tensorwise (ComfyUI PR #14636 /
-# comfy/quant_ops.py QUANT_ALGOS) with the plain ``weight.to(compute) *
-# weight_scale`` formula, and int8_tensorwise ConvRot (see the dedicated
-# section below ``Fp8ScaledLinear``) with the rotation-aware one. Any other
-# format is unknown and must fail the load instead of silently dequantizing
-# garbage.
 _COMFY_QUANT_FP8_FORMATS = frozenset({"float8_e4m3fn", "float8_e5m2"})
 _COMFY_QUANT_INT8_TENSORWISE = "int8_tensorwise"
 _CONVROT_DEFAULT_GROUPSIZE = 256
@@ -1057,9 +984,6 @@ def _scale_values(
 def precompute_nvfp4_scale(
     block_scale: torch.Tensor, tensor_scale: torch.Tensor, out_features: int, in_features: int,
 ) -> torch.Tensor:
-    """Natural (unblocked) ``[out, num_blocks]`` scale times the per-tensor
-    scale, computed once at load time so ``Nvfp4Linear``'s forward
-    hot path never calls ``_unblock_scale``/``_inv_blocked_index``."""
     num_blocks = in_features // _NVFP4_BLOCK
     block_nat = _unblock_scale(block_scale, out_features, num_blocks)
     return block_nat * tensor_scale.to(torch.float32)
@@ -1073,12 +997,6 @@ def dequantize_nvfp4(
     in_features: int,
 ) -> torch.Tensor:
     """Dequantise an nvfp4 weight to an fp32 ``[out_features, in_features]`` tensor.
-
-    Public bit-exact reference, given the RAW on-disk tensors: unblocks
-    ``block_scale`` on every call, so it is correct but not the load-once fast
-    path. ``Nvfp4Linear.forward_comfy_cast_weights`` calls
-    :func:`precompute_nvfp4_scale` once at load instead and never reaches this
-    function.
     """
     device = packed.device
     values = _dequant_values(packed, out_features, in_features)
