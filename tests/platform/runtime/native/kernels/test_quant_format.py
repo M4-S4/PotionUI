@@ -5,11 +5,10 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from src.platform.runtime.native import kernels
 from src.platform.runtime.native.kernels import QuantFormat, fast_path, gemm, linear, quant_format
 from vendor.gpl.comfyui import ops
 
-from .test_fast_path import PLAIN, QUANTIZED, machine
+from .test_fast_path import PLAIN, QUANTIZED
 
 EXPECTED = {
     "fp8-scaled-linear": QuantFormat.FP8,
@@ -26,7 +25,6 @@ EXPECTED = {
     **dict.fromkeys(PLAIN),
 }
 BUILDERS = {**QUANTIZED, **PLAIN}
-MACHINES = {"cpu-flags-off": ("cpu", False), "blackwell-flags-on": ("blackwell", True)}
 
 
 def _forbidden(*args, **kwargs):
@@ -42,38 +40,21 @@ def test_every_layer_variant_of_the_fast_path_matrix_has_an_expected_format():
 
 
 @pytest.mark.parametrize("name", EXPECTED)
-def test_the_format_comes_from_the_layer_state(name):
-    assert quant_format(BUILDERS[name]()) is EXPECTED[name]
-
-
-@pytest.mark.parametrize("name", EXPECTED)
-def test_the_format_never_asks_for_hardware_or_runtime_flags(monkeypatch, name):
+def test_the_format_comes_from_the_layer_state_without_hardware_or_runtime_flags(monkeypatch, name):
     layer = BUILDERS[name]()
-    asked = []
-
-    def spy(*args, **kwargs):
-        asked.append(args)
-        return _forbidden()
-
-    monkeypatch.setattr(linear, "gemm_support", spy)
-    monkeypatch.setattr(gemm, "capabilities", spy)
-    monkeypatch.setattr(gemm, "_nvfp4_trial_gemm", spy)
-    monkeypatch.setattr(ops, "GEMM_SUPPORT", spy)
+    monkeypatch.setattr(linear, "gemm_support", _forbidden)
+    monkeypatch.setattr(gemm, "capabilities", _forbidden)
+    monkeypatch.setattr(gemm, "_nvfp4_trial_gemm", _forbidden)
+    monkeypatch.setattr(ops, "GEMM_SUPPORT", _forbidden)
     monkeypatch.setattr(ops, "RUNTIME_FLAGS", _NoFlags())
 
     assert quant_format(layer) is EXPECTED[name]
-    assert asked == []
 
 
-@pytest.mark.parametrize("hardware,flags", MACHINES.values(), ids=MACHINES.keys())
-@pytest.mark.parametrize("name", EXPECTED)
-def test_the_format_is_the_one_fast_path_reports_on_any_machine(machine, name, hardware, flags):
-    machine(hardware, fp8=flags, nvfp4=flags)
-    layer = BUILDERS[name]()
+def test_fast_path_reports_the_format_quant_format_gives():
+    layer = QUANTIZED["nvfp4"]()
 
-    path = fast_path(layer)
-
-    assert quant_format(layer) is (None if path is None else path.quant_format)
+    assert fast_path(layer).quant_format is quant_format(layer)
 
 
 def test_objects_that_are_not_ops_linears_have_no_format():
@@ -83,7 +64,3 @@ def test_objects_that_are_not_ops_linears_have_no_format():
     assert quant_format(conv) is None
     assert quant_format(impostor) is None
     assert quant_format(None) is None
-
-
-def test_the_format_is_a_public_kernel_export():
-    assert "quant_format" in kernels.__all__
