@@ -7,10 +7,10 @@ KERNELS_PACKAGE = "src.platform.runtime.native.kernels"
 
 
 def patch_ops_name(monkeypatch, name: str, value) -> None:
-    import vendor.gpl.comfyui.ops as ops
+    from src.platform.runtime.native.io import quant_formats
 
     importlib.import_module(KERNELS_PACKAGE)
-    modules = [ops] + [
+    modules = [quant_formats] + [
         module
         for key, module in sorted(sys.modules.items())
         if module is not None and (key == KERNELS_PACKAGE or key.startswith(KERNELS_PACKAGE + "."))

@@ -7,9 +7,9 @@ import torch
 import torch.nn.functional as F
 
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui.ops import dequantize_nvfp4
-from src.platform.runtime.native.kernels.lora_math import _deltas_output_branch_ok, _lora_output_branch
+from src.platform.runtime.native.io.quant_formats import dequantize_nvfp4
 from src.platform.runtime.native.kernels import fp8_ops, lora_math, nvfp4_linear
+from src.platform.runtime.native.kernels.lora_math import _deltas_output_branch_ok, _lora_output_branch
 from src.platform.runtime.native.kernels.nvfp4_linear import _nvfp4_scaled_mm_fast_path_ok
 
 from .._nvfp4_ref import F4_MAX as _F4_MAX_REF

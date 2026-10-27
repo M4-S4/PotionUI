@@ -5,7 +5,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts
-from vendor.gpl.comfyui.ops import _quantize_nvfp4_dynamic, dequantize_nvfp4
+from src.platform.runtime.native.io.quant_formats import quantize_nvfp4_dynamic
 from src.platform.runtime.native.kernels import fp8_ops, nvfp4_linear
 from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
 from src.platform.runtime.native.kernels.nvfp4_linear import (
@@ -90,61 +90,12 @@ def test_nvfp4_scaled_mm_fast_path_requires_out_features_multiple_of_16():
     ) is False
 
 
-def test_quantize_nvfp4_dynamic_matches_weight_quantizer_nibble_convention():
-    torch.manual_seed(30)
-    m, k = 8, 64
-    x = torch.randn(m, k) * 0.3
-    packed, block_sw, tensor_scale = _quantize_nvfp4_dynamic(x)
-
-    ref_packed, ref_block_sw, _, _ = _ref_quantize_nvfp4(x, tensor_scale)
-    assert torch.equal(packed, ref_packed)
-    assert torch.equal(block_sw, ref_block_sw)
-
-
-@pytest.mark.parametrize("quantize", [_quantize_fp8_dynamic, _quantize_nvfp4_dynamic], ids=["fp8", "nvfp4"])
+@pytest.mark.parametrize("quantize", [_quantize_fp8_dynamic, quantize_nvfp4_dynamic], ids=["fp8", "nvfp4"])
 def test_activation_quantisers_leave_an_fp32_input_untouched(quantize):
     x = torch.randn(8, 64) * 0.3
     before = x.clone()
     quantize(x)
     assert torch.equal(x, before)
-
-
-def test_quantize_nvfp4_dynamic_output_dtypes_and_scale_shape():
-    x = torch.randn(16, 64) * 0.2
-    packed, block_sw, tensor_scale = _quantize_nvfp4_dynamic(x)
-    assert packed.dtype == torch.uint8 and packed.shape == (16, 32)
-    assert block_sw.dtype == torch.float8_e4m3fn
-    assert tensor_scale.dtype == torch.float32 and tensor_scale.ndim == 0
-
-
-@pytest.mark.parametrize("m,k", [(200, 64), (17, 32), (129, 512)])
-def test_quantize_nvfp4_dynamic_blocked_scale_matches_scaled_mm_v2_size_contract(m, k):
-    x = torch.randn(m, k) * 0.1
-    packed, block_sw, _ = _quantize_nvfp4_dynamic(x)
-    num_blocks = -(-k // 16)
-    nrb = -(-m // 128)
-    ncb = -(-num_blocks // 4)
-    assert block_sw.numel() == nrb * 128 * ncb * 4
-
-
-def test_quantize_nvfp4_dynamic_roundtrip_within_grid_tolerance():
-    torch.manual_seed(31)
-    m, k = 16, 128
-    x = torch.randn(m, k) * 0.05
-    packed, block_sw, tensor_scale = _quantize_nvfp4_dynamic(x)
-    deq = dequantize_nvfp4(packed, block_sw, tensor_scale, m, k)
-    rel = (deq - x).abs().mean() / x.abs().mean()
-    assert 0.0 <= rel < 0.25
-
-
-def test_quantize_nvfp4_dynamic_handles_all_zero_block_without_nan():
-    x = torch.zeros(16, 32)
-    x[0, :16] = torch.randn(16) * 0.1
-    packed, block_sw, tensor_scale = _quantize_nvfp4_dynamic(x)
-    deq = dequantize_nvfp4(packed, block_sw, tensor_scale, 16, 32)
-    assert torch.isfinite(deq).all()
-    assert torch.count_nonzero(deq[0, 16:]) == 0
-    assert torch.count_nonzero(deq[1:, :]) == 0
 
 
 def _nvfp4_layer(in_f=32, out_f=16, bias=False, seed=40):

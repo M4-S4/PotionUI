@@ -5,8 +5,7 @@ import logging
 
 import torch
 
-from vendor.gpl.comfyui.ops import _FP8_DTYPES
-
+from ..io.quant_formats import FP8_DTYPES
 from .casting import disable_weight_init, manual_cast
 from .nvfp4_linear import Nvfp4Linear
 
@@ -25,7 +24,7 @@ def detect_quant_format(
     sd: dict[str, torch.Tensor],
 ) -> str | None:
     if "_quantization_metadata" in metadata:
-        if any(t.dtype in _FP8_DTYPES for t in sd.values()):
+        if any(t.dtype in FP8_DTYPES for t in sd.values()):
             return QUANT_FP8_SCALED
     if "scaled_fp8" in sd:
         return QUANT_FP8_SCALED
@@ -45,7 +44,7 @@ def pick_operations(
     compute_dtype: torch.dtype,
     quant_format: str | None = None,
 ) -> type[disable_weight_init]:
-    if quant_format == QUANT_FP8_SCALED or storage_dtype in _FP8_DTYPES:
+    if quant_format == QUANT_FP8_SCALED or storage_dtype in FP8_DTYPES:
         logger.debug("pick_operations -> fp8_ops (quant=%s storage=%s)", quant_format, storage_dtype)
         return fp8_ops
     if storage_dtype != compute_dtype:

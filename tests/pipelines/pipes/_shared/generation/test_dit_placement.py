@@ -30,7 +30,7 @@ from torch.multiprocessing.reductions import StorageWeakRef
 from torch.utils._python_dispatch import TorchDispatchMode
 from torch.utils._pytree import tree_flatten
 
-import vendor.gpl.comfyui.ops as comfy_ops
+from src.platform.runtime.native.io.quant_formats import quantize_nvfp4_dynamic
 from src.platform.settings import runtime_flags
 from src.platform.runtime.native.kernels.lora_math import _add_lora_output_branch, _lora_output_branch
 
@@ -1920,7 +1920,7 @@ class _LiveBytes(TorchDispatchMode):
 
 @pytest.mark.parametrize("quantize, per_element", [
     (_quantize_fp8_dynamic, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
-    (comfy_ops._quantize_nvfp4_dynamic, _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
+    (quantize_nvfp4_dynamic, _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
 ], ids=["fp8", "nvfp4"])
 def test_the_quant_reserve_matches_the_quantisers_measured_peak(quantize, per_element):
     x = torch.randn(256, 1024).to(torch.bfloat16)

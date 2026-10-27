@@ -11,8 +11,8 @@ from collections import Counter
 import torch
 
 from src.platform.runtime.model_headers.signatures import detect_prefix, strip_prefix
-from vendor.gpl.comfyui.ops import _parse_comfy_quant
 
+from .quant_formats import parse_comfy_quant
 from .safetensors_loader import CONVROT_W4A4
 
 __all__ = [
@@ -68,7 +68,7 @@ def is_int4_packed(sd: dict[str, torch.Tensor], weight_key: str) -> bool:
     base = weight_key[: -len(".weight")]
     blob = sd.get(base + ".comfy_quant")
     if blob is not None and blob.device.type != "meta":
-        conf = _parse_comfy_quant(blob)
+        conf = parse_comfy_quant(blob)
         if conf is not None:
             return conf.get("format") == CONVROT_W4A4
     weight = sd[weight_key]

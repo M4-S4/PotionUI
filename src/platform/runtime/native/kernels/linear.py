@@ -6,8 +6,8 @@ from enum import StrEnum
 import torch
 
 from src.platform.settings.runtime_flags import runtime_flag
-from vendor.gpl.comfyui import ops
 
+from ..io.quant_formats import FP8_DTYPES
 from .fp8_linear import FP8_MATMUL_FLAG, Fp8ScaledLinear, _fp8_matmul_enabled, _scaled_mm_fast_path_reject_reason
 from .gemm import gemm_support
 from .lora_math import _lora_fused_enabled, partition_output_branch_deltas
@@ -67,7 +67,7 @@ def quant_format(layer: object) -> QuantFormat | None:
     weight = layer.weight
     if layer.weight_scale is None or weight is None:
         return None
-    if weight.dtype in ops._FP8_DTYPES:
+    if weight.dtype in FP8_DTYPES:
         return QuantFormat.FP8
     if weight.dtype == torch.int8:
         return QuantFormat.INT8 if layer.convrot_hadamard is None else QuantFormat.INT8_CONVROT

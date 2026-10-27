@@ -207,9 +207,8 @@ def test_each_ignored_env_var_logs_once_with_its_new_home(caplog):
 
 def test_matmul_predicates_read_the_live_flags_and_never_the_environment():
     from src.platform.runtime.native.kernels import fp8_linear, lora_math, nvfp4_linear
-    from vendor.gpl.comfyui import ops
 
-    for module in (ops, lora_math, fp8_linear, nvfp4_linear):
+    for module in (lora_math, fp8_linear, nvfp4_linear):
         source = inspect.getsource(module)
         assert "os.environ" not in source
         assert "getenv" not in source

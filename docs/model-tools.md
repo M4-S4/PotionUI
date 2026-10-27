@@ -41,8 +41,8 @@ Every format is written in the ComfyUI per-layer layout: each quantized Linear g
 | `nvfp4` | `nvfp4`, fp8 block scale per 16 + tensor scale | about 0.56 | LUT dequant per step; fp4 matmul on RTX 50 with nvfp4 matmul on |
 | `int4_convrot` | `convrot_w4a4`, group 256, one scale per row | about 0.5 | Unpacked to int8 codes at load and dequantized like int8 ConvRot, so it uses int8 memory; the result card flags its quality as unverified until a GPU check |
 
-The ConvRot writers rotate with the loader's own Hadamard (`_build_convrot_hadamard` in
-`vendor/gpl/comfyui/ops.py`). The int4 layout (two's-complement nibbles, even column in the low
+The ConvRot writers rotate with the loader's own Hadamard (`build_convrot_hadamard` in
+`src/platform/runtime/native/io/quant_formats.py`). The int4 layout (two's-complement nibbles, even column in the low
 nibble, codes in [-7, 7], one F32 scale per row) follows the published ComfyUI / comfy-kitchen
 `convrot_w4a4` format; no code was taken from comfy-kitchen (provenance in `vendor/NOTICE.md`).
 The safetensors loader expands int4 layers to int8 ConvRot as it reads the file, so model detection

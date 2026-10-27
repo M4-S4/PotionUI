@@ -6,7 +6,7 @@ torch = pytest.importorskip("torch")
 
 from tests.fixtures.kernel_gemm import install_gemm_verdicts
 from tests.fixtures.kernel_ops import patch_ops_name
-from vendor.gpl.comfyui.ops import dequantize_nvfp4
+from src.platform.runtime.native.io.quant_formats import dequantize_nvfp4
 from src.platform.runtime.native.kernels import fp8_ops
 
 from .._nvfp4_ref import F4_MAX as _F4_MAX

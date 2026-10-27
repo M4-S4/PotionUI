@@ -6,7 +6,6 @@ import pytest
 import torch
 
 from src.platform.runtime.native.lora.apply import apply_loras, remove_loras, temporarily_applied_loras
-from vendor.gpl.comfyui import ops
 from src.platform.runtime.native.kernels import pick_operations
 
 from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora

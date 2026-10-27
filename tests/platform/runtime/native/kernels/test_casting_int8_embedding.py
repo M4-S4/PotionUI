@@ -8,7 +8,7 @@ torch = pytest.importorskip("torch")
 
 from src.platform.runtime.native.base import release_module_storage
 from src.platform.runtime.native.kernels import disable_weight_init, manual_cast
-from vendor.gpl.comfyui.ops import _build_convrot_hadamard
+from src.platform.runtime.native.io.quant_formats import build_convrot_hadamard
 
 
 def _blob(conf: dict) -> torch.Tensor:
@@ -25,7 +25,7 @@ def _quantize_int8_tensorwise(w: torch.Tensor) -> tuple[torch.Tensor, torch.Tens
 def _convrot_embedding(num_emb: int, dim: int, group: int, seed: int):
     torch.manual_seed(seed)
     w = torch.randn(num_emb, dim) * 0.05
-    hadamard = _build_convrot_hadamard(group, device="cpu", dtype=torch.float32)
+    hadamard = build_convrot_hadamard(group, device="cpu", dtype=torch.float32)
     n_groups = dim // group
     rotated = torch.matmul(w.reshape(num_emb, n_groups, group), hadamard).reshape(num_emb, dim)
     q, scale = _quantize_int8_tensorwise(rotated)
@@ -112,7 +112,7 @@ def test_embedding_convrot_rotated_undoes_the_rotation():
     emb, w, q, scale = _convrot_embedding(num_emb, dim, group, seed=4)
     assert emb._int8_convrot_hadamard is not None
 
-    hadamard = _build_convrot_hadamard(group, device="cpu", dtype=torch.float32)
+    hadamard = build_convrot_hadamard(group, device="cpu", dtype=torch.float32)
     n_groups = dim // group
     idx = torch.tensor([0, 4, 11])
     out = emb(idx, out_dtype=torch.float32)
@@ -133,7 +133,7 @@ def test_releasing_one_convrot_embedding_leaves_the_shared_hadamard_intact():
     release_module_storage(first)
 
     assert second._int8_convrot_hadamard.numel() == group * group
-    assert _build_convrot_hadamard(group, device="cpu", dtype=torch.float32).numel() == group * group
+    assert build_convrot_hadamard(group, device="cpu", dtype=torch.float32).numel() == group * group
     assert torch.equal(second(idx, out_dtype=torch.float32), expected)
     third, _, _, _ = _convrot_embedding(12, 16, group, seed=5)
     assert torch.equal(third(idx, out_dtype=torch.float32), expected)
