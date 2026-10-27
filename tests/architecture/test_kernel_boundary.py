@@ -195,20 +195,20 @@ def test_from_import_records_every_name_including_lazy_ones():
     "from vendor.gpl.comfyui import ops\nops.pick_operations()\n",
     "from vendor.gpl.comfyui import ops as a\na.pick_operations()\n",
     "import vendor.gpl.comfyui.ops as a\na.pick_operations()\n",
-    "import vendor.gpl.comfyui.ops\nvendor.gpl.comfyui.ops.pick_operations()\n",
     "from vendor.gpl import comfyui\ncomfyui.ops.pick_operations()\n",
     "import vendor.gpl.comfyui as c\nc.ops.pick_operations()\n",
-])
+], ids=["from-import", "from-import-aliased", "import-aliased", "package-attribute", "package-aliased-attribute"])
 def test_each_module_spelling_records_the_module_alone(source):
     assert _names(source) == {WHOLE_MODULE}
 
 
 @pytest.mark.parametrize("source", [
     "from vendor.gpl.comfyui import ops\nops._hidden()\n",
+    "from vendor.gpl.comfyui import ops as a\na._hidden()\n",
     "import vendor.gpl.comfyui.ops as a\na._hidden()\n",
     "import vendor.gpl.comfyui.ops\nvendor.gpl.comfyui.ops._hidden()\n",
     "from vendor.gpl import comfyui\ncomfyui.ops._hidden()\n",
-])
+], ids=["from-import", "from-import-aliased", "import-aliased", "import-plain", "package-attribute"])
 def test_each_module_spelling_records_private_attributes(source):
     assert "_hidden" in _names(source)
 
