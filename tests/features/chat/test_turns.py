@@ -5,6 +5,7 @@ when the SSE subscriber that started it drops mid-stream, and a late subscriber
 must be able to replay the whole turn from the start.
 """
 
+from src.features.llm.harness.replay import policy_replay
 import asyncio
 import json
 from unittest.mock import AsyncMock, Mock
@@ -729,7 +730,6 @@ class TestPersistenceSurvivesDisconnect:
         session.mode = "generation"
         session.metadata = None
         repo.get_session.return_value = session
-        repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-user", session_id="session-123", role="user", content="hi")
         assistant_msg = MessageResponse(
@@ -762,6 +762,7 @@ class TestPersistenceSurvivesDisconnect:
             plugin_registry=plugins,
             chat_mode_registry=mode_registry(),
             turn_engine=engine,
+            replay_selector=policy_replay,
         )
         return manager, repo
 

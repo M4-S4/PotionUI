@@ -2,6 +2,7 @@
 as a background task after a turn, never awaited by the response path, and
 only actually calls the LLM once its own gating conditions are met."""
 
+from src.features.llm.harness.replay import policy_replay
 from dataclasses import replace
 import asyncio
 import pytest
@@ -57,6 +58,7 @@ class TestReflectionFiresOnSend:
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
             turn_engine=self.engine,
+            replay_selector=policy_replay,
         )
         # Late-bound the same way the composition root does.
         self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=self.mock_memory)
@@ -81,7 +83,6 @@ class TestReflectionFiresOnSend:
             id="msg-1", session_id="session-1", role=kwargs.get("role", "assistant"),
             content=kwargs.get("content", ""),
         )
-        self.mock_repo.get_conversation_history.return_value = [{"role": "user", "content": "hi"}]
         self.mock_repo.count_messages.return_value = 2
         # title_generator needs >=2 messages; irrelevant to this test beyond not erroring.
         self.mock_repo.get_messages.return_value = _transcript(MIN_UNREFLECTED_USER_MESSAGES)

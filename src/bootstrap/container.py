@@ -150,6 +150,7 @@ from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
 from src.features.llm.harness.adapters.openrouter import DEFAULT_BASE_URL as OPENROUTER_BASE_URL, OpenRouterAdapter
+from src.features.llm.harness.replay import policy_replay
 from src.features.llm.harness.engine import TurnEngine
 from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.retry import BackoffRetry
@@ -1763,6 +1764,7 @@ def build_container() -> AppContainer:
             generation_parameter_repository=generation_parameter_repository,
             generation_model_repository=generation_model_repository,
             turn_engine=turn_engine,
+            replay_selector=policy_replay,
         )
     )
     chat.pre_chat_action_registry.discover_actions()

@@ -1,6 +1,9 @@
 """Tests for ChatTitleGenerator and the title SSE event in send_message_stream."""
 
+from src.features.llm.harness.replay import policy_replay
 import pytest
+
+from src.features.chat.dto import MessageResponse
 from unittest.mock import Mock, AsyncMock
 from typing import AsyncGenerator, List
 
@@ -158,6 +161,7 @@ class TestStreamTitleEvent:
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
             turn_engine=self.engine,
+            replay_selector=policy_replay,
         )
 
         session = _session()
@@ -166,13 +170,10 @@ class TestStreamTitleEvent:
         session.mode = "generation"
         session.metadata = {"tools_enabled": False}
 
-        saved_message = Mock()
-        saved_message.id = "msg-1"
-        saved_message.model_dump.return_value = {"id": "msg-1"}
+        saved_message = MessageResponse(id="msg-1", session_id="session-123", role="assistant", content="")
 
         self.mock_repo.get_session.return_value = session
         self.mock_repo.add_message.return_value = saved_message
-        self.mock_repo.get_conversation_history.return_value = [{"role": "user", "content": "hi"}]
         self.mock_repo.count_messages.return_value = 2
         self.mock_repo.get_messages.return_value = [
             _message("user", "hi"),

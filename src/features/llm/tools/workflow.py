@@ -73,9 +73,14 @@ class ToolCallGuard:
 
     ALREADY_APPLIED_RESULT = "Already applied earlier in this turn."
 
-    def __init__(self, applied_calls: Optional[set] = None, failed_calls: Optional[Mapping[str, str]] = None) -> None:
+    def __init__(
+        self,
+        applied_calls: Optional[set] = None,
+        failed_calls: Optional[Mapping[str, str]] = None,
+        tool_failures: Optional[Mapping[str, int]] = None,
+    ) -> None:
         self._failed_calls: Dict[str, str] = dict(failed_calls or {})
-        self.tool_failures: Dict[str, int] = {}
+        self.tool_failures: Dict[str, int] = dict(tool_failures or {})
         self._applied_calls = set(applied_calls or ())
 
     @staticmethod

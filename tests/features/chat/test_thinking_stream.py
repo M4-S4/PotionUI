@@ -43,7 +43,6 @@ class ThinkingStreamBase(BaseStreamingTest):
         self.mock_repo.get_session.return_value = self._make_active_session(
             metadata={"enable_tools": True} if tools else None,
         )
-        self.mock_repo.get_conversation_history.return_value = []
         self.mock_repo.add_message.side_effect = [
             make_message_response("msg-user", role="user", content="hello"),
             make_message_response("msg-asst", content="x"),
@@ -64,6 +63,13 @@ class ThinkingStreamBase(BaseStreamingTest):
 
     def _saved_metadata(self):
         return self.mock_repo.add_message.call_args_list[1].kwargs["metadata"]
+
+    def _stored_reasoning(self):
+        return [
+            part.text
+            for step in self.engine.store.steps("session-123")
+            for part in step.message.reasoning()
+        ]
 
     def _processed(self):
         return self.mock_processor.process.call_args.args[0]
@@ -98,9 +104,7 @@ class TestPlainPath(ThinkingStreamBase):
         names = kinds(events)
         assert names.index("reasoning") < names.index("reasoning_end") < names.index("token")
         assert self._processed() == "the answer"
-        segments = self._saved_metadata()["thinking"]["segments"]
-        assert [s["text"] for s in segments] == ["let me think"]
-        assert segments[0]["duration_ms"] >= 0
+        assert self._stored_reasoning() == ["let me think"]
 
     @pytest.mark.asyncio
     async def test_a_reply_without_reasoning_stores_no_thinking_but_marks_the_trace(self):
@@ -147,8 +151,7 @@ class TestToolsPath(ThinkingStreamBase):
 
         order = [e["event"] for e in events if e["event"] in ("reasoning", "reasoning_end", "tool_start", "tool_end", "token")]
         assert order == ["reasoning", "reasoning_end", "tool_start", "tool_end", "reasoning", "reasoning_end", "token"]
-        segments = self._saved_metadata()["thinking"]["segments"]
-        assert [s["text"] for s in segments] == ["need the tool", "now answer"]
+        assert self._stored_reasoning() == ["need the tool", "now answer"]
 
     @pytest.mark.asyncio
     async def test_the_knob_off_drops_every_reasoning_event_on_the_tools_path(self):
@@ -172,4 +175,4 @@ class TestToolsPath(ThinkingStreamBase):
 
         await self._run()
 
-        assert [s["text"] for s in self._saved_metadata()["thinking"]["segments"]] == ["should I?"]
+        assert self._stored_reasoning() == ["should I?"]

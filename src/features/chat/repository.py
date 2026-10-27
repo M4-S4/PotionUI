@@ -1,10 +1,9 @@
-from typing import Collection, List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import json
 import logging
 from src.features.chat.records import ChatSession, ChatMessage
 from src.features.chat.dto import SessionResponse, MessageResponse
-from src.features.chat.tool_transcript import replay_messages
 from src.platform.database.rows import dt_iso, now_utc
 from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
@@ -564,34 +563,6 @@ class ChatRepository:
     def count_messages(self, session_id: str) -> int:
         """Count messages in a session"""
         return self.message_repo.count_by_session(session_id)
-
-    def get_conversation_history(
-        self,
-        session_id: str,
-        include_tool_transcript: bool = False,
-        reasoning_message_ids: Collection[str] = (),
-    ) -> List[Dict[str, Any]]:
-        """Get conversation history in format suitable for LLM API"""
-        messages = self.message_repo._get_by_session_internal(session_id)
-        history: List[Dict[str, Any]] = []
-        for msg in messages:
-            if include_tool_transcript and msg.role == 'assistant':
-                history.extend(replay_messages(
-                    msg.content, msg.metadata, with_reasoning=msg.id in reasoning_message_ids,
-                ))
-            else:
-                history.append({'role': msg.role, 'content': msg.content})
-        return history
-
-    def get_turn_chain(self, session_id: str, message_id: str) -> List[ChatMessage]:
-        messages = self.message_repo._get_by_session_internal(session_id)
-        index = next((i for i, msg in enumerate(messages) if msg.id == message_id), None)
-        if index is None:
-            return []
-        start = index
-        while start > 0 and messages[start - 1].role != 'user':
-            start -= 1
-        return messages[start:index + 1]
 
     def get_latest_message(self, session_id: str) -> Optional[MessageResponse]:
         messages, _ = self.message_repo.get_tail(session_id, 1)

@@ -105,10 +105,3 @@ class ChatSession:
         if include_messages:
             result['messages'] = [msg.to_dict() for msg in self.messages]
         return result
-
-    def get_conversation_history(self) -> List[Dict[str, str]]:
-        """Get conversation history in format suitable for LLM API"""
-        return [
-            {'role': msg.role, 'content': msg.content}
-            for msg in self.messages
-        ]

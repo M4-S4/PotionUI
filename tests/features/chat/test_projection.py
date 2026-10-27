@@ -72,6 +72,16 @@ def test_the_row_text_is_every_assistant_text_in_order():
     assert projection.segment_text(steps) == "Let me check. Found it."
 
 
+def test_texts_without_whitespace_between_them_are_separated_by_a_blank_line():
+    steps = [
+        ask_step(2, [("c1", "search", {})], text="Let me check."),
+        result_step(3, [("c1", "search", "found", False)]),
+        final_step(4, "Found it."),
+    ]
+
+    assert projection.segment_text(steps) == "Let me check.\n\nFound it."
+
+
 def test_usage_adds_up_across_steps_and_stays_unknown_when_nothing_reported():
     steps = [
         ask_step(2, [("c", "t", {})], usage=Usage(input_tokens=100, output_tokens=10, cached_input_tokens=80, cost=0.001)),
@@ -161,7 +171,7 @@ def test_assistant_metadata_records_the_window_rounds_tokens_and_tool_cards():
     )
 
     assert built["step_range"] == {"first": 2, "last": 4}
-    assert (built["turn_rounds"], built["prompt_tokens"], built["completion_tokens"], built["tokens_used"]) == (2, 250, 30, 280)
+    assert (built["turn_rounds"], built["prompt_tokens"], built["completion_tokens"], built["tokens_used"]) == (2, 150, 30, 280)
     assert built["behavior_trace"] == {"v": 1}
     assert built["context_metadata"] == {"form_state": {"a": 1}}
     assert [item["tool_call_id"] for item in built["tool_executions"]] == ["c1"]

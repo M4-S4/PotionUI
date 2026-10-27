@@ -34,6 +34,7 @@ from src.features.chat.session_store import ChatSessionStore
 from src.features.chat.context_builder import ChatContextBuilder
 from src.features.chat.tool_dispatcher import ToolCallDispatcher
 from src.features.chat.conversation import ConversationRunner
+from src.features.llm.harness.ports import ReplaySelector
 from src.features.llm.tools.base import ToolServices
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ class ChatRuntime:
         generation_parameter_repository: Optional[Any] = None,
         generation_model_repository: Optional[Any] = None,
         turn_engine: Optional[Any] = None,
+        replay_selector: Optional[ReplaySelector] = None,
     ):
         """Initialize ChatRuntime.
 
@@ -90,6 +92,7 @@ class ChatRuntime:
         self.chat_mode_registry = chat_mode_registry
         self.tool_executor = tool_executor
         self.turn_engine = turn_engine
+        self.replay_selector = replay_selector
         self.preset_lookup = preset_lookup
         self.preset_form_schema_lookup = preset_form_schema_lookup
         self.phrasebook_search = phrasebook_search

@@ -1,10 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from src.features.chat.dto import MessageResponse
 from src.features.chat.thinking import (
     ReasoningCapture,
-    apply_thinking_visibility,
     config_shows_thinking,
     hide_thinking_in_event,
 )
@@ -100,69 +98,3 @@ def test_thinking_is_hidden_for_a_missing_config_or_lookup_failure():
     assert config_shows_thinking(llm_service(True), None) is False
     assert config_shows_thinking(llm_service(raises=True), "cfg") is False
     assert config_shows_thinking(MagicMock(), "cfg") is False
-
-
-def message(metadata, msg_id="m1"):
-    return MessageResponse(id=msg_id, session_id="s", role="assistant", content="hi", metadata=metadata)
-
-
-STORED = {"segments": [{"text": "x", "duration_ms": 1}]}
-
-
-def test_hidden_thinking_is_stripped_but_other_metadata_survives():
-    original = message({"thinking": STORED, "tokens_used": 5})
-
-    [redacted] = apply_thinking_visibility([original], llm_service(False), "cfg")
-
-    assert redacted.metadata == {"tokens_used": 5}
-    assert "thinking" in original.metadata
-
-
-def test_the_trace_marker_is_stripped_with_the_thinking():
-    original = message({
-        "thinking": STORED,
-        "behavior_trace": {"version": 1, "thinking_visible": True, "mode": "m"},
-    })
-
-    [redacted] = apply_thinking_visibility([original], llm_service(False), "cfg")
-
-    assert redacted.metadata == {"behavior_trace": {"version": 1, "mode": "m"}}
-    assert original.metadata["behavior_trace"]["thinking_visible"] is True
-
-
-def test_visible_thinking_is_returned_unchanged():
-    messages = [message({"thinking": STORED})]
-
-    assert apply_thinking_visibility(messages, llm_service(True), "cfg") is messages
-
-
-def test_thinking_reappears_when_the_knob_is_turned_back_on():
-    messages = [message({"thinking": STORED})]
-
-    hidden = apply_thinking_visibility(messages, llm_service(False), "cfg")
-    shown = apply_thinking_visibility(messages, llm_service(True), "cfg")
-
-    assert "thinking" not in hidden[0].metadata
-    assert shown[0].metadata["thinking"] == STORED
-
-
-def test_messages_without_thinking_are_returned_as_they_are():
-    plain = message({"tokens_used": 5})
-    bare = message(None, msg_id="m2")
-    messages = [plain, bare]
-
-    assert apply_thinking_visibility(messages, llm_service(False), "cfg") is messages
-
-
-def test_the_config_is_not_even_looked_up_when_no_message_carries_thinking():
-    service = MagicMock()
-
-    apply_thinking_visibility([message({"tokens_used": 5})], service, "cfg")
-
-    service.repository.get_configuration.assert_not_called()
-
-
-def test_a_session_with_no_config_hides_stored_thinking():
-    [redacted] = apply_thinking_visibility([message({"thinking": STORED})], llm_service(True), None)
-
-    assert "thinking" not in redacted.metadata

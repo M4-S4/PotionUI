@@ -1,5 +1,6 @@
 """Tests for ChatRuntime."""
 
+from src.features.llm.harness.replay import policy_replay
 from dataclasses import replace
 import pytest
 from types import SimpleNamespace
@@ -7,8 +8,11 @@ from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from src.features.chat.runtime import ChatRuntime
-from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, typed_history
+from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, seed_history, typed_history
 from tests.fixtures.chat_engine import ScriptedTurnEngine
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.profile import CapabilityProfile
+from src.features.llm.harness.turn_state import DecisionKind, PendingCall, TurnSnapshot, TurnState, TurnStatus
 from src.features.llm.tools.base import ToolServices
 
 from tests.fixtures.chat_modes import mode_registry
@@ -39,6 +43,7 @@ class TestValidationHelpers:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -116,6 +121,7 @@ class TestCreateSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -207,6 +213,7 @@ class TestGetSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -258,6 +265,7 @@ class TestDeleteSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -304,6 +312,7 @@ class TestUpdateSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=Mock(),
@@ -360,6 +369,7 @@ class TestSendMessage:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -380,7 +390,6 @@ class TestSendMessage:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         # Set up messages as actual DTOs
         user_msg = MessageResponse(
@@ -433,7 +442,6 @@ class TestSendMessage:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(
@@ -476,7 +484,6 @@ class TestSendMessage:
         mock_session.mode = "lora-dataset"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(
@@ -599,7 +606,6 @@ class TestSendMessage:
         mock_session.mode = "admin-mode"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(
@@ -660,7 +666,6 @@ class TestSendMessage:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         # Use actual DTOs instead of mocks
         user_msg = MessageResponse(
@@ -721,6 +726,7 @@ class TestSendMessageBehaviorTrace:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -748,7 +754,6 @@ class TestSendMessageBehaviorTrace:
         session.mode = "generation"
         session.metadata = None
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(id="msg-2", session_id="session-123", role="assistant", content="Response")
@@ -971,6 +976,7 @@ class TestMemoryCountedInHistoryBudget:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -993,9 +999,7 @@ class TestMemoryCountedInHistoryBudget:
             {"role": "user" if i % 2 == 0 else "assistant", "content": f"old turn {i} " + "x" * 60}
             for i in range(6)
         ]
-        self.mock_repo.get_conversation_history.return_value = old_turns + [
-            {"role": "user", "content": "current question"},
-        ]
+        seed_history(self.engine.store, "session-123", old_turns)
 
         from src.features.chat.dto import MessageResponse
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="current question")
@@ -1065,6 +1069,7 @@ class TestResolveToolExecutionPreservesBehaviorTrace:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1088,10 +1093,23 @@ class TestResolveToolExecutionPreservesBehaviorTrace:
         }
         message = Mock()
         message.session_id = "session-123"
+        message.turn_id = "turn-1"
         message.metadata = {
             "behavior_trace": behavior_trace,
-            "tool_executions": [{"tool_name": "get_data", "arguments": {}, "approval_status": "pending", "result": {}}],
+            "tool_executions": [{
+                "tool_name": "get_data", "arguments": {}, "approval_status": "pending", "result": {},
+                "tool_call_id": "c1",
+            }],
         }
+        self.engine.store.save_state(TurnState(
+            turn_id="turn-1", session_id="session-123", status=TurnStatus.AWAITING_DECISION,
+            snapshot=TurnSnapshot(
+                llm_config_id="llm-1", system="", tools=(), settings=Settings(),
+                profile=CapabilityProfile(adapter="scripted", model="m"),
+            ),
+            first_seq=0,
+            pending=(PendingCall(call_id="c1", name="get_data", decision=DecisionKind.APPROVAL),),
+        ))
         self.mock_repo.get_message.return_value = message
         self.mock_repo.transition_tool_execution.return_value = True
 
@@ -1123,6 +1141,7 @@ class TestAcceptSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1176,6 +1195,7 @@ class TestRejectSession:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1222,6 +1242,7 @@ class TestHookExecution:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1296,6 +1317,7 @@ class TestSendMessageResources:
         registry.register(FakeProvider())
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1312,11 +1334,6 @@ class TestSendMessageResources:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = [
-            {"role": "user", "content": "earlier"},
-            {"role": "assistant", "content": "earlier reply"},
-            {"role": "user", "content": "check @fake.known"},
-        ]
         user_msg = MessageResponse(id="m1", session_id="s1", role="user", content="check @fake.known")
         assistant_msg = MessageResponse(id="m2", session_id="s1", role="assistant", content="ok")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
@@ -1415,6 +1432,7 @@ class TestInjectMemoryBlock:
 
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1477,6 +1495,7 @@ class TestInjectMemoryBlock:
     def test_no_manager_does_nothing(self):
         manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1602,6 +1621,7 @@ class TestInjectWorkspaceBlock:
         # checkpoint/LoRA split relies on each model's own DB model_type.
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1807,6 +1827,7 @@ class TestInjectWorkspaceBlockMusicDirector:
         self.engine = ScriptedTurnEngine()
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -1894,6 +1915,7 @@ class TestInjectWorkspaceBlockVideoDirector:
         self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = None
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -2031,6 +2053,7 @@ class TestInjectWorkspaceBlockLLMContext:
         self.mock_preset_collaborators = Mock()
         self.manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
             llm_service=Mock(),
             response_processor=Mock(),
@@ -2473,6 +2496,7 @@ class TestBehaviorTraceToolFailures:
 
         manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,
@@ -2487,7 +2511,6 @@ class TestBehaviorTraceToolFailures:
         session.mode = "generation"
         session.metadata = None
         mock_repo.get_session.return_value = session
-        mock_repo.get_conversation_history.return_value = []
 
         from src.features.chat.dto import MessageResponse
         user_msg = MessageResponse(id="msg-1", session_id="s", role="user", content="Hello")
@@ -2548,6 +2571,7 @@ class TestSendMessageToolsPathIterationNudge:
 
         manager = ChatRuntime(
             turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,
@@ -2563,7 +2587,6 @@ class TestSendMessageToolsPathIterationNudge:
         session.mode = "generation"
         session.metadata = {"enable_tools": True}
         mock_repo.get_session.return_value = session
-        mock_repo.get_conversation_history.return_value = []
 
         from src.features.chat.dto import MessageResponse
         user_msg = MessageResponse(id="msg-1", session_id="s", role="user", content="Hello")

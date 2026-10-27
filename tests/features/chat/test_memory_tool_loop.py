@@ -1,3 +1,4 @@
+from src.features.llm.harness.replay import policy_replay
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -38,7 +39,6 @@ def make_message(id_, content="", metadata=None, session_id="session-1"):
 def _wire_repo(repo, content):
     session = make_session()
     repo.get_session.return_value = session
-    repo.get_conversation_history.return_value = [{"role": "user", "content": content}]
     repo.count_messages.return_value = 2
     user_message = make_message("um-1", content)
     saved = {}
@@ -85,6 +85,7 @@ def make_memory_chat_manager(scripts):
         tool_executor=executor,
         tool_services=ToolServices(llm_memory_repository=make_memory_repository()),
         turn_engine=turn_engine_for(llm_service, executor),
+        replay_selector=policy_replay,
     )
     return manager, repo, llm_service
 

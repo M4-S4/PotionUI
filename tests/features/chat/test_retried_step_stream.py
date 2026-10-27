@@ -6,6 +6,8 @@ import pytest
 
 from src.features.chat.repository import ChatRepository
 from src.features.chat.runtime import ChatRuntime
+from src.features.llm.harness.messages import Role
+from src.features.llm.harness.replay import policy_replay
 from src.features.llm.harness.events import (
     Finish,
     FinishReason,
@@ -64,6 +66,7 @@ def _manager(tool, llm):
         tool_executor=executor,
         tool_services=ToolServices(),
         turn_engine=turn_engine_for(llm, executor),
+        replay_selector=policy_replay,
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id
@@ -118,7 +121,8 @@ async def test_a_retried_step_is_announced_and_its_text_and_thinking_are_not_kep
     done = next(event["data"] for event in events if event["event"] == "done")
     saved = repo.get_message(done["assistant_message"]["id"])
     assert saved.content == "Saving it. Saved."
-    assert [segment["text"] for segment in saved.metadata["thinking"]["segments"]] == ["kept plan"]
+    stored = [step.message for step in manager.turn_engine.store.steps(session_id) if step.message.role is Role.ASSISTANT]
+    assert [part.text for message in stored for part in message.reasoning()] == ["kept plan"]
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,7 @@ import pytest
 
 from src.features.chat.repository import ChatRepository
 from src.features.chat.runtime import ChatRuntime
+from src.features.llm.harness.replay import policy_replay
 from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.executor import ToolExecutor
 from src.features.llm.tools.registry import ToolRegistry
@@ -49,6 +50,7 @@ def _manager(llm):
         tool_executor=executor,
         tool_services=ToolServices(),
         turn_engine=turn_engine_for(llm, executor),
+        replay_selector=policy_replay,
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id

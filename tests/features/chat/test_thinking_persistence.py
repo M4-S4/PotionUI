@@ -24,8 +24,8 @@ SECRET = "SECRET-PLAN-7731"
 
 
 
-def _ThinkingLLM(turns=None, show_thinking=True):
-    return scripted_llm(turns or [], show_thinking=show_thinking)
+def _ThinkingLLM(turns=None, show_thinking=True, **config):
+    return scripted_llm(turns or [], show_thinking=show_thinking, **config)
 
 
 async def _paused_with_thinking(show_thinking=True):
@@ -42,51 +42,54 @@ async def _paused_with_thinking(show_thinking=True):
 
 
 def _read(manager, session_id):
-    return manager.get_session(session_id, USER_ID).messages[-1].metadata
+    return manager.get_session(session_id, USER_ID).messages[-1]
 
 
-class TestStoredWithTheMessage:
+def _stored_reasoning(manager, session_id):
+    return [
+        part.text
+        for step in manager.turn_engine.store.steps(session_id)
+        for part in step.message.reasoning()
+    ]
+
+
+class TestProjectedFromTheSteps:
     @pytest.mark.asyncio
-    async def test_a_paused_turn_stores_the_reasoning_before_its_tool_call(self, chat_db):
-        _m, repo, _sid, _llm, message_id = await _paused_with_thinking()
+    @pytest.mark.parametrize("show_thinking", [True, False])
+    async def test_a_paused_turn_stores_the_reasoning_before_its_tool_call(self, chat_db, show_thinking):
+        manager, _repo, session_id, _llm, _mid = await _paused_with_thinking(show_thinking)
 
-        segments = repo.get_message(message_id).metadata["thinking"]["segments"]
-
-        assert [s["text"] for s in segments] == [SECRET]
-
-    @pytest.mark.asyncio
-    async def test_nothing_is_stored_while_the_knob_is_off(self, chat_db):
-        _m, repo, _sid, _llm, message_id = await _paused_with_thinking(show_thinking=False)
-
-        assert "thinking" not in repo.get_message(message_id).metadata
+        assert _stored_reasoning(manager, session_id) == [SECRET]
 
     @pytest.mark.asyncio
     async def test_reopening_shows_it_while_the_knob_is_on(self, chat_db):
         manager, _repo, session_id, _llm, _mid = await _paused_with_thinking()
 
-        assert _read(manager, session_id)["thinking"]["segments"][0]["text"] == SECRET
+        [block] = _read(manager, session_id).reasoning
+
+        assert (block.kind, block.text) == ("raw", SECRET)
 
     @pytest.mark.asyncio
     async def test_reopening_hides_it_when_the_knob_is_turned_off_and_restores_it_on_again(self, chat_db):
-        manager, repo, session_id, llm, message_id = await _paused_with_thinking()
+        manager, _repo, session_id, llm, _message_id = await _paused_with_thinking()
 
         set_config(llm, show_thinking=False)
         hidden = _read(manager, session_id)
         set_config(llm, show_thinking=True)
         shown = _read(manager, session_id)
 
-        assert "thinking" not in hidden
-        assert shown["thinking"]["segments"][0]["text"] == SECRET
-        assert repo.get_message(message_id).metadata["thinking"]["segments"][0]["text"] == SECRET
+        assert hidden.reasoning is None
+        assert SECRET not in hidden.model_dump_json()
+        assert [block.text for block in shown.reasoning] == [SECRET]
 
     @pytest.mark.asyncio
     async def test_resolving_the_tool_keeps_the_stored_reasoning(self, chat_db):
-        manager, repo, session_id, llm, message_id = await _paused_with_thinking()
+        manager, _repo, session_id, llm, message_id = await _paused_with_thinking()
         set_config(llm, show_thinking=False)
 
         await _resolve(manager, session_id, message_id, approved=False, reason="no")
 
-        assert repo.get_message(message_id).metadata["thinking"]["segments"][0]["text"] == SECRET
+        assert _stored_reasoning(manager, session_id) == [SECRET]
 
     @pytest.mark.asyncio
     async def test_a_message_page_is_gated_like_the_session(self, chat_db):
@@ -97,8 +100,18 @@ class TestStoredWithTheMessage:
         set_config(llm, show_thinking=True)
         shown, _ = manager.get_session_messages(session_id, USER_ID)
 
-        assert "thinking" not in hidden[-1].metadata
-        assert "thinking" in shown[-1].metadata
+        assert hidden[-1].reasoning is None
+        assert [block.text for block in shown[-1].reasoning] == [SECRET]
+
+    @pytest.mark.asyncio
+    async def test_the_stored_row_carries_no_reasoning_copy(self, chat_db):
+        _m, repo, _sid, _llm, message_id = await _paused_with_thinking()
+
+        metadata = repo.get_message(message_id).metadata
+
+        assert "thinking" not in metadata
+        assert "tool_transcript" not in metadata
+        assert SECRET not in json.dumps(metadata)
 
 
 def _tool_call_messages(call):
@@ -148,7 +161,7 @@ class TestBackInTheContextWithinTheTurn:
             {"content": "first answer"},
             {"thinking": SECRET, "tool_calls": [_call("c1", "set_value", value=2)]},
             {"content": "Set to 2."},
-        ])
+        ], profile_overrides={"replay": "drop_earlier"})
         manager, _repo, session_id = _manager([_SetValueTool(), _EchoTool()], llm)
         await _stream(manager, session_id, "look around")
         message_id = _done(await _stream(manager, session_id, "set it to 2"))["assistant_message"]["id"]
@@ -164,7 +177,10 @@ class TestBackInTheContextWithinTheTurn:
 
     @pytest.mark.asyncio
     async def test_the_next_user_turn_does_not_replay_it(self, chat_db):
-        llm = _ThinkingLLM([{"thinking": SECRET, "content": "first answer"}, {"content": "second answer"}])
+        llm = _ThinkingLLM(
+            [{"thinking": SECRET, "content": "first answer"}, {"content": "second answer"}],
+            profile_overrides={"replay": "drop_earlier"},
+        )
         manager, _repo, session_id = _manager([_SetValueTool()], llm)
         await _stream(manager, session_id, "hello")
 
@@ -174,55 +190,29 @@ class TestBackInTheContextWithinTheTurn:
         assert "first answer" in json.dumps(llm.adapter.calls[-1], default=str)
 
     @pytest.mark.asyncio
-    async def test_a_new_message_after_a_paused_turn_does_not_replay_it(self, chat_db):
+    async def test_a_reply_to_a_paused_turn_continues_it_with_its_reasoning(self, chat_db):
         manager, _repo, session_id, llm, _message_id = await _paused_with_thinking()
 
         await _stream(manager, session_id, "never mind, do something else")
 
-        assert SECRET not in json.dumps(llm.adapter.calls[-1], default=str)
+        (sent,) = _tool_call_messages(llm.adapter.calls[-1])
+        assert sent["reasoning"] == SECRET
 
 
-class TestStoredForReplayRegardlessOfTheKnob:
+class TestNeverShownThroughTheMetadata:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("show_thinking", [True, False])
-    async def test_the_round_keeps_its_reasoning_in_the_transcript(self, chat_db, show_thinking):
-        _m, repo, _sid, _llm, message_id = await _paused_with_thinking(show_thinking)
-
-        transcript = repo.get_message(message_id).metadata["tool_transcript"]
-
-        assert [round_["reasoning"] for round_ in transcript] == [SECRET]
-
-    @pytest.mark.asyncio
-    async def test_resolving_the_tool_keeps_it(self, chat_db):
-        manager, repo, session_id, _llm, message_id = await _paused_with_thinking(show_thinking=False)
-
-        await _resolve(manager, session_id, message_id)
-
-        assert repo.get_message(message_id).metadata["tool_transcript"][0]["reasoning"] == SECRET
-
-
-class TestNeverShownThroughTheTranscript:
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("show_thinking", [True, False])
-    async def test_reopening_the_session_leaves_it_out_of_the_transcript(self, chat_db, show_thinking):
+    async def test_reopening_the_session_leaves_it_out_of_the_metadata(self, chat_db, show_thinking):
         manager, _repo, session_id, _llm, _mid = await _paused_with_thinking(show_thinking)
 
-        transcript = _read(manager, session_id)["tool_transcript"]
+        metadata = _read(manager, session_id).metadata
 
-        assert transcript and not any("reasoning" in round_ for round_ in transcript)
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("show_thinking", [True, False])
-    async def test_a_message_page_leaves_it_out_of_the_transcript(self, chat_db, show_thinking):
-        manager, _repo, session_id, _llm, _mid = await _paused_with_thinking(show_thinking)
-
-        page, _ = manager.get_session_messages(session_id, USER_ID)
-
-        assert not any("reasoning" in round_ for round_ in page[-1].metadata["tool_transcript"])
+        assert "tool_transcript" not in metadata and "thinking" not in metadata
+        assert SECRET not in json.dumps(metadata)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("show_thinking", [True, False])
-    async def test_the_done_event_leaves_it_out_of_the_transcript(self, chat_db, show_thinking):
+    async def test_the_done_event_leaves_the_reasoning_to_the_stream(self, chat_db, show_thinking):
         llm = _ThinkingLLM(
             [{"thinking": SECRET, "tool_calls": [_call("c1", "set_value", value=2)]}], show_thinking=show_thinking,
         )
@@ -230,8 +220,9 @@ class TestNeverShownThroughTheTranscript:
 
         message = _done(await _stream(manager, session_id, "set it to 2"))["assistant_message"]
 
-        assert message["metadata"]["tool_transcript"][0]["calls"][0]["id"] == "c1"
-        assert not any("reasoning" in round_ for round_ in message["metadata"]["tool_transcript"])
+        assert message["metadata"]["tool_executions"][0]["tool_call_id"] == "c1"
+        assert "reasoning" not in message
+        assert SECRET not in json.dumps(message)
 
     @pytest.mark.asyncio
     async def test_a_long_reasoning_chain_does_not_inflate_the_done_payload(self, chat_db):
@@ -249,16 +240,15 @@ class TestNeverShownThroughTheTranscript:
             {"thinking": SECRET, "tool_calls": [_call("e1", "echo")]},
             {"content": "done"},
         ])
-        manager, repo, session_id = _manager([_EchoTool()], llm)
+        manager, _repo, session_id = _manager([_EchoTool()], llm)
 
         response = await manager.send_message(
             session_id=session_id, user_id=USER_ID, content="look around", context_metadata=copy.deepcopy(CONTEXT),
         )
 
-        shown = response.assistant_message.metadata["tool_transcript"]
-        stored = repo.get_message(response.assistant_message.id).metadata["tool_transcript"]
-        assert shown and not any("reasoning" in round_ for round_ in shown)
-        assert [round_["reasoning"] for round_ in stored] == [SECRET]
+        assert response.assistant_message.reasoning is None
+        assert SECRET not in response.assistant_message.model_dump_json()
+        assert _stored_reasoning(manager, session_id) == [SECRET]
 
 
 class TestDoneLeavesTheThinkingToTheStream:
@@ -267,6 +257,7 @@ class TestDoneLeavesTheThinkingToTheStream:
     async def _long_turn(self):
         llm = _ThinkingLLM([{"thinking": self.LONG, "content": "the answer"}])
         manager, repo, session_id = _manager([_SetValueTool()], llm)
+        self.store = manager.turn_engine.store
         registry = ChatTurnRegistry()
         turn = registry.start(
             session_id,
@@ -279,23 +270,24 @@ class TestDoneLeavesTheThinkingToTheStream:
         return repo, session_id, turn
 
     @pytest.mark.asyncio
-    async def test_the_done_payload_has_no_thinking_and_stays_under_the_retention_cap(self, chat_db):
+    async def test_the_done_payload_has_no_reasoning_and_stays_under_the_retention_cap(self, chat_db):
         _repo, _sid, turn = await self._long_turn()
 
         done = next(e for e in turn.events if e["event"] == "done")
 
         assert not done["data"].get("truncated")
-        assert "thinking" not in done["data"]["assistant_message"]["metadata"]
+        assert "reasoning" not in done["data"]["assistant_message"]
         assert len(json.dumps(done)) < 16 * 1024
 
     @pytest.mark.asyncio
-    async def test_the_stored_row_keeps_the_whole_reasoning(self, chat_db):
+    async def test_the_stored_steps_keep_the_whole_reasoning(self, chat_db):
         repo, session_id, turn = await self._long_turn()
 
         done = next(e for e in turn.events if e["event"] == "done")
-        stored = repo.get_message(done["data"]["assistant_message"]["id"]).metadata["thinking"]["segments"]
+        row = repo.get_message(done["data"]["assistant_message"]["id"])
+        steps = self.store.turn_steps(row.turn_id)
 
-        assert [s["text"] for s in stored] == [self.LONG]
+        assert [part.text for step in steps for part in step.message.reasoning()] == [self.LONG]
 
     @pytest.mark.asyncio
     async def test_the_thinking_still_streams_in_pieces_before_done(self, chat_db):

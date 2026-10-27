@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from src.platform.security.failure_text import failure_detail
+from src.features.chat import projection
+from src.features.chat.decisions import rejections_for_reply
 from src.features.chat.dto import MessageResponse, SessionResponse, SendMessageResponse
 from src.features.chat.exceptions import (
     AdminOnlyModeException,
@@ -20,18 +22,16 @@ from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
 from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
-from src.features.chat.thinking import (
-    ReasoningCapture, config_shows_thinking, dict_without_replay_reasoning, without_streamed_thinking,
-)
-from src.features.chat.tool_transcript import tool_metadata
+from src.features.chat.history import replayed_history
+from src.features.chat.thinking import ReasoningCapture, config_shows_thinking
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.harness.adapter import Settings
-from src.features.llm.harness.build import user_message
+from src.features.llm.harness.build import new_id, user_message
 from src.features.llm.harness.engine import BudgetExhausted, TurnInput, TurnOutcome
 from src.features.llm.harness.events import ReasoningDelta, TextDelta
-from src.features.llm.harness.legacy import messages_from_dicts
-from src.features.llm.harness.messages import ContextPart, Message, Role
-from src.features.llm.harness.turn_state import NoticeRaised, StepCommitted, StepDiscarded, ToolFinished, ToolStarted
+from src.features.llm.harness.messages import LEGACY_ORIGIN, ContextPart, Message, Origin, Role
+from src.features.llm.harness.profile import CapabilityProfile
+from src.features.llm.harness.turn_state import NoticeRaised, StepCommitted, StepDiscarded, ToolFinished, ToolStarted, TurnState
 from src.features.llm.trace_repository import chat_call_trace_repository
 from src.features.llm.tools.base import ToolExecution
 from src.features.llm.tools.executor import ToolExecutor
@@ -167,11 +167,13 @@ class ConversationRunner:
         if not session.llm_config_id:
             raise InvalidLLMConfigException("Session has no LLM configuration")
 
-        continuation = (
-            self._m._tools.continuation(session_id, continue_from) if continue_from else None
-        )
+        continuing = bool(continue_from)
+        paused: Optional[TurnState] = None
+        approval_execution: Dict[str, Any] = {}
+        if continuing:
+            paused, approval_execution, continued_context = self._m._tools.continuation(session_id, continue_from)
 
-        if continuation is None:
+        if not continuing:
             hook_data, blocked, hook_ctx = self._m._execute_hook(
                 CHAT_MESSAGE_HOOKS.before_send,
                 {"session_id": session_id, "user_id": user_id, "content": content, "image_data": image_data},
@@ -187,7 +189,7 @@ class ConversationRunner:
             image_data = None
             resources = None
             if context_metadata is None:
-                context_metadata = continuation.context_metadata
+                context_metadata = continued_context
 
         step_records = run.step_records
 
@@ -216,7 +218,16 @@ class ConversationRunner:
 
         user_row = None
         resolved_message = None
-        if continuation is None:
+        rejections: List[Any] = []
+        if not continuing:
+            paused = self._m._tools.open_turn(session_id)
+            rejections = rejections_for_reply(paused, content)
+            if rejections:
+                resolved_message = await self._m._tools.mark_rejected_for_reply(session_id, paused, rejections)
+            else:
+                paused = None
+        turn_id = paused.turn_id if paused is not None else new_id("turn")
+        if not continuing:
             user_metadata: Dict[str, Any] = {}
             if image_data:
                 user_metadata["image_path"] = image_data
@@ -228,12 +239,12 @@ class ConversationRunner:
                 preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
                 if preset_id:
                     user_metadata["preset_id"] = preset_id
-            resolved_message = await self._m._tools.reject_pending_for_reply(session_id, content)
             user_row = self._m.chat_repository.add_message(
                 session_id=session_id,
                 role='user',
                 content=content,
                 metadata=user_metadata if user_metadata else None,
+                turn_id=turn_id,
             )
             if not user_row:
                 raise MessageCreationFailedException("Failed to save user message")
@@ -244,20 +255,17 @@ class ConversationRunner:
         tool_scope = self._m._context.resolve_tool_scope(session, form_state)
         system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
             session, form_state=form_state, tool_tier=tool_tier, scope=tool_scope,
-            loaded_groups=continuation.loaded_groups if continuation else (),
+            loaded_groups=paused.loaded_tool_groups if paused is not None else (),
         )
         tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
-        history_rows = self._m.chat_repository.get_conversation_history(
-            session_id,
-            include_tool_transcript=tools_enabled,
-            reasoning_message_ids=continuation.turn_message_ids if continuation else (),
+        replay_target, replay_profile = self._replay_target(session)
+        conversation_history = replayed_history(
+            self._m.turn_engine.store, self._m.replay_selector, session_id, turn_id,
+            replay_target, replay_profile, tools_enabled=tools_enabled,
         )
         image_base64 = convert_image_to_base64(image_data)
-        if continuation is None and history_rows and history_rows[-1].get("role") == "user":
-            history_rows = history_rows[:-1]
-        conversation_history, _ = messages_from_dicts(history_rows)
-        if continuation is None:
+        if not continuing:
             conversation_history.append(user_message(
                 content, images=(image_base64,) if image_base64 else (), message_id=user_row.id,
             ))
@@ -271,6 +279,7 @@ class ConversationRunner:
             },
         )
         conversation_history = list(gen_hook_data.get("conversation_history", conversation_history))
+        injected = list(conversation_history) if continuing else conversation_history
 
         withheld_tools = self._m._context.withheld_tools_for_session(
             session, form_state=form_state, scope=tool_scope,
@@ -289,7 +298,7 @@ class ConversationRunner:
         memory_start = time.monotonic()
         yield {"event": "status", "data": {"step": "loading_memory", "state": "started"}}
         memory_result = self._m._context.inject_memory_block(
-            conversation_history, context_metadata, user_id,
+            injected, context_metadata, user_id,
             write_memory_available="write_memory" in (allowed_tools or []),
             mode_id=session.mode,
         )
@@ -308,38 +317,44 @@ class ConversationRunner:
             },
         }
 
-        history_info = self._apply_history_budget(conversation_history)
+        history_info = self._apply_history_budget(injected)
+        if continuing:
+            self._apply_history_budget(conversation_history)
 
-        await self._m._context.inject_contributor_block(conversation_history, session, context_metadata, user_id)
-        self._m._context.inject_resource_block(conversation_history, resolved_resources)
+        await self._m._context.inject_contributor_block(injected, session, context_metadata, user_id)
+        self._m._context.inject_resource_block(injected, resolved_resources)
         offered_tool_names = set(allowed_tools or ()).union(*(deferred_tools or {}).values())
         workspace_result = self._m._context.inject_workspace_block(
-            conversation_history, context_metadata, offered_tools=offered_tool_names,
+            injected, context_metadata, offered_tools=offered_tool_names,
         )
         self._m._context.inject_prompt_state_block(
-            conversation_history, context_metadata, offered_tools=offered_tool_names,
+            injected, context_metadata, offered_tools=offered_tool_names,
             variable_reader=self._m._context.prompt_state_variable_reader(user_id, context_metadata),
         )
-        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
-        self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
+        self._m._context.inject_reply_contract_reminder_block(injected, mode, tool_tier)
+        self._m._context.inject_tool_availability_block(injected, allowed_tools, withheld_tools)
 
-        if continuation is None:
-            history, new_messages = self._split_current_user(conversation_history)
+        if not continuing:
+            history, new_messages = self._split_current_user(injected)
+            ledger_messages = [*history, *new_messages]
         else:
             history = tuple(conversation_history)
-            note = approval_continuation_message(continuation.tool_name, continuation.tool_call_id)
+            note = approval_continuation_message(
+                approval_execution.get("tool_name") or "", approval_execution.get("tool_call_id") or "",
+            )
             new_messages = (Message(
-                id=f"approval_{continuation.tool_call_id}",
+                id=f"approval_{approval_execution.get('tool_call_id')}",
                 role=Role.USER,
                 parts=(ContextPart(kind="approval", text=note["content"]),),
             ),)
+            ledger_messages = [*injected, *new_messages]
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
         settings = Settings.from_options(mode.llm_options)
         budget_accounting = self._resolve_budget_inputs(session, settings)
         try:
             context_ledger = self._build_context_ledger(
-                system_prompt, tool_schemas, memory_result, [*history, *new_messages],
+                system_prompt, tool_schemas, memory_result, ledger_messages,
                 accounting=budget_accounting,
             )
         except context_budget.ContextBudgetExceededError as e:
@@ -369,7 +384,6 @@ class ConversationRunner:
             "user_message_id": user_row.id if user_row else None, "assistant_message_id": "",
         }}
 
-        base_rounds = continuation.rounds_used if continuation else 0
         show_thinking = config_shows_thinking(self._m.llm_service, session.llm_config_id)
         reasoning = ReasoningCapture(show_thinking)
         thinking_start = time.monotonic()
@@ -381,8 +395,6 @@ class ConversationRunner:
             },
         }
         answering_start: Optional[float] = None
-        full_content = ""
-        kept_length = 0
         outcome: Optional[TurnOutcome] = None
 
         turn_input = TurnInput(
@@ -398,11 +410,12 @@ class ConversationRunner:
             ),
             allowed_tools=tuple(allowed_tools) if allowed_tools is not None else None,
             deferred_tools={group: tuple(names) for group, names in (deferred_tools or {}).items()},
-            max_rounds=max(0, _MAX_TOOL_ROUNDS - base_rounds),
+            max_rounds=_MAX_TOOL_ROUNDS,
             iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
-            applied_calls=frozenset(continuation.applied_calls) if continuation else frozenset(),
             mode=mode.id,
-            tools_in_use=self._m.turn_engine.previous_tools(session_id),
+            turn_id=turn_id,
+            tools_in_use=paused.snapshot.tools if paused is not None else self._m.turn_engine.previous_tools(session_id),
+            resume=(tuple(rejections) if rejections else ()) if paused is not None else None,
         )
 
         with trace_collector.activate(session_id, user_id, purpose="chat_tools" if tools_enabled else "chat"):
@@ -422,7 +435,6 @@ class ConversationRunner:
                                 "duration_ms": int((answering_start - thinking_start) * 1000),
                             })
                             yield {"event": "status", "data": {"step": "answering", "state": "started"}}
-                        full_content += event.text
                         yield {"event": "token", "data": {"content": event.text}}
                     elif isinstance(event, ToolStarted):
                         yield {"event": "tool_start", "data": {
@@ -442,14 +454,9 @@ class ConversationRunner:
                             "detail": dict(event.notice.detail or {}),
                         }}
                     elif isinstance(event, StepDiscarded):
-                        full_content = full_content[:kept_length]
-                        reasoning.discard()
                         yield {"event": "step_discarded", "data": {"seq": event.seq}}
                     elif isinstance(event, StepCommitted):
                         step = event.step
-                        if step.message.role is Role.ASSISTANT:
-                            kept_length = len(full_content)
-                            reasoning.keep()
                         if step.message.role is Role.ASSISTANT and step.finish is not None:
                             yield {"event": "step", "data": {
                                 "seq": step.seq,
@@ -474,13 +481,15 @@ class ConversationRunner:
             "duration_ms": int((time.monotonic() - answering_start) * 1000),
         })
 
-        if not full_content and outcome is not None:
-            full_content = outcome.content
-        usage = outcome.usage if outcome is not None and outcome.model_generated else None
-        last_usage = outcome.last_usage if outcome is not None and outcome.model_generated else None
-        cleaned_content, parsed_content = self._m.response_processor.process(full_content, mode=session.mode)
+        if outcome is None:
+            raise _AssistantNotSaved("The turn produced no result")
+        usage = outcome.usage if outcome.model_generated else None
+        steps = list(outcome.steps)
+        cleaned_content, parsed_content = self._m.response_processor.process(
+            projection.segment_text(steps), mode=session.mode,
+        )
 
-        assistant_metadata: Dict[str, Any] = {
+        extra: Dict[str, Any] = {
             'behavior_trace': self._build_behavior_trace(
                 mode=mode,
                 session=session,
@@ -488,8 +497,8 @@ class ConversationRunner:
                 memory_result=memory_result,
                 workspace_result=workspace_result,
                 pre_chat_results=pre_chat_results,
-                tool_executions=list(outcome.executions) if outcome else [],
-                rescues=outcome.rescues if outcome else None,
+                tool_executions=list(outcome.executions),
+                rescues=outcome.rescues,
                 prompt_tokens=usage.input_tokens if usage else None,
                 completion_tokens=usage.output_tokens if usage else None,
                 steps=step_records,
@@ -498,31 +507,30 @@ class ConversationRunner:
                 history_info=history_info,
                 image_base64=image_base64,
                 context_ledger=context_ledger,
-                tool_failures=outcome.tool_failures if outcome else None,
-                thinking_mode=outcome.thinking_mode if outcome else None,
-                completion=outcome.completion if outcome else None,
+                tool_failures=outcome.tool_failures,
+                thinking_mode=outcome.thinking_mode,
+                completion=outcome.completion,
                 tool_tier=tool_tier,
                 tools_deferred=deferred_tools,
                 thinking_visible=show_thinking,
             ),
         }
-        segments = reasoning.segments()
-        if segments:
-            assistant_metadata['thinking'] = {"segments": segments}
-        assistant_metadata['tokens_used'] = usage.total_tokens if usage else None
-        assistant_metadata['prompt_tokens'] = last_usage.input_tokens if last_usage else None
-        assistant_metadata['completion_tokens'] = usage.output_tokens if usage else None
-        assistant_metadata.update(tool_metadata(
-            list(outcome.executions) if outcome else [],
-            list(outcome.transcript) if outcome else [],
-            base_rounds + (outcome.rounds_used if outcome else 0),
-            context_metadata,
-        ))
-        if continuation is not None:
-            assistant_metadata['continued_from'] = {
-                "message_id": continuation.message_id,
-                "tool_index": continuation.tool_index,
+        if continuing:
+            extra['continued_from'] = {
+                "message_id": continue_from["message_id"],
+                "tool_index": continue_from["tool_index"],
             }
+        assistant_metadata = projection.assistant_metadata(
+            steps,
+            outcome.state,
+            records={
+                execution.tool_call_id: projection.execution_record(execution)
+                for execution in outcome.executions
+                if execution.tool_call_id
+            },
+            context_metadata=context_metadata,
+            extra=extra,
+        )
 
         assistant_row = self._m.chat_repository.add_message(
             session_id=session_id,
@@ -530,6 +538,7 @@ class ConversationRunner:
             content=cleaned_content,
             parsed_content=parsed_content,
             metadata=assistant_metadata,
+            turn_id=turn_id,
         )
         if not assistant_row:
             raise _AssistantNotSaved("Failed to save assistant message")
@@ -555,11 +564,18 @@ class ConversationRunner:
         self._start_reflection_task(session_id, form_state)
 
         run.done = {
-            "assistant_message": dict_without_replay_reasoning(without_streamed_thinking(assistant_row.model_dump())),
+            "assistant_message": self._presented(assistant_row, turn_id).model_dump(),
             "user_message": user_row.model_dump() if user_row else None,
             "resolved_message": resolved_message,
         }
         yield {"event": "done", "data": run.done}
+
+    def _presented(self, row: MessageResponse, turn_id: str) -> MessageResponse:
+        store = self._m.turn_engine.store
+        [presented] = projection.present(
+            [row], store.steps_by_turn([turn_id]), store.states([turn_id]), show_thinking=False,
+        )
+        return presented
 
     @staticmethod
     def _split_current_user(history: List[Message]) -> Tuple[Tuple[Message, ...], Tuple[Message, ...]]:
@@ -624,6 +640,16 @@ class ConversationRunner:
                 await self._m.llm_service.profiles.ensure(config)
         except Exception:
             logger.debug("Could not prime LLM context window", exc_info=True)
+
+    def _replay_target(self, session: SessionResponse) -> Tuple[Origin, CapabilityProfile]:
+        try:
+            service = self._m.llm_service
+            config = service.repository.get_configuration(session.llm_config_id)
+            adapter = service.types.require(config.type).adapter
+            return Origin.for_config(adapter.name, config), service.profiles.resolve(config)
+        except Exception:
+            logger.debug("Could not resolve the replay target for the session", exc_info=True)
+            return LEGACY_ORIGIN, CapabilityProfile(adapter=LEGACY_ORIGIN.adapter, model="")
 
     def _tool_tier(self, session: SessionResponse) -> str:
         llm_config_id = getattr(session, "llm_config_id", None)
