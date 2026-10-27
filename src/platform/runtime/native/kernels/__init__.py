@@ -1,14 +1,11 @@
-from .attention import (
+from .dispatch import (
     BACKEND_PRIORITY,
-    PIN_ONLY_BACKENDS,
     attention,
     available_backends,
     get_attention_backend,
     get_backend_override,
     known_backends,
     reset_backend_cache,
-    set_backend_override,
-    supports_grouped_kv,
 )
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
@@ -28,7 +25,6 @@ from .hardware import (
 __all__ = [
     "BACKEND_PRIORITY",
     "FLASH",
-    "PIN_ONLY_BACKENDS",
     "SAGE",
     "SAGE2",
     "SAGE3",
@@ -47,6 +43,4 @@ __all__ = [
     "known_backends",
     "refresh_capabilities",
     "reset_backend_cache",
-    "set_backend_override",
-    "supports_grouped_kv",
 ]

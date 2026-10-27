@@ -455,8 +455,8 @@ class SpargeAttention(AttentionBackendOptimization):
     UNLIKE every other entry in this catalog, this is an APPROXIMATION, not a
     numerically near-lossless kernel swap — output quality depends on content
     and the sparsity/accuracy tradeoff (its tune-free default is ``topk=0.5``;
-    see ``kernels/attention.py``'s ``_sparge`` wrapper). For that reason the dispatcher
-    never auto-selects it (``kernels.PIN_ONLY_BACKENDS``): installing it only
+    see ``kernels/dispatch.py``'s ``_sparge`` wrapper). For that reason the dispatcher
+    never auto-selects it (``PIN_ONLY_BACKENDS`` in ``kernels/dispatch.py``): installing it only
     makes it available as an explicit ``$NATIVE_ATTENTION=sparge`` / admin pin
     (this panel's activate control), never picked automatically no matter how
     available it is — see ``kernels.get_attention_backend``.

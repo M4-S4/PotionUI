@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import importlib
-
 import pytest
 import torch
 import torch.nn.functional as F
 
+import src.platform.runtime.native.kernels.dispatch as att
 from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
-
-att = importlib.import_module("src.platform.runtime.native.kernels.attention")
 
 
 @pytest.fixture(autouse=True)

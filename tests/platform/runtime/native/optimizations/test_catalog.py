@@ -500,9 +500,7 @@ class TestActivate:
         assert result == {"active_backend": "flash"}
 
     def test_activate_picks_up_a_backend_installed_after_the_snapshot_was_built(self, monkeypatch, install_capabilities):
-        import importlib
-
-        attention = importlib.import_module("src.platform.runtime.native.kernels.attention")
+        import src.platform.runtime.native.kernels.dispatch as attention
 
         monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
         install_capabilities(fake_capabilities(ampere()))

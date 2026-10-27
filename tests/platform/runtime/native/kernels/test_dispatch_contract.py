@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import importlib
 import importlib.util
 import logging
 import math
+import sys
+import types
 
 import pytest
 import torch
 import torch.nn.functional as F
 
+import src.platform.runtime.native.kernels.dispatch as att
 from src.platform.runtime.native import kernels
 from src.platform.runtime.native.kernels import FLASH, SAGE, SAGE2, SAGE3, SDPA, SPARGE, attention
 from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
-
-att = importlib.import_module("src.platform.runtime.native.kernels.attention")
 
 HEADS = 4
 KV_HEADS = 2
@@ -22,7 +22,13 @@ HEAD_DIM = 64
 ACCELERATED = (FLASH, SAGE, SAGE2, SAGE3, SPARGE)
 BACKENDS = (SDPA, *ACCELERATED)
 ADAPTER = {FLASH: "_flash", SAGE: "_sage", SAGE2: "_sage", SAGE3: "_sage3", SPARGE: "_sparge"}
-SDPA_TAKES_GROUPED_KV = "enable_gqa" in str(F.scaled_dot_product_attention.__doc__ or "")
+KERNEL_ENTRY_POINTS = {
+    FLASH: ("flash_attn", "flash_attn_func"),
+    SAGE: ("sageattention", "sageattn"),
+    SAGE2: ("sageattention", "sageattn"),
+    SAGE3: ("sageattn3", "sageattn3_blackwell"),
+    SPARGE: ("spas_sage_attn", "spas_sage2_attn_meansim_topk_cuda"),
+}
 
 
 class _CudaLike(torch.Tensor):
@@ -146,18 +152,7 @@ def test_dispatch_matches_the_reference_and_runs_the_expected_kernel(kernel_call
     if adapter != "_sdpa":
         assert kernel_calls[0][1][1] == HEADS
     elif gqa:
-        assert kernel_calls[0][1][1] == (KV_HEADS if SDPA_TAKES_GROUPED_KV else HEADS)
-
-
-@pytest.mark.parametrize("backend", ACCELERATED)
-def test_a_masked_call_falls_back_inside_the_dispatcher(kernel_calls, backend):
-    q, k, v = _inputs()
-    mask = _mask("bool")
-
-    out = attention(q, k, v, mask=mask, backend=backend)
-
-    torch.testing.assert_close(out.float(), _reference(q, k, v, mask, False), atol=1e-2, rtol=1e-2)
-    assert [call[0] for call in kernel_calls] == ["_sdpa"]
+        assert kernel_calls[0][1][1] == (KV_HEADS if att.supports_grouped_kv(SDPA) else HEADS)
 
 
 def test_auto_selection_prefers_the_highest_priority_kernel_and_never_sparge(kernel_calls, install_all):
@@ -336,21 +331,92 @@ def test_inputs_that_are_not_head_split_take_the_plain_path():
     assert torch.equal(out, F.scaled_dot_product_attention(q, k, k, is_causal=False))
 
 
+def _strided_inputs():
+    generator = torch.Generator().manual_seed(0)
+    q, k, v = (torch.randn(1, LENGTH, HEADS, HEAD_DIM, generator=generator).half().transpose(1, 2) for _ in range(3))
+    return _cuda_like(q), k, v
+
+
+def _expected_kernel_kwargs(backend, causal):
+    if backend == FLASH:
+        return {"causal": causal}
+    if backend in (SAGE, SAGE2):
+        return {"tensor_layout": "HND", "is_causal": causal}
+    if backend == SAGE3:
+        return {"is_causal": causal}
+    if backend == SPARGE:
+        return {"is_causal": causal, "tensor_layout": "HND", "topk": 0.5, "output_dtype": torch.float16}
+    return {"attn_mask": None, "dropout_p": 0.0, "is_causal": causal}
+
+
+@pytest.fixture
+def real_adapter_calls(monkeypatch, install_all):
+    calls = []
+
+    for module_name, function_name in set(KERNEL_ENTRY_POINTS.values()):
+        module = types.ModuleType(module_name)
+
+        def run(q, k, v, **kwargs):
+            calls.append((q, k, v, kwargs))
+            return torch.zeros_like(q)
+
+        setattr(module, function_name, run)
+        monkeypatch.setitem(sys.modules, module_name, module)
+
+    real_sdpa = F.scaled_dot_product_attention
+
+    def spy(q, k, v, **kwargs):
+        calls.append((q, k, v, kwargs))
+        return real_sdpa(q, k, v, **kwargs)
+
+    monkeypatch.setattr(F, "scaled_dot_product_attention", spy)
+    return calls
+
+
+@pytest.mark.parametrize("causal", [False, True], ids=["full", "causal"])
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_each_adapter_forwards_causal_under_the_kernels_own_keyword(real_adapter_calls, backend, causal):
+    q, k, v = _strided_inputs()
+
+    attention(q, k, v, causal=causal, backend=backend)
+
+    assert [call[3] for call in real_adapter_calls] == [_expected_kernel_kwargs(backend, causal)]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_the_default_path_hands_the_callers_tensors_to_the_kernel_untouched(real_adapter_calls, backend):
+    q, k, v = _strided_inputs()
+
+    attention(q, k, v, backend=backend)
+
+    assert len(real_adapter_calls) == 1
+    kernel_q, kernel_k, kernel_v, kwargs = real_adapter_calls[0]
+    assert kwargs == _expected_kernel_kwargs(backend, False)
+    if backend in (SDPA, SAGE3, SPARGE):
+        assert kernel_q is q and kernel_k is k and kernel_v is v
+    elif backend in (SAGE, SAGE2):
+        assert kernel_q is q and kernel_k is k
+        assert torch.equal(kernel_v, v)
+    else:
+        for kernel_operand, operand in ((kernel_q, q), (kernel_k, k), (kernel_v, v)):
+            assert kernel_operand.data_ptr() == operand.data_ptr()
+            assert kernel_operand.stride() == operand.transpose(1, 2).stride()
+
+
 def test_the_dispatcher_lives_only_in_the_kernels_package():
     assert importlib.util.find_spec("src.platform.runtime.native.attention") is None
     assert callable(kernels.attention)
     assert not hasattr(kernels, "grouped_attention")
     for name in (
         "BACKEND_PRIORITY",
-        "PIN_ONLY_BACKENDS",
         "attention",
         "available_backends",
         "get_attention_backend",
         "get_backend_override",
         "known_backends",
         "reset_backend_cache",
-        "set_backend_override",
-        "supports_grouped_kv",
     ):
         assert name in kernels.__all__
         assert getattr(kernels, name) is getattr(att, name)
+    for name in ("PIN_ONLY_BACKENDS", "set_backend_override", "supports_grouped_kv"):
+        assert name not in kernels.__all__

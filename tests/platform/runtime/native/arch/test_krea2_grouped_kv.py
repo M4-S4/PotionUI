@@ -12,7 +12,7 @@ import pytest
 import torch
 from einops import rearrange
 
-from src.platform.runtime.native import kernels as att
+import src.platform.runtime.native.kernels.dispatch as att
 from src.platform.runtime.native.arch.krea2.layers import (
     Attention,
     PositionalEncoding,

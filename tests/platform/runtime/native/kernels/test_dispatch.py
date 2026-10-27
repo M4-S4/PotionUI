@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import importlib
 import logging
 import math
 
 import pytest
 import torch
 
+import src.platform.runtime.native.kernels.dispatch as att
 from src.platform.runtime.native.kernels import FLASH, SAGE, SAGE2, SAGE3, SDPA, SPARGE
 from src.platform.settings import runtime_flags
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities, fake_device, hopper
-
-att = importlib.import_module("src.platform.runtime.native.kernels.attention")
 
 
 @pytest.fixture(autouse=True)
@@ -448,7 +446,7 @@ class _FakeSageModule:
         self.calls = []
 
     def sageattn(self, q, k, v, tensor_layout="HND", is_causal=False):
-        self.calls.append({"q": q, "k": k, "v": v})
+        self.calls.append({"q": q, "k": k, "v": v, "tensor_layout": tensor_layout, "is_causal": is_causal})
         return self.return_value
 
 
@@ -472,6 +470,21 @@ def test_sage_passes_small_v_through_to_the_kernel_unscaled(monkeypatch):
     assert torch.equal(called_v, v)
     assert torch.equal(fake.calls[0]["q"], q)
     assert torch.equal(fake.calls[0]["k"], k)
+
+
+@pytest.mark.parametrize("causal", [False, True], ids=["full", "causal"])
+@pytest.mark.parametrize("hot_v", [False, True], ids=["small-v", "hot-v"])
+@pytest.mark.parametrize("sync_rows", [0, att._SAGE_SYNC_ROWS], ids=["host-sync-branch", "sync-free-branch"])
+def test_sage_forwards_causal_in_every_scaling_branch(monkeypatch, sync_rows, hot_v, causal):
+    monkeypatch.setattr(att, "_SAGE_SYNC_ROWS", sync_rows)
+    fake = _FakeSageModule(return_value=torch.zeros(1, 2, 4, 8))
+    _patch_sageattention(monkeypatch, fake)
+    q = torch.randn(1, 2, 4, 8)
+    v = torch.full((1, 2, 4, 8), 5000.0 if hot_v else 1.0)
+
+    att._sage(q, q, v, causal)
+
+    assert [(call["tensor_layout"], call["is_causal"]) for call in fake.calls] == [("HND", causal)]
 
 
 def test_sage_small_v_returns_kernel_output_without_postscale(monkeypatch):

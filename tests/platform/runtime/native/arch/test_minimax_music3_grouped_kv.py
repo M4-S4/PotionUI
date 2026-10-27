@@ -10,19 +10,16 @@ copies of the pre-change methods, exercised through the real
 
 from __future__ import annotations
 
-import importlib
-
 import pytest
 import torch
 
+import src.platform.runtime.native.kernels.dispatch as att
 from src.platform.runtime.native.text_encoders._functional import apply_rope_qk as apply_rope
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM, _GlobalAttention
 from src.platform.runtime.native.text_encoders._functional import optimized_attention
 from vendor.gpl.comfyui.ops import disable_weight_init
 from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
-
-att = importlib.import_module("src.platform.runtime.native.kernels.attention")
 
 
 def _old_prefill(self, x, cos, sin, cache_k, cache_v):

@@ -1191,10 +1191,6 @@ class TestBackendOptimizations:
     async def test_set_attention_backend_accepts_pin_only_backend_via_mocked_known_backends(
         self, controller, admin_user, native_backend
     ):
-        # A PIN_ONLY backend (e.g. "sparge") is never in BACKEND_PRIORITY, but
-        # IS in attention.known_backends() -- the endpoint must validate against
-        # the latter (the regression this test guards: it used to validate
-        # against BACKEND_PRIORITY alone and reject every pin-only name).
         controller.backend_config_store.get_backend.return_value = native_backend
 
         with patch.multiple(
