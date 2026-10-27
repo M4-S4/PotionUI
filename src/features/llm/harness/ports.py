@@ -41,6 +41,7 @@ class ReplaySelector(Protocol):
         turn_id: str,
         target: Origin,
         profile: CapabilityProfile,
+        prefix_changed_at: Optional[int] = None,
     ) -> Tuple[Tuple[Message, ...], Tuple[Notice, ...]]: ...
 
 

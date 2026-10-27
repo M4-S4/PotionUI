@@ -276,6 +276,7 @@ def _state_json(
         "rescue_retries": 0,
         "notices": notices,
         "error": None,
+        "prefix_changed_at": None,
     })
 
 

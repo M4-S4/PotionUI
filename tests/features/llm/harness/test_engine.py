@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import pytest
 
+from src.features.llm.harness.adapter import Settings
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.engine import (
     TOOL_BUDGET_EXHAUSTED_MESSAGE,
@@ -22,20 +23,24 @@ from src.features.llm.harness.events import (
     Usage,
     UsageReported,
 )
-from src.features.llm.harness.messages import ContextPart, ImagePart, ReasoningPart, Role, TextPart, ToolCallPart
+from src.features.llm.harness.messages import ContextPart, ImagePart, Message, ReasoningPart, Role, TextPart, ToolCallPart
+from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.harness.turn_state import (
     DecisionKind,
     NoticeKind,
     NoticeRaised,
     StepCommitted,
+    StepRecord,
     StepStatus,
     ToolFinished,
     ToolStarted,
+    TurnSnapshot,
+    TurnState,
     TurnStatus,
 )
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
-from tests.fixtures.llm_engine import drain, scripted_engine, tool_context
-from tests.fixtures.llm_harness import ScriptedAdapter, text_step, tool_step
+from tests.fixtures.llm_engine import drain, scripted_config, scripted_engine, tool_context
+from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, ScriptedAdapter, text_step, tool_step
 
 
 class EchoTool(BaseTool):
@@ -388,3 +393,46 @@ async def test_streamed_tool_arguments_reach_the_next_request_verbatim():
 
     call = adapter.requests[1].messages[1].tool_calls()[0]
     assert call == ToolCallPart(call_id="c1", name="echo", args={"message": "x"}, args_raw=json.dumps({"message": "x"}))
+
+
+async def test_a_turn_records_the_seq_of_the_earliest_history_step_its_budget_trimmed():
+    adapter = ScriptedAdapter(text_step("short answer"))
+    rig = scripted_engine(adapter, config=scripted_config(max_tokens=200, profile_overrides={"context_window": 1024}))
+    stored = [
+        user_message("x" * 4000, message_id="h0"),
+        Message(id="h1", role=Role.ASSISTANT, origin=SCRIPTED_ORIGIN, parts=(TextPart(text="y" * 4000),)),
+        user_message("recent", message_id="h2"),
+        Message(id="h3", role=Role.ASSISTANT, origin=SCRIPTED_ORIGIN, parts=(TextPart(text="ok"),)),
+    ]
+    rig.store.save_state(_prior_state())
+    for seq, message in enumerate(stored):
+        rig.store.append(StepRecord(
+            id=f"st{seq}", session_id="s1", turn_id="t-old", seq=seq, message=message, status=StepStatus.COMPLETED,
+        ))
+
+    events = await drain(rig.engine.run(TurnInput(
+        session_id="s1", llm_id="cfg-scripted", system="SYS", history=tuple(stored),
+        new_messages=(user_message("now", message_id="u1"),),
+    )))
+
+    assert [message.id for message in adapter.requests[0].messages] == ["h2", "h3", "u1"]
+    assert outcome_of(events).state.prefix_changed_at == 0
+
+
+async def test_a_turn_that_trims_nothing_records_no_changed_prefix():
+    adapter = ScriptedAdapter(text_step("answer"))
+    rig = scripted_engine(adapter)
+
+    events = await drain(rig.engine.run(TurnInput(
+        session_id="s1", llm_id="cfg-scripted", system="SYS", history=(), new_messages=(user_message("hi"),),
+    )))
+
+    assert outcome_of(events).state.prefix_changed_at is None
+
+
+def _prior_state():
+    snapshot = TurnSnapshot(
+        llm_config_id="cfg-scripted", system="SYS", tools=(), settings=Settings(),
+        profile=CapabilityProfile(adapter="scripted", model="scripted-model"),
+    )
+    return TurnState(turn_id="t-old", session_id="s1", status=TurnStatus.COMPLETED, snapshot=snapshot, first_seq=0)

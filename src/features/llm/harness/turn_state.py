@@ -92,6 +92,7 @@ class TurnState:
     rescue_retries: int = 0
     notices: Tuple[Notice, ...] = ()
     error: Optional[Mapping[str, Any]] = None
+    prefix_changed_at: Optional[int] = None
 
 
 @dataclass(frozen=True)

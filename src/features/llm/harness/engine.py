@@ -209,6 +209,7 @@ class _Run:
         self.rescues: List[Dict[str, Any]] = []
         self.notices: List[Notice] = []
         self.notice_keys: set = set()
+        self.prefix_changed_at: Optional[int] = None
         self.degraded = False
         self.nudged = False
         self.profile: Optional[CapabilityProfile] = None
@@ -360,6 +361,8 @@ class _Run:
             for notice in prepared.notices:
                 for raised in self._raised(notice):
                     yield raised
+            if prepared.trimmed:
+                self._note_trimmed(prepared.trimmed)
             box.profile = prepared.profile
             if self.profile is None:
                 self.profile = prepared.profile
@@ -460,6 +463,13 @@ class _Run:
         if settings.cache_ttl is None and any(self.engine._tools.requires_approval(spec.name) for spec in self.sent_tools):
             settings = replace(settings, cache_ttl=APPROVAL_CACHE_TTL)
         return settings
+
+    def _note_trimmed(self, message_ids: Tuple[str, ...]) -> None:
+        seqs = {step.message.id: step.seq for step in self.engine._store.steps(self.turn.session_id)}
+        trimmed = [seqs[message_id] for message_id in message_ids if message_id in seqs]
+        if trimmed:
+            earliest = min(trimmed)
+            self.prefix_changed_at = earliest if self.prefix_changed_at is None else min(self.prefix_changed_at, earliest)
 
     def _next_seq(self) -> int:
         if self.first_seq is None:
@@ -614,6 +624,7 @@ class _Run:
             rescue_retries=self.rescue_retries,
             notices=tuple(self.notices),
             error=error,
+            prefix_changed_at=self.prefix_changed_at,
         )
 
     def _loaded_groups(self) -> Tuple[str, ...]:
