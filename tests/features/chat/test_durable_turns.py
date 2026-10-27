@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from src.features.chat.history import replayed_history
+from src.features.chat.exceptions import ToolExecutionPendingException
 from src.features.llm.harness import codec
 from src.features.llm.harness.adapter import RenderRequest, Settings
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
@@ -34,6 +35,12 @@ from tests.fixtures.llm_engine import scripted_config
 
 SECRET = "SECRET-PLAN-7731"
 ORIGIN = Origin(adapter="scripted", provider="scripted", model="scripted-model")
+
+
+class _SetOtherTool(_SetValueTool):
+    @property
+    def name(self) -> str:
+        return "set_other"
 
 
 class _BrokenTool(BaseTool):
@@ -259,6 +266,32 @@ class TestPausedTwice:
         assert steps[2].message.tool_results()[0].text() == "User rejected this. Reason: no, 3"
         assert tool.confirmed == 0
         assert store.open_turn(session_id) is None
+
+
+class TestSeveralApprovals:
+    @pytest.mark.asyncio
+    async def test_the_turn_continues_only_after_every_call_is_decided_and_answers_them_in_call_order(self, chat_db):
+        store = SqliteTurnStore()
+        llm = scripted_llm([
+            {"tool_calls": [_call("c1", "set_value", value=2), _call("c2", "set_other", value=5)]},
+            {"content": "Both applied."},
+        ])
+        manager, _repo, session_id = _manager([_SetValueTool(), _SetOtherTool()], llm, store=store)
+        message_id = _done(await _stream(manager, session_id, "set both"))["assistant_message"]["id"]
+        assert [call.call_id for call in store.open_turn(session_id).pending] == ["c1", "c2"]
+
+        await _resolve(manager, session_id, message_id, tool_index=1)
+        with pytest.raises(ToolExecutionPendingException):
+            await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 1})
+
+        await _resolve(manager, session_id, message_id, tool_index=0, approved=False, reason="no")
+        final = await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
+
+        (tool_message,) = [step.message for step in store.steps(session_id) if step.message.role is Role.TOOL]
+        assert [(part.call_id, part.text()) for part in tool_message.tool_results()] == [
+            ("c1", "User rejected this. Reason: no"), ("c2", json.dumps({"applied": 5})),
+        ]
+        assert _done(final)["assistant_message"]["content"] == "Both applied."
 
 
 class TestInterruptedTurns:
