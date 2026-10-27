@@ -37,6 +37,19 @@ MOVED_OUT_OF_VENDOR = [
     "_scaled_mm_fast_path_reject_reason",
     "_nvfp4_fast_path_reject_reason",
     "_quantize_fp8_dynamic",
+    "NATIVE_LORA_FUSED_ENV",
+    "RUNTIME_FLAGS",
+    "_LokrBranch",
+    "_NVFP4_LORA_BRANCH_CHUNK_BYTES",
+    "_add_lora_output_branch",
+    "_deltas_output_branch_ok",
+    "_lora_fused_enabled",
+    "_lora_output_branch",
+    "apply_lora_deltas",
+    "invalidate_lora_fused_cache",
+    "linear_with_lora_deltas",
+    "log_lora_path_summary",
+    "partition_output_branch_deltas",
 ]
 
 

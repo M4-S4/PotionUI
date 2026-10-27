@@ -31,9 +31,6 @@ from .errors import (
 )
 from .io.safetensors_loader import load_torch_file
 from .ops.dtype import pick_dtypes
-from src.platform.settings.runtime_flags import bind_vendor_runtime_flags
-
-bind_vendor_runtime_flags()
 
 __all__ = [
     "ArchRegistry",

@@ -22,7 +22,6 @@ ALLOWLIST = frozenset({
     ("src/platform/runtime/native/ops/model_tools/formats.py", "_convrot_unrotate_weight"),
     ("src/platform/runtime/native/ops/model_tools/formats.py", "_quantize_nvfp4_dynamic"),
     ("src/platform/runtime/native/ops/model_tools/formats.py", "dequantize_nvfp4"),
-    ("src/platform/settings/runtime_flags.py", "<module>"),
 })
 
 CAPABILITY_PROBE = "get_device_capability"
