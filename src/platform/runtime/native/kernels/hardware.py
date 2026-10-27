@@ -210,6 +210,13 @@ def capabilities() -> Capabilities:
     return snapshot
 
 
+def refresh_capabilities() -> Capabilities:
+    global _snapshot
+    with _lock:
+        _snapshot = _build()
+        return _snapshot
+
+
 def _install_snapshot(snapshot: Capabilities | None) -> Capabilities | None:
     global _snapshot
     with _lock:

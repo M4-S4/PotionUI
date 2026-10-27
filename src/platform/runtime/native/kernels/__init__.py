@@ -1,4 +1,4 @@
-from .capabilities import (
+from .hardware import (
     FLASH,
     SAGE,
     SAGE2,
@@ -9,6 +9,7 @@ from .capabilities import (
     DeviceCapabilities,
     GpuGeneration,
     capabilities,
+    refresh_capabilities,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "DeviceCapabilities",
     "GpuGeneration",
     "capabilities",
+    "refresh_capabilities",
 ]

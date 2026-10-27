@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
-from typing import Callable, Iterator, Optional
+from typing import TYPE_CHECKING, Callable, Iterator, Optional
 
 import pytest
 
-from src.platform.runtime.native.kernels import SDPA, Capabilities, DeviceCapabilities
-from src.platform.runtime.native.kernels.capabilities import _install_snapshot
+if TYPE_CHECKING:
+    from src.platform.runtime.native.kernels import Capabilities, DeviceCapabilities
 
 AMPERE_CAPABILITY = (8, 6)
 ADA_CAPABILITY = (8, 9)
@@ -19,15 +19,17 @@ def fake_device(
     *,
     index: int = 0,
     name: Optional[str] = None,
-    attention_backends: frozenset[str] = frozenset({SDPA}),
+    attention_backends: Optional[frozenset[str]] = None,
     fp8_scaled_mm: Optional[bool] = None,
     nvfp4_gemm: Optional[bool] = None,
 ) -> DeviceCapabilities:
+    from src.platform.runtime.native.kernels import SDPA, DeviceCapabilities
+
     return DeviceCapabilities(
         index=index,
         name=name or f"Fake GPU sm{capability[0]}{capability[1]}",
         capability=capability,
-        attention_backends=attention_backends,
+        attention_backends=frozenset({SDPA}) if attention_backends is None else attention_backends,
         fp8_scaled_mm=fp8_scaled_mm,
         nvfp4_gemm=nvfp4_gemm,
     )
@@ -50,6 +52,8 @@ def blackwell(**overrides) -> DeviceCapabilities:
 
 
 def fake_capabilities(*devices: DeviceCapabilities) -> Capabilities:
+    from src.platform.runtime.native.kernels import SDPA, Capabilities, DeviceCapabilities
+
     cpu = DeviceCapabilities(
         index=None,
         name="cpu",
@@ -65,6 +69,8 @@ def cpu_only() -> Capabilities:
 
 @contextmanager
 def installed_capabilities(snapshot: Capabilities) -> Iterator[Capabilities]:
+    from src.platform.runtime.native.kernels.hardware import _install_snapshot
+
     previous = _install_snapshot(snapshot)
     try:
         yield snapshot

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import importlib
 import importlib.metadata
 import importlib.util
 import inspect
@@ -21,8 +20,10 @@ from src.platform.runtime.native.kernels import (
     SPARGE,
     GpuGeneration,
     capabilities,
+    hardware,
+    refresh_capabilities,
 )
-from src.platform.runtime.native.kernels.capabilities import _install_snapshot
+from src.platform.runtime.native.kernels.hardware import _install_snapshot
 from tests.fixtures.kernel_capabilities import (
     ampere,
     blackwell,
@@ -30,11 +31,8 @@ from tests.fixtures.kernel_capabilities import (
     fake_capabilities,
     fake_device,
     hopper,
-    install_capabilities,
     installed_capabilities,
 )
-
-caps_module = importlib.import_module("src.platform.runtime.native.kernels.capabilities")
 
 PROBED = frozenset({"triton", "sageattention", "flash_attn", "sageattn3", "spas_sage_attn"})
 
@@ -289,8 +287,8 @@ def test_snapshot_is_built_lazily_and_only_once(monkeypatch):
 
 def test_importing_the_module_does_not_probe_cuda(monkeypatch):
     state = _environment(monkeypatch, devices=[(12, 0)], modules=PROBED)
-    name = "kernels_capabilities_import_probe"
-    spec = importlib.util.spec_from_file_location(name, inspect.getsourcefile(caps_module))
+    name = "kernels_hardware_import_probe"
+    spec = importlib.util.spec_from_file_location(name, inspect.getsourcefile(hardware))
     fresh = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, name, fresh)
     spec.loader.exec_module(fresh)
@@ -377,3 +375,40 @@ def test_fake_presets_carry_their_generation():
     assert fake_device((8, 9)).generation is GpuGeneration.ADA
     assert hopper().generation is GpuGeneration.HOPPER
     assert blackwell().generation is GpuGeneration.BLACKWELL
+
+
+def test_refresh_picks_up_a_backend_installed_after_the_first_build(monkeypatch):
+    modules = set()
+    state = _environment(monkeypatch, devices=[(8, 6)], modules=modules)
+    first = capabilities()
+    assert FLASH not in first.device(0).attention_backends
+    modules.add("flash_attn")
+    assert capabilities() is first
+    assert FLASH not in capabilities().device(0).attention_backends
+    refreshed = refresh_capabilities()
+    assert refreshed is not first
+    assert refreshed.device(0).attention_backends == frozenset({SDPA, FLASH})
+    assert capabilities() is refreshed
+    assert FLASH not in first.device(0).attention_backends
+    assert state.device_count_calls == 2
+
+
+def test_refresh_before_any_build_builds_and_caches(monkeypatch):
+    state = _environment(monkeypatch, devices=[(12, 0)], modules=PROBED)
+    refreshed = refresh_capabilities()
+    assert refreshed.device(0).capability == (12, 0)
+    assert capabilities() is refreshed
+    assert state.device_count_calls == 1
+
+
+def test_refresh_replaces_an_installed_fake_with_a_rebuilt_snapshot_until_the_seam_restores(monkeypatch):
+    _environment(monkeypatch, devices=[(8, 6)], modules=set())
+    real = capabilities()
+    fake = fake_capabilities(blackwell())
+    with installed_capabilities(fake):
+        assert capabilities() is fake
+        rebuilt = refresh_capabilities()
+        assert rebuilt is not fake
+        assert rebuilt.device(0).capability == (8, 6)
+        assert capabilities() is rebuilt
+    assert capabilities() is real
