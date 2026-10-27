@@ -30,9 +30,5 @@ def replayed_history(
     *,
     tools_enabled: bool,
 ) -> List[Message]:
-    steps = store.steps(session_id)
-    latest = store.load_state(steps[-1].turn_id) if steps else None
-    changed_at = getattr(latest, "prefix_changed_at", None)
-    extra = {} if changed_at is None else {"prefix_changed_at": changed_at}
-    messages, _notices = selector(steps, turn_id=turn_id, target=target, profile=profile, **extra)
+    messages, _notices = selector(store.steps(session_id), turn_id=turn_id, target=target, profile=profile)
     return list(messages) if tools_enabled else without_tool_exchanges(messages)
