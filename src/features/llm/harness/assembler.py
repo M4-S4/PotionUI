@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from src.features.llm.harness.errors import MalformedStream
 from src.features.llm.harness.events import (
@@ -33,6 +33,7 @@ class _Block:
     args_given: bool = False
     args_deltas: bool = False
     ended: bool = False
+    duration_ms: Optional[int] = None
 
 
 def parse_args(raw: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -46,10 +47,13 @@ def parse_args(raw: Optional[str]) -> Optional[Dict[str, Any]]:
 
 
 class StepAssembler:
-    def __init__(self, message_id: str, origin: Origin) -> None:
+    def __init__(self, message_id: str, origin: Origin, clock: Optional[Callable[[], float]] = None) -> None:
         self._message_id = message_id
         self._origin = origin
         self._blocks: Dict[int, _Block] = {}
+        self._clock = clock
+        self._timed: Optional[int] = None
+        self._timed_since = 0.0
         self.usage: Optional[Usage] = None
         self.finish: Optional[Finish] = None
 
@@ -64,6 +68,8 @@ class StepAssembler:
     def feed(self, event: StreamEvent) -> None:
         if self.finish is not None:
             raise MalformedStream(f"{type(event).__name__} after finish")
+        if self._clock is not None:
+            self._time(event)
         if isinstance(event, TextDelta):
             block = self._block(event.block, "text")
             block.text.append(event.text)
@@ -99,6 +105,19 @@ class StepAssembler:
         else:
             raise MalformedStream(f"unknown event {type(event).__name__}")
 
+    def _time(self, event: StreamEvent) -> None:
+        if self._timed is not None and getattr(event, "block", None) != self._timed:
+            self._stop_timing()
+        if isinstance(event, ReasoningDelta) and event.block not in self._blocks:
+            self._timed = event.block
+            self._timed_since = self._clock()
+
+    def _stop_timing(self) -> None:
+        block = self._blocks.get(self._timed)
+        if block is not None:
+            block.duration_ms = int((self._clock() - self._timed_since) * 1000)
+        self._timed = None
+
     def _block(self, index: int, kind: str) -> _Block:
         block = self._blocks.setdefault(index, _Block(kind=kind))
         if block.kind != kind:
@@ -112,6 +131,8 @@ class StepAssembler:
         return block
 
     def message(self) -> Message:
+        if self._timed is not None:
+            self._stop_timing()
         parts: List[Part] = []
         for index in sorted(self._blocks):
             part = self._part(self._blocks[index])
@@ -129,6 +150,7 @@ class StepAssembler:
         if block.kind == "reasoning":
             return ReasoningPart(
                 text="".join(block.text), summary="".join(block.summary), redacted=block.redacted, opaque=opaque,
+                duration_ms=block.duration_ms,
             )
         args_raw = "".join(block.text) if block.args_deltas else None
         if block.args_given:

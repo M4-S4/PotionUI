@@ -14,6 +14,7 @@ class ReasoningCapture:
         self._segments: List[Dict[str, Any]] = []
         self._open_block: Optional[int] = None
         self._started = 0.0
+        self._kept = 0
 
     def on_reasoning(self, delta: ReasoningDelta) -> List[Dict[str, Any]]:
         if not self.enabled:
@@ -37,6 +38,13 @@ class ReasoningCapture:
         self._segments[-1]["duration_ms"] = duration_ms
         block, self._open_block = self._open_block, None
         return [{"event": "reasoning_end", "data": {"block": block, "duration_ms": duration_ms}}]
+
+    def keep(self) -> None:
+        self._kept = len(self._segments)
+
+    def discard(self) -> None:
+        self._open_block = None
+        del self._segments[self._kept:]
 
     def segments(self) -> List[Dict[str, Any]]:
         return [

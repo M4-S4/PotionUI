@@ -167,6 +167,7 @@ def turn_engine_for(gateway: Any, tool_executor: ToolExecutor, store: Optional[I
         runner=ParallelToolRunner(tool_executor),
         store=store or InMemoryTurnStore(),
         retry=BackoffRetry(max_retries=0),
+        clock=lambda: 0.0,
     )
 
 

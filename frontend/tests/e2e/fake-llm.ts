@@ -214,7 +214,7 @@ export async function seedFakeLlmConfig(
 
 	const configPayload = {
 		name: SEED_CONFIG_NAME,
-		type: 'openai',
+		type: 'openai-compatible',
 		enabled: true,
 		base_url: fakeBaseUrl,
 		model: 'fake',

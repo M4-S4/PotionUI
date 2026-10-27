@@ -85,7 +85,7 @@ class TurnState:
     max_rounds: int = 20
     pending: Tuple[PendingCall, ...] = ()
     gathered: Tuple[ToolResultPart, ...] = ()
-    failed_calls: FrozenSet[str] = frozenset()
+    failed_calls: Mapping[str, str] = field(default_factory=dict)
     tool_failures: Mapping[str, int] = field(default_factory=dict)
     applied_calls: FrozenSet[str] = frozenset()
     loaded_tool_groups: Tuple[str, ...] = ()
@@ -112,6 +112,12 @@ class StepRecord:
 class StepCommitted:
     TYPE: ClassVar[str] = "step_committed"
     step: StepRecord
+
+
+@dataclass(frozen=True)
+class StepDiscarded:
+    TYPE: ClassVar[str] = "step_discarded"
+    seq: int
 
 
 @dataclass(frozen=True)
@@ -145,4 +151,4 @@ class TurnEnded:
     state: TurnState
 
 
-EngineEvent = Union[StreamEvent, StepCommitted, ToolStarted, ToolFinished, DecisionRequired, NoticeRaised, TurnEnded]
+EngineEvent = Union[StreamEvent, StepCommitted, StepDiscarded, ToolStarted, ToolFinished, DecisionRequired, NoticeRaised, TurnEnded]

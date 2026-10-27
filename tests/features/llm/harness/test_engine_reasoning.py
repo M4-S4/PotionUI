@@ -1,15 +1,18 @@
 import asyncio
 from typing import Any, AsyncIterator, Dict, List
 
+import pytest
+
 from src.features.llm.harness.adapter import WireRequest
 from src.features.llm.harness.build import user_message
 from src.features.llm.harness.engine import TurnInput, TurnOutcome
 from src.features.llm.harness.events import Finish, FinishReason, ReasoningDelta, TextDelta
-from src.features.llm.harness.messages import ReasoningPart
-from src.features.llm.harness.turn_state import ToolStarted
+from src.features.llm.harness.errors import OpaqueViolation
+from src.features.llm.harness.messages import Message, ReasoningPart, Role, TextPart
+from src.features.llm.harness.turn_state import NoticeKind, NoticeRaised, ToolStarted
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from tests.fixtures.llm_engine import drain, scripted_engine
-from tests.fixtures.llm_harness import ScriptedAdapter, text_step, tool_step
+from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, ScriptedAdapter, text_step, tool_step
 
 
 class EchoTool(BaseTool):
@@ -68,7 +71,7 @@ async def test_each_rounds_reasoning_rides_its_own_tool_call_into_later_requests
     events = await drain(rig.engine.run(turn()))
 
     sent = call_messages(adapter.requests[-1])
-    assert [message.reasoning() for message in sent] == [(ReasoningPart(text="R1"),), (), (ReasoningPart(text="R3"),)]
+    assert [message.reasoning() for message in sent] == [(ReasoningPart(text="R1", duration_ms=0),), (), (ReasoningPart(text="R3", duration_ms=0),)]
     assert [round_.get("reasoning") for round_ in outcome(events).transcript] == ["R1", None, "R3"]
 
 
@@ -82,7 +85,7 @@ async def test_reasoning_of_an_abandoned_empty_attempt_is_not_carried():
 
     events = await drain(rig.engine.run(turn()))
 
-    assert [message.reasoning() for message in call_messages(adapter.requests[-1])] == [(ReasoningPart(text="kept"),)]
+    assert [message.reasoning() for message in call_messages(adapter.requests[-1])] == [(ReasoningPart(text="kept", duration_ms=0),)]
     assert [event.text for event in events if isinstance(event, ReasoningDelta)] == ["lost", "kept"]
 
 
@@ -178,3 +181,56 @@ async def test_closing_the_turn_after_a_tool_start_runs_nothing_more():
 
     assert echo.calls == 0
     assert len(adapter.requests) == 1
+
+
+def replayed_history():
+    return (
+        user_message("earlier", message_id="h1"),
+        Message(
+            id="h2",
+            role=Role.ASSISTANT,
+            parts=(ReasoningPart(text="old thought", opaque={"signature": "sig"}), TextPart(text="old answer")),
+            origin=SCRIPTED_ORIGIN,
+            raw={"stored": "reply"},
+        ),
+    )
+
+
+async def test_a_refused_replay_is_retried_once_without_raw_or_reasoning_and_says_so():
+    adapter = ScriptedAdapter(OpaqueViolation("the stored reply no longer matches"), text_step("fresh"))
+    rig = scripted_engine(adapter)
+
+    events = await drain(rig.engine.run(turn(history=replayed_history(), tool_context=None)))
+
+    assert adapter.requests[0].messages[1].raw == {"stored": "reply"}
+    retried = adapter.requests[1].messages
+    assert [message.id for message in retried] == ["h1", "h2", "u1"]
+    assert all(message.raw is None and not message.reasoning() for message in retried)
+    assert retried[1].text() == "old answer"
+    raised = [event.notice for event in events if isinstance(event, NoticeRaised)]
+    assert [notice.kind for notice in raised] == [NoticeKind.REASONING_DROPPED]
+    assert raised[0].detail == {"error": "opaque_violation"}
+    assert outcome(events).content == "fresh"
+    assert outcome(events).state.notices == tuple(raised)
+
+
+async def test_a_refusal_after_the_degraded_retry_fails_the_turn_without_looping():
+    adapter = ScriptedAdapter(OpaqueViolation("first"), OpaqueViolation("again"), text_step("never sent"))
+    rig = scripted_engine(adapter)
+
+    with pytest.raises(OpaqueViolation, match="again"):
+        await drain(rig.engine.run(turn(history=replayed_history(), tool_context=None)))
+
+    assert len(adapter.requests) == 2
+
+
+async def test_a_reasoning_block_is_timed_from_its_first_delta_until_the_next_block_starts():
+    ticks = iter([10.0, 12.5])
+    adapter = ScriptedAdapter(text_step("answer", reasoning="pondering"))
+    rig = scripted_engine(adapter, clock=lambda: next(ticks))
+
+    await drain(rig.engine.run(turn(tool_context=None)))
+
+    (answer,) = [step.message for step in rig.store.steps("s1") if step.message.role is Role.ASSISTANT]
+    assert answer.reasoning() == (ReasoningPart(text="pondering", duration_ms=2500),)
+

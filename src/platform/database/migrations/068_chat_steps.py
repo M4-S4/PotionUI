@@ -78,6 +78,7 @@ _SETTINGS = {
     "tool_choice": None,
     "response_schema": None,
     "cache_key": None,
+    "cache_ttl": None,
     "keep_model_loaded": False,
 }
 
@@ -263,7 +264,7 @@ def _state_json(
         "max_rounds": 20,
         "pending": [],
         "gathered": [],
-        "failed_calls": [],
+        "failed_calls": {},
         "tool_failures": {},
         "applied_calls": [],
         "loaded_tool_groups": [],

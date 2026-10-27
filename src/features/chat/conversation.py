@@ -31,7 +31,7 @@ from src.features.llm.harness.engine import BudgetExhausted, TurnInput, TurnOutc
 from src.features.llm.harness.events import ReasoningDelta, TextDelta
 from src.features.llm.harness.legacy import messages_from_dicts
 from src.features.llm.harness.messages import ContextPart, Message, Role
-from src.features.llm.harness.turn_state import NoticeRaised, StepCommitted, ToolFinished, ToolStarted
+from src.features.llm.harness.turn_state import NoticeRaised, StepCommitted, StepDiscarded, ToolFinished, ToolStarted
 from src.features.llm.trace_repository import chat_call_trace_repository
 from src.features.llm.tools.base import ToolExecution
 from src.features.llm.tools.executor import ToolExecutor
@@ -382,6 +382,7 @@ class ConversationRunner:
         }
         answering_start: Optional[float] = None
         full_content = ""
+        kept_length = 0
         outcome: Optional[TurnOutcome] = None
 
         turn_input = TurnInput(
@@ -439,8 +440,15 @@ class ConversationRunner:
                             "kind": event.notice.kind.value, "message": event.notice.message,
                             "detail": dict(event.notice.detail or {}),
                         }}
+                    elif isinstance(event, StepDiscarded):
+                        full_content = full_content[:kept_length]
+                        reasoning.discard()
+                        yield {"event": "step_discarded", "data": {"seq": event.seq}}
                     elif isinstance(event, StepCommitted):
                         step = event.step
+                        if step.message.role is Role.ASSISTANT:
+                            kept_length = len(full_content)
+                            reasoning.keep()
                         if step.message.role is Role.ASSISTANT and step.finish is not None:
                             yield {"event": "step", "data": {
                                 "seq": step.seq,
@@ -468,6 +476,7 @@ class ConversationRunner:
         if not full_content and outcome is not None:
             full_content = outcome.content
         usage = outcome.usage if outcome is not None and outcome.model_generated else None
+        last_usage = outcome.last_usage if outcome is not None and outcome.model_generated else None
         cleaned_content, parsed_content = self._m.response_processor.process(full_content, mode=session.mode)
 
         assistant_metadata: Dict[str, Any] = {
@@ -500,7 +509,7 @@ class ConversationRunner:
         if segments:
             assistant_metadata['thinking'] = {"segments": segments}
         assistant_metadata['tokens_used'] = usage.total_tokens if usage else None
-        assistant_metadata['prompt_tokens'] = usage.input_tokens if usage else None
+        assistant_metadata['prompt_tokens'] = last_usage.input_tokens if last_usage else None
         assistant_metadata['completion_tokens'] = usage.output_tokens if usage else None
         assistant_metadata.update(tool_metadata(
             list(outcome.executions) if outcome else [],

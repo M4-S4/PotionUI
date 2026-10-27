@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import time
 from contextlib import aclosing
 from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Tuple
@@ -11,7 +13,7 @@ from src.features.llm.harness.build import context_message, new_id
 from src.features.llm.harness.cache import append_only
 from src.features.llm.harness.call_filter import TEXT, ToolCallTextFilter
 from src.features.llm.harness.cost import priced, total_usage
-from src.features.llm.harness.errors import HarnessError
+from src.features.llm.harness.errors import HarnessError, OpaqueViolation
 from src.features.llm.harness.events import FinishReason, ReasoningDelta, TextDelta, Usage
 from src.features.llm.harness.messages import Message, Part, ReasoningPart, Role, TextPart, ToolCallPart, ToolResultPart
 from src.features.llm.harness.ports import RetryPolicy, ToolRunner, TurnStore
@@ -21,9 +23,11 @@ from src.features.llm.harness.retry import retry_notice
 from src.features.llm.harness.truncation import TruncationAction, decide_truncation
 from src.features.llm.harness.turn_state import (
     Notice,
+    NoticeKind,
     NoticeRaised,
     PendingCall,
     StepCommitted,
+    StepDiscarded,
     StepRecord,
     StepStatus,
     ToolFinished,
@@ -43,6 +47,10 @@ TOOL_BUDGET_EXHAUSTED_MESSAGE = (
 )
 MAX_RESCUE_RETRIES = 2
 RELEASE_TIMEOUT_SECONDS = 5.0
+APPROVAL_CACHE_TTL = "1h"
+REASONING_DROPPED_MESSAGE = (
+    "The provider refused the stored reasoning from earlier steps, so this request was sent without it."
+)
 
 ANSWER = "answer"
 TRUNCATED = "truncated"
@@ -65,6 +73,7 @@ class TurnInput:
     max_rounds: int = 20
     iteration_nudge: Optional[str] = None
     applied_calls: FrozenSet[str] = frozenset()
+    failed_calls: Mapping[str, str] = field(default_factory=dict)
     mode: Optional[str] = None
     turn_id: Optional[str] = None
     tools_in_use: Tuple[ToolSpec, ...] = ()
@@ -158,6 +167,7 @@ class TurnEngine:
         store: TurnStore,
         retry: RetryPolicy,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._gateway = gateway
         self._tools = tools
@@ -165,6 +175,7 @@ class TurnEngine:
         self._store = store
         self._retry = retry
         self._sleep = sleep
+        self._clock = clock
 
     async def run(self, turn: TurnInput) -> AsyncIterator[Any]:
         run = _Run(self, turn)
@@ -185,13 +196,15 @@ class _Run:
             tool_context=turn.tool_context,
             allowed_tools=list(turn.allowed_tools) if turn.allowed_tools is not None else None,
             deferred_tools={group: list(names) for group, names in turn.deferred_tools.items()},
-            guard=ToolCallGuard(set(turn.applied_calls)),
+            guard=ToolCallGuard(set(turn.applied_calls), turn.failed_calls),
         )
         self.sent_limit: Optional[int] = None
         self.rounds_used = 0
         self.rescue_retries = 0
         self.rescues: List[Dict[str, Any]] = []
         self.notices: List[Notice] = []
+        self.notice_keys: set = set()
+        self.degraded = False
         self.nudged = False
         self.profile: Optional[CapabilityProfile] = None
         self.system: Optional[str] = None
@@ -247,8 +260,8 @@ class _Run:
             yield event
         message = box.message
         cut_off = self._cut_off(message)
-        if cut_off:
-            yield cut_off
+        for raised in self._raised(cut_off):
+            yield raised
         yield self._commit(message, StepStatus.INCOMPLETE if cut_off else StepStatus.COMPLETED, final=True)
         yield self._outcome(message.text(), ANSWER, TurnStatus.COMPLETED)
 
@@ -266,8 +279,8 @@ class _Run:
                 continue
             if isinstance(decision, _Finish):
                 cut_off = self._cut_off(box.message) if decision.reason == ANSWER else None
-                if cut_off:
-                    yield cut_off
+                for raised in self._raised(cut_off):
+                    yield raised
                 status = StepStatus.COMPLETED if decision.reason == ANSWER and not cut_off else StepStatus.INCOMPLETE
                 yield self._commit(self._rebuilt(box.message, decision.text, ()), status, final=True)
                 yield self._outcome(decision.content, decision.reason, TurnStatus.COMPLETED)
@@ -306,8 +319,8 @@ class _Run:
             yield event
         text = strip_tool_call_xml(box.message.text())
         cut_off = self._cut_off(box.message)
-        if cut_off:
-            yield cut_off
+        for raised in self._raised(cut_off):
+            yield raised
         yield self._commit(
             self._rebuilt(box.message, text, ()), StepStatus.INCOMPLETE if cut_off else StepStatus.COMPLETED, final=True,
         )
@@ -323,41 +336,55 @@ class _Run:
         while True:
             prepared = await self.engine._gateway.prepare(
                 self.turn.llm_id, tuple(self.working),
-                system=self.turn.system, settings=replace(self.settings, keep_model_loaded=keep_loaded), tools=tools,
+                system=self.turn.system, settings=self._request_settings(keep_loaded), tools=tools,
             )
             box.profile = prepared.profile
             if self.profile is None:
                 self.profile = prepared.profile
                 self.system = prepared.request.system
             self.sent_limit = prepared.ledger.get("max_tokens_sent")
-            box.assembler = StepAssembler(new_id("msg"), prepared.origin)
+            box.assembler = StepAssembler(new_id("msg"), prepared.origin, clock=self.engine._clock)
             text_filter = ToolCallTextFilter(self._registered()) if filtered else None
             received = False
+            shown = False
             try:
                 async with aclosing(self.engine._gateway.run(prepared)) as stream:
                     async for event in stream:
                         received = True
                         box.assembler.feed(event)
                         if isinstance(event, ReasoningDelta):
+                            shown = True
                             yield event
                         elif isinstance(event, TextDelta):
                             for visible in self._visible(event, text_filter):
+                                shown = True
                                 yield visible
             except HarnessError as error:
                 if received:
                     raise
+                if isinstance(error, OpaqueViolation):
+                    if self.degraded:
+                        raise
+                    self.degraded = True
+                    self.working = [stripped for stripped in map(_without_replay, self.working) if stripped.parts]
+                    for raised in self._raised(Notice(
+                        kind=NoticeKind.REASONING_DROPPED, message=REASONING_DROPPED_MESSAGE, detail={"error": error.kind},
+                    )):
+                        yield raised
+                    continue
                 delay = self.engine._retry.delay(error, retry_attempt)
                 if delay is None:
                     raise
                 notice = retry_notice(error, retry_attempt, delay)
                 retry_attempt += 1
-                self.notices.append(notice)
-                yield NoticeRaised(notice)
+                for raised in self._raised(notice):
+                    yield raised
                 await self.engine._sleep(delay)
                 continue
             if text_filter is not None:
                 trailing = text_filter.flush()
                 if trailing:
+                    shown = True
                     yield TextDelta(block=1, text=trailing)
             message = box.assembler.message()
             finish = box.assembler.finish
@@ -365,14 +392,16 @@ class _Run:
                 message, finish.reason if finish is not None else None, self.sent_limit, prepared.profile, truncation_attempt,
             )
             if truncation.action in (TruncationAction.RETRY, TruncationAction.FAIL):
-                self.notices.append(truncation.notice)
-                yield NoticeRaised(truncation.notice)
+                for raised in self._raised(truncation.notice):
+                    yield raised
                 if truncation.action is TruncationAction.FAIL:
                     raise truncation.error
                 truncation_attempt += 1
                 self.usages.append(priced(box.assembler.usage, prepared.profile))
                 box.assembler = None
                 self.settings = replace(self.settings, max_tokens=truncation.max_tokens)
+                if shown:
+                    yield StepDiscarded(self._next_seq())
                 continue
             empty_attempt += 1
             if not retry_empty or message.text() or message.tool_calls() or empty_attempt >= EMPTY_RESPONSE_ATTEMPTS:
@@ -380,18 +409,38 @@ class _Run:
             logger.warning("[TurnEngine] empty response (attempt %s/%s), retrying", empty_attempt, EMPTY_RESPONSE_ATTEMPTS)
             self.usages.append(priced(box.assembler.usage, prepared.profile))
             box.assembler = None
+            if shown:
+                yield StepDiscarded(self._next_seq())
         box.message = message
         self.last_usage = priced(box.assembler.usage, prepared.profile)
         finish = box.assembler.finish
         self.last_finish = finish.reason if finish is not None else None
         self.last_finish_raw = finish.raw_reason if finish is not None else None
 
-    def _cut_off(self, message: Message) -> Optional[NoticeRaised]:
+    def _cut_off(self, message: Message) -> Optional[Notice]:
         decision = decide_truncation(message, self.last_finish, self.sent_limit, self.profile)
-        if decision.action is not TruncationAction.INCOMPLETE:
-            return None
-        self.notices.append(decision.notice)
-        return NoticeRaised(decision.notice)
+        return decision.notice if decision.action is TruncationAction.INCOMPLETE else None
+
+    def _raised(self, notice: Optional[Notice]) -> List[NoticeRaised]:
+        if notice is None:
+            return []
+        key = (notice.kind, json.dumps(notice.detail or {}, sort_keys=True, default=str))
+        if key in self.notice_keys:
+            return []
+        self.notice_keys.add(key)
+        self.notices.append(notice)
+        return [NoticeRaised(notice)]
+
+    def _request_settings(self, keep_loaded: bool) -> Settings:
+        settings = replace(self.settings, keep_model_loaded=keep_loaded)
+        if settings.cache_ttl is None and any(self.engine._tools.requires_approval(spec.name) for spec in self.sent_tools):
+            settings = replace(settings, cache_ttl=APPROVAL_CACHE_TTL)
+        return settings
+
+    def _next_seq(self) -> int:
+        if self.first_seq is None:
+            return self.engine._store.next_seq(self.turn.session_id)
+        return self.first_seq + len(self.steps)
 
     @staticmethod
     def _visible(event: TextDelta, text_filter: Optional[ToolCallTextFilter]) -> List[TextDelta]:
@@ -442,11 +491,14 @@ class _Run:
 
     @staticmethod
     def _rebuilt(message: Message, text: str, calls: Tuple[ToolCallPart, ...]) -> Message:
+        if tuple(calls) == message.tool_calls() and text.strip() == message.text().strip():
+            return message
         parts: List[Part] = [part for part in message.parts if isinstance(part, ReasoningPart)]
         if text:
-            parts.append(TextPart(text=text))
+            phase = next((part.phase for part in message.parts if isinstance(part, TextPart)), None)
+            parts.append(TextPart(text=text, phase=phase))
         parts.extend(calls)
-        return Message(id=message.id, role=Role.ASSISTANT, parts=tuple(parts), origin=message.origin, raw=message.raw)
+        return Message(id=message.id, role=Role.ASSISTANT, parts=tuple(parts), origin=message.origin)
 
     def _commit(self, message: Message, status: StepStatus, *, final: bool = False) -> StepCommitted:
         store = self.engine._store
@@ -523,7 +575,7 @@ class _Run:
             max_rounds=self.turn.max_rounds,
             pending=self.pending,
             gathered=self.gathered,
-            failed_calls=frozenset(self.round.guard.failed_call_keys()),
+            failed_calls=self.round.guard.failed_calls(),
             tool_failures=dict(self.round.guard.tool_failures),
             applied_calls=frozenset(self.turn.applied_calls),
             loaded_tool_groups=self._loaded_groups(),
@@ -580,6 +632,13 @@ class _Run:
         if self.gathered and rounds:
             rounds[-1]["results"].extend(_transcript_result(part) for part in self.gathered)
         return rounds
+
+
+def _without_replay(message: Message) -> Message:
+    parts = tuple(part for part in message.parts if not isinstance(part, ReasoningPart))
+    if message.raw is None and parts == message.parts:
+        return message
+    return replace(message, parts=parts, raw=None)
 
 
 def _transcript_result(part: ToolResultPart) -> Dict[str, Any]:

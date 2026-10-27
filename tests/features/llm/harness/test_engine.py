@@ -116,7 +116,7 @@ async def test_a_plain_answer_without_tools_streams_and_commits_both_messages():
     steps = rig.store.steps("s1")
     assert [step.seq for step in steps] == [0, 1]
     assert [step.message.role for step in steps] == [Role.USER, Role.ASSISTANT]
-    assert steps[1].message.parts == (ReasoningPart(text="thinking"), TextPart(text="hello there"))
+    assert steps[1].message.parts == (ReasoningPart(text="thinking", duration_ms=0), TextPart(text="hello there"))
     assert steps[1].usage == Usage(input_tokens=10, output_tokens=5, total_tokens=15)
     assert steps[1].finish is FinishReason.STOP
     assert adapter.requests[0].tools == ()
@@ -139,7 +139,7 @@ async def test_a_tool_round_runs_the_call_and_sends_reasoning_and_results_back()
     assert [type(event).__name__ for event in events if isinstance(event, (ToolStarted, ToolFinished))] == ["ToolStarted", "ToolFinished"]
     second = adapter.requests[1].messages
     assert [message.role for message in second] == [Role.USER, Role.ASSISTANT, Role.TOOL]
-    assert second[1].reasoning() == (ReasoningPart(text="need echo"),)
+    assert second[1].reasoning() == (ReasoningPart(text="need echo", duration_ms=0),)
     assert second[1].text() == "Let me check."
     assert second[1].tool_calls()[0].args == {"message": "hi"}
     assert second[2].tool_results()[0].text() == "echo: hi"
@@ -292,7 +292,7 @@ async def test_a_failed_call_is_not_rerun_with_the_same_arguments():
     results = adapter.requests[2].messages[-1].tool_results()
     assert results[0].is_error and "already called broken" in results[0].text()
     assert outcome_of(events).tool_failures == {"broken": 2}
-    assert outcome_of(events).state.failed_calls == frozenset({'broken:{}'})
+    assert outcome_of(events).state.failed_calls == {"broken:{}": "disk on fire"}
 
 
 async def test_a_tool_image_travels_inside_the_tool_result():

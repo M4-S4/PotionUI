@@ -6,7 +6,7 @@ import pytest
 from src.features.llm.harness.adapter import Settings
 from src.features.llm.harness.errors import OutputTruncated
 from src.features.llm.harness.events import Finish, FinishReason, TextDelta, ToolArgsDelta, ToolCallStart
-from src.features.llm.harness.turn_state import NoticeKind, NoticeRaised, StepStatus, TurnStatus
+from src.features.llm.harness.turn_state import NoticeKind, NoticeRaised, StepCommitted, StepDiscarded, StepStatus, TurnStatus
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from tests.features.llm.harness.stepping import engine_turn, outcome_of
 from tests.fixtures.llm_engine import drain, scripted_config, scripted_engine
@@ -166,3 +166,26 @@ async def test_a_reply_that_finished_normally_raises_no_truncation_notice():
 
     assert truncation_notices(events) == []
     assert rig.store.steps("s1")[-1].status is StepStatus.COMPLETED
+
+
+async def test_a_retried_cut_off_step_that_showed_text_is_discarded_at_the_seq_its_retry_takes():
+    adapter = ScriptedAdapter([TextDelta(block=1, text="Saving it. "), *cut_off_call()], complete_call(), text_step("saved it"))
+    rig = scripted_engine(adapter, [WriteNote()])
+
+    events = await drain(rig.engine.run(engine_turn(settings=Settings(max_tokens=2000))))
+
+    (discarded,) = [event for event in events if isinstance(event, StepDiscarded)]
+    committed = [event for event in events if isinstance(event, StepCommitted)]
+    retried = committed[1]
+    assert retried.step.message.tool_calls()
+    assert discarded.seq == retried.step.seq
+    assert events.index(discarded) < events.index(retried)
+
+
+async def test_a_retried_cut_off_step_that_showed_nothing_is_not_announced():
+    adapter = ScriptedAdapter(cut_off_call(), complete_call(), text_step("saved it"))
+    rig = scripted_engine(adapter, [WriteNote()])
+
+    events = await drain(rig.engine.run(engine_turn(settings=Settings(max_tokens=2000))))
+
+    assert not [event for event in events if isinstance(event, StepDiscarded)]

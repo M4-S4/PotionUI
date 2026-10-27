@@ -63,6 +63,7 @@ def scripted_engine(
     *,
     config: Optional[LLMConfig] = None,
     retry: Any = None,
+    clock: Any = lambda: 0.0,
 ) -> EngineRig:
     gateway = scripted_gateway(adapter, config or scripted_config())
     registry = ToolRegistry()
@@ -82,6 +83,7 @@ def scripted_engine(
         store=store,
         retry=retry or BackoffRetry(max_retries=0),
         sleep=sleep,
+        clock=clock,
     )
     return EngineRig(engine=engine, gateway=gateway, executor=executor, store=store, sleeps=sleeps)
 

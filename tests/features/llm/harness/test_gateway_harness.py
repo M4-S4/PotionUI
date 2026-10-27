@@ -8,6 +8,7 @@ from src.features.llm.harness.build import user_message
 from src.features.llm.harness.events import Finish, FinishReason, TextDelta, Usage
 from src.features.llm.harness.messages import (
     Message,
+    Origin,
     ReasoningPart,
     Role,
     TextPart,
@@ -63,6 +64,7 @@ async def test_prepare_resolves_the_system_message_profile_and_origin():
     assert default.profile.replay is ReplayPolicy.DROP_EARLIER
     assert default.origin.credential == credential_fingerprint("http://scripted.invalid", "sk-x")
     assert default.origin.provider == "scripted" and default.origin.model == "scripted-model"
+    assert default.origin == Origin.for_config("scripted", config)
     assert default.request.stream is True
 
 

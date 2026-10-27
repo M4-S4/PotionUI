@@ -50,6 +50,10 @@ class ToolExecutor:
             names |= {USE_TOOLS_NAME, *(name for group in deferred_tools.values() for name in group)}
         return names
 
+    def requires_approval(self, name: str) -> bool:
+        tool = self.tool_registry.get(name)
+        return bool(tool is not None and tool.requires_approval)
+
     def turn_tool_schemas(
         self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> List[Dict]:

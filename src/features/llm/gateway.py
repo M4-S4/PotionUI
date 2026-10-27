@@ -13,7 +13,7 @@ from src.features.llm.harness.build import new_id, user_message
 from src.features.llm.harness.cost import priced
 from src.features.llm.harness.errors import HarnessError
 from src.features.llm.harness.events import FinishReason, StreamEvent, Usage
-from src.features.llm.harness.messages import Message, Origin, credential_fingerprint
+from src.features.llm.harness.messages import Message, Origin
 from src.features.llm.harness.ports import ProfileResolver
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.model_listing import DiscoveredModel
@@ -207,12 +207,7 @@ class LLMGateway:
         ledger = outcome.ledger
         if ledger["max_tokens_sent"] != ledger["max_tokens"]:
             settings = replace(settings, max_tokens=ledger["max_tokens_sent"])
-        origin = Origin(
-            adapter=entry.adapter.name,
-            provider=config.type,
-            model=config.model,
-            credential=credential_fingerprint(config.base_url, config.api_key),
-        )
+        origin = Origin.for_config(entry.adapter.name, config)
         request = RenderRequest(
             config=config, system=system_message, messages=tuple(outcome.messages), tools=tuple(tools), settings=settings,
         )

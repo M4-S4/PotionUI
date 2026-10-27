@@ -4,9 +4,11 @@ import pytest
 
 from src.features.llm.harness.build import JPEG, user_message
 from src.features.llm.harness.engine import MAX_RESCUE_RETRIES, TurnInput, TurnOutcome
+from src.features.llm.harness.errors import RateLimited
 from src.features.llm.harness.events import Finish, FinishReason, TextDelta
 from src.features.llm.harness.messages import ImagePart, Role, TextPart
-from src.features.llm.harness.turn_state import ToolFinished, TurnStatus
+from src.features.llm.harness.retry import BackoffRetry
+from src.features.llm.harness.turn_state import NoticeKind, NoticeRaised, ToolFinished, TurnStatus
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult, ToolSource
 from src.features.llm.tools.executor import ToolExecutor
 from tests.fixtures.llm_engine import drain, scripted_config, scripted_engine
@@ -335,4 +337,75 @@ async def test_streamed_text_before_a_tool_call_reaches_the_caller_and_the_store
     events = await drain(rig.engine.run(turn()))
 
     assert visible(events) == "Checking. Done."
-    assert adapter.requests[1].messages[1].parts[0] == TextPart(text="Checking.")
+    assert adapter.requests[1].messages[1].parts[0] == TextPart(text="Checking. ")
+
+
+async def test_a_text_tool_call_turned_into_a_call_drops_the_raw_reply_while_an_untouched_step_keeps_it():
+    xml = '<tool_call>{"name": "echo", "arguments": {"message": "hi"}}</tool_call>'
+    adapter = ScriptedAdapter(
+        [TextDelta(block=1, text=xml), Finish(reason=FinishReason.STOP, raw_reason="stop", raw={"content": xml})],
+        [TextDelta(block=1, text="done"), Finish(reason=FinishReason.STOP, raw_reason="stop", raw={"content": "done"})],
+    )
+    rig = scripted_engine(adapter, [EchoTool()])
+
+    await drain(rig.engine.run(turn()))
+
+    call_step, answer_step = [step for step in rig.store.steps("s1") if step.message.role is Role.ASSISTANT]
+    assert [call.name for call in call_step.message.tool_calls()] == ["echo"]
+    assert call_step.message.text() == ""
+    assert call_step.message.raw is None
+    assert answer_step.message.raw == {"content": "done"}
+    assert adapter.requests[1].messages[1].raw is None
+
+
+async def test_a_call_that_failed_before_the_turn_resumed_is_still_refused_with_its_first_error():
+    class CountingEcho(EchoTool):
+        runs = 0
+
+        async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
+            CountingEcho.runs += 1
+            return await super().execute(context, **kwargs)
+
+    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "echo", "args": {"message": "a"}}), text_step("gave up"))
+    rig = scripted_engine(adapter, [CountingEcho()])
+
+    events = await drain(rig.engine.run(turn(failed_calls={'echo:{"message": "a"}': "disk on fire"})))
+
+    assert CountingEcho.runs == 0
+    (result,) = results(adapter.requests[1])
+    assert result.is_error and "it failed: disk on fire" in result.text()
+    assert outcome(events).state.failed_calls == {'echo:{"message": "a"}': "disk on fire"}
+
+
+async def test_offering_a_tool_that_needs_approval_asks_for_the_long_prompt_cache():
+    adapter = ScriptedAdapter(text_step("hi"))
+    rig = scripted_engine(adapter, [EchoTool(), PreviewTool()])
+
+    await drain(rig.engine.run(turn()))
+
+    assert adapter.requests[0].settings.cache_ttl == "1h"
+
+
+async def test_without_approval_tools_the_prompt_cache_ttl_is_left_alone():
+    adapter = ScriptedAdapter(text_step("hi"))
+    rig = scripted_engine(adapter, [EchoTool()])
+
+    await drain(rig.engine.run(turn()))
+
+    assert adapter.requests[0].settings.cache_ttl is None
+
+
+async def test_the_same_notice_is_raised_once_per_turn():
+    slow = RateLimited("slow down", status=429)
+    adapter = ScriptedAdapter(
+        slow, tool_step({"id": "c1", "name": "echo", "args": {"message": "a"}}), slow, text_step("done"),
+    )
+    rig = scripted_engine(adapter, [EchoTool()], retry=BackoffRetry(max_retries=1, jitter=lambda: 0.0))
+
+    events = await drain(rig.engine.run(turn()))
+
+    raised = [event.notice for event in events if isinstance(event, NoticeRaised)]
+    assert [notice.kind for notice in raised] == [NoticeKind.RETRYING]
+    assert outcome(events).state.notices == tuple(raised)
+    assert outcome(events).content == "done"
+    assert len(rig.sleeps) == 2
