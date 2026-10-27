@@ -18,6 +18,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils._python_dispatch import TorchDispatchMode
 
+import src.platform.runtime.native.kernels.dispatch as dispatch
 from src.platform.runtime.native.arch.minimax_h3.config import MiniMaxH3Config
 from src.platform.runtime.native.arch.minimax_h3.model import (
     MiniMaxH3Attention,
@@ -27,9 +28,11 @@ from src.platform.runtime.native.arch.minimax_h3.model import (
 from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
+from src.platform.runtime.native.kernels import SAGE2, SDPA
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
 from src.platform.runtime.native.sla_attn import SlaAttnContext
 from src.platform.runtime.native.sol_attn import SolAttnContext
+from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
 from vendor.gpl.comfyui.ops import pick_operations
 
 from .._header_listings import load_header
@@ -966,17 +969,20 @@ def _init_attn_weights(attn) -> None:
         attn.k_norm.weight.copy_(torch.ones_like(attn.k_norm.weight))
 
 
-class _AlwaysOomDispatch:
-    """The primary dispatch tipping a nearly-full card over -- the rescue
-    must NOT come back through here (a sage retry re-quantizes the full
-    key/value set per call, keeping the exact transients that just OOM'd)."""
-
-    def __init__(self):
+class _OomUnlessPinnedToSdpa:
+    def __init__(self, rescue=F.scaled_dot_product_attention):
         self.calls = []
+        self.rescue = rescue
 
-    def __call__(self, q, k, v, heads=None, mask=None):
-        self.calls.append(q.shape[2])
-        raise torch.OutOfMemoryError("synthetic full-length OOM")
+    @property
+    def primary_rows(self):
+        return [rows for rows, backend in self.calls if backend is None]
+
+    def __call__(self, q, k, v, heads=None, mask=None, backend=None):
+        self.calls.append((q.shape[2], backend))
+        if backend != SDPA:
+            raise torch.OutOfMemoryError("synthetic full-length OOM")
+        return self.rescue(q, k, v)
 
 
 def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(monkeypatch):
@@ -998,22 +1004,11 @@ def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(m
     )
     dense = attn(x, None)
 
-    oom = _AlwaysOomDispatch()
-    sdpa_rows = []
-
-    def recording_sdpa(q, k, v):
-        sdpa_rows.append(q.shape[2])
-        return F.scaled_dot_product_attention(q, k, v)
-
+    oom = _OomUnlessPinnedToSdpa()
     monkeypatch.setattr(model_module, "_dispatch_attention", oom)
-    monkeypatch.setattr(model_module, "_fallback_sdpa", recording_sdpa)
-    # seq_chunk_rows=4 -> chunks of 4,4,2 (ragged tail exercised too)
     out = attn(x, None, None, 4)
 
-    # ONE full-length attempt through the dispatch, then every chunk through
-    # the lean sdpa rescue -- never back through the dispatch.
-    assert oom.calls == [s]
-    assert sdpa_rows == [4, 4, 2]
+    assert oom.calls == [(s, None), (4, SDPA), (4, SDPA), (2, SDPA)]
     # Query-chunked softmax attends the FULL key set per row -> mathematically
     # exact; the tolerance is for kernel-shape-dependent fp32 rounding (a 10-row
     # GEMM and a 4/4/2-chunked one may reduce in different orders, and the
@@ -1029,18 +1024,16 @@ def test_attention_oom_fallback_reraises_when_the_rescue_also_ooms(monkeypatch):
     ops = fp32_ops()
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
     x = torch.randn(1, 6, 8)
-    oom = _AlwaysOomDispatch()
 
     def raising_sdpa(q, k, v):
         raise torch.OutOfMemoryError("rescue OOM too")
 
+    oom = _OomUnlessPinnedToSdpa(rescue=raising_sdpa)
     monkeypatch.setattr(model_module, "_dispatch_attention", oom)
-    monkeypatch.setattr(model_module, "_fallback_sdpa", raising_sdpa)
 
-    # Exactly one dispatch attempt, one rescue attempt, honest re-raise.
     with pytest.raises(torch.OutOfMemoryError):
         attn(x, None)
-    assert oom.calls == [6]
+    assert oom.calls == [(6, None), (6, SDPA)]
 
 
 def test_oom_rescue_runs_with_the_exception_already_cleared(monkeypatch):
@@ -1060,8 +1053,7 @@ def test_oom_rescue_runs_with_the_exception_already_cleared(monkeypatch):
         exc_states.append(sys.exc_info())
         return F.scaled_dot_product_attention(q, k, v)
 
-    monkeypatch.setattr(model_module, "_dispatch_attention", _AlwaysOomDispatch())
-    monkeypatch.setattr(model_module, "_fallback_sdpa", asserting_sdpa)
+    monkeypatch.setattr(model_module, "_dispatch_attention", _OomUnlessPinnedToSdpa(rescue=asserting_sdpa))
 
     attn(x, None, None, 4)
 
@@ -1074,20 +1066,16 @@ def test_oom_is_sticky_for_equal_or_longer_sequences_only(monkeypatch):
     torch.manual_seed(7)
     ops = fp32_ops()
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
-    oom = _AlwaysOomDispatch()
+    oom = _OomUnlessPinnedToSdpa()
     monkeypatch.setattr(model_module, "_dispatch_attention", oom)
-    monkeypatch.setattr(
-        model_module, "_fallback_sdpa",
-        lambda q, k, v: F.scaled_dot_product_attention(q, k, v),
-    )
 
     x_long = torch.randn(1, 10, 8)
-    attn(x_long, None, None, 4)      # first long call: dispatch OOMs, sticky set
-    attn(x_long, None, None, 4)      # second long call: dispatch NOT attempted again
-    assert oom.calls == [10]
+    attn(x_long, None, None, 4)
+    attn(x_long, None, None, 4)
+    assert oom.primary_rows == [10]
 
-    attn(torch.randn(1, 6, 8), None, None, 4)  # shorter: dispatch attempted again
-    assert oom.calls == [10, 6]
+    attn(torch.randn(1, 6, 8), None, None, 4)
+    assert oom.primary_rows == [10, 6]
 
 
 def test_sticky_rescue_output_still_matches_the_dense_reference(monkeypatch):
@@ -1106,17 +1094,59 @@ def test_sticky_rescue_output_still_matches_the_dense_reference(monkeypatch):
     dense = attn(x, None)
 
     attn._sdpa_min_rows = 10  # as if an earlier call at this length OOM'd
-    boom = _AlwaysOomDispatch()
+    boom = _OomUnlessPinnedToSdpa()
     monkeypatch.setattr(model_module, "_dispatch_attention", boom)
-    monkeypatch.setattr(
-        model_module, "_fallback_sdpa",
-        lambda q, k, v: F.scaled_dot_product_attention(q, k, v),
-    )
 
     out = attn(x, None, None, 4)
-    assert boom.calls == []  # never touched
+    assert boom.primary_rows == []
     # Tolerance rationale: see test_attention_oom_retries_query_chunked_sdpa.
     assert torch.allclose(out, dense, atol=1e-5, rtol=1e-4)
+
+
+class _CudaLike(torch.Tensor):
+    @property
+    def is_cuda(self):
+        return True
+
+
+@pytest.fixture
+def no_attention_pin():
+    dispatch.set_backend_override(None)
+    yield
+    dispatch.set_backend_override(None)
+
+
+def test_oom_rescue_never_returns_to_the_failed_kernel_through_the_real_dispatcher(
+    monkeypatch, install_capabilities, no_attention_pin
+):
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+    install_capabilities(fake_capabilities(ampere(attention_backends=frozenset({SDPA, SAGE2}))))
+    calls = []
+
+    def oom_sage(q, k, v, causal=False):
+        calls.append(("_sage", q.shape[2], k.shape[2]))
+        raise torch.OutOfMemoryError("synthetic sage OOM")
+
+    real_sdpa = dispatch._sdpa
+
+    def recording_sdpa(q, k, v, mask, grouped=False, causal=False):
+        calls.append(("_sdpa", q.shape[2], k.shape[2]))
+        return real_sdpa(q, k, v, mask, grouped=grouped, causal=causal)
+
+    monkeypatch.setattr(dispatch, "_sage", oom_sage)
+    monkeypatch.setattr(dispatch, "_sdpa", recording_sdpa)
+
+    torch.manual_seed(11)
+    s = 10
+    attn = MiniMaxH3Attention(8, 2, 4, 1e-5, fp32_ops(), dtype=torch.bfloat16)
+    _init_attn_weights(attn)
+    x = torch.randn(1, s, 8, dtype=torch.bfloat16)
+
+    out = attn(x.as_subclass(_CudaLike), None, None, 4)
+
+    assert calls == [("_sage", s, s), ("_sdpa", 4, s), ("_sdpa", 4, s), ("_sdpa", 2, s)]
+    assert out.shape == (1, s, 8)
+    assert torch.isfinite(out.float()).all()
 
 
 # --- rotary tables cached in the consumed dtype ------------------------------

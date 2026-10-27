@@ -65,11 +65,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from ...kernels import attention as _dispatch_attention
-
-# The OOM-rescue attention core (module-level so tests can stub it): plain
-# SDPA on (B, H, L, D) -- see the fallback comment in MiniMaxH3Attention.
-_fallback_sdpa = F.scaled_dot_product_attention
+from ...kernels import SDPA, attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
 from ...ops.embedding import sinusoidal_embedding
@@ -292,7 +288,7 @@ class MiniMaxH3Attention(nn.Module):
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 out = torch.cat(
-                    [_fallback_sdpa(qc, kT, vT) for qc in qT.split(chunk, dim=2)],
+                    [_dispatch_attention(qc, kT, vT, heads=self.heads, backend=SDPA) for qc in qT.split(chunk, dim=2)],
                     dim=2,
                 )
             out = out.transpose(1, 2).reshape(b, s, -1)
