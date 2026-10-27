@@ -14,7 +14,7 @@ name: Backend + frontend tests
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
   pull_request:
 
 permissions:
