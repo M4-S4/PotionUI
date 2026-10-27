@@ -17,6 +17,8 @@ import logging
 
 import torch
 
+from src.platform.runtime.native.kernels import capabilities
+
 logger = logging.getLogger(__name__)
 
 _FP8_DTYPES = {torch.float8_e4m3fn, torch.float8_e5m2}
@@ -48,12 +50,11 @@ def is_mixed_precision(sd: dict[str, torch.Tensor]) -> bool:
 
 def _supports_bf16(device: torch.device) -> bool:
     if device.type != "cuda":
-        # CPU bf16 works for correctness (slow); treat as supported.
         return True
-    if not torch.cuda.is_available():
+    snapshot = capabilities()
+    if not snapshot.devices:
         return True
-    major, _ = torch.cuda.get_device_capability(device)
-    return major >= 8  # Ampere and newer
+    return snapshot.device(device).at_least(8)
 
 
 def pick_dtypes(
