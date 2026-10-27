@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Callable, Iterator, Optional
 
@@ -20,8 +21,6 @@ def fake_device(
     index: int = 0,
     name: Optional[str] = None,
     attention_backends: Optional[frozenset[str]] = None,
-    fp8_scaled_mm: Optional[bool] = None,
-    nvfp4_gemm: Optional[bool] = None,
 ) -> DeviceCapabilities:
     from src.platform.runtime.native.kernels import SDPA, DeviceCapabilities
 
@@ -30,8 +29,6 @@ def fake_device(
         name=name or f"Fake GPU sm{capability[0]}{capability[1]}",
         capability=capability,
         attention_backends=frozenset({SDPA}) if attention_backends is None else attention_backends,
-        fp8_scaled_mm=fp8_scaled_mm,
-        nvfp4_gemm=nvfp4_gemm,
     )
 
 
@@ -60,7 +57,8 @@ def fake_capabilities(*devices: DeviceCapabilities) -> Capabilities:
         capability=(0, 0),
         attention_backends=frozenset({SDPA}),
     )
-    return Capabilities(devices=tuple(devices), cpu=cpu)
+    placed = tuple(dataclasses.replace(device, index=index) for index, device in enumerate(devices))
+    return Capabilities(devices=placed, cpu=cpu)
 
 
 def cpu_only() -> Capabilities:

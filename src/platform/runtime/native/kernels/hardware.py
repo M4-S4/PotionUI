@@ -54,10 +54,6 @@ class DeviceCapabilities:
     name: str
     capability: tuple[int, int]
     attention_backends: frozenset[str]
-    fp8_scaled_mm: bool | None = None
-    fp8_scaled_mm_reason: str | None = None
-    nvfp4_gemm: bool | None = None
-    nvfp4_gemm_reason: str | None = None
 
     @property
     def generation(self) -> GpuGeneration:
@@ -213,6 +209,7 @@ def capabilities() -> Capabilities:
 def refresh_capabilities() -> Capabilities:
     global _snapshot
     with _lock:
+        importlib.invalidate_caches()
         _snapshot = _build()
         return _snapshot
 

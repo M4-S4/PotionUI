@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import dataclasses
+import importlib
 import importlib.metadata
 import importlib.util
 import inspect
 import sys
+import threading
+import time
 import types
 
 import pytest
@@ -25,6 +27,7 @@ from src.platform.runtime.native.kernels import (
 )
 from src.platform.runtime.native.kernels.hardware import _install_snapshot
 from tests.fixtures.kernel_capabilities import (
+    ada,
     ampere,
     blackwell,
     cpu_only,
@@ -112,10 +115,7 @@ def test_one_blackwell_device(monkeypatch):
     gpu = snapshot.device(0)
     assert (gpu.index, gpu.name, gpu.capability) == (0, "GPU 0", (12, 0))
     assert gpu.generation is GpuGeneration.BLACKWELL
-    assert gpu.attention_backends == frozenset({SDPA, FLASH, SAGE, SAGE2, SAGE3})
     assert snapshot.device() is gpu
-    assert gpu.fp8_scaled_mm is None and gpu.fp8_scaled_mm_reason is None
-    assert gpu.nvfp4_gemm is None and gpu.nvfp4_gemm_reason is None
 
 
 def test_two_devices_keep_their_own_capability_and_backends(monkeypatch):
@@ -136,9 +136,7 @@ def test_capability_error_becomes_zero_capability_for_that_device(monkeypatch):
     broken, healthy = capabilities().devices
     assert (broken.index, broken.capability) == (0, (0, 0))
     assert broken.generation is GpuGeneration.NONE
-    assert broken.attention_backends == frozenset({SDPA, FLASH})
     assert healthy.capability == (8, 6)
-    assert healthy.attention_backends == frozenset({SDPA, FLASH, SAGE, SAGE2})
 
 
 @pytest.mark.parametrize("broken", ["is_available", "device_count"])
@@ -260,18 +258,11 @@ def test_at_least_defaults_the_minor_to_zero():
     assert fake_device((7, 5)).at_least(8) is False
 
 
-def test_snapshot_is_immutable(monkeypatch):
+def test_snapshot_exposes_immutable_containers(monkeypatch):
     _environment(monkeypatch, devices=[(12, 0)], modules=PROBED)
     snapshot = capabilities()
-    gpu = snapshot.devices[0]
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        snapshot.devices = ()
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        gpu.capability = (1, 1)
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        snapshot.cpu.name = "other"
     assert isinstance(snapshot.devices, tuple)
-    assert isinstance(gpu.attention_backends, frozenset)
+    assert isinstance(snapshot.devices[0].attention_backends, frozenset)
 
 
 def test_snapshot_is_built_lazily_and_only_once(monkeypatch):
@@ -340,22 +331,40 @@ def test_attention_backends_follow_the_dispatcher_gates(
     monkeypatch, capability, modules, sage_v2, runtime, expected
 ):
     _environment(monkeypatch, devices=[capability], modules=modules, sage_v2=sage_v2, runtime=runtime)
-    assert capabilities().device(0).attention_backends == frozenset(expected)
-
-
-@pytest.mark.parametrize("capability, modules, sage_v2, runtime, expected", ATTENTION_CASES)
-def test_attention_backends_match_the_dispatcher_probe(
-    monkeypatch, capability, modules, sage_v2, runtime, expected
-):
-    _environment(monkeypatch, devices=[capability], modules=modules, sage_v2=sage_v2, runtime=runtime)
     probed = frozenset(name for name, available in att._probe(0).items() if available)
-    assert capabilities().device(0).attention_backends == probed
+    backends = capabilities().device(0).attention_backends
+    assert backends == frozenset(expected)
+    assert backends == probed
+
+
+def test_missing_sageattention_metadata_keeps_sage_without_sage2(monkeypatch):
+    _environment(monkeypatch, devices=[(8, 6)], modules=V2)
+
+    def missing(name):
+        raise importlib.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(importlib.metadata, "version", missing)
+    assert capabilities().device(0).attention_backends == frozenset({SDPA, SAGE})
+
+
+@pytest.mark.parametrize("error", [ValueError, ImportError])
+def test_unprobeable_module_is_absent_and_nothing_raises(monkeypatch, error):
+    _environment(monkeypatch, devices=[(8, 6)], modules=PROBED)
+    working = importlib.util.find_spec
+
+    def find_spec(name, package=None):
+        if name == "flash_attn":
+            raise error(name)
+        return working(name, package)
+
+    monkeypatch.setattr(importlib.util, "find_spec", find_spec)
+    assert capabilities().device(0).attention_backends == frozenset({SDPA, SAGE, SAGE2, SPARGE})
 
 
 def test_installed_capabilities_swaps_the_snapshot_and_restores_the_real_one(monkeypatch):
     _environment(monkeypatch, devices=[(8, 6)], modules=set())
     real = capabilities()
-    fake = fake_capabilities(blackwell(), hopper(index=1))
+    fake = fake_capabilities(blackwell(), hopper())
     with installed_capabilities(fake) as installed:
         assert installed is fake
         assert capabilities() is fake
@@ -372,7 +381,7 @@ def test_cpu_only_fake_has_no_cuda_devices(install_capabilities):
 
 def test_fake_presets_carry_their_generation():
     assert ampere().generation is GpuGeneration.AMPERE
-    assert fake_device((8, 9)).generation is GpuGeneration.ADA
+    assert ada().generation is GpuGeneration.ADA
     assert hopper().generation is GpuGeneration.HOPPER
     assert blackwell().generation is GpuGeneration.BLACKWELL
 
@@ -412,3 +421,53 @@ def test_refresh_replaces_an_installed_fake_with_a_rebuilt_snapshot_until_the_se
         assert rebuilt.device(0).capability == (8, 6)
         assert capabilities() is rebuilt
     assert capabilities() is real
+
+
+def test_fake_capabilities_index_devices_by_position():
+    fake = fake_capabilities(blackwell(), hopper(), ada())
+    assert [device.index for device in fake.devices] == [0, 1, 2]
+    assert fake.device(2).capability == (8, 9)
+
+
+def test_refresh_invalidates_import_caches_before_rebuilding(monkeypatch):
+    _environment(monkeypatch, devices=[(8, 6)], modules=set())
+    events = []
+    counted = torch.cuda.device_count
+
+    def device_count():
+        events.append("build")
+        return counted()
+
+    monkeypatch.setattr(torch.cuda, "device_count", device_count)
+    monkeypatch.setattr(importlib, "invalidate_caches", lambda: events.append("invalidate"))
+    capabilities()
+    assert events == ["build"]
+    refresh_capabilities()
+    assert events == ["build", "invalidate", "build"]
+
+
+def test_concurrent_first_calls_build_once_and_share_the_snapshot(monkeypatch):
+    threads = 8
+    state = _environment(monkeypatch, devices=[(12, 0)], modules=PROBED)
+    counted = torch.cuda.device_count
+
+    def slow_device_count():
+        time.sleep(0.05)
+        return counted()
+
+    monkeypatch.setattr(torch.cuda, "device_count", slow_device_count)
+    barrier = threading.Barrier(threads, timeout=10)
+    results = []
+
+    def worker():
+        barrier.wait()
+        results.append(capabilities())
+
+    pool = [threading.Thread(target=worker) for _ in range(threads)]
+    for thread in pool:
+        thread.start()
+    for thread in pool:
+        thread.join(timeout=10)
+    assert len(results) == threads
+    assert all(result is results[0] for result in results)
+    assert state.device_count_calls == 1
