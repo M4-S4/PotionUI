@@ -5,8 +5,8 @@ import pytest
 torch = pytest.importorskip("torch")
 
 import vendor.gpl.comfyui.ops as ops
-from vendor.gpl.comfyui.ops import _E2M1_LUT, _NVFP4_BLOCK, _to_blocked, _unblock_scale, dequantize_nvfp4, disable_weight_init
-from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops, pick_operations
+from vendor.gpl.comfyui.ops import _E2M1_LUT, _NVFP4_BLOCK, _to_blocked, _unblock_scale, dequantize_nvfp4
+from src.platform.runtime.native.kernels import detect_quant_format, disable_weight_init, fp8_ops, pick_operations
 
 from .._nvfp4_ref import F4_MAX as _F4_MAX
 from .._nvfp4_ref import F8_MAX as _F8_MAX

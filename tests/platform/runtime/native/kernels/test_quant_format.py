@@ -5,7 +5,16 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from src.platform.runtime.native.kernels import QuantFormat, fast_path, fp8_linear, gemm, linear, nvfp4_linear, quant_format
+from src.platform.runtime.native.kernels import (
+    QuantFormat,
+    fast_path,
+    fp8_linear,
+    gemm,
+    linear,
+    manual_cast,
+    nvfp4_linear,
+    quant_format,
+)
 from vendor.gpl.comfyui import ops
 
 from .test_fast_path import PLAIN, QUANTIZED
@@ -59,7 +68,7 @@ def test_fast_path_reports_the_format_quant_format_gives():
 
 
 def test_objects_that_are_not_ops_linears_have_no_format():
-    conv = ops.manual_cast.Conv2d(3, 4, 1, dtype=torch.bfloat16)
+    conv = manual_cast.Conv2d(3, 4, 1, dtype=torch.bfloat16)
     impostor = SimpleNamespace(weight_scale=torch.tensor(1.0), _is_nvfp4=True)
 
     assert quant_format(conv) is None

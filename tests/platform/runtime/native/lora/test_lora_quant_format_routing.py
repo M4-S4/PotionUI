@@ -3,12 +3,11 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.platform.runtime.native.kernels import QuantFormat, pick_operations
+from src.platform.runtime.native.kernels import QuantFormat, manual_cast, pick_operations
 from src.platform.runtime.native.lora import apply as apply_mod
 from src.platform.runtime.native.lora.apply import _needs_runtime_deltas, apply_loras_with_report
 from tests.platform.runtime.native.kernels.test_fast_path import _nvfp4, machine
 from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
-from vendor.gpl.comfyui import ops
 
 
 def test_an_nvfp4_layer_takes_runtime_deltas_on_a_machine_that_runs_the_nvfp4_gemm(machine, monkeypatch):
@@ -33,7 +32,7 @@ def test_an_nvfp4_layer_takes_runtime_deltas_on_a_machine_that_runs_the_nvfp4_ge
 def test_the_nvfp4_routing_follows_the_kernels_format_answer_not_the_layer_marker(
     monkeypatch, answer, marker, expected
 ):
-    layer = ops.manual_cast.Linear(8, 8, bias=False, dtype=torch.bfloat16)
+    layer = manual_cast.Linear(8, 8, bias=False, dtype=torch.bfloat16)
     layer._is_nvfp4 = marker
     asked = []
 

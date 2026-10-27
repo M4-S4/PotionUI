@@ -13,8 +13,7 @@ from src.platform.runtime.native.memory.partial import (
     plan_residency_split,
 )
 from src.platform.runtime.native.memory import pinned_arena
-from vendor.gpl.comfyui.ops import disable_weight_init
-from src.platform.runtime.native.kernels import fp8_ops
+from src.platform.runtime.native.kernels import disable_weight_init, fp8_ops
 from src.platform.runtime.native.kernels.fp8_linear import _scaled_mm_fast_path_reject_reason
 
 

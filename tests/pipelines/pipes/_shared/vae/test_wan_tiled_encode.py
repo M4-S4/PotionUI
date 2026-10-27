@@ -15,7 +15,7 @@ from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
 def test_vae_encode_falls_back_to_tiled_on_oom():
     """make_wan_vae_encode returns the untiled result normally, and on a CUDA
     OOM retries via the spatial-tiling path (temporal chunking untouched)."""
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
     from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 
     vae = AutoEncoderCausal3D.from_config({}, disable_weight_init)

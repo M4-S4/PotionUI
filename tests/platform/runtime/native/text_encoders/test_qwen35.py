@@ -15,8 +15,7 @@ from src.platform.runtime.native.text_encoders.loader import (
 from src.platform.runtime.native.text_encoders.qwen35 import (
     MossImageTextEncoder, Qwen35Config, Qwen35Model, chunk_gated_delta_rule,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init as plain_ops
-from src.platform.runtime.native.kernels import fp8_ops
+from src.platform.runtime.native.kernels import disable_weight_init as plain_ops, fp8_ops
 
 from .._quant_layouts import convrot_descriptor, descriptor_blob, reference_quantize_convrot
 from . import _qwen35_reference as reference

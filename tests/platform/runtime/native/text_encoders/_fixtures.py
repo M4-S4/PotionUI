@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.text_encoders.clip_l import CLIPLModel
 from src.platform.runtime.native.text_encoders.qwen3 import Qwen3Model
 from src.platform.runtime.native.text_encoders.t5xxl import T5XXLModel

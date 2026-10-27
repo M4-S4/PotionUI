@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import (
     LATENT_CHANNELS,

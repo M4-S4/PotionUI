@@ -24,8 +24,7 @@ from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
 from tests.fixtures.kernel_gemm import install_gemm_verdicts, installed_gemm_verdicts
 from tests.fixtures.kernel_ops import patch_ops_name
-from vendor.gpl.comfyui.ops import disable_weight_init
-from src.platform.runtime.native.kernels import Fp8ScaledLinear, fp8_linear, fp8_ops
+from src.platform.runtime.native.kernels import Fp8ScaledLinear, disable_weight_init, fp8_linear, fp8_ops
 
 from .._quant_layouts import int8_state_dict
 from ..memory.test_partial_prefetch import _install_fake_cuda

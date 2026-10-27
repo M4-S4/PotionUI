@@ -5,12 +5,9 @@ import logging
 
 import torch
 
-from vendor.gpl.comfyui.ops import (
-    _FP8_DTYPES,
-    disable_weight_init,
-    manual_cast,
-)
+from vendor.gpl.comfyui.ops import _FP8_DTYPES
 
+from .casting import disable_weight_init, manual_cast
 from .nvfp4_linear import Nvfp4Linear
 
 logger = logging.getLogger(__name__)

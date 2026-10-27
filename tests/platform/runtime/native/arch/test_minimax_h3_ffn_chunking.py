@@ -14,8 +14,7 @@ from src.platform.runtime.native.arch.minimax_h3.model import (
     effective_mlp_chunk_rows,
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui.ops import disable_weight_init
-from src.platform.runtime.native.kernels import fp8_ops
+from src.platform.runtime.native.kernels import disable_weight_init, fp8_ops
 from tests.fixtures.kernel_ops import patch_ops_name
 
 from .._quant_layouts import int8_state_dict

@@ -507,7 +507,7 @@ def _dequantize_fp8_state_dict(sd: dict) -> dict:
     once in bulk rather than once per forward.
     """
     import torch
-    from vendor.gpl.comfyui.ops import cast_to
+    from src.platform.runtime.native.kernels import cast_to
 
     scales: dict[str, Any] = {}
     for key in list(sd):

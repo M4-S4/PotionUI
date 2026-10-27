@@ -155,7 +155,7 @@ def test_numeric_parity_forward():
 
 def test_timestep_embedders_run_on_bf16_weights_without_manual_cast():
     import torch
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
     from src.platform.runtime.native.arch.trellis2.ss_flow import _TimestepEmbedder as SSEmbedder
     from src.platform.runtime.native.arch.trellis2.slat_flow import _TimestepEmbedder as SLatEmbedder
 

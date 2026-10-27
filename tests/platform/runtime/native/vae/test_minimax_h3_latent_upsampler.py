@@ -23,7 +23,7 @@ from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import (
     denormalize_h3_latent,
     normalize_h3_latent,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 from .._header_listings import load_header
 

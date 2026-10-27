@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.detect.vae_detect import (
     detect_causal3d_v2_vae_config,
     detect_qwen_image21_vae_config,

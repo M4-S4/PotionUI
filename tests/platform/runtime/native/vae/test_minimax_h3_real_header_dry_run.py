@@ -71,8 +71,8 @@ from src.platform.runtime.native.engine import NativeEngineLoader
 from src.platform.runtime.native.errors import NativeEngineLoadIntegrityError
 from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
-from vendor.gpl.comfyui.ops import _convrot_unrotate_weight, disable_weight_init
-from src.platform.runtime.native.kernels import QUANT_FP8_SCALED
+from vendor.gpl.comfyui.ops import _convrot_unrotate_weight
+from src.platform.runtime.native.kernels import QUANT_FP8_SCALED, disable_weight_init
 
 from .._header_listings import load_header
 from .._quant_layouts import convrot_descriptor, descriptor_blob, reference_quantize_convrot

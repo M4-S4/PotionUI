@@ -19,7 +19,7 @@ import torch
 from safetensors.torch import save_file
 
 from src.platform.runtime.native.detect.te_detect import detect_te_config
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.text_encoders import tokenization
 from src.platform.runtime.native.text_encoders.anima import AnimaTextEncoder
 from src.platform.runtime.native.text_encoders.loader import _build_config, load_text_encoder

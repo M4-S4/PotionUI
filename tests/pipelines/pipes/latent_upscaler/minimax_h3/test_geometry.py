@@ -143,7 +143,7 @@ class TestTinyRealArch:
     regardless of receptive field: the output shape."""
 
     def _module(self):
-        from vendor.gpl.comfyui.ops import disable_weight_init
+        from src.platform.runtime.native.kernels import disable_weight_init
         from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
 
         config = {

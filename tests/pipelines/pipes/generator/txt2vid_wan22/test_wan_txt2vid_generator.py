@@ -11,7 +11,7 @@ import pytest
 import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.errors import DecodeNumericsError
 from src.platform.settings import runtime_flags
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D, LATENTS_MEAN, LATENTS_STD

@@ -12,11 +12,13 @@ from src.platform.runtime.native.kernels import (
     FastPathKind,
     Fp8ScaledLinear,
     QuantFormat,
+    disable_weight_init,
     fast_path,
     fp8_ops,
     fp8_linear,
     gemm,
     linear,
+    manual_cast,
     nvfp4_linear,
 )
 from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
@@ -108,8 +110,8 @@ QUANTIZED = {
 
 PLAIN = {
     "torch-linear": lambda: torch.nn.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
-    "disable-weight-init": lambda: ops.disable_weight_init.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
-    "manual-cast": lambda: ops.manual_cast.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
+    "disable-weight-init": lambda: disable_weight_init.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
+    "manual-cast": lambda: manual_cast.Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
     "fp8-without-scale": lambda: Fp8ScaledLinear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
     "nvfp4-class-without-scale": lambda: Nvfp4Linear(IN_FEATURES, OUT_FEATURES, dtype=torch.bfloat16),
 }
@@ -322,7 +324,7 @@ def test_layers_without_quantized_storage_have_no_fast_path_and_take_no_quantize
 
 def test_a_conv_layer_has_no_fast_path_and_runs_no_quantized_branch(machine, recorder, activation_on_cuda):
     machine("blackwell", fp8=True, nvfp4=True)
-    conv = ops.manual_cast.Conv2d(3, 4, 1, dtype=torch.bfloat16)
+    conv = manual_cast.Conv2d(3, 4, 1, dtype=torch.bfloat16)
 
     assert fast_path(conv) is None
     out = conv(torch.randn(1, 3, 2, 2, dtype=torch.bfloat16))
