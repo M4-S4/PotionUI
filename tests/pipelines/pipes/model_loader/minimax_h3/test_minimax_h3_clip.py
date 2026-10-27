@@ -29,6 +29,7 @@ from src.platform.runtime.native.text_encoders.qwen3_vl_vision import (
 )
 from src.platform.runtime.native.text_encoders.tokenization import MiniMaxH3Tokenizer
 from src.pipelines.pipes.model_loader.minimax_h3.clip import MiniMaxH3ClipTextEncoder
+from src.platform.settings import runtime_flags
 
 _TEXT_HIDDEN = 5120
 
@@ -274,6 +275,29 @@ def test_te_factory_is_not_called_by_reading_the_model_fingerprint():
     encoder = MiniMaxH3ClipTextEncoder(factory, device="cpu", model_fingerprint="fp-123")
     assert encoder._model_fingerprint == "fp-123"
     assert calls == []
+
+
+def test_the_model_fingerprint_is_marked_while_references_are_enlarged(monkeypatch):
+    encoder = MiniMaxH3ClipTextEncoder(_real_text_encoder, device="cpu", model_fingerprint="fp-123")
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_h3_reference_upscale", True)
+    assert encoder._model_fingerprint == "fp-123|reference_upscale"
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_h3_reference_upscale", False)
+    assert encoder._model_fingerprint == "fp-123"
+
+
+@pytest.mark.parametrize(("upscale", "shape"), [(False, (22, 480, 832, 3)), (True, (22, 768, 1344, 3))])
+def test_a_draft_sized_reference_video_reaches_the_encoder_at_its_own_size_unless_enlarged(
+    monkeypatch, upscale, shape,
+):
+    import numpy as np
+
+    from src.pipelines.pipes.model_loader.minimax_h3 import clip as clip_module
+
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_h3_reference_upscale", upscale)
+    monkeypatch.setattr(
+        clip_module, "read_video_frames", lambda path: (np.zeros((30, 480, 832, 3), dtype=np.uint8), 24.0),
+    )
+    assert tuple(clip_module._to_fhwc_float01("ref.mp4", 22).shape) == shape
 
 
 def test_te_factory_is_called_exactly_once_on_first_real_encode():

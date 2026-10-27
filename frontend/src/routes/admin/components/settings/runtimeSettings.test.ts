@@ -75,6 +75,7 @@ describe('runtimeSettingKeys', () => {
 			'native_lora_fused',
 			'native_torch_compile',
 			'native_qwen3_te_bf16',
+			'native_h3_reference_upscale',
 			'native_sol_attn_backend',
 			'native_attention_backend',
 			'native_stream_prefetch',
