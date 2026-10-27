@@ -65,7 +65,7 @@ def scripted_engine(
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
-    executor = ToolExecutor(tool_registry=registry, llm_service=gateway)
+    executor = ToolExecutor(tool_registry=registry)
     store = InMemoryTurnStore()
     sleeps: List[float] = []
 

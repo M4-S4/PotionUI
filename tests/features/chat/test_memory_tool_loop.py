@@ -29,6 +29,7 @@ from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.tools.builtin.memory_tool import WriteMemoryTool
 from src.features.llm.tools.executor import ToolExecutor
 from src.features.llm.tools.registry import ToolRegistry
+from tests.fixtures.chat_engine import scripted_llm_from_events, turn_engine_for
 
 
 def make_session(**overrides):
@@ -82,24 +83,6 @@ def make_memory_repository():
     return repo
 
 
-class ScriptedLLMService:
-    """Fake LLM service whose ``stream_with_tools`` plays back one event list
-    per call. Calls beyond the scripted list repeat the last entry.
-    """
-
-    def __init__(self, scripts):
-        self.repository = Mock()
-        self.repository.get_configuration.return_value = SimpleNamespace(provider_options={})
-        self.scripts = scripts
-        self.call_count = 0
-
-    async def stream_with_tools(self, **kwargs):
-        idx = min(self.call_count, len(self.scripts) - 1)
-        self.call_count += 1
-        for event in self.scripts[idx]:
-            yield event
-
-
 def make_memory_chat_manager(scripts):
     repo = Mock()
     processor = Mock()
@@ -109,8 +92,8 @@ def make_memory_chat_manager(scripts):
 
     registry = ToolRegistry()
     registry.register(WriteMemoryTool())
-    llm_service = ScriptedLLMService(scripts)
-    executor = ToolExecutor(tool_registry=registry, llm_service=llm_service)
+    llm_service = scripted_llm_from_events(scripts)
+    executor = ToolExecutor(tool_registry=registry)
 
     manager = ChatRuntime(
         chat_repository=repo,
@@ -120,6 +103,7 @@ def make_memory_chat_manager(scripts):
         chat_mode_registry=mode_registry(),
         tool_executor=executor,
         tool_services=ToolServices(llm_memory_repository=make_memory_repository()),
+        turn_engine=turn_engine_for(llm_service, executor),
     )
     return manager, repo, llm_service
 
@@ -162,7 +146,7 @@ class TestMemorySaveLoopContinuation:
         assert done["data"]["assistant_message"]["content"] == "Got it, I'll remember that."
         assert saved["content"] == "Got it, I'll remember that."
         # tool decision call + empty attempt + retry
-        assert llm.call_count == 3
+        assert len(llm.adapter.requests) == 3
 
     @pytest.mark.asyncio
     async def test_normal_follow_up_after_write_memory_is_unaffected(self):
@@ -187,7 +171,7 @@ class TestMemorySaveLoopContinuation:
         done = next(e for e in events if e["event"] == "done")
         assert done["data"]["assistant_message"]["content"] == "Noted."
         assert saved["content"] == "Noted."
-        assert llm.call_count == 2
+        assert len(llm.adapter.requests) == 2
 
     @pytest.mark.asyncio
     async def test_repeated_empty_completions_still_terminate_the_turn(self):
@@ -211,4 +195,4 @@ class TestMemorySaveLoopContinuation:
         assert [e for e in events if e["event"] == "done"]
         assert saved["content"] == ""
         # Bounded retries — must not call the LLM an unbounded number of times.
-        assert 1 < llm.call_count <= 5
+        assert 1 < len(llm.adapter.requests) <= 5

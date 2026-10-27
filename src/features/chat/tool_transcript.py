@@ -1,7 +1,7 @@
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from src.features.llm.tools.base import ToolExecution, serialize_approval_preview
-from src.features.llm.tools.executor import _bound_tool_result_content
+from src.features.llm.tools.executor import bound_tool_result_content
 from src.features.llm.tools.workflow import ToolCallGuard
 
 MAX_REASON_CHARS = 2000
@@ -60,7 +60,7 @@ def resolved_result(record: Dict[str, Any]) -> Optional[str]:
     status = record.get("approval_status")
     result = record.get("result") or {}
     if status == APPROVED:
-        return _bound_tool_result_content(result.get("data") or "")
+        return bound_tool_result_content(result.get("data") or "")
     if status == FAILED:
         return f"Error: {result.get('error') or 'unknown error'}"
     if status == REJECTED:

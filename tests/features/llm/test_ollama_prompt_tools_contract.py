@@ -182,38 +182,3 @@ async def test_native_tool_calling_is_unaffected_by_the_prompt_tool_renderer(mon
     assert capture.body["tools"] == [add_prompt_schema]
     # No system-prompt rewrite happened at all.
     assert capture.body["messages"][0] == {"role": "system", "content": "SYS"}
-
-
-# ---------------------------------------------------------------------------
-# LLM-03: the budget's tool-schema estimate is computed from the schemas'
-# own JSON size (context_budget.count_tool_schemas), independent of this
-# card's prompt-TEXT rendering fix — a large real contract still trips a
-# small context window, with the estimate honestly labelled unmeasured.
-# ---------------------------------------------------------------------------
-
-class TestGatewayToolSchemaBudgetControl:
-    @pytest.fixture
-    def gateway(self):
-        from unittest.mock import AsyncMock, Mock
-        gw = client_gateway(Mock())
-        gw._ollama.generate_with_tools = AsyncMock()
-        return gw
-
-    @pytest.mark.asyncio
-    async def test_a_large_real_tool_schema_can_exceed_a_small_context_window(self, gateway):
-        gateway.repository.get_configuration.return_value = make_config(
-            "ollama", provider_options={"context_window": 50}, max_tokens=10,
-        )
-        tools = [AddPromptTool().to_schema(), UpdateFormSettingsTool().to_schema()]
-
-        with pytest.raises(context_budget.ContextBudgetExceededError) as exc_info:
-            await gateway.generate_with_tools(
-                messages=[{"role": "user", "content": "hi"}], llm_id="cfg-1", tools=tools,
-            )
-
-        breakdown = exc_info.value.breakdown
-        assert breakdown["tool_schema_tokens"] > 0
-        # A JSON-size estimate, never a real tokenizer count — must never be
-        # presented as measured.
-        assert breakdown["measured"] is False
-        gateway._ollama.generate_with_tools.assert_not_called()

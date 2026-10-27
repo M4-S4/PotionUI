@@ -8,6 +8,8 @@ from unittest.mock import ANY, Mock, MagicMock, AsyncMock, patch, call
 from typing import AsyncGenerator, List
 
 from src.features.chat.runtime import ChatRuntime
+from src.features.llm.harness.legacy import messages_from_dicts
+from tests.fixtures.chat_engine import ScriptedTurnEngine
 
 from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
@@ -54,11 +56,6 @@ async def collect_stream(gen: AsyncGenerator) -> List[dict]:
 
 
 def make_async_gen(chunks: List[str]):
-    """Return an async generator that yields dicts matching stream_with_history format.
-
-    Each chunk becomes a {"type": "token", "content": chunk} event, followed
-    by a final {"type": "usage", ...} event with null token counts.
-    """
     async def _gen():
         for chunk in chunks:
             yield {"type": "token", "content": chunk}
@@ -74,6 +71,7 @@ class BaseStreamingTest:
     """Shared setup for all send_message_stream test classes."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
         self.mock_llm = Mock()
         self.mock_processor = Mock()
@@ -88,6 +86,7 @@ class BaseStreamingTest:
         self.mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -263,7 +262,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst", role="assistant", content="".join(chunks))
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(chunks))
+        self.engine.script(make_async_gen(chunks))
 
         return user_msg, assistant_msg
 
@@ -418,7 +417,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst", role="assistant", content=expected_content)
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(chunks))
+        self.engine.script(make_async_gen(chunks))
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -434,8 +433,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assert second_call_kwargs["role"] == "assistant"
 
     @pytest.mark.asyncio
-    async def test_stream_with_history_called_correctly(self):
-        """stream_with_history should receive correct arguments."""
+    async def test_the_engine_receives_the_turn_inputs(self):
         session = self._make_active_session(llm_config_id="llm-abc", mode="generation")
         self.mock_repo.get_session.return_value = session
         history = [{"role": "user", "content": "hi"}]
@@ -445,7 +443,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
 
         with patch("src.features.chat.conversation.convert_image_to_base64", return_value=None):
             await collect_stream(
@@ -456,13 +454,13 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
                 )
             )
 
-        self.mock_llm.stream_with_history.assert_called_once_with(
-            messages=history,
-            llm_id="llm-abc",
-            image_data=None,
-            custom_system_message=ANY,
-            options_override=None,
-        )
+        call_kwargs = self.engine.call_kwargs
+        assert len(self.engine.inputs) == 1
+        assert call_kwargs["llm_id"] == "llm-abc"
+        assert call_kwargs["image_data"] is None
+        assert call_kwargs["options_override"] is None
+        assert call_kwargs["messages"][-1]["content"].startswith("hello")
+        assert self.engine.inputs[0].tool_context is None
 
     @pytest.mark.asyncio
     async def test_image_data_is_converted_to_base64(self):
@@ -480,7 +478,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
             )
 
         mock_convert.assert_called_once_with("/path/to/img.jpg")
-        call_kwargs = self.mock_llm.stream_with_history.call_args[1]
+        call_kwargs = self.engine.call_kwargs
         assert call_kwargs["image_data"] == "b64img"
 
     @pytest.mark.asyncio
@@ -494,7 +492,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst", content="")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen([]))
+        self.engine.script(make_async_gen([]))
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -528,7 +526,7 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -555,7 +553,7 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst", content="full response")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["full response"]))
+        self.engine.script(make_async_gen(["full response"]))
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -581,7 +579,7 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["chunk"]))
+        self.engine.script(make_async_gen(["chunk"]))
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -607,7 +605,7 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst", content=expected)
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(chunks))
+        self.engine.script(make_async_gen(chunks))
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -635,7 +633,7 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -664,7 +662,7 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -689,7 +687,7 @@ class TestSendMessageStreamPersistence(BaseStreamingTest):
         # Second add_message returns None → assistant save fails
         self.mock_repo.add_message.side_effect = [user_msg, None]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["chunk"]))
+        self.engine.script(make_async_gen(["chunk"]))
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -720,7 +718,7 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
         return session
 
     @pytest.mark.asyncio
@@ -797,7 +795,7 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
         user_msg = make_message_response("msg-user", role="user")
         self.mock_repo.add_message.side_effect = [user_msg, None]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["chunk"]))
+        self.engine.script(make_async_gen(["chunk"]))
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -822,7 +820,7 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
 
         # Hook modifies content
         modified_ctx = Mock()
@@ -847,14 +845,14 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
         session = self._make_active_session()
         self.mock_repo.get_session.return_value = session
         original_history = [{"role": "user", "content": "hi"}]
-        modified_history = [{"role": "system", "content": "injected"}, {"role": "user", "content": "hi"}]
+        modified_history = messages_from_dicts([{"role": "system", "content": "injected"}, {"role": "user", "content": "hi"}])[0]
         self.mock_repo.get_conversation_history.return_value = original_history
 
         user_msg = make_message_response("msg-user", role="user")
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
 
         call_count = [0]
 
@@ -878,8 +876,9 @@ class TestSendMessageStreamHooks(BaseStreamingTest):
             )
         )
 
-        call_kwargs = self.mock_llm.stream_with_history.call_args[1]
-        assert call_kwargs["messages"] == modified_history
+        sent = [*self.engine.inputs[0].history, *self.engine.inputs[0].new_messages]
+        assert [message.role.value for message in sent] == ["system", "user"]
+        assert sent[0].text() == "injected" and sent[1].text() == "hi"
 
 
 # ---------------------------------------------------------------------------
@@ -920,8 +919,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
         mock_tool_executor.tool_registry.get_for_mode.return_value = [mock_tool]
         mock_tool_executor.tool_registry.get_tool_hints_text.return_value = ""
 
-        # Simulate execute_with_tools_stream yielding events then tokens then done
-        async def _mock_execute_with_tools_stream(*args, **kwargs):
+        async def _scripted_turn(*args, **kwargs):
             for te in tool_executions:
                 yield {"type": "tool_start", "data": {"tool_name": te.tool_name, "arguments": te.arguments}}
                 yield {"type": "tool_end", "data": {"tool_name": te.tool_name, "success": te.result.success, "duration_ms": te.duration_ms}}
@@ -929,9 +927,10 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
                 yield {"type": "token", "data": {"content": llm_content}}
             yield {"type": "done", "data": {"tool_executions": tool_executions, "full_content": llm_content}}
 
-        mock_tool_executor.execute_with_tools_stream = Mock(side_effect=_mock_execute_with_tools_stream)
+        self.engine.script(_scripted_turn)
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1092,7 +1091,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["streamed"]))
+        self.engine.script(make_async_gen(["streamed"]))
 
         # manager has no tool_executor (default None)
         events = await collect_stream(
@@ -1103,8 +1102,8 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
             )
         )
 
-        # Should have used streaming path
-        self.mock_llm.stream_with_history.assert_called_once()
+        assert len(self.engine.inputs) == 1
+        assert self.engine.inputs[0].tool_context is None
         token_events = [e for e in events if e["event"] == "token"]
         assert len(token_events) == 1
         assert token_events[0]["data"]["content"] == "streamed"
@@ -1143,7 +1142,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
             )
         )
 
-        kwargs = mock_tool_executor.execute_with_tools_stream.call_args.kwargs
+        kwargs = self.engine.call_kwargs
         assert kwargs["iteration_nudge"] == TOOL_LOOP_CONTINUATION_NUDGE
 
     @pytest.mark.asyncio
@@ -1165,7 +1164,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
             )
         )
 
-        kwargs = mock_tool_executor.execute_with_tools_stream.call_args.kwargs
+        kwargs = self.engine.call_kwargs
         assert kwargs["iteration_nudge"] is None
         assert kwargs["iteration_nudge"] != TOOL_LOOP_CONTINUATION_NUDGE
 
@@ -1191,7 +1190,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             yield {"type": "token", "content": "partial"}
             raise RuntimeError("LLM connection failed")
 
-        self.mock_llm.stream_with_history = Mock(return_value=failing_stream())
+        self.engine.script(failing_stream())
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -1218,7 +1217,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             raise RuntimeError("LLM connection failed at /srv/llm/socket")
             yield
 
-        self.mock_llm.stream_with_history = Mock(return_value=failing_stream())
+        self.engine.script(failing_stream())
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -1255,9 +1254,10 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             raise RuntimeError("tool system crashed")
             yield  # make it an async generator
 
-        mock_tool_executor.execute_with_tools_stream = Mock(side_effect=_failing_stream)
+        self.engine.script(_failing_stream)
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1293,7 +1293,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             raise RuntimeError("instant failure")
             yield  # make it a generator
 
-        self.mock_llm.stream_with_history = Mock(return_value=bad_stream())
+        self.engine.script(bad_stream())
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -1320,7 +1320,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             raise RuntimeError("failure")
             yield
 
-        self.mock_llm.stream_with_history = Mock(return_value=bad_stream())
+        self.engine.script(bad_stream())
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -1347,7 +1347,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             raise ValueError("unexpected")
             yield
 
-        self.mock_llm.stream_with_history = Mock(return_value=bad_stream())
+        self.engine.script(bad_stream())
 
         # This should NOT raise; errors are yielded as events
         try:
@@ -1400,7 +1400,7 @@ class TestSendMessageStreamResources(BaseStreamingTest):
         user_msg = make_message_response("msg-user", role="user", content="check @fake.known")
         assistant_msg = make_message_response("msg-asst", role="assistant", content="ok")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
 
     @pytest.mark.asyncio
     async def test_stream_saves_snapshot_and_injects_block(self):
@@ -1418,7 +1418,7 @@ class TestSendMessageStreamResources(BaseStreamingTest):
         assert [e["event"] for e in events if e["event"] == "done"] == ["done"]
         user_call = self.mock_repo.add_message.call_args_list[0]
         assert user_call.kwargs["metadata"]["resources"][0]["content"] == "KNOWN CONTENT"
-        history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert len(history) == 1
         assert history[-1]["role"] == "user"
         content = history[-1]["content"]
@@ -1441,7 +1441,7 @@ class TestSendMessageStreamResources(BaseStreamingTest):
 
         assert not [e for e in events if e["event"] == "error"]
         assert [e for e in events if e["event"] == "done"]
-        history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert "could not be resolved" in history[-1]["content"]
 
 
@@ -1464,6 +1464,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             source="test-plugin",
         ))
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1481,7 +1482,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
         user_msg = make_message_response("msg-user", role="user", content="hello")
         assistant_msg = make_message_response("msg-asst")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
-        self.mock_llm.stream_with_history = Mock(return_value=make_async_gen(["ok"]))
+        self.engine.script(make_async_gen(["ok"]))
         return session
 
     @pytest.mark.asyncio
@@ -1497,7 +1498,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             context_metadata={"foo": "bar"},
         ))
 
-        history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert len(history) == 1
         assert history[-1]["role"] == "user"
         content = history[-1]["content"]
@@ -1516,7 +1517,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             context_metadata={"foo": "bar"},
         ))
 
-        history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert "ASYNC bar user-123" in history[-1]["content"]
 
     @pytest.mark.asyncio
@@ -1533,7 +1534,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
 
         assert not [e for e in events if e["event"] == "error"]
         assert [e for e in events if e["event"] == "done"]
-        history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert not any("boom" in (m.get("content") or "") for m in history)
         assert not any(m["role"] == "system" for m in history)
         assert history[-1]["content"] == f"hello\n\n<context>\n{REPLY_CONTRACT_REMINDER}\n</context>"
@@ -1547,7 +1548,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             session_id="session-123", user_id="user-123", content="hello",
         ))
 
-        history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert not any(m["role"] == "system" for m in history)
         assert history[-1]["content"] == f"hello\n\n<context>\n{REPLY_CONTRACT_REMINDER}\n</context>"
 
@@ -1569,15 +1570,14 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             resources=["models.lora.x"],
         ))
 
-        history = self.mock_llm.stream_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert len(history) == 1
         assert history[-1]["role"] == "user"
         content = history[-1]["content"]
         assert content.index("CONTRIB") < content.index("RESOURCE") < content.index(REPLY_CONTRACT_REMINDER)
 
     @pytest.mark.asyncio
-    async def test_llm_options_reach_stream_with_history(self):
-        """Efficiency item 1: mode llm_options flow to the non-tool streaming path."""
+    async def test_llm_options_reach_the_engine_without_tools(self):
         self._make_custom_mode_manager(llm_options={"think": False})
         self._setup_session()
 
@@ -1585,7 +1585,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             session_id="session-123", user_id="user-123", content="hello",
         ))
 
-        call_kwargs = self.mock_llm.stream_with_history.call_args.kwargs
+        call_kwargs = self.engine.call_kwargs
         assert call_kwargs["options_override"] == {"think": False}
 
     @pytest.mark.asyncio
@@ -1604,7 +1604,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             yield {"type": "token", "data": {"content": "ok"}}
             yield {"type": "done", "data": {"tool_executions": [], "full_content": "ok"}}
 
-        mock_tool_executor.execute_with_tools_stream = Mock(side_effect=_mock_stream)
+        self.engine.script(_mock_stream)
 
         self._make_custom_mode_manager(
             llm_options={"think": False}, tool_executor=mock_tool_executor,
@@ -1616,8 +1616,8 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
             session_id="session-123", user_id="user-123", content="hello",
         ))
 
-        assert mock_tool_executor.execute_with_tools_stream.called
-        call_kwargs = mock_tool_executor.execute_with_tools_stream.call_args.kwargs
+        assert self.engine.inputs[0].tool_context is not None
+        call_kwargs = self.engine.call_kwargs
         assert call_kwargs["llm_options"] == {"think": False}
 
 
@@ -1698,7 +1698,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
             mock_tool_executor.tool_registry.get_for_mode.return_value = [mock_tool]
             mock_tool_executor.tool_registry.get_tool_hints_text.return_value = ""
 
-            async def _mock_execute_with_tools_stream(*args, **kwargs):
+            async def _scripted_turn(*args, **kwargs):
                 for te in tool_executions:
                     yield {"type": "tool_start", "data": {"tool_name": te.tool_name, "arguments": te.arguments}}
                     yield {"type": "tool_end", "data": {"tool_name": te.tool_name, "success": te.result.success, "duration_ms": te.duration_ms}}
@@ -1715,10 +1715,10 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
                     },
                 }
 
-            mock_tool_executor.execute_with_tools_stream = Mock(side_effect=_mock_execute_with_tools_stream)
+            self.engine.script(_scripted_turn)
             self.manager.tool_executor = mock_tool_executor
         else:
-            self.mock_llm.stream_with_history = Mock(return_value=make_async_gen([llm_content] if llm_content else []))
+            self.engine.script(make_async_gen([llm_content] if llm_content else []))
 
         return session, user_msg, assistant_msg
 
@@ -1870,11 +1870,6 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
 
     @pytest.mark.asyncio
     async def test_thinking_mode_persisted_without_tools_from_usage_event(self):
-        """The no-tools streaming path carries `thinking_mode` on the final
-        `stream_with_history` "usage" event (see `NativeLLMClient.
-        stream_with_history`) exactly like `tokens_used`; it must reach the
-        persisted trace the same way `test_behavior_trace_persisted_without_tools`
-        proves the token counts do."""
         self._setup(resources=None, tool_executions=None, llm_content="just an answer")
 
         async def _gen():
@@ -1885,7 +1880,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
                 "thinking_mode": {"requested": False, "effective": False},
             }
 
-        self.mock_llm.stream_with_history = Mock(return_value=_gen())
+        self.engine.script(_gen())
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -1905,7 +1900,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         te = self._make_tool_execution("get_data")
         self._setup(resources=None, tool_executions=[te], pre_chat=False)
 
-        async def _mock_execute_with_tools_stream(*args, **kwargs):
+        async def _scripted_turn(*args, **kwargs):
             yield {"type": "tool_start", "data": {"tool_name": "get_data", "arguments": {}}}
             yield {"type": "tool_end", "data": {"tool_name": "get_data", "success": True, "duration_ms": 1}}
             yield {"type": "token", "data": {"content": "answer"}}
@@ -1918,9 +1913,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
                 },
             }
 
-        self.manager.tool_executor.execute_with_tools_stream = Mock(
-            side_effect=_mock_execute_with_tools_stream
-        )
+        self.engine.script(_scripted_turn)
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -1934,9 +1927,6 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
 
     @pytest.mark.asyncio
     async def test_completion_persisted_without_tools_from_usage_event(self):
-        """The no-tools streaming path carries `completion` (the normalized
-        `{"reason", "raw"}` shape from `clients.completion`) on the final
-        `stream_with_history` "usage" event exactly like `thinking_mode`."""
         self._setup(resources=None, tool_executions=None, llm_content="cut off mid")
 
         async def _gen():
@@ -1947,7 +1937,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
                 "completion": {"reason": "length", "raw": "length"},
             }
 
-        self.mock_llm.stream_with_history = Mock(return_value=_gen())
+        self.engine.script(_gen())
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -1967,7 +1957,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         te = self._make_tool_execution("get_data")
         self._setup(resources=None, tool_executions=[te], pre_chat=False)
 
-        async def _mock_execute_with_tools_stream(*args, **kwargs):
+        async def _scripted_turn(*args, **kwargs):
             yield {"type": "tool_start", "data": {"tool_name": "get_data", "arguments": {}}}
             yield {"type": "tool_end", "data": {"tool_name": "get_data", "success": True, "duration_ms": 1}}
             yield {"type": "token", "data": {"content": "answer"}}
@@ -1980,9 +1970,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
                 },
             }
 
-        self.manager.tool_executor.execute_with_tools_stream = Mock(
-            side_effect=_mock_execute_with_tools_stream
-        )
+        self.engine.script(_scripted_turn)
 
         await collect_stream(
             self.manager.send_message_stream(
@@ -2022,7 +2010,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
                 "completion": {"reason": "length", "raw": "length"},
             }
 
-        self.mock_llm.stream_with_history = Mock(return_value=_gen())
+        self.engine.script(_gen())
 
         events = await collect_stream(
             self.manager.send_message_stream(
@@ -2096,7 +2084,7 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
             finally:
                 markers.append("llm_stream_closed")
 
-        self.mock_llm.stream_with_history = Mock(side_effect=_gen)
+        self.engine.script(_gen)
 
         stream = self.manager.send_message_stream(
             session_id="session-123", user_id="user-123", content="hello",
@@ -2131,7 +2119,7 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
         tool_dispatches = {"count": 0}
         markers: List[str] = []
 
-        async def _mock_execute_with_tools_stream(*args, **kwargs):
+        async def _scripted_turn(*args, **kwargs):
             provider_calls["count"] += 1
             try:
                 yield {"type": "tool_start", "data": {"tool_name": "get_data", "arguments": {}}}
@@ -2143,9 +2131,10 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
             finally:
                 markers.append("executor_stream_closed")
 
-        mock_tool_executor.execute_with_tools_stream = Mock(side_effect=_mock_execute_with_tools_stream)
+        self.engine.script(_scripted_turn)
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,

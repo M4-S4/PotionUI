@@ -74,6 +74,22 @@ async def test_a_disabled_system_prompt_sends_none():
     assert prepared.request.system == ""
 
 
+async def test_a_custom_system_wins_even_when_the_config_prompt_is_disabled():
+    gateway = scripted_gateway(ScriptedAdapter(), scripted_config(disable_system_prompt=True))
+
+    prepared = await gateway.prepare("cfg-scripted", [user_message("x")], system="CUSTOM")
+
+    assert prepared.request.system == "CUSTOM"
+
+
+async def test_the_config_system_prompt_is_sent_by_default():
+    gateway = scripted_gateway(ScriptedAdapter(), scripted_config(system_message="CONFIGURED"))
+
+    prepared = await gateway.prepare("cfg-scripted", [user_message("x")])
+
+    assert prepared.request.system == "CONFIGURED"
+
+
 @pytest.mark.parametrize(
     "config, error",
     [(None, "not found"), (scripted_config(enabled=False), "disabled"), (scripted_config(type="nope"), "Unsupported LLM type")],

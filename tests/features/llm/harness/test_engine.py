@@ -266,6 +266,17 @@ async def test_an_empty_response_is_retried_inside_the_tool_loop():
     assert [step.message.role for step in rig.store.steps("s1")] == [Role.USER, Role.ASSISTANT]
 
 
+async def test_an_empty_answer_without_tools_is_retried_three_times_at_most():
+    empty = [Finish(reason=FinishReason.STOP)]
+    adapter = ScriptedAdapter(empty, empty, empty, text_step("never"))
+    rig = scripted_engine(adapter)
+
+    events = await drain(rig.engine.run(turn(tool_context=None)))
+
+    assert len(adapter.requests) == 3
+    assert outcome_of(events).content == ""
+
+
 async def test_a_failed_call_is_not_rerun_with_the_same_arguments():
     broken = BrokenTool()
     adapter = ScriptedAdapter(

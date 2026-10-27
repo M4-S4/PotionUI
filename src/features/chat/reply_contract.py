@@ -64,11 +64,6 @@ REPLY_CONTRACT_REMINDER = (
     "go through their tool. `## questions` only if needed."
 )
 
-# Injected by ToolExecutor as the trailing message of every LLM call after the
-# turn's first tool round completes (see execute_with_tools/_stream's
-# `iteration_nudge` parameter) — a rule stated once in the static system
-# prompt loses to recency as tool rounds accumulate, so this restates it right
-# where the model is about to decide whether to call another tool or stop.
 TOOL_LOOP_CONTINUATION_NUDGE = (
     "If the task is not finished, call the next tool NOW, in this same "
     "response. Never end a reply announcing an action you have not "

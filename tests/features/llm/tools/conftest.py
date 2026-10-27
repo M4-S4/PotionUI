@@ -1,5 +1,3 @@
-from unittest.mock import AsyncMock
-
 import pytest
 
 from src.features.llm.tools.executor import ToolExecutor
@@ -9,7 +7,7 @@ from src.features.llm.tools.registry import ToolRegistry
 def _executor_for(tool):
     registry = ToolRegistry()
     registry.register(tool)
-    return ToolExecutor(tool_registry=registry, llm_service=AsyncMock())
+    return ToolExecutor(tool_registry=registry)
 
 
 @pytest.fixture

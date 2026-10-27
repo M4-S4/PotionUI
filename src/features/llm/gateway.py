@@ -2,17 +2,15 @@ import logging
 import time
 from contextlib import aclosing
 from dataclasses import dataclass, replace
-from typing import Any, AsyncGenerator, AsyncIterator, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Union
 
 from src.features.llm import context_budget, trace_collector
-from src.features.llm.clients import LLMClient, LLMResponse
 from src.features.llm.context_windows import ContextWindows, WindowProbe
 from src.features.llm.harness.adapter import Adapter, RenderRequest, Settings, ToolSpec
 from src.features.llm.harness.assembler import StepAssembler
-from src.features.llm.harness.build import new_id
-from src.features.llm.harness.context import user_text
+from src.features.llm.harness.build import new_id, user_message
 from src.features.llm.harness.events import FinishReason, StreamEvent, Usage
-from src.features.llm.harness.messages import ImagePart, Message, Origin, Role, credential_fingerprint
+from src.features.llm.harness.messages import Message, Origin, credential_fingerprint
 from src.features.llm.harness.ports import ProfileResolver
 from src.features.llm.harness.profile import CapabilityProfile
 from src.features.llm.model_listing import DiscoveredModel
@@ -20,6 +18,7 @@ from src.features.llm.repository import LLMConfig, LLMRepository
 from src.features.llm.types import LLMType, LLMTypes
 
 _NON_PARAM_KEYS = ("model", "messages", "tools", "stream", "stream_options")
+EMPTY_RESPONSE_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -44,72 +43,8 @@ class Completion:
         return self.message.text()
 
 
-def budget_entries(messages: Sequence[Message]) -> Tuple[List[Dict[str, Any]], List[Message]]:
-    entries: List[Dict[str, Any]] = []
-    owners: List[Message] = []
-    for message in messages:
-        for entry in _budget_entries(message):
-            entries.append(entry)
-            owners.append(message)
-    return entries, owners
-
-
-def _budget_entries(message: Message) -> List[Dict[str, Any]]:
-    if message.role is Role.TOOL:
-        return [
-            {"role": "tool", "content": part.text(), "tool_call_id": part.call_id, "name": part.name}
-            for part in message.tool_results()
-        ]
-    if message.role is Role.USER:
-        return [{"role": "user", "content": user_text(message)}]
-    entry: Dict[str, Any] = {"role": message.role.value, "content": message.text()}
-    reasoning = "".join(part.text or part.summary for part in message.reasoning())
-    if reasoning:
-        entry["reasoning"] = reasoning
-    calls = message.tool_calls()
-    if calls:
-        entry["tool_calls"] = [
-            {
-                "id": call.wire_id or call.call_id,
-                "type": "function",
-                "function": {"name": call.name, "arguments": call.args if call.args is not None else (call.args_raw or "")},
-            }
-            for call in calls
-        ]
-    return [entry]
-
-
-def has_image(messages: Sequence[Message]) -> bool:
-    for message in messages:
-        for part in message.parts:
-            if isinstance(part, ImagePart):
-                return True
-        for result in message.tool_results():
-            if any(isinstance(item, ImagePart) for item in result.content):
-                return True
-    return False
-
-
-def _kept(messages: Sequence[Message], entries: List[Dict[str, Any]], owners: List[Message], kept_entries: List[Dict[str, Any]]) -> Tuple[Message, ...]:
-    kept_ids = {id(entry) for entry in kept_entries}
-    kept_owners = {id(owner) for entry, owner in zip(entries, owners) if id(entry) in kept_ids}
-    return tuple(message for message in messages if id(message) in kept_owners)
-
-
-def _settings_options(settings: Settings) -> Optional[Dict[str, Any]]:
-    options = {
-        key: value
-        for key, value in (
-            ("temperature", settings.temperature),
-            ("top_p", settings.top_p),
-            ("top_k", settings.top_k),
-            ("min_p", settings.min_p),
-            ("max_tokens", settings.max_tokens),
-            ("think", settings.reasoning),
-        )
-        if value is not None
-    }
-    return options or None
+def _reasoning_options(settings: Settings) -> Optional[Dict[str, Any]]:
+    return {"think": settings.reasoning} if settings.reasoning is not None else None
 
 
 class LLMGateway:
@@ -159,15 +94,11 @@ class LLMGateway:
             logging.debug("[LLMGateway] %s failed for '%s'", label, config.id, exc_info=True)
             return None
 
-    def context_profile_for(
-        self,
-        config: LLMConfig,
-        options_override: Optional[Dict[str, Any]] = None,
-    ) -> context_budget.ContextProfile:
+    def context_profile_for(self, config: LLMConfig, settings: Settings = Settings()) -> context_budget.ContextProfile:
         adapter = self.types.require(config.type).adapter
         capacity = self.windows.capacity(config)
-        max_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
-        thinking_enabled = context_budget.resolve_thinking_enabled(config, options_override)
+        max_tokens = settings.max_tokens if settings.max_tokens is not None else config.max_tokens
+        thinking_enabled = context_budget.resolve_thinking_enabled(config, _reasoning_options(settings))
         reserve = context_budget.resolve_reserve(
             max_tokens=max_tokens, window_tokens=capacity.capacity_tokens, thinking_enabled=thinking_enabled,
         )
@@ -187,36 +118,17 @@ class LLMGateway:
     def estimate_context_budget(
         self,
         config: LLMConfig,
-        system_message: Optional[str],
-        messages: List[Dict[str, Any]],
-        tool_schemas: Optional[List[Dict[str, Any]]] = None,
-        image_data: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None,
-    ) -> context_budget.BudgetOutcome:
-        inputs = self.context_profile_for(config, options_override)
-        return context_budget.budget_with_profile(
-            inputs, system_message=system_message, messages=messages,
-            tool_schemas=tool_schemas, image_data=image_data,
-        )
-
-    def budget_messages(
-        self,
-        config: LLMConfig,
         system: Optional[str],
         messages: Sequence[Message],
         tools: Sequence[ToolSpec] = (),
         settings: Settings = Settings(),
-    ) -> Tuple[Tuple[Message, ...], Dict[str, Any]]:
-        entries, owners = budget_entries(messages)
-        outcome = self.estimate_context_budget(
-            config,
-            system,
-            entries,
-            [tool.function_schema() for tool in tools] or None,
-            "image" if has_image(messages) else None,
-            _settings_options(settings),
+    ) -> context_budget.BudgetOutcome:
+        return context_budget.budget_with_profile(
+            self.context_profile_for(config, settings),
+            system_message=system,
+            messages=messages,
+            tool_schemas=[tool.function_schema() for tool in tools] or None,
         )
-        return _kept(messages, entries, owners, outcome.messages), outcome.ledger
 
     def resolve_system(self, config: LLMConfig, custom_system_message: Optional[str] = None) -> str:
         if custom_system_message:
@@ -252,10 +164,10 @@ class LLMGateway:
         await self.windows.ensure(config)
         profile = self.profiles.resolve(config)
         system_message = self.resolve_system(config, system)
-        kept, ledger = self.budget_messages(config, system_message, messages, tools, settings)
-        sent = ledger["max_tokens_sent"]
-        if sent != ledger["max_tokens"]:
-            settings = replace(settings, max_tokens=sent)
+        outcome = self.estimate_context_budget(config, system_message, messages, tools, settings)
+        ledger = outcome.ledger
+        if ledger["max_tokens_sent"] != ledger["max_tokens"]:
+            settings = replace(settings, max_tokens=ledger["max_tokens_sent"])
         origin = Origin(
             adapter=entry.adapter.name,
             provider=config.type,
@@ -263,7 +175,7 @@ class LLMGateway:
             credential=credential_fingerprint(config.base_url, config.api_key),
         )
         request = RenderRequest(
-            config=config, system=system_message, messages=kept, tools=tuple(tools), settings=settings, stream=True,
+            config=config, system=system_message, messages=tuple(outcome.messages), tools=tuple(tools), settings=settings,
         )
         return PreparedCall(config=config, entry=entry, profile=profile, request=request, origin=origin, ledger=ledger)
 
@@ -322,20 +234,27 @@ class LLMGateway:
     async def complete(
         self,
         target: Union[str, LLMConfig],
-        messages: Sequence[Message],
+        messages: Union[str, Sequence[Message]],
         *,
         system: Optional[str] = None,
         settings: Settings = Settings(),
         tools: Sequence[ToolSpec] = (),
     ) -> Completion:
+        if isinstance(messages, str):
+            messages = [user_message(messages)]
         prepared = await self.prepare(target, messages, system=system, settings=settings, tools=tools)
-        assembler = StepAssembler(new_id("msg"), prepared.origin)
-        async with aclosing(self.run(prepared)) as events:
-            async for event in events:
-                assembler.feed(event)
+        for attempt in range(1, EMPTY_RESPONSE_ATTEMPTS + 1):
+            assembler = StepAssembler(new_id("msg"), prepared.origin)
+            async with aclosing(self.run(prepared)) as events:
+                async for event in events:
+                    assembler.feed(event)
+            message = assembler.message()
+            if message.text() or message.tool_calls() or attempt == EMPTY_RESPONSE_ATTEMPTS:
+                break
+            logging.warning(f"[LLM] Empty completion from '{prepared.config.id}' (attempt {attempt}/{EMPTY_RESPONSE_ATTEMPTS}), retrying")
         finish = assembler.finish
         return Completion(
-            message=assembler.message(),
+            message=message,
             usage=assembler.usage,
             finish=finish.reason if finish is not None else None,
             finish_raw=finish.raw_reason if finish is not None else None,
@@ -343,136 +262,18 @@ class LLMGateway:
 
     async def test_configuration(self, config: LLMConfig) -> Dict[str, Any]:
         try:
-            response = await self.generate_response(
-                "Hello, this is a test. Please respond with 'Test successful!'", config, config.system_message,
+            completion = await self.complete(
+                config,
+                [user_message("Hello, this is a test. Please respond with 'Test successful!'")],
+                system=config.system_message,
             )
-            return {
-                "success": True,
-                "response": response.content,
-                "model": response.model,
-                "tokens_used": response.tokens_used,
-            }
         except Exception:
             logging.error(f"[Chat] Configuration test failed for '{config.id}'", exc_info=True)
             return {"success": False, "error": "Failed to reach the configured LLM provider."}
-
-    def _client_for(self, config: LLMConfig) -> LLMClient:
-        return self.types.require(config.type).adapter
-
-    def _budgeted(
-        self,
-        config: LLMConfig,
-        system_message: Optional[str],
-        messages: List[Dict[str, Any]],
-        tool_schemas: Optional[List[Dict[str, Any]]],
-        image_data: Optional[str],
-        options_override: Optional[Dict[str, Any]],
-    ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        outcome = self.estimate_context_budget(
-            config, system_message, messages, tool_schemas, image_data, options_override,
-        )
-        effective_override = options_override
-        sent = outcome.ledger["max_tokens_sent"]
-        if sent != outcome.ledger["max_tokens"]:
-            effective_override = dict(options_override or {})
-            effective_override["max_tokens"] = sent
-        return outcome.messages, effective_override
-
-    def _wire_config(self, config: LLMConfig) -> LLMConfig:
-        if config.type != "ollama":
-            return config
-        capacity = self.windows.capacity(config)
-        if capacity.source != "discovered":
-            return config
-        provider_options = dict(config.provider_options or {})
-        provider_options["num_ctx"] = capacity.capacity_tokens
-        return config.model_copy(update={"provider_options": provider_options})
-
-    async def generate_with_config_id(self, prompt: str, llm_id: str, image_data: Optional[str] = None) -> LLMResponse:
-        config = self.repository.get_configuration(llm_id)
-        if not config:
-            raise ValueError(f"LLM configuration '{llm_id}' not found")
-        system_message = "" if config.disable_system_prompt else config.system_message
-        return await self.generate_response(prompt=prompt, config=config, system_message=system_message, image_data=image_data)
-
-    async def generate_response(self, prompt: str, config: LLMConfig, system_message: str, image_data: Optional[str] = None) -> LLMResponse:
-        if not config.enabled:
-            raise ValueError(f"LLM configuration '{config.id}' is disabled")
-        await self.windows.ensure(config)
-        outcome = self.estimate_context_budget(
-            config, system_message, [{"role": "user", "content": prompt}], image_data=image_data,
-        )
-        sent = outcome.ledger["max_tokens_sent"]
-        if sent != config.max_tokens:
-            config = config.model_copy(update={"max_tokens": sent})
-        config = self._wire_config(config)
-        return await self._client_for(config).generate(prompt, config, system_message, image_data)
-
-    async def generate_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        llm_id: str,
-        image_data: Optional[str] = None,
-        custom_system_message: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> LLMResponse:
-        return await self.generate_with_tools(messages, llm_id, None, image_data, custom_system_message, options_override)
-
-    def stream_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        llm_id: str,
-        image_data: Optional[str] = None,
-        custom_system_message: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> AsyncGenerator[dict, None]:
-        return self.stream_with_tools(messages, llm_id, None, image_data, custom_system_message, options_override)
-
-    async def _prepare(
-        self,
-        messages: list[Dict[str, Any]],
-        llm_id: str,
-        tools: Optional[List[Dict]],
-        image_data: Optional[str],
-        custom_system_message: Optional[str],
-        options_override: Optional[Dict[str, Any]],
-    ) -> tuple[LLMConfig, str, list[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        config = self._config(llm_id)
-        await self.windows.ensure(config)
-        system_message = self.resolve_system(config, custom_system_message)
-        messages, options_override = self._budgeted(config, system_message, messages, tools, image_data, options_override)
-        return self._wire_config(config), system_message, messages, options_override
-
-    async def generate_with_tools(
-        self,
-        messages: list[Dict[str, Any]],
-        llm_id: str,
-        tools: List[Dict] = None,
-        image_data: Optional[str] = None,
-        custom_system_message: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> LLMResponse:
-        config, system_message, messages, options_override = await self._prepare(
-            messages, llm_id, tools, image_data, custom_system_message, options_override
-        )
-        return await self._client_for(config).generate_with_tools(
-            messages, config, system_message, tools, image_data, options_override
-        )
-
-    async def stream_with_tools(
-        self,
-        messages: list[Dict[str, Any]],
-        llm_id: str,
-        tools: Optional[List[Dict]] = None,
-        image_data: Optional[str] = None,
-        custom_system_message: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> AsyncGenerator[dict, None]:
-        config, system_message, messages, options_override = await self._prepare(
-            messages, llm_id, tools, image_data, custom_system_message, options_override
-        )
-        async with aclosing(self._client_for(config).stream_with_tools(
-            messages, config, system_message, tools, image_data, options_override
-        )) as agen:
-            async for event in agen:
-                yield event
+        usage = completion.usage or Usage()
+        return {
+            "success": True,
+            "response": completion.text,
+            "model": config.model,
+            "tokens_used": usage.total_tokens,
+        }

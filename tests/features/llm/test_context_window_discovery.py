@@ -19,7 +19,10 @@ from src.features.llm.model_listing import DiscoveredWindow
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from tests.features.llm.wire_capture import OLLAMA_REPLY, install_wire_capture, json_response, make_config
-from tests.fixtures.llm_engine import client_gateway
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.build import user_message
+from tests.fixtures.llm_engine import client_gateway, drain, scripted_gateway
+from tests.fixtures.llm_harness import ScriptedAdapter, text_step
 
 SHOW_RUNTIME = {"parameters": "stop   <|im_end|>\nnum_ctx                        6000\ntemperature 0.7"}
 SHOW_TRAINED = {"model_info": {"general.architecture": "qwen3", "qwen3.context_length": 131072}}
@@ -302,29 +305,20 @@ class TestGatewayCache:
         assert gateway.context_profile_for(config).capacity.source == "unknown"
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("method, client_method, streaming", [
-        ("generate_with_history", "generate_with_tools", False),
-        ("generate_with_tools", "generate_with_tools", False),
-        ("stream_with_history", "stream_with_tools", True),
-        ("stream_with_tools", "stream_with_tools", True),
-    ])
+    @pytest.mark.parametrize("streaming", [False, True])
     @pytest.mark.parametrize("probe_error", [None, RuntimeError("boom")])
-    async def test_every_send_path_primes_the_window_and_survives_a_failing_probe(
-        self, gateway, method, client_method, streaming, probe_error,
-    ):
-        probe = stub_probe(gateway, "ollama", window(4096, "runtime"), error=probe_error)
-        gateway.repository.get_configuration.return_value = make_config("ollama")
-        reply = (lambda *a, **k: _tokens()) if streaming else AsyncMock(return_value="reply")
-        setattr(gateway._ollama, client_method, reply)
+    async def test_every_send_path_primes_the_window_and_survives_a_failing_probe(self, streaming, probe_error):
+        adapter = ScriptedAdapter(text_step("reply"))
+        adapter.discover_context_window = AsyncMock(return_value=window(4096, "runtime"), side_effect=probe_error)
+        gateway = scripted_gateway(adapter)
 
-        result = getattr(gateway, method)([{"role": "user", "content": "hi"}], "cfg-1")
         if streaming:
-            result = [e async for e in result]
+            text = "".join(event.text for event in await drain(gateway.stream("cfg-scripted", [user_message("hi")])) if hasattr(event, "text"))
         else:
-            result = await result
+            text = (await gateway.complete("cfg-scripted", [user_message("hi")])).text
 
-        probe.assert_awaited_once()
-        assert result == ([{"type": "token", "content": "ok"}] if streaming else "reply")
+        adapter.discover_context_window.assert_awaited_once()
+        assert text == "reply"
 
     @pytest.mark.asyncio
     async def test_provider_without_a_hook_is_skipped(self, gateway):
@@ -341,7 +335,7 @@ class TestOllamaWire:
         capture = install_wire_capture(monkeypatch, [json_response(show_payload), json_response(self.CHAT_REPLY)])
         gateway = client_gateway(Mock())
         gateway.repository.get_configuration.return_value = config
-        await gateway.generate_with_history([{"role": "user", "content": "hi"}], "cfg-1")
+        await gateway.complete("cfg-1", [user_message("hi")])
         return capture
 
     @pytest.mark.asyncio
@@ -374,7 +368,7 @@ class TestOllamaWire:
         config = make_config("ollama", max_tokens=60000)
         gateway.repository.get_configuration.return_value = config
 
-        await gateway.generate_with_history([{"role": "user", "content": "hi"}], "cfg-1")
+        await gateway.complete("cfg-1", [user_message("hi")])
 
         assert capture.body["options"]["num_predict"] < 6000
 
@@ -391,9 +385,9 @@ class TestPreflightUsesDiscoveredWindow:
         runner = ConversationRunner(manager)
         session = Mock(llm_config_id="cfg-1")
 
-        assert runner._resolve_budget_inputs(session, mode=None).capacity.source == "unknown"
+        assert runner._resolve_budget_inputs(session, Settings()).capacity.source == "unknown"
         await runner._prime_context_window(session)
-        profile = runner._resolve_budget_inputs(session, mode=None)
+        profile = runner._resolve_budget_inputs(session, Settings())
 
         assert profile.capacity == context_budget.CapacityInfo(6000, "discovered")
 

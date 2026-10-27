@@ -2,7 +2,7 @@
 LLM module for PotionUI.
 
 This module provides LLM functionality including:
-- LLMResponseProcessor: Processes LLM responses (thinking tag removal, image preparation)
+- LLMResponseProcessor: Prepares images for vision requests
 - Domain exceptions: LLMException and specific subtypes
 
 Configuration/generation/assignment operations live in

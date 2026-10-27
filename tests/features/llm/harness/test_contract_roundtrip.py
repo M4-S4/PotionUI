@@ -5,7 +5,6 @@ from typing import Tuple
 import httpx
 import pytest
 
-from src.features.llm import context_budget
 from src.features.llm.harness import codec
 from src.features.llm.harness.adapter import Adapter, Settings, ToolChoice, ToolSpec, WireRequest
 from src.features.llm.harness.assembler import StepAssembler, parse_args
@@ -335,23 +334,19 @@ def test_retry_after_is_read_case_insensitively():
 
 
 @pytest.mark.parametrize(
-    "parts",
+    "parts, rendered",
     [
-        (TextPart(text="hello"),),
-        (TextPart(text="hello"), ContextPart(kind="memory", text="m"), ContextPart(kind="workspace", text="w")),
-        (ContextPart(kind="memory", text="m"), ContextPart(kind="workspace", text="w")),
-        (TextPart(text=""), ContextPart(kind="nudge", text="n")),
+        ((TextPart(text="hello"),), "hello"),
+        (
+            (TextPart(text="hello"), ContextPart(kind="memory", text="m"), ContextPart(kind="workspace", text="w")),
+            "hello\n\n<context>\nm\n</context>\n\n<context>\nw\n</context>",
+        ),
+        ((ContextPart(kind="memory", text="m"), ContextPart(kind="workspace", text="w")), "m\n\n<context>\nw\n</context>"),
+        ((TextPart(text=""), ContextPart(kind="nudge", text="n")), "\n\n<context>\nn\n</context>"),
     ],
 )
-def test_user_text_matches_attach_context_block(parts):
-    history = []
-    texts = [part.text for part in parts if isinstance(part, TextPart)]
-    if texts:
-        history.append({"role": "user", "content": "".join(texts)})
-    for part in parts:
-        if isinstance(part, ContextPart):
-            context_budget.attach_context_block(history, part.text)
-    assert user_text(message("m", "user", *parts)) == history[-1]["content"]
+def test_user_text_renders_context_blocks_like_the_pre_harness_wire(parts, rendered):
+    assert user_text(message("m", "user", *parts)) == rendered
 
 
 def test_wire_content_is_byte_identical_to_httpx_json():

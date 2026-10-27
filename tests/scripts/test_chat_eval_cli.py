@@ -699,3 +699,40 @@ class TestBudgetPressureProvenance:
         assert pressure_check.unverified is False
         assert "real backend" in pressure_check.detail
         assert "live capture" in pressure_check.detail
+
+
+class TestLiveActualRounds:
+    def _run(self, monkeypatch, tmp_path, stream_body):
+        config = _config_response(config_id="cfg-1", memory_reflection=False)
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                return json.dumps({"success": True, "data": {"id": "sess-1"}})
+            if method == "POST" and "/messages/stream" in url:
+                return stream_body
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--scenario", "factual_answer_context",
+            "--transcripts-dir", str(tmp_path / "transcripts"), "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+        return json.loads((tmp_path / "report.json").read_text())["results"][0]["actual_rounds"]
+
+    def test_step_events_make_the_live_round_count_verified(self, monkeypatch, tmp_path):
+        body = (
+            'event: step\ndata: {"seq": 1, "finish": "tool_calls", "tool_calls": 2, "usage": null}\n\n'
+            'event: step\ndata: {"seq": 3, "finish": "stop", "tool_calls": 1, "usage": null}\n\n'
+            'event: step\ndata: {"seq": 5, "finish": "stop", "tool_calls": 0, "usage": null}\n\n'
+            'event: done\ndata: {"assistant_message": {"content": "30 steps with dpmpp_2m"}}\n\n'
+        )
+
+        assert self._run(monkeypatch, tmp_path, body) == {"value": 2, "unverified": False}
+
+    def test_a_turn_without_step_events_stays_unverified(self, monkeypatch, tmp_path):
+        body = 'event: done\ndata: {"assistant_message": {"content": "30 steps with dpmpp_2m"}}\n\n'
+
+        assert self._run(monkeypatch, tmp_path, body) == {"value": None, "unverified": True}

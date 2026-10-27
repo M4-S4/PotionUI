@@ -4,6 +4,7 @@ from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable, ClassVar, Dict, FrozenSet, List, Mapping, Optional, Tuple
 
+from src.features.llm.gateway import EMPTY_RESPONSE_ATTEMPTS
 from src.features.llm.harness.adapter import Settings, ToolSpec
 from src.features.llm.harness.assembler import StepAssembler, parse_args
 from src.features.llm.harness.build import context_message, new_id
@@ -37,7 +38,6 @@ TOOL_BUDGET_EXHAUSTED_MESSAGE = (
     "have; say plainly what remains undone."
 )
 MAX_RESCUE_RETRIES = 2
-EMPTY_RESPONSE_ATTEMPTS = 3
 
 ANSWER = "answer"
 TRUNCATED = "truncated"
@@ -50,7 +50,7 @@ PENDING = "pending"
 class TurnInput:
     session_id: str
     llm_id: str
-    system: str
+    system: Optional[str]
     history: Tuple[Message, ...]
     new_messages: Tuple[Message, ...] = ()
     settings: Settings = field(default_factory=Settings)
@@ -140,6 +140,7 @@ class _StepBox:
         self.assembler: Optional[StepAssembler] = None
         self.message: Optional[Message] = None
         self.profile: Optional[CapabilityProfile] = None
+        self.system: Optional[str] = None
 
 
 class TurnEngine:
@@ -219,7 +220,7 @@ class _Run:
 
     async def _single_answer(self) -> AsyncIterator[Any]:
         box = _StepBox()
-        async for event in self._step(box, (), filtered=False, retry_empty=False):
+        async for event in self._step(box, (), filtered=False, retry_empty=True):
             yield event
         message = box.message
         yield self._commit(message, StepStatus.COMPLETED, final=True)
@@ -289,6 +290,7 @@ class _Run:
             )
             if self.profile is None:
                 self.profile = prepared.profile
+                self.system = prepared.request.system
             box.assembler = StepAssembler(new_id("msg"), prepared.origin)
             text_filter = ToolCallTextFilter(self._registered()) if filtered else None
             received = False
@@ -425,7 +427,7 @@ class _Run:
             status=status,
             snapshot=TurnSnapshot(
                 llm_config_id=self.turn.llm_id,
-                system=self.turn.system,
+                system=self.system if self.system is not None else (self.turn.system or ""),
                 tools=self.initial_tools,
                 settings=self.turn.settings,
                 profile=self.profile or CapabilityProfile(adapter="unknown", model=""),
@@ -449,7 +451,7 @@ class _Run:
     def _loaded_groups(self) -> Tuple[str, ...]:
         allowed = set(self.round.allowed_tools or ())
         return tuple(
-            group for group, names in self.round.deferred_tools.items()
+            group for group, names in self.turn.deferred_tools.items()
             if names and set(names) <= allowed and not set(names) <= set(self.turn.allowed_tools or ())
         )
 

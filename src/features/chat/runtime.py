@@ -66,6 +66,7 @@ class ChatRuntime:
         generation_repository: Optional[Any] = None,
         generation_parameter_repository: Optional[Any] = None,
         generation_model_repository: Optional[Any] = None,
+        turn_engine: Optional[Any] = None,
     ):
         """Initialize ChatRuntime.
 
@@ -88,6 +89,7 @@ class ChatRuntime:
         self.plugins = plugin_registry
         self.chat_mode_registry = chat_mode_registry
         self.tool_executor = tool_executor
+        self.turn_engine = turn_engine
         self.preset_lookup = preset_lookup
         self.preset_form_schema_lookup = preset_form_schema_lookup
         self.phrasebook_search = phrasebook_search

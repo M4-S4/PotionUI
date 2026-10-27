@@ -4,7 +4,7 @@ Builds everything that surrounds the raw conversation before it reaches the
 model: the effective system prompt (mode prompt or explicit override) together
 with the allowed tool set, and the per-turn context blocks folded into the
 current user turn (@resource snapshots, the mode's context contributor and
-recalled persistent memory) via ``context_budget.attach_context_block``. Also
+recalled persistent memory) via ``attach_context``. Also
 serves @resource autocomplete suggestions.
 
 """
@@ -18,6 +18,8 @@ from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Tu
 
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
+from src.features.llm.harness.build import attach_context
+from src.features.llm.harness.messages import Message
 from src.features.llm import context_budget
 from src.features.llm.tools.governance import ToolGovernanceRepository, ToolScopeResolution, resolve_tool_scope
 from src.features.llm.tools.use_tools import deferred_tool_groups
@@ -533,7 +535,7 @@ class ChatContextBuilder:
 
     @staticmethod
     def inject_resource_block(
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         resolved: List[ResolvedResource],
     ) -> None:
         """Fold the resource snapshot into the current user turn."""
@@ -543,11 +545,11 @@ class ChatContextBuilder:
             "The user attached these resources (snapshot at send time):\n\n"
             + "\n\n---\n\n".join(r.content for r in resolved)
         )
-        context_budget.attach_context_block(conversation_history, block)
+        attach_context(conversation_history, "resource", block)
 
     async def inject_contributor_block(
         self,
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         session,
         context_metadata: Optional[Dict[str, Any]],
         user_id: str,
@@ -570,11 +572,11 @@ class ChatContextBuilder:
             return
         if not isinstance(result, str) or not result.strip():
             return
-        context_budget.attach_context_block(conversation_history, result)
+        attach_context(conversation_history, "contributor", result)
 
     @staticmethod
     def inject_reply_contract_reminder_block(
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         mode: Optional[ChatMode],
         tool_tier: str = context_budget.TOOL_TIER_STANDARD,
     ) -> None:
@@ -590,11 +592,11 @@ class ChatContextBuilder:
         """
         if not mode or not mode.structured_reply or tool_tier == context_budget.TOOL_TIER_COMPACT:
             return
-        context_budget.attach_context_block(conversation_history, REPLY_CONTRACT_REMINDER)
+        attach_context(conversation_history, "reply_contract", REPLY_CONTRACT_REMINDER)
 
     @staticmethod
     def inject_tool_availability_block(
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         offered: Optional[List[str]],
         withheld: Dict[str, str],
     ) -> None:
@@ -622,11 +624,11 @@ class ChatContextBuilder:
             )
         else:
             text = PARTIAL_TOOLS_BLOCK
-        context_budget.attach_context_block(conversation_history, text)
+        attach_context(conversation_history, "tool_availability", text)
 
     def inject_memory_block(
         self,
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         context_metadata: Optional[Dict[str, Any]],
         user_id: str,
         write_memory_available: bool = True,
@@ -757,7 +759,7 @@ class ChatContextBuilder:
                     lines.append(f"  (+{overflow} older notes not shown — consolidate or prune in the memory panel)")
 
             block = "\n".join(lines)
-            context_budget.attach_context_block(conversation_history, block)
+            attach_context(conversation_history, "memory", block)
 
             return {
                 "note_ids": note_ids,
@@ -772,7 +774,7 @@ class ChatContextBuilder:
 
     def inject_workspace_block(
         self,
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         context_metadata: Optional[Dict[str, Any]],
         offered_tools: Optional[Collection[str]] = None,
     ) -> Dict[str, Any]:
@@ -955,7 +957,7 @@ class ChatContextBuilder:
             lines.extend(self._render_prompt_resources(preset_template, mode, form_data))
 
             block = "\n".join(lines)
-            context_budget.attach_context_block(conversation_history, block)
+            attach_context(conversation_history, "workspace", block)
 
             return {
                 "preset": preset_id,
@@ -1125,7 +1127,7 @@ class ChatContextBuilder:
 
     @staticmethod
     def inject_prompt_state_block(
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         context_metadata: Optional[Dict[str, Any]],
         offered_tools: Optional[Collection[str]] = None,
         variable_reader: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
@@ -1240,7 +1242,7 @@ class ChatContextBuilder:
             )
         if variable_lines:
             block = "\n".join([block, *variable_lines])
-        context_budget.attach_context_block(conversation_history, block)
+        attach_context(conversation_history, "prompt_state", block)
 
     async def suggest_resources(
         self,

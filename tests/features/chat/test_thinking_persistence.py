@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.features.chat.turns import ChatTurnRegistry
-from src.features.llm.clients.base import LLMResponse
+from tests.fixtures.chat_engine import scripted_llm, set_config
 from tests.features.chat.test_tool_approval_flow import (
     CONTEXT,
     USER_ID,
@@ -15,7 +15,6 @@ from tests.features.chat.test_tool_approval_flow import (
     _EchoTool,
     _manager,
     _resolve,
-    _ScriptedLLM,
     _SetValueTool,
     _stream,
     chat_db,
@@ -25,28 +24,8 @@ SECRET = "SECRET-PLAN-7731"
 
 
 
-class _ThinkingLLM(_ScriptedLLM):
-    def __init__(self, turns=None, show_thinking=True):
-        super().__init__(turns)
-        self.repository.get_configuration.return_value = SimpleNamespace(
-            provider_options={}, type="openai", supports_vision=True, show_thinking=show_thinking,
-        )
-
-    def stream_with_tools(self, **kwargs):
-        turn = self.turns[0] if self.turns else {}
-        thinking = turn.get("thinking")
-        inner = super().stream_with_tools(**kwargs)
-
-        async def gen():
-            for start in range(0, len(thinking or ""), 2000):
-                yield {"type": "thinking", "content": thinking[start:start + 2000]}
-            async for event in inner:
-                yield event
-
-        return gen()
-
-    def set_knob(self, shown):
-        self.repository.get_configuration.return_value.show_thinking = shown
+def _ThinkingLLM(turns=None, show_thinking=True):
+    return scripted_llm(turns or [], show_thinking=show_thinking)
 
 
 async def _paused_with_thinking(show_thinking=True):
@@ -91,9 +70,9 @@ class TestStoredWithTheMessage:
     async def test_reopening_hides_it_when_the_knob_is_turned_off_and_restores_it_on_again(self, chat_db):
         manager, repo, session_id, llm, message_id = await _paused_with_thinking()
 
-        llm.set_knob(False)
+        set_config(llm, show_thinking=False)
         hidden = _read(manager, session_id)
-        llm.set_knob(True)
+        set_config(llm, show_thinking=True)
         shown = _read(manager, session_id)
 
         assert "thinking" not in hidden
@@ -103,7 +82,7 @@ class TestStoredWithTheMessage:
     @pytest.mark.asyncio
     async def test_resolving_the_tool_keeps_the_stored_reasoning(self, chat_db):
         manager, repo, session_id, llm, message_id = await _paused_with_thinking()
-        llm.set_knob(False)
+        set_config(llm, show_thinking=False)
 
         await _resolve(manager, session_id, message_id, approved=False, reason="no")
 
@@ -113,25 +92,13 @@ class TestStoredWithTheMessage:
     async def test_a_message_page_is_gated_like_the_session(self, chat_db):
         manager, _repo, session_id, llm, _mid = await _paused_with_thinking()
 
-        llm.set_knob(False)
+        set_config(llm, show_thinking=False)
         hidden, _ = manager.get_session_messages(session_id, USER_ID)
-        llm.set_knob(True)
+        set_config(llm, show_thinking=True)
         shown, _ = manager.get_session_messages(session_id, USER_ID)
 
         assert "thinking" not in hidden[-1].metadata
         assert "thinking" in shown[-1].metadata
-
-
-class _BufferedThinkingLLM(_ThinkingLLM):
-    async def generate_with_tools(self, **kwargs):
-        turn = self.turns.pop(0)
-        return LLMResponse(
-            content=turn.get("content", ""),
-            model="model-1",
-            provider_id="p",
-            tool_calls=turn.get("tool_calls") or [],
-            thinking=turn.get("thinking"),
-        )
 
 
 def _tool_call_messages(call):
@@ -150,8 +117,8 @@ class TestBackInTheContextWithinTheTurn:
 
         await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
-        assert _tool_call_messages(llm.calls[0]) == []
-        (sent,) = _tool_call_messages(llm.calls[-1])
+        assert _tool_call_messages(llm.adapter.calls[0]) == []
+        (sent,) = _tool_call_messages(llm.adapter.calls[-1])
         assert sent["reasoning"] == SECRET
         assert sent["tool_calls"][0]["id"] == "c1"
 
@@ -172,7 +139,7 @@ class TestBackInTheContextWithinTheTurn:
 
         await _stream(manager, session_id, continue_from={"message_id": second, "tool_index": 0})
 
-        assert [m["reasoning"] for m in _tool_call_messages(llm.calls[-1])] == ["R1", "R2"]
+        assert [m["reasoning"] for m in _tool_call_messages(llm.adapter.calls[-1])] == ["R1", "R2"]
 
     @pytest.mark.asyncio
     async def test_an_earlier_turn_stays_without_its_reasoning_while_the_continued_turn_has_it(self, chat_db):
@@ -189,11 +156,11 @@ class TestBackInTheContextWithinTheTurn:
 
         await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
-        earlier, current = _tool_call_messages(llm.calls[-1])
+        earlier, current = _tool_call_messages(llm.adapter.calls[-1])
         assert earlier["tool_calls"][0]["id"] == "e1"
         assert "reasoning" not in earlier
         assert current["reasoning"] == SECRET
-        assert "EARLIER-SECRET" not in json.dumps(llm.calls[-1], default=str)
+        assert "EARLIER-SECRET" not in json.dumps(llm.adapter.calls[-1], default=str)
 
     @pytest.mark.asyncio
     async def test_the_next_user_turn_does_not_replay_it(self, chat_db):
@@ -203,8 +170,8 @@ class TestBackInTheContextWithinTheTurn:
 
         await _stream(manager, session_id, "and then?")
 
-        assert SECRET not in json.dumps(llm.calls[-1], default=str)
-        assert "first answer" in json.dumps(llm.calls[-1], default=str)
+        assert SECRET not in json.dumps(llm.adapter.calls[-1], default=str)
+        assert "first answer" in json.dumps(llm.adapter.calls[-1], default=str)
 
     @pytest.mark.asyncio
     async def test_a_new_message_after_a_paused_turn_does_not_replay_it(self, chat_db):
@@ -212,7 +179,7 @@ class TestBackInTheContextWithinTheTurn:
 
         await _stream(manager, session_id, "never mind, do something else")
 
-        assert SECRET not in json.dumps(llm.calls[-1], default=str)
+        assert SECRET not in json.dumps(llm.adapter.calls[-1], default=str)
 
 
 class TestStoredForReplayRegardlessOfTheKnob:
@@ -278,7 +245,7 @@ class TestNeverShownThroughTheTranscript:
 
     @pytest.mark.asyncio
     async def test_the_buffered_send_leaves_it_out_but_stores_it(self, chat_db):
-        llm = _BufferedThinkingLLM([
+        llm = _ThinkingLLM([
             {"thinking": SECRET, "tool_calls": [_call("e1", "echo")]},
             {"content": "done"},
         ])
@@ -335,7 +302,7 @@ class TestDoneLeavesTheThinkingToTheStream:
         _repo, _sid, turn = await self._long_turn()
 
         pieces = [
-            e["data"]["content"] for e in turn.events if e["event"] == "thinking" and not e["data"].get("truncated")
+            e["data"]["text"] for e in turn.events if e["event"] == "reasoning" and not e["data"].get("truncated")
         ]
 
         assert len(pieces) > 1

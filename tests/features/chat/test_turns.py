@@ -17,6 +17,7 @@ from src.features.chat.dto import MessageResponse, ToolResolveRequest
 from src.features.chat.routes import ChatController
 from src.features.chat.turns import ChatTurnRegistry, TurnAlreadyRunningError
 from src.platform.security.user import User
+from tests.fixtures.chat_engine import ScriptedTurnEngine
 
 
 async def _make_stream(events, *, delay=0.0):
@@ -664,7 +665,7 @@ class TestThinkingEventsAreCompactable:
     @pytest.mark.asyncio
     async def test_a_flood_of_thinking_deltas_is_dropped_in_bulk_not_counted_as_essential(self):
         registry = ChatTurnRegistry(max_events_per_turn=6, max_replay_bytes_per_turn=10_000_000)
-        events = [{"event": "thinking", "data": {"content": f"t{i}", "segment": 0}} for i in range(40)]
+        events = [{"event": "reasoning", "data": {"block": 0, "kind": "raw", "text": f"t{i}"}} for i in range(40)]
         events.append({"event": "token", "data": {"content": "answer"}})
         events.append({"event": "done", "data": {}})
 
@@ -681,7 +682,7 @@ class TestThinkingEventsAreCompactable:
     async def test_essential_events_survive_a_thinking_flood(self):
         registry = ChatTurnRegistry(max_events_per_turn=6, max_replay_bytes_per_turn=10_000_000)
         events = [{"event": "tool_start", "data": {"tool_name": "search"}}]
-        events += [{"event": "thinking", "data": {"content": f"t{i}", "segment": 1}} for i in range(40)]
+        events += [{"event": "reasoning", "data": {"block": 1, "kind": "raw", "text": f"t{i}"}} for i in range(40)]
         events.append({"event": "done", "data": {}})
 
         turn = registry.start("s1", "u1", lambda: _make_stream(events))
@@ -697,7 +698,7 @@ class TestThinkingEventsAreCompactable:
         huge = "thought " * 500
 
         async def factory_gen():
-            yield {"event": "thinking", "data": {"content": huge, "segment": 0}}
+            yield {"event": "reasoning", "data": {"block": 0, "kind": "raw", "text": huge}}
             await asyncio.sleep(0)
             yield {"event": "done", "data": {}}
 
@@ -707,7 +708,7 @@ class TestThinkingEventsAreCompactable:
         [_ async for _ in stream]
         await asyncio.wait_for(turn.done.wait(), timeout=2)
 
-        assert first["event"] == "thinking"
+        assert first["event"] == "reasoning"
         assert first["data"]["truncated"] is True
         assert huge not in first["data"]["preview"]
         assert first["data"]["content_bytes"] > 100
@@ -743,7 +744,8 @@ class TestPersistenceSurvivesDisconnect:
             yield {"type": "usage", "tokens_used": None, "prompt_tokens": None, "completion_tokens": None}
 
         llm = Mock()
-        llm.stream_with_history = Mock(return_value=_llm_gen())
+        engine = ScriptedTurnEngine()
+        engine.script(_llm_gen())
 
         processor = Mock()
         processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
@@ -759,6 +761,7 @@ class TestPersistenceSurvivesDisconnect:
             response_processor=processor,
             plugin_registry=plugins,
             chat_mode_registry=mode_registry(),
+            turn_engine=engine,
         )
         return manager, repo
 

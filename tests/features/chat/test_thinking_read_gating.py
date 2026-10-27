@@ -190,7 +190,7 @@ class TestReattachRead:
         return [
             {"event": "status", "data": {"step": "thinking", "state": "started", "detail": {"thinking_visible": True}}},
             {"event": "status", "data": {"step": "tools", "state": "started", "detail": {"thinking_visible": True, "count": 2}}},
-            {"event": "thinking", "data": {"content": "weighing", "segment": 0}},
+            {"event": "reasoning", "data": {"block": 0, "kind": "raw", "text": "weighing"}},
             {"event": "token", "data": {"content": "the answer"}},
             {"event": "done", "data": {"assistant_message": {"id": "a1", "content": "the answer", "metadata": stored}}},
         ]
@@ -246,7 +246,7 @@ class TestReattachRead:
 
         replayed = await read()
 
-        assert [name for name, _ in replayed] == ["status", "status", "thinking", "token", "done"]
+        assert [name for name, _ in replayed] == ["status", "status", "reasoning", "token", "done"]
         assert replayed[0][1]["detail"] == {"thinking_visible": True}
         metadata = replayed[-1][1]["assistant_message"]["metadata"]
         assert metadata["thinking"] == STORED
@@ -261,8 +261,8 @@ class TestReattachRead:
         knob.shown = True
         shown = await read()
 
-        assert "thinking" not in [name for name, _ in hidden]
-        assert "thinking" in [name for name, _ in shown]
+        assert "reasoning" not in [name for name, _ in hidden]
+        assert "reasoning" in [name for name, _ in shown]
         assert turn.events[-1]["data"]["assistant_message"]["metadata"]["thinking"] == STORED
 
     @pytest.mark.asyncio
@@ -271,7 +271,7 @@ class TestReattachRead:
         controller = ChatController(chat_runtime=runtime, turn_registry=ChatTurnRegistry())
 
         async def factory():
-            yield {"event": "thinking", "data": {"content": "x", "segment": 0}}
+            yield {"event": "reasoning", "data": {"block": 0, "kind": "raw", "text": "x"}}
             yield {"event": "done", "data": {}}
 
         turn = controller.turn_registry.start("s1", "u1", factory)

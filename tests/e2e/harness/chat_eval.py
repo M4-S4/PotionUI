@@ -131,13 +131,10 @@ count of individual tool calls) so the two are never conflated.
 ``actual_rounds`` is the exact count of real tool-loop decision rounds
 (one LLM call that may dispatch one or more tool calls) — computable and
 ``unverified: false`` for a ``replay`` canned transcript (authored with one
-assistant tool-calls message per real round), but ALWAYS ``unverified: true``
-for a ``run`` live capture: the live SSE wire protocol emits exactly one
-``status: thinking`` event per TURN, not per round (see
-``src/features/chat/conversation.py``), so there is no reliable signal to
-recover real intra-turn round boundaries from — reporting "unverified" beats
-silently deriving a value from the folded per-turn tool-call grouping that
-might read as a pass when the real round count was actually higher. A
+assistant tool-calls message per real round), and for a ``run`` live capture
+counted from the ``step`` events the backend emits once per model call (a
+step whose ``tool_calls`` is non-zero is a tool round). A live capture where
+any turn carries no ``step`` event at all stays ``unverified: true``. A
 scenario's ``max_tool_rounds`` check is likewise reported ``unverified``
 (see ``evaluate_transcript``'s ``round_boundaries_known``) rather than scored
 against that same unreliable grouping when evaluating a live capture.
@@ -234,6 +231,14 @@ def _unverified_tokens_block() -> Dict[str, Any]:
 
 def _unverified_actual_rounds() -> Dict[str, Any]:
     return {"value": None, "unverified": True}
+
+
+def _live_actual_rounds(turns_evidence: List[Dict[str, Any]]) -> Dict[str, Any]:
+    steps = [[e for e in (turn.get("events") or []) if e["event"] == "step"] for turn in turns_evidence]
+    if not steps or not all(steps):
+        return _unverified_actual_rounds()
+    rounds = sum(1 for turn_steps in steps for e in turn_steps if (e.get("data") or {}).get("tool_calls"))
+    return {"value": rounds, "unverified": False}
 
 
 def _unverified_behavior_trace_steps() -> Dict[str, Any]:
@@ -836,10 +841,7 @@ def _run_scenario_live(
         },
         "turns_with_tools": _turns_with_tools_count(all_messages),
         "tool_executions": len(all_executions),
-        # Never derived from the folded per-turn tool_calls grouping - see
-        # evaluate_transcript's round_boundaries_known and this script's
-        # module docstring.
-        "actual_rounds": _unverified_actual_rounds(),
+        "actual_rounds": _live_actual_rounds(turns_evidence) if http_completed else _unverified_actual_rounds(),
         "tool_durations_ms": [
             {"tool": te.get("tool_name"), "duration_ms": te.get("duration_ms"), "measured": True}
             for te in all_executions if te.get("duration_ms") is not None

@@ -22,6 +22,7 @@ from src.features.chat.context_builder import ChatContextBuilder
 from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.runtime import ChatRuntime
 from src.features.llm.tools.governance import ToolGovernanceRepository
+from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, typed_history
 
 
 @pytest.fixture
@@ -163,12 +164,12 @@ class TestWithheldToolsForSession:
 class TestInjectToolAvailabilityBlock:
     def test_noop_when_nothing_withheld(self):
         history = [{"role": "user", "content": "hi"}]
-        ChatContextBuilder.inject_tool_availability_block(history, ["get_form_state"], {})
+        typed_history(ChatContextBuilder.inject_tool_availability_block)(history, ["get_form_state"], {})
         assert history == [{"role": "user", "content": "hi"}]
 
     def test_all_withheld_warns_no_tool_calls_at_all(self):
         history = [{"role": "user", "content": "hi"}]
-        ChatContextBuilder.inject_tool_availability_block(
+        typed_history(ChatContextBuilder.inject_tool_availability_block)(
             history, [], {"propose_caption_update": "off_by_toggle"}
         )
         assert len(history) == 1
@@ -181,7 +182,7 @@ class TestInjectToolAvailabilityBlock:
 
     def test_partial_withheld_names_only_the_missing_tools(self):
         history = [{"role": "user", "content": "hi"}]
-        ChatContextBuilder.inject_tool_availability_block(
+        typed_history(ChatContextBuilder.inject_tool_availability_block)(
             history, ["get_form_state"], {"get_active_models": "disabled_in_mode"}
         )
         assert len(history) == 1
@@ -197,7 +198,7 @@ class TestInjectToolAvailabilityBlock:
             {"role": "assistant", "content": "ok"},
             {"role": "user", "content": "latest"},
         ]
-        ChatContextBuilder.inject_tool_availability_block(history, [], {"t": "unavailable"})
+        typed_history(ChatContextBuilder.inject_tool_availability_block)(history, [], {"t": "unavailable"})
         assert len(history) == 3
         assert history[0] == {"role": "user", "content": "earlier"}
         assert history[1] == {"role": "assistant", "content": "ok"}
@@ -257,10 +258,11 @@ class TestSendMessageToolAvailabilityTransparency:
         response.rescues = None
         response.tool_failures = None
         response.thinking_mode = None
-        mock_llm.generate_with_history.return_value = response
-        mock_tool_executor.execute_with_tools = AsyncMock(return_value=(response, []))
+        self.engine = ScriptedTurnEngine()
+        self.engine.script(buffered_reply(response))
 
         manager = ChatRuntime(
+            turn_engine=self.engine,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,
@@ -286,7 +288,7 @@ class TestSendMessageToolAvailabilityTransparency:
 
         await manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
 
-        sent_history = mock_llm.generate_with_history.call_args.kwargs["messages"]
+        sent_history = self.engine.call_kwargs["messages"]
         assert not any(m["role"] == "system" for m in sent_history)
         blocks = [m["content"] for m in sent_history]
         assert any("Tools are unavailable in this conversation" in b for b in blocks)
@@ -303,8 +305,7 @@ class TestSendMessageToolAvailabilityTransparency:
 
         await manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
 
-        kwargs = manager.tool_executor.execute_with_tools.call_args.kwargs
-        sent_history = kwargs["messages"]
+        sent_history = self.engine.call_kwargs["messages"]
         blocks = [m["content"] for m in sent_history]
         assert not any("Tools are unavailable" in b or "unavailable this turn" in b for b in blocks)
 

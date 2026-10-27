@@ -1,146 +1,42 @@
-import re
 import time
-from dataclasses import dataclass
-from typing import Any, AsyncIterator, Callable, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from src.features.chat.dto import MessageResponse
+from src.features.llm.harness.events import ReasoningDelta
 
-TEXT = "text"
-THINKING = "thinking"
-CLOSED = "closed"
-
-_TAG_NAMES = ("think", "thinking", "thought")
-_TAG_FLAGS = re.IGNORECASE | re.ASCII
-_OPEN_TAG = re.compile(r"<(think|thinking|thought)(?:\s[^<>]*)?>", _TAG_FLAGS)
-_TAG_HEAD = re.compile(r"<([a-z]*)", _TAG_FLAGS)
-_CLOSE_TAGS = {name: re.compile(re.escape(f"</{name}>"), _TAG_FLAGS) for name in _TAG_NAMES}
-_TAG_SPACE = " \t\r\n\f\v"
-_MAX_HELD_TAG_CHARS = 256
+REASONING_EVENTS = frozenset({"reasoning", "reasoning_end"})
 
 
-@dataclass(frozen=True)
-class Piece:
-    kind: str
-    text: str = ""
-    segment: int = 0
-
-
-def _could_open_a_tag(tail: str) -> bool:
-    if len(tail) > _MAX_HELD_TAG_CHARS or ">" in tail:
-        return False
-    head = _TAG_HEAD.match(tail)
-    name = head.group(1).lower()
-    rest = tail[head.end():]
-    if not rest:
-        return any(candidate.startswith(name) for candidate in _TAG_NAMES)
-    return name in _TAG_NAMES and rest[0] in _TAG_SPACE and "<" not in rest
-
-
-def _held_open_tag_start(buffer: str) -> int:
-    start = buffer.rfind("<")
-    if start != -1 and _could_open_a_tag(buffer[start:]):
-        return start
-    return len(buffer)
-
-
-def _held_close_tag_start(buffer: str, closing: str) -> int:
-    for size in range(min(len(closing) - 1, len(buffer)), 0, -1):
-        suffix = buffer[-size:]
-        if suffix.isascii() and closing.startswith(suffix.lower()):
-            return len(buffer) - size
-    return len(buffer)
-
-
-class ThinkTagSplitter:
-    def __init__(self) -> None:
-        self._open: Optional[str] = None
-        self._held = ""
-        self._trim_text = False
-        self._trim_thinking = False
-
-    def feed(self, text: str) -> List[Piece]:
-        buffer = self._held + text
-        self._held = ""
-        pieces: List[Piece] = []
-        while buffer:
-            if self._open is None:
-                match = _OPEN_TAG.search(buffer)
-                if match:
-                    self._emit_text(pieces, buffer[:match.start()])
-                    self._open = match.group(1).lower()
-                    self._trim_thinking = True
-                    buffer = buffer[match.end():]
-                    continue
-                cut = _held_open_tag_start(buffer)
-                self._emit_text(pieces, buffer[:cut])
-                self._held = buffer[cut:]
-                break
-            closing = f"</{self._open}>"
-            match = _CLOSE_TAGS[self._open].search(buffer)
-            if match:
-                self._emit_thinking(pieces, buffer[:match.start()])
-                pieces.append(Piece(CLOSED))
-                self._open = None
-                self._trim_text = True
-                buffer = buffer[match.end():]
-                continue
-            cut = _held_close_tag_start(buffer, closing)
-            self._emit_thinking(pieces, buffer[:cut])
-            self._held = buffer[cut:]
-            break
-        return pieces
-
-    def finish(self) -> List[Piece]:
-        held, self._held = self._held, ""
-        pieces: List[Piece] = []
-        if self._open is None:
-            self._emit_text(pieces, held)
-        else:
-            self._emit_thinking(pieces, held)
-            pieces.append(Piece(CLOSED))
-            self._open = None
-        return pieces
-
-    def _emit_text(self, pieces: List[Piece], text: str) -> None:
-        if self._trim_text:
-            text = text.lstrip()
-        if text:
-            self._trim_text = False
-            pieces.append(Piece(TEXT, text))
-
-    def _emit_thinking(self, pieces: List[Piece], text: str) -> None:
-        if self._trim_thinking:
-            text = text.lstrip()
-        if text:
-            self._trim_thinking = False
-            pieces.append(Piece(THINKING, text))
-
-
-class ThinkingCapture:
+class ReasoningCapture:
     def __init__(self, enabled: bool, clock: Callable[[], float] = time.monotonic) -> None:
         self.enabled = enabled
         self._clock = clock
-        self._splitter = ThinkTagSplitter()
         self._segments: List[Dict[str, Any]] = []
-        self._started: Optional[float] = None
-        self._open = False
+        self._open_block: Optional[int] = None
+        self._started = 0.0
 
-    def on_token(self, text: str) -> List[Piece]:
-        if not self.enabled:
-            return [Piece(TEXT, text)]
-        return self._route(self._splitter.feed(text))
-
-    def on_thinking(self, text: str) -> List[Piece]:
-        if not self.enabled or not text:
-            return []
-        return [self._append(text)]
-
-    def flush(self) -> List[Piece]:
+    def on_reasoning(self, delta: ReasoningDelta) -> List[Dict[str, Any]]:
         if not self.enabled:
             return []
-        pieces = self._route(self._splitter.finish())
-        self._close()
-        return pieces
+        events: List[Dict[str, Any]] = []
+        if self._open_block is not None and delta.block != self._open_block:
+            events.extend(self.close())
+        if self._open_block is None:
+            self._open_block = delta.block
+            self._started = self._clock()
+            self._segments.append({"text": "", "duration_ms": 0})
+        self._segments[-1]["text"] += delta.text
+        kind = "summary" if delta.summary else ("raw" if delta.text else "omitted")
+        events.append({"event": "reasoning", "data": {"block": delta.block, "kind": kind, "text": delta.text}})
+        return events
+
+    def close(self) -> List[Dict[str, Any]]:
+        if self._open_block is None:
+            return []
+        duration_ms = int((self._clock() - self._started) * 1000)
+        self._segments[-1]["duration_ms"] = duration_ms
+        block, self._open_block = self._open_block, None
+        return [{"event": "reasoning_end", "data": {"block": block, "duration_ms": duration_ms}}]
 
     def segments(self) -> List[Dict[str, Any]]:
         return [
@@ -148,39 +44,6 @@ class ThinkingCapture:
             for segment in self._segments
             if segment["text"].strip()
         ]
-
-    def _route(self, pieces: Iterable[Piece]) -> List[Piece]:
-        routed: List[Piece] = []
-        for piece in pieces:
-            if piece.kind == THINKING:
-                routed.append(self._append(piece.text))
-            elif piece.kind == CLOSED:
-                self._close()
-            else:
-                if piece.text.strip():
-                    self._close()
-                routed.append(piece)
-        return routed
-
-    def _append(self, text: str) -> Piece:
-        if not self._open:
-            self._segments.append({"text": "", "duration_ms": 0})
-            self._started = self._clock()
-            self._open = True
-        self._segments[-1]["text"] += text
-        return Piece(THINKING, text, len(self._segments) - 1)
-
-    def _close(self) -> None:
-        if not self._open:
-            return
-        self._segments[-1]["duration_ms"] = int((self._clock() - self._started) * 1000)
-        self._open = False
-
-
-def visible_text(raw: str) -> str:
-    splitter = ThinkTagSplitter()
-    pieces = splitter.feed(raw) + splitter.finish()
-    return "".join(piece.text for piece in pieces if piece.kind == TEXT)
 
 
 def config_shows_thinking(llm_service: Any, llm_config_id: Optional[str]) -> bool:
@@ -251,7 +114,7 @@ def dict_without_replay_reasoning(message: Dict[str, Any]) -> Dict[str, Any]:
 def hide_thinking_in_event(event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     kind = event.get("event")
     data = event.get("data")
-    if kind == "thinking":
+    if kind in REASONING_EVENTS:
         return None
     if not isinstance(data, dict):
         return event

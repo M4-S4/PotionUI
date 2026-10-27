@@ -1030,7 +1030,7 @@ def build_container() -> AppContainer:
     # registries themselves were created earlier (before the plugin
     # registry) so startup plugin enabling could populate them.
 
-    tool_executor = ToolExecutor(tool_registry=tool_registry, llm_service=llm_service)
+    tool_executor = ToolExecutor(tool_registry=tool_registry)
     turn_engine = TurnEngine(
         gateway=llm_service,
         tools=tool_executor,
@@ -1744,6 +1744,7 @@ def build_container() -> AppContainer:
             generation_repository=generation_repository,
             generation_parameter_repository=generation_parameter_repository,
             generation_model_repository=generation_model_repository,
+            turn_engine=turn_engine,
         )
     )
     chat.pre_chat_action_registry.discover_actions()

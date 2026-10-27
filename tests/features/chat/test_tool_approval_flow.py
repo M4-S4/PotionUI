@@ -22,7 +22,14 @@ from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolConte
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
 from tests.fixtures.fake_tab_drafts import make_manager
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
-from src.features.llm.tools.executor import ToolExecutor, _ToolCallGuard
+from src.features.llm.harness.baseline import SequentialToolRunner
+from src.features.llm.harness.engine import ToolRound
+from src.features.llm.harness.turn_state import ToolFinished
+from src.features.llm.harness.messages import ToolCallPart
+from src.features.llm.tools.executor import ToolExecutor
+from src.features.llm.tools.workflow import ToolCallGuard
+from src.features.llm.harness.legacy import messages_from_dicts
+from tests.fixtures.chat_engine import scripted_llm, turn_engine_for
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.prompt.expander import expand_prompts
 from src.platform.security.user import User
@@ -34,33 +41,6 @@ CONTEXT = {"form_state": {"form_data": {"value": 1}}}
 
 def _call(call_id, name, **arguments):
     return {"id": call_id, "type": "function", "function": {"name": name, "arguments": json.dumps(arguments)}}
-
-
-class _ScriptedLLM:
-    def __init__(self, turns=None):
-        self.turns = list(turns or [])
-        self.calls = []
-        self.repository = Mock()
-        self.repository.get_configuration.return_value = SimpleNamespace(
-            provider_options={}, type="openai", supports_vision=True,
-        )
-
-    def stream_with_tools(self, **kwargs):
-        self.calls.append(copy.deepcopy({
-            "messages": kwargs.get("messages"),
-            "tools": kwargs.get("tools"),
-            "system": kwargs.get("custom_system_message"),
-        }))
-        turn = self.turns.pop(0) if self.turns else {"content": "All done."}
-
-        async def gen():
-            if turn.get("content"):
-                yield {"type": "token", "content": turn["content"]}
-            if turn.get("tool_calls"):
-                yield {"type": "tool_calls", "tool_calls": turn["tool_calls"]}
-            yield {"type": "usage", "tokens_used": 3, "prompt_tokens": 2, "completion_tokens": 1}
-
-        return gen()
 
 
 class _SetValueTool(BaseTool):
@@ -136,6 +116,7 @@ def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None):
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
+    executor = ToolExecutor(tool_registry=registry)
     processor = Mock()
     processor.process.side_effect = lambda content, mode=None: ((content or "").strip(), None)
     plugins = Mock()
@@ -147,8 +128,9 @@ def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None):
         response_processor=processor,
         plugin_registry=plugins,
         chat_mode_registry=mode_registry(),
-        tool_executor=ToolExecutor(tool_registry=registry, llm_service=llm),
+        tool_executor=executor,
         tool_services=ToolServices(generation_orchestrator=generation_orchestrator, tab_drafts=tab_drafts),
+        turn_engine=turn_engine_for(llm, executor),
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id
@@ -178,11 +160,24 @@ async def _paused(tool, extra_turns=None, extra_tools=None, siblings=False):
     calls = [_call("c1", "set_value", value=2)]
     if siblings:
         calls.append(_call("c2", "echo"))
-    llm = _ScriptedLLM([{"tool_calls": calls}] + list(extra_turns or []))
+    llm = scripted_llm([{"tool_calls": calls}] + list(extra_turns or []))
     manager, repo, session_id = _manager([tool, _EchoTool()] + list(extra_tools or []), llm)
     events = await _stream(manager, session_id, "set it to 2")
     message_id = _done(events)["assistant_message"]["id"]
     return manager, repo, session_id, llm, message_id, events
+
+
+class TestStepEvents:
+    @pytest.mark.asyncio
+    async def test_each_model_call_streams_a_step_with_its_tool_call_count(self, chat_db):
+        llm = scripted_llm([{"tool_calls": [_call("c1", "echo"), _call("c2", "echo")]}, {"content": "all done"}])
+        manager, _repo, session_id = _manager([_EchoTool()], llm)
+
+        events = await _stream(manager, session_id, "echo twice")
+
+        steps = [e["data"] for e in events if e["event"] == "step"]
+        assert [(step["finish"], step["tool_calls"]) for step in steps] == [("tool_calls", 2), ("stop", 0)]
+        assert steps[0]["seq"] < steps[1]["seq"]
 
 
 class TestPause:
@@ -268,14 +263,14 @@ class TestResolve:
     async def test_continuation_asks_for_a_one_sentence_confirmation(self, chat_db):
         tool = _SetValueTool()
         manager, _repo, session_id, llm, message_id, _events = await _paused(tool)
-        first_system = llm.calls[0]["system"]
+        first_system = llm.adapter.calls[0]["system"]
 
         await _resolve(manager, session_id, message_id)
         await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
-        assert llm.calls[-1]["system"] == first_system
-        assert "just resolved the pending" not in json.dumps(llm.calls[0]["messages"])
-        last = llm.calls[-1]["messages"][-1]
+        assert llm.adapter.calls[-1]["system"] == first_system
+        assert "just resolved the pending" not in json.dumps(llm.adapter.calls[0]["messages"])
+        last = llm.adapter.calls[-1]["messages"][-1]
         assert last == approval_continuation_message("set_value", "c1")
 
     @pytest.mark.asyncio
@@ -286,7 +281,7 @@ class TestResolve:
         await _resolve(manager, session_id, message_id)
         await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
-        tool_message = next(m for m in llm.calls[-1]["messages"] if m.get("role") == "tool")
+        tool_message = next(m for m in llm.adapter.calls[-1]["messages"] if m.get("role") == "tool")
         assert tool_message == {"role": "tool", "tool_call_id": "c1", "name": "set_value", "content": "Error: disk full"}
 
     @pytest.mark.asyncio
@@ -330,7 +325,7 @@ class TestResolve:
         events = await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
         assert tool.confirmed == 0
-        tool_message = next(m for m in llm.calls[-1]["messages"] if m.get("role") == "tool")
+        tool_message = next(m for m in llm.adapter.calls[-1]["messages"] if m.get("role") == "tool")
         assert tool_message["content"] == "User rejected this. Reason: too dark"
         assert _done(events)["user_message"] is None
         assert [m.role for m in repo.get_messages(session_id)] == ["user", "assistant", "assistant"]
@@ -347,7 +342,7 @@ class TestContinuation:
 
         events = await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
-        send_call, continuation_call = llm.calls
+        send_call, continuation_call = llm.adapter.calls
         assert continuation_call["system"] == send_call["system"]
         assert continuation_call["tools"] == send_call["tools"]
         assert continuation_call["messages"][:len(send_call["messages"])] == send_call["messages"]
@@ -375,15 +370,9 @@ class TestContinuation:
 
     @pytest.mark.asyncio
     async def test_continuation_keeps_a_group_loaded_earlier_in_the_turn(self, chat_db):
-        from src.features.llm import context_budget
-
-        class _CompactLLM(_ScriptedLLM):
-            def context_capacity_for(self, config):
-                return context_budget.CapacityInfo(8192, "config")
-
         tool = _SetValueTool()
         tool.context_group = "extra"
-        llm = _CompactLLM([
+        llm = scripted_llm(provider_options={"context_window": 8192}, turns=[
             {"tool_calls": [_call("c0", "use_tools", group="extra")]},
             {"tool_calls": [_call("c1", "set_value", value=2)]},
             {"content": "Set to 2."},
@@ -395,7 +384,7 @@ class TestContinuation:
 
         await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 1})
 
-        names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.calls]
+        names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.adapter.calls]
         assert names[0] == ["echo", "use_tools"]
         assert names[1] == ["set_value", "echo"]
         assert names[2] == ["set_value", "echo"]
@@ -438,7 +427,7 @@ class TestContinuation:
     async def test_round_budget_carries_across_the_chain(self, chat_db, monkeypatch):
         monkeypatch.setattr(conversation_module, "_MAX_TOOL_ROUNDS", 2)
         tool = _SetValueTool()
-        llm = _ScriptedLLM([
+        llm = scripted_llm([
             {"tool_calls": [_call("e1", "echo")]},
             {"tool_calls": [_call("c1", "set_value", value=2)]},
             {"content": "Wrapped up."},
@@ -452,8 +441,8 @@ class TestContinuation:
         events = await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 1})
 
         assert any(e["event"] == "status" and e["data"]["step"] == "tool_budget_exhausted" for e in events)
-        assert len(llm.calls) == 3
-        assert llm.calls[-1]["tools"] is None
+        assert len(llm.adapter.calls) == 3
+        assert llm.adapter.calls[-1]["tools"] is None
         reply = _done(events)["assistant_message"]
         assert reply["content"] == "Wrapped up."
         assert reply["metadata"]["turn_rounds"] == 2
@@ -474,7 +463,7 @@ class TestContinuation:
         assert execution["approval_status"] is None
         assert execution["result"]["data"] == "Already applied earlier in this turn."
         assert tool.confirmed == 1
-        tool_message = [m for m in llm.calls[-1]["messages"] if m.get("role") == "tool"][-1]
+        tool_message = [m for m in llm.adapter.calls[-1]["messages"] if m.get("role") == "tool"][-1]
         assert tool_message["content"] == "Already applied earlier in this turn."
 
     @pytest.mark.asyncio
@@ -509,7 +498,7 @@ class TestSendWhilePending:
         assert repo.get_message(message_id).metadata["tool_executions"][0]["approval_status"] == "rejected"
         assert tool.confirmed == 0
 
-        messages = llm.calls[-1]["messages"]
+        messages = llm.adapter.calls[-1]["messages"]
         assert messages[-2] == {
             "role": "tool", "tool_call_id": "c1", "name": "set_value",
             "content": "User rejected this and replied instead.",
@@ -528,15 +517,11 @@ class TestSendWhilePending:
 
     @pytest.mark.asyncio
     async def test_buffered_send_rejects_the_pending_call(self, chat_db):
-        llm = _ScriptedLLM([{"tool_calls": [_call("c1", "set_value", value=2)]}])
+        llm = scripted_llm([{"tool_calls": [_call("c1", "set_value", value=2)]}])
         manager, repo, session_id = _manager([_SetValueTool()], llm)
         message_id = _done(await _stream(manager, session_id, "set"))["assistant_message"]["id"]
 
-        async def generate_with_tools(**kwargs):
-            return SimpleNamespace(content="Fine.", tool_calls=None, model="m", tokens_used=1,
-                                   prompt_tokens=1, completion_tokens=0)
-
-        llm.generate_with_tools = generate_with_tools
+        llm.adapter.turns.append({"content": "Fine."})
         response = await manager.send_message(
             session_id=session_id, user_id=USER_ID, content="never mind", context_metadata=copy.deepcopy(CONTEXT),
         )
@@ -544,6 +529,7 @@ class TestSendWhilePending:
         assert response.resolved_message["id"] == message_id
         assert repo.get_message(message_id).metadata["tool_executions"][0]["approval_status"] == "rejected"
         assert response.assistant_message.metadata["tool_transcript"] == []
+        assert response.assistant_message.content == "Fine."
 
 
 class TestHistoryBudget:
@@ -553,51 +539,51 @@ class TestHistoryBudget:
         return conversation_module.ConversationRunner(manager)
 
     def test_trims_whole_rounds_only(self):
-        history = [
+        history, _ = messages_from_dicts([
             {"role": "user", "content": "u" * 40},
             {"role": "assistant", "content": "", "tool_calls": [{"id": "a", "function": {"name": "t", "arguments": {}}}]},
             {"role": "tool", "tool_call_id": "a", "content": "r" * 40},
             {"role": "assistant", "content": "a" * 20},
             {"role": "user", "content": "q" * 20},
-        ]
+        ])
         runner = self._runner(budget_tokens=20)
 
         info = runner._apply_history_budget(history)
 
         assert info["truncated"] is True
-        assert [m["role"] for m in history] == ["assistant", "user"]
+        assert [m.role.value for m in history] == ["assistant", "user"]
 
     def test_keeps_current_turn_rounds(self):
-        history = [
+        history, _ = messages_from_dicts([
             {"role": "user", "content": "old" * 50},
             {"role": "user", "content": "q" * 10},
             {"role": "assistant", "content": "", "tool_calls": [{"id": "a", "function": {"name": "t", "arguments": {}}}]},
             {"role": "tool", "tool_call_id": "a", "content": "r" * 400},
-        ]
+        ])
 
         info = self._runner(budget_tokens=10)._apply_history_budget(history)
 
         assert info["messages_sent"] == 3
-        assert [m["role"] for m in history] == ["user", "assistant", "tool"]
+        assert [m.role.value for m in history] == ["user", "assistant", "tool"]
 
     def test_counts_a_rounds_reasoning_toward_its_cost(self):
         call = {"id": "a", "function": {"name": "t", "arguments": {}}}
-        history = [
+        entries = [
             {"role": "user", "content": "u" * 4},
             {"role": "assistant", "content": "", "tool_calls": [call], "reasoning": "r" * 400},
             {"role": "tool", "tool_call_id": "a", "content": "ok"},
             {"role": "assistant", "content": "a" * 4},
             {"role": "user", "content": "q" * 4},
         ]
-        without_reasoning = [dict(m) for m in history]
-        del without_reasoning[1]["reasoning"]
+        history, _ = messages_from_dicts(entries)
+        without_reasoning, _ = messages_from_dicts([{key: value for key, value in entry.items() if key != "reasoning"} for entry in entries])
 
-        reasoned = self._runner(budget_tokens=20)._apply_history_budget(history)
-        plain = self._runner(budget_tokens=20)._apply_history_budget(without_reasoning)
+        reasoned = self._runner(budget_tokens=25)._apply_history_budget(history)
+        plain = self._runner(budget_tokens=25)._apply_history_budget(without_reasoning)
 
         assert plain["truncated"] is False
         assert reasoned["truncated"] is True
-        assert [m["role"] for m in history] == ["assistant", "user"]
+        assert [m.role.value for m in history] == ["assistant", "user"]
 
 
 class TestReplay:
@@ -648,7 +634,7 @@ class TestFormStateSyncAcrossChainedApprovals:
     async def _chain(self):
         orchestrator = AsyncMock()
         orchestrator.start_generation.return_value = {"generation_id": "gen-1", "status": {"status": "pending"}}
-        llm = _ScriptedLLM([
+        llm = scripted_llm([
             {"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]},
             {"tool_calls": [_call("g1", "run_generation")]},
         ])
@@ -684,7 +670,7 @@ class TestFormStateSyncAcrossChainedApprovals:
 
     @pytest.mark.asyncio
     async def test_approving_after_switching_tabs_writes_and_pushes_the_tab_it_was_proposed_on(self, chat_db):
-        llm = _ScriptedLLM([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
+        llm = scripted_llm([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
         drafts, notifier = make_manager()
         manager, _repo, session_id = _manager([ManagePromptVariablesTool()], llm, tab_drafts=drafts)
         events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
@@ -701,7 +687,7 @@ class TestFormStateSyncAcrossChainedApprovals:
 
     @pytest.mark.asyncio
     async def test_follow_up_turn_sees_the_applied_rows_and_a_note_naming_the_approved_call(self, chat_db):
-        llm = _ScriptedLLM([
+        llm = scripted_llm([
             {"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]},
             {"tool_calls": [_call("e1", "echo")]},
             {"content": "Pinned mood to sunlit."},
@@ -715,7 +701,7 @@ class TestFormStateSyncAcrossChainedApprovals:
         await _stream(manager, session_id, context_metadata=None,
                       continue_from={"message_id": message_id, "tool_index": 0})
 
-        final = llm.calls[-1]["messages"]
+        final = llm.adapter.calls[-1]["messages"]
         applied = next(m for m in final if m.get("tool_call_id") == "v1")
         payload = json.loads(applied["content"])
         assert payload["status"] == "applied"
@@ -730,7 +716,7 @@ class TestFormStateSyncAcrossChainedApprovals:
 
     @pytest.mark.asyncio
     async def test_declining_the_change_writes_and_pushes_nothing(self, chat_db):
-        llm = _ScriptedLLM([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
+        llm = scripted_llm([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
         drafts, notifier = make_manager()
         manager, _repo, session_id = _manager([ManagePromptVariablesTool()], llm, tab_drafts=drafts)
         events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
@@ -787,15 +773,18 @@ class TestApprovalPreviewPayload:
     async def test_preview_serializes_into_tool_end_event(self):
         registry = ToolRegistry()
         registry.register(_SetValueTool())
-        executor = ToolExecutor(tool_registry=registry, llm_service=Mock())
+        executor = ToolExecutor(tool_registry=registry)
+        context = ToolRound(
+            tool_context=ToolContext(user_id="user-1"), allowed_tools=["set_value"], deferred_tools={}, guard=ToolCallGuard(),
+        )
 
         events = [
-            e async for e in executor._run_tool_calls_stream(
-                [_call("c1", "set_value", value=2)],
-                ToolContext(user_id="user-1"), [], [], allowed_tools=["set_value"], guard=_ToolCallGuard(),
+            event async for event in SequentialToolRunner(executor).run(
+                [ToolCallPart(call_id="c1", name="set_value", args={"value": 2})], None, context,
             )
         ]
 
-        tool_end = next(e for e in events if e["type"] == "tool_end")
-        assert tool_end["data"]["approval_status"] == "pending"
-        assert tool_end["data"]["preview"]["action"] == "Set value"
+        finished = next(event for event in events if isinstance(event, ToolFinished))
+        payload = ToolExecutor.tool_end_payload(finished.record)
+        assert payload["approval_status"] == "pending"
+        assert payload["preview"]["action"] == "Set value"
