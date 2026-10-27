@@ -92,3 +92,7 @@ class InMemoryTurnStore:
             if state.session_id == session_id and state.status is TurnStatus.AWAITING_DECISION
         ]
         return waiting[-1] if waiting else None
+
+    def latest_turn(self, session_id: str) -> Optional[TurnState]:
+        turns = [state for state in self._states.values() if state.session_id == session_id]
+        return turns[-1] if turns else None

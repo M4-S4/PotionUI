@@ -114,6 +114,18 @@ def test_the_in_memory_store_appends_in_order_and_finds_the_open_turn():
     assert store.steps("other") == []
 
 
+def test_the_in_memory_store_finds_the_newest_turn_of_a_session_whatever_its_status():
+    store = InMemoryTurnStore()
+    assert store.latest_turn("s1") is None
+
+    store.save_state(state("t1", TurnStatus.AWAITING_DECISION))
+    store.save_state(state("t2", TurnStatus.COMPLETED))
+    store.save_state(state("t1", TurnStatus.CANCELLED))
+
+    assert store.latest_turn("s1").turn_id == "t2"
+    assert store.latest_turn("s2") is None
+
+
 def test_llm_types_merge_core_and_plugin_entries():
     registry = SimpleNamespace(
         get=lambda type_id: SimpleNamespace(type_name="deepseek", adapter=Probe(), label="DeepSeek", default_base_url="https://x", source="deepseek-provider") if type_id == "deepseek" else None,

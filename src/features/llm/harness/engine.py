@@ -177,6 +177,10 @@ class TurnEngine:
         self._sleep = sleep
         self._clock = clock
 
+    def previous_tools(self, session_id: str) -> Tuple[ToolSpec, ...]:
+        latest = self._store.latest_turn(session_id)
+        return latest.snapshot.tools if latest is not None else ()
+
     async def run(self, turn: TurnInput) -> AsyncIterator[Any]:
         run = _Run(self, turn)
         async with aclosing(run.events()) as events:

@@ -332,6 +332,27 @@ class TestResolve:
         assert [m.role for m in repo.get_messages(session_id)] == ["user", "assistant", "assistant"]
 
 
+class TestToolsAcrossTurns:
+    @pytest.mark.asyncio
+    async def test_a_new_message_starts_from_the_tools_the_last_turn_ended_with(self, chat_db):
+        echo = _EchoTool()
+        echo.context_group = "extra"
+        llm = scripted_llm(provider_options={"context_window": 8192}, turns=[
+            {"tool_calls": [_call("c0", "use_tools", group="extra")]},
+            {"content": "Loaded."},
+            {"content": "Hello again."},
+        ])
+        manager, _repo, session_id = _manager([_SetValueTool(), echo], llm)
+
+        await _stream(manager, session_id, "load extra")
+        await _stream(manager, session_id, "hi")
+
+        names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.adapter.calls]
+        assert names[0] == ["set_value", "use_tools"]
+        assert names[1] == ["set_value", "use_tools", "echo"]
+        assert names[2] == names[1]
+
+
 class TestContinuation:
     @pytest.mark.asyncio
     async def test_continuation_context_equals_normal_send_plus_transcript(self, chat_db):
@@ -388,7 +409,7 @@ class TestContinuation:
         names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.adapter.calls]
         assert names[0] == ["echo", "use_tools"]
         assert names[1] == ["echo", "use_tools", "set_value"]
-        assert names[2] == ["set_value", "echo"]
+        assert names[2] == ["echo", "set_value"]
 
     @pytest.mark.asyncio
     async def test_continuation_while_pending_is_refused(self, chat_db):

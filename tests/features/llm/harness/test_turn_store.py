@@ -82,6 +82,12 @@ class ReferenceTurnStore:
                 return state
         return None
 
+    def latest_turn(self, session_id: str) -> Optional[TurnState]:
+        for turn_id in reversed(self._order):
+            if self._states[turn_id].session_id == session_id:
+                return self._states[turn_id]
+        return None
+
     def fail_interrupted(self) -> int:
         running = [item for item in self._states.values() if item.status is TurnStatus.RUNNING]
         for item in running:
@@ -242,6 +248,15 @@ class TurnStoreContract:
         self.store.save_state(state(turn_id="t3", status=TurnStatus.RUNNING))
         self.store.save_state(state(turn_id="t4", status=TurnStatus.FAILED))
         self.assertEqual(self.store.open_turn("s1").turn_id, "t3")
+
+    def test_the_latest_turn_is_the_newest_of_its_session_whatever_its_status(self):
+        self.assertIsNone(self.store.latest_turn("s1"))
+        self.store.save_state(state(turn_id="t1", status=TurnStatus.AWAITING_DECISION))
+        self.store.save_state(state(turn_id="t2", status=TurnStatus.COMPLETED))
+        self.store.save_state(state(turn_id="t1", status=TurnStatus.CANCELLED))
+
+        self.assertEqual(self.store.latest_turn("s1").turn_id, "t2")
+        self.assertIsNone(self.store.latest_turn("s2"))
 
     def test_the_newest_open_turn_wins(self):
         self.store.save_state(state(turn_id="t1", status=TurnStatus.RUNNING))

@@ -105,6 +105,10 @@ class SqliteTurnStore:
         text = self._repository.open_state_json(session_id, OPEN_STATUSES)
         return codec.loads(TurnState, text) if text is not None else None
 
+    def latest_turn(self, session_id: str) -> Optional[TurnState]:
+        text = self._repository.latest_state_json(session_id)
+        return codec.loads(TurnState, text) if text is not None else None
+
     def fail_interrupted(self) -> int:
         running = self._repository.state_jsons_with_status(TurnStatus.RUNNING.value)
         for turn_id, text in running:

@@ -3,7 +3,7 @@ from contextlib import aclosing
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple
 
 from src.features.llm import trace_collector
-from src.features.llm.harness.adapter import RenderRequest, WireRequest
+from src.features.llm.harness.adapter import RenderRequest, ToolSpec, WireRequest
 from src.features.llm.harness.baseline import InMemoryTurnStore
 from src.features.llm.harness.retry import BackoffRetry
 from src.features.llm.harness.tool_runner import ParallelToolRunner
@@ -202,6 +202,9 @@ class ScriptedTurnEngine:
 
     def script(self, source: Any) -> None:
         self._script = source
+
+    def previous_tools(self, session_id: str) -> Tuple[ToolSpec, ...]:
+        return ()
 
     @property
     def call_kwargs(self) -> Dict[str, Any]:

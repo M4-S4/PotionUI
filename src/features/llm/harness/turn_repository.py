@@ -112,6 +112,15 @@ class TurnRepository:
             row = cursor.fetchone()
         return row["state_json"] if row else None
 
+    def latest_state_json(self, session_id: str) -> Optional[str]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT state_json FROM chat_turns WHERE session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+        return row["state_json"] if row else None
+
     def state_jsons_with_status(self, status: str) -> List[Tuple[str, str]]:
         with get_cursor() as cursor:
             cursor.execute("SELECT id, state_json FROM chat_turns WHERE status = ?", (status,))
