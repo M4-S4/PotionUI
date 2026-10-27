@@ -34,6 +34,14 @@ plugin wrote (an absolute path) the same way. Both store a Library item by
 default (`purpose="user_upload"`); `purpose="derived_artifact"` keeps the file
 servable but out of the Library. They raise `MediaRefError` with a `code`, and
 let `LimitExceeded` through when the user's storage plan is full.
+
+`embed_images(images)` turns images (paths or PIL images) into the vectors of
+the application's image embedder, the SigLIP model the gallery search uses,
+L2-normalized so that the dot product of two vectors is their cosine. The model
+goes through `ModelLifecycle` for each call, like any other model, and is never
+downloaded: without its weights on this server it raises `FileNotFoundError`.
+`image_embedder()` tells which model it is (`model`, `slug`, `device`) and
+whether its weights are here (`available`) and it is loaded now (`loaded`).
 """
 
 import asyncio
@@ -41,7 +49,7 @@ import io
 import math
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Literal, Optional, Sequence, Union
 
 from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
@@ -72,6 +80,8 @@ from src.plugin_api.generation import (
 )
 
 if TYPE_CHECKING:
+    from PIL import Image
+
     from src.platform.runtime.native.matting import BackgroundMattingModel
 
 __all__ = [
@@ -83,9 +93,11 @@ __all__ = [
     "VideoProbe",
     "VideoTranscodeError",
     "convert_image_to_base64",
+    "embed_images",
     "extract_frame",
     "find_ffmpeg",
     "has_audio_stream",
+    "image_embedder",
     "mux_audio_from_source",
     "probe_video",
     "save_user_media",
@@ -98,6 +110,34 @@ def __getattr__(name):
         from src.platform.runtime.native.matting import BackgroundMattingModel
         return BackgroundMattingModel
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _embedder():
+    return get_container().media_indexer.vision_embedder
+
+
+def _weights_here(embedder) -> bool:
+    return bool(type(embedder).resolve_status(embedder.model_name, embedder.resolver)["present"])
+
+
+def image_embedder() -> Dict[str, Any]:
+    """The application's image embedder: `model`, `slug` (the namespace of its vectors), `device`, `available` (its weights are on this server) and `loaded` (it is resident now)."""
+    embedder = _embedder()
+    return {
+        "model": embedder.model_name,
+        "slug": embedder.embedder_slug,
+        "device": str(embedder.device),
+        "available": _weights_here(embedder),
+        "loaded": bool(embedder.is_loaded()),
+    }
+
+
+def embed_images(images: Sequence[Union[str, Path, "Image.Image"]]) -> List[List[float]]:
+    """The L2-normalized vectors of images (paths or PIL images) from the application's image embedder, through ModelLifecycle; `FileNotFoundError` when its weights are not on this server, which is never downloaded from here."""
+    embedder = _embedder()
+    if not _weights_here(embedder):
+        raise FileNotFoundError(f"The weights of {embedder.model_name} are not on this server")
+    return embedder.embed_images(list(images))
 
 
 def _owner_id(user) -> str:
