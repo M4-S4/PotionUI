@@ -19,7 +19,7 @@ from src.features.llm.harness.profile_seed import (
 )
 from src.features.llm.harness.profile_seed_catalog import SeedCatalog
 from src.features.llm.harness.profiles import LayeredProfileResolver
-from tests.fixtures.llm_profiles import ProbeAdapter, adapter_for, make_config, shipped_seed
+from tests.fixtures.llm_profiles import FakeClock, ProbeAdapter, adapter_for, make_config, shipped_seed
 
 GOLDEN = Path(__file__).resolve().parents[3] / "fixtures" / "llm_goldens" / "profile_resolution.json"
 ADAPTERS = ["anthropic-messages", "openai-responses", "gemini-interactions", "openai-chat", "ollama-chat", "native"]
@@ -221,10 +221,12 @@ class TestSeedCatalog:
     def test_plugin_rows_load_only_while_the_plugin_is_enabled(self, content, tmp_path):
         write(tmp_path / "plug" / "profiles" / "p.yml", doc(rows=[row("from-plugin", vision=True)]))
         enabled = [self.manifest(tmp_path / "plug")]
-        catalog = SeedCatalog(content, SimpleNamespace(get_enabled_plugins=lambda: enabled))
+        clock = FakeClock()
+        catalog = SeedCatalog(content, SimpleNamespace(get_enabled_plugins=lambda: enabled), clock=clock)
 
         assert fields_of(catalog.table())["vision"] is True
         enabled.clear()
+        clock.now += 3
         assert fields_of(catalog.table())["vision"] is False
 
     def test_a_plugin_root_escaping_its_directory_is_ignored(self, content, tmp_path):
@@ -237,16 +239,32 @@ class TestSeedCatalog:
         assert table.rows == ()
 
     def test_an_edited_or_added_local_file_is_picked_up_without_a_restart(self, content):
-        catalog = SeedCatalog(content)
+        clock = FakeClock()
+        catalog = SeedCatalog(content, clock=clock)
         assert fields_of(catalog.table())["vision"] is False
 
         path = write(content / "local" / "mine.yml", doc(rows=[row("mine", vision=True)]))
+        clock.now += 3
         assert fields_of(catalog.table())["vision"] is True
 
         write(path, doc(rows=[row("mine", max_images=6)]))
         stat = path.stat()
         os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+        clock.now += 3
         assert fields_of(catalog.table())["max_images"] == 6
+
+    def test_the_files_are_not_looked_at_again_inside_the_recheck_window(self, content):
+        clock = FakeClock()
+        catalog = SeedCatalog(content, clock=clock)
+        first = catalog.table()
+
+        write(content / "local" / "mine.yml", doc(rows=[row("mine", vision=True)]))
+        clock.now += 1.9
+        assert catalog.table() is first
+        assert fields_of(catalog.table())["vision"] is False
+
+        clock.now += 0.2
+        assert fields_of(catalog.table())["vision"] is True
 
     def test_the_table_is_reused_while_nothing_changed(self, content):
         write(content / "marketplace" / "a.yml", doc(rows=[row("r", vision=True)]))

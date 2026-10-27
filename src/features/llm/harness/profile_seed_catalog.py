@@ -1,6 +1,7 @@
 import threading
+import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from src.features.llm.harness.profile import ProfileLayer
 from src.features.llm.harness.profile_seed import (
@@ -15,6 +16,8 @@ from src.features.llm.harness.profile_seed import (
     marketplace_root,
 )
 from src.platform.plugins.manifest_roots import plugin_manifest_roots
+
+RECHECK_SECONDS = 2.0
 
 _Signature = Tuple[Tuple[str, str, Tuple[Tuple[str, int], ...]], ...]
 
@@ -41,10 +44,21 @@ def _signature(roots: List[SeedRoot]) -> _Signature:
 
 
 class SeedCatalog:
-    def __init__(self, content_dir: Path = CONTENT_DIR, plugin_registry=None, base_path: Path = BASE_PATH) -> None:
+    def __init__(
+        self,
+        content_dir: Path = CONTENT_DIR,
+        plugin_registry=None,
+        base_path: Path = BASE_PATH,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        recheck_seconds: float = RECHECK_SECONDS,
+    ) -> None:
         self._content_dir = Path(content_dir)
         self._plugin_registry = plugin_registry
         self._base_path = base_path
+        self._clock = clock
+        self._recheck_seconds = recheck_seconds
+        self._checked_at = 0.0
         self._lock = threading.Lock()
         self._signature: Optional[_Signature] = None
         self._table: Optional[SeedTable] = None
@@ -57,12 +71,16 @@ class SeedCatalog:
         return roots
 
     def table(self) -> SeedTable:
-        roots = self.roots()
-        signature = _signature(roots)
         with self._lock:
+            now = self._clock()
+            if self._table is not None and now - self._checked_at < self._recheck_seconds:
+                return self._table
+            roots = self.roots()
+            signature = _signature(roots)
             if self._table is None or signature != self._signature:
                 self._table = SeedTable.scan(roots, self._base_path)
                 self._signature = signature
+            self._checked_at = now
             return self._table
 
     def layer(self, key: SeedKey) -> ProfileLayer:

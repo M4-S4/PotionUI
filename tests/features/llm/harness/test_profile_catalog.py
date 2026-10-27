@@ -248,3 +248,54 @@ class TestScript:
 
         assert llm_profiles_refresh.main(["--seed", str(seed_copy), "--url", "https://models.example/api.json"]) == 0
         assert calls == [("https://models.example/api.json", True)]
+
+
+class TestDefaultDiscovery:
+    def tree(self, tmp_path, monkeypatch) -> dict:
+        content = tmp_path / "content"
+        marketplace = content / "marketplace"
+        marketplace.mkdir(parents=True)
+        plugin = tmp_path / "plugins" / "vendor-provider"
+        (plugin / "profiles").mkdir(parents=True)
+        (plugin / "manifest.yml").write_text('id: "vendor-provider"\nllm_profiles:\n  - path: "profiles"\n', encoding="utf-8", newline="\n")
+        stale = "version: 1\nsources:\n  models-dev: https://models.dev/api.json\nmodels_dev:\n  {provider}: {adapter}\nrows: []\ncatalog: []\n"
+        paths = {
+            "anthropic": marketplace / "anthropic.yml",
+            "deepseek": plugin / "profiles" / "deepseek.yml",
+            "plain": marketplace / "plain.yml",
+        }
+        paths["anthropic"].write_text(stale.format(provider="anthropic", adapter="anthropic-messages"), encoding="utf-8", newline="\n")
+        paths["deepseek"].write_text(stale.format(provider="deepseek", adapter="openai-chat"), encoding="utf-8", newline="\n")
+        paths["plain"].write_text("version: 1\nsources: {}\nrows: []\n", encoding="utf-8", newline="\n")
+        monkeypatch.setattr(llm_profiles_refresh, "CONTENT_DIR", content)
+        monkeypatch.setattr(llm_profiles_refresh, "PLUGINS_DIR", tmp_path / "plugins")
+        return paths
+
+    def test_the_marketplace_and_plugin_files_are_both_found(self, tmp_path, monkeypatch):
+        paths = self.tree(tmp_path, monkeypatch)
+
+        assert set(llm_profiles_refresh.default_seed_files()) == set(paths.values())
+
+    def test_check_names_every_stale_file_and_skips_the_one_without_providers(self, tmp_path, monkeypatch, capsys):
+        paths = self.tree(tmp_path, monkeypatch)
+        before = {name: path.read_bytes() for name, path in paths.items()}
+
+        code = llm_profiles_refresh.main(["--input", str(FIXTURE), "--check"])
+
+        out = capsys.readouterr().out
+        assert code == 1
+        assert paths["anthropic"].as_posix() in out and paths["deepseek"].as_posix() in out
+        assert paths["plain"].as_posix() not in out
+        assert {name: path.read_bytes() for name, path in paths.items()} == before
+
+    def test_a_run_rewrites_each_provider_file_with_its_own_models_and_leaves_the_plain_one(self, tmp_path, monkeypatch):
+        paths = self.tree(tmp_path, monkeypatch)
+        plain = paths["plain"].read_bytes()
+
+        assert llm_profiles_refresh.main(["--input", str(FIXTURE)]) == 0
+
+        anthropic = {entry["model"] for entry in yaml.safe_load(paths["anthropic"].read_text(encoding="utf-8"))["catalog"]}
+        deepseek = {entry["model"] for entry in yaml.safe_load(paths["deepseek"].read_text(encoding="utf-8"))["catalog"]}
+        assert anthropic == {"claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-4-5"}
+        assert deepseek == {"deepseek-v4-flash-vision-exp", "deepseek-v4-pro"}
+        assert paths["plain"].read_bytes() == plain

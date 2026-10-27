@@ -12,7 +12,7 @@ from src.features.llm.harness.profile_seed_catalog import SeedCatalog
 from src.platform.plugins.llm_providers import LLMProviderRegistry
 from src.platform.plugins.registry import PluginRegistry
 from tests.fixtures.llm_engine import core_gateway
-from tests.fixtures.llm_profiles import shipped_seed
+from tests.fixtures.llm_profiles import FakeClock, shipped_seed
 
 PLUGIN_ID = "deepseek-provider"
 PACKAGE = "deepseek_provider"
@@ -80,16 +80,19 @@ def test_the_manifest_and_the_backend_name_the_same_plugin(registry):
 
 
 def test_the_plugin_supplies_the_deepseek_profile_rows_only_while_enabled(registry):
-    catalog = SeedCatalog(CONTENT_DIR, registry)
+    clock = FakeClock()
+    catalog = SeedCatalog(CONTENT_DIR, registry, clock=clock)
     key = SeedKey("openai-chat", "deepseek-v4-pro")
     assert catalog.layer(key).fields["replay_required_with_tools"] is False
 
     assert registry.enable_plugin(PLUGIN_ID)
+    clock.now += 3
     enabled = catalog.layer(key).fields
     assert enabled["replay_required_with_tools"] is True
     assert enabled == shipped_seed().layer(key).fields
 
     registry.disable_plugin(PLUGIN_ID)
+    clock.now += 3
     assert catalog.layer(key).fields["replay_required_with_tools"] is False
 
 
