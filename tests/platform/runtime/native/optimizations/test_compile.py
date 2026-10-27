@@ -12,8 +12,8 @@ from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.depth_decoder import DepthDecoderModule
 from vendor.gpl.comfyui import ops as comfy_ops
-from vendor.gpl.comfyui.ops import _build_convrot_hadamard, disable_weight_init
-from src.platform.runtime.native.kernels import fp8_ops, Fp8ScaledLinear
+from vendor.gpl.comfyui.ops import _build_convrot_hadamard
+from src.platform.runtime.native.kernels import fp8_ops, Fp8ScaledLinear, disable_weight_init
 from src.platform.runtime.native.optimizations import compile as tc
 from src.platform.settings import runtime_flags
 from tests.fixtures.kernel_gemm import installed_gemm_verdicts

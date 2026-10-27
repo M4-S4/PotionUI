@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import torch
-from vendor.gpl.comfyui.ops import disable_weight_init, manual_cast
 from src.platform.runtime.native.kernels import (
     QUANT_FP8_SCALED,
     detect_quant_format,
+    disable_weight_init,
     fp8_ops,
+    manual_cast,
     pick_operations,
 )
 

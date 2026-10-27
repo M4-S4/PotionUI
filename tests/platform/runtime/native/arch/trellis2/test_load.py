@@ -66,7 +66,7 @@ _TEXTURE_VAE_PATH = _MODELS / "vae" / "trellis_2_texture_vae_bf16.safetensors"
 
 
 def _production_parameter_names(build) -> set[str]:
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
 
     with torch.device("meta"):
         module = build(disable_weight_init)
@@ -327,7 +327,7 @@ def _assert_round_trip(loaded: nn.Module, saved: dict[str, torch.Tensor]) -> Non
 
 
 def test_load_ss_flow_round_trips_through_the_structure_prefix(tmp_path):
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
 
     path = tmp_path / "bundle.safetensors"
     saved = _write_at(path, FLOW_PREFIXES["structure"], SSFlowDiT(TINY_SS_FLOW, disable_weight_init))
@@ -338,7 +338,7 @@ def test_load_ss_flow_round_trips_through_the_structure_prefix(tmp_path):
 
 
 def test_load_ss_vae_decoder_round_trips_through_the_struct_dec_prefix(tmp_path):
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
 
     path = tmp_path / "shape_vae.safetensors"
     saved = _write_at(path, STRUCTURE_DECODER_PREFIX, SSVAEDecoder(TINY_SS_VAE, disable_weight_init))
@@ -386,7 +386,7 @@ def test_a_bundle_slice_is_refused_by_the_wrong_component(tmp_path):
     """The failure this whole loader is built to catch: pointing a component at
     a prefix carrying some other sub-model's weights."""
     path = tmp_path / "bundle.safetensors"
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
 
     _write_at(path, FLOW_PREFIXES["structure"], SSFlowDiT(TINY_SS_FLOW, disable_weight_init))
 

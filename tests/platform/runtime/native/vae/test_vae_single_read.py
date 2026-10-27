@@ -18,7 +18,7 @@ from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
 from src.platform.runtime.native.vae import causal_3d, causal_3d_v2
 from src.platform.runtime.native.vae.loader import _BARE_VAES, _load_bare_vae, build_native_vae, load_vae
 from src.platform.runtime.native.vae.seedvr2_causal_video import SeedVR2CausalVideoVAE
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 from .test_ae_2d import _bfl_layout, _randomize_weights, _tiny_config
 from .test_qwen_image21_vae import _build_qwen21

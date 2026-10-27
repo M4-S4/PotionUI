@@ -21,7 +21,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from src.platform.runtime.native.detect.te_detect import detect_te_config  # noqa: E402
-from vendor.gpl.comfyui.ops import disable_weight_init as ops  # noqa: E402
+from src.platform.runtime.native.kernels import disable_weight_init as ops
 from src.platform.runtime.native.text_encoders.gemma4 import (  # noqa: E402
     Gemma4Model, _Gemma4RMSNorm, is_global_layer,
 )

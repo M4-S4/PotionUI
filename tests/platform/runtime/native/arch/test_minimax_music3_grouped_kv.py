@@ -18,7 +18,7 @@ from src.platform.runtime.native.text_encoders._functional import apply_rope_qk 
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM, _GlobalAttention
 from src.platform.runtime.native.text_encoders._functional import optimized_attention
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from tests.fixtures.kernel_capabilities import ampere, fake_capabilities
 
 

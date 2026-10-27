@@ -19,12 +19,12 @@ from vendor.gpl.comfyui.ops import (
     _quantize_nvfp4_dynamic,
     _scale_values,
     _with_lokr,
-    cast_to,
     linear_with_lora_deltas,
     partition_output_branch_deltas,
     precompute_nvfp4_scale,
 )
 
+from .casting import cast_to
 from .fp8_linear import Fp8ScaledLinear
 from .gemm import gemm_support
 

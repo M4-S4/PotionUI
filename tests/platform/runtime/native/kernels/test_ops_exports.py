@@ -5,16 +5,30 @@ import pytest
 from src.platform.runtime.native import kernels
 from vendor.gpl.comfyui import ops
 
-VENDORED_NAMES_NATIVE_CODE_NEEDS = ["CastWeightBiasOp", "invalidate_lora_fused_cache"]
-KERNEL_CLASSES_AND_FUNCTIONS = ["Fp8ScaledLinear", "detect_quant_format", "fp8_ops", "pick_operations"]
+VENDORED_NAMES_NATIVE_CODE_NEEDS = ["invalidate_lora_fused_cache"]
+KERNEL_CLASSES_AND_FUNCTIONS = [
+    "CastWeightBiasOp",
+    "Fp8ScaledLinear",
+    "cast_to",
+    "detect_quant_format",
+    "disable_weight_init",
+    "fp8_ops",
+    "manual_cast",
+    "pick_operations",
+]
 KERNEL_PACKAGE = "src.platform.runtime.native.kernels"
 MOVED_OUT_OF_VENDOR = [
+    "CastWeightBiasOp",
     "Fp8ScaledLinear",
     "GEMM_SUPPORT",
     "Nvfp4Linear",
     "QUANT_FP8_SCALED",
+    "cast_bias_weight",
+    "cast_to",
     "detect_quant_format",
+    "disable_weight_init",
     "fp8_ops",
+    "manual_cast",
     "pick_operations",
     "_fp8_matmul_enabled",
     "_nvfp4_matmul_enabled",

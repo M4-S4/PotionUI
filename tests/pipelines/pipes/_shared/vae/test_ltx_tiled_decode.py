@@ -33,7 +33,7 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
 from src.platform.runtime.native.vae.ltx_diffusion_video import LTXDiffusionVideoVAE
 from src.platform.settings import runtime_flags
 from tests.platform.runtime.native.vae.test_ltx_diffusion_video import _TINY_CONFIG, _randomize_weights
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 _MOD = "src.pipelines.pipes._shared.vae.ltx_tiled_decode"
 

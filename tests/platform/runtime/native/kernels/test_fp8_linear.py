@@ -462,10 +462,9 @@ def test_forward_restages_every_call_with_no_cross_call_retention(monkeypatch):
 
 
 def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
-    import vendor.gpl.comfyui.ops as wo
+    from src.platform.runtime.native.kernels import cast_to as real_cast_to
 
     lin = _streamed_fp8_layer()
-    real_cast_to = wo.cast_to
     resident_ids, _ = _install_fake_cuda_residency(monkeypatch)
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
 

@@ -26,13 +26,11 @@ from vendor.gpl.comfyui.ops import (
     _reject_ambiguous_int8,
     _with_lokr,
     apply_lora_deltas,
-    cast_bias_weight,
-    cast_to,
     linear_with_lora_deltas,
-    manual_cast,
     partition_output_branch_deltas,
 )
 
+from .casting import cast_bias_weight, cast_to, manual_cast
 from .gemm import gemm_support
 
 logger = logging.getLogger(__name__)

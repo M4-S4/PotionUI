@@ -27,7 +27,7 @@ from src.platform.runtime.native.engine import (
     _estimate_text_encoder_gb,
     _latent_frames,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.text_encoders.base import NativeTextEncoder
 from src.platform.runtime.native.vae import ae_2d, causal_3d
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D

@@ -17,7 +17,7 @@ from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3Audi
 from src.platform.runtime.native.arch.minimax_music3.prompt import AUDIO_CODE_OFFSET, AUDIO_END_TOKEN_ID
 from src.platform.runtime.native.text_encoders._functional import module_device
 from src.platform.runtime.native.errors import SamplingCancelled
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 import pytest
 

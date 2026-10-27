@@ -9,8 +9,7 @@ from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.engine import NativeEngineLoader
 from tests.platform.runtime.native.arch.test_anima_model import TINY as ANIMA_TINY
 from tests.platform.runtime.native.test_engine import _FLUX1, _finite_sd
-from vendor.gpl.comfyui.ops import disable_weight_init
-from src.platform.runtime.native.kernels import pick_operations
+from src.platform.runtime.native.kernels import disable_weight_init, pick_operations
 
 
 def _bundle(dit_sd, prefix):

@@ -3685,7 +3685,7 @@ def _decode_ctx():
     reaches for `bundle.video_vae` and `device`, and a Mock VAE would prove
     nothing about the decode this test exists to cover."""
     from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
 
     torch.manual_seed(7)
     module = MiniMaxH3VideoVAE.from_config(_DECODE_VAE_CONFIG, disable_weight_init)

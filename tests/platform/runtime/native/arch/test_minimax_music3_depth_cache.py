@@ -23,7 +23,7 @@ from src.platform.runtime.native.arch.minimax_music3.depth_decoder import (
 )
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM
 from src.platform.runtime.native.errors import SamplingCancelled
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 
 def _tiny_config(pruned: bool) -> MiniMaxMusic3TextEncoderConfig:

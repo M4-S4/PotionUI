@@ -28,7 +28,7 @@ from src.platform.runtime.native.errors import (
     NativeEngineLoadIntegrityError,
     NativeEngineUnsupportedError,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 _REAL_HEAD_PATH = Path("models/ltx/ltx-2.5-duration-head-bf16.safetensors")
 
