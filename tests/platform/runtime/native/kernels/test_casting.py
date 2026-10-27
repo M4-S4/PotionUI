@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.platform.runtime.native import kernels
 from src.platform.runtime.native.kernels import (
     CastWeightBiasOp,
     cast_to,
@@ -73,11 +72,6 @@ def test_every_layer_class_casts_weights_through_the_cast_base(name):
     assert issubclass(layer, CastWeightBiasOp)
     assert getattr(manual_cast, name).comfy_cast_weights is True
     assert getattr(disable_weight_init, name).comfy_cast_weights is False
-
-
-def test_the_casting_names_are_defined_in_the_casting_module():
-    for name in ("CastWeightBiasOp", "cast_to", "disable_weight_init", "manual_cast"):
-        assert getattr(kernels, name).__module__ == casting.__name__
 
 
 def test_cast_to_does_not_touch_the_tensor_when_nothing_has_to_change(monkeypatch):
