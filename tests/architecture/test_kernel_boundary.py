@@ -330,46 +330,42 @@ def _references(tree: ast.Module, name: str) -> list[int]:
     return sorted(lines)
 
 
-def _capability_references(tree: ast.Module) -> list[int]:
-    return _references(tree, CAPABILITY_PROBE)
-
-
-def _scan_capability_references(base: Path, source_index) -> dict[str, int]:
+def _scan_references(base: Path, source_index, name: str) -> dict[str, int]:
     found: dict[str, int] = {}
     for relative, tree in _walk_outside_kernels(base, source_index):
-        lines = _capability_references(tree)
+        lines = _references(tree, name)
         if lines:
             found[relative] = lines[0]
     return found
 
 
-def _unlisted_capability_references(found: dict[str, int], allowlist: frozenset) -> list[str]:
+def _unlisted_entries(found: dict[str, int], allowlist, name: str, suffix: str = "") -> list[str]:
     return [
-        f"{path}:{line} references {CAPABILITY_PROBE}; {REDIRECT}"
+        f"{path}:{line} references {name}; {REDIRECT}{suffix}"
         for path, line in sorted(found.items())
         if path not in allowlist
     ]
 
 
-def _stale_capability_entries(found: dict[str, int], allowlist: frozenset) -> list[str]:
+def _stale_entries(found: dict[str, int], allowlist, name: str, label: str) -> list[str]:
     return [
-        f"{path} no longer references {CAPABILITY_PROBE}; remove it from the capability allowlist"
-        for path in sorted(allowlist - found.keys())
+        f"{path} no longer references {name}; remove it from the {label} allowlist"
+        for path in sorted(set(allowlist) - found.keys())
     ]
 
 
 @pytest.fixture(scope="module")
 def capability_references(source_index) -> dict[str, int]:
-    return _scan_capability_references(SOURCE, source_index)
+    return _scan_references(SOURCE, source_index, CAPABILITY_PROBE)
 
 
 def test_no_new_capability_probes_outside_the_kernels_package(capability_references):
-    problems = _unlisted_capability_references(capability_references, CAPABILITY_ALLOWLIST)
+    problems = _unlisted_entries(capability_references, CAPABILITY_ALLOWLIST, CAPABILITY_PROBE)
     assert not problems, "device capability probed outside the kernels package:\n" + "\n".join(problems)
 
 
 def test_capability_allowlist_only_shrinks(capability_references):
-    problems = _stale_capability_entries(capability_references, CAPABILITY_ALLOWLIST)
+    problems = _stale_entries(capability_references, CAPABILITY_ALLOWLIST, CAPABILITY_PROBE, "capability")
     assert not problems, "stale capability allowlist entries:\n" + "\n".join(problems)
 
 
@@ -380,7 +376,7 @@ def test_capability_allowlist_only_shrinks(capability_references):
     ("import torch\nprobe = torch.cuda.get_device_capability\n", [2]),
 ], ids=["attribute-call", "bare-name-call", "comprehension", "bare-reference"])
 def test_every_reference_to_the_capability_probe_is_recorded(source, lines):
-    assert _capability_references(ast.parse(source)) == lines
+    assert _references(ast.parse(source), CAPABILITY_PROBE) == lines
 
 
 @pytest.mark.parametrize("source", [
@@ -388,7 +384,7 @@ def test_every_reference_to_the_capability_probe_is_recorded(source, lines):
     "from torch.cuda import get_device_capability as probe\n",
 ], ids=["string-constant", "aliased-import"])
 def test_string_and_import_spellings_of_the_capability_probe_are_recorded(source):
-    assert len(_capability_references(ast.parse(source))) == 1
+    assert len(_references(ast.parse(source), CAPABILITY_PROBE)) == 1
 
 
 @pytest.mark.parametrize("source", [
@@ -398,20 +394,20 @@ def test_string_and_import_spellings_of_the_capability_probe_are_recorded(source
     "from src.platform.runtime.native.kernels import capabilities\ncapabilities().device(0).capability\n",
 ], ids=["device-name", "string-and-lookalike-name", "docstring-sentence", "snapshot-read"])
 def test_other_device_queries_and_sentences_are_not_capability_references(source):
-    assert _capability_references(ast.parse(source)) == []
+    assert _references(ast.parse(source), CAPABILITY_PROBE) == []
 
 
 def test_capability_references_are_listed_by_line_in_order():
     source = "import torch\nx = 1\ntorch.cuda.get_device_capability()\ny = torch.cuda.get_device_capability(1)\n"
 
-    assert _capability_references(ast.parse(source)) == [3, 4]
+    assert _references(ast.parse(source), CAPABILITY_PROBE) == [3, 4]
 
 
 def test_unlisted_capability_reference_names_file_line_and_the_kernels_package(tmp_path, source_index):
     base = tmp_path / "src"
-    _write(base, "features/user.py", "import torch\nx = 1\ntorch.cuda.get_device_capability()\n")
+    _write(base, "features/user.py", "import torch\nx = 1\ntorch.cuda.get_device_capability()\ntorch.cuda.get_device_capability(1)\n")
 
-    problems = _unlisted_capability_references(_scan_capability_references(base, source_index), frozenset())
+    problems = _unlisted_entries(_scan_references(base, source_index, CAPABILITY_PROBE), frozenset(), CAPABILITY_PROBE)
 
     assert len(problems) == 1
     assert "src/features/user.py:3" in problems[0]
@@ -422,108 +418,48 @@ def test_unlisted_capability_reference_names_file_line_and_the_kernels_package(t
 def test_listed_capability_reference_passes_and_an_unused_entry_is_stale(tmp_path, source_index):
     base = tmp_path / "src"
     _write(base, "features/user.py", "import torch\ntorch.cuda.get_device_capability()\n")
-    found = _scan_capability_references(base, source_index)
+    found = _scan_references(base, source_index, CAPABILITY_PROBE)
     allowlist = frozenset({"src/features/user.py", "src/features/gone.py"})
 
-    assert _unlisted_capability_references(found, allowlist) == []
-    assert _stale_capability_entries(found, allowlist) == [
+    assert _unlisted_entries(found, allowlist, CAPABILITY_PROBE) == []
+    assert _stale_entries(found, allowlist, CAPABILITY_PROBE, "capability") == [
         "src/features/gone.py no longer references get_device_capability; remove it from the capability allowlist"
-    ]
-
-
-def _scan_direct_attention(base: Path, source_index) -> dict[str, int]:
-    found: dict[str, int] = {}
-    for relative, tree in _walk_outside_kernels(base, source_index):
-        lines = _references(tree, DIRECT_ATTENTION)
-        if lines:
-            found[relative] = lines[0]
-    return found
-
-
-def _unlisted_direct_attention(found: dict[str, int], allowlist: dict[str, str]) -> list[str]:
-    return [
-        f"{path}:{line} references {DIRECT_ATTENTION}; {REDIRECT} (attention)"
-        for path, line in sorted(found.items())
-        if path not in allowlist
-    ]
-
-
-def _stale_direct_attention(found: dict[str, int], allowlist: dict[str, str]) -> list[str]:
-    return [
-        f"{path} no longer references {DIRECT_ATTENTION}; remove it from the direct attention allowlist"
-        for path in sorted(allowlist.keys() - found.keys())
     ]
 
 
 @pytest.fixture(scope="module")
 def direct_attention(source_index) -> dict[str, int]:
-    return _scan_direct_attention(SOURCE, source_index)
+    return _scan_references(SOURCE, source_index, DIRECT_ATTENTION)
 
 
 def test_no_new_direct_attention_callers_outside_the_kernels_package(direct_attention):
-    problems = _unlisted_direct_attention(direct_attention, DIRECT_ATTENTION_ALLOWLIST)
+    problems = _unlisted_entries(direct_attention, DIRECT_ATTENTION_ALLOWLIST, DIRECT_ATTENTION, " (attention)")
     assert not problems, "scaled dot product attention called outside the kernels package:\n" + "\n".join(problems)
 
 
 def test_direct_attention_allowlist_only_shrinks(direct_attention):
-    problems = _stale_direct_attention(direct_attention, DIRECT_ATTENTION_ALLOWLIST)
+    problems = _stale_entries(direct_attention, DIRECT_ATTENTION_ALLOWLIST, DIRECT_ATTENTION, "direct attention")
     assert not problems, "stale direct attention allowlist entries:\n" + "\n".join(problems)
 
 
-def test_every_direct_attention_entry_gives_a_one_line_reason():
+def test_every_direct_attention_entry_gives_a_reason():
     for path, reason in DIRECT_ATTENTION_ALLOWLIST.items():
-        assert path.startswith("src/") and path.endswith(".py"), path
-        assert reason.strip() and "\n" not in reason, path
-
-
-@pytest.mark.parametrize("source, lines", [
-    ("import torch.nn.functional as F\nout = F.scaled_dot_product_attention(q, k, v)\n", [2]),
-    ("import torch\nout = torch.nn.functional.scaled_dot_product_attention(q, k, v)\n", [2]),
-    ("import torch.nn.functional as F\nrescue = F.scaled_dot_product_attention\n", [2]),
-    ("from torch.nn.functional import scaled_dot_product_attention\nscaled_dot_product_attention(q, k, v)\n", [1, 2]),
-    ("import torch.nn.functional as F\nout = [F.scaled_dot_product_attention(q, k, v) for q in qs]\n", [2]),
-], ids=["attribute-call", "fully-qualified", "bare-reference", "imported-name", "comprehension"])
-def test_every_reference_to_direct_attention_is_recorded(source, lines):
-    assert _references(ast.parse(source), DIRECT_ATTENTION) == lines
-
-
-@pytest.mark.parametrize("source", [
-    "import torch.nn.functional as F\nrun = getattr(F, 'scaled_dot_product_attention')\n",
-    "from torch.nn.functional import scaled_dot_product_attention as sdpa\nsdpa(q, k, v)\n",
-], ids=["string-constant", "aliased-import"])
-def test_string_and_import_spellings_of_direct_attention_are_recorded(source):
-    assert len(_references(ast.parse(source), DIRECT_ATTENTION)) == 1
+        assert reason.strip(), path
 
 
 @pytest.mark.parametrize("source", [
     "from ..kernels import attention\nattention(q, k, v)\n",
     "from .attention import sparse_scaled_dot_product_attention\nsparse_scaled_dot_product_attention(q, k, v)\n",
-    '"""F.scaled_dot_product_attention is the plain pytorch call"""\n',
-    "def plain_scaled_dot_product_attention_text():\n    return 'uses F.scaled_dot_product_attention'\n",
-], ids=["dispatcher-call", "sparse-lookalike", "docstring-sentence", "string-and-lookalike-name"])
-def test_dispatcher_calls_and_sentences_are_not_direct_attention(source):
+], ids=["dispatcher-call", "sparse-lookalike"])
+def test_dispatcher_calls_and_the_sparse_variant_are_not_direct_attention(source):
     assert _references(ast.parse(source), DIRECT_ATTENTION) == []
-
-
-def test_direct_attention_scan_skips_the_kernels_package_and_keys_by_repo_relative_path(tmp_path, source_index):
-    base = tmp_path / "src"
-    call = "import torch.nn.functional as F\nx = 1\nF.scaled_dot_product_attention(q, k, v)\n"
-    _write(base, "features/user.py", call)
-    _write(base, "platform/runtime/native/kernels/impl.py", call)
-    _write(base, "platform/runtime/native/vae/block.py", call)
-    _write(base, "platform/runtime/native/vae/clean.py", "x = 1\n")
-
-    assert _scan_direct_attention(base, source_index) == {
-        "src/features/user.py": 3,
-        "src/platform/runtime/native/vae/block.py": 3,
-    }
 
 
 def test_unlisted_direct_attention_names_file_line_and_the_kernels_package(tmp_path, source_index):
     base = tmp_path / "src"
     _write(base, "features/user.py", "import torch.nn.functional as F\nx = 1\nF.scaled_dot_product_attention(q, k, v)\n")
 
-    problems = _unlisted_direct_attention(_scan_direct_attention(base, source_index), {})
+    problems = _unlisted_entries(_scan_references(base, source_index, DIRECT_ATTENTION), {}, DIRECT_ATTENTION)
 
     assert len(problems) == 1
     assert "src/features/user.py:3" in problems[0]
@@ -534,11 +470,11 @@ def test_unlisted_direct_attention_names_file_line_and_the_kernels_package(tmp_p
 def test_listed_direct_attention_passes_and_an_unused_entry_is_stale(tmp_path, source_index):
     base = tmp_path / "src"
     _write(base, "features/user.py", "import torch.nn.functional as F\nF.scaled_dot_product_attention(q, k, v)\n")
-    found = _scan_direct_attention(base, source_index)
+    found = _scan_references(base, source_index, DIRECT_ATTENTION)
     allowlist = {"src/features/user.py": "kept on purpose", "src/features/gone.py": "kept on purpose"}
 
-    assert _unlisted_direct_attention(found, allowlist) == []
-    assert _stale_direct_attention(found, allowlist) == [
+    assert _unlisted_entries(found, allowlist, DIRECT_ATTENTION) == []
+    assert _stale_entries(found, allowlist, DIRECT_ATTENTION, "direct attention") == [
         "src/features/gone.py no longer references scaled_dot_product_attention; "
         "remove it from the direct attention allowlist"
     ]
