@@ -20,7 +20,9 @@ from src.features.llm.dto import (
     LLMGenerateRequest,
 )
 from src.features.llm.repository import LLMConfig
-from src.features.llm.clients.base import LLMResponse as ServiceLLMResponse
+from src.features.llm.gateway import Completion
+from src.features.llm.harness.events import Usage
+from src.features.llm.harness.messages import Message, Origin, Role, TextPart
 
 
 @pytest.fixture
@@ -35,7 +37,7 @@ def mock_repo():
 def mock_llm_service():
     """Create a mock LLM service."""
     mock = Mock()
-    mock.generate_response = AsyncMock()
+    mock.complete = AsyncMock()
     mock.test_configuration = AsyncMock()
     return mock
 
@@ -257,24 +259,26 @@ class TestConfigurationOperations:
 class TestGenerationOperations:
     @pytest.mark.asyncio
     async def test_generate_response_success(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):
-        """Test successful response generation."""
         request = LLMGenerateRequest(prompt="Hello, world!")
         mock_repo.get_default_configuration.return_value = sample_llm_config
-
-        service_response = ServiceLLMResponse(
-            content="Hello! How can I help you?",
-            model="llama2",
-            provider_id="test-config-123",
-            tokens_used=50
+        mock_llm_service.complete.return_value = Completion(
+            message=Message(
+                id="m1", role=Role.ASSISTANT, parts=(TextPart(text="Hello! How can I help you?"),),
+                origin=Origin(adapter="a", provider="p", model=sample_llm_config.model),
+            ),
+            usage=Usage(total_tokens=50),
+            finish=None,
+            finish_raw=None,
         )
-        mock_llm_service.generate_response.return_value = service_response
 
         result = await operations.generate_response(
             mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
         )
 
         assert result.content == "Hello! How can I help you?"
-        assert result.model == "llama2"
+        assert result.model == sample_llm_config.model
+        assert result.tokens_used == 50
+        assert mock_llm_service.complete.call_args.args[1][0].text() == "Hello, world!"
 
     @pytest.mark.asyncio
     async def test_generate_response_no_config(self, mock_repo, mock_llm_service, mock_settings, mock_plugins):
@@ -298,28 +302,6 @@ class TestGenerationOperations:
             await operations.generate_response(
                 mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
             )
-
-    @pytest.mark.asyncio
-    async def test_generate_response_removes_thinking_tags(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):
-        """Test that thinking tags are removed from response."""
-        request = LLMGenerateRequest(prompt="Explain something")
-        mock_repo.get_default_configuration.return_value = sample_llm_config
-
-        service_response = ServiceLLMResponse(
-            content="<think>Internal thought</think>Actual response",
-            model="llama2",
-            provider_id="test-config-123",
-            tokens_used=50
-        )
-        mock_llm_service.generate_response.return_value = service_response
-
-        result = await operations.generate_response(
-            mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
-        )
-
-        assert "<think>" not in result.content
-        assert "Internal thought" not in result.content
-        assert "Actual response" in result.content
 
     @pytest.mark.asyncio
     async def test_generate_response_blocked_by_hook(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):

@@ -7,6 +7,7 @@ from typing import AsyncGenerator, List
 from src.features.chat.runtime import ChatRuntime
 from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.title_generator import ChatTitleGenerator
+from tests.fixtures.chat_engine import ScriptedTurnEngine
 
 
 def _message(role: str, content: str) -> Mock:
@@ -88,8 +89,8 @@ class TestGenerate:
         self.mock_repo.set_session_title.return_value = _session(title_generated=True)
 
         response = Mock()
-        response.content = '"LoRA Prompting Help"'
-        self.mock_llm.generate_with_history = AsyncMock(return_value=response)
+        response.text = '"LoRA Prompting Help"'
+        self.mock_llm.complete = AsyncMock(return_value=response)
 
     @pytest.mark.asyncio
     async def test_happy_path_persists_sanitized_title(self):
@@ -97,40 +98,40 @@ class TestGenerate:
 
         assert title == "LoRA Prompting Help"
         self.mock_repo.set_session_title.assert_called_once_with("session-123", "LoRA Prompting Help")
-        call_kwargs = self.mock_llm.generate_with_history.call_args.kwargs
-        assert call_kwargs["llm_id"] == "llm-123"
-        assert call_kwargs["options_override"]["max_tokens"] == 24
-        assert call_kwargs["options_override"]["think"] is False
+        call = self.mock_llm.complete.call_args
+        assert call.args[0] == "llm-123"
+        assert call.kwargs["settings"].max_tokens == 24
+        assert call.kwargs["settings"].reasoning is False
 
     @pytest.mark.asyncio
     async def test_missing_session_returns_none(self):
         self.mock_repo.get_session.return_value = None
         assert await self.generator.generate("session-123") is None
-        self.mock_llm.generate_with_history.assert_not_called()
+        self.mock_llm.complete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_already_titled_returns_none(self):
         self.mock_repo.get_session.return_value = _session(title_generated=True)
         assert await self.generator.generate("session-123") is None
-        self.mock_llm.generate_with_history.assert_not_called()
+        self.mock_llm.complete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_no_assistant_message_returns_none(self):
         self.mock_repo.get_messages.return_value = [_message("user", "hello")]
         assert await self.generator.generate("session-123") is None
-        self.mock_llm.generate_with_history.assert_not_called()
+        self.mock_llm.complete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_llm_failure_leaves_title_unset(self):
-        self.mock_llm.generate_with_history = AsyncMock(side_effect=RuntimeError("provider down"))
+        self.mock_llm.complete = AsyncMock(side_effect=RuntimeError("provider down"))
         assert await self.generator.generate("session-123") is None
         self.mock_repo.set_session_title.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unusable_llm_output_leaves_title_unset(self):
         response = Mock()
-        response.content = "..."
-        self.mock_llm.generate_with_history = AsyncMock(return_value=response)
+        response.text = "..."
+        self.mock_llm.complete = AsyncMock(return_value=response)
         assert await self.generator.generate("session-123") is None
         self.mock_repo.set_session_title.assert_not_called()
 
@@ -149,12 +150,14 @@ class TestStreamTitleEvent:
         self.mock_plugins.execute_hook.return_value = (no_block_ctx, [])
         self.mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
+        self.engine = ScriptedTurnEngine()
         self.manager = ChatRuntime(
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
+            turn_engine=self.engine,
         )
 
         session = _session()
@@ -181,10 +184,10 @@ class TestStreamTitleEvent:
             yield {"type": "token", "content": "hello"}
             yield {"type": "usage", "tokens_used": 1, "prompt_tokens": 1, "completion_tokens": 1}
 
-        self.mock_llm.stream_with_history = Mock(side_effect=lambda **kwargs: _stream(**kwargs))
+        self.engine.script(_stream)
         title_response = Mock()
-        title_response.content = "Friendly Greeting Chat"
-        self.mock_llm.generate_with_history = AsyncMock(return_value=title_response)
+        title_response.text = "Friendly Greeting Chat"
+        self.mock_llm.complete = AsyncMock(return_value=title_response)
 
     @pytest.mark.asyncio
     async def test_title_event_yielded_after_done(self):
@@ -213,7 +216,7 @@ class TestStreamTitleEvent:
 
     @pytest.mark.asyncio
     async def test_title_failure_does_not_break_stream(self):
-        self.mock_llm.generate_with_history = AsyncMock(side_effect=RuntimeError("boom"))
+        self.mock_llm.complete = AsyncMock(side_effect=RuntimeError("boom"))
 
         events = await collect_stream(
             self.manager.send_message_stream("session-123", "user-123", "hi")

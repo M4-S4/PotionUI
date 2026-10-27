@@ -13,6 +13,8 @@ from typing import Optional
 from src.features.chat.dto import SessionResponse
 from src.features.chat.repository import ChatRepository
 from src.features.llm import trace_collector
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.build import user_message
 
 logger = logging.getLogger(__name__)
 
@@ -66,16 +68,16 @@ class ChatTitleGenerator:
 
         try:
             with trace_collector.activate(session_id, session.user_id, purpose="title"):
-                response = await self.llm_service.generate_with_history(
-                    messages=[{"role": "user", "content": f"{TITLE_PROMPT}\n\n{exchange}"}],
-                    llm_id=session.llm_config_id,
-                    options_override={"max_tokens": 24, "temperature": 0.3, "think": False},
+                response = await self.llm_service.complete(
+                    session.llm_config_id,
+                    [user_message(f"{TITLE_PROMPT}\n\n{exchange}")],
+                    settings=Settings(max_tokens=24, temperature=0.3, reasoning=False),
                 )
         except Exception as e:
             logger.warning(f"Title generation failed for session {session_id}: {e}")
             return None
 
-        title = self.sanitize(response.content if response else None)
+        title = self.sanitize(response.text if response else None)
         if not title:
             logger.warning(f"Title generation for session {session_id} produced no usable text")
             return None

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from src.features.prompt_enhancement import operations
 from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
+from tests.fixtures.chat_engine import legacy_dicts
 
 
 LONG_PROMPT = (
@@ -27,16 +28,18 @@ class FakeLLMService:
         self.responses = list(responses)
         self.calls = []
 
-    async def generate_with_history(self, messages, llm_id, custom_system_message=None,
-                                    options_override=None, **kwargs):
-        self.calls.append({
-            "messages": messages,
-            "llm_id": llm_id,
-            "system": custom_system_message,
-            "options": options_override or {},
-        })
+    async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
+        options = {
+            key: value
+            for key, value in (
+                ("temperature", settings.temperature), ("top_p", settings.top_p),
+                ("max_tokens", settings.max_tokens), ("think", settings.reasoning),
+            )
+            if value is not None
+        }
+        self.calls.append({"messages": legacy_dicts(messages), "llm_id": llm_id, "system": system, "options": options})
         content = self.responses.pop(0) if self.responses else LONG_PROMPT
-        return SimpleNamespace(content=content)
+        return SimpleNamespace(text=content)
 
 
 def make_prompt(id_, text, source_url=None):
@@ -128,7 +131,7 @@ class TestPipelineStages:
     @pytest.mark.asyncio
     async def test_ideation_failure_still_writes(self):
         llm = FakeLLMService(['["fox"]'])
-        original = llm.generate_with_history
+        original = llm.complete
         call_count = {"n": 0}
 
         async def flaky(*args, **kwargs):
@@ -137,7 +140,7 @@ class TestPipelineStages:
                 raise RuntimeError("ollama down")
             return await original(*args, **kwargs)
 
-        llm.generate_with_history = flaky
+        llm.complete = flaky
         collaborators = make_collaborators(llm)
 
         events = await run_enhance(collaborators, n_candidates=2)
@@ -407,12 +410,6 @@ class TestParsing:
         assert parse("1. first idea\n2. second idea") == ["first idea", "second idea"]
         assert parse("1) first\n2) second") == ["first", "second"]
         assert parse("just one paragraph") == ["just one paragraph"]
-
-    def test_strip_thinking(self):
-        strip = operations._strip_thinking
-        assert strip("<think>reasoning</think>actual output") == "actual output"
-        assert strip("no thinking") == "no thinking"
-
 
 class TestEnhanceWrapper:
     @pytest.mark.asyncio

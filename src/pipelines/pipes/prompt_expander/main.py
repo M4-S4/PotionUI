@@ -23,7 +23,6 @@ class PromptExpanderPipe(BasePipe):
         return [
             PipeConfigSpec("llm_id", str, None, "LLM configuration ID", required=False),
             PipeConfigSpec("command_id", str, None, "Predefined command ID", required=False),
-            PipeConfigSpec("style_id", str, None, "Prompt style ID", required=False),
             PipeConfigSpec("prompt", str, "Expand this prompt with creative details", "Expansion instruction", required=False),
             PipeConfigSpec("p_prompt_input", str, "", "Positive prompt to expand", required=True),
             PipeConfigSpec("n_prompt_input", str, "", "Negative prompt to expand", required=False),
@@ -103,7 +102,6 @@ class PromptExpanderPipe(BasePipe):
             return preserved_prefix
 
         llm_id = self.config.get("llm_id")
-        style_id = self.config.get("style_id")
         expansion_instruction = self.config.get("prompt", "Expand this prompt")
 
         if not llm_id:
@@ -114,12 +112,8 @@ class PromptExpanderPipe(BasePipe):
         full_prompt = f"{expansion_instruction}: {cleaned_prompt}"
 
         try:
-            response = await llm_service.generate_with_config_id(
-                prompt=full_prompt,
-                llm_id=llm_id,
-                style_id=style_id
-            )
-            expanded_text = response.content.strip()
+            response = await llm_service.complete(llm_id, full_prompt)
+            expanded_text = response.text.strip()
 
             # Prepend preserved prefix if it exists
             if preserved_prefix:

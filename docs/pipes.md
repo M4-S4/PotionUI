@@ -2585,7 +2585,6 @@ Expands prompts using configured LLM service
 |---|---|---|---|---|---|---|---|
 | `llm_id` | `str` | — | no | — | — | — | LLM configuration ID |
 | `command_id` | `str` | — | no | — | — | — | Predefined command ID |
-| `style_id` | `str` | — | no | — | — | — | Prompt style ID |
 | `prompt` | `str` | `"Expand this prompt with creative details"` | no | — | — | — | Expansion instruction |
 | `p_prompt_input` | `str` | `""` | yes | — | — | — | Positive prompt to expand |
 | `n_prompt_input` | `str` | `""` | no | — | — | — | Negative prompt to expand |

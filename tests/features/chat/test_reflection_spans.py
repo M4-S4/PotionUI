@@ -23,7 +23,15 @@ from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.persistence_base import PersistenceTestBase
-from tests.fixtures.llm_engine import client_gateway
+from src.features.llm.context_windows import ContextWindows
+from src.features.llm.gateway import LLMGateway
+from src.features.llm.harness.adapter import Settings, WireRequest
+from src.features.llm.harness.baseline import StaticProfileResolver
+from src.features.llm.harness.context import user_text
+from src.features.llm.harness.messages import Role
+from src.features.llm.types import LLMType, LLMTypes
+from tests.fixtures.llm_engine import ConfigRepository
+from tests.fixtures.llm_harness import text_step
 
 
 def _message(role: str, content: str, msg_id: str, metadata: dict = None) -> Mock:
@@ -76,15 +84,15 @@ class _FakeLLMService:
         self._gate = asyncio.Event()
         return self._gate
 
-    async def generate_with_history(self, messages, llm_id, options_override=None):
-        self.calls.append(messages[0]["content"])
+    async def complete(self, target, messages, *, system=None, settings=None, tools=()):
+        self.calls.append(messages[0].text())
         if self._gate is not None:
             gate, self._gate = self._gate, None
             await gate.wait()
         item = self._responses.pop(0) if self._responses else "[]"
         if isinstance(item, BaseException):
             raise item
-        return SimpleNamespace(content=item)
+        return SimpleNamespace(text=item)
 
 
 def _manager_with_mock_repo(monkeypatch, memory_reflection: bool = True) -> Mock:
@@ -664,7 +672,7 @@ class _FakeGatewayLLMService:
     def queue(self, content_or_exc) -> None:
         self._responses.append(content_or_exc)
 
-    def context_profile_for(self, config, options_override=None):
+    def context_profile_for(self, config, settings=None):
         return SimpleNamespace(
             capacity=SimpleNamespace(capacity_tokens=self._capacity_tokens, source="config"),
             reserve_tokens=self._reserve_tokens,
@@ -673,12 +681,12 @@ class _FakeGatewayLLMService:
             image_tokens_override=None,
         )
 
-    async def generate_with_history(self, messages, llm_id, options_override=None):
-        self.calls.append(messages[0]["content"])
+    async def complete(self, target, messages, *, system=None, settings=None, tools=()):
+        self.calls.append(messages[0].text())
         item = self._responses.pop(0) if self._responses else "[]"
         if isinstance(item, BaseException):
             raise item
-        return SimpleNamespace(content=item)
+        return SimpleNamespace(text=item)
 
 
 class TestReflectionSmallCapacityBudget(PersistenceTestBase):
@@ -791,29 +799,60 @@ def _dense_messages_counter(chars_per_token: float, overhead_tokens: int = 0):
     overhead standing in for real chat-template framing - the two things
     `_resolve_span_budget`'s old prompt-only estimate couldn't see."""
     def _count(system_message, messages, tool_schemas=None):
-        text = (system_message or "") + "".join(m.get("content", "") for m in messages)
+        text = (system_message or "") + "".join(user_text(m) if m.role is Role.USER else m.text() for m in messages)
         return math.ceil(len(text) / chars_per_token) + overhead_tokens
     return _count
 
 
 class _FakeNativeSend:
-    """Stands in for `NativeLLMClient.generate_with_history` behind a real
-    `LLMGateway` - records the fully-prepared (post budget-enforcement)
-    request and replays queued responses."""
+    name = "native-probe"
 
     def __init__(self):
         self.calls = []
         self._responses = []
+        self._current = "[]"
 
     def queue(self, content_or_exc) -> None:
         self._responses.append(content_or_exc)
 
-    async def __call__(self, messages, config, system_message, image_data=None, options_override=None):
-        self.calls.append({"system_message": system_message, "messages": messages})
-        item = self._responses.pop(0) if self._responses else "[]"
-        if isinstance(item, BaseException):
-            raise item
-        return SimpleNamespace(content=item)
+    def render(self, request, profile):
+        self.calls.append({"system_message": request.system, "messages": list(request.messages)})
+        self._current = self._responses.pop(0) if self._responses else "[]"
+        return WireRequest(method="POST", url="native://", headers={}, body={})
+
+    def decoder(self, request, profile):
+        return _Replay(text_step(self._current) if isinstance(self._current, str) else [])
+
+    async def send(self, wire, request):
+        if isinstance(self._current, BaseException):
+            raise self._current
+        yield b""
+
+    def classify_error(self, failure):
+        raise NotImplementedError
+
+    async def discover(self, config):
+        raise NotImplementedError
+
+    async def list_models(self, base_url, api_key=None):
+        return []
+
+    def token_counter(self, config):
+        return lambda text: math.ceil(len(text) / 2.0)
+
+    def messages_token_counter(self, config):
+        return _dense_messages_counter(2.0, overhead_tokens=300)
+
+
+class _Replay:
+    def __init__(self, events):
+        self._events = list(events)
+
+    def feed(self, chunk):
+        return []
+
+    def close(self):
+        return self._events
 
 
 class TestReflectionRealGatewayBudget(PersistenceTestBase):
@@ -841,9 +880,6 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
         super().tearDown()
 
     def _build_gateway_and_config(self):
-        gateway = client_gateway(Mock())
-        # A non-trivial configured system message - invisible to an estimate
-        # that only prices the fixed reflection prompt's own text.
         system_message = "You are a strict, formatting-conscious assistant. " * 10
         config = LLMConfig(
             id="llm-1", name="Reflect Test", type="native", enabled=True,
@@ -852,17 +888,10 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
             memory_reflection=True, provider_options={"context_window": 2800},
             max_tokens=2000,
         )
-        gateway.repository.get_configuration.return_value = config
-        # Denser than DEFAULT_CHARS_PER_TOKEN (3.5) - the naive tokens->chars
-        # conversion in `_resolve_span_budget`'s estimate over-allows at this
-        # ratio, so the real recount must reject the first candidate and the
-        # shrink loop must actually run, not just a better initial guess.
-        gateway._native.token_counter = Mock(return_value=lambda text: math.ceil(len(text) / 2.0))
-        gateway._native.messages_token_counter = Mock(
-            return_value=_dense_messages_counter(2.0, overhead_tokens=300)
-        )
         sender = _FakeNativeSend()
-        gateway._native.generate_with_history = sender
+        types = LLMTypes(core=(LLMType(type="native", adapter=sender),))
+        windows = ContextWindows(types)
+        gateway = LLMGateway(ConfigRepository(config), types, StaticProfileResolver(types, windows), windows)
         return gateway, config, sender
 
     def _runtime_with_session(self, gateway, turns):
@@ -907,7 +936,7 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
         # budget check on the EXACT request sent must not raise.
         gateway.estimate_context_budget(
             config, sent["system_message"], sent["messages"],
-            options_override={"max_tokens": 800, "temperature": 0.2, "think": False},
+            settings=Settings(max_tokens=800, temperature=0.2, reasoning=False),
         )
 
         stored = self.chat_repo.get_session(session_id).metadata.get("memory_reflection")
