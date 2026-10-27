@@ -57,6 +57,15 @@ report["described"] = {
     key: {"adapter": described[key]["adapter"], "default_base_url": described[key]["default_base_url"]}
     for key in ("openai", "openai-compatible")
 }
+report["core"] = {
+    entry.type: {
+        "adapter": getattr(entry.adapter, "name", None),
+        "is_adapter": isinstance(entry.adapter, Adapter),
+        "default_base_url": entry.default_base_url,
+    }
+    for entry in gateway.types.all()
+    if entry.source == "core"
+}
 print("TYPES_REPORT=" + json.dumps(report))
 """
 
@@ -114,3 +123,12 @@ def test_both_types_are_offered_to_the_admin_ui(report):
         "openai": {"adapter": "openai-responses", "default_base_url": "https://api.openai.com/v1"},
         "openai-compatible": {"adapter": "openai-chat", "default_base_url": None},
     }
+
+
+@pytest.mark.parametrize("type_id, adapter, base_url", [
+    ("ollama", "ollama-chat", None),
+    ("anthropic", "anthropic-messages", "https://api.anthropic.com"),
+    ("gemini", "gemini-interactions", "https://generativelanguage.googleapis.com"),
+])
+def test_each_core_type_runs_on_a_harness_adapter(report, type_id, adapter, base_url):
+    assert report["core"][type_id] == {"adapter": adapter, "is_adapter": True, "default_base_url": base_url}
