@@ -251,7 +251,6 @@ def _llm_config(args: argparse.Namespace) -> Dict[str, Any]:
         "max_tokens": args.max_tokens,
         "timeout": args.timeout,
         "memory_reflection": False,
-        "provider_options": {"context_window": args.context_window} if args.context_window else None,
     }
 
 
@@ -323,6 +322,10 @@ def live(args: argparse.Namespace) -> int:
         stage_wait_for_health(client)
         claim_owner(client, username="conditions-eval", email="conditions-eval@example.com", password=os.urandom(12).hex())
         config_id = _ok("llm config", client.post("/api/llm/configurations", json=_llm_config(args)))["data"]["id"]
+        if args.context_window:
+            _ok("llm profile", client.put(
+                f"/api/llm/configurations/{config_id}/profile", json={"overrides": {"context_window": args.context_window}},
+            ))
         for case in CASES:
             if args.case and case.id not in args.case:
                 continue

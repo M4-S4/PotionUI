@@ -1,22 +1,3 @@
-"""Regression tests: the chat tool loop must not go silent after write_memory.
-
-Ollama's buffered tool-calling call (OllamaClient.generate_with_tools) retries
-when a decision call comes back with neither content nor tool_calls — a
-documented, non-deterministic empty-completion failure mode for local models.
-The streaming tool loop (ToolExecutor.execute_with_tools_stream) had no such
-retry: an empty presentation call after a tool executed was finalized
-immediately as the turn's answer, so the assistant message came back blank
-and the user had to send another message to get a real reply. Models are
-disproportionately likely to answer empty right after write_memory, since its
-own tool description tells them the save "saves immediately, no approval
-needed" — there's nothing left they're obligated to say.
-
-These tests exercise the real ToolRegistry + ToolExecutor (not a mocked tool
-executor) through ChatRuntime.send_message_stream, driven by a fake LLM
-service that scripts exactly what a flaky local model does: a tool call, then
-a genuinely empty completion, then a real answer on retry.
-"""
-
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock

@@ -19,7 +19,6 @@
         "content": "Compare the weather in Paris and Zurich."
       }
     ],
-    "temperature": 0.7,
     "stream": true,
     "stream_options": {
       "include_usage": true

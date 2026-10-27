@@ -6,21 +6,15 @@ from pydantic import BaseModel, field_validator, model_validator
 
 from src.features.llm.harness.profile_schema import validate_overrides
 
-from src.features.llm.types import OPENAI_TYPES
-
 # provider_options keys shared by the native and Ollama sampling controls
 # (same name, same meaning on both providers) plus native's own
 # repetition_penalty (Ollama's equivalent, "repeat_penalty", is a distinct
 # key left unvalidated — legacy free-form).
 _PROBABILITY_OPTION_KEYS = ("top_p", "min_p")
 
-# Named thinking-effort levels Ollama accepts for models that support graded
-# reasoning (e.g. gpt-oss) alongside a plain boolean. Which of these — or
-# whether disabling thinking at all — a given model actually honours is up to
-# the model, not this layer.
-_OLLAMA_THINK_LEVELS = ("low", "medium", "high")
+_THINK_LEVELS = ("low", "medium", "high")
 
-_OPENAI_REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+_REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 
 # ============================================================================
@@ -47,39 +41,14 @@ class LLMConfigRequest(BaseModel):
     provider_options: Optional[Dict[str, Any]] = None
 
     @model_validator(mode="after")
-    def _validate_native_thinking(self) -> "LLMConfigRequest":
-        """``provider_options.thinking`` (the native provider's explicit
-        thinking-mode toggle — see ``NativeLLMClient._chat_template_kwargs``)
-        accepts only ``null``/omitted, ``true``, or ``false``. Checked only
-        for ``type == "native"``: every other provider leaves
-        ``provider_options`` as an unvalidated free-form dict, and this key
-        is meaningless to them."""
-        if self.type != "native" or not self.provider_options:
-            return self
-        if "thinking" not in self.provider_options:
-            return self
-        value = self.provider_options["thinking"]
-        if value is not None and not isinstance(value, bool):
-            raise ValueError(
-                "provider_options.thinking must be true, false, or omitted (null) "
-                f"for a 'native' config, got {value!r}"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _validate_ollama_think(self) -> "LLMConfigRequest":
-        if self.type != "ollama":
-            return self
-        options = dict(self.provider_options or {})
-        value = options.get("think")
-        if value is None:
-            options["think"] = False
-        elif not isinstance(value, bool) and value not in _OLLAMA_THINK_LEVELS:
-            raise ValueError(
-                "provider_options.think must be true, false or one of "
-                f"{_OLLAMA_THINK_LEVELS!r} for an 'ollama' config, got {value!r}"
-            )
-        self.provider_options = options
+    def _validate_reasoning_options(self) -> "LLMConfigRequest":
+        options = self.provider_options or {}
+        thinking = options.get("thinking")
+        if thinking is not None and not isinstance(thinking, bool):
+            raise ValueError(f"provider_options.thinking must be true, false, or omitted (null), got {thinking!r}")
+        think = options.get("think")
+        if think is not None and not isinstance(think, bool) and think not in _THINK_LEVELS:
+            raise ValueError(f"provider_options.think must be true, false or one of {_THINK_LEVELS!r}, got {think!r}")
         return self
 
     @model_validator(mode="after")
@@ -129,8 +98,8 @@ class LLMConfigRequest(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _validate_openai_options(self) -> "LLMConfigRequest":
-        if self.type not in OPENAI_TYPES or not self.provider_options:
+    def _validate_request_options(self) -> "LLMConfigRequest":
+        if not self.provider_options:
             return self
         opts = self.provider_options
 
@@ -138,24 +107,24 @@ class LLMConfigRequest(BaseModel):
             value = opts["seed"]
             if isinstance(value, bool) or not isinstance(value, int):
                 raise ValueError(
-                    "provider_options.seed must be an integer or omitted (null) "
-                    f"for an 'openai' config, got {value!r}"
+                    "provider_options.seed must be an integer or omitted (null), "
+                    f"got {value!r}"
                 )
 
         if "reasoning_effort" in opts and opts["reasoning_effort"] is not None:
             value = opts["reasoning_effort"]
-            if value not in _OPENAI_REASONING_EFFORTS:
+            if value not in _REASONING_EFFORTS:
                 raise ValueError(
                     "provider_options.reasoning_effort must be one of "
-                    f"{_OPENAI_REASONING_EFFORTS!r}, or omitted (null) for an 'openai' config, got {value!r}"
+                    f"{_REASONING_EFFORTS!r}, or omitted (null), got {value!r}"
                 )
 
         if "parallel_tool_calls" in opts and opts["parallel_tool_calls"] is not None:
             value = opts["parallel_tool_calls"]
             if not isinstance(value, bool):
                 raise ValueError(
-                    "provider_options.parallel_tool_calls must be true, false, or omitted (null) "
-                    f"for an 'openai' config, got {value!r}"
+                    "provider_options.parallel_tool_calls must be true, false, or omitted (null), "
+                    f"got {value!r}"
                 )
 
         if "stop" in opts and opts["stop"] is not None:
@@ -168,7 +137,7 @@ class LLMConfigRequest(BaseModel):
             if not is_valid:
                 raise ValueError(
                     "provider_options.stop must be a string, a list of up to 4 strings, or "
-                    f"omitted (null) for an 'openai' config, got {value!r}"
+                    f"omitted (null), got {value!r}"
                 )
 
         return self
@@ -192,14 +161,6 @@ class ProfileOverridesRequest(BaseModel):
     @classmethod
     def _validate_overrides(cls, value: Dict[str, Any]) -> Dict[str, Any]:
         return validate_overrides(value)
-
-
-class ContextWindowDiscoveryRequest(BaseModel):
-    type: str
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
-    config_id: Optional[str] = None
-    model: str
 
 
 class ToolGovernanceUpdateRequest(BaseModel):

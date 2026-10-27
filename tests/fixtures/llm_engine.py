@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Sequence
 
-from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
@@ -44,12 +43,10 @@ class ConfigRepository:
 
 def scripted_gateway(adapter: Any, *configs: LLMConfig) -> LLMGateway:
     types = LLMTypes(core=(LLMType(type="scripted", adapter=adapter),))
-    windows = ContextWindows(types)
     return LLMGateway(
         llm_repository=ConfigRepository(*(configs or (scripted_config(),))),
         types=types,
         profiles=LayeredProfileResolver(types.adapter_for),
-        windows=windows,
     )
 
 
@@ -104,6 +101,9 @@ class PricedResolver:
     async def refresh(self, config: Any) -> Any:
         return self.resolve(config)
 
+    async def ensure(self, config: Any) -> Any:
+        return self.resolve(config)
+
 
 def tool_context(llm_id: str = "cfg-scripted") -> ToolContext:
     return ToolContext(user_id="user-1", llm_id=llm_id)
@@ -122,29 +122,4 @@ def core_gateway(llm_repository: Any, provider_registry: Any = None) -> LLMGatew
         ),
         provider_registry=provider_registry,
     )
-    windows = ContextWindows(types)
-    return LLMGateway(llm_repository, types, LayeredProfileResolver(types.adapter_for), windows)
-
-
-def client_gateway(
-    llm_repository: Any,
-    provider_registry: Any = None,
-    model_lifecycle: Any = None,
-    model_roots: Any = None,
-) -> LLMGateway:
-    from src.features.llm.clients import NativeLLMClient, OllamaClient, OpenAIClient
-
-    clients = {
-        "ollama": OllamaClient(),
-        "openai": OpenAIClient(),
-        "native": NativeLLMClient(model_lifecycle, model_roots),
-    }
-    types = LLMTypes(
-        core=tuple(LLMType(type=type_id, adapter=client) for type_id, client in clients.items()),
-        provider_registry=provider_registry,
-    )
-    windows = ContextWindows(types)
-    gateway = LLMGateway(llm_repository, types, LayeredProfileResolver(types.adapter_for), windows)
-    gateway._clients = clients
-    gateway._ollama, gateway._openai, gateway._native = clients["ollama"], clients["openai"], clients["native"]
-    return gateway
+    return LLMGateway(llm_repository, types, LayeredProfileResolver(types.adapter_for))

@@ -150,7 +150,6 @@ from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
 from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
 from src.features.llm.harness.adapters.openrouter import DEFAULT_BASE_URL as OPENROUTER_BASE_URL, OpenRouterAdapter
-from src.features.llm.context_windows import ContextWindows
 from src.features.llm.harness.engine import TurnEngine
 from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.harness.retry import BackoffRetry
@@ -838,13 +837,11 @@ def build_container() -> AppContainer:
         ),
         provider_registry=llm_provider_registry,
     )
-    context_windows = ContextWindows(llm_types)
     llm_profiles = LayeredProfileResolver(llm_types.adapter_for)
     llm_service = LLMGateway(
         llm_repository=llm_repository,
         types=llm_types,
         profiles=llm_profiles,
-        windows=context_windows,
     )
 
     tool_governance_repository = ToolGovernanceRepository()

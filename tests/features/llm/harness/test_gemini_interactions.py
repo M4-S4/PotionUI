@@ -57,6 +57,7 @@ from src.features.llm.repository import LLMConfig
 from tests.features.llm.harness.wire_peer import chunked as peer_chunks
 from tests.features.llm.harness.wire_peer import install_peer
 from tests.fixtures.llm_harness import assemble, decode_chunks
+from tests.features.llm.harness.history import resolved
 
 SIGNATURE = "EpoGCpcGAXLI2nx/sig-one"
 SUMMARY_ONE = {"type": "text", "text": "**Reading the request**\n\nThe user wants two actions."}
@@ -149,8 +150,8 @@ def history(raw: Any = RAW_STEPS, **kwargs: Any) -> List[Message]:
 
 
 def render(messages, *, profile_fields: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Dict[str, Any]:
-    adapter = GeminiInteractionsAdapter()
-    wire = adapter.render(request(messages, **kwargs), profile(**(profile_fields or {})))
+    built = profile(**(profile_fields or {}))
+    wire = GeminiInteractionsAdapter().render(resolved(request(messages, **kwargs), built), built)
     return wire.body
 
 
@@ -212,7 +213,7 @@ TOOL_STREAM = stream(
 class TestRender:
     def test_wire_shape(self):
         wire = GeminiInteractionsAdapter().render(
-            request([user("hello")], system="Be brief.", tools=[LIGHT_TOOL]), profile()
+            resolved(request([user("hello")], system="Be brief.", tools=[LIGHT_TOOL]), profile()), profile()
         )
         assert wire.method == "POST"
         assert wire.url == "https://generativelanguage.googleapis.com/v1beta/interactions"

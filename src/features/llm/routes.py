@@ -17,7 +17,6 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded, raw_detail
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.llm.dto import (
-    ContextWindowDiscoveryRequest,
     LLMConfigRequest,
     LLMGenerateRequest,
     ModelDiscoveryRequest,
@@ -39,13 +38,11 @@ from src.features.llm import (
 )
 from src.features.llm import operations
 from src.features.llm.mappers import config_to_response, assignment_config_to_response
-from src.features.llm import context_budget
 from src.features.llm.harness import codec
 from src.features.llm.harness.profile_schema import merge_overrides, schema_json
 from src.features.llm.model_listing import ModelListingError
 from src.features.llm.repository import LLMRepository
 from src.features.llm.gateway import LLMGateway
-from src.platform.database.rows import dt_iso
 from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.settings import Settings
@@ -69,10 +66,10 @@ class LLMController(BaseController):
         llm_service: LLMGateway,
         settings: Settings,
         plugin_registry: PluginRegistry,
+        profile_resolver: "LayeredProfileResolver",
         tool_governance_repository: Optional["ToolGovernanceRepository"] = None,
         download_queue: Optional["DownloadQueue"] = None,
         model_roots: Optional[ModelRootResolver] = None,
-        profile_resolver: Optional["LayeredProfileResolver"] = None,
     ):
         super().__init__()
         self.repository = llm_repository
@@ -130,41 +127,6 @@ class LLMController(BaseController):
         return self.success_response(
             data={"supported": True, "models": [m.model_dump() for m in models], "error": None}
         )
-
-    async def discover_context_window(self, request: ContextWindowDiscoveryRequest) -> APIResponse:
-        empty = {
-            "supported": True, "detected": None, "detected_kind": None,
-            "effective": None, "discovered_at": None, "error": None,
-        }
-        if not self.llm_service.supports_context_window_discovery(request.type):
-            return self.success_response(data={**empty, "supported": False})
-        api_key = request.api_key or None
-        if not api_key and request.config_id:
-            stored = self.repository.get_configuration(request.config_id)
-            if stored is not None and stored.type == request.type:
-                api_key = stored.api_key or None
-        try:
-            probe = await self.llm_service.refresh_context_window(
-                request.type, request.base_url or "", api_key, request.model,
-            )
-        except Exception:
-            logger.exception("Context window discovery failed for LLM type %s", request.type)
-            return self.success_response(data={**empty, "error": "Context window discovery failed unexpectedly."})
-        discovered_at = dt_iso(probe.discovered_at)
-        if probe.window is None:
-            return self.success_response(data={
-                **empty,
-                "discovered_at": discovered_at,
-                "error": "Couldn't detect a context window for this model. "
-                         "Check the address and model name, or enter one manually.",
-            })
-        return self.success_response(data={
-            **empty,
-            "detected": probe.window.tokens,
-            "detected_kind": probe.window.kind,
-            "effective": context_budget.effective_discovered_tokens(request.type, probe.window),
-            "discovered_at": discovered_at,
-        })
 
     @guarded(
         {},
@@ -430,19 +392,11 @@ class LLMController(BaseController):
             raise ConfigurationNotFoundException(f"LLM configuration '{config_id}' not found")
         return config
 
-    def _profiles_unavailable(self) -> APIResponse:
-        return self.error_api_response(
-            error="profiles_unavailable",
-            message="Model profiles are not available yet (the app container hasn't finished composing)",
-        )
-
     @guarded(
         {ConfigurationNotFoundException: Fail("configuration_not_found")},
         Fail("get_profile_failed", "Failed to get the model profile", detail=raw_detail),
     )
     async def get_profile(self, config_id: str) -> APIResponse:
-        if self.profile_resolver is None:
-            return self._profiles_unavailable()
         config = self._profile_config(config_id)
         await self.profile_resolver.ensure(config)
         return self.success_response(data=codec.to_json(self.profile_resolver.explain(config)))
@@ -455,8 +409,6 @@ class LLMController(BaseController):
         Fail("update_profile_failed", "Failed to update the model profile", detail=raw_detail),
     )
     async def update_profile(self, config_id: str, request: ProfileOverridesRequest) -> APIResponse:
-        if self.profile_resolver is None:
-            return self._profiles_unavailable()
         config = self._profile_config(config_id)
         merged = merge_overrides(config.profile_overrides, request.overrides)
         if not self.repository.set_profile_overrides(config_id, merged):
@@ -470,8 +422,6 @@ class LLMController(BaseController):
         Fail("refresh_profile_failed", "Failed to refresh the model profile", detail=raw_detail),
     )
     async def refresh_profile(self, config_id: str) -> APIResponse:
-        if self.profile_resolver is None:
-            return self._profiles_unavailable()
         config = self._profile_config(config_id)
         await self.profile_resolver.refresh(config)
         return self.success_response(data=codec.to_json(self.profile_resolver.explain(config)))
@@ -510,14 +460,6 @@ def build_router(container: "AppContainer") -> APIRouter:
         request: ModelDiscoveryRequest, current_user: User = Depends(get_current_admin_user)
     ):
         return await controller.discover_models(request)
-
-    @router.post(
-        "/context-window/discover", response_model=APIResponse, summary="Discover Model Context Window",
-    )
-    async def discover_llm_context_window(
-        request: ContextWindowDiscoveryRequest, current_user: User = Depends(get_current_admin_user)
-    ):
-        return await controller.discover_context_window(request)
 
     @router.get("/native/checkpoints", response_model=APIResponse, summary="List Native LLM Checkpoints")
     async def list_native_llm_checkpoints(current_user: User = Depends(get_current_admin_user)):

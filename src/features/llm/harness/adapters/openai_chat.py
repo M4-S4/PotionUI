@@ -49,7 +49,6 @@ CONTEXT_WINDOW_KEYS = ("context_length", "max_model_len", "context_window")
 KNOWN_SERVERS = {"vllm": "vllm"}
 
 PROVIDER_OPTION_KEYS = (
-    "top_p",
     "presence_penalty",
     "frequency_penalty",
     "seed",
@@ -74,22 +73,17 @@ def reasoning_active(settings: Settings, profile: CapabilityProfile) -> bool:
 
 
 def sampling_params(request: RenderRequest, profile: CapabilityProfile) -> Dict[str, Any]:
-    config = request.config
     settings = request.settings
-    options = config.provider_options or {}
-    params: Dict[str, Any] = {
-        "temperature": config.temperature,
-        "max_completion_tokens": config.max_tokens,
-    }
+    options = request.config.provider_options or {}
+    sampled = (
+        ("temperature", settings.temperature),
+        ("max_completion_tokens", settings.max_tokens),
+        ("top_p", settings.top_p),
+    )
+    params: Dict[str, Any] = {key: value for key, value in sampled if value is not None}
     for key in PROVIDER_OPTION_KEYS:
         if options.get(key) is not None:
             params[key] = options[key]
-    if settings.temperature is not None:
-        params["temperature"] = settings.temperature
-    if settings.top_p is not None:
-        params["top_p"] = settings.top_p
-    if settings.max_tokens is not None:
-        params["max_completion_tokens"] = settings.max_tokens
     dropped = set(profile.sampling_rejected)
     if reasoning_active(settings, profile):
         dropped |= set(profile.sampling_ignored_with_reasoning)

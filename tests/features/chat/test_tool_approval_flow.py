@@ -337,7 +337,7 @@ class TestToolsAcrossTurns:
     async def test_a_new_message_starts_from_the_tools_the_last_turn_ended_with(self, chat_db):
         echo = _EchoTool()
         echo.context_group = "extra"
-        llm = scripted_llm(provider_options={"context_window": 8192}, turns=[
+        llm = scripted_llm(profile_overrides={"context_window": 8192}, turns=[
             {"tool_calls": [_call("c0", "use_tools", group="extra")]},
             {"content": "Loaded."},
             {"content": "Hello again."},
@@ -394,7 +394,7 @@ class TestContinuation:
     async def test_continuation_keeps_a_group_loaded_earlier_in_the_turn(self, chat_db):
         tool = _SetValueTool()
         tool.context_group = "extra"
-        llm = scripted_llm(provider_options={"context_window": 8192}, turns=[
+        llm = scripted_llm(profile_overrides={"context_window": 8192}, turns=[
             {"tool_calls": [_call("c0", "use_tools", group="extra")]},
             {"tool_calls": [_call("c1", "set_value", value=2)]},
             {"content": "Set to 2."},

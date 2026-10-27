@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 from typing import Any, List, Optional
 from unittest.mock import patch
 
@@ -6,7 +7,6 @@ import pytest
 
 from src.features.chat.conversation import ConversationRunner
 from src.features.llm import context_budget
-from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapter import Settings, ToolSpec, WireRequest
 from src.features.llm.harness.profiles import LayeredProfileResolver
@@ -100,10 +100,27 @@ class CountingProbe(ProbeAdapter):
         return self._messages_counter
 
 
-def gateway_for(adapter, *configs) -> LLMGateway:
+class WindowProfiles:
+    def __init__(self, inner: Any, window: int) -> None:
+        self._inner = inner
+        self._window = window
+
+    def resolve(self, config: Any) -> Any:
+        return replace(self._inner.resolve(config), context_window=self._window)
+
+    async def refresh(self, config: Any) -> Any:
+        return self.resolve(config)
+
+    async def ensure(self, config: Any) -> Any:
+        return self.resolve(config)
+
+
+def gateway_for(adapter, *configs, window: Optional[int] = None) -> LLMGateway:
     types = LLMTypes(core=tuple(LLMType(type=type_id, adapter=adapter) for type_id in ("ollama", "openai", "native")))
-    windows = ContextWindows(types)
-    return LLMGateway(ConfigRepository(*(configs or (make_config(),))), types, LayeredProfileResolver(types.adapter_for), windows)
+    gateway = LLMGateway(ConfigRepository(*(configs or (make_config(),))), types, LayeredProfileResolver(types.adapter_for))
+    if window is not None:
+        gateway.profiles = WindowProfiles(gateway.profiles, window)
+    return gateway
 
 
 def history(turns=6, size=20):
@@ -128,7 +145,7 @@ class TestToolSchemaBudget:
     @pytest.mark.asyncio
     async def test_a_large_real_tool_schema_can_exceed_a_small_context_window(self):
         adapter = ProbeAdapter()
-        gateway = gateway_for(adapter, make_config(provider_options={"context_window": 50}, max_tokens=10))
+        gateway = gateway_for(adapter, make_config(max_tokens=10), window=50)
         tools = [ToolSpec.from_schema(tool.to_schema()) for tool in (AddPromptTool(), UpdateFormSettingsTool())]
 
         with pytest.raises(context_budget.ContextBudgetExceededError) as exc_info:
@@ -187,7 +204,7 @@ class TestGatewayTestConfiguration:
 class TestMaxTokensClamp:
     async def test_known_window_clamps_max_tokens_sent(self):
         adapter = ProbeAdapter()
-        config = make_config(provider_options={"context_window": 32768}, max_tokens=50000)
+        config = make_config(profile_overrides={"context_window": 32768}, max_tokens=50000)
         gateway = gateway_for(adapter, config)
 
         await gateway.complete("cfg-1", [user_message("hi")])
@@ -200,7 +217,7 @@ class TestMaxTokensClamp:
 
         await gateway_for(adapter, make_config(max_tokens=100_000)).complete("cfg-1", [user_message("hi")])
 
-        assert adapter.requests[0].settings.max_tokens is None
+        assert adapter.requests[0].settings.max_tokens == 100_000
 
 
 class TestBudgetRunsBeforeTheAdapter:
@@ -213,7 +230,7 @@ class TestBudgetRunsBeforeTheAdapter:
 
     async def test_trims_before_the_adapter_sees_the_messages(self):
         adapter = ProbeAdapter()
-        gateway = gateway_for(adapter, make_config(provider_options={"context_window": 200}, max_tokens=50))
+        gateway = gateway_for(adapter, make_config(max_tokens=50), window=200)
         big = messages_from_dicts(
             [{"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 200} for i in range(10)]
             + [{"role": "user", "content": "current question"}]
@@ -227,7 +244,7 @@ class TestBudgetRunsBeforeTheAdapter:
 
     async def test_an_irreducibly_oversized_request_raises_instead_of_sending(self):
         adapter = ProbeAdapter()
-        gateway = gateway_for(adapter, make_config(provider_options={"context_window": 10}, max_tokens=5))
+        gateway = gateway_for(adapter, make_config(max_tokens=5), window=10)
 
         with pytest.raises(context_budget.ContextBudgetExceededError):
             await gateway.complete("cfg-1", [user_message("x" * 500)])
@@ -247,12 +264,12 @@ class TestContextProfileFor:
     def test_bundles_capacity_reserve_counters_and_image_override(self):
         adapter = CountingProbe(counter=lambda text: len(text), messages_counter=lambda s, m, t: 99)
         config = make_config(
-            type="native", provider_options={"context_window": 4096, "image_token_estimate": 200}, max_tokens=777,
+            type="native", profile_overrides={"context_window": 4096}, provider_options={"image_token_estimate": 200}, max_tokens=777,
         )
 
         inputs = gateway_for(adapter, config).context_profile_for(config)
 
-        assert inputs.capacity == context_budget.CapacityInfo(4096, "config")
+        assert inputs.capacity == context_budget.CapacityInfo(4096, "override")
         assert inputs.reserve_tokens == 777
         assert inputs.counter("hi") == 2
         assert inputs.messages_counter(None, [], None) == 99
@@ -275,24 +292,24 @@ class TestContextProfileFor:
 
     def test_thinking_adds_a_reserve_allowance(self):
         gateway = gateway_for(ProbeAdapter())
-        off = gateway.context_profile_for(make_config(provider_options={"context_window": 32768, "think": False}, max_tokens=1000))
-        on = gateway.context_profile_for(make_config(provider_options={"context_window": 32768, "think": True}, max_tokens=1000))
-        high = gateway.context_profile_for(make_config(provider_options={"context_window": 32768, "think": "high"}, max_tokens=1000))
-        unset = gateway.context_profile_for(make_config(provider_options={"context_window": 32768, "think": None}, max_tokens=1000))
+        off = gateway.context_profile_for(make_config(profile_overrides={"context_window": 32768}, provider_options={"think": False}, max_tokens=1000))
+        on = gateway.context_profile_for(make_config(profile_overrides={"context_window": 32768}, provider_options={"think": True}, max_tokens=1000))
+        high = gateway.context_profile_for(make_config(profile_overrides={"context_window": 32768}, provider_options={"think": "high"}, max_tokens=1000))
+        unset = gateway.context_profile_for(make_config(profile_overrides={"context_window": 32768}, provider_options={"think": None}, max_tokens=1000))
 
         assert (off.thinking_enabled, on.thinking_enabled, high.thinking_enabled, unset.thinking_enabled) == (False, True, True, False)
         assert on.reserve_tokens == off.reserve_tokens + on.thinking_allowance_tokens
         assert unset.thinking_allowance_tokens == 0
 
     def test_settings_can_turn_thinking_off_for_one_call(self):
-        config = make_config(provider_options={"context_window": 32768, "think": True}, max_tokens=1000)
+        config = make_config(profile_overrides={"context_window": 32768}, provider_options={"think": True}, max_tokens=1000)
         assert gateway_for(ProbeAdapter()).context_profile_for(config, Settings(reasoning=False)).thinking_enabled is False
 
 
 class TestReserveClamp:
     async def test_a_configured_window_with_large_max_tokens_still_sends_prior_turns(self):
         adapter = ProbeAdapter()
-        gateway = gateway_for(adapter, make_config(provider_options={"context_window": 32768}, max_tokens=50000))
+        gateway = gateway_for(adapter, make_config(profile_overrides={"context_window": 32768}, max_tokens=50000))
 
         await gateway.complete("cfg-1", history())
 
@@ -302,7 +319,7 @@ class TestReserveClamp:
     def test_reserve_is_clamped_on_known_and_unknown_windows(self):
         gateway = gateway_for(ProbeAdapter())
         known = gateway.estimate_context_budget(
-            make_config(provider_options={"context_window": 32768, "think": False}, max_tokens=50000), "sys", [user_message("hi")],
+            make_config(profile_overrides={"context_window": 32768}, provider_options={"think": False}, max_tokens=50000), "sys", [user_message("hi")],
         )
         unknown = gateway.estimate_context_budget(
             make_config(provider_options={"think": False}, max_tokens=100_000), "sys", [user_message("hi")],
@@ -311,7 +328,7 @@ class TestReserveClamp:
         assert unknown.ledger["capacity_source"] == "unknown" and unknown.ledger["reserve_tokens"] == 1229
 
     def test_the_preflight_ledger_and_the_real_send_agree(self):
-        config = make_config(provider_options={"context_window": 32768}, max_tokens=50000)
+        config = make_config(profile_overrides={"context_window": 32768}, max_tokens=50000)
         gateway = gateway_for(ProbeAdapter(), config)
         messages = [user_message("hi")]
         send_outcome = gateway.estimate_context_budget(config, "", messages)
@@ -334,7 +351,7 @@ class TestSentMaxTokensNeverExceedsWindow:
     @pytest.mark.parametrize("with_tools", [False, True])
     async def test_prompt_estimate_plus_sent_max_tokens_fits_the_window(self, max_tokens, with_tools):
         adapter = ProbeAdapter()
-        config = make_config(provider_options={"context_window": self.WINDOW}, max_tokens=max_tokens)
+        config = make_config(profile_overrides={"context_window": self.WINDOW}, max_tokens=max_tokens)
         tools = (ToolSpec(name="noop", description="", parameters={}),) if with_tools else ()
 
         await gateway_for(adapter, config).complete("cfg-1", history(turns=20, size=200), tools=tools)
@@ -353,7 +370,7 @@ class TestSentMaxTokensNeverExceedsWindow:
 class TestImageTokenOverride:
     @pytest.mark.parametrize("override, expected", [({"image_token_estimate": 5}, 5), ({}, None)])
     async def test_the_override_reaches_the_enforced_budget(self, override, expected):
-        config = make_config(provider_options={"context_window": 32768, **override})
+        config = make_config(profile_overrides={"context_window": 32768}, provider_options={**override})
         gateway = gateway_for(ProbeAdapter(), config)
 
         with patch("src.features.llm.context_budget.enforce_budget", wraps=context_budget.enforce_budget) as spy:

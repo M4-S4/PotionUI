@@ -205,7 +205,7 @@ class TestReflect:
     async def test_context_window_is_ensured_before_the_span_budget_is_resolved(self, monkeypatch):
         manager, generator, messages = self._setup(monkeypatch, "[]")
         order = []
-        manager.llm_service.ensure_context_window = AsyncMock(side_effect=lambda config: order.append("ensure"))
+        manager.llm_service.profiles.ensure = AsyncMock(side_effect=lambda config: order.append("ensure"))
         original = generator._resolve_span_budget
 
         def spy(prompt, config):
@@ -217,7 +217,7 @@ class TestReflect:
         await generator.reflect("session-1")
 
         assert order == ["ensure", "budget"]
-        manager.llm_service.ensure_context_window.assert_awaited_once_with(
+        manager.llm_service.profiles.ensure.assert_awaited_once_with(
             manager.llm_service.repository.get_configuration.return_value,
         )
 

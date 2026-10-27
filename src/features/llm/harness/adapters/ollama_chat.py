@@ -62,6 +62,7 @@ OPTION_KEYS = (
     "stop",
 )
 
+SAMPLED_OPTION_KEYS = frozenset({"top_k", "top_p", "min_p"})
 KEEP_ALIVE_LOADED = "5m"
 TRAINED_WINDOW_CAP_TOKENS = 32768
 _MODELFILE_NUM_CTX = re.compile(r"^\s*num_ctx\s+(\d+)\s*$", re.MULTILINE)
@@ -87,37 +88,19 @@ def parse_show_window(payload: Any) -> Optional[DiscoveredWindow]:
 
 
 def render_options(request: RenderRequest, profile: CapabilityProfile) -> Dict[str, Any]:
-    config = request.config
     settings = request.settings
-    configured = config.provider_options or {}
-    options: Dict[str, Any] = {
-        "temperature": config.temperature,
-        "num_predict": config.max_tokens,
-    }
-    context_request = getattr(profile, "context_request", None)
-    if context_request:
-        options["num_ctx"] = context_request
+    configured = request.config.provider_options or {}
+    base = (("temperature", settings.temperature), ("num_predict", settings.max_tokens), ("num_ctx", profile.context_request))
+    options: Dict[str, Any] = {key: value for key, value in base if value is not None}
     for key in OPTION_KEYS:
-        if key in configured:
-            options[key] = configured[key]
-    if settings.temperature is not None:
-        options["temperature"] = settings.temperature
-    if settings.top_p is not None:
-        options["top_p"] = settings.top_p
-    if settings.top_k is not None:
-        options["top_k"] = settings.top_k
-    if settings.min_p is not None:
-        options["min_p"] = settings.min_p
-    if settings.max_tokens is not None:
-        options["num_predict"] = settings.max_tokens
+        value = getattr(settings, key) if key in SAMPLED_OPTION_KEYS else configured.get(key)
+        if value is not None:
+            options[key] = value
     return options
 
 
 def render_think(request: RenderRequest) -> Any:
-    if request.settings.reasoning is not None:
-        return request.settings.reasoning
-    configured = (request.config.provider_options or {}).get("think")
-    return configured if configured is not None else False
+    return request.settings.reasoning if request.settings.reasoning is not None else False
 
 
 def render_keep_alive(request: RenderRequest) -> Any:

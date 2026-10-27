@@ -1,7 +1,9 @@
 import json
+from dataclasses import replace
 from typing import Any, Dict, Optional, Sequence, Tuple
 
-from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness import sampling
+from src.features.llm.harness.adapter import RenderRequest, Settings
 from src.features.llm.harness.messages import (
     ImagePart,
     Message,
@@ -16,6 +18,10 @@ from src.features.llm.harness.profile import LAYERED_FIELDS, CapabilityProfile, 
 from src.features.llm.repository import LLMConfig
 
 IMAGE_B64 = "aW1hZ2UtYnl0ZXM="
+
+
+def resolved(request: RenderRequest, profile: CapabilityProfile) -> RenderRequest:
+    return replace(request, settings=sampling.resolve_settings(request.config, profile, request.settings))
 
 
 def make_config(provider_type: str, **overrides: Any) -> LLMConfig:

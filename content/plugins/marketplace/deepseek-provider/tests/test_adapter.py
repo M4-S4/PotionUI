@@ -47,14 +47,17 @@ PROFILE = CapabilityProfile(adapter="openai-chat", model="deepseek-flash")
 def config(**overrides):
     values = dict(
         id="cfg-1", name="DeepSeek", type="deepseek", enabled=True, base_url=BASE_URL, api_key="sk-test",
-        model="deepseek-flash", system_message="SYS", max_tokens=4096, provider_options={"context_window": 1048576},
+        model="deepseek-flash", system_message="SYS", temperature=0.7, max_tokens=4096,
     )
     values.update(overrides)
     return LLMConfig(**values)
 
 
 def render(settings, messages, tools=(), **config_overrides):
-    request = RenderRequest(config=config(**config_overrides), system="SYS", messages=tuple(messages), tools=tuple(tools))
+    request = RenderRequest(
+        config=config(**config_overrides), system="SYS", messages=tuple(messages), tools=tuple(tools),
+        settings=Settings(temperature=0.7, max_tokens=4096),
+    )
     return DeepSeekAdapter(lambda: settings).render(request, PROFILE)
 
 

@@ -97,6 +97,9 @@ class CappedProfiles:
     async def refresh(self, config):
         return self.resolve(config)
 
+    async def ensure(self, config):
+        return self.resolve(config)
+
 
 async def test_the_retry_grows_the_limit_the_configuration_sends_when_the_turn_sets_none():
     adapter = ScriptedAdapter(cut_off_call(), complete_call(), text_step("saved it"))
@@ -106,7 +109,7 @@ async def test_the_retry_grows_the_limit_the_configuration_sends_when_the_turn_s
     events = await drain(rig.engine.run(engine_turn()))
 
     assert note.saved == [{"text": "a long note"}]
-    assert [request.settings.max_tokens for request in adapter.requests] == [None, 8000, 8000]
+    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 8000, 8000]
     assert [request.config.max_tokens for request in adapter.requests] == [2000, 2000, 2000]
     (notice,) = truncation_notices(events)
     assert notice.detail == {"max_tokens": 8000, "previous": 2000}
@@ -119,7 +122,7 @@ async def test_the_retry_stops_at_the_profile_maximum():
 
     await drain(rig.engine.run(engine_turn()))
 
-    assert [request.settings.max_tokens for request in adapter.requests] == [None, 5000, 5000]
+    assert [request.settings.max_tokens for request in adapter.requests] == [2000, 5000, 5000]
 
 
 async def test_a_limit_that_cannot_be_raised_fails_at_once():

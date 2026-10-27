@@ -295,7 +295,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
 
         self._setup_basic_stream(["hi"])
         primed = []
-        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.profiles.ensure = AsyncMock(side_effect=lambda config: primed.append(config))
         self.mock_llm.repository = Mock()
 
         def profile(*args, **kwargs):
@@ -321,7 +321,7 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
 
         self._setup_basic_stream(["hi"])
         primed = []
-        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.profiles.ensure = AsyncMock(side_effect=lambda config: primed.append(config))
         self.mock_llm.repository = Mock()
         self.mock_llm.context_capacity_for = Mock(side_effect=lambda config: (
             context_budget.CapacityInfo(8192, "discovered") if primed

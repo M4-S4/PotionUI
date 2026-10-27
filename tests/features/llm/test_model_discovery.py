@@ -140,6 +140,7 @@ def _app(user: User, repository=None, gateway=None) -> TestClient:
         llm_service=gateway or Mock(),
         settings=Mock(),
         plugin_registry=Mock(),
+        profile_resolver=Mock(),
     )
     app = FastAPI()
     app.include_router(llm_mod.build_router(SimpleNamespace(llm_controller=controller)))

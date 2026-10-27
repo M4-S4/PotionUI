@@ -119,8 +119,6 @@ class ToolExecutor:
                 repaired.append({
                     "id": f"rescue_{index}",
                     "type": "function",
-                    # Canonical in-process shape: object arguments (see
-                    # clients.tool_call_shape). Each client re-serializes to its wire form.
                     "function": {"name": nm.tool_name, "arguments": nm.arguments},
                 })
                 records.append({

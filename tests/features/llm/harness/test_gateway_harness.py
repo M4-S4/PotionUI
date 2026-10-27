@@ -17,7 +17,7 @@ from src.features.llm.harness.messages import (
     ToolResultPart,
     credential_fingerprint,
 )
-from src.features.llm.harness.profile import ProfileSource, ReplayPolicy
+from src.features.llm.harness.profile import ProfileSource, ReasoningKind, ReplayPolicy
 from src.features.llm.harness.turn_state import NoticeKind
 from tests.fixtures.llm_engine import drain, scripted_config, scripted_gateway
 from tests.fixtures.llm_harness import SCRIPTED_ORIGIN, ScriptedAdapter, text_step, tool_step
@@ -114,7 +114,7 @@ async def test_a_type_without_a_harness_adapter_is_refused():
 
 
 async def test_a_known_window_clamps_max_tokens_and_trims_whole_old_units():
-    config = scripted_config(max_tokens=4000, provider_options={"context_window": 2000})
+    config = scripted_config(max_tokens=4000, profile_overrides={"context_window": 2000})
     gateway = scripted_gateway(ScriptedAdapter(), config)
     old_call = Message(
         id="a1", role=Role.ASSISTANT, origin=SCRIPTED_ORIGIN,
@@ -136,7 +136,7 @@ async def test_an_unknown_window_never_clamps_max_tokens():
 
     prepared = await gateway.prepare("cfg-scripted", [user_message("x")])
 
-    assert prepared.request.settings.max_tokens is None
+    assert prepared.request.settings.max_tokens == 4000
     assert prepared.ledger["capacity_source"] == "unknown"
 
 
@@ -190,6 +190,9 @@ class _ChoiceProfiles:
     async def refresh(self, config):
         return self.resolve(config)
 
+    async def ensure(self, config):
+        return self.resolve(config)
+
 
 def _choice_gateway(*modes):
     gateway = scripted_gateway(ScriptedAdapter())
@@ -218,3 +221,73 @@ async def test_prepare_drops_the_tools_when_none_cannot_be_sent_and_keeps_them_w
 
     assert dropped.request.tools == () and dropped.request.settings.tool_choice is None and dropped.notices == ()
     assert kept.request.tools == (_ECHO,) and kept.request.settings.tool_choice == ToolChoice("none")
+
+
+class _FieldProfiles:
+    def __init__(self, inner, **fields):
+        self._inner = inner
+        self._fields = fields
+
+    def resolve(self, config):
+        return replace(self._inner.resolve(config), **self._fields)
+
+    async def refresh(self, config):
+        return self.resolve(config)
+
+    async def ensure(self, config):
+        return self.resolve(config)
+
+
+def _replay_gateway(**fields):
+    gateway = scripted_gateway(ScriptedAdapter())
+    gateway.profiles = _FieldProfiles(gateway.profiles, replay_required_with_tools=True, **fields)
+    return gateway
+
+
+def _answered(*parts):
+    return Message(id="a1", role=Role.ASSISTANT, origin=SCRIPTED_ORIGIN, parts=parts)
+
+
+async def test_reasoning_is_turned_off_when_tools_meet_history_without_the_reasoning_the_model_needs_back():
+    history = [user_message("first", message_id="u0"), _answered(TextPart(text="plain answer")), user_message("next")]
+
+    prepared = await _replay_gateway(reasoning=ReasoningKind.TOGGLE).prepare(
+        "cfg-scripted", history, tools=[_ECHO], settings=Settings(reasoning=True),
+    )
+
+    assert prepared.request.settings.reasoning is False
+    assert [(notice.kind, notice.detail) for notice in prepared.notices] == [
+        (NoticeKind.REASONING_DROPPED, {"reason": "missing_reasoning"}),
+    ]
+
+
+@pytest.mark.parametrize("history_reasoning, tools, reasoning_kind", [
+    (True, True, ReasoningKind.TOGGLE),
+    (False, False, ReasoningKind.TOGGLE),
+    (False, True, ReasoningKind.ALWAYS_ON),
+])
+async def test_reasoning_stays_on_when_nothing_requires_turning_it_off(history_reasoning, tools, reasoning_kind):
+    parts = (ReasoningPart(text="why"), TextPart(text="answer")) if history_reasoning else (TextPart(text="answer"),)
+    history = [user_message("first", message_id="u0"), _answered(*parts), user_message("next")]
+
+    prepared = await _replay_gateway(reasoning=reasoning_kind).prepare(
+        "cfg-scripted", history, tools=[_ECHO] if tools else [], settings=Settings(reasoning=True),
+    )
+
+    assert prepared.request.settings.reasoning is True
+    assert prepared.notices == ()
+
+
+async def test_prepare_names_the_messages_its_budget_trimmed():
+    config = scripted_config(max_tokens=200, profile_overrides={"context_window": 1024})
+    gateway = scripted_gateway(ScriptedAdapter(), config)
+    history = [
+        user_message("x" * 4000, message_id="u0"),
+        _answered(TextPart(text="y" * 4000)),
+        user_message("now", message_id="u1"),
+    ]
+
+    prepared = await gateway.prepare("cfg-scripted", history)
+
+    assert [message.id for message in prepared.request.messages] == ["u1"]
+    assert prepared.trimmed == ("u0", "a1")

@@ -19,7 +19,6 @@
         "content": "Is the weather fine in Paris?"
       }
     ],
-    "temperature": 0.7,
     "stream": true,
     "stream_options": {
       "include_usage": true

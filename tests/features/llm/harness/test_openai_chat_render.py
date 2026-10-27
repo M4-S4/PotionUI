@@ -23,6 +23,7 @@ from tests.features.llm.harness.history import (
     make_config,
     messages_from_legacy,
     profile_with,
+    resolved,
     tool_schemas,
 )
 from tests.features.llm.harness.openai_chat_cases import CASES, HISTORY
@@ -53,7 +54,8 @@ def simple(history=HISTORY, **kwargs) -> RenderRequest:
 
 
 def render(request: RenderRequest, **profile):
-    return OpenAIChatAdapter().render(request, profile_with("openai-chat", **profile))
+    built = profile_with("openai-chat", **profile)
+    return OpenAIChatAdapter().render(resolved(request, built), built)
 
 
 def test_the_adapter_satisfies_the_adapter_protocol():
@@ -68,7 +70,8 @@ def test_every_golden_case_is_covered_by_a_twin():
 def test_the_new_adapter_renders_the_legacy_request_byte_for_byte(case):
     expected = GOLDEN[case.id]
 
-    wire = OpenAIChatAdapter().render(request_for(case), profile_with("openai-chat"))
+    built = profile_with("openai-chat")
+    wire = OpenAIChatAdapter().render(resolved(request_for(case), built), built)
 
     assert wire.url == expected["url"]
     assert wire.headers.get("Authorization") == expected["authorization"]
@@ -355,3 +358,14 @@ def test_a_settings_value_replaces_the_configured_one_in_place():
 
     assert list(body)[2:4] == ["temperature", "max_completion_tokens"]
     assert (body["temperature"], body["max_completion_tokens"]) == (0.2, 99)
+
+
+def test_the_wire_takes_sampling_only_from_the_resolved_settings_and_sends_no_nulls():
+    config = make_config("openai", temperature=0.7, max_tokens=512, provider_options={"top_p": 0.5, "seed": 7})
+    request = RenderRequest(config=config, system="", messages=())
+
+    body = OpenAIChatAdapter().render(request, profile_with("openai-chat")).body
+
+    assert {"temperature", "max_completion_tokens", "top_p"}.isdisjoint(body)
+    assert body["seed"] == 7
+    assert None not in body.values()

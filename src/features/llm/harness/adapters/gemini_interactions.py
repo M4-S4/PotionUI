@@ -279,16 +279,14 @@ def tool_choice(request: RenderRequest, profile: CapabilityProfile, thinking: bo
 
 
 def generation_config(request: RenderRequest, profile: CapabilityProfile) -> Dict[str, Any]:
-    settings, config = request.settings, request.config
+    settings = request.settings
     generation: Dict[str, Any] = {}
-    temperature = settings.temperature if settings.temperature is not None else config.temperature
-    if temperature is not None and "temperature" not in profile.sampling_rejected:
-        generation["temperature"] = temperature
+    if settings.temperature is not None and "temperature" not in profile.sampling_rejected:
+        generation["temperature"] = settings.temperature
     if settings.top_p is not None and "top_p" not in profile.sampling_rejected:
         generation["top_p"] = settings.top_p
-    max_tokens = settings.max_tokens if settings.max_tokens is not None else config.max_tokens
-    if max_tokens:
-        generation["max_output_tokens"] = max_tokens
+    if settings.max_tokens:
+        generation["max_output_tokens"] = settings.max_tokens
     thinking, active = thinking_config(request, profile)
     generation.update(thinking)
     choice = tool_choice(request, profile, active)

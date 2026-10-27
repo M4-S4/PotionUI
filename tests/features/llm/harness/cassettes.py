@@ -14,6 +14,7 @@ from src.features.llm.harness.messages import Message, Origin
 from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.llm_harness import decode_chunks
+from tests.features.llm.harness.history import resolved
 
 CASSETTE_ROOT = Path(__file__).resolve().parents[3] / "fixtures" / "llm_cassettes"
 
@@ -235,7 +236,7 @@ def run_scenario(adapter: Adapter, scenario: Path) -> None:
         profile = profile_for(step.meta)
         request = request_from(step.meta, carried, history)
 
-        wire = adapter.render(request, profile)
+        wire = adapter.render(resolved(request, profile), profile)
         rendered = scrubbed_request(wire)
         _same(step, "request method", rendered["method"], step.request["method"])
         _same(step, "request url", rendered["url"], step.request["url"])

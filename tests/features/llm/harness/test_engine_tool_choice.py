@@ -31,6 +31,9 @@ class ChoiceProfiles:
     async def refresh(self, config: Any) -> Any:
         return self.resolve(config)
 
+    async def ensure(self, config: Any) -> Any:
+        return self.resolve(config)
+
 
 def rig_with(adapter, *modes):
     rig = scripted_engine(adapter, [EchoTool()])

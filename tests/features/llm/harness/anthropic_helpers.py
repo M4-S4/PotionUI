@@ -19,6 +19,7 @@ from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, Pr
 from src.features.llm.repository import LLMConfig
 from tests.features.llm.harness import cassettes
 from tests.fixtures.llm_harness import decode_chunks
+from tests.features.llm.harness.history import resolved
 
 ADAPTER_DIR = "anthropic-messages"
 MODEL = "claude-sonnet-5-5"
@@ -116,7 +117,8 @@ def own_origin(**config: Any) -> Origin:
 
 
 def render_body(request: RenderRequest, profile: Optional[CapabilityProfile] = None) -> Dict[str, Any]:
-    return AnthropicMessagesAdapter().render(request, profile or make_profile()).body
+    built = profile or make_profile()
+    return AnthropicMessagesAdapter().render(resolved(request, built), built).body
 
 
 def sse_bytes(events: Sequence[Tuple[str, Mapping[str, Any]]]) -> bytes:

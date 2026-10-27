@@ -23,6 +23,7 @@ from tests.features.llm.harness.history import (
     make_config,
     messages_from_legacy,
     profile_with,
+    resolved,
     tool_schemas,
 )
 from tests.features.llm.harness.ollama_chat_cases import CASES, HISTORY
@@ -48,7 +49,8 @@ def simple(history=HISTORY, **kwargs) -> RenderRequest:
 
 
 def render(request: RenderRequest, **profile):
-    return OllamaChatAdapter().render(request, profile_with("ollama-chat", **profile))
+    built = profile_with("ollama-chat", **profile)
+    return OllamaChatAdapter().render(resolved(request, built), built)
 
 
 def test_the_adapter_satisfies_the_adapter_protocol():
@@ -63,7 +65,8 @@ def test_every_golden_case_is_covered_by_a_twin():
 def test_the_new_adapter_renders_the_legacy_request_byte_for_byte(case):
     expected = GOLDEN[case.id]
 
-    wire = OllamaChatAdapter().render(request_for(case), profile_with("ollama-chat", **case.profile))
+    built = profile_with("ollama-chat", **case.profile)
+    wire = OllamaChatAdapter().render(resolved(request_for(case), built), built)
 
     assert wire.url == expected["url"]
     assert wire.headers.get("Authorization") == expected["authorization"]
@@ -250,3 +253,12 @@ def test_settings_replace_the_configured_sampling_in_place():
     options = render(request).body["options"]
 
     assert options == {"temperature": 0.2, "num_predict": 99, "top_k": 7, "min_p": 0.1}
+
+
+def test_the_wire_takes_sampling_only_from_the_resolved_settings_and_sends_no_nulls():
+    config = make_config("ollama", temperature=0.7, max_tokens=512, provider_options={"top_k": 20, "num_gpu": 1})
+    request = RenderRequest(config=config, system="", messages=())
+
+    options = OllamaChatAdapter().render(request, profile_with("ollama-chat")).body["options"]
+
+    assert options == {"num_gpu": 1}

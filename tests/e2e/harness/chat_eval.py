@@ -533,19 +533,6 @@ def _resolve_config(base_url: str, token: Optional[str], config_ref: str) -> Dic
 
 
 def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Dict[str, Any]:
-    """A full ``LLMConfigRequest`` body (see ``src/features/llm/dto.py``) cloning
-    ``config`` with an explicit ``provider_options.context_window`` test-budget
-    override. ``api_key`` is deliberately absent: ``LLMConfigResponse`` never
-    returns a stored key (``api_key_set`` only), so a clone of a config that
-    needs one will not authenticate — use ``--variant-config`` for those.
-
-    ``memory_reflection`` is always forced to ``False`` regardless of the
-    source config's own setting — see ``_MEMORY_POLICY_NOTE``: a generated
-    clone exists only for this evaluation run and must never leave a
-    background-reflection artifact behind in the user's durable memory.
-    """
-    provider_options = dict(config.get("provider_options") or {})
-    provider_options["context_window"] = context_window
     return {
         "name": f"{config.get('name', config.get('id'))} [chat-eval {context_window}-token test budget]",
         "type": config["type"],
@@ -559,8 +546,12 @@ def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Di
         "supports_vision": config.get("supports_vision", False),
         "disable_system_prompt": config.get("disable_system_prompt", False),
         "memory_reflection": False,
-        "provider_options": provider_options,
+        "provider_options": dict(config.get("provider_options") or {}),
     }
+
+
+def clone_profile_overrides(context_window: int) -> Dict[str, Any]:
+    return {"overrides": {"context_window": context_window}}
 
 
 # Evaluation memory policy: every configuration this script actually drives a
@@ -932,6 +923,11 @@ def cmd_run(args: argparse.Namespace) -> int:
                 create_result = _http_json("POST", f"{args.base_url}/api/llm/configurations", args.token, body)
                 _check_success(create_result, "POST /api/llm/configurations (variant clone)")
                 created_variant_id = create_result["data"]["id"]
+                profile_result = _http_json(
+                    "PUT", f"{args.base_url}/api/llm/configurations/{created_variant_id}/profile", args.token,
+                    clone_profile_overrides(window),
+                )
+                _check_success(profile_result, "PUT /api/llm/configurations/{id}/profile (variant clone budget)")
                 variant_config = _resolve_config(args.base_url, args.token, created_variant_id)
                 print(
                     f"Created temporary comparison config '{created_variant_id}' ({body['name']!r}) - "

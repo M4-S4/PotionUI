@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence, Tuple, Union
 
 from src.features.llm import context_budget, trace_collector
-from src.features.llm.context_windows import ContextWindows, WindowProbe
+from src.features.llm.harness import sampling
 from src.features.llm.harness.adapter import Adapter, RenderRequest, Settings, ToolSpec
 from src.features.llm.harness.assembler import StepAssembler
 from src.features.llm.harness.build import new_id, user_message
@@ -14,10 +14,11 @@ from src.features.llm.harness.cost import priced
 from src.features.llm.harness.errors import HarnessError
 from src.features.llm.harness.events import FinishReason, StreamEvent, Usage
 from src.features.llm.harness.messages import Message, Origin
-from src.features.llm.harness.ports import ProfileResolver
-from src.features.llm.harness.profile import CapabilityProfile
-from src.features.llm.harness.tool_choice import effective_tool_choice
-from src.features.llm.harness.turn_state import Notice
+from src.features.llm.harness.profile import CapabilityProfile, ReasoningKind
+from src.features.llm.harness.profiles import LayeredProfileResolver
+from src.features.llm.harness.replay import must_disable_reasoning
+from src.features.llm.harness.tool_choice import effective_tool_choice, reasoning_active
+from src.features.llm.harness.turn_state import Notice, NoticeKind
 from src.features.llm.model_listing import DiscoveredModel
 from src.features.llm.repository import LLMConfig, LLMRepository
 from src.features.llm.types import LLMType, LLMTypes
@@ -27,6 +28,10 @@ _NON_PARAM_KEYS = (
     "input", "contents", "steps", "system", "system_instruction", "instructions",
 )
 EMPTY_RESPONSE_ATTEMPTS = 3
+REASONING_WITHHELD_MESSAGE = (
+    "Thinking is off for this request: earlier replies carry no reasoning to send back, "
+    "and this model needs it whenever tools are in play."
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,7 @@ class PreparedCall:
     origin: Origin
     ledger: Dict[str, Any]
     notices: Tuple[Notice, ...] = ()
+    trimmed: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -85,22 +91,16 @@ def _error_body(failure: Optional[BaseException]) -> Optional[str]:
     return body if isinstance(body, str) and body else None
 
 
-def _reasoning_options(settings: Settings) -> Optional[Dict[str, Any]]:
-    return {"think": settings.reasoning} if settings.reasoning is not None else None
-
-
 class LLMGateway:
     def __init__(
         self,
         llm_repository: LLMRepository,
         types: LLMTypes,
-        profiles: ProfileResolver,
-        windows: ContextWindows,
+        profiles: LayeredProfileResolver,
     ) -> None:
         self.repository = llm_repository
         self.types = types
         self.profiles = profiles
-        self.windows = windows
 
     def provider_types(self) -> List[Dict[str, Any]]:
         return self.types.describe()
@@ -114,17 +114,8 @@ class LLMGateway:
             raise ValueError(f"LLM type '{type_id}' cannot list models")
         return await self.types.require(type_id).adapter.list_models(base_url, api_key)
 
-    def supports_context_window_discovery(self, type_id: str) -> bool:
-        return self.windows.supports(type_id)
-
-    async def refresh_context_window(self, type_id: str, base_url: str, api_key: Optional[str], model: str) -> WindowProbe:
-        return await self.windows.refresh(type_id, base_url, api_key, model)
-
-    async def ensure_context_window(self, config: LLMConfig) -> None:
-        await self.windows.ensure(config)
-
     def context_capacity_for(self, config: LLMConfig) -> context_budget.CapacityInfo:
-        return self.windows.capacity(config)
+        return context_budget.resolve_capacity(self.profiles.resolve(config))
 
     @staticmethod
     def _safe_provider_hook(provider_method: Optional[Any], config: LLMConfig, label: str) -> Optional[Any]:
@@ -136,13 +127,18 @@ class LLMGateway:
             logging.debug("[LLMGateway] %s failed for '%s'", label, config.id, exc_info=True)
             return None
 
-    def context_profile_for(self, config: LLMConfig, settings: Settings = Settings()) -> context_budget.ContextProfile:
+    def context_profile_for(
+        self, config: LLMConfig, settings: Settings = Settings(), profile: Optional[CapabilityProfile] = None,
+    ) -> context_budget.ContextProfile:
         adapter = self.types.require(config.type).adapter
-        capacity = self.windows.capacity(config)
-        max_tokens = settings.max_tokens if settings.max_tokens is not None else config.max_tokens
-        thinking_enabled = context_budget.resolve_thinking_enabled(config, _reasoning_options(settings))
+        profile = profile if profile is not None else self.profiles.resolve(config)
+        resolved = sampling.resolve_settings(config, profile, settings)
+        capacity = context_budget.resolve_capacity(profile)
+        max_tokens = resolved.max_tokens
         reserve = context_budget.resolve_reserve(
-            max_tokens=max_tokens, window_tokens=capacity.capacity_tokens, thinking_enabled=thinking_enabled,
+            max_tokens=max_tokens,
+            window_tokens=capacity.capacity_tokens,
+            thinking_enabled=context_budget.resolve_thinking_enabled(resolved, profile),
         )
         return context_budget.ContextProfile(
             capacity=capacity,
@@ -164,9 +160,10 @@ class LLMGateway:
         messages: Sequence[Message],
         tools: Sequence[ToolSpec] = (),
         settings: Settings = Settings(),
+        profile: Optional[CapabilityProfile] = None,
     ) -> context_budget.BudgetOutcome:
         return context_budget.budget_with_profile(
-            self.context_profile_for(config, settings),
+            self.context_profile_for(config, settings, profile),
             system_message=system,
             messages=messages,
             tool_schemas=[tool.function_schema() for tool in tools] or None,
@@ -203,24 +200,36 @@ class LLMGateway:
         entry = self.types.require(config.type)
         if not isinstance(entry.adapter, Adapter):
             raise ValueError(f"LLM type '{config.type}' has no harness adapter")
-        await self.windows.ensure(config)
-        profile = self.profiles.resolve(config)
+        profile = await self.profiles.ensure(config)
+        settings = sampling.resolve_settings(config, profile, settings)
         choice = effective_tool_choice(settings, profile)
+        notices: List[Notice] = [choice.notice] if choice.notice is not None else []
         if choice.drop_tools:
             tools = ()
         settings = replace(settings, tool_choice=choice.choice)
         system_message = self.resolve_system(config, system)
-        outcome = self.estimate_context_budget(config, system_message, messages, tools, settings)
+        outcome = self.estimate_context_budget(config, system_message, messages, tools, settings, profile)
         ledger = outcome.ledger
         if ledger["max_tokens_sent"] != ledger["max_tokens"]:
             settings = replace(settings, max_tokens=ledger["max_tokens_sent"])
+        kept = tuple(outcome.messages)
+        if (
+            profile.reasoning is not ReasoningKind.ALWAYS_ON
+            and reasoning_active(settings, profile)
+            and must_disable_reasoning(profile, kept, bool(tools))
+        ):
+            settings = replace(settings, reasoning=False)
+            notices.append(Notice(
+                kind=NoticeKind.REASONING_DROPPED, message=REASONING_WITHHELD_MESSAGE, detail={"reason": "missing_reasoning"},
+            ))
+        kept_ids = {message.id for message in kept}
         origin = Origin.for_config(entry.adapter.name, config)
         request = RenderRequest(
-            config=config, system=system_message, messages=tuple(outcome.messages), tools=tuple(tools), settings=settings,
+            config=config, system=system_message, messages=kept, tools=tuple(tools), settings=settings,
         )
         return PreparedCall(
             config=config, entry=entry, profile=profile, request=request, origin=origin, ledger=ledger,
-            notices=(choice.notice,) if choice.notice is not None else (),
+            notices=tuple(notices), trimmed=tuple(message.id for message in messages if message.id not in kept_ids),
         )
 
     async def run(self, prepared: PreparedCall) -> AsyncIterator[StreamEvent]:

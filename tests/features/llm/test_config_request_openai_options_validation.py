@@ -1,7 +1,3 @@
-"""LLMConfigRequest validation of the OpenAI-only provider_options knobs:
-seed, reasoning_effort, parallel_tool_calls, stop. Checked only for
-type == "openai"; every other provider type leaves these free-form."""
-
 import pytest
 from pydantic import ValidationError
 
@@ -88,18 +84,9 @@ def test_stop_none_is_valid():
     assert req.provider_options["stop"] is None
 
 
-@pytest.mark.parametrize("config_type", ["openai", "openai-compatible"])
-def test_both_openai_types_get_the_openai_validators(config_type):
+@pytest.mark.parametrize("config_type", ["openai", "openai-compatible", "ollama", "anthropic", "deepseek"])
+def test_every_configuration_type_gets_the_request_option_validators(config_type):
     with pytest.raises(ValidationError, match="reasoning_effort"):
         _request(config_type, reasoning_effort="ultra")
-
-
-def test_openai_validators_are_skipped_for_other_provider_types():
-    req = _request(config_type="ollama", seed="not-an-int", reasoning_effort="ultra", parallel_tool_calls="true", stop=5)
-    assert req.provider_options == {
-        "seed": "not-an-int",
-        "reasoning_effort": "ultra",
-        "parallel_tool_calls": "true",
-        "stop": 5,
-        "think": False,
-    }
+    with pytest.raises(ValidationError, match="seed"):
+        _request(config_type, seed="not-an-int")

@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 
 from src.features.llm import trace_collector
-from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapter import ToolSpec
 from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
@@ -40,7 +39,7 @@ def registry_with(type_name):
 
 
 def config_of(type_name):
-    return make_config(type_name, base_url=BASE_URL, provider_options={"context_window": 8192})
+    return make_config(type_name, base_url=BASE_URL, profile_overrides={"context_window": 8192})
 
 
 def gateway_for(registry, config=None):
@@ -51,9 +50,8 @@ def gateway_for(registry, config=None):
         ),
         provider_registry=registry,
     )
-    windows = ContextWindows(types)
     repository = SimpleNamespace(get_configuration=lambda config_id: config)
-    return LLMGateway(repository, types, LayeredProfileResolver(types.adapter_for), windows)
+    return LLMGateway(repository, types, LayeredProfileResolver(types.adapter_for))
 
 
 async def send(gateway, config):

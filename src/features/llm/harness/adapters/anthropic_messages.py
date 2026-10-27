@@ -393,7 +393,7 @@ def tool_config(spec: ToolSpec, profile: CapabilityProfile) -> Dict[str, Any]:
 
 
 def max_tokens_for(request: RenderRequest, profile: CapabilityProfile) -> int:
-    wanted = request.settings.max_tokens or request.config.max_tokens
+    wanted = request.settings.max_tokens
     if not wanted:
         return profile.max_output_tokens or FALLBACK_MAX_TOKENS
     return min(wanted, profile.max_output_tokens) if profile.max_output_tokens else wanted

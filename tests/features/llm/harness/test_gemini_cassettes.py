@@ -7,6 +7,7 @@ from src.features.llm.harness import codec
 from src.features.llm.harness.adapters.gemini_interactions import ADAPTER_NAME, GeminiInteractionsAdapter
 from src.features.llm.harness.messages import Message, Role
 from tests.features.llm.harness import cassettes
+from tests.features.llm.harness.history import resolved
 
 SCENARIOS = cassettes.scenario_dirs(ADAPTER_NAME)
 PLANNED = {"thinking_parallel_tools", "approval_pause", "in_band_error"}
@@ -44,7 +45,7 @@ def test_history_rebuilt_from_parts_sends_the_same_bytes_as_the_stored_steps(sce
         history = history + codec.from_json(List[Message], step.input.get("messages", []))
         profile = cassettes.profile_for(step.meta)
         rebuilt = [foreign_credential(m) if m.role is Role.ASSISTANT else m for m in history]
-        wire = adapter.render(cassettes.request_from(step.meta, carried, rebuilt), profile)
+        wire = adapter.render(resolved(cassettes.request_from(step.meta, carried, rebuilt), profile), profile)
         assert wire.content() == cassettes.request_bytes(step.request["body"]), step.directory
         if step.step is not None:
             history = history + [codec.from_json(Message, step.step["message"])]

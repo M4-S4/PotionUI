@@ -23,7 +23,6 @@ from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.persistence_base import PersistenceTestBase
-from src.features.llm.context_windows import ContextWindows
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.harness.adapter import Settings, WireRequest
 from src.features.llm.harness.profiles import LayeredProfileResolver
@@ -885,13 +884,12 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
             id="llm-1", name="Reflect Test", type="native", enabled=True,
             base_url="http://internal", model="native-model",
             system_message=system_message, disable_system_prompt=False,
-            memory_reflection=True, provider_options={"context_window": 2800},
+            memory_reflection=True, profile_overrides={"context_window": 2800},
             max_tokens=2000,
         )
         sender = _FakeNativeSend()
         types = LLMTypes(core=(LLMType(type="native", adapter=sender),))
-        windows = ContextWindows(types)
-        gateway = LLMGateway(ConfigRepository(config), types, LayeredProfileResolver(types.adapter_for), windows)
+        gateway = LLMGateway(ConfigRepository(config), types, LayeredProfileResolver(types.adapter_for))
         return gateway, config, sender
 
     def _runtime_with_session(self, gateway, turns):

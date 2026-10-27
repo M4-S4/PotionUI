@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from src.features.llm import context_budget
-from src.features.llm.harness.adapter import RenderRequest, ToolSpec
+from src.features.llm.harness.adapter import RenderRequest, Settings, ToolSpec
+from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, ReasoningKind
+from src.features.llm.harness.sampling import resolve_settings
 from src.features.llm.harness.adapters import ollama_chat
 from src.features.llm.harness.build import user_message
 from src.features.llm.context_budget import (
@@ -66,99 +68,40 @@ def _config(**overrides):
     return SimpleNamespace(**defaults)
 
 
-# ---------------------------------------------------------------------------
-# resolve_capacity
-# ---------------------------------------------------------------------------
+def _profile(*layers, reasoning="none"):
+    base = CapabilityProfile(adapter="a", model="m", reasoning=ReasoningKind(reasoning))
+    return base.layered([ProfileLayer(source, fields) for source, fields in layers])
+
 
 class TestResolveCapacity:
-    def test_unconfigured_config_is_unknown_with_conservative_default(self):
-        capacity = resolve_capacity(_config())
-        assert capacity.source == "unknown"
-        assert capacity.capacity_tokens == context_budget.UNKNOWN_CAPACITY_TOKENS
+    def test_a_profile_without_a_window_is_unknown_with_the_conservative_default(self):
+        capacity = resolve_capacity(_profile())
+        assert capacity == CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
 
-    def test_generic_context_window_wins_for_any_provider_type(self):
-        capacity = resolve_capacity(_config(type="openai", provider_options={"context_window": 32000}))
-        assert capacity == CapacityInfo(32000, "config")
+    @pytest.mark.parametrize("source", [ProfileSource.SEED, ProfileSource.DISCOVERED, ProfileSource.OVERRIDE])
+    def test_the_window_comes_from_the_profile_and_names_the_layer_that_set_it(self, source):
+        capacity = resolve_capacity(_profile((source, {"context_window": 32000})))
+        assert capacity == CapacityInfo(32000, source.value)
 
-    def test_ollama_num_ctx_is_honoured_as_the_existing_operator_override(self):
-        capacity = resolve_capacity(_config(type="ollama", provider_options={"num_ctx": 4096}))
-        assert capacity == CapacityInfo(4096, "config")
-
-    def test_generic_context_window_takes_priority_over_num_ctx(self):
-        capacity = resolve_capacity(
-            _config(type="ollama", provider_options={"num_ctx": 4096, "context_window": 16000})
-        )
-        assert capacity == CapacityInfo(16000, "config")
-
-    def test_num_ctx_is_ignored_for_non_ollama_types(self):
-        capacity = resolve_capacity(_config(type="openai", provider_options={"num_ctx": 4096}))
-        assert capacity.source == "unknown"
-
-    @pytest.mark.parametrize("bad_value", [0, -10, "4096", None, True, False])
-    def test_non_positive_or_non_numeric_context_window_falls_back_to_unknown(self, bad_value):
-        capacity = resolve_capacity(_config(provider_options={"context_window": bad_value}))
-        assert capacity.source == "unknown"
-
-    def test_never_infers_capacity_from_model_name(self):
-        # A model name that looks like it encodes a window size must never be
-        # parsed for capacity — only explicit configuration counts.
-        capacity = resolve_capacity(_config(model="llama-3-8k-instruct"))
-        assert capacity.source == "unknown"
+    def test_an_override_wins_over_a_discovered_window(self):
+        capacity = resolve_capacity(_profile(
+            (ProfileSource.DISCOVERED, {"context_window": 131072}), (ProfileSource.OVERRIDE, {"context_window": 4096}),
+        ))
+        assert capacity == CapacityInfo(4096, "override")
 
 
 class TestResolveThinkingEnabled:
-    def test_ollama_true_think_is_enabled(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": True})) is True
+    @pytest.mark.parametrize("value", [True, "low", "high", "medium"])
+    def test_a_requested_reasoning_value_is_enabled(self, value):
+        assert resolve_thinking_enabled(Settings(reasoning=value), _profile(reasoning="toggle")) is True
 
-    def test_ollama_false_think_is_disabled(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": False})) is False
+    @pytest.mark.parametrize("value", [False, "none", "off", "disabled"])
+    def test_reasoning_switched_off_is_disabled(self, value):
+        assert resolve_thinking_enabled(Settings(reasoning=value), _profile(reasoning="toggle")) is False
 
-    @pytest.mark.parametrize("provider_options", [None, {}, {"think": None}])
-    def test_ollama_unset_think_is_disabled(self, provider_options):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options=provider_options)) is False
-
-    @pytest.mark.parametrize("override", [{"temperature": 0.1}, {"think": None}])
-    def test_ollama_unset_think_stays_disabled_when_the_override_does_not_name_one(self, override):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={}), override) is False
-
-    def test_ollama_override_can_still_turn_thinking_on_for_one_call(self):
-        config = _config(type="ollama", provider_options={})
-        assert resolve_thinking_enabled(config, {"think": "low"}) is True
-
-    def test_ollama_effort_level_is_enabled(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": "high"})) is True
-
-    def test_ollama_options_override_wins_over_config(self):
-        config = _config(type="ollama", provider_options={"think": False})
-        assert resolve_thinking_enabled(config, {"think": True}) is True
-
-    def test_ollama_options_override_none_leaves_config_value(self):
-        config = _config(type="ollama", provider_options={"think": True})
-        assert resolve_thinking_enabled(config, {"think": None}) is True
-
-    def test_native_thinking_true_is_enabled(self):
-        assert resolve_thinking_enabled(_config(type="native", provider_options={"thinking": True})) is True
-
-    def test_native_thinking_unset_is_disabled(self):
-        assert resolve_thinking_enabled(_config(type="native", provider_options={})) is False
-
-    def test_openai_reasoning_effort_set_is_enabled(self):
-        config = _config(type="openai", provider_options={"reasoning_effort": "medium"})
-        assert resolve_thinking_enabled(config) is True
-
-    def test_openai_compatible_reasoning_effort_is_read_like_openai(self):
-        enabled = _config(type="openai-compatible", provider_options={"reasoning_effort": "high"})
-        disabled = _config(type="openai-compatible", provider_options={"reasoning_effort": "none"})
-
-        assert resolve_thinking_enabled(enabled) is True
-        assert resolve_thinking_enabled(disabled) is False
-
-    def test_openai_reasoning_effort_none_is_disabled(self):
-        config = _config(type="openai", provider_options={"reasoning_effort": "none"})
-        assert resolve_thinking_enabled(config) is False
-
-    def test_unknown_provider_type_is_disabled(self):
-        assert resolve_thinking_enabled(_config(type="anything-else")) is False
+    @pytest.mark.parametrize("reasoning, enabled", [("none", False), ("toggle", False), ("always_on", True)])
+    def test_unset_reasoning_follows_whether_the_model_always_reasons(self, reasoning, enabled):
+        assert resolve_thinking_enabled(Settings(), _profile(reasoning=reasoning)) is enabled
 
 
 def _ollama_tool():
@@ -171,11 +114,13 @@ def _ollama_tool():
 class TestResolveThinkingEnabledMatchesTheRealWirePayload:
     def _compare(self, provider_options, tools):
         config = _config(type="ollama", model="test-model", temperature=0.7, provider_options=provider_options)
+        profile = _profile(reasoning="toggle")
+        settings = resolve_settings(config, profile, Settings())
         request = RenderRequest(
-            config=config, system="sys", messages=(user_message("hi"),),
+            config=config, system="sys", messages=(user_message("hi"),), settings=settings,
             tools=tuple(ToolSpec.from_schema(tool) for tool in tools or ()),
         )
-        return ollama_chat.render_think(request), resolve_thinking_enabled(config)
+        return ollama_chat.render_think(request), resolve_thinking_enabled(settings, profile)
 
     def test_unset_think_agrees_off_without_tools(self):
         wire_think, budget_think = self._compare(None, None)

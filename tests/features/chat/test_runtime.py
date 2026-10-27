@@ -815,7 +815,7 @@ class TestSendMessageBehaviorTrace:
 
         self._setup_session_and_messages()
         primed = []
-        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.profiles.ensure = AsyncMock(side_effect=lambda config: primed.append(config))
 
         def profile(*args, **kwargs):
             capacity = (
@@ -839,7 +839,7 @@ class TestSendMessageBehaviorTrace:
 
         self._setup_session_and_messages()
         primed = []
-        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.profiles.ensure = AsyncMock(side_effect=lambda config: primed.append(config))
         self.mock_llm.repository = Mock()
         self.mock_llm.context_capacity_for = Mock(side_effect=lambda config: (
             context_budget.CapacityInfo(131072, "discovered") if primed

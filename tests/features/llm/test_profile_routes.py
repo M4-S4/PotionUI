@@ -37,7 +37,7 @@ def _user(account_type: AccountType) -> User:
 
 
 class Harness:
-    def __init__(self, resolver: Optional[LayeredProfileResolver], adapter: ProbeAdapter) -> None:
+    def __init__(self, resolver: LayeredProfileResolver, adapter: ProbeAdapter) -> None:
         self.repository = FakeRepository(make_config(id="cfg-1", model="qwen3.8:14b"))
         self.adapter = adapter
         controller = llm_mod.LLMController(
@@ -196,24 +196,6 @@ def test_only_admins_reach_the_profile_routes(harness, method, path, body):
 
     assert response.status_code == 403
     assert harness.adapter.calls == [] and harness.repository.writes == []
-
-
-@pytest.mark.parametrize(
-    "method, path, body",
-    [
-        ("get", "/api/llm/configurations/cfg-1/profile", None),
-        ("put", "/api/llm/configurations/cfg-1/profile", {"overrides": {"replay": "never"}}),
-        ("post", "/api/llm/configurations/cfg-1/profile/refresh", None),
-    ],
-)
-def test_without_a_resolver_the_routes_say_profiles_are_unavailable(method, path, body):
-    harness = Harness(None, ProbeAdapter())
-
-    response = getattr(harness.client(), method)(path, **({"json": body} if body else {}))
-
-    assert response.json()["success"] is False
-    assert response.json()["error"] == "profiles_unavailable"
-    assert harness.repository.writes == []
 
 
 def test_the_recommended_sampling_is_served_in_the_same_per_field_shape_as_every_other_field():

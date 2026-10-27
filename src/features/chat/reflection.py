@@ -379,7 +379,7 @@ class ChatReflectionGenerator:
 
         if config is not None:
             try:
-                await self._m.llm_service.ensure_context_window(config)
+                await self._m.llm_service.profiles.ensure(config)
             except Exception:
                 logger.debug("Could not prime LLM context window", exc_info=True)
 
@@ -539,7 +539,7 @@ class ChatReflectionGenerator:
             else:
                 prompt_tokens = context_budget.count_text(prompt, inputs.counter).tokens
         except Exception:
-            capacity_tokens = context_budget.resolve_capacity(config).capacity_tokens
+            capacity_tokens = context_budget.UNKNOWN_CAPACITY_TOKENS
             reserve_tokens = _REFLECTION_SETTINGS.max_tokens
             prompt_tokens = math.ceil(len(prompt) / context_budget.DEFAULT_CHARS_PER_TOKEN)
 

@@ -621,7 +621,7 @@ class ConversationRunner:
         try:
             config = self._m.llm_service.repository.get_configuration(llm_config_id)
             if config is not None:
-                await self._m.llm_service.ensure_context_window(config)
+                await self._m.llm_service.profiles.ensure(config)
         except Exception:
             logger.debug("Could not prime LLM context window", exc_info=True)
 

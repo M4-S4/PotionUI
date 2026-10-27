@@ -76,15 +76,16 @@ import json
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING
 
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.messages import ContextPart, ImagePart, Message, Role
 
-from src.features.llm.types import OPENAI_TYPES
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.profile import CapabilityProfile, ProfileSource, ReasoningKind
+from src.features.llm.harness.tool_choice import REASONING_OFF
 
 if TYPE_CHECKING:
-    from src.features.llm.model_listing import DiscoveredWindow
     from src.features.llm.repository import LLMConfig
 
 logger = logging.getLogger(__name__)
@@ -113,8 +114,6 @@ FRAMING_TOKENS_PER_MESSAGE = 4
 # from the model.
 UNKNOWN_CAPACITY_TOKENS = 8192
 
-OLLAMA_TRAINED_WINDOW_CAP_TOKENS = 32768
-
 # Per-image allowance used when the provider has no known per-image token
 # cost of its own — deliberately conservative (near OpenAI's documented
 # low-detail image cost) since undercounting here is what lets a request
@@ -131,8 +130,6 @@ MIN_RESERVE_TOKENS = 1024
 
 THINKING_ALLOWANCE_FRACTION = 0.10
 THINKING_ALLOWANCE_CAP_TOKENS = 4096
-
-_OLLAMA_THINK_LEVELS = ("low", "medium", "high")
 
 TOOL_TIER_COMPACT = "compact"
 TOOL_TIER_STANDARD = "standard"
@@ -162,7 +159,7 @@ class CapacityInfo:
     """The effective context-window size for one call, and where it came from."""
 
     capacity_tokens: int
-    source: Literal["config", "discovered", "unknown"]
+    source: str
 
 
 @dataclass(frozen=True)
@@ -246,40 +243,10 @@ class ContextBudgetExceededError(Exception):
         )
 
 
-def effective_discovered_tokens(config_type: Optional[str], discovered: "DiscoveredWindow") -> int:
-    if config_type == "ollama" and discovered.kind == "trained":
-        return min(discovered.tokens, OLLAMA_TRAINED_WINDOW_CAP_TOKENS)
-    return discovered.tokens
-
-
-def resolve_capacity(config: "LLMConfig", discovered: Optional["DiscoveredWindow"] = None) -> CapacityInfo:
-    """The effective context-window size for *config*.
-
-    Reads configuration first, then the window the provider reported
-    (*discovered*), in order:
-    1. ``provider_options.context_window`` — generic, any provider type.
-    2. ``provider_options.num_ctx`` — the existing Ollama context-size knob
-       (see ``ollama_wire.OLLAMA_OPTION_KEYS``), honoured here too so setting
-       it continues to mean the same thing it already does on the wire.
-    3. *discovered* — labelled ``capacity_source="discovered"``; for Ollama a
-       trained window is capped at ``OLLAMA_TRAINED_WINDOW_CAP_TOKENS``.
-    4. ``UNKNOWN_CAPACITY_TOKENS``, labelled ``capacity_source="unknown"`` —
-       never a guess derived from the model's name or parameter count.
-    """
-    provider_opts = getattr(config, "provider_options", None) or {}
-
-    explicit = provider_opts.get("context_window")
-    if _is_positive_number(explicit):
-        return CapacityInfo(int(explicit), "config")
-
-    if getattr(config, "type", None) == "ollama":
-        num_ctx = provider_opts.get("num_ctx")
-        if _is_positive_number(num_ctx):
-            return CapacityInfo(int(num_ctx), "config")
-
-    if discovered is not None:
-        return CapacityInfo(effective_discovered_tokens(getattr(config, "type", None), discovered), "discovered")
-
+def resolve_capacity(profile: CapabilityProfile) -> CapacityInfo:
+    if profile.context_window:
+        source = profile.sources.get("context_window", ProfileSource.SEED)
+        return CapacityInfo(profile.context_window, ProfileSource(source).value)
     return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
 
 
@@ -305,35 +272,13 @@ def resolve_image_token_override(config: "LLMConfig") -> Optional[int]:
     return int(value) if _is_positive_number(value) else None
 
 
-def resolve_native_tools(tools: Optional[List[Dict[str, Any]]], *, force_prompt_tools: bool) -> bool:
-    return bool(tools) and not force_prompt_tools
-
-
-def resolve_thinking_enabled(
-    config: "LLMConfig", options_override: Optional[Dict[str, Any]] = None,
-) -> bool:
-    provider_type = getattr(config, "type", None)
-    provider_opts = getattr(config, "provider_options", None) or {}
-    options_override = options_override or {}
-
-    if provider_type == "ollama":
-        value = options_override.get("think")
-        if value is None:
-            value = provider_opts.get("think")
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value in _OLLAMA_THINK_LEVELS
-        return False
-
-    if provider_type == "native":
-        return provider_opts.get("thinking") is True
-
-    if provider_type in OPENAI_TYPES:
-        value = provider_opts.get("reasoning_effort")
-        return value is not None and value != "none"
-
-    return False
+def resolve_thinking_enabled(settings: Settings, profile: CapabilityProfile) -> bool:
+    value = settings.reasoning
+    if value is None:
+        return profile.reasoning is ReasoningKind.ALWAYS_ON
+    if isinstance(value, str):
+        return value.strip().lower() not in REASONING_OFF
+    return value is not False
 
 
 @dataclass(frozen=True)
