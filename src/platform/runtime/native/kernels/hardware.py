@@ -4,9 +4,10 @@ import importlib.metadata
 import importlib.util
 import threading
 from dataclasses import dataclass
-from enum import Enum
 
 import torch
+
+from src.platform.runtime.gpu_generation import GpuGeneration, generation_for
 
 SDPA = "sdpa"
 FLASH = "flash"
@@ -23,31 +24,6 @@ _CPU_NAME = "cpu"
 _UNNAMED_GPU = "CUDA GPU"
 
 
-class GpuGeneration(Enum):
-    NONE = "none"
-    PRE_AMPERE = "pre_ampere"
-    AMPERE = "ampere"
-    ADA = "ada"
-    HOPPER = "hopper"
-    BLACKWELL = "blackwell"
-    UNKNOWN = "unknown"
-
-
-def _generation_for(capability: tuple[int, int]) -> GpuGeneration:
-    major, minor = capability
-    if major <= 0:
-        return GpuGeneration.NONE
-    if major < 8:
-        return GpuGeneration.PRE_AMPERE
-    if major == 8:
-        return GpuGeneration.ADA if minor == 9 else GpuGeneration.AMPERE
-    if major == 9:
-        return GpuGeneration.HOPPER
-    if major in (10, 11, 12):
-        return GpuGeneration.BLACKWELL
-    return GpuGeneration.UNKNOWN
-
-
 @dataclass(frozen=True)
 class DeviceCapabilities:
     index: int | None
@@ -57,7 +33,7 @@ class DeviceCapabilities:
 
     @property
     def generation(self) -> GpuGeneration:
-        return _generation_for(self.capability)
+        return generation_for(self.capability)
 
     def at_least(self, major: int, minor: int = 0) -> bool:
         return self.capability >= (major, minor)

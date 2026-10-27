@@ -3,13 +3,17 @@ from types import SimpleNamespace
 import pytest
 import torch
 
+from src.platform.runtime.gpu_generation import GpuGeneration
 from src.platform.runtime.gpu_profile import (
+    GENERATION_LABELS,
     GpuProfile,
     build_gpu_profile,
     detect_gpu_profile,
     fast_precisions_for,
     generation_for_capability,
+    generations_supporting,
 )
+from tests.fixtures.kernel_capabilities import fake_device
 
 
 @pytest.mark.parametrize(
@@ -22,12 +26,56 @@ from src.platform.runtime.gpu_profile import (
         ((9, 0), "hopper"),
         ((10, 0), "blackwell"),
         ((12, 0), "blackwell"),
+        ((8, 8), "ampere"),
+        ((9, 5), "hopper"),
+        ((10, 3), "blackwell"),
+        ((11, 0), "blackwell"),
+        ((12, 1), "blackwell"),
         ((7, 5), "other"),
+        ((6, 1), "other"),
+        ((0, 0), "other"),
+        ((13, 0), "other"),
         (None, "none"),
+        ((), "none"),
     ],
 )
 def test_generation_for_capability(capability, generation):
     assert generation_for_capability(capability) == generation
+
+
+@pytest.mark.parametrize(
+    "capability,snapshot_generation,generation,label",
+    [
+        ((8, 6), GpuGeneration.AMPERE, "ampere", "RTX 30-series (Ampere)"),
+        ((8, 9), GpuGeneration.ADA, "ada", "RTX 40-series (Ada)"),
+        ((9, 0), GpuGeneration.HOPPER, "hopper", "Hopper"),
+        ((12, 0), GpuGeneration.BLACKWELL, "blackwell", "RTX 50-series (Blackwell)"),
+        ((7, 5), GpuGeneration.PRE_AMPERE, "other", "this GPU"),
+        ((13, 0), GpuGeneration.UNKNOWN, "other", "this GPU"),
+    ],
+)
+def test_profile_generation_and_label_follow_the_snapshot_generation(capability, snapshot_generation, generation, label):
+    device = fake_device(capability)
+    profile = build_gpu_profile(device.capability, 24, device.name)
+
+    assert device.generation is snapshot_generation
+    assert profile.generation == generation
+    assert profile.generation_label == label
+
+
+@pytest.mark.parametrize("capability", [(7, 5), (8, 0), (8, 6), (8, 9), (9, 0), (10, 0), (12, 0), (13, 0)])
+def test_nvfp4_support_tracks_the_snapshot_generation(capability):
+    device = fake_device(capability)
+    profile = build_gpu_profile(device.capability, 24, device.name)
+
+    assert profile.supports("nvfp4") is (device.generation is GpuGeneration.BLACKWELL)
+
+
+def test_generations_supporting_lists_the_gated_generations():
+    assert generations_supporting("nvfp4") == ("blackwell",)
+    assert GENERATION_LABELS["blackwell"] == "RTX 50-series (Blackwell)"
+    for precision in ("bf16", "fp16", "fp8", "int8"):
+        assert generations_supporting(precision) == ()
 
 
 def test_fast_precisions_per_generation():

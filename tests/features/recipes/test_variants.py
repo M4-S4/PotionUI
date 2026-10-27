@@ -16,7 +16,9 @@ from src.features.recipes.variants import (
     resolve_selection,
     validate_selections,
 )
+from src.platform.runtime import gpu_profile
 from src.platform.runtime.gpu_profile import GpuProfile, build_gpu_profile
+from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities, fake_device
 
 GB = 1024 ** 3
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -173,6 +175,76 @@ def test_assessment_notes():
     assert slow.recommended is True and slow.fast is False
     assert "isn't hardware-accelerated" in slow.note
     assert assess_variant(fp8, _gpu("ada", 24)).note is None
+
+
+def _gpu_from_snapshot(snapshot, vram_gb):
+    device = snapshot.device(0)
+    if device.index is None:
+        return GpuProfile()
+    return build_gpu_profile(device.capability, vram_gb, device.name)
+
+
+SNAPSHOTS = {
+    "cpu": cpu_only,
+    "ampere": lambda: fake_capabilities(ampere()),
+    "ada": lambda: fake_capabilities(ada()),
+    "blackwell": lambda: fake_capabilities(blackwell()),
+}
+
+SNAPSHOT_MATRIX = [
+    ("cpu", 0, "dit_fp8", "te_fp8"),
+    ("ampere", 24, "dit_int8", "te_fp8"),
+    ("ada", 24, "dit_fp8", "te_fp8"),
+    ("blackwell", 16, "dit_nvfp4", "te_fp8"),
+    ("blackwell", 32, "dit_fp8", "te_bf16"),
+]
+
+NVFP4_NOTE = "nvfp4 needs an RTX 50-series (Blackwell) GPU"
+
+
+@pytest.mark.parametrize("snapshot,vram,expected_dit,expected_te", SNAPSHOT_MATRIX)
+def test_variant_choice_follows_the_installed_snapshot(install_capabilities, snapshot, vram, expected_dit, expected_te):
+    from src.platform.runtime.native.kernels import capabilities
+
+    install_capabilities(SNAPSHOTS[snapshot]())
+    gpu = _gpu_from_snapshot(capabilities(), vram)
+
+    assert choose_variant(_dit(), gpu).variant_id == expected_dit
+    assert choose_variant(_te(), gpu).variant_id == expected_te
+
+
+@pytest.mark.parametrize(
+    "snapshot,supported,note",
+    [("cpu", False, None), ("ampere", False, NVFP4_NOTE), ("ada", False, NVFP4_NOTE), ("blackwell", True, None)],
+)
+def test_nvfp4_assessment_follows_the_installed_snapshot(install_capabilities, snapshot, supported, note):
+    from src.platform.runtime.native.kernels import capabilities
+
+    install_capabilities(SNAPSHOTS[snapshot]())
+    gpu = _gpu_from_snapshot(capabilities(), 24)
+    assessment = assess_variant(_dit().get_variant("dit_nvfp4"), gpu)
+
+    assert assessment.supported is supported
+    assert assessment.note == note
+
+
+@pytest.mark.parametrize("capability", [(7, 5), (8, 6), (8, 9), (9, 0), (10, 0), (12, 0), (12, 1), (13, 0)])
+def test_nvfp4_is_supported_exactly_on_the_snapshot_blackwell_generation(capability):
+    from src.platform.runtime.gpu_generation import GpuGeneration
+
+    device = fake_device(capability)
+    gpu = build_gpu_profile(device.capability, 24, device.name)
+    assessment = assess_variant(_dit().get_variant("dit_nvfp4"), gpu)
+
+    assert assessment.supported is (device.generation is GpuGeneration.BLACKWELL)
+
+
+def test_unsupported_note_names_the_generation_from_the_label_table(monkeypatch):
+    monkeypatch.setitem(gpu_profile.GENERATION_LABELS, gpu_profile.GENERATION_BLACKWELL, "RTX 60-series (Rubin)")
+
+    note = assess_variant(_dit().get_variant("dit_nvfp4"), _gpu("ada", 24)).note
+
+    assert note == "nvfp4 needs an RTX 60-series (Rubin) GPU"
 
 
 def test_resolve_selection_swaps_the_file_fields():
