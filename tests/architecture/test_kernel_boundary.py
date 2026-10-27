@@ -52,8 +52,6 @@ DIRECT_ATTENTION = "scaled_dot_product_attention"
 DIRECT_ATTENTION_ALLOWLIST: dict[str, str] = {
     "src/platform/runtime/native/arch/ltx/duration_head.py":
         "one learned query pooled once per prompt, attention is under 0.1% of the head",
-    "src/platform/runtime/native/arch/minimax_h3/model.py":
-        "query-chunked rescue after an accelerated kernel ran out of memory must be plain sdpa",
     "src/platform/runtime/native/arch/moge/model.py":
         "camera estimator backbone runs once per input image, not per denoise step",
     "src/platform/runtime/native/text_encoders/_functional.py":
