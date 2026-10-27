@@ -85,6 +85,7 @@ ALL_PARTS = [
     ReasoningPart(),
     ReasoningPart(text="raw chain", summary="short", redacted=False, opaque={"signature": "sig=="}),
     ReasoningPart(redacted=True, opaque={"data": "EmwKAhgB"}),
+    ReasoningPart(text="timed", duration_ms=1840),
     ToolCallPart(call_id="call_1", name="search", args={"q": "x", "nested": {"k": [1, 2]}}, args_raw='{"q": "x", "nested": {"k": [1,2]}}', wire_id="toolu_01", opaque={"thought_signature": "abc"}),
     ToolCallPart(call_id="call_2", name="broken", args=None, args_raw='{"q": "trunc'),
     ToolCallPart(call_id="call_3", name="ollama_style", args={"a": 1}),
@@ -125,6 +126,17 @@ def test_a_full_conversation_round_trips_with_raw_and_origin():
     assert decoded[2].replays_raw_to(ANTHROPIC)
     assert not decoded[2].replays_raw_to(Origin(adapter="anthropic-messages", provider="anthropic", model="claude-sonnet-5-5", credential="ffffffffffffffff"))
     assert decoded[1].role is Role.USER
+
+
+def test_a_reasoning_part_stored_before_it_had_a_duration_still_loads():
+    stored = {"type": "reasoning", "text": "x", "summary": "", "redacted": False, "opaque": None}
+
+    loaded = codec.from_json(Part, stored)
+
+    assert loaded == ReasoningPart(text="x") and loaded.duration_ms is None
+    assert codec.to_json(ReasoningPart(text="x", duration_ms=12))["duration_ms"] == 12
+    with pytest.raises(ValueError):
+        codec.from_json(Part, {**stored, "duration_ms": "12"})
 
 
 def test_stored_json_is_ascii_and_keeps_the_part_tag_first():

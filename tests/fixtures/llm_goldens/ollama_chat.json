@@ -1,0 +1,1396 @@
+{
+  "prompt_only": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "say hi"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "prompt_with_an_image": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "say hi",
+          "images": [
+            "aW1hZ2UtYnl0ZXM="
+          ]
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "a_named_thinking_level": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "say hi"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": "high",
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "provider_options_reach_options_and_root": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "say hi"
+        }
+      ],
+      "stream": true,
+      "keep_alive": "5m",
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512,
+        "num_ctx": 8192,
+        "top_k": 20,
+        "top_p": 0.8,
+        "stop": [
+          "</done>"
+        ]
+      }
+    }
+  },
+  "plain_history": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi there"
+        },
+        {
+          "role": "user",
+          "content": "how are you"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "override_wins_over_provider_options": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi there"
+        },
+        {
+          "role": "user",
+          "content": "how are you"
+        }
+      ],
+      "stream": true,
+      "keep_alive": "5m",
+      "think": false,
+      "options": {
+        "temperature": 0.1,
+        "num_predict": 64,
+        "num_ctx": 8192,
+        "top_k": 40,
+        "top_p": 0.5,
+        "stop": [
+          "</done>"
+        ]
+      }
+    }
+  },
+  "saved_min_p": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi there"
+        },
+        {
+          "role": "user",
+          "content": "how are you"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512,
+        "min_p": 0.05
+      }
+    }
+  },
+  "per_call_min_p_wins": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi there"
+        },
+        {
+          "role": "user",
+          "content": "how are you"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512,
+        "min_p": 0.2
+      }
+    }
+  },
+  "history_image_on_the_last_user_message": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi there"
+        },
+        {
+          "role": "user",
+          "content": "how are you",
+          "images": [
+            "aW1hZ2UtYnl0ZXM="
+          ]
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "empty_system_sends_no_system_turn": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi there"
+        },
+        {
+          "role": "user",
+          "content": "how are you"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "native_tools": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "native_tool_arguments_as_an_object": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "tool_history_without_tools": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "prompt_tools_rewrite_the_conversation": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS\n\n## Available Tools\n\nYou have the following tools available. To call a tool, output a `<tool_call>` XML block with a JSON body containing `name` and `arguments`.\n\nExample:\n<tool_call>{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}</tool_call>\n\nYou may call multiple tools in a single response. After each tool call you will receive the result in the next message. When you have enough information, respond normally without any tool_call blocks.\n\n### Tools\n\n**get_form_state**: Read the current form\n  Parameters: {\"properties\":{\"scope\":{\"description\":\"what to read\",\"type\":\"string\"}},\"required\":[\"scope\"],\"type\":\"object\"}\n"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "<tool_call>{\"name\": \"get_form_state\", \"arguments\": {\"scope\": \"all\"}}</tool_call>"
+        },
+        {
+          "role": "user",
+          "content": "[Tool Result: get_form_state]\n{\"ok\": true}"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "saved_null_think_is_false": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "saved_null_think_with_tools": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "null_override_keeps_the_saved_think": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "hello"
+        },
+        {
+          "role": "assistant",
+          "content": "hi there"
+        },
+        {
+          "role": "user",
+          "content": "how are you"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": "high",
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "explicit_true_with_tools": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": true,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "explicit_false_with_tools": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "named_level_with_tools": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": "high",
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "override_think_wins_with_tools": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": "medium",
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "unrelated_override_keeps_saved_think": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": true,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512,
+        "top_p": 0.5
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "everything_together": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks",
+          "images": [
+            "aW1hZ2UtYnl0ZXM="
+          ]
+        }
+      ],
+      "stream": true,
+      "keep_alive": "5m",
+      "think": false,
+      "options": {
+        "temperature": 0.1,
+        "num_predict": 64,
+        "num_ctx": 8192,
+        "top_k": 40,
+        "top_p": 0.5,
+        "stop": [
+          "</done>"
+        ]
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "native_tool_turn_carries_its_thinking": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ],
+          "thinking": "The form has to be read before anything is changed."
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "empty_reasoning_sends_no_thinking": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "missing_reasoning_sends_no_thinking": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "",
+          "tool_calls": [
+            {
+              "id": "call_1",
+              "type": "function",
+              "function": {
+                "name": "get_form_state",
+                "arguments": {
+                  "scope": "all"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": "{\"ok\": true}",
+          "tool_call_id": "call_1"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      },
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_form_state",
+            "description": "Read the current form",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "description": "what to read"
+                }
+              },
+              "required": [
+                "scope"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "prompt_tools_carry_the_thinking_on_the_text_turn": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS\n\n## Available Tools\n\nYou have the following tools available. To call a tool, output a `<tool_call>` XML block with a JSON body containing `name` and `arguments`.\n\nExample:\n<tool_call>{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}</tool_call>\n\nYou may call multiple tools in a single response. After each tool call you will receive the result in the next message. When you have enough information, respond normally without any tool_call blocks.\n\n### Tools\n\n**get_form_state**: Read the current form\n  Parameters: {\"properties\":{\"scope\":{\"description\":\"what to read\",\"type\":\"string\"}},\"required\":[\"scope\"],\"type\":\"object\"}\n"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "<tool_call>{\"name\": \"get_form_state\", \"arguments\": {\"scope\": \"all\"}}</tool_call>",
+          "thinking": "The form has to be read before anything is changed."
+        },
+        {
+          "role": "user",
+          "content": "[Tool Result: get_form_state]\n{\"ok\": true}"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  },
+  "prompt_tools_without_reasoning": {
+    "url": "http://peer.invalid:1234/api/chat",
+    "authorization": null,
+    "body": {
+      "model": "golden-model",
+      "messages": [
+        {
+          "role": "system",
+          "content": "SYS\n\n## Available Tools\n\nYou have the following tools available. To call a tool, output a `<tool_call>` XML block with a JSON body containing `name` and `arguments`.\n\nExample:\n<tool_call>{\"name\": \"tool_name\", \"arguments\": {\"arg1\": \"value1\"}}</tool_call>\n\nYou may call multiple tools in a single response. After each tool call you will receive the result in the next message. When you have enough information, respond normally without any tool_call blocks.\n\n### Tools\n\n**get_form_state**: Read the current form\n  Parameters: {\"properties\":{\"scope\":{\"description\":\"what to read\",\"type\":\"string\"}},\"required\":[\"scope\"],\"type\":\"object\"}\n"
+        },
+        {
+          "role": "user",
+          "content": "use the tool"
+        },
+        {
+          "role": "assistant",
+          "content": "<tool_call>{\"name\": \"get_form_state\", \"arguments\": {\"scope\": \"all\"}}</tool_call>"
+        },
+        {
+          "role": "user",
+          "content": "[Tool Result: get_form_state]\n{\"ok\": true}"
+        },
+        {
+          "role": "user",
+          "content": "thanks"
+        }
+      ],
+      "stream": true,
+      "keep_alive": 0,
+      "think": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+  }
+}

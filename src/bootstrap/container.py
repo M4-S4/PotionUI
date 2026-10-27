@@ -143,10 +143,15 @@ from src.features.segments.repository import (
     SegmentTemplateRepository,
 )
 from src.features.llm.gateway import LLMGateway
-from src.features.llm.clients import NativeLLMClient, OllamaClient, OpenAIClient
+from src.features.llm.clients import NativeLLMClient, OllamaClient
+from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
+from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
 from src.features.llm.context_windows import ContextWindows
-from src.features.llm.harness.baseline import InMemoryTurnStore, NoRetry, SequentialToolRunner, StaticProfileResolver
+from src.features.llm.harness.baseline import StaticProfileResolver
 from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.retry import BackoffRetry
+from src.features.llm.harness.store import SqliteTurnStore
+from src.features.llm.harness.tool_runner import ParallelToolRunner
 from src.features.llm.types import LLMType, LLMTypes
 from src.bootstrap.composition import ChatDeps, build_chat
 from src.bootstrap.composition.chat import register_session_memory_cleanup
@@ -368,6 +373,7 @@ class AppContainer:
     # LLM
     llm_repository: LLMRepository
     llm_service: LLMGateway
+    turn_store: "SqliteTurnStore"
     turn_engine: "TurnEngine"
     llm_memory_repository: "LLMMemoryRepository"
     chat_call_trace_recorder: "ChatCallTraceRecorder"
@@ -815,7 +821,8 @@ def build_container() -> AppContainer:
     llm_types = LLMTypes(
         core=(
             LLMType(type="ollama", adapter=OllamaClient()),
-            LLMType(type="openai", adapter=OpenAIClient()),
+            LLMType(type="openai", adapter=OpenAIResponsesAdapter(), default_base_url="https://api.openai.com/v1"),
+            LLMType(type="openai-compatible", adapter=OpenAIChatAdapter()),
             LLMType(type="native", adapter=NativeLLMClient(model_lifecycle, model_roots)),
         ),
         provider_registry=llm_provider_registry,
@@ -1031,12 +1038,13 @@ def build_container() -> AppContainer:
     # registry) so startup plugin enabling could populate them.
 
     tool_executor = ToolExecutor(tool_registry=tool_registry)
+    turn_store = SqliteTurnStore()
     turn_engine = TurnEngine(
         gateway=llm_service,
         tools=tool_executor,
-        runner=SequentialToolRunner(tool_executor),
-        store=InMemoryTurnStore(),
-        retry=NoRetry(),
+        runner=ParallelToolRunner(tool_executor),
+        store=turn_store,
+        retry=BackoffRetry(),
     )
 
     # Global tool governance (admin enable/lock + per-user opt-out), layered

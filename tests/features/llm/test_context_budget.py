@@ -144,6 +144,13 @@ class TestResolveThinkingEnabled:
         config = _config(type="openai", provider_options={"reasoning_effort": "medium"})
         assert resolve_thinking_enabled(config) is True
 
+    def test_openai_compatible_reasoning_effort_is_read_like_openai(self):
+        enabled = _config(type="openai-compatible", provider_options={"reasoning_effort": "high"})
+        disabled = _config(type="openai-compatible", provider_options={"reasoning_effort": "none"})
+
+        assert resolve_thinking_enabled(enabled) is True
+        assert resolve_thinking_enabled(disabled) is False
+
     def test_openai_reasoning_effort_none_is_disabled(self):
         config = _config(type="openai", provider_options={"reasoning_effort": "none"})
         assert resolve_thinking_enabled(config) is False

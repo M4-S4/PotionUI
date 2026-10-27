@@ -1,0 +1,171 @@
+{
+  "message": {
+    "id": "msg_01",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "Checking both cities.\n\nCalling the tool twice.",
+        "redacted": false,
+        "opaque": {
+          "id": "rs_0a1b2c3d4e5f6071",
+          "encrypted_content": "gAAAAABq_weather_plan_encrypted_blob_aGVsbG8gd29ybGQ="
+        },
+        "duration_ms": null
+      },
+      {
+        "type": "text",
+        "text": "Let me check both.",
+        "phase": "commentary"
+      },
+      {
+        "type": "tool_call",
+        "call_id": "call_paris_01",
+        "name": "get_weather",
+        "args": {
+          "city": "Paris"
+        },
+        "args_raw": "{\"city\":\"Paris\"}",
+        "wire_id": "fc_0a1b2c3d4e5f6071",
+        "opaque": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "call_zurich_02",
+        "name": "get_weather",
+        "args": {
+          "city": "Zürich"
+        },
+        "args_raw": "{\"city\":\"Zürich\"}",
+        "wire_id": "fc_0a1b2c3d4e5f6072",
+        "opaque": null
+      }
+    ],
+    "origin": {
+      "adapter": "openai-responses",
+      "provider": "openai",
+      "model": "gpt-5.6",
+      "credential": "dee06718cc8f372a"
+    },
+    "raw": [
+      {
+        "id": "rs_0a1b2c3d4e5f6071",
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "Checking both cities."
+          },
+          {
+            "type": "summary_text",
+            "text": "Calling the tool twice."
+          }
+        ],
+        "encrypted_content": "gAAAAABq_weather_plan_encrypted_blob_aGVsbG8gd29ybGQ="
+      },
+      {
+        "id": "msg_0a1b2c3d4e5f6071",
+        "type": "message",
+        "status": "completed",
+        "phase": "commentary",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "Let me check both."
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "id": "fc_0a1b2c3d4e5f6071",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"city\":\"Paris\"}",
+        "call_id": "call_paris_01",
+        "name": "get_weather"
+      },
+      {
+        "id": "fc_0a1b2c3d4e5f6072",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"city\":\"Zürich\"}",
+        "call_id": "call_zurich_02",
+        "name": "get_weather"
+      }
+    ]
+  },
+  "usage": {
+    "input_tokens": 412,
+    "output_tokens": 187,
+    "total_tokens": 599,
+    "reasoning_tokens": 128,
+    "cached_input_tokens": 0,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "input_tokens": 412,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 187,
+      "output_tokens_details": {
+        "reasoning_tokens": 128
+      },
+      "total_tokens": 599
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "completed",
+    "raw": [
+      {
+        "id": "rs_0a1b2c3d4e5f6071",
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "Checking both cities."
+          },
+          {
+            "type": "summary_text",
+            "text": "Calling the tool twice."
+          }
+        ],
+        "encrypted_content": "gAAAAABq_weather_plan_encrypted_blob_aGVsbG8gd29ybGQ="
+      },
+      {
+        "id": "msg_0a1b2c3d4e5f6071",
+        "type": "message",
+        "status": "completed",
+        "phase": "commentary",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "Let me check both."
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "id": "fc_0a1b2c3d4e5f6071",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"city\":\"Paris\"}",
+        "call_id": "call_paris_01",
+        "name": "get_weather"
+      },
+      {
+        "id": "fc_0a1b2c3d4e5f6072",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"city\":\"Zürich\"}",
+        "call_id": "call_zurich_02",
+        "name": "get_weather"
+      }
+    ]
+  }
+}

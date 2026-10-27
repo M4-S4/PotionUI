@@ -1,0 +1,25 @@
+{
+  "messages": [
+    {
+      "id": "tool_02",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "call_delete_01",
+          "name": "delete_file",
+          "content": [
+            {
+              "type": "text",
+              "text": "The user declined this call: it would remove 214 files.",
+              "phase": null
+            }
+          ],
+          "is_error": true
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

@@ -88,6 +88,12 @@ def test_stop_none_is_valid():
     assert req.provider_options["stop"] is None
 
 
+@pytest.mark.parametrize("config_type", ["openai", "openai-compatible"])
+def test_both_openai_types_get_the_openai_validators(config_type):
+    with pytest.raises(ValidationError, match="reasoning_effort"):
+        _request(config_type, reasoning_effort="ultra")
+
+
 def test_openai_validators_are_skipped_for_other_provider_types():
     req = _request(config_type="ollama", seed="not-an-int", reasoning_effort="ultra", parallel_tool_calls="true", stop=5)
     assert req.provider_options == {

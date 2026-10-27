@@ -1,0 +1,79 @@
+{
+  "message": {
+    "id": "a3",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "",
+        "redacted": false,
+        "opaque": {
+          "signature": "ErUBCkYIARgCIkB-hand-built-signature-3"
+        },
+        "duration_ms": null
+      },
+      {
+        "type": "text",
+        "text": "Paris is overcast at 14 °C, Tokyo is clear at 22 °C and it is 21:42 there.",
+        "phase": null
+      }
+    ],
+    "origin": {
+      "adapter": "anthropic-messages",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5-5",
+      "credential": "e7f9d1c8882fa5dd"
+    },
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "ErUBCkYIARgCIkB-hand-built-signature-3"
+        },
+        {
+          "type": "text",
+          "text": "Paris is overcast at 14 °C, Tokyo is clear at 22 °C and it is 21:42 there."
+        }
+      ],
+      "sha256": "bab5f8099426596167a578ff8c0d24e494045a6c9fd84e1b4379249e4ba3dea8",
+      "prefix": "f56f0fe81ca95cd913f01cc064800a96c31550a0a295b67795ab75b23ef3066d"
+    }
+  },
+  "usage": {
+    "input_tokens": 2328,
+    "output_tokens": 41,
+    "total_tokens": 2369,
+    "reasoning_tokens": null,
+    "cached_input_tokens": 2150,
+    "cache_write_tokens": 120,
+    "cost": null,
+    "raw": {
+      "input_tokens": 58,
+      "cache_creation_input_tokens": 120,
+      "cache_read_input_tokens": 2150,
+      "output_tokens": 41
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "end_turn",
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "ErUBCkYIARgCIkB-hand-built-signature-3"
+        },
+        {
+          "type": "text",
+          "text": "Paris is overcast at 14 °C, Tokyo is clear at 22 °C and it is 21:42 there."
+        }
+      ],
+      "sha256": "bab5f8099426596167a578ff8c0d24e494045a6c9fd84e1b4379249e4ba3dea8",
+      "prefix": "f56f0fe81ca95cd913f01cc064800a96c31550a0a295b67795ab75b23ef3066d"
+    }
+  }
+}

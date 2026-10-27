@@ -1,0 +1,74 @@
+{
+  "method": "POST",
+  "url": "https://api.openai.com/v1/responses",
+  "headers": {
+    "Content-Type": "application/json",
+    "Accept": "text/event-stream",
+    "Authorization": "[scrubbed]"
+  },
+  "body": {
+    "model": "gpt-5.6",
+    "instructions": "You are a careful assistant. Use tools when they help.",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Delete the build folder."
+          }
+        ]
+      },
+      {
+        "id": "rs_2c3d4e5f60718293",
+        "type": "reasoning",
+        "summary": [],
+        "encrypted_content": "gAAAAABq_delete_plan_encrypted_blob_dGhpcmQ="
+      },
+      {
+        "id": "fc_2c3d4e5f60718293",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"path\":\"build/\"}",
+        "call_id": "call_delete_01",
+        "name": "delete_file"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_delete_01",
+        "output": "The user declined this call: it would remove 214 files."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "name": "delete_file",
+        "description": "Delete a file or folder.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    ],
+    "store": false,
+    "stream": true,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "reasoning": {
+      "effort": "medium",
+      "summary": "auto"
+    },
+    "max_output_tokens": 4096,
+    "prompt_cache_key": "conv-cassette"
+  }
+}

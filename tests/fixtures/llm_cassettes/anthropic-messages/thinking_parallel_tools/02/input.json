@@ -1,0 +1,44 @@
+{
+  "messages": [
+    {
+      "id": "t1",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01HandBuiltParis",
+          "name": "get_weather",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"temp_c\": 14, \"sky\": \"overcast\"}",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        },
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01HandBuiltTokyo",
+          "name": "get_weather",
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"temp_c\": 22, \"sky\": \"clear\"}",
+              "phase": null
+            },
+            {
+              "type": "image",
+              "media_type": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+              "ref": null
+            }
+          ],
+          "is_error": false
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

@@ -1,338 +1,80 @@
-from typing import Any, Dict, List
+import asyncio
 
-import pytest
-
-from src.features.llm.harness.build import JPEG, user_message
-from src.features.llm.harness.engine import MAX_RESCUE_RETRIES, TurnInput, TurnOutcome
-from src.features.llm.harness.events import Finish, FinishReason, TextDelta
-from src.features.llm.harness.messages import ImagePart, Role, TextPart
-from src.features.llm.harness.turn_state import ToolFinished, TurnStatus
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult, ToolSource
-from src.features.llm.tools.executor import ToolExecutor
-from tests.fixtures.llm_engine import drain, scripted_config, scripted_engine
+from src.features.llm.harness.messages import Role
+from src.features.llm.harness.recovery import CANCELLED_REASON
+from src.features.llm.harness.turn_state import PendingCall, StepCommitted, StepStatus, ToolFinished, TurnStatus
+from tests.features.llm.harness.probes import Probe, Shared
+from tests.features.llm.harness.stepping import engine_turn, outcome_of
+from tests.fixtures.llm_engine import drain, scripted_engine
 from tests.fixtures.llm_harness import ScriptedAdapter, text_step, tool_step
 
 
-class EchoTool(BaseTool):
-    name = "echo"
-    description = "Echoes a message back."
-    parameters = {"type": "object", "properties": {"message": {"type": "string"}}, "required": ["message"]}
-
-    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
-        return ToolResult(success=True, data=f"echo: {kwargs.get('message', '')}")
+def probes(log, shared, *names):
+    return [
+        Probe(name, log, read_only=name.startswith("read_"), gated=name.startswith("gate_"), shared=shared)
+        for name in names
+    ]
 
 
-class OtherTool(BaseTool):
-    name = "other"
-    description = "Another tool."
-    parameters = {"type": "object", "properties": {}}
-
-    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
-        return ToolResult(success=True, data="other")
-
-
-class RaisingTool(BaseTool):
-    name = "fail"
-    description = "Always raises."
-    parameters = {"type": "object", "properties": {}}
-
-    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
-        raise RuntimeError("intentional failure")
-
-
-class ImageTool(BaseTool):
-    name = "image_tool"
-    description = "Returns an image."
-    parameters = {"type": "object", "properties": {}}
-
-    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
-        return ToolResult(success=True, data="rendered", image_data="dG9vbA==")
-
-
-class BigResultTool(BaseTool):
-    name = "big_result"
-    description = "Returns a lot."
-    parameters = {"type": "object", "properties": {}}
-
-    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
-        return ToolResult(success=True, data="x" * 20000)
-
-
-class SourcedTool(BaseTool):
-    name = "sourced"
-    description = "Returns sources."
-    parameters = {"type": "object", "properties": {}}
-
-    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
-        return ToolResult(success=True, data="found", sources=[ToolSource(source_type="prompt", title="Cats", url="https://x.invalid/p1")])
-
-
-class PreviewTool(BaseTool):
-    name = "preview"
-    description = "Needs approval."
-    parameters = {"type": "object", "properties": {}}
-    requires_approval = True
-
-    def __init__(self, succeed: bool = True) -> None:
-        self.succeed = succeed
-
-    async def execute(self, context: ToolContext, **kwargs: Any) -> ToolResult:
-        if not self.succeed:
-            return ToolResult(success=False, data="", error="nothing to change")
-        return ToolResult(success=True, data="", preview=ToolApprovalPreview(action="Change"))
-
-
-def turn(**overrides: Any) -> TurnInput:
-    values: Dict[str, Any] = dict(
-        session_id="s1",
-        llm_id="cfg-scripted",
-        system="SYS",
-        history=(),
-        new_messages=(user_message("go", message_id="u1"),),
-        tool_context=ToolContext(user_id="user-1", llm_id="cfg-scripted"),
-    )
-    values.update(overrides)
-    return TurnInput(**values)
-
-
-def outcome(events: List[Any]) -> TurnOutcome:
-    return next(event for event in events if isinstance(event, TurnOutcome))
-
-
-def visible(events: List[Any]) -> str:
-    return "".join(event.text for event in events if isinstance(event, TextDelta))
-
-
-def results(request) -> List[Any]:
-    return [part for message in request.messages for part in message.tool_results()]
-
-
-class _VisionRepository:
-    def __init__(self, supports_vision):
-        self.supports_vision = supports_vision
-
-    def get_configuration(self, config_id):
-        return scripted_config(supports_vision=self.supports_vision) if self.supports_vision is not None else None
-
-
-async def test_only_allowed_tools_are_offered_and_a_disallowed_call_gets_a_teaching_error():
-    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "other", "args": {}}), text_step("ok"))
-    rig = scripted_engine(adapter, [EchoTool(), OtherTool()])
-
-    events = await drain(rig.engine.run(turn(allowed_tools=("echo",))))
-
-    assert [tool.name for tool in adapter.requests[0].tools] == ["echo"]
-    [result] = results(adapter.requests[1])
-    assert result.is_error and "other" in result.text() and "echo" in result.text()
-    assert outcome(events).executions[0].result.success is False
-
-
-async def test_an_unknown_tool_and_a_raising_tool_both_return_error_results():
+async def test_read_only_tools_in_one_round_run_together_and_reach_the_model_in_emission_order():
+    log = []
+    shared = Shared()
+    shared.barrier = asyncio.Barrier(2)
     adapter = ScriptedAdapter(
-        tool_step({"id": "c1", "name": "missing", "args": {}}, {"id": "c2", "name": "fail", "args": {}}),
-        text_step("ok"),
+        tool_step({"id": "a", "name": "read_a"}, {"id": "b", "name": "read_b"}),
+        text_step("both read"),
     )
-    rig = scripted_engine(adapter, [RaisingTool()])
+    rig = scripted_engine(adapter, probes(log, shared, "read_a", "read_b"))
 
-    await drain(rig.engine.run(turn()))
+    events = await asyncio.wait_for(drain(rig.engine.run(engine_turn())), 3)
 
-    missing, failing = results(adapter.requests[1])
-    assert missing.is_error and "not found" in missing.text()
-    assert failing.is_error and failing.text().startswith("Error:")
-
-
-async def test_the_users_image_stays_on_the_user_message_for_every_step():
-    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "echo", "args": {"message": "a"}}), text_step("seen"))
-    rig = scripted_engine(adapter, [EchoTool()])
-
-    await drain(rig.engine.run(turn(new_messages=(user_message("look", images=("aW1n",)),))))
-
-    for request in adapter.requests:
-        assert request.messages[0].parts[1] == ImagePart(media_type=JPEG, data="aW1n")
+    assert shared.peak == 2
+    assert outcome_of(events).content == "both read"
+    sent = adapter.requests[1].messages[-1]
+    assert sent.role is Role.TOOL
+    assert [(result.call_id, result.text()) for result in sent.tool_results()] == [("a", "read_a done"), ("b", "read_b done")]
+    assert [execution.tool_call_id for execution in outcome_of(events).executions] == ["a", "b"]
 
 
-@pytest.mark.parametrize(
-    "supports_vision, attached",
-    [(True, True), (None, True), (False, False)],
-)
-async def test_a_tool_image_is_kept_only_when_the_model_can_see_it(supports_vision, attached):
-    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "image_tool", "args": {}}), text_step("ok"))
-    rig = scripted_engine(adapter, [ImageTool()])
-    context = ToolContext(user_id="user-1", llm_id="cfg-scripted", llm_repository=_VisionRepository(supports_vision))
-
-    await drain(rig.engine.run(turn(tool_context=context)))
-
-    [result] = results(adapter.requests[1])
-    images = [item for item in result.content if isinstance(item, ImagePart)]
-    assert bool(images) is attached
-    assert ("cannot see images" in result.text()) is not attached
-
-
-async def test_a_failed_preview_does_not_pause_the_turn():
-    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "preview", "args": {}}), text_step("nothing to do"))
-    rig = scripted_engine(adapter, [PreviewTool(succeed=False)])
-
-    events = await drain(rig.engine.run(turn()))
-
-    assert outcome(events).state.status is TurnStatus.COMPLETED
-    assert outcome(events).content == "nothing to do"
-
-
-async def test_tool_end_payloads_carry_sources():
-    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "sourced", "args": {}}), text_step("ok"))
-    rig = scripted_engine(adapter, [SourcedTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    finished = next(event for event in events if isinstance(event, ToolFinished))
-    payload = ToolExecutor.tool_end_payload(finished.record)
-    assert payload["sources"][0]["title"] == "Cats"
-    assert payload["success"] is True and "arguments" not in payload
-
-
-async def test_an_oversized_result_is_truncated_with_a_teaching_marker():
-    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "big_result", "args": {}}), text_step("ok"))
-    rig = scripted_engine(adapter, [BigResultTool()])
-
-    await drain(rig.engine.run(turn()))
-
-    [result] = results(adapter.requests[1])
-    assert len(result.text()) < 9000
-    assert result.text().startswith("x" * 100)
-    assert "[Result truncated at 8000 characters." in result.text()
-
-
-async def test_a_tool_action_tag_is_repaired_into_a_dispatched_call():
+async def test_a_round_with_an_approval_pauses_with_every_other_call_resolved():
+    log = []
     adapter = ScriptedAdapter(
-        [TextDelta(block=1, text='<tool_action type="echo" message="hi">'), Finish(reason=FinishReason.STOP)],
-        text_step("done echoing"),
+        tool_step({"id": "a", "name": "read_a"}, {"id": "b", "name": "gate_b"}, {"id": "c", "name": "write_c"}),
+        text_step("never reached"),
     )
-    rig = scripted_engine(adapter, [EchoTool()])
+    rig = scripted_engine(adapter, probes(log, Shared(), "read_a", "gate_b", "write_c"))
 
-    events = await drain(rig.engine.run(turn()))
+    events = await drain(rig.engine.run(engine_turn()))
 
-    result = outcome(events)
-    assert result.content == "done echoing"
-    assert [(e.tool_name, e.arguments) for e in result.executions] == [("echo", {"message": "hi"})]
-    assert result.rescues == [{"tool_name": "echo", "repaired": True, "original_format": "tool_action_tag"}]
-    assert "<tool_action" not in visible(events)
-
-
-async def test_an_ambiguous_near_miss_is_steered_then_bounded_with_an_honest_fallback():
-    ambiguous = [TextDelta(block=1, text='<tool_action type="echo">'), Finish(reason=FinishReason.STOP)]
-    adapter = ScriptedAdapter(*([ambiguous] * (MAX_RESCUE_RETRIES + 1)))
-    rig = scripted_engine(adapter, [EchoTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    result = outcome(events)
-    assert len(adapter.requests) == MAX_RESCUE_RETRIES + 1
-    assert result.reason == "ambiguous" and "couldn't format" in result.content
-    assert result.executions == () and result.completion is None
-    second = adapter.requests[1].messages
-    assert any(message.role is Role.USER and "<tool_call>" in message.parts[0].text for message in second[1:])
+    outcome = outcome_of(events)
+    assert outcome.pending and outcome.state.status is TurnStatus.AWAITING_DECISION
+    assert [item.call_id for item in outcome.state.pending] == ["b"]
+    assert [item.call_id for item in events if isinstance(item, PendingCall)] == []
+    assert [result.call_id for result in outcome.state.gathered] == ["a", "c"]
+    assert outcome.state.gathered[1].is_error and "waiting for approval of gate_b" in outcome.state.gathered[1].text()
+    assert "start:write_c" not in log
+    assert [(item.tool_call_id, item.approval_status, item.skipped) for item in outcome.executions] == [
+        ("a", None, False), ("b", "pending", False), ("c", None, True),
+    ]
+    assert len(adapter.requests) == 1
+    committed = [event.step.message.role for event in events if isinstance(event, StepCommitted)]
+    assert committed == [Role.USER, Role.ASSISTANT]
+    assert [event.result.call_id for event in events if isinstance(event, ToolFinished)] == ["a", "b", "c"]
 
 
-async def test_prose_mentioning_a_tool_is_not_rescued():
-    adapter = ScriptedAdapter(text_step("I already used echo to check that."))
-    rig = scripted_engine(adapter, [EchoTool()])
+async def test_closing_the_turn_right_after_an_approval_placeholder_closes_that_call_as_cancelled():
+    log = []
+    adapter = ScriptedAdapter(tool_step({"id": "a", "name": "read_a"}, {"id": "b", "name": "gate_b"}))
+    rig = scripted_engine(adapter, probes(log, Shared(), "read_a", "gate_b"))
 
-    events = await drain(rig.engine.run(turn()))
+    stream = rig.engine.run(engine_turn())
+    async for event in stream:
+        if isinstance(event, ToolFinished) and event.result.call_id == "b":
+            break
+    await stream.aclose()
 
-    assert outcome(events).content == "I already used echo to check that."
-    assert outcome(events).rescues is None and len(adapter.requests) == 1
-
-
-async def test_an_unclosed_tool_call_never_shows_partial_json_and_falls_back_after_bounded_retries():
-    truncated = [TextDelta(block=1, text='<tool_call>{"name": "echo", "arguments": {"mess'), Finish(reason=FinishReason.LENGTH)]
-    adapter = ScriptedAdapter(*([truncated] * (MAX_RESCUE_RETRIES + 1)))
-    rig = scripted_engine(adapter, [EchoTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    assert visible(events) == ""
-    assert outcome(events).reason == "truncated"
-    assert '{"name"' not in outcome(events).content
-
-
-async def test_a_closed_tool_call_with_broken_json_gets_a_corrective_retry():
-    adapter = ScriptedAdapter(
-        [TextDelta(block=1, text='<tool_call>{"name": "echo", "arguments": {message: hi}}</tool_call>'), Finish(reason=FinishReason.STOP)],
-        text_step("recovered"),
-    )
-    rig = scripted_engine(adapter, [EchoTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    assert outcome(events).content == "recovered"
-    assert len(adapter.requests) == 2
-
-
-async def test_a_registered_tool_action_never_leaks_while_an_unregistered_one_streams():
-    adapter = ScriptedAdapter(
-        [
-            TextDelta(block=1, text='Here <tool_action type="update_segment" id="1">new text</tool_action> '),
-            TextDelta(block=1, text='<tool_act'),
-            TextDelta(block=1, text='ion type="echo" message="x"></tool_action>'),
-            Finish(reason=FinishReason.STOP),
-        ],
-        text_step("done"),
-    )
-    rig = scripted_engine(adapter, [EchoTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    shown = visible(events)
-    assert '<tool_action type="update_segment" id="1">new text</tool_action>' in shown
-    assert 'type="echo"' not in shown
-
-
-async def test_different_arguments_and_successful_repeats_are_not_blocked():
-    adapter = ScriptedAdapter(
-        tool_step({"id": "c1", "name": "echo", "args": {"message": "a"}}),
-        tool_step({"id": "c2", "name": "echo", "args": {"message": "a"}}, {"id": "c3", "name": "echo", "args": {"message": "b"}}),
-        text_step("ok"),
-    )
-    rig = scripted_engine(adapter, [EchoTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    assert [part.text() for part in results(adapter.requests[2])] == ["echo: a", "echo: a", "echo: b"]
-    assert outcome(events).tool_failures is None
-
-
-async def test_failures_are_counted_per_tool():
-    adapter = ScriptedAdapter(
-        tool_step({"id": "c1", "name": "fail", "args": {}}, {"id": "c2", "name": "missing", "args": {}}),
-        text_step("ok"),
-    )
-    rig = scripted_engine(adapter, [RaisingTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    assert outcome(events).tool_failures == {"fail": 1, "missing": 1}
-
-
-async def test_the_callers_history_is_never_mutated():
-    adapter = ScriptedAdapter(tool_step({"id": "c1", "name": "echo", "args": {"message": "a"}}), text_step("ok"))
-    rig = scripted_engine(adapter, [EchoTool()])
-    history = (user_message("earlier", message_id="u0"),)
-    request = turn(history=history)
-
-    await drain(rig.engine.run(request))
-
-    assert request.history == history
-    assert [message.id for message in adapter.requests[0].messages] == ["u0", "u1"]
-
-
-async def test_streamed_text_before_a_tool_call_reaches_the_caller_and_the_stored_step():
-    adapter = ScriptedAdapter(
-        tool_step({"id": "c1", "name": "echo", "args": {"message": "a"}}, text="Checking. "),
-        text_step("Done."),
-    )
-    rig = scripted_engine(adapter, [EchoTool()])
-
-    events = await drain(rig.engine.run(turn()))
-
-    assert visible(events) == "Checking. Done."
-    assert adapter.requests[1].messages[1].parts[0] == TextPart(text="Checking.")
+    closing = rig.store.steps("s1")[-1]
+    assert closing.message.role is Role.TOOL and closing.status is StepStatus.CANCELLED
+    results = {result.call_id: result for result in closing.message.tool_results()}
+    assert results["a"].text() == "read_a done" and not results["a"].is_error
+    assert results["b"].is_error and results["b"].text() == CANCELLED_REASON

@@ -1,0 +1,54 @@
+{
+  "method": "POST",
+  "url": "https://api.openai.com/v1/responses",
+  "headers": {
+    "Content-Type": "application/json",
+    "Accept": "text/event-stream",
+    "Authorization": "[scrubbed]"
+  },
+  "body": {
+    "model": "gpt-5.6",
+    "instructions": "You are a careful assistant. Use tools when they help.",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Name a prime above 100."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "101 is prime."
+          }
+        ],
+        "phase": "final_answer"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "And the next one?"
+          }
+        ]
+      }
+    ],
+    "store": false,
+    "stream": true,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "reasoning": {
+      "effort": "medium",
+      "summary": "auto"
+    },
+    "max_output_tokens": 4096,
+    "prompt_cache_key": "conv-cassette"
+  }
+}

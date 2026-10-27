@@ -81,6 +81,8 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, TYPE_
 from src.features.llm.harness.context import user_text
 from src.features.llm.harness.messages import ContextPart, ImagePart, Message, Role
 
+from src.features.llm.types import OPENAI_TYPES
+
 if TYPE_CHECKING:
     from src.features.llm.model_listing import DiscoveredWindow
     from src.features.llm.repository import LLMConfig
@@ -327,7 +329,7 @@ def resolve_thinking_enabled(
     if provider_type == "native":
         return provider_opts.get("thinking") is True
 
-    if provider_type == "openai":
+    if provider_type in OPENAI_TYPES:
         value = provider_opts.get("reasoning_effort")
         return value is not None and value != "none"
 

@@ -1,0 +1,141 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent.",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "signature",
+    "value": "ErgDCrUDAXLI2nxK3dRw8mYhVt1QpNfJc5LsUoZb7GeXa2TiMq9HvDn0AyEkBr4CjFwSlOz6PgIu1Vt3KmYhQdXe8Rb"
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "summary",
+    "value": [
+      {
+        "type": "text",
+        "text": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent."
+      }
+    ]
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Two backups are older than a year.",
+    "phase": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 2,
+    "call_id": "x5n1h7cb",
+    "name": "delete_backup",
+    "wire_id": "x5n1h7cb"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 2,
+    "text": "{\"name\": \"2025-01\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 2,
+    "args": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 3,
+    "call_id": "y9t4j6fe",
+    "name": "delete_backup",
+    "wire_id": "y9t4j6fe"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "{\"name\": \"2025-02\"}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 3,
+    "args": null
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 171,
+      "output_tokens": 107,
+      "total_tokens": 278,
+      "reasoning_tokens": 76,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": null,
+      "cost": null,
+      "raw": {
+        "total_input_tokens": 171,
+        "input_tokens_by_modality": [
+          {
+            "modality": "text",
+            "tokens": 171
+          }
+        ],
+        "total_cached_tokens": 0,
+        "total_output_tokens": 31,
+        "total_thought_tokens": 76,
+        "total_tool_use_tokens": 0,
+        "total_tokens": 278
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "requires_action",
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "ErgDCrUDAXLI2nxK3dRw8mYhVt1QpNfJc5LsUoZb7GeXa2TiMq9HvDn0AyEkBr4CjFwSlOz6PgIu1Vt3KmYhQdXe8Rb",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent."
+          }
+        ]
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "Two backups are older than a year."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "x5n1h7cb",
+        "name": "delete_backup",
+        "arguments": {
+          "name": "2025-01"
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "y9t4j6fe",
+        "name": "delete_backup",
+        "arguments": {
+          "name": "2025-02"
+        }
+      }
+    ]
+  }
+]

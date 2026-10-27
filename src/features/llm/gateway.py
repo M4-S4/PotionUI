@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from contextlib import aclosing
@@ -9,6 +10,8 @@ from src.features.llm.context_windows import ContextWindows, WindowProbe
 from src.features.llm.harness.adapter import Adapter, RenderRequest, Settings, ToolSpec
 from src.features.llm.harness.assembler import StepAssembler
 from src.features.llm.harness.build import new_id, user_message
+from src.features.llm.harness.cost import priced
+from src.features.llm.harness.errors import HarnessError
 from src.features.llm.harness.events import FinishReason, StreamEvent, Usage
 from src.features.llm.harness.messages import Message, Origin, credential_fingerprint
 from src.features.llm.harness.ports import ProfileResolver
@@ -17,7 +20,10 @@ from src.features.llm.model_listing import DiscoveredModel
 from src.features.llm.repository import LLMConfig, LLMRepository
 from src.features.llm.types import LLMType, LLMTypes
 
-_NON_PARAM_KEYS = ("model", "messages", "tools", "stream", "stream_options")
+_NON_PARAM_KEYS = (
+    "model", "messages", "tools", "stream", "stream_options",
+    "input", "contents", "steps", "system", "system_instruction", "instructions",
+)
 EMPTY_RESPONSE_ATTEMPTS = 3
 
 
@@ -41,6 +47,39 @@ class Completion:
     @property
     def text(self) -> str:
         return self.message.text()
+
+
+def _traced_message(traced: StepAssembler) -> Optional[Message]:
+    try:
+        return traced.message()
+    except Exception:
+        return None
+
+
+def _usage_payload(usage: Usage) -> Dict[str, Any]:
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
+        "cached_input_tokens": usage.cached_input_tokens,
+        "cache_write_tokens": usage.cache_write_tokens,
+        "cost": usage.cost,
+    }
+
+
+def _error_payload(failure: Optional[BaseException]) -> Optional[Dict[str, Any]]:
+    if failure is None:
+        return None
+    if isinstance(failure, HarnessError):
+        return failure.to_json()
+    if isinstance(failure, (asyncio.CancelledError, GeneratorExit)):
+        return {"kind": "cancelled", "message": "The call was stopped before it finished."}
+    return {"kind": "error", "message": str(failure)}
+
+
+def _error_body(failure: Optional[BaseException]) -> Optional[str]:
+    body = failure.detail.get("body") if isinstance(failure, HarnessError) else None
+    return body if isinstance(body, str) and body else None
 
 
 def _reasoning_options(settings: Settings) -> Optional[Dict[str, Any]]:
@@ -184,38 +223,70 @@ class LLMGateway:
         wire = adapter.render(prepared.request, prepared.profile)
         decoder = adapter.decoder(prepared.request, prepared.profile)
         traced = StepAssembler(new_id("trace"), prepared.origin)
+        capture = trace_collector.RawCapture()
         started = time.monotonic()
-        async with aclosing(adapter.send(wire, prepared.request)) as chunks:
-            async for chunk in chunks:
-                for event in decoder.feed(chunk):
-                    traced.feed(event)
-                    yield event
-        for event in decoder.close():
-            traced.feed(event)
-            yield event
-        self._record_trace(prepared, wire.body, traced, started)
+        failure: Optional[BaseException] = None
+        try:
+            async with aclosing(adapter.send(wire, prepared.request)) as chunks:
+                async for chunk in chunks:
+                    capture.add(chunk)
+                    for event in decoder.feed(chunk):
+                        traced.feed(event)
+                        yield event
+            for event in decoder.close():
+                traced.feed(event)
+                yield event
+        except BaseException as error:
+            failure = error
+            raise
+        finally:
+            self._record_trace(prepared, wire.body, traced, capture, started, failure)
+
+    async def release(self, target: Union[str, LLMConfig]) -> None:
+        config = self._config(target)
+        release = getattr(self.types.require(config.type).adapter, "release", None)
+        if release is not None:
+            await release(config)
 
     @staticmethod
-    def _record_trace(prepared: PreparedCall, body: Any, traced: StepAssembler, started: float) -> None:
-        message = traced.message()
-        usage = traced.usage or Usage()
-        body = body if isinstance(body, dict) else {}
-        trace_collector.record(
-            provider=prepared.config.type,
-            model=prepared.config.model,
-            request_system=prepared.request.system,
-            request_messages=body.get("messages") if isinstance(body.get("messages"), list) else [],
-            request_params={key: value for key, value in body.items() if key not in _NON_PARAM_KEYS},
-            request_tools=[tool.name for tool in prepared.request.tools] or None,
-            response_text=message.text(),
-            response_tool_calls=[
-                {"id": call.wire_id or call.call_id, "name": call.name, "arguments": call.args if call.args is not None else call.args_raw}
-                for call in message.tool_calls()
-            ] or None,
-            prompt_tokens=usage.input_tokens,
-            completion_tokens=usage.output_tokens,
-            duration_ms=int((time.monotonic() - started) * 1000),
-        )
+    def _record_trace(
+        prepared: PreparedCall,
+        body: Any,
+        traced: StepAssembler,
+        capture: trace_collector.RawCapture,
+        started: float,
+        failure: Optional[BaseException],
+    ) -> None:
+        if not trace_collector.is_active():
+            return
+        try:
+            message = _traced_message(traced)
+            usage = priced(traced.usage, prepared.profile) or Usage()
+            params = body if isinstance(body, dict) else {}
+            trace_collector.record(
+                provider=prepared.config.type,
+                model=prepared.config.model,
+                request_system=prepared.request.system,
+                request_messages=params.get("messages") if isinstance(params.get("messages"), list) else [],
+                request_params={key: value for key, value in params.items() if key not in _NON_PARAM_KEYS},
+                request_tools=[tool.name for tool in prepared.request.tools] or None,
+                response_text=message.text() if message is not None else None,
+                response_tool_calls=[
+                    {"id": call.wire_id or call.call_id, "name": call.name, "arguments": call.args if call.args is not None else call.args_raw}
+                    for call in (message.tool_calls() if message is not None else ())
+                ] or None,
+                prompt_tokens=usage.input_tokens,
+                completion_tokens=usage.output_tokens,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                adapter=prepared.origin.adapter,
+                request_body=body,
+                response_raw=capture.text() or _error_body(failure),
+                usage=_usage_payload(usage),
+                cost=usage.cost,
+                error=_error_payload(failure),
+            )
+        except Exception:
+            logging.warning("[LLMGateway] recording the call trace failed", exc_info=True)
 
     async def stream(
         self,
@@ -255,7 +326,7 @@ class LLMGateway:
         finish = assembler.finish
         return Completion(
             message=message,
-            usage=assembler.usage,
+            usage=priced(assembler.usage, prepared.profile),
             finish=finish.reason if finish is not None else None,
             finish_raw=finish.raw_reason if finish is not None else None,
         )

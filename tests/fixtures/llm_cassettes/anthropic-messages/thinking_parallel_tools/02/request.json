@@ -1,0 +1,135 @@
+{
+  "method": "POST",
+  "url": "https://api.anthropic.com/v1/messages",
+  "headers": {
+    "anthropic-version": "2026-10-21",
+    "x-api-key": "[scrubbed]",
+    "content-type": "application/json",
+    "accept": "text/event-stream"
+  },
+  "body": {
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 8192,
+    "stream": true,
+    "system": "You are a travel assistant. Use the tools to answer.",
+    "thinking": {
+      "type": "adaptive"
+    },
+    "output_config": {
+      "effort": "medium"
+    },
+    "cache_control": {
+      "type": "ephemeral"
+    },
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Current weather for a city.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ]
+        }
+      },
+      {
+        "name": "get_time",
+        "description": "Current local time for a city.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ]
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is the weather in Paris and Tokyo, and what time is it in Tokyo?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user wants the weather in two cities and the time in Tokyo. The weather lookups are independent, so I can run both at once.",
+            "signature": "ErUBCkYIARgCIkB-hand-built-signature-1"
+          },
+          {
+            "type": "redacted_thinking",
+            "data": "EmwKAhgBEgy3va3pzix-hand-built-redacted-1"
+          },
+          {
+            "type": "text",
+            "text": "I'll check Paris and Tokyo (東京) right away."
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01HandBuiltParis",
+            "name": "get_weather",
+            "input": {
+              "city": "Paris"
+            }
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_01HandBuiltTokyo",
+            "name": "get_weather",
+            "input": {
+              "city": "Tokyo"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01HandBuiltParis",
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"temp_c\": 14, \"sky\": \"overcast\"}"
+              }
+            ]
+          },
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01HandBuiltTokyo",
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"temp_c\": 22, \"sky\": \"clear\"}"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "media_type": "image/png",
+                  "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
