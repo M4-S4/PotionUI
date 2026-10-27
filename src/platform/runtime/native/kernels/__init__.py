@@ -1,3 +1,4 @@
+from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
     SAGE,
@@ -21,7 +22,9 @@ __all__ = [
     "SPARGE",
     "Capabilities",
     "DeviceCapabilities",
+    "GemmSupport",
     "GpuGeneration",
     "capabilities",
+    "gemm_support",
     "refresh_capabilities",
 ]

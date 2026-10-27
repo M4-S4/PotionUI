@@ -11,18 +11,17 @@ import torch.nn.functional as F
 
 import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.runtime.native.ops.dtype import pick_dtypes
+from tests.fixtures.kernel_gemm import gemm_provider
 from vendor.gpl.comfyui.ops import (
     QUANT_FP8_SCALED,
     _fp8_matmul_enabled,
     _nvfp4_fast_path_reject_reason,
     _nvfp4_matmul_enabled,
     _nvfp4_scaled_mm_fast_path_ok,
-    _nvfp4_scaled_mm_supported,
     _quantize_fp8_dynamic,
     _quantize_nvfp4_dynamic,
     _scaled_mm_fast_path_ok,
     _scaled_mm_fast_path_reject_reason,
-    _scaled_mm_supported,
     detect_quant_format,
     disable_weight_init,
     dequantize_nvfp4,
@@ -30,9 +29,7 @@ from vendor.gpl.comfyui.ops import (
     manual_cast,
     pick_operations,
     reset_nvfp4_fast_path_rejection_log,
-    reset_nvfp4_scaled_mm_probe,
     reset_scaled_mm_fast_path_rejection_log,
-    reset_scaled_mm_probe,
 )
 
 from ._nvfp4_ref import F4_MAX as _F4_MAX_REF  # noqa: E402
@@ -221,56 +218,24 @@ def test_pick_dtypes_fp32_downcasts():
 # --- native fp8 matmul (torch._scaled_mm) fast path -----------------------
 
 
-@pytest.fixture(autouse=True)
-def _reset_scaled_mm_probe():
-    reset_scaled_mm_probe()
-    yield
-    reset_scaled_mm_probe()
-
-
 def test_fp8_matmul_disabled_by_default(monkeypatch):
     monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
         assert _fp8_matmul_enabled() is False
 
 
 def test_fp8_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", False)
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
         assert _fp8_matmul_enabled() is False
 
 
 def test_fp8_matmul_flag_on_requires_probe(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=False):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=False)):
         assert _fp8_matmul_enabled() is False
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
         assert _fp8_matmul_enabled() is True
-
-
-def test_scaled_mm_supported_probe_caches(monkeypatch):
-    calls = {"n": 0}
-
-    def fake_capability():
-        calls["n"] += 1
-        return (9, 0)
-
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "get_device_capability", fake_capability)
-    assert _scaled_mm_supported() is True
-    assert _scaled_mm_supported() is True
-    assert calls["n"] == 1  # cached after first probe
-
-
-def test_scaled_mm_supported_false_below_sm89(monkeypatch):
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (8, 6))  # Ampere
-    assert _scaled_mm_supported() is False
-
-
-def test_scaled_mm_supported_false_without_cuda(monkeypatch):
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    assert _scaled_mm_supported() is False
 
 
 def test_scaled_mm_fast_path_ok_happy_case():
@@ -489,7 +454,7 @@ def test_forward_comfy_cast_weights_falls_back_when_non_branchable_lora_deltas_p
     from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
         w_scale = torch.tensor(0.01)
@@ -509,7 +474,7 @@ def test_forward_comfy_cast_weights_falls_back_on_cpu_even_when_gate_on(monkeypa
     # path regardless of the env gate, because input.is_cuda/weight.is_cuda are
     # False on this test box -- torch._scaled_mm is a CUDA-only kernel.
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    with patch("vendor.gpl.comfyui.ops._scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(fp8=True)):
         lin = fp8_ops.Linear(16, 16, bias=False)
         real_w = torch.randn(16, 16) * 0.05
         w_scale = torch.tensor(0.01)
@@ -697,7 +662,7 @@ def test_forward_stages_streamed_cpu_weight_on_demand_and_reaches_kernel(monkeyp
 
     assert lin.weight.is_cuda is False  # streamed leaf: still off-device before the call
 
-    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
          patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
         out = lin(x)
 
@@ -726,7 +691,7 @@ def test_forward_reuses_already_resident_weight_without_extra_copy(monkeypatch):
     resident_ids.add(id(x))
     fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
 
-    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
          patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
         out = lin(x)
 
@@ -750,7 +715,7 @@ def test_forward_restages_every_call_with_no_cross_call_retention(monkeypatch):
     fake_out = torch.zeros(1, 16, dtype=torch.bfloat16)
     weight_id_before = id(lin.weight)
 
-    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
          patch("torch._scaled_mm", return_value=fake_out) as mock_scaled_mm:
         for _ in range(3):
             lin(x)
@@ -785,7 +750,7 @@ def test_forward_falls_back_to_dequant_when_on_demand_staging_oom(monkeypatch):
 
     monkeypatch.setattr(wo, "cast_to", _oom_once_for_weight)
 
-    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+    with patch.object(wo, "GEMM_SUPPORT", gemm_provider(fp8=True)), \
          patch("torch._scaled_mm", side_effect=AssertionError("must not run after staging OOM")):
         out = lin(x)
 
@@ -890,68 +855,24 @@ def test_forward_comfy_cast_weights_does_not_log_when_fp8_fast_path_eligible(cap
 # --- native nvfp4 matmul (torch._scaled_mm_v2 via F.scaled_mm) fast path ---
 
 
-@pytest.fixture(autouse=True)
-def _reset_nvfp4_scaled_mm_probe():
-    reset_nvfp4_scaled_mm_probe()
-    yield
-    reset_nvfp4_scaled_mm_probe()
-
-
 def test_nvfp4_matmul_disabled_by_default(monkeypatch):
     monkeypatch.setattr(comfy_ops, "RUNTIME_FLAGS", {})
-    with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=True)):
         assert _nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_matmul_flag_off_never_uses_fast_path_even_if_probe_true(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", False)
-    with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=True)):
         assert _nvfp4_matmul_enabled() is False
 
 
 def test_nvfp4_matmul_flag_on_requires_probe(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_nvfp4_matmul", True)
-    with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=False):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=False)):
         assert _nvfp4_matmul_enabled() is False
-    with patch("vendor.gpl.comfyui.ops._nvfp4_scaled_mm_supported", return_value=True):
+    with patch("vendor.gpl.comfyui.ops.GEMM_SUPPORT", gemm_provider(nvfp4=True)):
         assert _nvfp4_matmul_enabled() is True
-
-
-def test_nvfp4_scaled_mm_supported_probe_caches(monkeypatch):
-    calls = {"n": 0}
-
-    def fake_trial():
-        calls["n"] += 1
-        return True
-
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (12, 0))
-    with patch("vendor.gpl.comfyui.ops._nvfp4_trial_gemm_ok", side_effect=fake_trial):
-        assert _nvfp4_scaled_mm_supported() is True
-        assert _nvfp4_scaled_mm_supported() is True
-    assert calls["n"] == 1  # cached after first probe
-
-
-def test_nvfp4_scaled_mm_supported_false_below_sm120(monkeypatch):
-    # Ada/Hopper (sm89/sm90) have fp8 tensor cores but not packed fp4 x fp4 ones.
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (9, 0))
-    with patch("vendor.gpl.comfyui.ops._nvfp4_trial_gemm_ok", side_effect=AssertionError("must not run")):
-        assert _nvfp4_scaled_mm_supported() is False
-
-
-def test_nvfp4_scaled_mm_supported_false_without_cuda(monkeypatch):
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    assert _nvfp4_scaled_mm_supported() is False
-
-
-def test_nvfp4_scaled_mm_supported_false_when_trial_gemm_fails(monkeypatch):
-    # sm120 capability alone is not enough -- the trial GEMM (kernel wiring,
-    # not just the driver-reported SM number) has to actually succeed too.
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (12, 0))
-    with patch("vendor.gpl.comfyui.ops._nvfp4_trial_gemm_ok", return_value=False):
-        assert _nvfp4_scaled_mm_supported() is False
 
 
 def test_nvfp4_scaled_mm_fast_path_ok_happy_case():
@@ -1295,28 +1216,6 @@ def test_forward_comfy_cast_weights_does_not_log_when_fast_path_eligible(monkeyp
         lin.forward_comfy_cast_weights(x)
 
     assert not [r for r in caplog.records if r.levelname == "WARNING"]
-
-
-# --- real kernel probe (Blackwell hardware only) ---------------------------
-#
-# This is the ONLY test in this module that touches a real CUDA kernel. It
-# mirrors test_attention.py::test_cross_backend_agreement_if_installed's
-# runtime pytest.skip() idiom (skip when CUDA/the right SM isn't present)
-# rather than a decorator, since the skip reason needs the live capability
-# check. It is NOT executed as part of this ticket's own verification run —
-# CUDA is available in this container but the GPU is shared with a live
-# maintainer generation, so no CUDA kernel is invoked here by the author of
-# this test; it is meant to be run on the actual Blackwell box.
-
-
-def test_nvfp4_trial_gemm_ok_on_real_hardware():
-    if not torch.cuda.is_available():
-        pytest.skip("no CUDA device available")
-    if torch.cuda.get_device_capability() < (12, 0):
-        pytest.skip("nvfp4 x nvfp4 tensor cores need sm120+ (Blackwell)")
-
-    import vendor.gpl.comfyui.ops as wo
-    assert wo._nvfp4_trial_gemm_ok() is True
 
 
 # --- output-side LoRA branch (shared by the fp8 and nvfp4 fast paths) -------

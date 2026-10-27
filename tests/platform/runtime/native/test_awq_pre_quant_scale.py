@@ -14,6 +14,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from tests.fixtures.kernel_gemm import gemm_provider
 from vendor.gpl.comfyui.ops import dequantize_nvfp4, fp8_ops  # noqa: E402
 
 from ._nvfp4_ref import F4_MAX as _F4_MAX  # noqa: E402
@@ -235,7 +236,7 @@ def test_prepared_linear_fast_branch_applies_pre_quant_scale_per_chunk(monkeypat
         out = (a.to(torch.float32) * scale_a.to(torch.float32)) @ (b.to(torch.float32) * scale_b.to(torch.float32))
         return out.to(out_dtype)
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm)
 
     with lin.prepared_linear(x) as proj:  # gate on, eligible -> fast branch
@@ -291,7 +292,7 @@ def test_prepared_linear_pre_quant_scale_not_doubled_after_kernel_rejection(monk
             raise RuntimeError("simulated kernel-level rejection")
         return (a.to(torch.float32) * scale_a.to(torch.float32)) @ (b.to(torch.float32) * scale_b.to(torch.float32))
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(wo, "GEMM_SUPPORT", gemm_provider(fp8=True))
     monkeypatch.setattr(torch, "_scaled_mm", _flaky_scaled_mm)
 
     with lin.prepared_linear(x) as proj:

@@ -269,7 +269,10 @@ def configure_runtime_flags(settings: Any) -> None:
 
 
 def bind_runtime_flags(module: ModuleType) -> None:
+    from src.platform.runtime.native.kernels import gemm_support
+
     module.RUNTIME_FLAGS = _values
+    module.GEMM_SUPPORT = gemm_support
 
 
 def bind_vendor_runtime_flags(import_if_missing: bool = True) -> None:
