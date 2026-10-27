@@ -334,14 +334,35 @@ def test_a_discovered_window_never_becomes_a_requested_context_size():
     assert profile.sources["context_request"] is ProfileSource.SEED
 
 
-def test_an_adapter_that_tries_to_discover_the_requested_size_is_rejected_whole():
-    resolver, _, _ = build(ProbeAdapter(fields={"context_window": 262144, "context_request": 262144}))
+def test_a_discovered_requested_size_applies_when_neither_the_seed_nor_an_override_sets_one():
+    resolver, _, _ = build(ProbeAdapter(fields={"context_window": 32768, "context_request": 32768}))
     config = make_config()
 
     profile = asyncio.run(resolver.refresh(config))
 
-    assert profile.context_window is None and profile.context_request is None
-    assert "cannot set ['context_request']" in resolver.explain(config).discovery_error
+    assert (profile.context_window, profile.context_request) == (32768, 32768)
+    assert profile.sources["context_request"] is ProfileSource.DISCOVERED
+
+
+def test_a_seed_requested_size_wins_over_the_discovered_one():
+    resolver, _, _ = build(
+        ProbeAdapter(fields={"context_window": 32768, "context_request": 32768}),
+        seed=tiny_seed({"id": "tier", "fields": {"context_request": 8192}}),
+    )
+
+    profile = asyncio.run(resolver.refresh(make_config()))
+
+    assert (profile.context_window, profile.context_request) == (32768, 8192)
+    assert profile.sources["context_request"] is ProfileSource.SEED
+
+
+def test_an_override_requested_size_wins_over_the_discovered_one():
+    resolver, _, _ = build(ProbeAdapter(fields={"context_window": 32768, "context_request": 32768}))
+    config = make_config(profile_overrides={"context_request": 4096})
+
+    profile = asyncio.run(resolver.refresh(config))
+
+    assert profile.context_request == 4096 and profile.sources["context_request"] is ProfileSource.OVERRIDE
 
 
 def test_an_override_sets_the_requested_size_next_to_the_discovered_window():

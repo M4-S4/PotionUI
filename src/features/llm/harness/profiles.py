@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 DISCOVERY_HIT_TTL_SECONDS = 3600.0
 DISCOVERY_MISS_TTL_SECONDS = 300.0
 DISCOVERY_TIMEOUT_SECONDS = 10.0
-NOT_DISCOVERABLE = frozenset({"context_request"})
+SEED_OVER_DISCOVERY = frozenset({"context_request"})
 
 DiscoveryKey = Tuple[str, str, str]
 
@@ -148,10 +148,6 @@ class LayeredProfileResolver:
             logger.debug("[LayeredProfileResolver] discovery failed for '%s'", config.id, exc_info=True)
             return {}, _failure_message(exc)
         fields = dict(layer.fields)
-        forbidden = sorted(NOT_DISCOVERABLE & set(fields))
-        if forbidden:
-            logger.warning("[LayeredProfileResolver] '%s' tried to discover %s", adapter.name, forbidden)
-            return {}, f"The {adapter.name} adapter returned an invalid profile: discovery cannot set {forbidden}"
         try:
             CapabilityProfile(adapter=adapter.name, model=config.model).layered(
                 [ProfileLayer(ProfileSource.DISCOVERED, fields)]
@@ -164,9 +160,14 @@ class LayeredProfileResolver:
     def _profile(self, config: LLMConfig, adapter_name: str, discovery: Optional[Discovery]) -> CapabilityProfile:
         overrides = self._overrides(config)
         discovered = discovery.layer.fields if discovery is not None else {}
-        layers = [self._seed_layer(config, adapter_name, discovered, overrides)]
-        if discovered:
-            layers.append(discovery.layer)
+        seed = self._seed_layer(config, adapter_name, discovered, overrides)
+        layers = [seed]
+        kept = {
+            name: value for name, value in discovered.items()
+            if name not in SEED_OVER_DISCOVERY or seed.fields.get(name) is None
+        }
+        if kept:
+            layers.append(ProfileLayer(ProfileSource.DISCOVERED, kept))
         if overrides:
             layers.append(ProfileLayer(ProfileSource.OVERRIDE, overrides))
         return CapabilityProfile(adapter=adapter_name, model=config.model).layered(layers)

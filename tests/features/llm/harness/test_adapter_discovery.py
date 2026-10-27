@@ -141,19 +141,19 @@ async def test_an_explicit_num_ctx_in_the_modelfile_wins_over_the_trained_length
         {"parameters": "stop <|im_end|>\nnum_ctx                        16384\n", "model_info": {"qwen3.context_length": 262144}},
     )
 
-    assert fields == {"context_window": 16384}
+    assert fields == {"context_window": 16384, "context_request": 16384}
 
 
 async def test_a_trained_window_is_capped_so_a_huge_default_never_becomes_num_ctx(monkeypatch):
     fields, _ = await discover_ollama(monkeypatch, {"model_info": {"llama.context_length": 131072}})
 
-    assert fields == {"context_window": 32768}
+    assert fields == {"context_window": 32768, "context_request": 32768}
 
 
 async def test_a_small_trained_window_is_kept(monkeypatch):
     fields, _ = await discover_ollama(monkeypatch, {"model_info": {"llama.context_length": 8192}})
 
-    assert fields == {"context_window": 8192}
+    assert fields == {"context_window": 8192, "context_request": 8192}
 
 
 async def test_capabilities_become_profile_facts_when_the_server_reports_them(monkeypatch):

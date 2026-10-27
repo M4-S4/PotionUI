@@ -244,10 +244,14 @@ class ContextBudgetExceededError(Exception):
 
 
 def resolve_capacity(profile: CapabilityProfile) -> CapacityInfo:
-    if profile.context_window:
-        source = profile.sources.get("context_window", ProfileSource.SEED)
-        return CapacityInfo(profile.context_window, ProfileSource(source).value)
-    return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
+    sized = [
+        (tokens, name) for name, tokens in (("context_window", profile.context_window), ("context_request", profile.context_request))
+        if tokens
+    ]
+    if not sized:
+        return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
+    tokens, name = min(sized)
+    return CapacityInfo(tokens, ProfileSource(profile.sources.get(name, ProfileSource.SEED)).value)
 
 
 def tool_tier(capacity: CapacityInfo) -> str:

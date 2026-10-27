@@ -57,7 +57,7 @@ The script only rewrites the `catalog` key; everything above it is kept byte for
 | Field | Meaning |
 |---|---|
 | `context_window`, `max_output_tokens` | Token limits used for budgeting. `null` means unknown. |
-| `context_request` | The context size to request from servers that allocate it per request (Ollama `num_ctx`). Only an admin override or a seed tier row sets it, never discovery: the trained maximum an Ollama server reports would otherwise be allocated as a KV cache on a GPU shared with image generation. An adapter that returns it from `discover` has its whole layer rejected. |
+| `context_request` | The context size to request from servers that allocate it per request (Ollama `num_ctx`). Ollama discovery sets it to the window it reports (the Modelfile `num_ctx`, or the trained length capped at 32768 so a huge default is never allocated as a KV cache on a GPU shared with image generation), so the window the budget plans with is the one the server loads. A seed row or an admin override wins over the discovered value, and when it is smaller than `context_window` the budget plans with it. |
 | `tools`, `prompt_tools`, `parallel_tools`, `strict_tools` | Native tool calling, tools rendered into the prompt as XML, several calls per step, strict schemas. |
 | `tool_choice`, `tool_choice_with_reasoning` | Allowed modes (`auto`, `none`, `required`, `named`) without and with reasoning on. Never force a mode that is not listed. |
 | `tool_id_rule` | `passthrough` the wire's ids, `mint` ids (Ollama has none), or `nine_digits`. |

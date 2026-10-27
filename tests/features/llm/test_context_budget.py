@@ -89,6 +89,12 @@ class TestResolveCapacity:
         ))
         assert capacity == CapacityInfo(4096, "override")
 
+    def test_a_smaller_requested_context_size_is_the_window_the_budget_plans_with(self):
+        capacity = resolve_capacity(_profile(
+            (ProfileSource.DISCOVERED, {"context_window": 32768}), (ProfileSource.OVERRIDE, {"context_request": 8192}),
+        ))
+        assert capacity == CapacityInfo(8192, "override")
+
 
 class TestResolveThinkingEnabled:
     @pytest.mark.parametrize("value", [True, "low", "high", "medium"])

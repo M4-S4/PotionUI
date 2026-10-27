@@ -373,9 +373,9 @@ class OllamaChatAdapter(HttpAdapter):
             return ProfileLayer(ProfileSource.DISCOVERED, fields)
         window = parse_show_window(payload)
         if window:
-            fields["context_window"] = (
-                min(window.tokens, TRAINED_WINDOW_CAP_TOKENS) if window.kind == "trained" else window.tokens
-            )
+            loaded = min(window.tokens, TRAINED_WINDOW_CAP_TOKENS) if window.kind == "trained" else window.tokens
+            fields["context_window"] = loaded
+            fields["context_request"] = loaded
         capabilities = payload.get("capabilities") if isinstance(payload, dict) else None
         if isinstance(capabilities, list):
             names = {item for item in capabilities if isinstance(item, str)}
