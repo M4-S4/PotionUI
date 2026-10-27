@@ -132,15 +132,19 @@ def test_sampling_parameters_are_never_sent(settings):
     ({}, "extreme", {"type": "adaptive"}, None),
     ({}, True, {"type": "adaptive"}, None),
     ({}, None, None, None),
-    ({}, False, {"type": "disabled"}, None),
+    ({"reasoning_toggle": "thinking.type"}, False, {"type": "disabled"}, None),
+    ({"reasoning_toggle": None}, False, None, None),
     ({"reasoning": "none"}, "high", None, None),
     ({"reasoning": "none"}, False, None, None),
     ({"reasoning": "toggle", "reasoning_levels": []}, "high", {"type": "adaptive"}, None),
-    ({"reasoning": "toggle", "reasoning_levels": []}, False, {"type": "disabled"}, None),
+    ({"reasoning": "toggle", "reasoning_levels": [], "reasoning_toggle": "thinking.type"}, False, {"type": "disabled"}, None),
+    ({"reasoning": "toggle", "reasoning_levels": [], "reasoning_toggle": None}, False, None, None),
     ({"reasoning": "always_on"}, False, None, None),
+    ({"reasoning": "always_on", "reasoning_toggle": "thinking.type"}, False, None, None),
     ({"reasoning": "always_on"}, None, {"type": "adaptive"}, None),
     ({"reasoning": "budget"}, "high", None, None),
-    ({"reasoning": "budget"}, False, {"type": "disabled"}, None),
+    ({"reasoning": "budget", "reasoning_toggle": "thinking.type"}, False, {"type": "disabled"}, None),
+    ({"reasoning": "budget", "reasoning_toggle": None}, False, None, None),
 ])
 def test_thinking_and_effort_come_from_settings_and_profile(fields, reasoning, thinking, output_config):
     body = render_body(make_request([USER], settings=Settings(reasoning=reasoning)), make_profile(**fields))

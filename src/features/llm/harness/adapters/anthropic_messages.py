@@ -359,7 +359,9 @@ def thinking_config(request: RenderRequest, profile: CapabilityProfile) -> Tuple
     if kind is ReasoningKind.NONE:
         return None, None
     if wanted is False:
-        return (None, None) if kind is ReasoningKind.ALWAYS_ON else ({"type": "disabled"}, None)
+        if kind is ReasoningKind.ALWAYS_ON or profile.reasoning_toggle is None:
+            return None, None
+        return {"type": "disabled"}, None
     if kind is ReasoningKind.BUDGET or (wanted is None and kind is not ReasoningKind.ALWAYS_ON):
         return None, None
     effort = wanted if isinstance(wanted, str) and wanted in profile.reasoning_levels else None

@@ -54,6 +54,13 @@ def test_anthropic_disables_thinking_on_a_model_that_allows_it():
     assert "thinking" not in default
 
 
+def test_anthropic_omits_thinking_entirely_on_a_model_that_cannot_disable_it():
+    body = rendered(AnthropicMessagesAdapter(), "anthropic-messages", "anthropic", "claude-opus-5-5", False)
+
+    assert "thinking" not in body
+    assert "output_config" not in body
+
+
 def test_gemini_selects_its_lowest_level_once_the_levels_are_known_and_otherwise_omits_reasoning():
     levels = dict(reasoning_levels=["minimal", "low", "medium", "high"])
     known = rendered(GeminiInteractionsAdapter(), "gemini-interactions", "gemini", "gemini-3-flash", False, **levels)
