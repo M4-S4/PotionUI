@@ -109,7 +109,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor
 
-from ...kernels import grouped_attention as _dispatch_grouped_attention
+from ...kernels import attention as _dispatch_attention
 from ...nag import apply_nag
 from vendor.gpl.comfyui.flux.math_ops import rope as _flux_rope
 
@@ -243,7 +243,7 @@ def _sdpa_gqa(q: Tensor, k: Tensor, v: Tensor, heads: int, kvheads: int, mask: T
     grouped seam hands the kv heads to backends that take them as-is and
     expands them (repeat_interleave) for the ones that don't.
     """
-    out = _dispatch_grouped_attention(q, k, v, heads=heads, kvheads=kvheads, mask=mask)
+    out = _dispatch_attention(q, k, v, heads=heads, kvheads=kvheads, mask=mask)
     return rearrange(out, "B H L D -> B L (H D)")
 
 

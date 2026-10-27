@@ -148,18 +148,18 @@ def test_decode_reads_the_cache_prefix_without_copying_it():
     storages = {c.data_ptr() for c in cache.keys} | {c.data_ptr() for c in cache.values}
     seen = []
 
-    real = att.grouped_attention
+    real = att.attention
 
     def recording(q, k, v, **kwargs):
         seen.append((k.data_ptr(), v.data_ptr()))
         return real(q, k, v, **kwargs)
 
     import src.platform.runtime.native.arch.minimax_music3.lm as lm_mod
-    lm_mod.grouped_attention = recording
+    lm_mod.attention = recording
     try:
         lm.step(_feedback(0), cache)
     finally:
-        lm_mod.grouped_attention = real
+        lm_mod.attention = real
 
     assert seen, "step did not reach the grouped seam"
     for k_ptr, v_ptr in seen:
@@ -171,7 +171,7 @@ def test_lm_attention_stays_on_sdpa_whatever_the_dit_is_pinned_to(monkeypatch, i
     chosen = []
     real = att._resolve_dispatch
     monkeypatch.setattr(att, "_resolve_dispatch",
-                        lambda q, mask, backend: chosen.append(backend) or real(q, mask, backend))
+                        lambda q, k, mask, causal, backend: chosen.append(backend) or real(q, k, mask, causal, backend))
     monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
     install_capabilities(fake_capabilities(
         ampere(attention_backends=frozenset({att.SDPA, att.SAGE, att.SAGE2}))

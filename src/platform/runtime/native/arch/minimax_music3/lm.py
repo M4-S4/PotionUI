@@ -40,7 +40,7 @@ import torch
 import torch.nn as nn
 
 from ...base import NativeArchModule
-from ...kernels import grouped_attention
+from ...kernels import attention
 from ...text_encoders._functional import GatedMLP, RMSNorm, apply_rope_qk, module_device
 from .config import MiniMaxMusic3TextEncoderConfig
 from .depth_decoder import DepthDecoderModule
@@ -111,8 +111,7 @@ class _GlobalAttention(nn.Module):
         DiT happens to be pinned to — every generated frame conditions on the
         last one.
         """
-        out = grouped_attention(q, k, v, heads=self.num_heads, kvheads=self.num_kv_heads,
-                                mask=mask, backend="sdpa")
+        out = attention(q, k, v, heads=self.num_heads, kvheads=self.num_kv_heads, mask=mask, backend="sdpa")
         return out.transpose(1, 2).reshape(q.shape[0], -1, self.num_heads * self.head_dim)
 
     def prefill(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,

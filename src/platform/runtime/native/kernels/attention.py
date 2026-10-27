@@ -129,8 +129,20 @@ def _masked_scores(q: Tensor, k: Tensor) -> int:
     return q.shape[0] * q.shape[1] * q.shape[-2] * k.shape[-2]
 
 
-def _sdpa(q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False) -> Tensor:
+def _with_causal(mask: Tensor, q: Tensor, k: Tensor) -> Tensor:
+    keep = torch.ones(q.shape[-2], k.shape[-2], dtype=torch.bool, device=q.device).tril()
+    if mask.dtype == torch.bool:
+        return mask & keep
+    return torch.where(keep, mask, mask.new_full((), float("-inf")))
+
+
+def _sdpa(
+    q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False, causal: bool = False
+) -> Tensor:
     if mask is not None:
+        if causal:
+            mask = _with_causal(mask, q, k)
+            causal = False
         mask = _aligned_mask(mask)
         if grouped and _masked_scores(q, k) > _MASKED_GROUPED_EXPAND_MIN_SCORES:
             repeat = q.shape[1] // k.shape[1]
@@ -140,15 +152,15 @@ def _sdpa(q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = 
             grouped = False
     if grouped:
         return F.scaled_dot_product_attention(
-            q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, enable_gqa=True,
+            q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=causal, enable_gqa=True,
         )
-    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=causal)
 
 
-def _flash(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+def _flash(q: Tensor, k: Tensor, v: Tensor, causal: bool = False) -> Tensor:
     from flash_attn import flash_attn_func
 
-    out = flash_attn_func(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), causal=False)
+    out = flash_attn_func(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2), causal=causal)
     return out.transpose(1, 2)
 
 
@@ -156,15 +168,15 @@ def _absmax(t: Tensor) -> Tensor:
     return torch.maximum(t.amax(), t.amin().neg())
 
 
-def _sage(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+def _sage(q: Tensor, k: Tensor, v: Tensor, causal: bool = False) -> Tensor:
     from sageattention import sageattn
 
     if v.shape[2] >= _SAGE_SYNC_ROWS:
         if float(_absmax(v)) > _SAGE_V_SAFE_MAX:
-            out = sageattn(q, k, v / _SAGE_V_SCALE, tensor_layout="HND", is_causal=False)
+            out = sageattn(q, k, v / _SAGE_V_SCALE, tensor_layout="HND", is_causal=causal)
             out = out * _SAGE_V_SCALE
         else:
-            out = sageattn(q, k, v, tensor_layout="HND", is_causal=False)
+            out = sageattn(q, k, v, tensor_layout="HND", is_causal=causal)
         return torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
 
     scale = torch.where(
@@ -172,30 +184,30 @@ def _sage(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         v.new_tensor(_SAGE_V_SCALE),
         v.new_tensor(1.0),
     )
-    out = sageattn(q, k, v / scale, tensor_layout="HND", is_causal=False)
+    out = sageattn(q, k, v / scale, tensor_layout="HND", is_causal=causal)
     out = out * scale
     return torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
 
 
-def _sage3(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+def _sage3(q: Tensor, k: Tensor, v: Tensor, causal: bool = False) -> Tensor:
     from sageattn3 import sageattn3_blackwell
 
-    return sageattn3_blackwell(q, k, v, is_causal=False)
+    return sageattn3_blackwell(q, k, v, is_causal=causal)
 
 
 def _sparge_shape_ok(q: Tensor) -> bool:
     return q.shape[2] >= _SPARGE_MIN_SEQ_LEN and q.shape[3] in _SPARGE_VALID_HEAD_DIMS
 
 
-def _sparge(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+def _sparge(q: Tensor, k: Tensor, v: Tensor, causal: bool = False) -> Tensor:
     from spas_sage_attn import spas_sage2_attn_meansim_topk_cuda
 
     return spas_sage2_attn_meansim_topk_cuda(
-        q, k, v, is_causal=False, tensor_layout="HND", topk=0.5, output_dtype=q.dtype,
+        q, k, v, is_causal=causal, tensor_layout="HND", topk=0.5, output_dtype=q.dtype,
     )
 
 
-def _resolve_dispatch(q: Tensor, mask: Tensor | None, backend: str | None) -> str:
+def _resolve_dispatch(q: Tensor, k: Tensor, mask: Tensor | None, causal: bool, backend: str | None) -> str:
     device_index = q.device.index if q.is_cuda else None
     chosen = get_attention_backend(backend, device_index)
 
@@ -209,6 +221,8 @@ def _resolve_dispatch(q: Tensor, mask: Tensor | None, backend: str | None) -> st
             reason = "device"
         elif chosen == SPARGE and not _sparge_shape_ok(q):
             reason = "shape"
+        elif causal and q.shape[2] != k.shape[2]:
+            reason = "causal"
         else:
             reason = None
     else:
@@ -224,18 +238,35 @@ def _resolve_dispatch(q: Tensor, mask: Tensor | None, backend: str | None) -> st
     return chosen
 
 
-def _run(chosen: str, q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False) -> Tensor:
+def _run(
+    chosen: str, q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False, causal: bool = False
+) -> Tensor:
     if chosen == FLASH:
-        return _flash(q, k, v)
+        return _flash(q, k, v, causal)
     if chosen == SAGE3:
-        return _sage3(q, k, v)
+        return _sage3(q, k, v, causal)
     if chosen == SPARGE:
-        return _sparge(q, k, v)
+        return _sparge(q, k, v, causal)
     if chosen in (SAGE2, SAGE):
-        return _sage(q, k, v)
-    if grouped:
-        return _sdpa(q, k, v, mask, grouped=True)
-    return _sdpa(q, k, v, mask)
+        return _sage(q, k, v, causal)
+    return _sdpa(q, k, v, mask, grouped=grouped, causal=causal)
+
+
+def _grouped(
+    q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, causal: bool, backend: str | None
+) -> Tensor:
+    q_heads, kv_heads = q.shape[1], k.shape[1]
+    if kv_heads == 0 or q_heads % kv_heads:
+        raise ValueError(f"q heads={q_heads} is not a multiple of kv heads={kv_heads}")
+
+    chosen = _resolve_dispatch(q, k, mask, causal, backend)
+    if supports_grouped_kv(chosen):
+        return _run(chosen, q, k, v, mask, grouped=True, causal=causal)
+
+    repeat = q_heads // kv_heads
+    return _run(
+        chosen, q, k.repeat_interleave(repeat, dim=1), v.repeat_interleave(repeat, dim=1), mask, causal=causal
+    )
 
 
 def attention(
@@ -244,39 +275,17 @@ def attention(
     v: Tensor,
     *,
     heads: int | None = None,
-    mask: Tensor | None = None,
-    backend: str | None = None,
-) -> Tensor:
-    if heads is not None and q.ndim == 4 and heads != q.shape[1]:
-        raise ValueError(f"heads={heads} disagrees with q.shape[1]={q.shape[1]}")
-
-    return _run(_resolve_dispatch(q, mask, backend), q, k, v, mask)
-
-
-def grouped_attention(
-    q: Tensor,
-    k: Tensor,
-    v: Tensor,
-    *,
-    heads: int | None = None,
     kvheads: int | None = None,
     mask: Tensor | None = None,
+    causal: bool = False,
     backend: str | None = None,
 ) -> Tensor:
-    if heads is not None and heads != q.shape[1]:
-        raise ValueError(f"heads={heads} disagrees with q.shape[1]={q.shape[1]}")
-    if kvheads is not None and kvheads != k.shape[1]:
-        raise ValueError(f"kvheads={kvheads} disagrees with k.shape[1]={k.shape[1]}")
+    if q.ndim == 4:
+        if heads is not None and heads != q.shape[1]:
+            raise ValueError(f"heads={heads} disagrees with q.shape[1]={q.shape[1]}")
+        if kvheads is not None and kvheads != k.shape[1]:
+            raise ValueError(f"kvheads={kvheads} disagrees with k.shape[1]={k.shape[1]}")
+        if q.shape[1] != k.shape[1]:
+            return _grouped(q, k, v, mask, causal, backend)
 
-    q_heads, kv_heads = q.shape[1], k.shape[1]
-    if q_heads == kv_heads:
-        return attention(q, k, v, mask=mask, backend=backend)
-    if kv_heads == 0 or q_heads % kv_heads:
-        raise ValueError(f"q heads={q_heads} is not a multiple of kv heads={kv_heads}")
-
-    chosen = _resolve_dispatch(q, mask, backend)
-    if supports_grouped_kv(chosen):
-        return _run(chosen, q, k, v, mask, grouped=True)
-
-    repeat = q_heads // kv_heads
-    return _run(chosen, q, k.repeat_interleave(repeat, dim=1), v.repeat_interleave(repeat, dim=1), mask)
+    return _run(_resolve_dispatch(q, k, mask, causal, backend), q, k, v, mask, causal=causal)

@@ -417,7 +417,7 @@ def test_attention_dispatch_validates_against_q_device_not_current_device(monkey
         return "sdpa"
 
     monkeypatch.setattr(att, "get_attention_backend", fake_get_attention_backend)
-    monkeypatch.setattr(att, "_sdpa", lambda q, k, v, mask: q)
+    monkeypatch.setattr(att, "_sdpa", lambda q, k, v, mask, grouped=False, causal=False: q)
 
     fake_q = _FakeCudaTensor(device_index=3)
     att.attention(fake_q, fake_q, fake_q)

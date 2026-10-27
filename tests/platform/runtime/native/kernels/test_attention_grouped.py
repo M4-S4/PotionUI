@@ -79,7 +79,7 @@ def test_grouped_matches_repeat_bit_for_bit(q_len, masked):
     q, k, v = _qkv(heads=8, kvheads=2, q_len=q_len, kv_len=6)
     mask = _causal(q_len, 6) if masked else None
 
-    grouped = att.grouped_attention(q, k, v, heads=8, kvheads=2, mask=mask)
+    grouped = att.attention(q, k, v, heads=8, kvheads=2, mask=mask)
     assert torch.equal(grouped, _repeat_reference(q, k, v, mask))
 
 
@@ -88,18 +88,18 @@ def test_decode_positions_match_the_repeat_layout(pos):
     q, _, _ = _qkv(heads=8, kvheads=2, q_len=1, kv_len=1, seed=pos)
     _, k, v = _qkv(heads=8, kvheads=2, q_len=1, kv_len=pos + 1, seed=100 + pos)
 
-    grouped = att.grouped_attention(q, k, v, heads=8, kvheads=2)
+    grouped = att.attention(q, k, v, heads=8, kvheads=2)
     assert torch.allclose(grouped, _repeat_reference(q, k, v), atol=0, rtol=0)
 
 
 def test_multi_query_single_kv_head_matches_repeat():
     q, k, v = _qkv(heads=8, kvheads=1)
-    assert torch.equal(att.grouped_attention(q, k, v), _repeat_reference(q, k, v))
+    assert torch.equal(att.attention(q, k, v), _repeat_reference(q, k, v))
 
 
 def test_equal_head_counts_take_the_plain_path():
     q, k, v = _qkv(heads=4, kvheads=4)
-    assert torch.equal(att.grouped_attention(q, k, v, heads=4, kvheads=4),
+    assert torch.equal(att.attention(q, k, v, heads=4, kvheads=4),
                        att.attention(q, k, v, heads=4))
 
 
@@ -109,16 +109,16 @@ def test_repeat_fallback_computes_the_same_attention(monkeypatch, masked):
         pytest.skip("installed torch SDPA has no enable_gqa; only the repeat layout exists")
     q, k, v = _qkv(heads=8, kvheads=2, q_len=3, kv_len=6)
     mask = _causal(3, 6) if masked else None
-    grouped = att.grouped_attention(q, k, v, mask=mask)
+    grouped = att.attention(q, k, v, mask=mask)
 
     monkeypatch.setattr(att, "supports_grouped_kv", lambda backend: False)
-    assert torch.equal(att.grouped_attention(q, k, v, mask=mask), grouped)
+    assert torch.equal(att.attention(q, k, v, mask=mask), grouped)
 
 
 def test_unsupported_backend_gets_the_expanded_layout(monkeypatch):
     seen = {}
 
-    def fake_run(chosen, q, k, v, mask, grouped=False):
+    def fake_run(chosen, q, k, v, mask, grouped=False, causal=False):
         seen.update(kv_heads=k.shape[1], v_heads=v.shape[1], grouped=grouped)
         return torch.zeros_like(q)
 
@@ -126,14 +126,14 @@ def test_unsupported_backend_gets_the_expanded_layout(monkeypatch):
     monkeypatch.setattr(att, "supports_grouped_kv", lambda backend: False)
 
     q, k, v = _qkv(heads=8, kvheads=2)
-    att.grouped_attention(q, k, v, heads=8, kvheads=2)
+    att.attention(q, k, v, heads=8, kvheads=2)
     assert seen == {"kv_heads": 8, "v_heads": 8, "grouped": False}
 
 
 def test_supported_backend_gets_the_grouped_layout(monkeypatch):
     seen = {}
 
-    def fake_run(chosen, q, k, v, mask, grouped=False):
+    def fake_run(chosen, q, k, v, mask, grouped=False, causal=False):
         seen.update(kv_heads=k.shape[1], v_heads=v.shape[1], grouped=grouped)
         return torch.zeros_like(q)
 
@@ -141,7 +141,7 @@ def test_supported_backend_gets_the_grouped_layout(monkeypatch):
     monkeypatch.setattr(att, "supports_grouped_kv", lambda backend: True)
 
     q, k, v = _qkv(heads=8, kvheads=2)
-    att.grouped_attention(q, k, v, heads=8, kvheads=2)
+    att.attention(q, k, v, heads=8, kvheads=2)
     assert seen == {"kv_heads": 2, "v_heads": 2, "grouped": True}
 
 
@@ -153,23 +153,23 @@ def test_capability_is_asked_about_the_backend_actually_used(monkeypatch, instal
     att.set_backend_override(att.SAGE)
 
     q, k, v = _qkv(heads=8, kvheads=2)
-    att.grouped_attention(q, k, v)
+    att.attention(q, k, v)
     assert asked == [att.SDPA]
 
 
 def test_head_count_mismatch_raises():
     q, k, v = _qkv(heads=8, kvheads=2)
     with pytest.raises(ValueError, match="heads=4"):
-        att.grouped_attention(q, k, v, heads=4, kvheads=2)
+        att.attention(q, k, v, heads=4, kvheads=2)
     with pytest.raises(ValueError, match="kvheads=4"):
-        att.grouped_attention(q, k, v, heads=8, kvheads=4)
+        att.attention(q, k, v, heads=8, kvheads=4)
 
 
 def test_non_divisible_head_counts_raise():
     q, _, _ = _qkv(heads=6, kvheads=6)
     _, k, v = _qkv(heads=6, kvheads=4)
     with pytest.raises(ValueError, match="not a multiple"):
-        att.grouped_attention(q, k, v)
+        att.attention(q, k, v)
 
 
 def test_grouped_layout_does_not_materialize_the_expanded_kv():
@@ -186,7 +186,7 @@ def test_grouped_layout_does_not_materialize_the_expanded_kv():
 
     torch.Tensor.repeat_interleave = tracking_repeat
     try:
-        att.grouped_attention(q, k, v, heads=8, kvheads=2)
+        att.attention(q, k, v, heads=8, kvheads=2)
     finally:
         torch.Tensor.repeat_interleave = real_repeat
     assert "called" not in seen

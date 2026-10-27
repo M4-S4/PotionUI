@@ -28,8 +28,15 @@ Five backends are eligible for automatic selection, in priority order from faste
 fallback: `sage3` > `sage2` > `sage` > `flash` > `sdpa`. `sdpa` (PyTorch's built-in
 `scaled_dot_product_attention`) is always available and is the numerical reference every other
 backend is checked against — a masked or fp32 call transparently falls back to it regardless of
-which backend is selected, so correctness never depends on which kernel ran. A sixth backend,
+which backend is selected, so correctness never depends on which kernel ran. A causal call whose
+query and key lengths differ takes the same fallback, because `sdpa` and the accelerated kernels
+disagree on how the triangle is aligned there. The fallback happens inside the dispatcher, never in
+the calling model, and the log notes each distinct (backend, reason) pair once. A sixth backend,
 `sparge`, exists but is never chosen automatically; it must be pinned explicitly (see below).
+
+Grouped-query attention (fewer key/value heads than query heads) goes through the same single call:
+`sdpa` takes the grouped heads as they are, and every other backend gets them expanded to the query
+head count first.
 
 Backend requirements, high to low priority:
 
