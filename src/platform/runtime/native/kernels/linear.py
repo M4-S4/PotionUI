@@ -69,10 +69,6 @@ def _quant_format(layer: ops.Fp8ScaledLinear) -> QuantFormat | None:
     return None
 
 
-def _compute_device(weight: torch.Tensor) -> torch.device | None:
-    return weight.device if weight.is_cuda else None
-
-
 def _scaled_mm_reason(layer: ops.Fp8ScaledLinear) -> str | None:
     reason = ops._scaled_mm_fast_path_reject_reason(
         weight_dtype=layer.weight.dtype,
@@ -89,7 +85,7 @@ def _scaled_mm_reason(layer: ops.Fp8ScaledLinear) -> str | None:
         return reason
     if not ops.RUNTIME_FLAGS.get(_FP8_FLAG, False):
         return f"{_FP8_FLAG} is off"
-    support = gemm_support(_compute_device(layer.weight))
+    support = gemm_support()
     return None if support.fp8_scaled_mm else support.fp8_reason
 
 
@@ -106,5 +102,5 @@ def _nvfp4_reason(layer: ops.Fp8ScaledLinear) -> str | None:
         return reason
     if not ops.RUNTIME_FLAGS.get(_NVFP4_FLAG, False):
         return f"{_NVFP4_FLAG} is off"
-    support = gemm_support(_compute_device(layer.nvfp4_packed))
+    support = gemm_support()
     return None if support.nvfp4 else support.nvfp4_reason

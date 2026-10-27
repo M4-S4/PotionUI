@@ -34,6 +34,10 @@ HARDWARE = {
     "ada": lambda: fake_capabilities(ada()),
     "blackwell": lambda: fake_capabilities(blackwell()),
 }
+TWO_GPUS = {
+    "ampere+ada": lambda: fake_capabilities(ampere(), ada()),
+    "blackwell+ada": lambda: fake_capabilities(blackwell(), ada()),
+}
 
 
 def _blob(conf: dict) -> torch.Tensor:
@@ -185,7 +189,7 @@ def machine(install_capabilities, monkeypatch):
 
     def configure(hardware: str, *, fp8: bool, nvfp4: bool, fused: bool = True) -> None:
         gemm._reset_verdicts()
-        install_capabilities(HARDWARE[hardware]())
+        install_capabilities({**HARDWARE, **TWO_GPUS}[hardware]())
         monkeypatch.setattr(ops, "RUNTIME_FLAGS", {FP8_KEY: fp8, NVFP4_KEY: nvfp4, FUSED_KEY: fused})
 
     return configure
@@ -368,27 +372,55 @@ def test_the_live_flags_are_read_on_every_call(machine):
     assert fast_path(layer).kind is FastPathKind.FP8_SCALED_MM
 
 
-class _OnSecondGpu(torch.Tensor):
-    @property
-    def is_cuda(self):
-        return True
+def _on_gpu(index: int):
+    class OnGpu(torch.Tensor):
+        @property
+        def is_cuda(self):
+            return True
 
-    @property
-    def device(self):
-        return torch.device("cuda", 1)
+        @property
+        def device(self):
+            return torch.device("cuda", index)
+
+    return OnGpu
 
 
-def test_a_cuda_weight_asks_for_its_own_device_and_a_cpu_weight_for_the_current_one(install_capabilities, monkeypatch):
+def _placed(layer: torch.nn.Module, where: str) -> torch.nn.Module:
+    if where == "cpu":
+        return layer
+    cls = _on_gpu(int(where))
+    if getattr(layer, "_is_nvfp4", False):
+        layer._buffers["nvfp4_packed"] = layer.nvfp4_packed.detach().as_subclass(cls)
+    else:
+        layer._parameters["weight"] = layer.weight.detach().as_subclass(cls)
+    return layer
+
+
+@pytest.mark.parametrize("lora", ["none", "plain"])
+@pytest.mark.parametrize("current", [0, 1])
+@pytest.mark.parametrize("where", ["cpu", "0", "1"])
+def test_the_gemm_support_asked_is_the_current_devices_whatever_device_the_weight_is_on(
+    machine, recorder, per_call_conditions_met, monkeypatch, where, current, lora
+):
+    machine("ampere+ada", fp8=True, nvfp4=True)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: current)
+    layer = _placed(_fp8(), where)
+    layer.lora_deltas = _lora(lora, layer.in_features)
+
+    expected = fast_path(layer)
+
+    assert expected.kind is (FastPathKind.FP8_SCALED_MM if current == 1 else FastPathKind.DEQUANT)
+    _assert_forward_took(layer, expected, recorder, "forward")
+
+
+@pytest.mark.parametrize("where", ["cpu", "0", "1"])
+def test_nvfp4_asks_the_current_device_whatever_device_the_packed_weight_is_on(machine, monkeypatch, where):
+    machine("blackwell+ada", fp8=True, nvfp4=True)
+    layer = _placed(_nvfp4(), where)
     monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
-    monkeypatch.setattr(ops, "RUNTIME_FLAGS", {FP8_KEY: True, NVFP4_KEY: True})
-    install_capabilities(fake_capabilities(ampere(), ada()))
-
-    streamed = _fp8()
-    assert fast_path(streamed).kind is FastPathKind.DEQUANT
-
-    resident = _fp8()
-    resident._parameters["weight"] = resident.weight.detach().as_subclass(_OnSecondGpu)
-    assert fast_path(resident).kind is FastPathKind.FP8_SCALED_MM
+    assert fast_path(layer).kind is FastPathKind.NVFP4_GEMM
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 1)
+    assert fast_path(layer).kind is FastPathKind.DEQUANT
 
 
 @pytest.mark.parametrize("name", ["fp8-scaled-linear", "nvfp4"])
