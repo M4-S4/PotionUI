@@ -55,6 +55,11 @@ function profile(overrides: Partial<LLMProfile> = {}): LLMProfile {
 			runtime: 'ollama 0.13.4',
 			gpu_tier: '16gb'
 		},
+		seed_rows: [
+			{ id: 'ollama-qwen3', root: 'marketplace', file: 'ollama.yml' },
+			{ id: 'deepseek', root: 'plugin:deepseek-provider', file: 'deepseek.yml' },
+			{ id: 'mine', root: 'local', file: 'mine.yml' }
+		],
 		...overrides
 	};
 }
@@ -108,6 +113,24 @@ afterEach(() => {
 });
 
 describe('LLMConfigProfilePanel', () => {
+	it('lists the seed rows with the root and file each came from', async () => {
+		const target = await mount();
+
+		const lines = [...target.querySelectorAll('[data-testid="profile-seed-row"]')].map((el) => el.textContent?.trim());
+		expect(lines).toEqual([
+			'ollama-qwen3 · marketplace/ollama.yml',
+			'deepseek · plugin:deepseek-provider/deepseek.yml',
+			'mine · local/mine.yml'
+		]);
+	});
+
+	it('omits the seed rows section when the server sent none', async () => {
+		mockGetLLMProfile.mockResolvedValue({ success: true, data: profile({ seed_rows: [] }) });
+		const target = await mount();
+
+		expect(target.querySelector('[data-testid="profile-seed-rows"]')).toBeNull();
+	});
+
 	it('loads the profile and the schema for the configuration', async () => {
 		await mount();
 

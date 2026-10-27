@@ -116,6 +116,12 @@ export interface LLMProfileVerification {
 	gpu_tier?: string | null;
 }
 
+export interface LLMProfileSeedRow {
+	id: string;
+	root: string;
+	file: string;
+}
+
 export interface LLMProfile {
 	config_id: string;
 	adapter: string;
@@ -124,6 +130,7 @@ export interface LLMProfile {
 	discovery_error: string | null;
 	fields: Record<string, LLMProfileField>;
 	verified?: LLMProfileVerification | null;
+	seed_rows?: LLMProfileSeedRow[];
 }
 
 export type LLMProfileFieldKind = 'enum' | 'set' | 'int' | 'float' | 'bool' | 'string';

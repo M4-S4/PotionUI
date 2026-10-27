@@ -12,6 +12,7 @@ import {
 	profileLayers,
 	recommendedSampling,
 	sameProfileValue,
+	seedRowLines,
 	setProfileDraft,
 	type ProfileRow
 } from './llmProfile';
@@ -183,6 +184,18 @@ describe('profileLayers', () => {
 		expect(profileLayers(rowOf())).toEqual(['Seed 32,768']);
 		expect(profileLayers(rowOf({ context_window: 4096 }))).toEqual(['Seed 32,768', 'Discovered 65,536']);
 		expect(profileLayers(rowOf({}, 'vision'))).toEqual([]);
+	});
+});
+
+describe('seedRowLines', () => {
+	it('prints each applied row with its root and file', () => {
+		const profile = { ...PROFILE, seed_rows: [{ id: 'ollama-qwen3', root: 'marketplace', file: 'ollama.yml' }] };
+		expect(seedRowLines(profile)).toEqual(['ollama-qwen3 · marketplace/ollama.yml']);
+	});
+
+	it('is empty without rows or a profile', () => {
+		expect(seedRowLines(PROFILE)).toEqual([]);
+		expect(seedRowLines(null)).toEqual([]);
 	});
 });
 

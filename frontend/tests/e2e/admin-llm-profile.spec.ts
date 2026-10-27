@@ -85,6 +85,11 @@ function profile(overrides: Record<string, MockField> = {}, extra: Record<string
 			...overrides
 		},
 		verified: { suite: 'chat_eval:v3', passed_at: '2026-10-27', runtime: 'anthropic api 2026-10', gpu_tier: 'hosted' },
+		seed_rows: [
+			{ id: 'base', root: 'core', file: 'profile_base.yml' },
+			{ id: 'anthropic-messages', root: 'marketplace', file: 'anthropic.yml' },
+			{ id: 'mine', root: 'local', file: 'mine.yml' }
+		],
 		...extra
 	};
 }
@@ -198,6 +203,8 @@ for (const viewport of VIEWPORTS) {
 
 			const verified = page.locator('[data-testid="profile-verified"]');
 			await expect(verified).toContainText('Verified');
+			const seedRows = page.locator('[data-testid="profile-seed-row"]');
+			await expect(seedRows).toHaveText(['base · core/profile_base.yml', 'anthropic-messages · marketplace/anthropic.yml', 'mine · local/mine.yml']);
 			await expect(page.getByText('chat_eval:v3')).toBeVisible();
 			await expect(page.getByText('anthropic api 2026-10')).toBeVisible();
 			await expect(page.getByText('hosted', { exact: true })).toBeVisible();

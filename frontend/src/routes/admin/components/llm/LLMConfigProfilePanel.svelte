@@ -26,6 +26,7 @@
 		profileDraftPayload,
 		profileHasProblems,
 		profileLayers,
+		seedRowLines,
 		setProfileDraft,
 		type ProfileDraft,
 		type ProfileRow
@@ -270,6 +271,7 @@
 	</DetailBody>
 {:else}
 	{@const current = profile}
+	{@const seedLines = seedRowLines(current)}
 	<DetailBody>
 		<DetailLayout>
 			{#snippet main()}
@@ -297,6 +299,15 @@
 						<KVItem label="Discovered" mono full>
 							{current.discovered_at ? timeAgo(current.discovered_at) : 'Never'}
 						</KVItem>
+						{#if seedLines.length > 0}
+							<KVItem label="Seed rows" mono full>
+								<ul class="space-y-0.5" data-testid="profile-seed-rows">
+									{#each seedLines as line (line)}
+										<li class="break-words font-mono text-sm text-fg-subtle" data-testid="profile-seed-row">{line}</li>
+									{/each}
+								</ul>
+							</KVItem>
+						{/if}
 					</KVGrid>
 				</DetailSection>
 				<DetailSection label="Verification">

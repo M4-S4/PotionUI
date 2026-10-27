@@ -49,6 +49,12 @@ class FieldReport:
 
 
 @dataclass(frozen=True)
+class SeedRowReport:
+    id: str
+    root: str
+    file: str
+
+@dataclass(frozen=True)
 class ProfileReport:
     config_id: str
     adapter: str
@@ -57,6 +63,7 @@ class ProfileReport:
     discovery_error: Optional[str]
     fields: Mapping[str, FieldReport]
     verified: Optional[Verification]
+    seed_rows: Tuple[SeedRowReport, ...] = ()
 
 
 @lru_cache(maxsize=128)
@@ -140,6 +147,10 @@ class LayeredProfileResolver:
             discovery_error=discovery.error if discovery is not None else None,
             fields=fields,
             verified=profile.verified,
+            seed_rows=tuple(
+                SeedRowReport(item.id, item.origin.root, item.origin.file)
+                for item in self._seed.applied(self._seed_key(config, adapter_name, discovered, overrides))
+            ),
         )
 
     async def _discover(self, adapter: Adapter, config: LLMConfig) -> Tuple[Dict[str, Any], Optional[str]]:
@@ -176,8 +187,12 @@ class LayeredProfileResolver:
     def _seed_layer(
         self, config: LLMConfig, adapter_name: str, discovered: Mapping[str, Any], overrides: Mapping[str, Any]
     ) -> ProfileLayer:
+        return self._seed.layer(self._seed_key(config, adapter_name, discovered, overrides))
+
+    @staticmethod
+    def _seed_key(config: LLMConfig, adapter_name: str, discovered: Mapping[str, Any], overrides: Mapping[str, Any]) -> SeedKey:
         server = overrides.get("server") or discovered.get("server")
-        return self._seed.layer(SeedKey(adapter=adapter_name, model=config.model, server=server))
+        return SeedKey(adapter=adapter_name, model=config.model, server=server)
 
     @staticmethod
     def _overrides(config: LLMConfig) -> Mapping[str, Any]:

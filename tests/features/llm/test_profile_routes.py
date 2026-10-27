@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.features.llm import routes as llm_mod
+from src.features.llm.harness.profile_seed_catalog import SeedCatalog
 from src.features.llm.harness.profiles import LayeredProfileResolver
 from src.features.llm.repository import LLMConfig
 from src.platform.security.current_user import get_current_active_user
@@ -86,6 +87,24 @@ def test_the_profile_route_reports_each_layer_and_discovers_once(harness):
         "value": 65536, "source": "discovered", "seed": 32768, "discovered": 65536, "override": None,
     }
     assert first["verified"] is None
+
+
+def test_the_profile_route_lists_the_seed_rows_with_their_root_and_file_in_apply_order(tmp_path):
+    rows = "version: 1\nsources: {doc: 'https://example.test/doc'}\nrows:\n  - id: mine\n    source: [doc]\n    adapters: [probe]\n    fields: {max_images: 3}\n"
+    (tmp_path / "local").mkdir()
+    (tmp_path / "local" / "mine.yml").write_text(rows, encoding="utf-8", newline="\n")
+    adapter = ProbeAdapter()
+    local_harness = Harness(LayeredProfileResolver(adapter_for(adapter), SeedCatalog(tmp_path), clock=FakeClock()), adapter)
+    client = local_harness.client()
+
+    listed = client.get("/api/llm/configurations/cfg-1/profile").json()["data"]["seed_rows"]
+    after_put = client.put("/api/llm/configurations/cfg-1/profile", json={"overrides": {"replay": "never"}}).json()["data"]["seed_rows"]
+
+    assert listed == [
+        {"id": "base", "root": "core", "file": "profile_base.yml"},
+        {"id": "mine", "root": "local", "file": "mine.yml"},
+    ]
+    assert after_put == listed
 
 
 def test_putting_overrides_stores_them_and_reports_the_new_profile(harness):

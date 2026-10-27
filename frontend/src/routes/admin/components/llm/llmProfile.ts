@@ -195,6 +195,10 @@ export function profileLayers(row: ProfileRow): string[] {
 	return layers;
 }
 
+export function seedRowLines(profile: LLMProfile | null | undefined): string[] {
+	return (profile?.seed_rows ?? []).map((row) => `${row.id} · ${row.root}/${row.file}`);
+}
+
 export function recommendedSampling(profile: LLMProfile | null | undefined): Record<string, number> {
 	const value = profile?.fields.recommended_sampling?.value;
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
