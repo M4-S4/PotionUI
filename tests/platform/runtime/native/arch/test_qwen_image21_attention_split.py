@@ -19,7 +19,7 @@ from __future__ import annotations
 import torch
 
 from src.platform.runtime.native.arch.qwen_image21.model import _block_causal_mask
-from src.platform.runtime.native.attention import attention as _dispatch_attention
+from src.platform.runtime.native.kernels import attention as _dispatch_attention
 from vendor.gpl.comfyui.flux.math_ops import apply_rope1
 
 from .test_qwen_image21_model import TINY, _build_ready

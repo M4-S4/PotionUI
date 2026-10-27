@@ -37,12 +37,10 @@ class FastPath:
 
 
 def fast_path(layer: object) -> FastPath | None:
-    if not isinstance(layer, ops.Fp8ScaledLinear):
+    layer_format = quant_format(layer)
+    if layer_format is None:
         return None
-    quant_format = _quant_format(layer)
-    if quant_format is None:
-        return None
-    if quant_format is QuantFormat.NVFP4:
+    if layer_format is QuantFormat.NVFP4:
         reason = _nvfp4_reason(layer)
         gemm_kind = FastPathKind.NVFP4_GEMM
     else:
@@ -52,14 +50,16 @@ def fast_path(layer: object) -> FastPath | None:
     kind = gemm_kind if reason is None else FastPathKind.DEQUANT
     return FastPath(
         kind=kind,
-        quant_format=quant_format,
+        quant_format=layer_format,
         requires_resident_weight=kind is FastPathKind.NVFP4_GEMM,
         lora_fused=bool(output_side) and ops._lora_fused_enabled(),
         reason=reason,
     )
 
 
-def _quant_format(layer: ops.Fp8ScaledLinear) -> QuantFormat | None:
+def quant_format(layer: object) -> QuantFormat | None:
+    if not isinstance(layer, ops.Fp8ScaledLinear):
+        return None
     if getattr(layer, "_is_nvfp4", False):
         return QuantFormat.NVFP4
     weight = layer.weight

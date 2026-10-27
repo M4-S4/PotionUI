@@ -301,7 +301,7 @@ def _effective_attention_backend(device: str) -> str:
 
         if not _sv2_attn._flash_varlen_broken and _sv2_attn._probe_flash_varlen() is not None:
             return "flash_varlen"
-        from src.platform.runtime.native.attention import get_attention_backend
+        from src.platform.runtime.native.kernels import get_attention_backend
 
         idx = torch.device(device).index if isinstance(device, str) and "cuda" in device else None
         return get_attention_backend(device_index=idx)

@@ -79,7 +79,7 @@ from vendor.gpl.comfyui.flux.layers import (
 )
 from vendor.gpl.comfyui.flux.math_ops import set_attention_backend
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from .config import FluxParams
 

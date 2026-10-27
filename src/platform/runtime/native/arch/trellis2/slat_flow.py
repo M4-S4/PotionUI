@@ -40,7 +40,7 @@ from ...sparse3d import (
     sparse_cat,
     sparse_scaled_dot_product_attention,
 )
-from ...attention import attention as native_attention
+from ...kernels import attention as native_attention
 from ...ops.embedding import sinusoidal_embedding
 
 __all__ = ["SLatFlowModel"]

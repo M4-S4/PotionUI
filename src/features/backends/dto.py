@@ -56,7 +56,7 @@ class BackendUpdateRequest(BaseModel):
 class AttentionBackendRequest(BaseModel):
     """Body for pinning the native engine's attention backend (Optimizations panel)."""
 
-    backend: str = Field(..., description="'auto', or one of attention.known_backends() (BACKEND_PRIORITY + PIN_ONLY_BACKENDS, e.g. 'sparge')")
+    backend: str = Field(..., description="'auto', or one of kernels.known_backends() (BACKEND_PRIORITY + PIN_ONLY_BACKENDS, e.g. 'sparge')")
 
 
 class EngineFlagsRequest(BaseModel):

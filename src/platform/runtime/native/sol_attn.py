@@ -5,7 +5,7 @@ summaries against pooled query blocks, and computes exact attention only over
 the blocks whose score clears a per-query-block threshold (plus the local
 diagonal window, which is always exact). It is an **approximation**: the same
 inputs produce a different — not merely differently-rounded — output than
-:mod:`~src.platform.runtime.native.attention`'s dense backends. That is why
+:mod:`~src.platform.runtime.native.kernels.dispatch`'s dense backends. That is why
 nothing here is ever reached unless a caller hands over a
 :class:`SolAttnContext`, and why every preset that exposes it defaults to off.
 

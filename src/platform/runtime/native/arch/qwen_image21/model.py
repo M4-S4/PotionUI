@@ -78,7 +78,7 @@ from vendor.gpl.comfyui.qwen_image21.layers import (
     set_attention_backend,
 )
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...memory.residency import effective_free_vram_gb
 from ...cache_identity import identity_usable, tensor_identity

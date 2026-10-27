@@ -9,7 +9,6 @@ import pytest
 import torch
 
 import src.platform.runtime.native.optimizations.benchmark as bench_mod
-from src.platform.runtime.native import attention as attention_mod
 
 
 class _FakeCudaEvents:
@@ -50,8 +49,8 @@ def _configure(monkeypatch, *, available_backends, per_backend_delay=None, raisi
     raising = raising or set()
     calls = _FakeCudaEvents()
 
-    monkeypatch.setattr(attention_mod, "available_backends", lambda: list(available_backends))
-    monkeypatch.setattr(attention_mod, "get_attention_backend", lambda: available_backends[0])
+    monkeypatch.setattr(bench_mod, "available_backends", lambda: list(available_backends))
+    monkeypatch.setattr(bench_mod, "get_attention_backend", lambda: available_backends[0])
 
     clock = {"t": 0.0}
 
@@ -62,7 +61,7 @@ def _configure(monkeypatch, *, available_backends, per_backend_delay=None, raisi
         clock["t"] += per_backend_delay.get(backend, 0.001)
         return q
 
-    monkeypatch.setattr(attention_mod, "attention", _fake_attention)
+    monkeypatch.setattr(bench_mod, "attention", _fake_attention)
     monkeypatch.setattr(bench_mod.time, "perf_counter", lambda: clock["t"])
     return calls
 

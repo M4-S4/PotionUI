@@ -209,7 +209,7 @@ These are container/environment artefacts, not regressions caused by your change
   loading its shared object. Without the argument the `ImportError` escapes,
   collection aborts, and the whole run reports **zero** results rather than a
   green suite. Do not drop it.
-- `tests/platform/runtime/native/test_attention.py::test_cross_backend_agreement_if_installed`
+- `tests/platform/runtime/native/kernels/test_dispatch.py::test_cross_backend_agreement_if_installed`
   skips if an accelerated attention backend is *listed* as available but its
   compiled kernel fails to import (e.g. this container's `sageattention` wheel
   needs a `libstdc++` newer than Debian bookworm's default repo carries —

@@ -21,7 +21,7 @@ from src.platform.runtime.native.arch.seedvr2.config import SeedVR2Config
 from src.platform.runtime.native.arch.seedvr2.model import SeedVR2
 from src.platform.runtime.native.arch.seedvr2_7b.config import SeedVR27BConfig
 from src.platform.runtime.native.arch.seedvr2_7b.model import SeedVR27B
-from src.platform.runtime.native.attention import attention as _dispatch_attention
+from src.platform.runtime.native.kernels import attention as _dispatch_attention
 from vendor.gpl.comfyui.ops import pick_operations
 
 TINY_3B = dict(

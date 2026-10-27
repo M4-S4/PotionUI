@@ -63,7 +63,7 @@ src/platform/runtime/native/
 ├── detect/              structural checkpoint detection (DiT / text-encoder / VAE) + ModelSpec registry
 ├── ops/                 layer namespaces (plain / cast-on-forward / fp8-scaled) + dtype selection
 ├── base.py               NativeArchModule contract + the load-integrity gate
-├── attention.py           attention backend dispatch (sdpa/flash/sage/sage2)
+├── kernels/               hardware capabilities, GEMM support and the attention backend dispatch (sdpa/flash/sage/sage2/sage3)
 ├── arch/                 vendored per-family DiT modules (flux/, krea2/, ...)
 ├── text_encoders/        vendored text-encoder modules + bundled tokenizers + loader
 ├── vae/                   2D AE (Flux) + causal-3D VAEs (Wan2.1/Qwen, Wan2.2, LTX video/audio) + tiling
@@ -81,7 +81,7 @@ One line per package, in loading order:
 | `detect/` | Structural sniffing: `detect_unet_config` / `detect_te_config` / `detect_vae_config` turn a state dict into a config dict; `detect/registry.py`'s `ModelSpec` list resolves a DiT config to a concrete arch class + sampling settings + TE/VAE pairing + key allowlists. |
 | `ops/` | `disable_weight_init` (plain), `manual_cast` (cast-on-forward), `fp8_ops` (scaled-fp8-aware `Linear`) — the layer-class namespace every arch module is built from, and `pick_operations`/`pick_dtypes` to choose one from a checkpoint's storage dtype. |
 | `base.py` | `NativeArchModule` (the `from_config`/`post_load` contract every arch subclasses) and `load_into_module`, the single load-integrity gate. |
-| `attention.py` | One `attention(q, k, v)` call every arch module shares, dispatching to sdpa/flash/sage/sage2 by availability with a uniform `(B, H, L, D)` contract. |
+| `kernels/` | `kernels.attention(q, k, v)`, the one call every arch module shares, dispatching to sdpa/flash/sage/sage2/sage3 by availability with a uniform `(B, H, L, D)` contract; plus the per-process hardware capability snapshot and the GEMM support probe. |
 | `arch/` | Vendored, empty-weight-constructible DiT modules, one subpackage per family (`arch/flux/`, `arch/krea2/`). |
 | `text_encoders/` | Vendored TE modules (Qwen3, T5-XXL, CLIP-L, Qwen2.5-VL, Qwen3-VL, UMT5-XXL, Gemma3) + bundled tokenizer assets + `load_text_encoder`, the detect→build→integrity-load→wrap entry point. |
 | `vae/` | `AutoEncoder2D` (Flux-family 2D VAE: `flux_ae`/`flux2_ae`) + `tiling.py` (its spatial tiled encode/decode, not yet 3D-aware); `AutoEncoderCausal3D` (Wan 2.1-shaped, 16ch — Qwen-Image's and Krea-2's VAE) and `AutoEncoderCausal3D_2_2` (Wan 2.2-shaped, 48ch, patchified) for the causal-3D family; `load_vae`/`load_causal3d_vae`/`load_causal3d_v2_vae` entry points. |

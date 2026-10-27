@@ -1,3 +1,12 @@
+from .dispatch import (
+    BACKEND_PRIORITY,
+    attention,
+    available_backends,
+    get_attention_backend,
+    get_backend_override,
+    known_backends,
+    reset_backend_cache,
+)
 from .gemm import GemmSupport, gemm_support
 from .hardware import (
     FLASH,
@@ -12,9 +21,11 @@ from .hardware import (
     capabilities,
     refresh_capabilities,
 )
-from .linear import FastPath, FastPathKind, QuantFormat, fast_path
+from .linear import FastPath, FastPathKind, QuantFormat, fast_path, quant_format
+from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED, CastWeightBiasOp, invalidate_lora_fused_cache
 
 __all__ = [
+    "BACKEND_PRIORITY",
     "FLASH",
     "SAGE",
     "SAGE2",
@@ -28,8 +39,18 @@ __all__ = [
     "GemmSupport",
     "GpuGeneration",
     "QuantFormat",
+    "attention",
+    "available_backends",
     "capabilities",
     "fast_path",
     "gemm_support",
+    "get_attention_backend",
+    "get_backend_override",
+    "known_backends",
     "refresh_capabilities",
+    "reset_backend_cache",
+    "CastWeightBiasOp",
+    "QUANT_FP8_SCALED",
+    "invalidate_lora_fused_cache",
+    "quant_format",
 ]
