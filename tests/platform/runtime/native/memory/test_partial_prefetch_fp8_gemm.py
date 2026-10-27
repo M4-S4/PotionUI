@@ -17,7 +17,7 @@ operands it receives.
 CPU-only box: CUDA stream/event/copy primitives for ``LayerPrefetcher`` are
 faked by reusing ``_install_fake_cuda``/``_streamed_leaves`` from
 ``test_partial_prefetch.py`` (not reinvented); "already on the activation
-device" for ops.py's own on-demand-staging check is faked via an
+device" for ``Fp8ScaledLinear``'s own on-demand-staging check is faked via an
 ``is_cuda`` id-EXCLUSION set (default resident=True, so an activation or any
 intermediate the real model computes never needs individually marking --
 only the leaf weight Parameters that must start off-device are named), the

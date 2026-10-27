@@ -540,7 +540,7 @@ def _dequantize_nvfp4_state_dict(sd: dict) -> dict:
     "Sikaworld" mixed bf16/nvfp4 Gemma-3 repacks: outer/early and outer/late
     decoder layers stay bf16, a middle band is nvfp4-quantized).
 
-    Reuses the vendored, GPU-validated nvfp4 dequant reference
+    Reuses the GPU-validated nvfp4 dequant reference
     (``src.platform.runtime.native.io.quant_formats.dequantize_nvfp4`` — the same LUT-gather /
     block-unswizzle math ``Nvfp4Linear.forward_comfy_cast_weights`` runs per
     forward for a live quantized module) rather than reimplementing the

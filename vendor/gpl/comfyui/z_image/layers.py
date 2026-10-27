@@ -4,11 +4,6 @@
 # src/platform/runtime/native/arch/z_image/ as part of the license-relocation
 # workstream, BE-97).
 # License: GPL-3.0 (see ../LICENSE). Copyright (c) comfyanonymous and contributors.
-# Local modification (BE-97): the native engine's attention-kernel dispatcher
-# (src/platform/runtime/native/attention.py) can't be imported here — this
-# package must not depend on src. JointAttention.forward calls a module-level
-# backend hook instead; src wires it via set_attention_backend() (see
-# arch/z_image/model.py, the one importer that constructs ZImageDiT).
 
 """Z-Image NextDiT building blocks — vendored from ComfyUI's ``comfy/ldm/lumina/model.py``
 (Alpha-VLLM NextDiT), adapted to the native ``operations`` seam.

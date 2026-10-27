@@ -331,9 +331,6 @@ def test_dit_module_with_a_populated_lora_deltas_is_active():
 
 
 # -- LoRA profile: which side each delta actually costs on ------------------
-#
-# The estimate must mirror vendor/gpl/comfyui/ops.py, so these assert against
-# that module's own behaviour rather than against copies of its constants.
 
 def test_the_chunked_activation_branch_allocates_nothing_extra():
     # _add_lora_output_branch (the path a plain delta takes on every

@@ -8,13 +8,13 @@ from typing import Callable
 import torch
 import torch.nn.functional as F
 
+from ..io.quant_formats import NVFP4_BLOCK
 from .hardware import DeviceCapabilities, capabilities
 
 logger = logging.getLogger(__name__)
 
 _FP8_MIN_CAPABILITY = (8, 9)
 _NVFP4_MIN_CAPABILITY = (12, 0)
-_NVFP4_BLOCK = 16
 _NVFP4_TRIAL_SHAPE = (16, 32, 16)
 _SCALE_ROW_TILE = 128
 _SCALE_COL_TILE = 4
@@ -103,7 +103,7 @@ def _nvfp4_trial_gemm(device: torch.device) -> None:
     m, k, n = _NVFP4_TRIAL_SHAPE
     a = torch.zeros(m, k // 2, dtype=torch.uint8, device=device).view(torch.float4_e2m1fn_x2)
     b_row = torch.zeros(n, k // 2, dtype=torch.uint8, device=device).view(torch.float4_e2m1fn_x2)
-    blocks = k // _NVFP4_BLOCK
+    blocks = k // NVFP4_BLOCK
     scale_a = _trial_block_scale(m, blocks, device)
     scale_b = _trial_block_scale(n, blocks, device)
     global_a = torch.ones((), dtype=torch.float32, device=device)

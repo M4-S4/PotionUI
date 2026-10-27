@@ -17,11 +17,10 @@ import logging
 
 import torch
 
+from src.platform.runtime.native.io.quant_formats import FP8_DTYPES
 from src.platform.runtime.native.kernels import capabilities
 
 logger = logging.getLogger(__name__)
-
-_FP8_DTYPES = {torch.float8_e4m3fn, torch.float8_e5m2}
 
 # Per-tensor quant scale sidecars — legitimately f32 alongside fp8/bf16 weights,
 # so they must NOT count toward the mixed-precision test.
@@ -71,7 +70,7 @@ def pick_dtypes(
     device = torch.device(device)
     compute_dtype = torch.bfloat16 if _supports_bf16(device) else torch.float16
 
-    if sd_dtype in _FP8_DTYPES:
+    if sd_dtype in FP8_DTYPES:
         storage_dtype = sd_dtype  # keep fp8, dequant on forward
     elif sd_dtype in (torch.bfloat16, torch.float16):
         storage_dtype = sd_dtype

@@ -10,11 +10,11 @@ from torch import Tensor
 from vendor.gpl.comfyui.flux.layers import timestep_embedding
 
 from ...base import NativeArchModule
+from ...io.quant_formats import FP8_DTYPES
 from .config import Flux3Config
 from .layers import Block, LastLayer, MLPEmbedder, Modulation, ModeModulation, rope_tables
 
 IMAGE_ROPE_SCALE = 0.5
-_FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e5m2)
 _SCALE_SUFFIX = ".weight_scale"
 _DROPPED_SUFFIX = ".comfy_attention.config"
 
@@ -25,7 +25,7 @@ def convert_flux3_state_dict(sd: dict[str, Tensor]) -> dict[str, Tensor]:
         if not key.endswith(_SCALE_SUFFIX) or scale.ndim != 1:
             continue
         weight = out.get(key[: -len("_scale")])
-        if weight is not None and weight.dtype in _FP8_DTYPES and weight.shape[0] == scale.shape[0]:
+        if weight is not None and weight.dtype in FP8_DTYPES and weight.shape[0] == scale.shape[0]:
             out[key] = scale.reshape(-1, 1)
     return out
 

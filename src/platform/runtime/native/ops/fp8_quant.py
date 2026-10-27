@@ -26,6 +26,8 @@ import logging
 
 import torch
 
+from ..io.quant_formats import FP8_DTYPES
+
 logger = logging.getLogger(__name__)
 
 # A bad fp8_quantize policy string doesn't change mid-process, so warn about it
@@ -33,7 +35,6 @@ logger = logging.getLogger(__name__)
 _warned_bad_fp8_policy = False
 
 FP8_E4M3 = torch.float8_e4m3fn
-_E4M3_MAX = torch.finfo(FP8_E4M3).max
 
 # Substrings marking a 2D weight that must stay at its original dtype. Norm
 # weights are 1D (already skipped by the rank test) but listed for clarity; the
@@ -50,7 +51,7 @@ def _should_quantize(key: str, tensor: torch.Tensor, *, min_numel: int) -> bool:
         return False
     if tensor.ndim != 2 or not tensor.is_floating_point():
         return False
-    if tensor.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+    if tensor.dtype in FP8_DTYPES:
         return False  # already fp8
     if tensor.numel() < min_numel:
         return False

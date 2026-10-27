@@ -16,12 +16,12 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from src.platform.runtime.native.ops.fp8_quant import (  # noqa: E402
-    _E4M3_MAX,
     estimate_fp8_gb,
     quantize_state_dict_to_fp8,
     quantize_tensor_to_fp8_scaled,
     should_quantize_fp8,
 )
+from src.platform.runtime.native.io.quant_formats import E4M3_MAX
 from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops
 
 
@@ -51,8 +51,18 @@ def test_scale_maps_amax_near_e4m3_max():
     w = torch.randn(64, 64) * 5.0
     q, scale = quantize_tensor_to_fp8_scaled(w)
     # The largest-magnitude element should sit near (not above) the e4m3 ceiling.
-    assert q.to(torch.float32).abs().max() <= _E4M3_MAX
-    assert (w.abs().amax() / scale) <= _E4M3_MAX + 1e-3
+    assert q.to(torch.float32).abs().max() <= E4M3_MAX
+    assert (w.abs().amax() / scale) <= E4M3_MAX + 1e-3
+
+
+@pytest.mark.parametrize("fp8", [torch.float8_e4m3fn, torch.float8_e5m2], ids=["e4m3", "e5m2"])
+def test_weights_already_stored_as_fp8_are_not_quantised_again(fp8):
+    weight = torch.randn(8, 8).to(fp8)
+
+    out, count = quantize_state_dict_to_fp8({"a.weight": weight})
+
+    assert count == 0
+    assert out == {"a.weight": weight}
 
 
 def test_state_dict_quantises_only_big_2d_weights():

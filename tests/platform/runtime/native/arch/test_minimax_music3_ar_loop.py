@@ -571,7 +571,7 @@ class TestSyncCountPerFrame:
 class TestBf16Compute:
     """A ``bfloat16`` checkpoint's ``nn.Linear``s do not self-cast to an
     activation's dtype the way ``int8_convrot``'s weight-quantized ``Linear``
-    does (``vendor/gpl/comfyui/ops.py``): every activation reaching a weight
+    does (``kernels/fp8_linear.py``): every activation reaching a weight
     matmul must already be in the module's own dtype. This class pins that
     contract end to end (prefill, AR step, depth decoder, feedback
     embedding) for both checkpoint layouts -- the crash this guards against
