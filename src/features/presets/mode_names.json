@@ -115,6 +115,10 @@
     "label": "Interpolate",
     "icon": "film"
   },
+  "resize": {
+    "label": "Resize",
+    "icon": "shrink"
+  },
   "trim": {
     "label": "Trim",
     "icon": "scissors"

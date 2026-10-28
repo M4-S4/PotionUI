@@ -1,0 +1,92 @@
+{
+  "mode": "resize",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 524288000
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_video.mp4",
+              "type": "video"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "size",
+              "1280x720"
+            ],
+            [
+              "quality",
+              "balanced"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "quality": {
+          "type": "str",
+          "value": "balanced"
+        },
+        "size": {
+          "type": "str",
+          "value": "1280x720"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "resizer",
+      "name": "video_resize"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KXVIDEOTOOLS0000000000VT",
+  "preset_name": "Video Tools"
+}

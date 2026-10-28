@@ -1,0 +1,11 @@
+name: "custom"
+short_description: "Make a video smaller and lighter."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/resize/tabs/generation.yml"

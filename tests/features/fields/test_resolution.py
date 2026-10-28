@@ -551,6 +551,19 @@ class TestOutputWithFileLoading(unittest.TestCase):
         self.assertEqual(len(options), 1)
         self.assertNotIn('group', options[0])
 
+    def test_match_media_names_the_field_whose_dimensions_drive_the_options(self):
+        field = {'type': 'resolution', 'name': 'size', 'label': 'Size', 'configuration': {'match_media': 'input_video'}}
+
+        schema = self.resolution_field.output(field)
+
+        self.assertEqual(schema['match_media'], 'input_video')
+        self.assertEqual(schema['options'], [])
+
+    def test_without_match_media_the_schema_has_no_media_link(self):
+        field = {'type': 'resolution', 'name': 'size', 'label': 'Size', 'configuration': {'options': ['640x360']}}
+
+        self.assertNotIn('match_media', self.resolution_field.output(field))
+
 
 if __name__ == '__main__':
     unittest.main()

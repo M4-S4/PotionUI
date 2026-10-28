@@ -123,6 +123,9 @@ class Resolution(BaseField):
                             all_options.append(self._normalize_option(opt, group=group))
 
         schema['options'] = all_options
+        match_media = configuration.get('match_media')
+        if match_media:
+            schema['match_media'] = str(match_media)
         return schema
 
     # Bounds enforced on every WIDTHxHEIGHT submission, including custom
@@ -191,6 +194,13 @@ class Resolution(BaseField):
                 default=[],
                 description="Load from multiple YAML files with optional group labels",
                 example=[{"path": "{{paths._shared}}/resolutions/sdxl.yml", "group": "SDXL Standard"}]
+            ),
+            FieldConfigSpec(
+                name="match_media",
+                param_type=str,
+                default="",
+                description="Name of an image or video field; the picker offers sizes derived from that media's own dimensions and aspect ratio",
+                example="input_video"
             ),
         ]
 

@@ -14,7 +14,7 @@ name: "Video Tools"
 category: "utility"
 version: "1.0.0"
 engine: "native"
-tags: ["video", "utility", "interpolation", "rife", "local"]
+tags: ["video", "utility", "interpolation", "rife", "resize", "local"]
 
 # Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
 # these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
@@ -27,13 +27,17 @@ configuration:
 llm:
   guide: |
     Utility preset — no diffusion model, no prompt. The interpolate mode raises a
-    video's frame rate via frame interpolation. Help the user choose input video
-    and interpolation settings from the form summary below; never suggest prompt text.
+    video's frame rate via frame interpolation. The resize mode makes a video
+    smaller (lower resolution, smaller file) while keeping its aspect ratio, frame
+    rate and sound; it never enlarges. Help the user choose the input video and the
+    mode's settings from the form summary below; never suggest prompt text.
 
 formulas:
   groups:
     interpolation: { label: "Interpolation" }
+    resize:        { label: "Resize" }
     models:        { label: "Models", preselect: false }
 
 modes:
   - interpolate
+  - resize
