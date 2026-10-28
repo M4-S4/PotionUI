@@ -496,6 +496,7 @@ modes:
   - refs
   - upscale
   - refine_faces
+  - extend
   - swap
   - remix
   - talk
