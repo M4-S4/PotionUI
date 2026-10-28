@@ -88,10 +88,10 @@
 # unlike the plain first/last/keyframe entries, this is the one place the
 # index-alignment contract is enforced by construction rather than by
 # copy-pasted Jinja traversals: `media_images` walks `doc.media` in
-# first -> last -> keyframes-sorted-by-`at` order (image-typed entries only;
-# see the v1 cut note) and THEN appends image-typed `ic_lora[].reference`
-# entries (document order); `media_videos` holds ONLY video-typed
-# `ic_lora[].reference` entries (document order). Each `ic_lora` reference is
+# first -> last -> keyframes-sorted-by-`at` order (image-typed entries only)
+# and THEN appends image-typed `ic_lora[].reference` entries (document
+# order); `media_videos` holds video-typed last/keyframe clips and THEN
+# video-typed `ic_lora[].reference` entries (document order). Each `ic_lora` reference is
 # routed to whichever list matches its OWN media type -- an image reference
 # is a `source: "image"` placement into `media_images`, a video reference is
 # a `source: "video"` placement into `media_videos` -- because the video
@@ -99,24 +99,16 @@
 # `@loop`s below just replay these three precomputed lists verbatim; there is
 # no separate Jinja-side filter to keep in sync.
 #
-# -- v1 cut: image-only keyframe/last media --
-# MediaRef carries an optional `type` (frontend/src/lib/types/tabs.ts).
-# Keyframe clips (video-typed last/keyframe media) are allowed by the
-# document schema and by generator/video_ltx's `media_placements` contract
-# (`source: "image"|"video"`), but wiring a video-typed keyframe through this
-# pipeline would mean interleaving TWO different media_loader outputs into
-# ONE placement's index space depending on its type -- video-typed last/
-# keyframe entries are dropped here (not loaded, not placed) to keep the
-# index math simple. A video-typed 'first' entry is the one exception: a
-# director-timeline shot that continues from its predecessor carries the
-# predecessor's own rendered output video as its 'first' entry (see
-# frontend/src/lib/utils/directorContinuation.ts); derive_ltx_media_fields
-# resolves that to the video's LAST decoded frame and feeds it into
-# media_images exactly like an image-typed 'first', so it never widens
-# generator/video_ltx's index math. IC-LoRA `reference` entries are NOT
-# subject to this cut either -- both image- and video-typed references are
-# routed (see the index-alignment note above). Revisit if keyframe/last
-# video clips become a real feature request.
+# -- video keyframe/last media --
+# With `video_keyframes` declared on the director mode, a video-typed 'last'
+# or 'keyframe' entry is a clip: derive_ltx_media_fields loads it through
+# media_videos (ahead of the IC-LoRA reference clips) and places it with
+# `source: "video"` -- 'last' anchored with `frame: "end"` so the clip ends
+# on the final frame, a keyframe starting at its `at`. A video-typed 'first'
+# is a director-timeline continuation (frontend/src/lib/utils/
+# directorContinuation.ts): derive_ltx_media_fields resolves it to the
+# video's LAST decoded frame and feeds it into media_images like an
+# image-typed 'first'.
 #
 # -- audio routing --
 # doc.audio can only be non-empty in director mode (normalize.py rejects

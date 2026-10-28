@@ -407,13 +407,13 @@ def derive_ltx_media_fields(
     to its LAST decoded frame via `_extract_last_video_frame_as_image`),
     then image-typed 'last', then image-typed 'keyframe' entries sorted by
     `at` (stable sort keeps original order for ties), then image-typed
-    `ic_lora[].reference` entries (document order). Video-typed 'last'/
-    'keyframe' entries are the v1 cut documented in the pipeline header
-    comment -- dropped here, not loaded, not placed.
+    `ic_lora[].reference` entries (document order).
 
-    `media_videos`: ordered list of resolved paths for video-typed
-    `ic_lora[].reference` entries (document order) -- IC-LoRA reference clips
-    only; nothing else feeds this loader.
+    `media_videos`: ordered list of resolved paths for video-typed 'last'
+    (placed with `frame: "end"`, so the clip ends on the last frame), then
+    video-typed 'keyframe' entries sorted by `at` (the clip starts there),
+    then video-typed `ic_lora[].reference` entries (document order). Video
+    keyframes only get here when the mode declares `video_keyframes`.
 
     `media_placements`: the SAME traversals (so each `index` stays aligned
     with the load order of whichever of `media_images`/`media_videos` its
@@ -434,6 +434,17 @@ def derive_ltx_media_fields(
     lasts = [m for m in media if m.get("role") == "last" and _media_ref_is_image(m.get("media"))]
     keyframes = sorted(
         (m for m in media if m.get("role") == "keyframe" and _media_ref_is_image(m.get("media"))),
+        key=lambda m: m.get("at") or 0,
+    )
+    video_lasts = [
+        m for m in media
+        if m.get("role") == "last" and m.get("media") is not None and not _media_ref_is_image(m.get("media"))
+    ]
+    video_keyframes = sorted(
+        (
+            m for m in media
+            if m.get("role") == "keyframe" and m.get("media") is not None and not _media_ref_is_image(m.get("media"))
+        ),
         key=lambda m: m.get("at") or 0,
     )
 
@@ -469,8 +480,13 @@ def derive_ltx_media_fields(
         placements.append({"source": "image", "index": index, "frame": frame, "strength": m.get("strength", 1.0), "role": "keyframe"})
         index += 1
 
-    reference_clips = [ic for ic in ic_lora if ic.get("reference")]
     media_videos: List[str] = []
+    for m in video_lasts + video_keyframes:
+        frame = "end" if m.get("role") == "last" else round_half_up_common((m.get("at") or 0) * (fps or 0))
+        placements.append({"source": "video", "index": len(media_videos), "frame": frame, "strength": m.get("strength", 1.0), "role": "keyframe"})
+        media_videos.append(m["media"]["path"])
+
+    reference_clips = [ic for ic in ic_lora if ic.get("reference")]
     for ic in reference_clips:
         reference = ic["reference"]
         strength = ic.get("strength", 1.0)
@@ -873,11 +889,9 @@ def _normalize_media(
 
         media_ref = _resolve_media_ref(item.get("media"), storage_path, context, errors)
 
-        # `derive_ltx_media_fields` only ever LOADS image-typed keyframe/last
-        # entries (see its docstring) -- a video-typed one used to pass
-        # validation, then get silently dropped at pipeline-build time with no
-        # feedback to the caller. Reject it here instead: video keyframes/
-        # last frames aren't implemented (v1 cut). A video-typed 'first' is
+        # A video-typed keyframe/last is placed as a clip only when the mode
+        # declares `video_keyframes`; everywhere else it is rejected here
+        # rather than dropped at pipeline-build time. A video-typed 'first' is
         # the one exception: in a timeline director shot it's a continuation
         # reference -- the predecessor shot's own rendered output video (see
         # frontend/src/lib/utils/directorContinuation.ts) -- and
@@ -887,11 +901,13 @@ def _normalize_media(
         # 'first' there stays rejected same as before.
         chain_video_first = role == "first" and chain_style and bool(mode_caps.get("continue_from_video"))
         video_first_is_continuation = (role == "first" and timeline_style) or chain_video_first
+        video_keyframe = role in {"keyframe", "last"} and timeline_style and bool(mode_caps.get("video_keyframes"))
         if (
             role in {"keyframe", "first", "last"}
             and media_ref is not None
             and not _media_ref_is_image(media_ref)
             and not video_first_is_continuation
+            and not video_keyframe
         ):
             errors.append(
                 f"{context}: {role} media type {media_ref.get('type')!r} is not supported -- "

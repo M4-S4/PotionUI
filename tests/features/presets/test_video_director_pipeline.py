@@ -499,7 +499,7 @@ def _director_doc(with_audio=False):
         # sort keyframes by `at`, not by list position.
         _media_full("keyframe", "seg-0", "/up/kf_late.png", at=6.0, strength=0.8),
         _media_full("keyframe", "seg-0", "/up/kf_early.png", at=2.0, strength=0.7),
-        # v1 cut: a video-typed keyframe must be dropped, not misrouted.
+        # A video-typed keyframe is placed as a clip from media_videos.
         _media_full("keyframe", "seg-0", "/up/kf_video.mp4", media_type="video", at=4.0, strength=0.5),
     ]
     audio = [{"id": "a1", "start": 0.0, "trim_start": 0.0, "length": 8.0, "media": {"path": "/up/track.mp3"}}] \
@@ -650,7 +650,10 @@ def test_ltx_director_media_videos_has_ic_lora_reference(ltx_template):
     pipes = _process_ltx(ltx_template, DOC_DIRECTOR_LTX)
     videos = _pipe(pipes, None, pipe_id="media_videos")
     assert videos["enabled"] is True
-    assert videos["config"]["media"] == [{"type": "video", "path": "/up/ref.mp4"}]
+    assert videos["config"]["media"] == [
+        {"type": "video", "path": "/up/kf_video.mp4"},
+        {"type": "video", "path": "/up/ref.mp4"},
+    ]
 
 
 def test_ltx_i2v_media_videos_disabled_no_ic_lora(ltx_template):
@@ -665,8 +668,7 @@ def test_ltx_director_media_placements_index_alignment(ltx_template):
     video_ltx = _pipe(pipes, "generator/video_ltx")
     placements = video_ltx["config"]["media_placements"]
 
-    # Exactly 5: first, last, 2 image keyframes (video keyframe dropped), 1 ic reference.
-    assert len(placements) == 5
+    assert len(placements) == 6
 
     # fps=25 -> at=2.0 => frame 50, at=6.0 => frame 150 (derive_ltx_media_fields'
     # round_half_up_common of at*fps). Exact-expression scalars render native.
@@ -674,14 +676,15 @@ def test_ltx_director_media_placements_index_alignment(ltx_template):
     assert placements[1] == {"source": "image", "index": 1, "frame": "last", "strength": 0.9, "role": "keyframe"}
     assert placements[2] == {"source": "image", "index": 2, "frame": 50, "strength": 0.7, "role": "keyframe"}
     assert placements[3] == {"source": "image", "index": 3, "frame": 150, "strength": 0.8, "role": "keyframe"}
-    assert placements[4] == {"source": "video", "index": 0, "frame": "first", "strength": 0.75, "role": "reference"}
+    assert placements[4] == {"source": "video", "index": 0, "frame": 100, "strength": 0.5, "role": "keyframe"}
+    assert placements[5] == {"source": "video", "index": 1, "frame": "first", "strength": 0.75, "role": "reference"}
 
 
 def test_ltx_director_image_ic_lora_reference_routes_to_media_images(ltx_template):
     # An image-typed ic_lora.reference must land in media_images
     # (source: "image"), not the cv2-backed media_videos loader -- it's
     # appended AFTER the four keyframe images, at index 4; the video-typed
-    # reference from the same doc keeps its own media_videos index 0.
+    # reference from the same doc follows the video keyframe in media_videos.
     pipes = _process_ltx(ltx_template, DOC_DIRECTOR_LTX_MIXED_REFS)
     images = _pipe(pipes, None, pipe_id="media_images")
     videos = _pipe(pipes, None, pipe_id="media_videos")
@@ -694,13 +697,16 @@ def test_ltx_director_image_ic_lora_reference_routes_to_media_images(ltx_templat
         {"type": "image", "path": "/up/ref_still.png"},
     ]
     assert videos["enabled"] is True
-    assert videos["config"]["media"] == [{"type": "video", "path": "/up/ref.mp4"}]
+    assert videos["config"]["media"] == [
+        {"type": "video", "path": "/up/kf_video.mp4"},
+        {"type": "video", "path": "/up/ref.mp4"},
+    ]
 
     video_ltx = _pipe(pipes, "generator/video_ltx")
     placements = video_ltx["config"]["media_placements"]
-    assert len(placements) == 6
-    assert placements[4] == {"source": "video", "index": 0, "frame": "first", "strength": 0.75, "role": "reference"}
-    assert placements[5] == {"source": "image", "index": 4, "frame": "first", "strength": 0.55, "role": "reference"}
+    assert len(placements) == 7
+    assert placements[5] == {"source": "video", "index": 1, "frame": "first", "strength": 0.75, "role": "reference"}
+    assert placements[6] == {"source": "image", "index": 4, "frame": "first", "strength": 0.55, "role": "reference"}
 
 
 def test_ltx_t2v_media_placements_empty(ltx_template):
@@ -722,7 +728,7 @@ def test_ltx_upscale_on_stage2_gets_same_media_placements_as_stage1(ltx_template
     stage2 = _pipe(pipes, None, pipe_id="generator_stage2")
     assert stage2["enabled"] is True
     assert stage2["config"]["media_placements"] == stage1["config"]["media_placements"]
-    assert len(stage2["config"]["media_placements"]) == 5
+    assert len(stage2["config"]["media_placements"]) == 6
 
 
 def test_ltx_upscale_off_stage2_media_placements_still_render_but_stage2_disabled(ltx_template):

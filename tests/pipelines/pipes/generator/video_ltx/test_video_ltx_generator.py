@@ -1140,15 +1140,47 @@ def test_initial_latent_keeps_keyframes_when_a_reference_is_dropped():
     assert ctx.extra.prepared.mask.any()
 
 
-def test_initial_latent_with_video_sourced_keyframe_still_raises():
-    pipe_input = _pipe_input()
-    pipe_input.input["video"] = ["/fake/reference.mp4"]
+def test_initial_latent_reapplies_a_video_sourced_keyframe(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=9)
+    pipe_input = _pipe_input(videos=[str(clip)])
     pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
     cfg = _pipe(resolution="64x64", frames=17, media_placements=[
         {"source": "video", "index": 0, "frame": "first", "role": "keyframe"},
     ])
-    with pytest.raises(ValueError, match="video-sourced"):
-        cfg.build_context(pipe_input)
+    ctx = cfg.build_context(pipe_input)
+    p = ctx.extra.prepared
+    assert ctx.extra.has_conditions and p.n_extra == 0
+    assert torch.all(p.mask[:, : 2 * 2 * 2] == 1) and torch.all(p.mask[:, 2 * 2 * 2:] == 0)
+
+
+def test_a_video_keyframe_at_the_start_overwrites_as_many_latent_frames_as_it_covers(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=9)
+    cfg = _pipe(resolution="64x64", frames=25, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "role": "keyframe"},
+    ])
+    p = cfg.build_context(_pipe_input(videos=[str(clip)])).extra.prepared
+    assert p.n_extra == 0 and p.base_tokens == 4 * 2 * 2
+    assert torch.all(p.mask[:, :8] == 1) and torch.all(p.mask[:, 8:] == 0)
+
+
+def test_a_video_keyframe_anchored_at_the_end_lands_on_the_last_latent_frames(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=9)
+    cfg = _pipe(resolution="64x64", frames=25, media_placements=[
+        {"source": "video", "index": 0, "frame": "end", "role": "keyframe"},
+    ])
+    p = cfg.build_context(_pipe_input(videos=[str(clip)])).extra.prepared
+    assert p.n_extra == 2 * 2 * 2 and torch.all(p.mask[:, : p.base_tokens] == 0)
+    temporal = p.extra_coords[0, 0, :, 0]
+    assert float(temporal.min()) == 8 * 2 - 7 and float(p.extra_coords[0, 0, :, 1].max()) == 25
+
+
+@pytest.mark.parametrize("clip_frames, frames, expected", [
+    (1, 25, 3), (9, 25, 2), (17, 25, 1), (25, 25, 0), (40, 25, 0), (12, 25, 2),
+])
+def test_end_anchoring_counts_back_the_latent_frames_the_clip_fills(clip_frames, frames, expected):
+    from src.pipelines.pipes.generator.video_ltx.main import _end_anchored_latent_index
+
+    assert _end_anchored_latent_index(clip_frames, frames) == expected
 
 
 @patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)

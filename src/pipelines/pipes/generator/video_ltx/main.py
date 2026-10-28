@@ -185,6 +185,13 @@ def _resolve_latent_index(frame: Any, frames: int) -> int:
     return (f - 1) // LTX_TEMPORAL_DOWNSCALE + 1
 
 
+def _end_anchored_latent_index(clip_frames: int, frames: int) -> int:
+    t_lat = (frames - 1) // LTX_TEMPORAL_DOWNSCALE + 1
+    used = max(1, min(clip_frames, frames))
+    span = (used - 1) // LTX_TEMPORAL_DOWNSCALE
+    return max(0, t_lat - 1 - span)
+
+
 @dataclass
 class _VideoLtxCtx:
     bundle: Any
@@ -293,7 +300,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             device_config_spec(),
             preview_config_spec("Emit live latent previews during sampling"),
             PipeConfigSpec("media_placements", list, [],
-                           "Media conditioning placements: [{source: image|video, index, frame: int|first|last, "
+                           "Media conditioning placements: [{source: image|video, index, frame: int|first|last|end, "
                            "strength, role: keyframe|reference}]. Empty with image inputs present = image[0] as "
                            "first frame (i2v) and image[1] (if any) as last frame (FLF).", required=False),
             PipeConfigSpec("audio", bool, False, "Produce an audio track", required=False),
@@ -381,7 +388,11 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     frames=media_frames, latent_index=0, strength=strength, role=role,
                     downscale_factor=reference_scales[0], temporal_scale_factor=reference_scales[1]))
                 continue
-            latent_index = _resolve_latent_index(p.get("frame", "first"), frames)
+            frame = p.get("frame", "first")
+            if frame == "end":
+                latent_index = _end_anchored_latent_index(int(media_frames.shape[0]), frames)
+            else:
+                latent_index = _resolve_latent_index(frame, frames)
             conditions.append(LTXMediaCondition(
                 frames=media_frames, latent_index=latent_index, strength=strength, role=role))
         return conditions
@@ -413,12 +424,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     "the reference only steers the first pass, the refine runs on the upscaled latent",
                     len(dropped))
                 placements = [p for p in placements if p.get("role") != "reference"]
-            if any(p.get("source") == "video" and p.get("role") != "reference" for p in placements):
-                raise ValueError(
-                    "generator/video_ltx: 'initial_latent' (stage-2 refine) cannot be combined with "
-                    "video-sourced keyframe conditioning -- use image-sourced keyframes for a "
-                    "stage-2 refine instead"
-                )
             if dropped and not placements:
                 images = []
 
