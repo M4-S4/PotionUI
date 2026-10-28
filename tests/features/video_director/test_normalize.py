@@ -470,6 +470,23 @@ def test_video_typed_keyframe_rejected(storage_dir):
     assert "video" in str(excinfo.value)
 
 
+@pytest.mark.parametrize("role, at", [("keyframe", 1.0), ("last", None)])
+def test_video_typed_keyframe_accepted_when_the_mode_declares_video_keyframes(storage_dir, role, at):
+    (storage_dir / "clip.mp4").write_bytes(b"fake-video")
+    caps = {**LTX_CAPS, "modes": {**LTX_CAPS["modes"], "director": {**LTX_CAPS["modes"]["director"], "video_keyframes": True}}}
+    doc = _base_doc(
+        "director",
+        segments=[{"id": "seg-1", "prompt": "a", "start": 0.0, "end": 5.0}],
+        media=[{"id": "kf-1", "role": role, "segment_id": "seg-1", "at": at, "strength": 1.0,
+                "media": {"relative_path": "clip.mp4", "type": "video"}}],
+    )
+
+    out = normalize_video_director(doc, caps, str(storage_dir))
+
+    assert out["media_images"] == [] and len(out["media_videos"]) == 1
+    assert out["media_placements"][0]["source"] == "video"
+
+
 def test_image_typed_keyframe_still_accepted(storage_dir):
     doc = _base_doc(
         "director",
@@ -1035,9 +1052,25 @@ def test_derive_media_placements_index_alignment_and_frame_rounding(tmp_path):
         {"source": "image", "index": 1, "frame": "last", "strength": 0.9, "role": "keyframe"},
         {"source": "image", "index": 2, "frame": 50, "strength": 0.7, "role": "keyframe"},
         {"source": "image", "index": 3, "frame": 150, "strength": 0.8, "role": "keyframe"},
-        {"source": "video", "index": 0, "frame": "first", "strength": 0.75, "role": "reference"},
+        {"source": "video", "index": 0, "frame": 100, "strength": 0.5, "role": "keyframe"},
+        {"source": "video", "index": 1, "frame": "first", "strength": 0.75, "role": "reference"},
     ]
-    assert derived["media_videos"] == ["/ref.mp4"]
+    assert derived["media_videos"] == ["/kf_video.mp4", "/ref.mp4"]
+
+
+def test_derive_places_a_video_last_so_the_clip_ends_on_the_last_frame(tmp_path):
+    media = [
+        _media_entry("keyframe", "/kf_video.mp4", media_type="video", at=2.0),
+        _media_entry("last", "/tail.mp4", media_type="video", strength=0.8),
+    ]
+
+    derived = derive_ltx_media_fields(media, [], fps=24, storage_path=tmp_path)
+
+    assert derived["media_images"] == [] and derived["media_videos"] == ["/tail.mp4", "/kf_video.mp4"]
+    assert derived["media_placements"] == [
+        {"source": "video", "index": 0, "frame": "end", "strength": 0.8, "role": "keyframe"},
+        {"source": "video", "index": 1, "frame": 48, "strength": 1.0, "role": "keyframe"},
+    ]
 
 
 def test_derive_media_fields_empty_for_t2v_shape(tmp_path):

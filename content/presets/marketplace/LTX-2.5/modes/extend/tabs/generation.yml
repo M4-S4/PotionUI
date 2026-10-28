@@ -1,0 +1,83 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed"
+    default: "balanced"
+    configuration:
+      options:
+        - { label: "Balanced (24 steps)", value: "balanced" }
+        - { label: "Distilled (fast, 8 steps)", value: "distilled" }
+        - { label: "Quality (slow, 30 steps)", value: "quality" }
+        - { label: "Custom (set steps/CFG freely)", value: "custom" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Video to extend"
+        required: true
+        ai_hint: "The clip to continue. Its last moments (or first, when adding before) are carried into the new footage, which is then joined to it with its sound."
+
+      - name: "direction"
+        type: "select"
+        label: "Direction"
+        default: "forward"
+        ai_hint: "Forward continues after the last frame. Backward creates what happens before the first frame; describe the lead-in in the prompt."
+        configuration:
+          options:
+            - { label: "Continue after the end", value: "forward" }
+            - { label: "Add before the start", value: "backward" }
+
+      - name: "duration"
+        type: "slider"
+        label: "Added length (seconds)"
+        default: 5
+        configuration: {min: 1, max: 15, step: 0.5}
+
+      - name: "context_seconds"
+        type: "slider"
+        label: "Carried-over length (seconds)"
+        audience: "advanced"
+        default: 1
+        ai_hint: "How much of the source the new footage starts from (or leads into). Longer keeps motion and identity steadier but leaves less room for change; 1 second suits most clips."
+        configuration: {min: 0.25, max: 3, step: 0.25}
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+
+          - name: "quantity"
+            type: "slider"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+
+      - name: "resolution"
+        type: "resolution"
+        formula: "size"
+        label: "Resolution"
+        ai_hint: "Pick the source video's aspect ratio; the new footage is fitted to the source's frame when joined."
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
+            - { path: "{{ paths._shared }}/resolutions/social_media_video.yml", group: "Social Media" }
+        default: "768x512"
+
+      - name: "fps"
+        type: "slider"
+        formula: "size"
+        label: "FPS"
+        ai_hint: "Match the source video's frame rate so motion carries over at the same speed."
+        default: 25
+        configuration: {min: 1, max: 60, step: 1}
+
+      - name: "generate_audio"
+        type: "checkbox"
+        label: "Generate Audio"
+        ai_hint: "Generates sound for the new footage; the source keeps its own sound either way. Needs the Audio VAE picker (Models tab) filled."
+        default: false

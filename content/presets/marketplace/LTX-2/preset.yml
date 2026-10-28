@@ -169,6 +169,7 @@ vars:
         audio: true
         ic_lora: true
         max_keyframes: 8
+        video_keyframes: true
     limits:
       default_duration: 5
       default_fps: 25

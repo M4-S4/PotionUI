@@ -41,6 +41,7 @@ def test_each_extension_makes_its_own_joined_video_after_the_source(joins):
     assert len(out) == 2
     assert [call["clips"] for call in joins] == [["src.mp4", "e1.mp4"], ["src.mp4", "e2.mp4"]]
     assert joins[0]["crossfades"] == [0.5] and joins[0]["trims"] == [ClipTrim(), ClipTrim()]
+    assert joins[0]["canvas"] == 0
 
 
 def test_an_extension_before_the_source_cuts_its_repeated_tail(joins):
@@ -50,7 +51,7 @@ def test_an_extension_before_the_source_cuts_its_repeated_tail(joins):
     (call,) = joins
     assert call["clips"] == ["e.mp4", "src.mp4"]
     assert call["trims"] == [ClipTrim(end=0.25), ClipTrim()] and call["crossfades"] == [0.0]
-    assert call["audio"] is False
+    assert call["audio"] is False and call["canvas"] == 1
 
 
 def test_an_extension_after_the_source_cuts_its_repeated_head(joins):

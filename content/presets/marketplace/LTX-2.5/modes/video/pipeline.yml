@@ -99,22 +99,22 @@
 # and `media_placements` are ALL precomputed together by
 # `derive_ltx_media_fields()` (src/features/video_director/normalize.py):
 # `media_images` walks `doc.media` in first -> last -> keyframes-sorted-by-`at`
-# order (image-typed entries only; see the v1 cut note) and THEN appends
-# image-typed `ic_lora[].reference` entries (document order); `media_videos`
-# holds ONLY video-typed `ic_lora[].reference` entries (document order). Each
+# order (image-typed entries only) and THEN appends image-typed
+# `ic_lora[].reference` entries (document order); `media_videos` holds
+# video-typed last/keyframe clips and THEN video-typed `ic_lora[].reference`
+# entries (document order). Each
 # `ic_lora` reference is routed to whichever list matches its OWN media type --
 # an image reference is a `source: "image"` placement into `media_images`, a
 # video reference is a `source: "video"` placement into `media_videos` --
 # because the video loader below is cv2-backed and cannot read a still image
 # file. The `@loop`s below just replay these three precomputed lists verbatim.
 #
-# -- v1 cut: image-only keyframe/first/last media --
-# Video-typed first/last/keyframe entries are dropped here (not loaded, not
-# placed) to keep the index math simple -- wiring one through would mean
-# interleaving TWO different media_loader outputs into ONE placement's index
-# space depending on its type. IC-LoRA `reference` entries are NOT subject to
-# this cut: both image- and video-typed references are routed (see the
-# index-alignment note above).
+# -- video keyframe/last media --
+# The director mode declares `video_keyframes`, so a video-typed 'last' or
+# 'keyframe' entry is a clip: it loads through media_videos (ahead of the
+# IC-LoRA reference clips) and is placed with `source: "video"` -- 'last'
+# anchored with `frame: "end"` so the clip ends on the final frame, a
+# keyframe starting at its `at`.
 #
 # -- audio routing --
 # doc.audio can only be non-empty in director mode (normalize.py rejects it for
