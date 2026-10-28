@@ -23,6 +23,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     fit_keyframe_to_canvas,
     normalize_reference_image,
     normalize_references,
+    reference_image_max_pixels,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     CANVAS_MAX_PIXELS,
@@ -348,6 +349,60 @@ def test_reference_image_condition_tokens_without_and_with_enlarging(
     released = normalize_reference_image(image, canvas_multiple=32, upscale=True)
     assert (fitted.size, _condition_tokens(fitted.size)) == (size, tokens)
     assert (released.size, _condition_tokens(released.size)) == (released_size, released_tokens)
+
+
+@pytest.mark.parametrize(("budget", "canvas", "cap"), [
+    (0, (832, 480), REFERENCE_IMAGE_MAX_PIXELS),
+    (-1, (832, 480), REFERENCE_IMAGE_MAX_PIXELS),
+    (1, (832, 480), 832 * 480),
+    (1, (1344, 768), 1344 * 768),
+    (2, (1344, 768), REFERENCE_IMAGE_MAX_PIXELS),
+    (4, (1344, 768), REFERENCE_IMAGE_MAX_PIXELS),
+    (0.5, (832, 480), 832 * 480 // 2),
+])
+def test_the_reference_image_budget_scales_the_output_area_up_to_the_fixed_cap(budget, canvas, cap):
+    assert reference_image_max_pixels(budget, *canvas) == cap
+
+
+@pytest.mark.parametrize(("source", "canvas", "size", "tokens"), [
+    ((1920, 1080), (832, 480), (832, 480), 390),
+    ((1920, 1072), (832, 480), (832, 480), 390),
+    ((846, 472), (832, 480), (832, 480), 390),
+    ((4000, 3000), (832, 480), (736, 544), 391),
+    ((1080, 1920), (480, 832), (480, 832), 390),
+    ((512, 512), (832, 480), (512, 512), 256),
+    ((1920, 1080), (1344, 768), (1344, 768), 1008),
+    ((4000, 3000), (1344, 768), (1184, 864), 999),
+])
+def test_a_one_output_area_budget_encodes_a_photo_at_about_the_size_of_the_take(source, canvas, size, tokens):
+    fitted = normalize_reference_image(
+        Image.new("RGB", source), canvas_multiple=32, max_pixels=reference_image_max_pixels(1, *canvas),
+    )
+    assert (fitted.size, _condition_tokens(fitted.size)) == (size, tokens)
+
+
+@pytest.mark.parametrize(("budget", "image_size", "video_shape"), [
+    (0, (1920, 1088), (22, 768, 1344, 3)),
+    (1, (832, 480), (22, 768, 1344, 3)),
+])
+def test_the_reference_image_budget_leaves_reference_videos_on_the_canvas_rule(budget, image_size, video_shape):
+    normalized = normalize_references(
+        [
+            ReferenceMedia(kind="image", image=Image.new("RGB", (1920, 1080))),
+            ReferenceMedia(kind="video", frames=np.zeros((22, 1080, 1920, 3), dtype=np.uint8), fps=24.0),
+        ],
+        num_frames=22, reference_max_pixels=reference_image_max_pixels(budget, 832, 480),
+    )
+    assert normalized[0].image.size == image_size
+    assert np.asarray(normalized[1].frames).shape == video_shape
+
+
+def test_a_small_reference_image_is_enlarged_only_up_to_the_budget_under_the_released_rule():
+    fitted = normalize_reference_image(
+        Image.new("RGB", (416, 240)), canvas_multiple=32, max_pixels=reference_image_max_pixels(1, 832, 480),
+        upscale=True,
+    )
+    assert fitted.size == (832, 480)
 
 
 def test_reference_video_keeps_the_canvas_rule_while_images_are_capped():

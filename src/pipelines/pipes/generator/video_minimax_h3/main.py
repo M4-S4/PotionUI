@@ -179,6 +179,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     MAX_IMAGE_REFERENCES,
     MAX_REFERENCES,
     MAX_VIDEO_REFERENCES,
+    REFERENCE_IMAGE_MAX_PIXELS,
     ReferenceMedia,
     VisualLatentCache,
     encode_continuation_condition,
@@ -186,6 +187,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     normalize_references,
     prepare_keyframe_condition_rows,
     prepare_reference_conditioning,
+    reference_image_max_pixels,
     visual_references_need_encode,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
@@ -1207,6 +1209,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "loaded image/video/audio input at all: it can be the request's ONLY reference.",
                 required=False,
             ),
+            PipeConfigSpec(
+                "reference_image_pixel_budget", float, 0.0,
+                "Cap the pixel AREA each ref2va reference IMAGE is VAE-encoded at, as a multiple of "
+                "the output canvas area ('resolution'): 1 encodes a large photo at about the size of "
+                "the clip it conditions. 0 (default) keeps the fixed cap of twice the release canvas "
+                "area, about 2,000 condition tokens. Never enlarges an image, and leaves reference "
+                "videos, which already follow the canvas rule, unchanged.",
+                required=False, min_value=0.0, max_value=16.0,
+            ),
         ]
 
     @classmethod
@@ -1559,7 +1570,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         reference_num_frames = frames
         if plan is not None and plan.windows:
             reference_num_frames = max(window.frames for window in plan.windows)
-        references = self._normalize_reference_media(packed, num_frames=reference_num_frames) if packed else ()
+        references = self._normalize_reference_media(
+            packed, num_frames=reference_num_frames, max_pixels=reference_image_max_pixels(
+                float(self.config.get("reference_image_pixel_budget") or 0), width, height,
+            ),
+        ) if packed else ()
 
         return GeneratorContext(
             quantity=quantity,
@@ -1665,7 +1680,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
 
     @staticmethod
-    def _normalize_reference_media(packed: List[tuple], *, num_frames: int) -> tuple:
+    def _normalize_reference_media(
+        packed: List[tuple], *, num_frames: int, max_pixels: int = REFERENCE_IMAGE_MAX_PIXELS,
+    ) -> tuple:
         """The packed `[(kind, media), ...]` list -> ALREADY-NORMALIZED
         :class:`ReferenceMedia`, in the same order.
 
@@ -1673,7 +1690,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         PATHS, so the two file kinds are decoded here; `normalize_references`
         then puts every one of them on H3's own resolutions and rates in ONE
         pass, which is also where the released checkpoint's per-modality and
-        total reference rules are enforced (`validate_references`); the
+        total reference rules are enforced (`validate_references`); an image
+        is capped at `max_pixels` (`reference_image_pixel_budget`), and the
         `native_h3_reference_upscale` engine setting decides whether a small
         image or video is enlarged there, as the released pipeline does. A packed
         entry whose `media` is a `RefMod` (`_shared.generation.refmods`) is
@@ -1692,7 +1710,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             else:
                 loaded.append(_load_reference_audio(media))
         return tuple(normalize_references(
-            loaded, num_frames=num_frames, upscale=bool(runtime_flag("native_h3_reference_upscale")),
+            loaded, num_frames=num_frames, reference_max_pixels=max_pixels,
+            upscale=bool(runtime_flag("native_h3_reference_upscale")),
         ))
 
     @staticmethod

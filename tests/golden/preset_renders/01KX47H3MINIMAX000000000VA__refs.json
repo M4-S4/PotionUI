@@ -293,6 +293,10 @@
           "type": "list",
           "value": []
         },
+        "reference_image_pixel_budget": {
+          "type": "str",
+          "value": "0"
+        },
         "reference_mods": {
           "type": "list",
           "value": []
