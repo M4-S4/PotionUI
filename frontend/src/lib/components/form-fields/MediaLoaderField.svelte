@@ -19,7 +19,7 @@
 	import { fetchMediaMetadata } from './mediaLoaderMetadata';
 	import { readSingleValue, type SingleValue } from './mediaLoaderValue';
 	import { pickFromGeneration, pickFromUpload } from './mediaLoaderPicks';
-	import { clickClearsSelection, clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
+	import { clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
 	import { itemLimitFor, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
 	import { kindFromMimeType, kindFromFilename, kindOfMediaItem } from './mediaLoaderKind';
 	import {
@@ -266,11 +266,10 @@
 
 	function handleClickOutside(event: MouseEvent) {
 		if (clickIsOutside(uploadAreaRef, event.target as Node)) isPasteActive = false;
-		if (multiple && clickClearsSelection(event.target)) selected = null;
 	}
 
-	function toggleSelection(flatIndex: number) {
-		selected = selected === flatIndex ? null : flatIndex;
+	function selectItem(flatIndex: number) {
+		selected = flatIndex;
 	}
 
 	let resizeObserver: ResizeObserver | null = null;
@@ -921,7 +920,7 @@
 					adding={addingKind}
 					addingProgress={uploadProgress}
 					offersDraw={false}
-					onSelect={toggleSelection}
+					onSelect={selectItem}
 					onReorder={reorderItems}
 					onRemove={removeMultiItem}
 					onSource={handleSource}

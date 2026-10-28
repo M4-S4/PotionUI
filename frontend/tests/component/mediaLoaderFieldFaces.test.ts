@@ -413,31 +413,28 @@ describe('multi face', () => {
 		expect(target.querySelector('[data-media-handle]')!.textContent).toContain('Picture 3');
 	});
 
-	it('clears the selection when the selected tile is pressed again', async () => {
+	it('keeps the selected item previewed when its tile is pressed again', async () => {
 		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b')] });
 		await tick();
 
+		tiles(target)[1].click();
+		await tick();
 		tiles(target)[1].click();
 		await tick();
 		expect(tiles(target)[1].getAttribute('data-selected')).toBe('true');
-		tiles(target)[1].click();
-		await tick();
-		expect(tiles(target).some((tile) => tile.hasAttribute('data-selected'))).toBe(false);
-		expect(target.querySelector('[data-media-inspector]')).toBeNull();
+		expect(inspectorLabel(target).placeholder).toBe('b.png');
 	});
 
-	it('clears the selection when neutral space is pressed and keeps it for the inspector', async () => {
+	it('keeps the preview open when the user presses outside the field', async () => {
 		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b')] });
 		await tick();
 
-		const press = (el: Element) => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		press(target.querySelector('[data-media-inspector]')!);
+		tiles(target)[1].click();
 		await tick();
-		expect(tiles(target)[0].getAttribute('data-selected')).toBe('true');
-
-		press(document.body);
+		document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 		await tick();
-		expect(tiles(target).some((tile) => tile.hasAttribute('data-selected'))).toBe(false);
+		expect(tiles(target)[1].getAttribute('data-selected')).toBe('true');
+		expect(target.querySelector('[data-media-inspector]')).not.toBeNull();
 	});
 
 	it('writes a typed label onto the selected item', async () => {
