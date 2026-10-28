@@ -201,6 +201,8 @@ def tiled_decode_causal3d(
     tile_size: int = 256,
     overlap: int = 32,
     scale: int = VAE_SPATIAL_DOWNSCALE,
+    *,
+    accumulate_device: "str | torch.device | None" = None,
 ) -> torch.Tensor:
     """Spatial tiled ``vae.decode`` for the causal-3D (Wan-shaped) VAE, with
     linear-blended seams -- the decode twin of :func:`tiled_encode_causal3d`.
@@ -225,7 +227,8 @@ def tiled_decode_causal3d(
     """
     b, _c, _t, h, w = latent.shape
     if h <= tile_size and w <= tile_size:
-        return vae.decode(latent)
+        pixels = vae.decode(latent)
+        return pixels if accumulate_device is None else pixels.to(accumulate_device)
 
     feather = round(overlap * scale)
     step = tile_size - overlap
@@ -245,14 +248,15 @@ def tiled_decode_causal3d(
             raise_if_cancelled(tile_index)
             tile_index += 1
             tile_in = latent[:, :, :, y:y + ty, xx:xx + tx]
-            tile_out = vae.decode(tile_in).to(dtype=torch.float32)
+            tile_out = vae.decode(tile_in)
+            tile_out = tile_out.to(device=accumulate_device or tile_out.device, dtype=torch.float32)
 
             if out is None:
                 # T'/out_channels are only known after the first decode (T'
                 # depends on the temporal-upsample chunking, 3 channels for RGB).
                 out = torch.zeros(
                     (b, tile_out.shape[1], tile_out.shape[2], round(h * scale), round(w * scale)),
-                    device=latent.device, dtype=torch.float32,
+                    device=tile_out.device, dtype=torch.float32,
                 )
                 out_weight = torch.zeros_like(out)
 
@@ -404,6 +408,32 @@ def causal3d_frame_need_gb(
 ) -> float:
     one = activation_headroom_gb(latent_hw, decode_mb_per_latent_px=decode_mb_per_latent_px, latent_frames=1)
     return (vae_resident_gb + one) / vram_fraction
+
+
+def causal3d_decode_tile(
+    latent_hw: tuple[int, int],
+    free_vram_gb_value: float | None,
+    *,
+    decode_mb_per_latent_px: float = 1.2,
+    vram_fraction: float = 0.75,
+    min_tile: int = 16,
+) -> int:
+    h, w = latent_hw
+    tile = max(min_tile, ((max(h, w) + 1) // 2 // 8) * 8)
+    if free_vram_gb_value is None:
+        return tile
+    budget_px = free_vram_gb_value * vram_fraction * 1024.0 / decode_mb_per_latent_px
+    # The decoded window is the tile plus its overlap, about 1.125 tile edges wide.
+    cap = int((budget_px ** 0.5) / 1.125) // 8 * 8
+    return max(min_tile, min(tile, cap))
+
+
+def causal3d_decode_overlap(tile: int) -> int:
+    return min(tile // 2, max(8, tile // 8))
+
+
+def smaller_decode_tile(tile: int, min_tile: int = 16) -> int:
+    return max(min_tile, (tile // 2 // 8) * 8)
 
 
 def auto_tile_size(vram_free_gb: float | None, latent_hw: tuple[int, int]) -> int | None:

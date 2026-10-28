@@ -107,7 +107,10 @@ from .vae.loader import (
 from .vae.tiling import (
     auto_tile_size,
     causal3d_chunk_frames,
+    causal3d_decode_overlap,
+    causal3d_decode_tile,
     chunked_decode_causal3d,
+    smaller_decode_tile,
     tiled_decode,
     tiled_decode_causal3d,
     tiled_encode,
@@ -2202,19 +2205,12 @@ class NativeGenerator:
             denorm = latents * std.view(view) + mean.view(view)
 
         h, w = denorm.shape[-2], denorm.shape[-1]
-        tile = max(_MIN_DECODE_TILE_LATENT, ((max(h, w) + 1) // 2 // 8) * 8)  # ~half long axis, snap
-        # Cap the first guess by live free VRAM: a tile window of (t + overlap)²
-        # latent px spikes ~_CAUSAL3D_DECODE_MB_PER_LATENT_PX each, so solve for t
-        # instead of discovering the ceiling via an OOM-and-halve retry (which
-        # costs a wasted decode attempt and cache flush).
-        free = free_vram_gb(device)
-        if free is not None:
-            budget_px = free * _DECODE_TILE_VRAM_FRACTION * 1024.0 / _CAUSAL3D_DECODE_MB_PER_LATENT_PX
-            # overlap below is ~tile/8, so the processed window is ~1.125*t wide.
-            cap = int((budget_px ** 0.5) / 1.125) // 8 * 8
-            tile = max(_MIN_DECODE_TILE_LATENT, min(tile, cap))
+        tile = causal3d_decode_tile(
+            (h, w), free_vram_gb(device), decode_mb_per_latent_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX,
+            vram_fraction=_DECODE_TILE_VRAM_FRACTION, min_tile=_MIN_DECODE_TILE_LATENT,
+        )
         while True:
-            overlap = min(tile // 2, max(8, tile // 8))
+            overlap = causal3d_decode_overlap(tile)
             try:
                 logger.debug("decode: causal-3D tiled decode, tile=%d overlap=%d (latent px)", tile, overlap)
                 pixels = tiled_decode_causal3d(self.vae.module, denorm, tile_size=tile, overlap=overlap, scale=self._spatial_downscale())
@@ -2226,7 +2222,7 @@ class NativeGenerator:
                     raise
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                tile = max(_MIN_DECODE_TILE_LATENT, (tile // 2 // 8) * 8)
+                tile = smaller_decode_tile(tile, _MIN_DECODE_TILE_LATENT)
                 logger.warning("decode: tiled decode OOM — shrinking tile to %d latent px", tile)
 
         if not self._resident("vae"):
