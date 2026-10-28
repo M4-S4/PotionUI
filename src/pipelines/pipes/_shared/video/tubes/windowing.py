@@ -1,4 +1,4 @@
-"""Pure stabilized-tube-window geometry for the LTX video detailer.
+"""Pure stabilized-tube-window geometry for the video tube detailers.
 
 A track (``tracking.py``) is a run of per-frame detections that jitter frame to
 frame. Cropping each detection box directly would feed the refiner a window that
@@ -35,7 +35,7 @@ from typing import List, Sequence, Tuple
 
 import numpy as np
 
-from src.pipelines.pipes.detailer.video_ltx.tracking import Box, Track, box_area, union_bbox
+from src.pipelines.pipes._shared.video.tubes.tracking import Box, Track, box_area, union_bbox
 
 IntBox = Tuple[int, int, int, int]
 

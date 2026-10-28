@@ -235,3 +235,4 @@ formulas:
 modes:
   - video
   - upscale
+  - refine_faces

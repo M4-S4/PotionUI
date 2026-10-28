@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.pipelines.pipes.detailer.video_ltx.tracking import Detection, Track
-from src.pipelines.pipes.detailer.video_ltx.windowing import (
+from src.pipelines.pipes._shared.video.tubes.tracking import Detection, Track
+from src.pipelines.pipes._shared.video.tubes.windowing import (
     ema_smooth,
     interpolate_centers,
     pad_bbox,

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.pipelines.pipes.detailer.video_ltx.detection import (
+from src.pipelines.pipes._shared.video.tubes.detection import (
     FrameDetector,
     build_frame_detectors,
     detect_tracks,

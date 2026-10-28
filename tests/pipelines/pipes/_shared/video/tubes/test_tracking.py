@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.pipelines.pipes.detailer.video_ltx.tracking import (
+from src.pipelines.pipes._shared.video.tubes.tracking import (
     Detection,
     Track,
     cap_and_merge_tracks,
