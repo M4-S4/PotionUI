@@ -309,12 +309,12 @@ def test_a_single_text_shot_sends_no_frames_and_a_failure_is_not_relabelled(tmp_
 
 
 def test_a_joining_failure_keeps_every_shot_and_says_so(tmp_path, monkeypatch):
-    from src.pipelines.pipes.cloud_generate.stitch import StitchError
+    from src.pipelines.pipes._shared.media.video_concat import VideoConcatError
 
     def broken(clips, out_path, **kwargs):
-        raise StitchError("no frames")
+        raise VideoConcatError("no frames")
 
-    monkeypatch.setattr(pipe_module, "stitch_clips", broken)
+    monkeypatch.setattr(pipe_module, "concat_videos", broken)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 
@@ -323,12 +323,12 @@ def test_a_joining_failure_keeps_every_shot_and_says_so(tmp_path, monkeypatch):
 
 
 def test_a_join_without_sound_says_so(tmp_path, monkeypatch):
-    real = pipe_module.stitch_clips
+    real = pipe_module.concat_videos
 
     def without_ffmpeg(clips, out_path, **kwargs):
         return real(clips, out_path, find=lambda: None, **kwargs)
 
-    monkeypatch.setattr(pipe_module, "stitch_clips", without_ffmpeg)
+    monkeypatch.setattr(pipe_module, "concat_videos", without_ffmpeg)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 
@@ -337,12 +337,12 @@ def test_a_join_without_sound_says_so(tmp_path, monkeypatch):
 
 
 def test_cancelling_while_the_shots_are_joined_keeps_the_shots_and_makes_no_film(tmp_path, monkeypatch):
-    from src.pipelines.pipes.cloud_generate.stitch import StitchCancelled
+    from src.pipelines.pipes._shared.media.video_concat import VideoConcatCancelled
 
     def cancelled(clips, out_path, **kwargs):
-        raise StitchCancelled()
+        raise VideoConcatCancelled()
 
-    monkeypatch.setattr(pipe_module, "stitch_clips", cancelled)
+    monkeypatch.setattr(pipe_module, "concat_videos", cancelled)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 
