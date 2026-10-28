@@ -9,6 +9,7 @@ import torch
 
 import src.pipelines.pipes._shared.video.wan_experts as wan_experts
 from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter, decode_wan_video
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import causal3d_frame_need_gb
@@ -231,7 +232,59 @@ def test_a_tiled_decode_raises_at_the_smallest_tile_or_on_an_error_not_about_vra
     assert cleared == []
 
 
+def _fatal_driver_oom_policy(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+
+def test_a_fatal_driver_oom_in_the_decode_is_not_retried(monkeypatch):
+    _fatal_driver_oom_policy(monkeypatch)
+    vae_module = _tiny_wan_vae()
+    frames_per_call = []
+
+    def decode_failing(z, **kw):
+        frames_per_call.append(z.shape[2])
+        raise RuntimeError("CUDA driver error: device not ready")
+
+    vae_module.decode = decode_failing
+    cleared = []
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        decode_wan_video(SimpleNamespace(vae=_Vae(vae_module), device="cpu", latent_channels=16), torch.randn(1, 16, 5, 4, 4))
+
+    assert frames_per_call == [5]
+    assert cleared == []
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
+def test_a_fatal_driver_oom_in_a_tiled_decode_is_not_retried(monkeypatch):
+    _fatal_driver_oom_policy(monkeypatch)
+    tiles = []
+
+    def tiled(vae, z, *, tile_size, **kw):
+        tiles.append(tile_size)
+        raise RuntimeError("CUDA driver error: device not ready")
+
+    cleared = []
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free: 64)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", tiled)
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        decode_wan_video(SimpleNamespace(vae=_Vae(None), device="cpu", latent_channels=48), torch.zeros(1, 48, 1, 4, 4))
+
+    assert tiles == [64]
+    assert cleared == []
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
 def test_a_decode_the_driver_fails_for_lack_of_vram_is_retried_one_latent_frame_at_a_time(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     torch.manual_seed(0)
     vae_module = _tiny_wan_vae()
     latent = torch.randn(1, 16, 5, 4, 4)
