@@ -85,7 +85,7 @@ class VideoConcatPipe(BasePipe):
 
     def _plan(self, videos: List[str], extension: Optional[str]):
         if extension is None:
-            return videos, None, None
+            return videos, None, None, 0
         overlap = int(self.config.get("overlap_frames") or 0)
         fps = float(self.config.get("fps") or 24.0)
         seconds = overlap / fps if overlap > 0 and fps > 0 else 0.0
@@ -100,7 +100,7 @@ class VideoConcatPipe(BasePipe):
             trims[-1] = ClipTrim(start=seconds)
         elif seconds > 0:
             crossfades[0 if before else -1] = seconds
-        return clips, trims, crossfades
+        return clips, trims, crossfades, 1 if before else 0
 
     def process(
         self, pipe_input: PipeInput, generation_outputs: callable, is_cancelled: Optional[callable] = None,
@@ -112,13 +112,14 @@ class VideoConcatPipe(BasePipe):
         audio = as_flag(self.config.get("keep_audio", True))
         joined: List[str] = []
         for extension in extensions or [None]:
-            clips, trims, crossfades = self._plan(videos, extension)
+            clips, trims, crossfades, canvas = self._plan(videos, extension)
             generation_outputs(ProgressGenerationOutput(state="Joining the clips", icon=Icon("film", "pulse")))
             with tempfile.NamedTemporaryFile(prefix="potionui-joined-", suffix=".mp4", delete=False) as handle:
                 out_path = Path(handle.name)
             try:
                 concat_videos(
-                    clips, out_path, trims=trims, crossfades=crossfades, audio=audio, is_cancelled=is_cancelled,
+                    clips, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas,
+                    is_cancelled=is_cancelled,
                     notify=lambda text: generation_outputs(
                         ProgressGenerationOutput(state=text, icon=Icon("alert-triangle", "beat"))),
                 )

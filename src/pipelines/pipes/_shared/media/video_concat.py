@@ -159,11 +159,12 @@ def concat_command(
     trims: Optional[Sequence[ClipTrim]] = None,
     crossfades: Optional[Sequence[float]] = None,
     audio: bool = True,
+    canvas: int = 0,
 ) -> List[str]:
     trims = list(trims) if trims is not None else [ClipTrim()] * len(clips)
     crossfades = list(crossfades) if crossfades is not None else [0.0] * (len(clips) - 1)
     _check_layout(infos, trims, crossfades)
-    first = infos[0]
+    first = infos[canvas]
     width, height = first.width - first.width % 2, first.height - first.height % 2
     with_audio = audio and any(info.has_audio for info in infos)
     blended = any(fade > 0 for fade in crossfades)
@@ -244,6 +245,7 @@ def _ffmpeg_concat(
     trims: Optional[Sequence[ClipTrim]],
     crossfades: Optional[Sequence[float]],
     audio: bool,
+    canvas: int,
     run: Callable,
     find: Callable[[], Optional[str]],
     probe: Callable,
@@ -255,7 +257,9 @@ def _ffmpeg_concat(
     infos = [probe(clip) for clip in clips]
     if any(info is None for info in infos):
         return False
-    command = concat_command(ffmpeg, clips, infos, out_path, trims=trims, crossfades=crossfades, audio=audio)
+    command = concat_command(
+        ffmpeg, clips, infos, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas,
+    )
     try:
         result = run(command, capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS, is_cancelled=is_cancelled)
     except (OSError, subprocess.SubprocessError) as error:
@@ -324,6 +328,7 @@ def concat_videos(
     trims: Optional[Sequence[ClipTrim]] = None,
     crossfades: Optional[Sequence[float]] = None,
     audio: bool = True,
+    canvas: int = 0,
     run: Callable = run_cancellable,
     find: Callable[[], Optional[str]] = find_ffmpeg,
     probe: Optional[Callable[[PathLike], Optional[ClipInfo]]] = None,
@@ -335,7 +340,7 @@ def concat_videos(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if _ffmpeg_concat(
-        clips, out_path, trims=trims, crossfades=crossfades, audio=audio,
+        clips, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas,
         run=run, find=find, probe=probe or probe_clip, is_cancelled=is_cancelled,
     ):
         logger.info(f"[VIDEO_CONCAT] joined {len(clips)} clip(s) with ffmpeg")

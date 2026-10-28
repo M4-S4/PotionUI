@@ -236,3 +236,4 @@ formulas:
 modes:
   - video
   - upscale
+  - extend

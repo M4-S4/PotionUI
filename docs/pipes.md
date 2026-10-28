@@ -1531,7 +1531,7 @@ Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA reference
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `preview` | `bool` | `true` | no | — | — | — | Emit live latent previews during sampling |
-| `media_placements` | `list` | `[]` | no | — | — | — | Media conditioning placements: [{source: image\|video, index, frame: int\|first\|last, strength, role: keyframe\|reference}]. Empty with image inputs present = image[0] as first frame (i2v) and image[1] (if any) as last frame (FLF). |
+| `media_placements` | `list` | `[]` | no | — | — | — | Media conditioning placements: [{source: image\|video, index, frame: int\|first\|last\|end, strength, role: keyframe\|reference}]. Empty with image inputs present = image[0] as first frame (i2v) and image[1] (if any) as last frame (FLF). |
 | `audio` | `bool` | `false` | no | — | — | — | Produce an audio track |
 | `audio_source` | `str` | `"generate"` | no | `generate`, `file`, `passthrough` | — | — | Audio track source when audio=true: generate (AV DiT samples + decodes it here), file (mux the user-supplied audio input), or passthrough (mux an already-finished track from this pipe's own 'audio' output on a prior stage -- e.g. a stage-2 refine muxing stage-1's decoded audio; requires 'initial_latent' to be connected, no re-decode/re-generation) |
 | `cfg_zero_star` | `bool` | `true` | no | — | — | — | CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction) |

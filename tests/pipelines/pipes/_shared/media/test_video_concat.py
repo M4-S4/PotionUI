@@ -326,3 +326,11 @@ def test_a_real_ffmpeg_trims_and_crossfades_to_the_expected_frame_count(tmp_path
         counts.append(int(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
         capture.release()
     assert counts == [5, 16 + 14 - 3]
+
+
+def test_the_canvas_clip_sets_the_size_and_rate_of_the_join(tmp_path):
+    infos = [ClipInfo(512, 288, 25.0, 2.0, False), ClipInfo(1280, 720, 30.0, 4.0, False)]
+
+    graph = graph_of(concat_command(FFMPEG, ["ext.mp4", "src.mp4"], infos, tmp_path / "out.mp4", canvas=1))
+
+    assert "[0:v]scale=1280:720" in graph and "fps=30," in graph and "fps=25" not in graph
