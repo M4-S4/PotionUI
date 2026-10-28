@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 const { default: tooltip } = await import('$lib/actions/tooltip');
 
@@ -13,7 +14,7 @@ async function openBubble(param: Parameters<typeof tooltip>[1]): Promise<HTMLEle
 		action.destroy();
 		node.remove();
 	});
-	node.dispatchEvent(new FocusEvent('focusin'));
+	keyboardFocus(node);
 	await Promise.resolve();
 	return document.body.querySelector('[role="tooltip"]') as HTMLElement;
 }

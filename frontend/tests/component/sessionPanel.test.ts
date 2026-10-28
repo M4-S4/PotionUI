@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import type { Session, SessionVersionSummary } from '$lib/types/api';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 const { default: SessionPanel } = await import('$lib/components/session/SessionPanel.svelte');
 
@@ -456,7 +457,7 @@ describe('SessionPanel version history', () => {
 		expect(rich).toBe('v3 neon alley at night… Latest 3h ago');
 		expect(plain).toBe('v2 Anima 2h ago');
 		expect(versionRows()[0].querySelector('.truncate')?.textContent).toBe('neon alley at night…');
-		versionRows()[0].focus();
+		keyboardFocus(versionRows()[0]);
 		flushSync();
 		await settle();
 		expect(document.body.textContent).toContain('changed prompt, Checkpoint, cfg scale, steps, seed');

@@ -1,5 +1,6 @@
 import { mount, unmount } from 'svelte';
 import TooltipBubble from '$lib/components/TooltipBubble.svelte';
+import { watchTooltipTrigger } from './tooltipTrigger';
 
 export interface TooltipOptions {
 	text?: string | null;
@@ -28,15 +29,12 @@ export function isOverflowing(node: HTMLElement): boolean {
 
 export default function tooltip(node: HTMLElement, param: TooltipParam) {
 	let options = normalize(param);
-	let timer: ReturnType<typeof setTimeout> | undefined;
 	let bubble: Record<string, unknown> | undefined;
 	let pending = false;
 	let previousDescribedBy: string | null = null;
 	const id = `tooltip-${++sequence}`;
 
 	function hide() {
-		clearTimeout(timer);
-		timer = undefined;
 		pending = false;
 		if (!bubble) return;
 		unmount(bubble);
@@ -71,26 +69,12 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 		queueMicrotask(mountBubble);
 	}
 
-	function schedule(delay: number) {
-		clearTimeout(timer);
-		if (delay <= 0) reveal();
-		else timer = setTimeout(reveal, delay);
-	}
-
-	const onEnter = () => schedule(options.delay ?? 200);
-	const onFocus = (e: FocusEvent) => {
-		if (options.focusSelf && e.target !== node) return;
-		schedule(0);
-	};
-	const onKeydown = (e: KeyboardEvent) => {
-		if (e.key === 'Escape') hide();
-	};
-
-	node.addEventListener('mouseenter', onEnter);
-	node.addEventListener('mouseleave', hide);
-	node.addEventListener('focusin', onFocus);
-	node.addEventListener('focusout', hide);
-	node.addEventListener('keydown', onKeydown);
+	const unwatch = watchTooltipTrigger(node, {
+		delay: () => options.delay ?? 200,
+		open: reveal,
+		close: hide,
+		focusSelf: () => options.focusSelf === true
+	});
 
 	return {
 		update(next: TooltipParam) {
@@ -100,12 +84,8 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 			if (wasVisible) reveal();
 		},
 		destroy() {
+			unwatch();
 			hide();
-			node.removeEventListener('mouseenter', onEnter);
-			node.removeEventListener('mouseleave', hide);
-			node.removeEventListener('focusin', onFocus);
-			node.removeEventListener('focusout', hide);
-			node.removeEventListener('keydown', onKeydown);
 		}
 	};
 }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { get } from 'svelte/store';
 import type { Session } from '$lib/types/api';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 const { default: SessionControl } = await import('$lib/components/session/SessionControl.svelte');
 const { sideDrawer } = await import('$lib/stores/sideDrawer');
@@ -267,10 +268,10 @@ describe('SessionControl reload button', () => {
 	}
 
 	async function tooltipText(button: HTMLElement): Promise<string | undefined> {
-		button.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(button);
 		await Promise.resolve();
 		const text = document.body.querySelector('[role="tooltip"]')?.textContent?.trim();
-		button.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+		button.blur();
 		return text;
 	}
 

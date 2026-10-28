@@ -70,7 +70,8 @@ function menuOrigin() {
 }
 
 async function showTooltip(button: Element) {
-	button.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+	button.parentElement!.dispatchEvent(new MouseEvent('mouseenter'));
+	await new Promise((r) => setTimeout(r, 260));
 	await settle();
 	return document.body.querySelector('[role="tooltip"]')?.textContent?.trim();
 }
