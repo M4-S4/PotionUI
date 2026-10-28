@@ -76,7 +76,7 @@ def test_default_speed_profile_reaches_steps_and_guidance(qwen_image21_template)
 
 
 def test_txt2img_edit_combine_and_control_modes_are_declared(qwen_image21_template):
-    assert list(qwen_image21_template.modes.keys()) == ["txt2img", "edit", "combine", "control"]
+    assert list(qwen_image21_template.modes.keys()) == ["txt2img", "edit", "combine", "text", "control"]
 
 
 def test_edit_mode_loader_wires_vision_true(qwen_image21_template):
