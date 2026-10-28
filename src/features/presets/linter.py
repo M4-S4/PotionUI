@@ -2274,6 +2274,20 @@ class PresetLinter:
             if form is None:
                 continue
 
+            if form_dir == mode_dir:
+                issues.extend(
+                    self._lint_requirement_entries(preset_file, form.requirements, f"{loc}/form.yml requirements")
+                )
+            elif form.requirements:
+                issues.append(
+                    LintIssue(
+                        "error",
+                        preset_str,
+                        f"{loc}/form.yml: requirements are only read from modes/{mode_name}/form.yml, "
+                        f"not from a variant",
+                    )
+                )
+
             if form.default:
                 default_forms.append(variant_name)
 
@@ -2967,8 +2981,12 @@ class PresetLinter:
         "Requirements"): an unregistered `type:` is an error, and an entry
         whose own arguments fail its checker's `schema` is an error citing
         the pydantic message."""
+        return self._lint_requirement_entries(
+            preset_file, getattr(manifest, "requirements", None) or [], "requirements"
+        )
+
+    def _lint_requirement_entries(self, preset_file: Path, requirements, label: str) -> List[LintIssue]:
         issues: List[LintIssue] = []
-        requirements = getattr(manifest, "requirements", None)
         if not requirements:
             return issues
 
@@ -2983,7 +3001,7 @@ class PresetLinter:
                     LintIssue(
                         "error",
                         preset_str,
-                        f"requirements[{index}]: unknown type '{type_name}' - no checker "
+                        f"{label}[{index}]: unknown type '{type_name}' - no checker "
                         f"is registered for it (core types: binary, python_package, model, "
                         f"vram_min_gb, platform)",
                     )
@@ -2995,8 +3013,8 @@ class PresetLinter:
                 registration.checker.schema.model_validate(entry_dict)
             except ValidationError as exc:
                 issues.extend(
-                    LintIssue("error", preset_str, f"requirements[{index}] ({type_name}): {msg}")
-                    for msg in _format_errors("requirements", exc)
+                    LintIssue("error", preset_str, f"{label}[{index}] ({type_name}): {msg}")
+                    for msg in _format_errors(label, exc)
                 )
 
         return issues

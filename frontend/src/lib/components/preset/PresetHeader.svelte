@@ -22,6 +22,7 @@
 		sourcePlugin?: string | null;
 		description?: string | null;
 		icon?: string | null;
+		requirementsMissing?: string[] | null;
 	}> = [
 		{ id: 'txt2img', label: 'Text to Image' },
 		{ id: 'img2img', label: 'Image to Image' },

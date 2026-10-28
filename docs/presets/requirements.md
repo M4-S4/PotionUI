@@ -40,6 +40,8 @@ requirements:
     tag: "flux-klein-9b"          # matches an admin Tag *name* - see below
   - type: model
     hash: "<sha256>"              # exact match against the depot
+  - type: model
+    filename: "lora.safetensors"  # a depot file with exactly this name
   - type: vram_min_gb
     gb: 16
   - type: platform
@@ -48,7 +50,7 @@ requirements:
 
 Core ships five types (`src/features/presets/requirements/builtin.py`): `binary` (`shutil.which`,
 or the first of `names:` found), `python_package` (`importlib.metadata` + a PEP 440 `version:`
-specifier), `model` (a tag name or exact sha256 present and available in the depot — `tag:` matches
+specifier), `model` (a tag name, exact sha256 or exact filename present and available in the depot — `tag:` matches
 the same admin `Tag` concept a `configuration: {type: model_tags}` picker filter already uses, not
 a marketplace-specific id), `vram_min_gb` (the resolved backend's physical VRAM total — see below),
 and `platform` (`sys.platform`).
@@ -203,3 +205,31 @@ backend) — surfacing those is the requirements panel's job, not routing's. If 
 of the engine has a hard miss, generation fails fast with an error naming each backend and its
 missing requirements, rather than falling through to a backend that cannot actually run the preset.
 
+
+### Per-mode requirements
+
+A mode's own `form.yml` (`modes/<mode>/form.yml`, not a `variants/` form) may declare the same
+`requirements:` list when only that mode needs something — for example a mode driven by one
+specific LoRA file:
+
+```yaml
+requirements:
+  - type: model
+    filename: "ltx-2.5-22b-ic-lora-colorization-0.9.safetensors"
+    hint: "Download the Colorize LoRA in this mode."
+```
+
+Entries are validated exactly like preset-level ones (`preset_lint.py` checks the type and its
+arguments) and are evaluated, cached and listed in the same requirements panel, where each one
+carries a mode badge. They are scoped to their own mode:
+
+- The preset-wide summary (the preset picker's missing count, the panel's verdict) counts only
+  preset-level entries, so one mode's missing file never marks the preset or the other modes as
+  unavailable.
+- `GET /api/presets/{preset_id}/modes` returns `requirements_missing` per mode — the names of its
+  missing, non-optional entries, an empty list when it needs nothing or everything is present. The
+  request re-evaluates the preset's requirements first when it declares any per-mode entry, so the
+  answer is current for a regular user rather than waiting for an admin to open the panel.
+- The Generate page flags a mode with a missing file in the mode picker and blocks submitting that
+  mode.
+- Routing only considers preset-level entries and the entries of the mode being generated.

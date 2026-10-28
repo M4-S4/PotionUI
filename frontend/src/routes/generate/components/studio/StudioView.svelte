@@ -72,7 +72,8 @@
 		variants: m.variants,
 		sourcePlugin: m.source_plugin,
 		description: modeDescription(m),
-		icon: m.icon
+		icon: m.icon,
+		requirementsMissing: m.requirements_missing
 	}));
 	$: presetName = presets.find((p: any) => p.id === tab.selectedPreset)?.name;
 	$: modeLabel = resolveModeLabel(tab.selectedMode, availableModes.find((m) => m.id === tab.selectedMode)?.label) || undefined;

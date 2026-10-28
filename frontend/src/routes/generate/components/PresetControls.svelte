@@ -16,6 +16,7 @@
 		sourcePlugin?: string | null;
 		description?: string | null;
 		icon?: string | null;
+		requirementsMissing?: string[] | null;
 	}> = [];
 	export let onPresetChange: (presetId: string) => void;
 	export let onModeChange: (mode: string) => void;

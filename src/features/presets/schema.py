@@ -396,6 +396,7 @@ class FormFile(BaseModel):
 
     name: str = "custom_form_preset"
     fields: List[FieldSpec] = Field(default_factory=list)
+    requirements: List["RequirementEntry"] = Field(default_factory=list)
     # Variant display metadata (roadmap "preset variants") - surfaced by
     # operations.get_available_modes()'s `variants` list, see docs/presets.md.
     label: Optional[str] = None

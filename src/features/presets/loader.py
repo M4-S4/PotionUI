@@ -25,7 +25,7 @@ and the developer lint endpoint.
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 from src.platform.observability.logger import logger
@@ -152,6 +152,14 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
             if variant_dir.is_dir() and (variant_dir / "form.yml").exists():
                 variants.append((variant_dir.name, variant_dir))
     return variants
+
+
+def _mode_scoped_requirements(mode_name: str, mode_template: ModeTemplate) -> List[Dict[str, Any]]:
+    return [
+        {**spec, "mode": mode_name}
+        for form in mode_template.forms
+        for spec in form.requirements
+    ]
 
 
 def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
@@ -323,6 +331,8 @@ class PresetTemplateLoader:
         llm = manifest.llm.model_dump(exclude_none=True) if manifest.llm else None
         requires = manifest.requires.model_dump(exclude_none=True) if manifest.requires else None
         requirements = [entry.model_dump(exclude_none=True) for entry in manifest.requirements]
+        for mode_name, mode_template in modes_dict.items():
+            requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
         prompt_resources = {
             mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
             for mode_name, entries in (manifest.prompt_resources or {}).items()
@@ -489,6 +499,10 @@ class PresetTemplateLoader:
                 default=form_data.get('default', False),
                 order=form_data.get('order', 0),
                 negative_prompt=validated.negative_prompt.model_dump() if validated.negative_prompt else None,
+                requirements=(
+                    [entry.model_dump(exclude_none=True) for entry in validated.requirements]
+                    if form_dir == mode_dir else []
+                ),
             ))
 
         return forms, errors
@@ -878,6 +892,7 @@ class PresetTemplateLoader:
 
                 mode_template.source_plugin = contribution.plugin_id
                 target.modes[mode_name] = mode_template
+                target.requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
                 claimed[claim_key] = contribution.plugin_id
 
     def load_presets(self):

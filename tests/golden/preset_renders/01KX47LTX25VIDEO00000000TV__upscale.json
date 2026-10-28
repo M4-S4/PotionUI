@@ -225,6 +225,14 @@
             [
               "refine_strength",
               "strong"
+            ],
+            [
+              "upscale_method",
+              "latent"
+            ],
+            [
+              "model",
+              ""
             ]
           ]
         },
@@ -278,6 +286,15 @@
       },
       "id": "generator_refine",
       "name": "generator/txt2vid_ltx"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "generator_ic",
+      "name": "generator/video_ltx"
     },
     {
       "config": {},

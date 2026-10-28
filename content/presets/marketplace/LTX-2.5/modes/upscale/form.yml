@@ -1,7 +1,17 @@
 name: "custom"
+mode_label: "Upscale"
 short_description: "Increase the resolution of a video."
 negative_prompt:
   applies_when: false
+requirements:
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"
+    hint: "Download the Generative 2x LoRA in this mode."
+    optional: true
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors"
+    hint: "Download the Refine details LoRA in this mode."
+    optional: true
 fields:
   - type: "tabs"
     children:

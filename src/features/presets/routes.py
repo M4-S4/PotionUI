@@ -255,6 +255,7 @@ class PresetController(BaseController):
     @_guarded("modes_get_failed", "Failed to get modes")
     async def get_available_modes(self, preset_id: str) -> APIResponse:
         """Get available modes for a specific preset."""
+        await operations.refresh_mode_requirements(self.collaborators, preset_id)
         data = operations.get_available_modes(self.collaborators, preset_id)
         return self.success_response(data=data)
 

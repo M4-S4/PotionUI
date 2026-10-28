@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { modeDescription } from '$lib/utils/modeDescription';
+	import { modeUnavailableReason } from '$lib/utils/modeRequirements';
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
@@ -1808,7 +1809,9 @@
 				)
 			: null;
 		const batchBlocked = standardPromptActive && batch.overCap;
-		const unavailable = presetUnavailableReason(presets.find((preset: any) => preset.id === currentTab.selectedPreset));
+		const unavailable =
+			presetUnavailableReason(presets.find((preset: any) => preset.id === currentTab.selectedPreset)) ||
+			modeUnavailableReason(modesPerTab[currentTab.id], currentTab.selectedMode);
 		canGenerate = !!currentTab.selectedPreset && !unavailable && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
 		generateDisabledReason = canGenerate
 			? undefined
@@ -1983,7 +1986,7 @@
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
-						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
+						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing }))}
 						onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 						onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 						onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}

@@ -55,7 +55,9 @@ def _preset(root, refs_form='name: "custom"\nfields: []\n', face_form='name: "cu
 
 
 def _served(root, field):
-    collaborators = SimpleNamespace(file_repo=FilePresetRepository(PresetTemplateLoader([str(root)])))
+    collaborators = SimpleNamespace(
+        file_repo=FilePresetRepository(PresetTemplateLoader([str(root)])), requirements_cache=None
+    )
     result = operations.get_available_modes(collaborators, PRESET_ID)
     return {m["name"]: m[field] for m in result["modes"]}
 
