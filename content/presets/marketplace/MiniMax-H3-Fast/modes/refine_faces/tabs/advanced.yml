@@ -1,0 +1,58 @@
+fields:
+  - type: "section"
+    label: "Refine"
+    children:
+      - name: "refine_steps"
+        type: "slider"
+        formula: "enhance"
+        label: "Refine steps"
+        default: 4
+        configuration: {min: 2, max: 24, step: 1}
+
+      - name: "refine_sampler"
+        type: "select"
+        formula: "enhance"
+        label: "Refine sampler"
+        default: "euler"
+        configuration:
+          options:
+            - { label: "Euler (reference)", value: "euler" }
+            - { label: "Res multistep", value: "res_multistep" }
+            - { label: "DPM++ 2M", value: "dpmpp_2m" }
+            - { label: "ER-SDE (stochastic)", value: "er_sde" }
+            - { label: "SA-Solver", value: "sa_solver" }
+
+      - name: "working_short_side"
+        type: "slider"
+        formula: "enhance"
+        label: "Working size (short side, px)"
+        default: 512
+        configuration: {min: 256, max: 768, step: 32}
+
+      - name: "color_correction"
+        type: "select"
+        formula: "enhance"
+        label: "Colour match"
+        default: "wavelet"
+        configuration:
+          options:
+            - { label: "Wavelet", value: "wavelet" }
+            - { label: "AdaIN", value: "adain" }
+            - { label: "Off", value: "none" }
+
+  - type: "section"
+    label: "Detection"
+    children:
+      - name: "detection_stride"
+        type: "slider"
+        formula: "enhance"
+        label: "Detect every Nth frame"
+        default: 6
+        configuration: {min: 1, max: 30, step: 1}
+
+      - name: "detection_confidence"
+        type: "slider"
+        formula: "enhance"
+        label: "Detection confidence"
+        default: 0.5
+        configuration: {min: 0.1, max: 0.95, step: 0.05}

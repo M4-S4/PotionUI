@@ -494,6 +494,7 @@ modes:
   - video
   - refs
   - upscale
+  - refine_faces
 
 media:
   cover: "public/cover-h35m40se.webm"
