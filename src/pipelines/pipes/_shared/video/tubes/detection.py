@@ -1,4 +1,4 @@
-"""Per-frame detection seam for the LTX video detailer.
+"""Per-frame detection seam for the video tube detailers.
 
 This is the ONLY impure half of the tracking stack: it runs a real face/hand
 detector over sampled frames and hands the resulting boxes to ``tracking.py``'s
@@ -35,7 +35,7 @@ from typing import List, Sequence
 
 import numpy as np
 
-from src.pipelines.pipes.detailer.video_ltx.tracking import (
+from src.pipelines.pipes._shared.video.tubes.tracking import (
     Box,
     Detection,
     Track,

@@ -449,7 +449,7 @@ Refine faces and hands in an LTX-2/2.3 video as stabilized spatiotemporal tubes 
 
 | Name | IO Type | Required | Array | Description |
 |---|---|---|---|---|
-| `model` | `MODEL` | yes | no | LTX model bundle (same model that generated the clip) |
+| `model` | `MODEL` | yes | no | LTX-2/2.3 model bundle (same model that generated the clip) |
 | `video` | `VIDEO` | yes | yes | Video file(s) to refine |
 | `conditioning` | `CONDITIONING` | yes | yes | Encoded prompt conditioning (the generation's positive prompt) |
 | `seed` | `SEED` | no | yes | Random seeds (per video, for the refine noise) |

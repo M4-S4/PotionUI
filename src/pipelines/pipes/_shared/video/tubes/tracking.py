@@ -1,4 +1,4 @@
-"""Pure detection-linking + scene-cut math for the LTX video detailer.
+"""Pure detection-linking + scene-cut math for the video tube detailers.
 
 The video detailer refines faces/hands as spatiotemporal TUBES: a detection in
 one frame is only useful once linked, across time, into a *track* -- the same
