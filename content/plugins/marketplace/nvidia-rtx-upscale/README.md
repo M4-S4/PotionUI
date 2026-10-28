@@ -34,10 +34,17 @@ pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com
   wheels (about 443 MB for Linux x86_64, 436 MB for Windows x64) are on `pypi.nvidia.com`.
 - **The package is proprietary** (`LicenseRef-NvidiaProprietary`): installing it is the
   administrator's decision under NVIDIA's terms. Nothing from NVIDIA is vendored here.
-- **WSL2.** NVIDIA documents no WSL2 support. Users report that the library loads under WSL2
+- **Docker.** The container must request the `ngx` driver capability:
+  `NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx` (or `all`). The NVIDIA container runtime only
+  passes the driver libraries of the requested capabilities, and Video Super Resolution needs the
+  driver's `libnvidia-ngx.so.1`; with only `compute,utility`, `import nvvfx` works but `load()`
+  fails with "The effect has not been properly initialized (code -12)". Checked on Docker Desktop
+  under WSL2 (driver 617.42, RTX 4070 Ti): with `ngx`, both effects load and run. `LD_LIBRARY_PATH`
+  does not help in a container, where `/usr/lib/wsl/lib` does not exist.
+- **WSL2 outside Docker.** NVIDIA documents no WSL2 support. Users report that the library loads
   only when `LD_LIBRARY_PATH` starts with `/usr/lib/wsl/lib` before Python starts
   (`export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"`); without it, `load()` can exit
-  the process silently. Nobody has reported a run inside Docker on WSL2 yet.
+  the process silently.
 
 The PyPI distribution name (`nvidia-vfx`) differs from its import name (`nvvfx`) — the plugin's
 manifest deliberately declares no `dependencies:` block so the generic installer never runs

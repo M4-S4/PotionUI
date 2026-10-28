@@ -127,6 +127,7 @@ def test_missing_nvvfx_raises_actionable_error(pipe_module, blocking_finder_cls,
     assert 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com' in message
     assert "570.190" in message
     assert "LD_LIBRARY_PATH=/usr/lib/wsl/lib" in message
+    assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in message
 
 
 # -- session: reload-on-size-change and clone-before-next-run ------------
@@ -369,6 +370,19 @@ def test_a_size_error_from_load_is_explained(pipe_module, pipe_class, fake_nvvfx
     assert "refused the frame size" in message
     assert "40x24 to 80x48" in message
     assert "-7" in message
+
+
+def test_an_uninitialized_effect_points_at_the_ngx_capability(pipe_module, pipe_class, fake_nvvfx, no_real_cuda):
+    fake_nvvfx.VideoSuperRes.fail_load = RuntimeError("NvVFX_Load failed: The effect has not been properly initialized (code -12)")
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+
+    with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+        pipe.process(PipeInput(input={"image": [_rgb_image(40, 24)]}), lambda o: None)
+
+    message = str(exc_info.value)
+    assert "could not initialize (40x24 to 80x48)" in message
+    assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in message
+    assert "refused" not in message
 
 
 def test_another_sdk_error_names_the_sizes(pipe_module, pipe_class, fake_nvvfx, no_real_cuda):

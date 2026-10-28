@@ -86,6 +86,7 @@ def test_manual_install_instructions_name_the_correct_pip_package(pipe_module, v
         assert 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com' in instructions
         assert "570.190" in instructions
         assert "LD_LIBRARY_PATH=/usr/lib/wsl/lib" in instructions
+        assert "NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx" in instructions
 
 
 def test_pipe_defaults_survive_a_json_round_trip(pipe_module, vfg_module):
