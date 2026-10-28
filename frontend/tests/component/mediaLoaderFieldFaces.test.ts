@@ -212,7 +212,7 @@ describe('loaded face', () => {
 			onChange: vi.fn()
 		});
 		await tick();
-		expect(toolIds(await openTools(plain.target))).toEqual(['edit', 'crop', 'full']);
+		expect(toolIds(await openTools(plain.target))).toEqual(['edit', 'crop', 'resize', 'full']);
 
 		document.body.innerHTML = '';
 		const masked = mount({
@@ -223,7 +223,7 @@ describe('loaded face', () => {
 			onMaskChange: vi.fn()
 		});
 		await tick();
-		expect(toolIds(await openTools(masked.target))).toEqual(['edit', 'crop', 'mask', 'clear-mask', 'full']);
+		expect(toolIds(await openTools(masked.target))).toEqual(['edit', 'crop', 'mask', 'clear-mask', 'resize', 'full']);
 	});
 
 	it('offers trim on a video, and opens the built-in editor when no host intercepts', async () => {
@@ -787,7 +787,7 @@ describe('compact face', () => {
 
 		expect(target.querySelector('[data-media-row-face]')).toBeTruthy();
 		expect(target.querySelector('[data-media-inspector]')).toBeNull();
-		expect(toolIds(await openTools(target))).toEqual(['edit', 'crop', 'full', 'replace', 'remove']);
+		expect(toolIds(await openTools(target))).toEqual(['edit', 'crop', 'resize', 'full', 'replace', 'remove']);
 	});
 
 	it('shows an empty compact field as a split add button', async () => {
