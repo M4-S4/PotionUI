@@ -1,5 +1,13 @@
-# RIFE's only expert knob: the resolution the optical flow is computed at.
+# RIFE's expert knobs: cut detection and the resolution the optical flow is computed at.
 fields:
+  - name: "scene_detection"
+    type: "checkbox"
+    formula: "interpolation"
+    label: "Detect Cuts"
+    audience: "advanced"
+    default: true
+    ai_hint: "When two frames differ like a cut, show the nearer one instead of blending them into a ghost. Keep it on unless the clip has very fast motion that is wrongly read as cuts."
+
   - name: "flow_scale"
     type: "select"
     formula: "interpolation"

@@ -45,7 +45,7 @@ def stub_model(monkeypatch):
 
 
 def _pipe(**config):
-    return RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2, **config})
+    return RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": "x"}, "factor": 2, **config})
 
 
 def _no_gallery(outputs):
@@ -215,7 +215,7 @@ def test_real_ffmpeg_cancellation_leaves_no_stray_files_or_gallery(tmp_path, mon
     video = tmp_path / "in.mp4"
     _write_input_video(video, n_frames=10)
 
-    pipe = RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2, "keep_audio": False})
+    pipe = RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": "x"}, "factor": 2, "keep_audio": False})
     calls = {"n": 0}
 
     def cancel():

@@ -264,7 +264,7 @@ def _setup(monkeypatch, tmp_path):
 
 def test_process_keeps_the_model_stable_and_idles_it_after_success(tmp_path, monkeypatch):
     model, models, video, checkpoint = _setup(monkeypatch, tmp_path)
-    pipe = RifeInterpolatorPipe({"model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
+    pipe = RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
 
     result = pipe.process(
         PipeInput(input={"video": [str(video)], "MODELS": models}), lambda o: None,
@@ -285,7 +285,7 @@ def test_process_idles_the_model_on_a_mid_clip_failure(tmp_path, monkeypatch):
         raise RuntimeError("model exploded")
 
     monkeypatch.setattr(RifeInterpolatorPipe, "_prepare_pair", staticmethod(boom))
-    pipe = RifeInterpolatorPipe({"model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
+    pipe = RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
 
     with pytest.raises(RuntimeError, match="model exploded"):
         pipe.process(PipeInput(input={"video": [str(video)], "MODELS": models}), lambda o: None)
@@ -295,7 +295,7 @@ def test_process_idles_the_model_on_a_mid_clip_failure(tmp_path, monkeypatch):
 
 def test_process_idles_the_model_on_cancellation(tmp_path, monkeypatch):
     model, models, video, checkpoint = _setup(monkeypatch, tmp_path)
-    pipe = RifeInterpolatorPipe({"model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
+    pipe = RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
 
     calls = {"n": 0}
 
@@ -328,7 +328,7 @@ def test_process_idles_the_model_when_the_video_cannot_be_opened(tmp_path, monke
         "release": lambda self: released.append(True),
     })()
     monkeypatch.setattr(cv2, "VideoCapture", lambda _p: fake_cap)
-    pipe = RifeInterpolatorPipe({"model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
+    pipe = RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
 
     with pytest.raises(ValueError, match="could not open video"):
         pipe.process(PipeInput(input={"video": ["missing.mp4"], "MODELS": models}), lambda o: None)
@@ -465,7 +465,7 @@ def test_process_invalidates_the_models_entry_on_failed_placement(tmp_path, monk
     _write_input_video(video)
     checkpoint = _checkpoint(tmp_path)
     monkeypatch.setattr(rife_main, "StreamingMp4Writer", _FakeWriter)
-    pipe = RifeInterpolatorPipe({"model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
+    pipe = RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": checkpoint}, "factor": 2, "keep_audio": False})
 
     with pytest.raises(RuntimeError, match="placement failed partway"):
         pipe.process(PipeInput(input={"video": [str(video)], "MODELS": models}), lambda o: None)
