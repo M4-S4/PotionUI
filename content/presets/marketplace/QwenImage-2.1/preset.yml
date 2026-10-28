@@ -90,10 +90,10 @@ llm:
     it; describe the change you want in the prompt (e.g. "change the sign text
     to ...") and what must stay, not the whole scene from scratch. A region
     painted on the image limits the change to that area, composited back
-    pixel-exact. Combine images mode takes a base image plus up to 9 references,
-    each with an optional role label; the base is Image 1 and the filled
-    references are Image 2, 3 and so on, and the prompt should say what to take
-    from which (e.g. "put the jacket from Image 2 onto the person in Image 1"). Edit
+    pixel-exact. Combine images mode takes 1 to 10 images: the first is the image being edited
+    and the others are references; refer to them in the prompt as <image1>, <image2>
+    and so on, by position (e.g. "put the jacket from <image2> onto the person in
+    <image1>"). Edit
     text mode has no prompt: the user fills Current text, New text and an optional
     style or placement, and the prompt is built from them. Restyle mode also has no prompt: the user
     picks a task (style, background, lighting, colourise, restore) and describes the
@@ -102,8 +102,8 @@ llm:
     of an image; describe the whole finished image, not just the masked part.
 
 prompt_resources:
-  edit:
-    - field: "source_image"
+  combine:
+    - field: "images"
       kind: "image"
       label: "Images"
       token: "<image@>"

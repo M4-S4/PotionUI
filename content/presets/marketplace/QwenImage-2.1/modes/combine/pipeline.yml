@@ -25,7 +25,7 @@ pipeline:
     configuration:
       media:
         "@loop":
-          items: "{{ ([form.source_image] + [form.reference_1, form.reference_2, form.reference_3, form.reference_4, form.reference_5, form.reference_6, form.reference_7, form.reference_8, form.reference_9]) | select | list }}"
+          items: "{{ form.images }}"
           template:
             type: "image"
             path: "{{ item.path | default(item) }}"
@@ -38,7 +38,7 @@ pipeline:
     configuration:
       p_prompt:
         input: "{{ generation.prompts.first.positive }}"
-        output: "{% set ns = namespace(text='Image 1 is the base image to edit. ', n=1) %}{% for i in range(1, 10) %}{% if form['reference_' ~ i] %}{% set ns.n = ns.n + 1 %}{% set role = (form['reference_' ~ i ~ '_role'] | default('', true)) | trim %}{% set ns.text = ns.text ~ 'Image ' ~ ns.n ~ ' is ' ~ ('the ' ~ role if role else 'a reference') ~ '. ' %}{% endif %}{% endfor %}{{ ns.text }}{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"
