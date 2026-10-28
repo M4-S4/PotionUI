@@ -27,16 +27,6 @@ pipeline:
         - type: "image"
           path: "{{ form.source_image }}"
 
-  - name: "matting/birefnet"
-    id: "matting"
-    enabled: "{{ form.restyle_task == 'background' and form.keep_subject }}"
-    input:
-      - ["image", "media_loader", "image"]
-    configuration:
-      model:
-        file_path: "{{ form.matting_model }}"
-        name: "{{ form.matting_model }}"
-
   - name: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/qwen_image21", "text_encoder"]
@@ -107,15 +97,8 @@ pipeline:
         warmup_steps: "{{ form.step_cache_warmup_steps }}"
         max_consecutive_skips: "{{ form.step_cache_max_skips }}"
 
-  - name: "subject_composite"
-    id: "subject_composite"
-    enabled: "{{ form.restyle_task == 'background' and form.keep_subject }}"
-    input:
-      - ["image", "generator/qwen_image21", "image"]
-      - ["cutout", "matting", "image"]
-
   - name: "gallery"
     input:
-      - ["image", "{% if form.restyle_task == 'background' and form.keep_subject %}subject_composite{% else %}generator/qwen_image21{% endif %}", "image"]
+      - ["image", "generator/qwen_image21", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true

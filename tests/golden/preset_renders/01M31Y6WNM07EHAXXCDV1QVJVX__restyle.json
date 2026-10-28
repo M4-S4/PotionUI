@@ -63,15 +63,6 @@
       "name": "media_loader"
     },
     {
-      "config": {},
-      "enabled": {
-        "type": "bool",
-        "value": false
-      },
-      "id": "matting",
-      "name": "matting/birefnet"
-    },
-    {
       "config": {
         "guidance_scale": {
           "type": "float",
@@ -242,15 +233,6 @@
       },
       "id": null,
       "name": "generator/qwen_image21"
-    },
-    {
-      "config": {},
-      "enabled": {
-        "type": "bool",
-        "value": false
-      },
-      "id": "subject_composite",
-      "name": "subject_composite"
     },
     {
       "config": {},

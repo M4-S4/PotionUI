@@ -64,26 +64,3 @@ fields:
               size: "0.68 GB"
               sha256: "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
               description: "Qwen-Image-2.1 VAE (RGBA, 16x latent). Alpha is dropped on decode in this preset."
-
-  - type: "section"
-    label: "Subject matting"
-    visible: false
-    reactions:
-      - when: { field: "keep_subject", equals: true }
-        then: { set_visibility: true }
-    children:
-      - name: "matting_model"
-        type: "model"
-        label: "Matting Model"
-        ai_hint: "A BiRefNet checkpoint used to cut the subject out for Keep subject exact."
-        configuration:
-          model_type: "detection_segm"
-          placeholder: "Select a BiRefNet checkpoint..."
-          filter_tags: "@config:matting_tags"
-          allow_info_modal: true
-        reactions:
-          - when: { field: "keep_subject", equals: true }
-            then:
-              update_validation:
-                required: true
-                message: "Pick a matting model, or turn off Keep subject exact."

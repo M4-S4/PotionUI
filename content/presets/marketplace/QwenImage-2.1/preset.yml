@@ -45,10 +45,6 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
-  matting_tags:
-    type: "model_tags"
-    label: "Matting model tags"
-    description: "Only models with any of these tags appear in the Matting Model picker."
   control_tags:
     type: "model_tags"
     label: "Fun ControlNet tags"

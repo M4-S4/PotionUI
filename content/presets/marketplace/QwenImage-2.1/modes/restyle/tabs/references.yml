@@ -6,7 +6,7 @@ fields:
         type: "image"
         label: "Image"
         required: true
-        ai_hint: "The image to restyle. Without Keep subject exact the result follows its size and aspect ratio at about 1 megapixel; with it the result is returned at the original size."
+        ai_hint: "The image to restyle. The result follows its size and aspect ratio at about 1 megapixel."
 
   - type: "section"
     label: "Task"
@@ -34,16 +34,3 @@ fields:
               update_validation:
                 required: true
                 message: "Describe the result."
-
-      - name: "keep_subject"
-        type: "checkbox"
-        label: "Keep subject exact"
-        default: false
-        visible: false
-        description: "Cut the subject out of the original and paste it back over the result, so its pixels do not change. Needs a matting model."
-        ai_hint: "Background task only. Runs BiRefNet matting on the original image and pastes the original subject back over the edited image through the matte with a small feather. The subject's pixels are identical to the input; the result is returned at the original size. Off: a plain edit that may drift the subject slightly."
-        reactions:
-          - when: { field: "restyle_task", equals: "background" }
-            then: { set_visibility: true }
-          - when: { field: "restyle_task", not_equals: "background" }
-            then: { set_value: false }

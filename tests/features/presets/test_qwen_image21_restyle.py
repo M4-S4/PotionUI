@@ -14,7 +14,6 @@ from src.platform.templating.processor import TemplateProcessor
 
 from ._bound_form import bound_form_data
 
-MATTING = "/models/detection_segm/birefnet.safetensors"
 BASE = {
     "diffusion_model": "/models/dit.safetensors",
     "text_encoder": "/models/te.safetensors",
@@ -97,79 +96,25 @@ def test_a_description_is_optional_for_colourise_and_restore(template, task):
     bound_form_data(template, "restyle", {**BASE, "restyle_task": task, "restyle_text": ""})
 
 
-def test_without_keep_subject_the_flow_is_a_plain_edit(template):
-    pipes = _render(template, restyle_task="background", restyle_text="a white studio")
-    assert pipes["matting"]["enabled"] is False
-    assert pipes["subject_composite"]["enabled"] is False
-    gallery = next(i for i in pipes["gallery"]["input"] if i["name"] == "image")
-    assert gallery["provider"] == "generator/qwen_image21"
-    assert pipes["generator/qwen_image21"]["config"]["mode"] == "edit"
+def test_the_flow_is_a_plain_edit_for_every_task(template):
+    for task in ("style", "background", "lighting", "colourise", "restore"):
+        pipes = _render(template, restyle_task=task, restyle_text="x")
+        assert not {"matting", "subject_composite"} & set(pipes)
+        gallery = next(i for i in pipes["gallery"]["input"] if i["name"] == "image")
+        assert gallery["provider"] == "generator/qwen_image21"
+        assert pipes["generator/qwen_image21"]["config"]["mode"] == "edit"
 
 
-def test_keep_subject_runs_matting_and_composites_over_the_edit(template):
-    pipes = _render(
-        template, restyle_task="background", restyle_text="a white studio", keep_subject=True, matting_model=MATTING,
-    )
-    assert pipes["matting"]["enabled"] is True
-    assert pipes["matting"]["config"]["model"]["file_path"] == MATTING
-    assert {(i["name"], i["provider"]) for i in pipes["matting"]["input"]} == {("image", "media_loader")}
-    composite = {i["name"]: (i["provider"], i["output_var"]) for i in pipes["subject_composite"]["input"]}
-    assert composite == {"image": ("generator/qwen_image21", "image"), "cutout": ("matting", "image")}
-    gallery = next(i for i in pipes["gallery"]["input"] if i["name"] == "image")
-    assert gallery["provider"] == "subject_composite"
-
-
-@pytest.mark.parametrize("task", ["style", "lighting", "colourise", "restore"])
-def test_keep_subject_only_applies_to_the_background_task(template, task):
-    pipes = _render(template, restyle_task=task, restyle_text="x", keep_subject=True, matting_model=MATTING)
-    assert pipes["matting"]["enabled"] is False
-    assert pipes["subject_composite"]["enabled"] is False
-
-
-def test_matting_model_is_required_only_when_keep_subject_is_on(template):
-    bound_form_data(template, "restyle", {**BASE, "restyle_task": "background", "restyle_text": "x"})
-    with pytest.raises(FormBindingError):
-        bound_form_data(
-            template, "restyle", {**BASE, "restyle_task": "background", "restyle_text": "x", "keep_subject": True},
-        )
-
-
-def test_generator_resolves_the_edit_profile_defaults(template):
-    cfg = _render(template, restyle_text="x")["generator/qwen_image21"]["config"]
-    assert int(cfg["steps"]) == 40
-    assert float(cfg["guidance"]) == 4.0
-
-
-def test_keep_subject_without_a_matting_model_is_rejected_with_a_clear_message(template):
-    with pytest.raises(FormBindingError) as excinfo:
-        bound_form_data(
-            template,
-            "restyle",
-            {**BASE, "restyle_task": "background", "restyle_text": "a white studio", "keep_subject": True},
-        )
-    assert "matting_model" in excinfo.value.field_errors
-    assert "matting model" in excinfo.value.field_errors["matting_model"][0].lower()
-
-
-def test_keep_subject_with_a_matting_model_is_accepted(template):
-    values = bound_form_data(
-        template,
-        "restyle",
-        {**BASE, "restyle_task": "background", "restyle_text": "x", "keep_subject": True, "matting_model": MATTING},
-    )
-    assert values["matting_model"] == MATTING
-
-
-def _keep_subject_field(template):
-    fields = template.modes["restyle"].forms[0].fields
-    stack = list(fields)
+def test_restyle_has_no_matting_fields(template):
+    stack = list(template.modes["restyle"].forms[0].fields)
+    names = set()
     while stack:
         node = stack.pop()
-        if node.name == "keep_subject":
-            return node
+        if node.name:
+            names.add(node.name)
         if isinstance(node.children, list):
             stack.extend(node.children)
-    pytest.fail("keep_subject field not found")
+    assert not {"keep_subject", "matting_model"} & names
 
 
 def test_every_restyle_reaction_is_a_single_condition(template):
@@ -185,29 +130,7 @@ def test_every_restyle_reaction_is_a_single_condition(template):
     assert seen
 
 
-def test_leaving_the_background_task_resets_keep_subject(template):
-    resets = [
-        r for r in _keep_subject_field(template).reactions
-        if r["then"].get("set_value") is False
-    ]
-    assert [(r["when"]["field"], r["when"]["operator"], r["when"]["value"]) for r in resets] == [
-        ("restyle_task", "not_equals", "background")
-    ]
-
-
-def test_switching_away_from_background_after_resetting_keep_subject_needs_no_matting_model(template):
-    values = bound_form_data(
-        template, "restyle", {**BASE, "restyle_task": "style", "restyle_text": "x", "keep_subject": False},
-    )
-    assert values["keep_subject"] is False
-    pipes = _render(template, restyle_task="style", restyle_text="x", keep_subject=False)
-    assert pipes["matting"]["enabled"] is False
-    assert pipes["subject_composite"]["enabled"] is False
-
-
-def test_a_stale_keep_subject_on_another_task_never_runs_matting(template):
-    pipes = _render(template, restyle_task="lighting", restyle_text="x", keep_subject=True, matting_model=MATTING)
-    assert pipes["matting"]["enabled"] is False
-    assert pipes["subject_composite"]["enabled"] is False
-    gallery = next(i for i in pipes["gallery"]["input"] if i["name"] == "image")
-    assert gallery["provider"] == "generator/qwen_image21"
+def test_generator_resolves_the_edit_profile_defaults(template):
+    cfg = _render(template, restyle_text="x")["generator/qwen_image21"]["config"]
+    assert int(cfg["steps"]) == 40
+    assert float(cfg["guidance"]) == 4.0
