@@ -20,7 +20,7 @@ from src.platform.runtime.native.lora import (
     apply_loras,
     apply_loras_with_report,
 )
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 TINY = {
     "image_model": "flux2", "hidden_size": 64, "num_heads": 2, "depth": 1,

@@ -253,7 +253,7 @@ def _tiny_ltxav_config() -> dict:
 
 def _build_tiny_ltxav_model():
     from src.platform.runtime.native.arch.ltx.model import LTXAVModel
-    from vendor.gpl.comfyui.ops import pick_operations
+    from src.platform.runtime.native.kernels import pick_operations
 
     ops = pick_operations(torch.float32, torch.float32)
     m = LTXAVModel.from_config(_tiny_ltxav_config(), ops)
@@ -356,7 +356,7 @@ def test_ltxav_model_pe_cache_dropped_on_device_or_dtype_move():
 
 def test_embeddings_connector_pe_cache_hit_skips_reconstruction(monkeypatch):
     from src.platform.runtime.native.arch.ltx import model as ltx_model
-    from vendor.gpl.comfyui.ops import pick_operations
+    from src.platform.runtime.native.kernels import pick_operations
 
     conn = ltx_model.Embeddings1DConnector(
         inner=8, dim_head=4, num_layers=1, num_learnable_registers=4,

@@ -25,7 +25,7 @@ spellings):
     ``lycoris_*`` (OneTrainer / SimpleTuner) and bare-dotted (DiffSynth) prefixes.
 
 ``LoraDelta.up @ LoraDelta.down`` is the low-rank update; the effective patch is
-``(scale * alpha / rank) * up @ down`` (see :func:`vendor.gpl.comfyui.ops.apply_lora_deltas`).
+``(scale * alpha / rank) * up @ down`` (see :func:`src.platform.runtime.native.kernels.lora_math.apply_lora_deltas`).
 
 API note: ``map_lora_keys`` returns ``dict[param_name, list[LoraDelta]]`` (not a
 single delta) because a fused ``qkv`` weight legitimately receives three deltas

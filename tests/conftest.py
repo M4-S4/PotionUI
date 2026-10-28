@@ -119,11 +119,7 @@ def _restore_runtime_flags():
     import sys
 
     flags_module = sys.modules.get("src.platform.settings.runtime_flags")
-    ops_module = sys.modules.get("vendor.gpl.comfyui.ops")
     saved_values = dict(flags_module.runtime_flag_values()) if flags_module else None
-    saved_bound = flags_module._vendor_bound if flags_module else False
-    saved_ops_dict = getattr(ops_module, "RUNTIME_FLAGS", None) if ops_module else None
-    saved_ops_values = dict(saved_ops_dict) if saved_ops_dict is not None else None
     yield
     flags_module = sys.modules.get("src.platform.settings.runtime_flags")
     if flags_module is not None:
@@ -133,16 +129,6 @@ def _restore_runtime_flags():
         else:
             live.clear()
             live.update(saved_values)
-        flags_module._vendor_bound = saved_bound
-    ops_module = sys.modules.get("vendor.gpl.comfyui.ops")
-    if ops_module is not None:
-        if saved_ops_dict is None:
-            ops_module.RUNTIME_FLAGS = {}
-        else:
-            ops_module.RUNTIME_FLAGS = saved_ops_dict
-            if saved_ops_dict is not (flags_module.runtime_flag_values() if flags_module else None):
-                saved_ops_dict.clear()
-                saved_ops_dict.update(saved_ops_values)
 
 
 @pytest.fixture(autouse=True)
@@ -351,4 +337,5 @@ pytest_plugins = [
     'tests.fixtures.image_fixtures',
     'tests.fixtures.mesh_fixtures',
     'tests.fixtures.audio_fixtures',
+    'tests.fixtures.kernel_capabilities',
 ]

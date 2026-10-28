@@ -35,8 +35,8 @@ from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file
 from src.platform.runtime.native.io.state_dict_utils import weight_dtype
+from src.platform.runtime.native.kernels import detect_quant_format, pick_operations
 from src.platform.runtime.native.ops.dtype import pick_dtypes
-from vendor.gpl.comfyui.ops import detect_quant_format, pick_operations
 
 # Sidecar tensors tolerated but never consumed in phase 1 (bf16/fp16 only --
 # see the port plan's "Phase 1 vs Phase 2"); allowlisted now so turning on

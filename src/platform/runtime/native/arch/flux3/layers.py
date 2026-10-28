@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from ...attention import attention as _attention
+from ...kernels import attention as _attention
 
 Modulation = tuple[int, Tensor, Tensor, Tensor]
 Rope = tuple[Tensor, Tensor]

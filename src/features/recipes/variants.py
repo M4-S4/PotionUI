@@ -5,9 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from src.features.recipes.schema import RecipeArtifact, RecipeArtifactVariant, RecipeVariantRule
-from src.platform.runtime.gpu_profile import GENERATION_LABELS, GpuProfile
-
-_UNSUPPORTED_NOTES = {"nvfp4": "nvfp4 needs an RTX 50-series (Blackwell) GPU"}
+from src.platform.runtime.gpu_profile import GENERATION_LABELS, GpuProfile, generations_supporting
 
 
 @dataclass(frozen=True)
@@ -51,6 +49,10 @@ def _generation_names(generations: Iterable[str]) -> str:
     return ", ".join(GENERATION_LABELS.get(g, g) for g in generations)
 
 
+def _unsupported_note(precision: str) -> str:
+    return f"{precision} needs an {_generation_names(generations_supporting(precision))} GPU"
+
+
 def _rule_miss_note(variant: RecipeArtifactVariant, gpu: GpuProfile) -> str:
     vram_mins = [
         rule.min_vram_gb
@@ -79,7 +81,7 @@ def assess_variant(variant: RecipeArtifactVariant, gpu: GpuProfile) -> VariantAs
     recommended = supported and _rules_match(variant, gpu)
     note: Optional[str] = None
     if not supported:
-        note = _UNSUPPORTED_NOTES.get(variant.precision, f"{variant.precision} doesn't run on {gpu.generation_label}")
+        note = _unsupported_note(variant.precision)
     elif not recommended:
         note = _rule_miss_note(variant, gpu)
     elif not fast:

@@ -18,7 +18,7 @@ from src.platform.runtime.native.detect.vae_detect import detect_minimax_music3_
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.vae.loader import _VaeSpec
 from src.platform.runtime.native.vae.minimax_music3_dav import MiniMaxMusic3DAV, fold_weight_norm_conv
-from vendor.gpl.comfyui.ops import disable_weight_init, manual_cast
+from src.platform.runtime.native.kernels import disable_weight_init, manual_cast
 
 _TINY_CONFIG = dict(
     latent_channels=4,

@@ -26,7 +26,7 @@ from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 _TINY_CFG = MiniMaxMusic3TextEncoderConfig(
     pruned_embeddings=True, pruned_lm_head=True, merged_qkv=True, merged_mlp=True,

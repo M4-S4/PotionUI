@@ -17,7 +17,7 @@ from src.platform.runtime.native.vae.minimax_h3_video import (
     _randn_like_reference,
     video_latent_frame_count,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 # A tiny but structurally faithful config: 2 encoder down-levels (one with a
 # 2x spatial-only downsample, one with none), tiny ViT decoder (2 layers, 2

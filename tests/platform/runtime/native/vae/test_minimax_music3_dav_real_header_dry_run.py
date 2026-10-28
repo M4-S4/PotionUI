@@ -42,7 +42,7 @@ from src.platform.runtime.native.vae.minimax_music3_dav import (
     MiniMaxMusic3DAV,
     fold_weight_norm_conv,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 from .._header_listings import load_header
 

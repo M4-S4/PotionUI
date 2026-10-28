@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # `_SPECS`/`_make_encoder`). ``off`` (default) matches ComfyUI's fp32 TE
 # activations (see `_Qwen3Transformer.forward`'s entry cast). ``on`` runs the
 # whole forward in bf16 instead, which is what makes an nvfp4-quantised layer
-# eligible for `vendor/gpl/comfyui/ops.py`'s native `_scaled_mm_v2` fast path
+# eligible for `kernels/nvfp4_linear.py`'s native `_scaled_mm_v2` fast path
 # (`_nvfp4_scaled_mm_fast_path_ok` requires `input_dtype in (float16,
 # bfloat16)`) rather than always falling through to LUT dequant. No `auto`:
 # unlike `$NATIVE_NVFP4_MATMUL`/`$NATIVE_FP8_MATMUL` there is no hardware probe

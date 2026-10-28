@@ -12,7 +12,7 @@ from src.platform.runtime.native.arch.flux3.model import Flux3
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _FIXTURES = Path(__file__).parent / "arch" / "fixtures"
 

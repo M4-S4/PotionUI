@@ -40,6 +40,7 @@ from .base import load_into_module, release_derived_caches, release_module_stora
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
 from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError
+from .io.quant_formats import FP8_DTYPES
 from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, load_torch_file_stripped
 from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
@@ -62,10 +63,9 @@ from .memory.tiering import (
 )
 from .ops.dtype import is_mixed_precision, pick_dtypes
 from .ops.fp8_quant import estimate_fp8_gb, quantize_state_dict_to_fp8, should_quantize_fp8
-from vendor.gpl.comfyui.ops import (
+from .kernels import (
     QUANT_FP8_SCALED,
     detect_quant_format,
-    disable_weight_init,
     fp8_ops,
     log_lora_path_summary,
     manual_cast,
@@ -1054,7 +1054,7 @@ class NativeEngineLoader:
         peripheral weights); streaming tier (when a VRAM budget is configured)
         -> manual_cast; otherwise dtype-driven via pick_operations.
         """
-        if quant_format == QUANT_FP8_SCALED or storage_dtype in {torch.float8_e4m3fn, torch.float8_e5m2}:
+        if quant_format == QUANT_FP8_SCALED or storage_dtype in FP8_DTYPES:
             return fp8_ops
         if is_mixed_precision(sd):
             return manual_cast

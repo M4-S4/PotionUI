@@ -24,6 +24,7 @@ from src.platform.runtime.native.sol_attn import (
     sol_attention,
     sol_attn_disabled_reason,
 )
+from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, cpu_only, fake_capabilities, fake_device, hopper
 
 
 @pytest.fixture(autouse=True)
@@ -112,8 +113,8 @@ class _FakeQ:
     unreachable with a real tensor.
     """
 
-    def __init__(self, dtype=torch.bfloat16, head_dim=128):
-        self.device = type("_Device", (), {"type": "cuda"})()
+    def __init__(self, dtype=torch.bfloat16, head_dim=128, device_index=0):
+        self.device = torch.device("cuda", device_index)
         self.dtype = dtype
         self.shape = (1, 512, 2, head_dim)
 
@@ -126,15 +127,48 @@ class _FakeQ:
         ({}, "compute capability", (7, 5)),
     ],
 )
-def test_unsupported_hardware_names_its_reason(monkeypatch, kwargs, expected, capability):
-    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device: capability)
+def test_unsupported_hardware_names_its_reason(install_capabilities, kwargs, expected, capability):
+    install_capabilities(fake_capabilities(fake_device(capability)))
     reason = sol_attn_module._unsupported(_FakeQ(**kwargs))
     assert reason is not None and expected in reason
 
 
-def test_a_supported_machine_has_no_reason(monkeypatch):
-    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda device: (12, 0))
+def test_a_supported_machine_has_no_reason(install_capabilities):
+    install_capabilities(fake_capabilities(blackwell()))
     assert sol_attn_module._unsupported(_FakeQ()) is None
+
+
+GENERATION_GATE = [
+    pytest.param(fake_device((7, 5)), "needs compute capability 8.0+, got 7.5", id="turing"),
+    pytest.param(ampere(), None, id="ampere"),
+    pytest.param(ada(), None, id="ada"),
+    pytest.param(hopper(), None, id="hopper"),
+    pytest.param(blackwell(), None, id="blackwell"),
+]
+
+
+@pytest.mark.parametrize("device, expected", GENERATION_GATE)
+def test_the_capability_gate_follows_the_snapshot_of_each_generation(install_capabilities, device, expected):
+    install_capabilities(fake_capabilities(device))
+    assert sol_attn_module._unsupported(_FakeQ()) == expected
+
+
+def test_a_cuda_tensor_missing_from_the_snapshot_is_unsupported_not_an_error(install_capabilities):
+    install_capabilities(cpu_only())
+    assert sol_attn_module._unsupported(_FakeQ()) == "needs compute capability 8.0+, got 0.0"
+
+
+def test_the_capability_gate_reads_the_query_device_not_the_current_one(install_capabilities):
+    install_capabilities(fake_capabilities(fake_device((7, 5)), blackwell()))
+    assert sol_attn_module._unsupported(_FakeQ(device_index=1)) is None
+    assert sol_attn_module._unsupported(_FakeQ(device_index=0)) == "needs compute capability 8.0+, got 7.5"
+
+
+def test_an_old_device_disables_the_seam_with_the_capability_reason(install_capabilities):
+    install_capabilities(fake_capabilities(fake_device((7, 5))))
+    q = _FakeQ()
+    assert sol_attention(q, q, q, SolAttnContext()) is None
+    assert sol_attn_disabled_reason() == "needs compute capability 8.0+, got 7.5"
 
 
 def test_backend_failure_disables_with_one_warning(monkeypatch, caplog):

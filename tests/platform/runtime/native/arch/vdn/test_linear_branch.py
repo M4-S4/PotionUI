@@ -26,7 +26,7 @@ from src.platform.runtime.native.arch.minimax_h3.vdn import (
     linear_branch_transient_breakdown,
     vdn_solve,
 )
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 

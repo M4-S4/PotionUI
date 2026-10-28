@@ -34,10 +34,9 @@ def _capture_sdpa_masks():
         seen.append(None if attn_mask is None else attn_mask.clone())
         return real_attn(q, k, v, attn_mask=attn_mask, **kw)
 
-    import src.platform.runtime.native.attention as attn_mod
-    orig = attn_mod.F.scaled_dot_product_attention
-    attn_mod.F.scaled_dot_product_attention = spy
-    return seen, lambda: setattr(attn_mod.F, "scaled_dot_product_attention", orig)
+    functional = torch.nn.functional
+    functional.scaled_dot_product_attention = spy
+    return seen, lambda: setattr(functional, "scaled_dot_product_attention", real_attn)
 
 
 # rows of 0/1 padding patterns exercised below, named for the trim-guard branch

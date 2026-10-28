@@ -38,6 +38,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.architecture.conftest import is_type_checking_test
+
 ROOT = Path(__file__).resolve().parents[2]
 SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git"}
 
@@ -65,15 +67,6 @@ FORBIDDEN = {
 DISSOLVED_PREFIXES = ("src.core", "src.api", "src.persistence", "src.services")
 
 
-def _is_type_checking_test(test: ast.expr) -> bool:
-    """True for ``TYPE_CHECKING`` or ``<mod>.TYPE_CHECKING`` if-guards."""
-    if isinstance(test, ast.Name):
-        return test.id == "TYPE_CHECKING"
-    if isinstance(test, ast.Attribute):
-        return test.attr == "TYPE_CHECKING"
-    return False
-
-
 def _runtime_src_imports(text: str, tree: ast.Module | None) -> list[str]:
     """Return the ``src.*`` modules imported at *runtime*.
 
@@ -87,7 +80,7 @@ def _runtime_src_imports(text: str, tree: ast.Module | None) -> list[str]:
 
     def visit(node: ast.AST) -> None:
         for child in ast.iter_child_nodes(node):
-            if isinstance(child, ast.If) and _is_type_checking_test(child.test):
+            if isinstance(child, ast.If) and is_type_checking_test(child.test):
                 for orelse in child.orelse:  # the else-branch still runs
                     visit(orelse)
                 continue

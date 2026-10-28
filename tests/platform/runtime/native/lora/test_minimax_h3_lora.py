@@ -28,7 +28,8 @@ from src.platform.runtime.native.lora.key_mapping import (
     _SWIGLU_HALF_SWAP,
     map_lora_keys,
 )
-from vendor.gpl.comfyui.ops import apply_lora_deltas, pick_operations
+from src.platform.runtime.native.kernels.lora_math import apply_lora_deltas
+from src.platform.runtime.native.kernels import pick_operations
 from .._native_ops import fp32_ops
 
 # Same shape traps as test_minimax_h3_model.py's TINY_FULL: inner(80) != hidden(64).

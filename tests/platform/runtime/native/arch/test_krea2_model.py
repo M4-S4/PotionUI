@@ -22,7 +22,7 @@ from src.platform.runtime.native.arch.krea2.model import Krea2
 from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 from .._native_ops import fp32_ops
 
 _FIXTURES = Path(__file__).parent / "fixtures"
@@ -119,14 +119,15 @@ def test_prepare_timestep_fp8_stored_weights_compute_in_latent_dtype():
     assert torch.isfinite(t_emb).all() and torch.isfinite(tvec).all()
 
 
-def test_full_forward_naive_all_fp8_checkpoint():
+@pytest.mark.parametrize("fp8", [torch.float8_e4m3fn, torch.float8_e5m2], ids=["e4m3", "e5m2"])
+def test_full_forward_naive_all_fp8_checkpoint(fp8):
     """selfora-style files cast EVERY tensor to fp8 - including raw params
     (norm scales, modulation tables) that no cast-on-forward op manages and
     that the forward does arithmetic on. post_load must upcast those back to
     their declared f32; ops-managed Linear weights stay fp8 (cast at forward)."""
     m = Krea2.from_config(TINY, pick_operations(torch.float8_e4m3fn, torch.float32))
     sd = {
-        k: v.to(torch.float8_e4m3fn) if v.is_floating_point() else v
+        k: v.to(fp8) if v.is_floating_point() else v
         for k, v in _randomised_state_dict(m).items()
     }
     load_into_module(m, sd, match_model_spec(TINY))
@@ -135,7 +136,7 @@ def test_full_forward_naive_all_fp8_checkpoint():
     assert m.blocks[0].prenorm.scale.dtype == torch.float32
     assert m.blocks[0].mod.lin.dtype == torch.float32
     assert m.last.modulation.lin.dtype == torch.float32
-    assert m.tmlp[0].weight.dtype == torch.float8_e4m3fn
+    assert m.tmlp[0].weight.dtype == fp8
 
     b, c, h, w = 1, 4, 8, 8
     latent = torch.randn(b, c, h, w)

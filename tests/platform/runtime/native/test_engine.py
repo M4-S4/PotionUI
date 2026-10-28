@@ -27,7 +27,7 @@ from src.platform.runtime.native.engine import (
     _estimate_text_encoder_gb,
     _latent_frames,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init, fp8_ops
 from src.platform.runtime.native.text_encoders.base import NativeTextEncoder
 from src.platform.runtime.native.vae import ae_2d, causal_3d
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
@@ -140,6 +140,13 @@ def test_loader_dit_detects_and_matches_spec(dit_path):
     assert model.spec.variant == "flux1"
     assert model.estimated_vram_gb is not None and model.estimated_vram_gb > 0
     assert model.module.patch_size == 2
+
+
+@pytest.mark.parametrize("storage", [torch.float8_e4m3fn, torch.float8_e5m2], ids=["e4m3", "e5m2"])
+def test_fp8_storage_dtypes_pick_the_fp8_ops_namespace(storage):
+    loader = NativeEngineLoader(device="cpu")
+
+    assert loader._ops_for("dit", 1.0, storage, torch.bfloat16, None, {}) is fp8_ops
 
 
 def test_loader_vae_loads(vae_path):

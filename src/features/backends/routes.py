@@ -661,7 +661,7 @@ class BackendController(BaseController):
     @guarded(None, _failed("backend_optimizations_failed", "Failed to get optimizations"), admin="user")
     async def get_backend_optimizations(self, backend_id: str, user: Optional[User] = None) -> APIResponse:
         """System probe + catalog status for a native backend's Optimizations panel."""
-        from src.platform.runtime.native import attention
+        from src.platform.runtime.native.kernels import get_backend_override
         from src.platform.runtime.native.optimizations import CATALOG, probe_system
 
         self._require_admin(user)
@@ -672,7 +672,7 @@ class BackendController(BaseController):
         return self.success_response(data={
             "system": asdict(probe),
             "optimizations": optimizations,
-            "pinned_backend": attention.get_backend_override(),
+            "pinned_backend": get_backend_override(),
             "engine_flags": self._engine_flags(backend_config),
         })
 
@@ -756,13 +756,13 @@ class BackendController(BaseController):
         self, backend_id: str, backend: str, user: Optional[User] = None
     ) -> APIResponse:
         """Pin (or clear, via 'auto') the live attention backend and persist the choice."""
-        from src.platform.runtime.native import attention
+        from src.platform.runtime.native.kernels import get_attention_backend, get_backend_override, known_backends
 
         self._require_admin(user)
         backend_config = self._require_local_backend(backend_id)
 
         requested = (backend or "").strip().lower()
-        valid_names = attention.known_backends() | {"auto"}
+        valid_names = known_backends() | {"auto"}
         if requested not in valid_names:
             return self.error_response(
                 error="invalid_backend",
@@ -774,8 +774,8 @@ class BackendController(BaseController):
         self._save_engine_flags(backend_config, {"native_attention_backend": stored_value})
 
         return self.success_response(data={
-            "pinned_backend": attention.get_backend_override(),
-            "active_backend": attention.get_attention_backend(),
+            "pinned_backend": get_backend_override(),
+            "active_backend": get_attention_backend(),
         })
 
     @guarded(None, _failed("set_engine_flags_failed", "Failed to set engine flags"), admin="user")

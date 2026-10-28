@@ -10,7 +10,7 @@ from safetensors.torch import save_file
 
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.vae_detect import detect_vae_config
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
 from src.platform.runtime.native.vae.key_convert import hoist_nested_quant_convs
 from src.platform.runtime.native.vae.loader import _VaeSpec, load_vae

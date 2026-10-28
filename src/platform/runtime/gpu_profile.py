@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
-GENERATION_NONE = "none"
-GENERATION_AMPERE = "ampere"
-GENERATION_ADA = "ada"
-GENERATION_HOPPER = "hopper"
-GENERATION_BLACKWELL = "blackwell"
+from src.platform.runtime.gpu_generation import GpuGeneration, generation_for
+
+GENERATION_NONE = GpuGeneration.NONE.value
+GENERATION_AMPERE = GpuGeneration.AMPERE.value
+GENERATION_ADA = GpuGeneration.ADA.value
+GENERATION_HOPPER = GpuGeneration.HOPPER.value
+GENERATION_BLACKWELL = GpuGeneration.BLACKWELL.value
 GENERATION_OTHER = "other"
 
 GPU_GENERATIONS = (
@@ -86,16 +88,12 @@ class GpuProfile:
 def generation_for_capability(capability: Optional[Tuple[int, int]]) -> str:
     if not capability:
         return GENERATION_NONE
-    major, minor = capability
-    if major == 8 and minor == 9:
-        return GENERATION_ADA
-    if major == 8:
-        return GENERATION_AMPERE
-    if major == 9:
-        return GENERATION_HOPPER
-    if major in (10, 11, 12):
-        return GENERATION_BLACKWELL
-    return GENERATION_OTHER
+    generation = generation_for(capability).value
+    return generation if generation in GPU_GENERATIONS else GENERATION_OTHER
+
+
+def generations_supporting(precision: str) -> Tuple[str, ...]:
+    return _SUPPORTED_ONLY_ON.get(precision, ())
 
 
 def fast_precisions_for(generation: str, capability: Optional[Tuple[int, int]]) -> Tuple[str, ...]:

@@ -61,7 +61,7 @@ from vendor.gpl.comfyui.ltx import rope
 from vendor.gpl.comfyui.ltx.patchifier import AudioPatchifier, SymmetricPatchifier, latent_to_pixel_coords
 from vendor.gpl.comfyui.ltx.rope import CompressedTimestep, apply_rotary_emb
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...nag import apply_nag
 from ...ops.embedding import sinusoidal_embedding

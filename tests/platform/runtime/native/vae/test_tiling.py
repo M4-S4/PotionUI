@@ -6,7 +6,7 @@ from unittest import mock
 
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae import ae_2d
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
 from src.platform.runtime.native.vae import causal_3d

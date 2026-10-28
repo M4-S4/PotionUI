@@ -26,7 +26,7 @@ import torch
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM
 from src.platform.runtime.native.detect.te_detect import detect_te_config
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 from .._header_listings import load_header
 

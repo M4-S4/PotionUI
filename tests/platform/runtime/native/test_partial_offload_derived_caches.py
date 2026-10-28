@@ -32,7 +32,7 @@ from src.platform.runtime.native.base import load_into_module, release_derived_c
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 # Tiny 19b-shaped AV config (mirrors test_ltx_forward.py's TINY_19B): both the
 # top-level positional-embedding cache and the embeddings-connector caches are

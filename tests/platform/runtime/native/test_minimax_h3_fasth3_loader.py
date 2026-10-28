@@ -33,7 +33,7 @@ from safetensors.torch import save_file
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
-from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED, pick_operations
+from src.platform.runtime.native.kernels import QUANT_FP8_SCALED, pick_operations
 
 from ._header_listings import load_header
 from ._quant_layouts import convrot_descriptor, descriptor_blob

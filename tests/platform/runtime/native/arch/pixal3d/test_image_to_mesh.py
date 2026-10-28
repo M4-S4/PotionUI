@@ -18,7 +18,7 @@ from src.platform.runtime.native.arch.trellis2.slat_flow import SLatFlowModel
 from src.platform.runtime.native.arch.trellis2.ss_flow import SSFlowDiT
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sparse3d import SparseTensor
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 FAST = StageSampling(steps=2, guidance_strength=2.0, guidance_rescale=0.5, guidance_interval=(0.0, 1.0), rescale_t=1.0)
 FAST_STAGES = {"sparse_structure": FAST, "shape": FAST, "texture": FAST}

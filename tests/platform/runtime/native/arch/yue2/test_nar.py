@@ -10,7 +10,7 @@ from src.platform.runtime.native.arch.yue2.config import YuE2Config
 from src.platform.runtime.native.arch.yue2.model import YuE2Model
 from src.platform.runtime.native.arch.yue2.protocol import CODEC_OFFSET, MUSIC_END
 from src.platform.runtime.native.errors import SamplingCancelled
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 
 def _tiny_model(seed: int = 0) -> YuE2Model:

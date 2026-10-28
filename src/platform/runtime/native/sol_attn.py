@@ -5,7 +5,7 @@ summaries against pooled query blocks, and computes exact attention only over
 the blocks whose score clears a per-query-block threshold (plus the local
 diagonal window, which is always exact). It is an **approximation**: the same
 inputs produce a different — not merely differently-rounded — output than
-:mod:`~src.platform.runtime.native.attention`'s dense backends. That is why
+:mod:`~src.platform.runtime.native.kernels.dispatch`'s dense backends. That is why
 nothing here is ever reached unless a caller hands over a
 :class:`SolAttnContext`, and why every preset that exposes it defaults to off.
 
@@ -42,6 +42,7 @@ from typing import Any, Callable, Optional
 import torch
 from torch import Tensor
 
+from src.platform.runtime.native.kernels import capabilities
 from src.platform.settings.runtime_flags import runtime_flag
 
 logger = logging.getLogger(__name__)
@@ -207,9 +208,9 @@ def _unsupported(q: Tensor) -> Optional[str]:
         return f"needs bfloat16 activations, got {q.dtype}"
     if q.shape[-1] != SOL_ATTN_HEAD_DIM:
         return f"needs head_dim {SOL_ATTN_HEAD_DIM}, got {q.shape[-1]}"
-    capability = torch.cuda.get_device_capability(q.device)
-    if capability < (8, 0):
-        return f"needs compute capability 8.0+, got {capability[0]}.{capability[1]}"
+    device = capabilities().device(q.device)
+    if not device.at_least(8):
+        return f"needs compute capability 8.0+, got {device.capability[0]}.{device.capability[1]}"
     return None
 
 

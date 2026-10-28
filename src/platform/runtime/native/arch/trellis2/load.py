@@ -23,9 +23,8 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from vendor.gpl.comfyui.ops import manual_cast
-
 from ...io.safetensors_loader import load_torch_file_prefixed
+from ...kernels import manual_cast
 from .config import (
     OCTREE_VAE_DECODER_TORSO_PRODUCTION,
     SHAPE_SLAT_FLOW_512,

@@ -28,13 +28,9 @@ from src.platform.runtime.native.lora.apply import (
     _stage_runtime_deltas,
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui import ops as _ops_module
-from vendor.gpl.comfyui.ops import (
-    _add_lora_output_branch,
-    apply_lora_deltas,
-    partition_output_branch_deltas,
-    pick_operations,
-)
+from src.platform.runtime.native.kernels.lora_math import _add_lora_output_branch, apply_lora_deltas, partition_output_branch_deltas
+from src.platform.runtime.native.kernels import pick_operations
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 HIDDEN, RANK = 16, 16
 OUT = HIDDEN * 3          # a fused qkv
@@ -221,13 +217,13 @@ class TestActivationSideIsEquivalentToTheWeightSide:
         output_side, weight_side = partition_output_branch_deltas(deltas, OUT)
         assert len(output_side) == 3 and weight_side == []
 
-        monkeypatch.setitem(_ops_module.RUNTIME_FLAGS, "native_lora_fused", False)
+        monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", False)
         output_side, weight_side = partition_output_branch_deltas(deltas, OUT)
         assert len(output_side) == 2
         assert len(weight_side) == 1 and weight_side[0].kron is True
 
     def test_a_lokr_only_stack_goes_through_the_weight_with_the_kill_switch(self, monkeypatch):
-        monkeypatch.setitem(_ops_module.RUNTIME_FLAGS, "native_lora_fused", False)
+        monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", False)
         x = _x()
         lin = _fp8_linear()
         lin.lora_deltas = _stage_runtime_deltas(_lokr_delta(torch.bfloat16), torch.device("cpu"))[0]

@@ -9,7 +9,7 @@ Adaptations from upstream:
   * the ``operation_settings`` dict collapses to a plain ``operations`` namespace
     (matching the Flux vendoring), the fp8/manual_cast seam;
   * ``optimized_attention`` is routed through the native attention dispatcher
-    (:func:`src.platform.runtime.native.attention.attention`);
+    (:func:`src.platform.runtime.native.kernels.attention`);
   * ``EmbedND`` and ``apply_rope1`` are reused from the Flux arch (upstream Wan
     imports the very same RoPE utilities from ``comfy.ldm.flux``);
   * ComfyUI's ``transformer_options`` / patcher-extension / block-replace hooks
@@ -47,7 +47,7 @@ import torch.nn as nn
 
 from einops import rearrange
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...nag import apply_nag
 from ...ops.padding import pad_to_patch

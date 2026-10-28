@@ -22,7 +22,7 @@ signal.
 
 A user asking for strength 1.0 and getting between 0.1% and 36% of the adapter
 is not a performance optimisation. The runtime path keeps every delta exact;
-see ``linear_with_lora_deltas`` in ``vendor/gpl/comfyui/ops.py`` for how it was
+see ``linear_with_lora_deltas`` in ``src/platform/runtime/native/kernels/lora_math.py`` for how it was
 made cheap instead.
 
 The test below reproduces the middle row. It is skipped: it exists to keep the
@@ -35,7 +35,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 OUT, IN, RANK = 3072, 3072, 16
 

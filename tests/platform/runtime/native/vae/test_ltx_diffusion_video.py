@@ -28,7 +28,7 @@ from src.platform.runtime.native.vae.ltx_diffusion_video import (
     LTXDiffusionVideoVAE,
     _neighborhood_attention,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 _REAL_VAE_PATH = Path("models/vae/ltx-2.5-video-vae-bf16.safetensors")
 _LTX23_VAE_PATH = Path("models/vae/LTX23_video_vae_bf16.safetensors")
