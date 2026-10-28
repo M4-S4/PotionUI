@@ -1,6 +1,6 @@
 name: "custom"
 mode_label: "Combine images"
-short_description: "Put subjects, objects or styles from reference images into a base image."
+short_description: "Edit the first image using up to nine others; type @ in the prompt to point at one."
 fields:
   - type: "tabs"
     children:
