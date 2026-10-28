@@ -195,6 +195,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     CANVAS_MULTIPLE,
     FPS,
+    FRAMES_PER_CHUNK,
     LATENTS_PER_CHUNK,
     MAX_ASPECT_RATIO,
     MAX_DURATION_S,
@@ -1816,7 +1817,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         return source_canvas_size(16, 9)
 
     def _reference_decode_seconds(self, plan: Any, source_role: str, has_initial_latents: bool) -> Optional[float]:
-        if has_initial_latents or str(self.config.get("length_from", "none") or "none") != "none":
+        length_from = str(self.config.get("length_from", "none") or "none")
+        if has_initial_latents or length_from not in ("none", "reference_video"):
             return None
         frames = int(self.config.get("frames", 124))
         if plan is not None:
@@ -1825,7 +1827,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             frames += head_frames_for_latents(int(self.config.get("source_overlap_latents", 5)))
         elif source_role == "precede":
             frames += 1
-        return reference_decode_seconds(align_num_frames(frames))
+        headroom = 2 * FRAMES_PER_CHUNK if length_from == "reference_video" else 0
+        return reference_decode_seconds(align_num_frames(frames) + headroom)
 
     def _length_from_reference(self, frames: int, raw_references: List[ReferenceMedia]) -> int:
         length_from = str(self.config.get("length_from", "none") or "none")

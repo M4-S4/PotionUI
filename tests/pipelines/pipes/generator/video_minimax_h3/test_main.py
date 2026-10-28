@@ -3751,3 +3751,60 @@ def test_decode_tile_px_is_a_declared_config_choice():
     assert spec.default == 256
     assert GeneratorMinimaxH3Pipe.get_default_config()["decode_tile_px"] == 256
     assert set(spec.choices) == {0, 256, 512}
+
+
+def _length_from_video_pipe(**overrides):
+    return GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(), "mode": "references", "length_from": "reference_video",
+        "frames": 22, **overrides,
+    })
+
+
+def _write_clip(path, fps, frame_count, size=(32, 24)):
+    import cv2
+
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), float(fps), size)
+    rng = np.random.default_rng(frame_count)
+    for _ in range(frame_count):
+        writer.write(rng.integers(0, 255, (size[1], size[0], 3), dtype=np.uint8))
+    writer.release()
+    return path
+
+
+@pytest.mark.parametrize("source_role", ["none", "continue", "precede"])
+def test_a_long_length_from_reference_video_is_decoded_as_a_bounded_head_with_the_same_result(tmp_path, source_role):
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as main_module
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_references
+
+    pytest.importorskip("cv2")
+    path = _write_clip(tmp_path / "long.mp4", 30, 150)
+    pipe = _length_from_video_pipe(source_video_role=source_role)
+
+    seconds = pipe._reference_decode_seconds(None, source_role, False)
+    assert seconds is not None
+    full = main_module._load_reference_video(path)
+    bounded = main_module._load_reference_video(path, seconds)
+    assert len(full.frames) == 150
+    assert len(bounded.frames) < len(full.frames)
+
+    frames_full = pipe._length_from_reference(22, [full])
+    frames_bounded = pipe._length_from_reference(22, [bounded])
+    assert frames_bounded == frames_full == 22
+    expected = normalize_references([full], num_frames=frames_full)[0]
+    actual = normalize_references([bounded], num_frames=frames_bounded)[0]
+    assert np.array_equal(actual.frames, expected.frames)
+
+
+def test_a_short_length_from_reference_video_is_decoded_whole(tmp_path):
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as main_module
+
+    pytest.importorskip("cv2")
+    path = _write_clip(tmp_path / "short.mp4", 30, 40)
+    pipe = _length_from_video_pipe()
+    loaded = main_module._load_reference_video(path, pipe._reference_decode_seconds(None, "none", False))
+    assert len(loaded.frames) == 40
+
+
+def test_length_from_reference_audio_and_initial_latents_stay_unbounded():
+    assert _length_from_video_pipe(length_from="reference_audio")._reference_decode_seconds(None, "none", False) is None
+    assert _length_from_video_pipe()._reference_decode_seconds(None, "none", True) is None
