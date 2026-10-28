@@ -47,6 +47,8 @@ fields:
         reactions:
           - when: { field: "restyle_task", equals: "background" }
             then: { set_visibility: true }
+          - when: { field: "restyle_task", not_equals: "background" }
+            then: { set_value: false }
 
   - type: "section"
     label: "Image"
@@ -107,11 +109,7 @@ fields:
     label: "Subject matting"
     visible: false
     reactions:
-      - when:
-          logic: "AND"
-          conditions:
-            - { field: "restyle_task", equals: "background" }
-            - { field: "keep_subject", equals: true }
+      - when: { field: "keep_subject", equals: true }
         then: { set_visibility: true }
     children:
       - name: "matting_model"
@@ -124,11 +122,7 @@ fields:
           filter_tags: "@config:matting_tags"
           allow_info_modal: true
         reactions:
-          - when:
-              logic: "AND"
-              conditions:
-                - { field: "restyle_task", equals: "background" }
-                - { field: "keep_subject", equals: true }
+          - when: { field: "keep_subject", equals: true }
             then:
               update_validation:
                 required: true

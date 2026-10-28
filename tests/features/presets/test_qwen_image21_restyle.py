@@ -158,3 +158,56 @@ def test_keep_subject_with_a_matting_model_is_accepted(template):
         {**BASE, "restyle_task": "background", "restyle_text": "x", "keep_subject": True, "matting_model": MATTING},
     )
     assert values["matting_model"] == MATTING
+
+
+def _keep_subject_field(template):
+    fields = template.modes["restyle"].forms[0].fields
+    stack = list(fields)
+    while stack:
+        node = stack.pop()
+        if node.name == "keep_subject":
+            return node
+        if isinstance(node.children, list):
+            stack.extend(node.children)
+    pytest.fail("keep_subject field not found")
+
+
+def test_every_restyle_reaction_is_a_single_condition(template):
+    stack = list(template.modes["restyle"].forms[0].fields)
+    seen = 0
+    while stack:
+        node = stack.pop()
+        for reaction in node.reactions or []:
+            seen += 1
+            assert isinstance(reaction["when"], dict) and "field" in reaction["when"]
+        if isinstance(node.children, list):
+            stack.extend(node.children)
+    assert seen
+
+
+def test_leaving_the_background_task_resets_keep_subject(template):
+    resets = [
+        r for r in _keep_subject_field(template).reactions
+        if r["then"].get("set_value") is False
+    ]
+    assert [(r["when"]["field"], r["when"]["operator"], r["when"]["value"]) for r in resets] == [
+        ("restyle_task", "not_equals", "background")
+    ]
+
+
+def test_switching_away_from_background_after_resetting_keep_subject_needs_no_matting_model(template):
+    values = bound_form_data(
+        template, "restyle", {**BASE, "restyle_task": "style", "restyle_text": "x", "keep_subject": False},
+    )
+    assert values["keep_subject"] is False
+    pipes = _render(template, restyle_task="style", restyle_text="x", keep_subject=False)
+    assert pipes["matting"]["enabled"] is False
+    assert pipes["subject_composite"]["enabled"] is False
+
+
+def test_a_stale_keep_subject_on_another_task_never_runs_matting(template):
+    pipes = _render(template, restyle_task="lighting", restyle_text="x", keep_subject=True, matting_model=MATTING)
+    assert pipes["matting"]["enabled"] is False
+    assert pipes["subject_composite"]["enabled"] is False
+    gallery = next(i for i in pipes["gallery"]["input"] if i["name"] == "image")
+    assert gallery["provider"] == "generator/qwen_image21"
