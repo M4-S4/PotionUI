@@ -1,0 +1,68 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed"
+    default: "quality"
+    ai_hint: "Quality runs 24 steps and holds a likeness best; pick it whenever a face or outfit has to come back. Turbo runs 4 steps and drifts more. Custom hands the Steps slider on the Advanced tab to the user."
+    configuration:
+      options:
+        - { label: "Quality (24 steps)", value: "quality" }
+        - { label: "Turbo (4 steps)", value: "turbo" }
+        - { label: "Custom (set Steps yourself)", value: "custom" }
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "source_video"
+        type: "video"
+        label: "Video"
+        required: true
+        description: "The video to re-create."
+        ai_hint: "The clip to remix. Its camera, motion and timing are kept and the requested change is applied; MiniMax-H3 reads it as <Video 1> of a video-editing request. Up to 14 seconds are used."
+      - name: "instruction"
+        type: "string"
+        label: "Change"
+        required: true
+        description: "What should be different."
+        ai_hint: "One or two plain English sentences describing the change, e.g. 'it is snowing and the street is at night'. Describe the result, not the edit steps."
+        configuration:
+          input_type: "textarea"
+          rows: 3
+      - name: "pictures"
+        type: "image"
+        label: "Pictures"
+        description: "Optional looks to borrow."
+        ai_hint: "Optional pictures whose look the change should borrow, such as a costume, a style or a place."
+        configuration:
+          multi: true
+          max_items: 4
+      - name: "keep_sound"
+        type: "checkbox"
+        label: "Keep original sound"
+        default: true
+      - name: "max_seconds"
+        type: "slider"
+        formula: "size"
+        label: "Max length (seconds)"
+        default: 14
+        description: "Longer videos are cut here."
+        ai_hint: "The clip follows the source video length, up to this many seconds."
+        configuration: {min: 1, max: 14, step: 0.5}
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_ref2va.yml"

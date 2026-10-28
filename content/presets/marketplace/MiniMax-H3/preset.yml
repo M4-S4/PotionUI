@@ -97,6 +97,7 @@ vars:
   # so this is a constant the pipeline reports rather than a knob.
   fps: 24
   default_frames: 124
+  promptless_modes: ["swap", "remix", "talk"]
 
   prompt:
     segment_join: "paragraph"
@@ -494,6 +495,9 @@ modes:
   - video
   - refs
   - upscale
+  - swap
+  - remix
+  - talk
 
 media:
   cover: "public/cover-h35m40se.webm"

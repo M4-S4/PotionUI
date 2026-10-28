@@ -1,0 +1,328 @@
+{
+  "mode": "swap",
+  "pipes": [
+    {
+      "config": {
+        "audio_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "audio_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "video_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        },
+        "video_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/minimax_h3"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_video.mp4",
+              "type": "video"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "reference_videos",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/character.png",
+              "type": "image"
+            }
+          ]
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "references",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "subject_definitions: <Subject 1> is the person shown in <Picture 1>. <Video 1> is the source video. summary: [video editing] + [reference generation] Re-create <Video 1> with its main person replaced by <Subject 1>, keeping the camera, motion, timing and setting of <Video 1>. retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair, body and outfit follow the reference pictures. <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, poses, gestures, timing, lighting and background are kept; only the main person changes. detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are.  overall_soundscape: The same ambient and action sounds as <Video 1>. non_diegetic_music: N/A"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "subject_definitions: <Subject 1> is the person shown in <Picture 1>. <Video 1> is the source video. summary: [video editing] + [reference generation] Re-create <Video 1> with its main person replaced by <Subject 1>, keeping the camera, motion, timing and setting of <Video 1>. retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair, body and outfit follow the reference pictures. <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, poses, gestures, timing, lighting and background are kept; only the main person changes. detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are.  overall_soundscape: The same ambient and action sounds as <Video 1>. non_diegetic_music: N/A"
+        },
+        "pairs": {
+          "type": "list",
+          "value": []
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "reference_video_frames": {
+          "type": "int",
+          "value": 336
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/video_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/audio_vae.safetensors"
+            ],
+            [],
+            [
+              "max_seconds",
+              14
+            ],
+            [
+              "steps",
+              4
+            ],
+            [
+              "speed_profile",
+              "quality"
+            ],
+            [
+              "fps",
+              24
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "audio_source": {
+          "type": "str",
+          "value": "reference_video"
+        },
+        "decode": {
+          "type": "bool",
+          "value": true
+        },
+        "frames": {
+          "type": "int",
+          "value": 336
+        },
+        "length_from": {
+          "type": "str",
+          "value": "reference_video"
+        },
+        "manual_audio_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "mode": {
+          "type": "str",
+          "value": "references"
+        },
+        "preview": {
+          "type": "bool",
+          "value": true
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "reference_videos": {
+          "type": "list",
+          "value": [
+            "/GOLDEN/media/source_video.mp4"
+          ]
+        },
+        "references": {
+          "type": "list",
+          "value": [
+            "/GOLDEN/media/character.png"
+          ]
+        },
+        "resolution": {
+          "type": "str",
+          "value": "auto"
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "simple"
+        },
+        "sla_block_size": {
+          "type": "int",
+          "value": 64
+        },
+        "sla_sparsity": {
+          "type": "float",
+          "value": 0.9
+        },
+        "sol_attn_tau": {
+          "type": "float",
+          "value": 1.0
+        },
+        "sparse_attn": {
+          "type": "str",
+          "value": "off"
+        },
+        "sparse_attn_dense_last_steps": {
+          "type": "int",
+          "value": 2
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 4
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/video_minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX47H3MINIMAX000000000VA",
+  "preset_name": "MiniMax-H3"
+}

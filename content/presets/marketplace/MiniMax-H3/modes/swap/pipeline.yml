@@ -1,0 +1,140 @@
+pipeline:
+  - name: "model_loader/minimax_h3"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
+
+  - name: "media_loader"
+    id: "reference_videos"
+    enabled: true
+    configuration:
+      validate_files: true
+      media:
+        - type: "video"
+          path: "{{ form.source_video }}"
+
+  - name: "media_loader"
+    id: "references"
+    enabled: true
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.character }}"
+          template:
+            type: "image"
+            path: "{{ item.path | default(item) }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader", "text_encoder"]
+      - ["reference_image", "references", "image"]
+      - ["reference_video", "reference_videos", "video"]
+      - ["vae", "model_loader", "video_vae"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &document >-
+          subject_definitions: <Subject 1> is the person shown in {% for _ in form.character %}<Picture {{ loop.index }}>{% if not loop.last %}, {% endif %}{% endfor %}{% if form.character_description %}, {{ form.character_description }}{% endif %}. <Video 1> is the source video.
+          summary: [video editing] + [reference generation] Re-create <Video 1> with its main person replaced by <Subject 1>, keeping the camera, motion, timing and setting of <Video 1>.
+          retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair, body and outfit follow the reference pictures. <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, poses, gestures, timing, lighting and background are kept; only the main person changes.
+          detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are. {{ form.instruction | default('', true) }}
+          overall_soundscape: The same ambient and action sounds as <Video 1>.
+          non_diegetic_music: N/A
+        output: *document
+      pairs: []
+      quantity: "{{ form.quantity }}"
+      guidance_scale: 1.0
+      reference_video_frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["max_seconds", "{{ form.max_seconds }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["speed_profile", "{{ form.speed_profile }}"]
+        - ["fps", "{{ preset.vars.fps }}"]
+
+  - name: "generator/video_minimax_h3"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["reference_images", "references", "image"]
+      - ["reference_videos", "reference_videos", "video"]
+    enabled: true
+    configuration:
+      mode: "references"
+      references: "{{ form.character }}"
+      reference_videos: ["{{ form.source_video }}"]
+      length_from: "reference_video"
+      audio_source: "{{ 'reference_video' if form.keep_sound else 'generate' }}"
+      resolution: "auto"
+      frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      quantity: "{{ form.quantity }}"
+      preview: "{{ form.preview }}"
+      decode: true
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      sparse_attn: "{{ form.sparse_attn }}"
+      sol_attn_tau: "{{ form.sol_attn_tau }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sla_block_size: "{{ form.sla_block_size | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
+      sampler: "{{ form.sampler }}"
+      scheduler: "{{ form.scheduler }}"
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "generator", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
