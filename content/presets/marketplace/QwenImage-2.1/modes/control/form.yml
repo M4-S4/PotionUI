@@ -1,6 +1,6 @@
 name: "custom"
 mode_label: "Structure"
-short_description: "Keep a pose, edges or depth from a guide image and generate a new image on it."
+short_description: "ControlNet-style: keep a pose, edges or depth from a guide image and generate a new image on it."
 fields:
   - type: "tabs"
     children:
