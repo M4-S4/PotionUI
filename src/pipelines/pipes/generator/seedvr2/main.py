@@ -322,6 +322,9 @@ class SeedVR2NativeGenerator(NativeGenerator):
     placement helpers; the only new piece is the 33-channel one-step forward.
     """
 
+    _encode_tile_cap: Optional[int] = None
+    _decode_tile_cap: Optional[int] = None
+
     def upscale(
         self,
         pixels: "np.ndarray",
@@ -544,6 +547,8 @@ class SeedVR2NativeGenerator(NativeGenerator):
         )
         if tile_size and tile_size > 0:
             tile = min(tile, max(_MIN_ENCODE_TILE_PIXEL, (int(tile_size) // 8) * 8))
+        if self._encode_tile_cap is not None:
+            tile = min(tile, self._encode_tile_cap)
         overlap_cap = int(tile_overlap) if tile_overlap and tile_overlap > 0 else None
 
         shrinks = 0
@@ -558,6 +563,8 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         "seedvr2.encode.tile", tile=tile, overlap=overlap,
                         shrinks=shrinks, whole_clip=tile >= max(h, w),
                     )
+                    if shrinks:
+                        self._encode_tile_cap = tile
                     return out
                 except RuntimeError as exc:
                     if not is_cuda_oom(exc):
@@ -605,6 +612,8 @@ class SeedVR2NativeGenerator(NativeGenerator):
         )
         if tile_size and tile_size > 0:
             tile = min(tile, max(_MIN_DECODE_TILE_LATENT, int(tile_size) // 8))
+        if self._decode_tile_cap is not None:
+            tile = min(tile, self._decode_tile_cap)
         overlap_cap = (int(tile_overlap) // 8) if tile_overlap and tile_overlap > 0 else None
 
         freed_foreign_residents = False
@@ -621,6 +630,8 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         shrinks=shrinks, evicted_foreign=freed_foreign_residents,
                         whole_clip=tile >= max(h, w),
                     )
+                    if shrinks:
+                        self._decode_tile_cap = tile
                     break
                 except RuntimeError as exc:
                     if not is_cuda_oom(exc):
