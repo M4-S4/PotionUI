@@ -79,6 +79,14 @@
     "label": "Edit",
     "icon": "pencil"
   },
+  "combine": {
+    "label": "Combine images",
+    "icon": "layers"
+  },
+  "text": {
+    "label": "Edit text",
+    "icon": "pencil"
+  },
   "control": {
     "label": "Control",
     "icon": "sliders"

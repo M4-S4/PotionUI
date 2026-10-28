@@ -150,6 +150,8 @@ def test_mode_labels_route_serves_the_map_ahead_of_preset_ids():
     ("inpaint", "brush"),
     ("upscale", "expand"),
     ("edit", "pencil"),
+    ("combine", "layers"),
+    ("text", "pencil"),
     ("control", "sliders"),
     ("txt2music", "audio"),
     ("img2mesh", "cube"),
