@@ -186,5 +186,25 @@
   "cinemagraph": {
     "label": "Cinemagraph",
     "icon": "film"
+  },
+  "extend": {
+    "label": "Extend",
+    "icon": "expand"
+  },
+  "refine_faces": {
+    "label": "Refine Faces",
+    "icon": "wand"
+  },
+  "swap": {
+    "label": "Swap Character",
+    "icon": "layers"
+  },
+  "remix": {
+    "label": "Remix Video",
+    "icon": "sparkles"
+  },
+  "talk": {
+    "label": "Talking Video",
+    "icon": "audio"
   }
 }

@@ -17,7 +17,7 @@ EXPECTED = {
     ("Krea2", "txt2img"), ("Krea2", "enhance"),
     ("LTX-2", "video"), ("LTX-2", "upscale"),
     ("LTX-2.5", "video"), ("LTX-2.5", "upscale"), ("LTX-2.5", "restore"), ("LTX-2.5", "colorize"),
-    ("LTX-2.5", "add_water"), ("LTX-2.5", "remove_object"), ("LTX-2.5", "layout_to_render"),
+    ("LTX-2.5", "add_water"), ("LTX-2.5", "remove_object"), ("LTX-2.5", "layout_to_render"), ("LTX-2.5", "extend"), ("LTX-2.5", "refine_faces"),
     ("ZImage", "txt2img"), ("Wan", "video"),
     ("QwenImage", "txt2img"), ("QwenImage", "img2img"), ("QwenImage", "edit"),
     ("QwenImage-2.1", "txt2img"), ("QwenImage-2.1", "edit"), ("QwenImage-2.1", "combine"), ("QwenImage-2.1", "text"), ("QwenImage-2.1", "restyle"), ("QwenImage-2.1", "control"),
