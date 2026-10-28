@@ -777,6 +777,8 @@
 	function handleWindowKeydown(event: KeyboardEvent) {
 		if (!pointerInside || event.key === 'Delete') return;
 		if (event.target !== document.body && event.target !== document.documentElement) return;
+		const modal = document.querySelector('[aria-modal="true"]');
+		if (modal && !modal.contains(uploadAreaRef)) return;
 		handleRootKeydown(event);
 	}
 
@@ -795,6 +797,7 @@
 		const tool = matchToolShortcut(inspectorToolGroups, event.key);
 		if (tool) {
 			event.preventDefault();
+			event.stopPropagation();
 			runFieldTool(tool, flatIndex);
 		}
 	}
@@ -802,7 +805,7 @@
 	$: countText = multiple && countLimit !== null ? formatCount(multiItems.length, countLimit) : null;
 </script>
 
-<svelte:window on:keydown={handleWindowKeydown} />
+<svelte:window on:keydown|capture={handleWindowKeydown} />
 
 <div
 	bind:this={uploadAreaRef}

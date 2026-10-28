@@ -58,7 +58,7 @@ function normalizeKey(e: KeyboardEvent): { key: string; modifiers: string } {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-	if (suppressGlobal) return;
+	if (suppressGlobal || e.defaultPrevented) return;
 	if (shouldIgnoreEvent(e)) return;
 
 	const { key, modifiers } = normalizeKey(e);
