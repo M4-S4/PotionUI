@@ -102,3 +102,18 @@ def test_there_is_no_region_machinery(template):
     assert not {"mask_loader", "inpaint_region_crop", "inpaint_region_restore"} & set(pipes)
     gallery = next(i for i in pipes["gallery"]["input"] if i["name"] == "image")
     assert gallery["provider"] == "generator/qwen_image21"
+
+
+def test_a_role_on_an_empty_slot_is_ignored(template):
+    pipes = _render(template, reference_1="/u/a.png", reference_2_role="ghost", reference_3_role="phantom")
+    prefix = _prefix(pipes)
+    assert "ghost" not in prefix and "phantom" not in prefix
+    assert "Image 3" not in prefix
+    assert "Image 2 is a reference." in prefix
+    assert _paths(pipes) == ["/uploads/base.png", "/u/a.png"]
+
+
+def test_the_generator_resolves_the_edit_profile_defaults(template):
+    cfg = _render(template)["generator/qwen_image21"]["config"]
+    assert int(cfg["steps"]) == 40
+    assert float(cfg["guidance"]) == 4.0
