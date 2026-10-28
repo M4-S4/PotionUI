@@ -613,6 +613,39 @@ def test_video_sourced_reference_placement_decodes_clip_into_reference_tokens(tm
     assert p.extra_coords is not None and p.extra_coords.shape == (1, 3, n_ref, 2)
 
 
+def test_match_input_takes_geometry_from_the_reference_clip(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=12, size=64)
+    cfg = _pipe(resolution="768x512", frames=121, fps=25.0, match_input=True, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
+    ])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (64, 64, 9, 8.0)
+
+
+def test_match_input_on_a_refine_takes_size_from_the_latent_and_fps_from_the_clip(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=12, size=64)
+    cfg = _pipe(resolution="768x512", frames=121, fps=25.0, match_input=True, refine_sigmas="0.4, 0.0",
+                refine_reference=True, media_placements=[
+                    {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
+                ])
+    pipe_input = _pipe_input(videos=[str(clip)])
+    pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 2, 4, 6)]
+    ctx = cfg.build_context(pipe_input)
+
+    assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (192, 128, 9, 8.0)
+
+
+def test_match_input_off_keeps_the_configured_geometry(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=12, size=64)
+    cfg = _pipe(resolution="128x128", frames=17, fps=25.0, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
+    ])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (128, 128, 17, 25.0)
+
+
 def test_video_sourced_placement_index_out_of_range_raises():
     cfg = _pipe(resolution="64x64", frames=17, media_placements=[
         {"source": "video", "index": 1, "frame": "first", "strength": 1.0, "role": "reference"},

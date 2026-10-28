@@ -1525,6 +1525,9 @@ Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA reference
 | `resolution` | `str` | `"768x512"` | no | — | — | — | Resolution (WxH) |
 | `frames` | `int` | `49` | no | — | 1 | 1001 | Number of video frames (must be 1 + 8*k; up to ~40s at 25fps) |
 | `fps` | `float` | `25.0` | no | — | 1.0 | 60.0 | Output frame rate |
+| `match_input` | `bool` | `false` | no | — | — | — | Take resolution, frame count and fps from the first 'video' input instead of 'resolution'/'fps'; 'frames' becomes the upper bound. On a refine call ('initial_latent' connected) the size comes from the latent and only fps from the video. For edits of an input clip through an IC-LoRA reference |
+| `match_input_scale` | `float` | `1.0` | no | — | 0.25 | 4.0 | With match_input: output size = input size x this factor (2.0 for a 2x upscaler) |
+| `match_input_max_edge` | `int` | `1920` | no | — | 64 | 4096 | With match_input: cap on the output's longer edge in pixels (aspect kept) |
 | `quantity` | `int` | `1` | no | — | 1 | 4 | Number of videos |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |

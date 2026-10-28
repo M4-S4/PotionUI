@@ -145,6 +145,7 @@ from src.pipelines.pipes._shared.video.ltx_constants import (
 from src.pipelines.pipes._shared.video.video_common import build_video_output, emit_video_results, to_device
 from src.pipelines.pipes.generator.video_ltx.audio import audio_token_count, decode_generated_audio
 from src.pipelines.pipes.generator.video_ltx.ic_lora import resolve_reference_scales
+from src.pipelines.pipes.generator.video_ltx.input_geometry import fit_to_input, probe_video_geometry
 from src.pipelines.pipes.generator.video_ltx.conditioning import (
     pack_tokens,
     LTXMediaCondition,
@@ -288,6 +289,17 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             PipeConfigSpec("frames", int, 49, "Number of video frames (must be 1 + 8*k; up to ~40s at 25fps)",
                            required=False, min_value=1, max_value=1001),
             PipeConfigSpec("fps", float, 25.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
+            PipeConfigSpec("match_input", bool, False,
+                           "Take resolution, frame count and fps from the first 'video' input instead of "
+                           "'resolution'/'fps'; 'frames' becomes the upper bound. On a refine call ('initial_latent' "
+                           "connected) the size comes from the latent and only fps from the video. For edits "
+                           "of an input clip through an IC-LoRA reference", required=False),
+            PipeConfigSpec("match_input_scale", float, 1.0,
+                           "With match_input: output size = input size x this factor (2.0 for a 2x upscaler)",
+                           required=False, min_value=0.25, max_value=4.0),
+            PipeConfigSpec("match_input_max_edge", int, 1920,
+                           "With match_input: cap on the output's longer edge in pixels (aspect kept)",
+                           required=False, min_value=64, max_value=4096),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
             seed_config_spec(),
             device_config_spec(),
@@ -441,6 +453,18 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         resolution = str(self.config.get("resolution", "768x512")).split("x")
         width, height = int(resolution[0]), int(resolution[1])
+        if bool(self.config.get("match_input", False)) and videos:
+            fitted_w, fitted_h, fitted_frames, fps = fit_to_input(
+                *probe_video_geometry(videos[0]),
+                scale=float(self.config.get("match_input_scale", 1.0)),
+                max_edge=int(self.config.get("match_input_max_edge", 1920)),
+                max_frames=frames, fallback_fps=fps,
+            )
+            if initial_latents:
+                height = int(initial_latents[0].shape[-2]) * LTX_SPATIAL_DOWNSCALE
+                width = int(initial_latents[0].shape[-1]) * LTX_SPATIAL_DOWNSCALE
+            else:
+                width, height, frames = fitted_w, fitted_h, fitted_frames
         width, height, frames = snap_ltx_geometry(width, height, frames)
 
         # A stage-2 refine's temporal geometry comes from the latent it was
