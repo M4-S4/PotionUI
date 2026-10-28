@@ -197,9 +197,26 @@ def test_a_torch_oom_in_a_damaged_process_stays_an_oom(mock_dependencies, monkey
 
 def test_a_driver_oom_in_a_healthy_process_stays_an_oom(mock_dependencies, monkeypatch):
     monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     manager = GenerationEngine(**mock_dependencies)
 
     error = _run(manager, DriverOomPipe, "driver_oom_pipe", config={"device": "cuda"})
 
     assert error.error_code == "cuda_oom"
     assert cuda_allocator.RESTART_ACTION not in error.hints
+
+
+def test_the_first_driver_oom_that_damages_the_allocator_says_to_restart(mock_dependencies, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    manager = GenerationEngine(**mock_dependencies)
+
+    error = _run(manager, DriverOomPipe, "driver_oom_pipe", config={"device": "cuda"})
+
+    assert error.error_code == "gpu_restart_required"
+    assert error.message.startswith("This process can no longer use the GPU")
+    assert "Ran out of GPU memory" not in error.message
+    assert error.hints == [cuda_allocator.RESTART_ACTION]
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
