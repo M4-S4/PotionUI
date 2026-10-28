@@ -67,6 +67,8 @@ For larger cleanups there is a dedicated **Delete by tags** action in the toolba
 
 Deletion is permanent, so PotionUI always asks you to confirm before removing anything, whether it's a single item, a bulk selection, or a delete-by-tags operation.
 
+Deleting a generation removes its files with all their previews (the animated ones of a video included), its folder, its automatic tags, and the completed, failed and warning notifications it raised for you. A file that something else still uses stays where it is: one another generation also lists, or one shown as a phrasebook or model preview. Two records outlive the generation on purpose: its timing and memory statistics, which feed the per-preset performance figures, and its entry in your usage ledger, which counts toward your plan's limits until it ages out.
+
 ## Uploading existing generations
 
 The overflow menu also offers **Upload generations**, letting you bring outside images into your history so they live alongside everything else you've made in PotionUI.
