@@ -1,34 +1,109 @@
 # NVIDIA RTX Upscale
 
-Runs NVIDIA RTX Video Super Resolution (`nvidia-vfx`, `import nvvfx`) as a native-engine pipe:
-`upscaler/rtx_vsr`. This is a per-frame RTX Tensor Core effect, not a diffusion model — no
-checkpoint, no prompt, no seed. It exposes four intents (`upscale`, `upscale_highbitrate` for a
-compressed/lossy source, `denoise`, `deblur`) at four quality tiers each, for both images and
-video. Denoise and deblur are same-resolution enhancement; only the two upscale intents change
-output size. The plugin ships one preset, **RTX Upscale** (`upscale` and `video_upscale` modes).
+Runs two NVIDIA RTX video effects from `nvidia-vfx` (`import nvvfx`) as native-engine pipes.
+Both are per-frame RTX Tensor Core effects, not diffusion models — no checkpoint, no prompt, no
+seed.
+
+- **`upscaler/rtx_vsr`** runs RTX Video Super Resolution. It exposes four intents (`upscale`,
+  `upscale_highbitrate` for a compressed/lossy source, `denoise`, `deblur`) at four quality tiers
+  each, for both images and video. Denoise and deblur are same-resolution enhancement; only the
+  two upscale intents change output size.
+- **`interpolator/rtx_vfg`** runs RTX Video Frame Generation on a video: it multiplies the frame
+  rate by 2 or 4, or converts it to a given frame rate, and keeps the duration and the audio.
+
+The plugin ships one preset, **RTX Upscale**, with three modes: `upscale` (image),
+`video_upscale` and `interpolate` (video).
 
 ## Requirements
 
-- An NVIDIA RTX GPU, Turing generation or newer.
-- A Linux NVIDIA driver `>= 570.190`. `nvidia-vfx` ships a Linux-only wheel — there is no
-  Windows or macOS build.
-- The `nvidia-vfx` Python package (import name `nvvfx`).
+- An NVIDIA RTX GPU: Turing generation or newer for Video Super Resolution, **Ada or Blackwell**
+  for Video Frame Generation.
+- An NVIDIA driver `>= 570.190` on Linux (`580.82+` and `590.44+` branches too), `>= 570.65` on
+  Windows.
+- The `nvidia-vfx` Python package (import name `nvvfx`). Video Super Resolution runs on 0.1.x and
+  0.2.x; Video Frame Generation and the Strength control need **0.2 or later** (0.2.0.0,
+  30 September 2026, bundles VFX SDK 1.3.0.0).
 
 ## Install
 
 ```bash
-pip install nvidia-vfx
+pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com
 ```
 
-The PyPI distribution name (`nvidia-vfx`) differs from its import name (`nvvfx`), and the wheel
-is a several-hundred-MB download from `pypi.nvidia.com` — the plugin's manifest deliberately
-declares no `dependencies:` block so the generic installer never runs `pip install nvvfx`
-against the wrong name. Until `nvidia-vfx` is installed, the `upscaler/rtx_vsr` pipe stays
+- **The extra index is needed.** pypi.org only carries a 3.7 kB source archive for 0.2.0.0; the
+  wheels (about 443 MB for Linux x86_64, 436 MB for Windows x64) are on `pypi.nvidia.com`.
+- **The package is proprietary** (`LicenseRef-NvidiaProprietary`): installing it is the
+  administrator's decision under NVIDIA's terms. Nothing from NVIDIA is vendored here.
+- **WSL2.** NVIDIA documents no WSL2 support. Users report that the library loads under WSL2
+  only when `LD_LIBRARY_PATH` starts with `/usr/lib/wsl/lib` before Python starts
+  (`export LD_LIBRARY_PATH="/usr/lib/wsl/lib:$LD_LIBRARY_PATH"`); without it, `load()` can exit
+  the process silently. Nobody has reported a run inside Docker on WSL2 yet.
+
+The PyPI distribution name (`nvidia-vfx`) differs from its import name (`nvvfx`) — the plugin's
+manifest deliberately declares no `dependencies:` block so the generic installer never runs
+`pip install nvvfx` against the wrong name. Until `nvidia-vfx` is installed, both pipes stay
 visible in the catalog marked not-installed, and the RTX Upscale preset's Requirements tab
-reports it missing with the command above.
+reports the package missing with the command above.
+
+## Upscale
+
+| Field | Values | What it does |
+|---|---|---|
+| `intent` | `upscale`, `upscale_highbitrate`, `denoise`, `deblur` | The effect run on each frame. |
+| `quality` | `low`, `medium`, `high`, `ultra` | Its tier. |
+| `scale` | 1 to 4 | Output size per side for the two upscale intents. |
+| `target_short_side` | 0, or pixels on the 8 px grid | When set, the scale that brings the short side to this size, held between 1 and 4, replaces `scale`. 1080 gives 1872×1080 from 832×480. |
+| `strength` | 0 to 1 (default 1) | The SDK's effect strength. 1 is NVIDIA's default and is not sent; another value needs `nvidia-vfx` 0.2, and an older package runs at full strength with a warning in the log. |
+| `keep_audio` | yes or no | Video only: the source audio is muxed back. |
+
+- Outputs land on the 8 px grid `nvvfx` requires, and an upscale never lands below the source
+  size (the SDK rejects a smaller target with error −7).
+- Each frame runs on the default CUDA stream, the only one `nvvfx` 0.2 accepts.
+- On `nvvfx` 0.2 the effect also gets the source size (`input_width`, `input_height`) before
+  `load()`, as NVIDIA's own samples do, and reloads when either size changes.
+- An SDK failure is reported with the source and target sizes; error −7 or "invalid parameter"
+  is explained as a rejected frame size.
+
+A caller that wants an exact size sends, for `video_upscale`: `intent: "upscale"`,
+`quality: "ultra"`, `target_short_side: <pixels>`, `keep_audio: true` and `input_video`.
+
+## Interpolate
+
+| Field | Values | What it does |
+|---|---|---|
+| `target_fps` | 0 (Multiplier), 24, 25, 30, 48, 50, 60 | The output frame rate; 0 uses `factor`. |
+| `factor` | 2, 4 | Frame-rate multiplier when `target_fps` is 0. |
+| `mode` | `low`, `medium`, `high` | The Video Frame Generation model; Medium is NVIDIA's default. |
+| `scene_detection` | yes (default) or no | The SDK's automatic shot-change detection, which copies a frame at a cut instead of blending across it. |
+| `keep_audio` | yes or no | The source audio is muxed back. |
+
+**Which frames are made.** For N source frames at `src_fps` and an output at `out_fps`:
+
+- the output has `max(1, round(N × out_fps / src_fps))` frames, so the duration is kept;
+- output frame k falls at source position `p = k × src_fps / out_fps`, between frame
+  `i = floor(p + 1e-6)` and the next, at `t = p − i`;
+- it is source frame i itself when `t < 1e-3`, the last source frame when `i ≥ N − 1`, and
+  otherwise the frame the SDK makes at `t` between frames i and i + 1;
+- with a multiplier, `out_fps = src_fps × factor`: N × factor frames, the last source frame held
+  for the slots after it, as the core's `interpolator/rife` does. The SDK then runs in its
+  multiplier mode (`frame_multiplier`, `frame_index`); a target frame rate uses
+  `run_at_timestep`.
+
+So 16 → 24 fps keeps one source frame in three and makes the two others at t = 1/3 and 2/3,
+24 → 60 makes four frames in five at t = 0.2, 0.4, 0.6 and 0.8, and 25 → 60 makes eleven in
+twelve. Frames are read and written as a stream: only the two source frames around the current
+output frame are held in memory.
+
+## Tests
+
+`tests/` runs with a fake `nvvfx` module and never touches the GPU: the 0.1 and 0.2 constructors,
+`strength`, the −7 size guard, `target_short_side`, the frame plan (16 → 24, 24 → 60, 25 → 60,
+25 → 24, ×2, ×4, the last frame held), and a full pass over a small synthetic video with and
+without sound (frame count, frame rate and duration through ffprobe). The manifest and the
+installer check of both pipes are tested under `tests/plugins/marketplace/`.
 
 ## What's bundled
 
-Nothing from NVIDIA. The plugin contains only the pipe and preset that call `import nvvfx` at
+Nothing from NVIDIA. The plugin contains only the pipes and preset that call `import nvvfx` at
 run time — no NVIDIA SDK, wheel, or binary is vendored in this repository; you install
 `nvidia-vfx` yourself from NVIDIA's package index.

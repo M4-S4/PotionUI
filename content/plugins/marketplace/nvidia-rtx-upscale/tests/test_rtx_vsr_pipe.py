@@ -124,8 +124,9 @@ def test_missing_nvvfx_raises_actionable_error(pipe_module, blocking_finder_cls,
         sys.meta_path.remove(finder)
 
     message = str(exc_info.value)
-    assert "pip install nvidia-vfx" in message
+    assert 'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com' in message
     assert "570.190" in message
+    assert "LD_LIBRARY_PATH=/usr/lib/wsl/lib" in message
 
 
 # -- session: reload-on-size-change and clone-before-next-run ------------
@@ -282,3 +283,145 @@ def test_the_pipe_writes_video_through_the_shared_writer(pipe_module, monkeypatc
     writer.close()
 
     assert proc.returncode == 0
+
+
+@pytest.mark.parametrize("width,height,target,expected", [
+    (832, 480, 1080, (1872, 1080)),
+    (768, 448, 1080, (1848, 1080)),
+    (480, 832, 1080, (1080, 1872)),
+    (832, 480, 1440, (2496, 1440)),
+    (832, 480, 4000, (3328, 1920)),
+    (832, 480, 240, (832, 480)),
+])
+def test_target_short_side_sets_the_scale(pipe_module, width, height, target, expected):
+    assert pipe_module.target_size("upscale", 2.0, width, height, target) == expected
+
+
+def test_target_short_side_is_ignored_by_denoise_and_deblur(pipe_module):
+    for intent in ("denoise", "deblur"):
+        assert pipe_module.target_size(intent, 2.0, 832, 480, 1080) == (832, 480)
+
+
+def test_zero_target_short_side_keeps_the_scale(pipe_module):
+    assert pipe_module.target_size("upscale", 2.0, 832, 480, 0) == (1664, 960)
+
+
+@pytest.mark.parametrize("width,height", [(100, 60), (101, 57), (833, 481), (7, 9)])
+def test_an_upscale_never_lands_below_the_source(pipe_module, width, height):
+    out_w, out_h = pipe_module.target_size("upscale", 1.0, width, height)
+    assert out_w >= width and out_h >= height
+    assert out_w % 8 == 0 and out_h % 8 == 0
+
+
+def test_target_short_side_and_strength_are_declared(pipe_class):
+    specs = {spec.name: spec for spec in pipe_class.configuration()}
+    assert specs["target_short_side"].default == 0
+    assert specs["target_short_side"].min_value == 0
+    assert specs["strength"].default == 1.0
+    assert (specs["strength"].min_value, specs["strength"].max_value) == (0.0, 1.0)
+
+
+def test_process_image_reaches_the_target_short_side(pipe_class, fake_nvvfx, no_real_cuda):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 1.0, "target_short_side": 48})
+    result = pipe.process(PipeInput(input={"image": [_rgb_image(40, 24)]}), lambda o: None)
+
+    (out_image,) = result.output["image"]
+    assert out_image.size == (80, 48)
+
+
+def test_full_strength_is_not_sent_to_the_sdk(pipe_class, fake_nvvfx, no_real_cuda):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0, "strength": 1.0})
+    pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert "strength" not in fake_nvvfx.VideoSuperRes.instances[-1].kwargs
+
+
+def test_a_lower_strength_reaches_the_sdk(pipe_class, fake_nvvfx, no_real_cuda):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0, "strength": 0.4})
+    pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert fake_nvvfx.VideoSuperRes.instances[-1].kwargs["strength"] == pytest.approx(0.4)
+
+
+def test_strength_falls_back_on_nvvfx_01(pipe_class, fake_nvvfx_01, no_real_cuda, caplog):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0, "strength": 0.4})
+    with caplog.at_level("WARNING"):
+        result = pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert result.output["image"][0].size == (32, 32)
+    assert "strength" not in fake_nvvfx_01.VideoSuperRes.instances[-1].kwargs
+    assert "nvidia-vfx < 0.2" in caplog.text
+
+
+def test_the_quality_levels_resolve_on_nvvfx_01(pipe_module, fake_nvvfx_01):
+    level = pipe_module._quality_level(fake_nvvfx_01, "upscale_highbitrate", "ultra")
+    assert level == fake_nvvfx_01.VideoSuperRes.QualityLevel.HIGHBITRATE_ULTRA
+
+
+def test_a_size_error_from_load_is_explained(pipe_module, pipe_class, fake_nvvfx, no_real_cuda):
+    fake_nvvfx.VideoSuperRes.fail_load = RuntimeError("NvVFX_Load failed: invalid parameter (code -7)")
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+
+    with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+        pipe.process(PipeInput(input={"image": [_rgb_image(40, 24)]}), lambda o: None)
+
+    message = str(exc_info.value)
+    assert "refused the frame size" in message
+    assert "40x24 to 80x48" in message
+    assert "-7" in message
+
+
+def test_another_sdk_error_names_the_sizes(pipe_module, pipe_class, fake_nvvfx, no_real_cuda):
+    fake_nvvfx.VideoSuperRes.fail_run = RuntimeError("NvVFX_Run failed: inference error")
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+
+    with pytest.raises(pipe_module.GenerationExecutionError) as exc_info:
+        pipe.process(PipeInput(input={"image": [_rgb_image(40, 24)]}), lambda o: None)
+
+    message = str(exc_info.value)
+    assert "failed (40x24 to 80x48)" in message
+    assert "refused" not in message
+
+
+def test_the_effect_is_closed_after_a_failure(pipe_module, pipe_class, fake_nvvfx, no_real_cuda):
+    fake_nvvfx.VideoSuperRes.fail_run = RuntimeError("boom")
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+
+    with pytest.raises(pipe_module.GenerationExecutionError):
+        pipe.process(PipeInput(input={"image": [_rgb_image(16, 16)]}), lambda o: None)
+
+    assert fake_nvvfx.VideoSuperRes.instances[-1].closed
+
+
+def test_nvvfx_02_gets_the_source_size_before_load(pipe_class, fake_nvvfx, no_real_cuda):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+    pipe.process(PipeInput(input={"image": [_rgb_image(40, 24), _rgb_image(48, 24)]}), lambda o: None)
+    effect = fake_nvvfx.VideoSuperRes.instances[-1]
+
+    assert (effect.input_width, effect.input_height) == (48, 24)
+    assert effect.load_calls == 2
+
+
+def test_nvvfx_01_loads_without_a_source_size(pipe_class, fake_nvvfx_01, no_real_cuda):
+    pipe = pipe_class({"intent": "upscale", "quality": "ultra", "scale": 2.0})
+    pipe.process(PipeInput(input={"image": [_rgb_image(40, 24)]}), lambda o: None)
+
+    assert not hasattr(fake_nvvfx_01.VideoSuperRes.instances[-1], "input_width")
+
+
+def test_a_new_source_size_reloads_even_at_the_same_output(pipe_module, fake_nvvfx):
+    session = pipe_module._RtxSession(fake_nvvfx, fake_nvvfx.VideoSuperRes.QualityLevel.ULTRA)
+    effect = fake_nvvfx.VideoSuperRes.instances[-1]
+
+    session.ensure_loaded(64, 64, (32, 32))
+    session.ensure_loaded(64, 64, (32, 32))
+    session.ensure_loaded(64, 64, (16, 16))
+
+    assert effect.load_calls == 2
+
+
+def test_frames_run_without_a_cuda_stream_when_cuda_is_absent(pipe_module, no_real_cuda):
+    import contextlib
+    import torch
+
+    assert isinstance(pipe_module.default_stream(torch), contextlib.nullcontext)
