@@ -76,14 +76,18 @@ INSTALL_HINT = (
     "requires an NVIDIA RTX GPU (Turing or newer; Ada or Blackwell for Video Frame "
     "Generation) and an NVIDIA driver >= 570.190 on Linux (>= 570.65 on Windows). "
     "pypi.org only carries a 3.7 kB source stub: the ~440 MB wheel comes from "
-    "pypi.nvidia.com, hence the extra index. Under WSL2, users report that the "
-    "library only loads with LD_LIBRARY_PATH=/usr/lib/wsl/lib set before Python "
-    "starts. The PyPI package name (nvidia-vfx) differs from its import name "
+    "pypi.nvidia.com, hence the extra index. In Docker, the container needs the ngx "
+    "driver capability (NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx), without "
+    "which the effect fails to load with code -12. On WSL2 outside Docker, users "
+    "report that the library only loads with LD_LIBRARY_PATH=/usr/lib/wsl/lib set "
+    "before Python starts. The PyPI package name (nvidia-vfx) differs from its import name "
     "(nvvfx), so the plugin catalog's generic installer cannot run this for you "
     "-- install it yourself with the command above."
 )
 
 SDK_SIZE_ERROR_CODE = "-7"
+
+SDK_INIT_ERROR_CODE = "code -12"
 
 
 def _import_nvvfx():
@@ -166,6 +170,12 @@ def sdk_error(exc: Exception, source: Optional[Tuple[int, int]], output: Optiona
             f"NVIDIA RTX Video Super Resolution refused the frame size{sizes}: the SDK rejects a "
             f"target smaller than the source, and some driver and library pairs also reject small "
             f"outputs. Pick a larger target, or Denoise/Deblur to keep the size. SDK error: {exc}"
+        )
+    if SDK_INIT_ERROR_CODE in str(exc):
+        return GenerationExecutionError(
+            f"NVIDIA RTX Video Super Resolution could not initialize{sizes}: the NVIDIA driver's NGX library "
+            f"(libnvidia-ngx.so.1) is not reachable. In Docker, recreate the container with "
+            f"NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx. SDK error: {exc}"
         )
     return GenerationExecutionError(f"NVIDIA RTX Video Super Resolution failed{sizes}: {exc}")
 
