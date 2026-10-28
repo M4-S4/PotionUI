@@ -90,5 +90,4 @@ def composite_region(original, content, mask, feather, color_match):
     if color_match:
         fresh = match_ring_statistics(fresh, base, region, feather_px, feather_px + max(8, 2 * feather_px))
     blended = base + (fresh - base) * alpha[:, :, None]
-    result = np.clip(np.rint(blended), 0, 255).astype(np.uint8)
-    return np.where((alpha > 0)[:, :, None], result, original)
+    return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
