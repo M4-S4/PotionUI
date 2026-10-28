@@ -42,6 +42,7 @@ from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
     get_residency_registry,
+    total_vram_gb,
 )
 from src.pipelines.contracts import BasePipe
 from src.pipelines.contracts import (
@@ -172,6 +173,21 @@ _SEEDVR2_DEFAULT_WEIGHTS_GB = 15.0    # 7B fp16 resident size; fallback when unk
 # into one token (mirrors SeedVR2Config.patch_size == (1, 2, 2)).
 _SEEDVR2_VAE_DOWNSAMPLE = 8
 _SEEDVR2_PATCH_HW = (2, 2)
+_SMALL_CARD_MAX_TOTAL_VRAM_GB = 12.5
+_SMALL_CARD_TILE_SIZE = 512
+_SMALL_CARD_BATCH_SIZE = 5
+_DEFAULT_TILE_SIZE = 2048
+
+
+def _small_card(device: str) -> bool:
+    total = total_vram_gb(device)
+    return total is not None and total <= _SMALL_CARD_MAX_TOTAL_VRAM_GB
+
+
+def _resolve_tile_size(requested: int, device: str) -> int:
+    if requested > 0:
+        return requested
+    return _SMALL_CARD_TILE_SIZE if _small_card(device) else _DEFAULT_TILE_SIZE
 
 
 def _spatial_tokens_per_latent_frame(height: int, width: int) -> int:
@@ -704,17 +720,18 @@ class GeneratorSeedVR2Pipe(BasePipe):
             # video path's per-batch VAE encode/decode — lower them to force
             # extra headroom at very high target resolutions; the auto-sizing still
             # applies underneath (shrinks further, never grows past this ceiling).
-            PipeConfigSpec("tile_size", int, 2048,
-                           "VAE encode/decode tile size ceiling (px); auto-tiles by live VRAM under this",
-                           required=False, min_value=256, max_value=2048),
+            PipeConfigSpec("tile_size", int, 0,
+                           "VAE encode/decode tile size ceiling (px); auto-tiles by live VRAM under this. "
+                           "0 = 512 on a GPU of 12 GB or less, else 2048",
+                           required=False, min_value=0, max_value=2048),
             PipeConfigSpec("tile_overlap", int, 256, "VAE encode/decode tile overlap ceiling (px)",
                            required=False, min_value=0, max_value=512),
             # -- Video (temporal) knobs. Ignored when the input is an image. ----
             PipeConfigSpec("batch_size", int, 0,
                            "Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). "
                            "The temporal VRAM knob — one batch is on the GPU at a time. "
-                           "0 = auto-size to ~92% of live free VRAM at the output resolution "
-                           "(recommended); the OOM ladder "
+                           "0 = 5 on a GPU of 12 GB or less, else auto-size to ~92% of live free "
+                           "VRAM at the output resolution (recommended); the OOM ladder "
                            "halves it and re-runs if a batch ever exceeds real VRAM.",
                            required=False, min_value=0, max_value=49),
             PipeConfigSpec("temporal_overlap", int, 0,
@@ -809,7 +826,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
                 out = generator.upscale(
                     encode_np, bundle.prompt_embedding,
                     seed=seed, latent_noise_scale=latent_noise_scale,
-                    tile_size=int(self.config.get("tile_size", 1024)),
+                    tile_size=_resolve_tile_size(int(self.config.get("tile_size", 0)), device),
                     tile_overlap=int(self.config.get("tile_overlap", 128)),
                 )
                 out_np = out[0] if out.ndim == 4 else out
@@ -882,7 +899,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
         prepend_frames = int(self.config.get("prepend_frames", 0))
         uniform = bool(self.config.get("uniform_batch_size", True))
         keep_audio = bool(self.config.get("keep_audio", True))
-        tile_size = int(self.config.get("tile_size", 1024))
+        tile_size = _resolve_tile_size(int(self.config.get("tile_size", 0)), device)
         tile_overlap = int(self.config.get("tile_overlap", 128))
         seed = self._seed_for(seeds, 0, cfg_seed)
 
@@ -916,7 +933,9 @@ class GeneratorSeedVR2Pipe(BasePipe):
         free_gb = free_vram_gb(device)
         spatial_tokens = _spatial_tokens_per_latent_frame(out_h, out_w)
         weights_gb = float(getattr(getattr(generator, "dit", None), "estimated_vram_gb", 0.0) or 0.0)
-        if requested_batch <= 0:
+        if requested_batch <= 0 and _small_card(device):
+            batch_size = B.snap_batch_size(_SMALL_CARD_BATCH_SIZE)
+        elif requested_batch <= 0:
             batch_size = B.snap_batch_size(_auto_batch_size(
                 free_gb, spatial_tokens_per_latent_frame=spatial_tokens, weights_gb=weights_gb,
             ))
@@ -933,6 +952,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
                 batch_size, auto_would,
                 f" (free VRAM {free_gb:.1f}GB)" if free_gb is not None else " (free VRAM unknown)",
             )
+        logger.info("[GENERATOR SEEDVR2] video: tile %d px, batch %d frames", tile_size, batch_size)
 
         # 2. Each attempt streams the whole clip into its OWN output file. On a
         #    CUDA OOM the file is discarded, the batch is halved and the clip is
