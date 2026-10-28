@@ -1576,6 +1576,7 @@ Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA reference
 | `frames` | `int` | `49` | no | — | 1 | 1001 | Number of video frames (must be 1 + 8*k; up to ~40s at 25fps) |
 | `fps` | `float` | `25.0` | no | — | 1.0 | 60.0 | Output frame rate |
 | `match_video` | `bool` | `false` | no | — | — | — | Take the resolution and frame rate from the first video keyframe clip |
+| `max_pixels` | `int` | `0` | no | — | 0 | — | With match_video, scale the clip's size down to at most this many pixels; 0 = no cap |
 | `extend_seconds` | `float` | `0.0` | no | — | 0.0 | — | When above 0, frames = the first video keyframe clip's frames plus this many seconds |
 | `quantity` | `int` | `1` | no | — | 1 | 4 | Number of videos |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |

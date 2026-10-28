@@ -134,6 +134,7 @@ pipeline:
       resolution: "{{ form.resolution }}"
       fps: "{{ form.fps }}"
       match_video: "{{ form.match_source }}"
+      max_pixels: 921600
       extend_seconds: "{{ form.duration }}"
       quantity: "{{ form.quantity }}"
       media_placements:

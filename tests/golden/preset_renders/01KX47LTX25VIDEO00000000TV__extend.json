@@ -328,6 +328,10 @@
           "type": "bool",
           "value": true
         },
+        "max_pixels": {
+          "type": "int",
+          "value": 921600
+        },
         "media_placements": {
           "type": "list",
           "value": [

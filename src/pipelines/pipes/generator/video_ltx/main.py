@@ -92,6 +92,7 @@ from __future__ import annotations
 
 import tempfile
 from dataclasses import dataclass, field, replace
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -184,6 +185,17 @@ def _resolve_latent_index(frame: Any, frames: int) -> int:
         return f  # negative latent indices resolve modulo t_lat downstream
     f = min(f, frames - 1)
     return (f - 1) // LTX_TEMPORAL_DOWNSCALE + 1
+
+
+MAX_FRAMES = 1001
+
+
+def _fit_pixel_budget(width: int, height: int, max_pixels: int) -> Tuple[int, int]:
+    if max_pixels <= 0 or width * height <= max_pixels:
+        return width, height
+    scale = math.sqrt(max_pixels / float(width * height))
+    grid = LTX_SPATIAL_DOWNSCALE
+    return max(grid, int(width * scale) // grid * grid), max(grid, int(height * scale) // grid * grid)
 
 
 def _end_anchored_latent_index(clip_frames: int, frames: int) -> int:
@@ -294,10 +306,13 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            choices=["euler", "euler_ancestral", "euler_ancestral_cfg_pp", "euler_cfg_pp"]),
             PipeConfigSpec("resolution", str, "768x512", "Resolution (WxH)", required=False),
             PipeConfigSpec("frames", int, 49, "Number of video frames (must be 1 + 8*k; up to ~40s at 25fps)",
-                           required=False, min_value=1, max_value=1001),
+                           required=False, min_value=1, max_value=MAX_FRAMES),
             PipeConfigSpec("fps", float, 25.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
             PipeConfigSpec("match_video", bool, False,
                            "Take the resolution and frame rate from the first video keyframe clip", required=False),
+            PipeConfigSpec("max_pixels", int, 0,
+                           "With match_video, scale the clip's size down to at most this many pixels; 0 = no cap",
+                           required=False, min_value=0),
             PipeConfigSpec("extend_seconds", float, 0.0,
                            "When above 0, frames = the first video keyframe clip's frames plus this many seconds",
                            required=False, min_value=0.0),
@@ -415,10 +430,14 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             raise ValueError("generator/video_ltx: 'match_video'/'extend_seconds' need a video keyframe clip")
         clip_width, clip_height, clip_fps, clip_frames = probe_video_stream(videos[index])
         if match:
-            width, height = clip_width, clip_height
+            width, height = _fit_pixel_budget(clip_width, clip_height, int(self.config.get("max_pixels") or 0))
             fps = min(max(clip_fps, 1.0), 60.0) if clip_fps > 0 else fps
         if extend > 0:
             frames = clip_frames + round(extend * fps)
+            if frames > MAX_FRAMES:
+                logger.warning(
+                    "[GENERATOR VIDEO-LTX] extension needs %d frames; clamped to the %d-frame limit", frames, MAX_FRAMES)
+                frames = MAX_FRAMES
         return width, height, fps, frames
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:

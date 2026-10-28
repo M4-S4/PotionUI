@@ -48,6 +48,7 @@ def test_by_default_the_new_footage_matches_the_source_size_and_rate(ltx25_templ
     assert (context["keep"], context["seconds"], context["frame_step"], context["fps"]) == ("tail", 1.0, 8, 0)
     generator = pipes["generator"]["config"]
     assert generator["match_video"] is True and generator["extend_seconds"] == 4
+    assert generator["max_pixels"] == 1280 * 720
     assert generator["media_placements"] == [
         {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe"},
     ]

@@ -1206,6 +1206,38 @@ def test_extend_alone_keeps_the_chosen_size_and_rate(tmp_path):
     assert (ctx.extra.width, ctx.extra.height, ctx.extra.fps, ctx.extra.frames) == (64, 64, 8.0, 25)
 
 
+def test_match_video_scales_a_large_clip_down_to_the_pixel_budget_keeping_its_aspect(tmp_path):
+    clip = _sized_clip(tmp_path, 9, 256, 128, 16.0)
+    cfg = _pipe(match_video=True, max_pixels=64 * 32, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "role": "keyframe"},
+    ])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+    assert (ctx.extra.width, ctx.extra.height) == (64, 32)
+
+
+@pytest.mark.parametrize("width, height, budget, expected", [
+    (3840, 2160, 921600, (1280, 704)),
+    (2160, 3840, 921600, (704, 1280)),
+    (1280, 720, 921600, (1280, 720)),
+    (640, 360, 921600, (640, 360)),
+    (4000, 3000, 0, (4000, 3000)),
+])
+def test_the_pixel_budget_keeps_aspect_on_the_32px_grid(width, height, budget, expected):
+    from src.pipelines.pipes.generator.video_ltx.main import _fit_pixel_budget
+
+    fitted = _fit_pixel_budget(width, height, budget)
+    assert fitted == expected and fitted[0] * fitted[1] <= max(budget, width * height)
+
+
+def test_an_extension_past_the_frame_limit_is_clamped(tmp_path):
+    clip = _sized_clip(tmp_path, 9, 64, 64, 60.0)
+    cfg = _pipe(resolution="64x64", fps=60.0, extend_seconds=30.0, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "role": "keyframe"},
+    ])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+    assert ctx.extra.frames == 1001
+
+
 def test_match_video_without_a_video_keyframe_is_refused():
     with pytest.raises(ValueError, match="video keyframe clip"):
         _pipe(match_video=True).build_context(_pipe_input())
