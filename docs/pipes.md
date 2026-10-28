@@ -1692,6 +1692,7 @@ Crop image to masked region for memory-efficient inpainting (Fooocus-style)
 | Name | IO Type | Array | Description |
 |---|---|---|---|
 | `image` | `IMAGE` | no | Cropped image (masked region only) |
+| `images` | `IMAGE` | yes | Cropped image as a one-item list |
 | `mask` | `IMAGE` | no | Cropped mask |
 | `crop_region` | `DICT` | no | Crop region metadata for restore |
 | `original_image` | `IMAGE` | no | Original full image for restore |
@@ -1701,6 +1702,11 @@ Crop image to masked region for memory-efficient inpainting (Fooocus-style)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
+| `strategy` | `str` | `"fooocus"` | no | `fooocus`, `scaled` | — | — | fooocus pads to a fixed image fraction; scaled pads in proportion to the region and resamples to the working area |
+| `context` | `float` | `0.5` | no | — | 0.0 | 4.0 | Scaled strategy: padding on each side as a fraction of the region's longer side |
+| `min_side` | `int` | `256` | no | — | 16 | — | Scaled strategy: smallest crop side in source pixels |
+| `working_area` | `int` | `1048576` | no | — | 4096 | — | Scaled strategy: pixel area the crop is resampled to |
+| `multiple` | `int` | `8` | no | — | 1 | — | Scaled strategy: both working sides snap to this multiple |
 | `k` | `float` | `0.618` | no | — | — | — | Padding factor (0.618 = Fooocus default) |
 | `min_size` | `int` | `1024` | no | — | — | — | Minimum size to upscale to |
 | `max_size` | `int` | `1024` | no | — | — | — | Maximum size to downscale to |
@@ -1715,7 +1721,7 @@ Restore inpainted region back into original full image (Fooocus-style)
 
 | Name | IO Type | Required | Array | Description |
 |---|---|---|---|---|
-| `inpainted_image` | `IMAGE` | yes | no | Inpainted cropped image |
+| `inpainted_image` | `IMAGE` | yes | yes | Inpainted cropped image |
 | `crop_region` | `DICT` | yes | no | Crop region metadata from crop pipe |
 | `original_image` | `IMAGE` | yes | no | Original full image |
 | `original_mask` | `IMAGE` | no | no | Original full-size mask for color correction (Fooocus-style) |
@@ -1730,6 +1736,9 @@ Restore inpainted region back into original full image (Fooocus-style)
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
+| `strategy` | `str` | `"fooocus"` | no | `fooocus`, `composite` | — | — | fooocus pastes the crop and blends by the mask; composite feathers in proportion to the region, matches colour to its surroundings and leaves every pixel outside the feather untouched |
+| `feather` | `float` | `0.08` | no | — | 0.0 | 1.0 | Composite strategy: feather width as a fraction of the region's longer side |
+| `color_match` | `bool` | `true` | no | — | — | — | Composite strategy: match the edit's colour statistics to a ring around the region |
 | `color_correction` | `bool` | `true` | no | — | — | — | Apply color correction for smooth blending |
 
 ## interpolator
