@@ -9,14 +9,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from src.pipelines.pipes.detailer.video_ltx.compositing import (
+from src.pipelines.pipes._shared.video.tubes.compositing import (
     composite_tube,
     feather_mask,
     resize_patches_to_window,
     temporal_ramp,
     tukey_window_1d,
 )
-from src.pipelines.pipes.detailer.video_ltx.windowing import TubeWindow
+from src.pipelines.pipes._shared.video.tubes.windowing import TubeWindow
 
 
 # -- 1D window ------------------------------------------------------------

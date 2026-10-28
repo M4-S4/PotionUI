@@ -1,0 +1,75 @@
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "The video whose faces and hands should be refined, for example a clip generated in the Video mode. Each face or hand is tracked through the clip, refined with a light LTX-2.5 pass and blended back; everything else, including the audio, stays as it was."
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+  - type: "section"
+    label: "Refine"
+    children:
+      - type: "row"
+        children:
+          - name: "refine_faces"
+            type: "checkbox"
+            formula: "detailer"
+            label: "Faces"
+            default: true
+
+          - name: "refine_hands"
+            type: "checkbox"
+            formula: "detailer"
+            label: "Hands"
+            default: true
+
+      - name: "enhancement_strength"
+        type: "select"
+        formula: "detailer"
+        label: "Strength"
+        ai_hint: "Balanced is the safe default. Suggest Light when the user worries a face's identity changes, Strong only when they want maximum detail and accept more deviation."
+        default: "balanced"
+        configuration:
+          options:
+            - { label: "Light", value: "light" }
+            - { label: "Balanced", value: "balanced" }
+            - { label: "Strong", value: "strong" }
+
+      - name: "max_subjects"
+        type: "slider"
+        formula: "detailer"
+        label: "Max subjects"
+        ai_hint: "How many faces and hands are refined at most, largest and longest on screen first."
+        default: 4
+        configuration: {min: 1, max: 16, step: 1}
+
+      - name: "face_detector_model"
+        type: "model"
+        formula: "models"
+        label: "Face Detection Model"
+        configuration:
+          model_type: "mediapipe"
+        reactions:
+          - when: { field: "refine_faces", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "refine_faces", equals: true }
+            then: { set_visibility: true }
+
+      - name: "hand_detector_model"
+        type: "model"
+        formula: "models"
+        label: "Hand Detection Model"
+        configuration:
+          model_type: "mediapipe"
+        reactions:
+          - when: { field: "refine_hands", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "refine_hands", equals: true }
+            then: { set_visibility: true }

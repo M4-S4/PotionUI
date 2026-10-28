@@ -1,4 +1,4 @@
-"""Pure paste-back compositing for the LTX video detailer.
+"""Pure paste-back compositing for the video tube detailers.
 
 Once a tube has been refined, its frames must be laid back into the full clip
 without a visible seam or a flicker at the tube's edges in space OR time. Two
@@ -26,7 +26,7 @@ from typing import List, Sequence
 
 import numpy as np
 
-from src.pipelines.pipes.detailer.video_ltx.windowing import TubeWindow
+from src.pipelines.pipes._shared.video.tubes.windowing import TubeWindow
 
 
 def tukey_window_1d(n: int, border: int) -> np.ndarray:
