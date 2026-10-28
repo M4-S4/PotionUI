@@ -19,11 +19,11 @@ fields:
       placeholder: "Select a RIFE checkpoint (4.25, 4.26 or rife46 - rife49)..."
       filter_tags: "@config:vfi_tags"
       recommendations:
-        - name: "flownet_v4.25.pkl"
+        - name: "flownet_v4.25.pth"
           link: "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.25.pkl"
           size: "24.6 MB"
           description: "RIFE 4.25, the author's default for most scenes and suited to AI-generated video. MIT."
-        - name: "flownet_v4.26.pkl"
+        - name: "flownet_v4.26.pth"
           link: "https://github.com/HolyWu/vs-rife/releases/download/model/flownet_v4.26.pkl"
           size: "24.6 MB"
           description: "RIFE 4.26, the latest release of the same network. MIT."

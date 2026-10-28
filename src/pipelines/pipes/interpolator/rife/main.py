@@ -315,10 +315,9 @@ class RifeInterpolatorPipe(BasePipe):
                         ratio = source_per_output(src_fps, factor, target_fps)
                         out_fps = output_fps(src_fps, factor, target_fps)
                         out_total = output_count(src_count, ratio) if src_count > 0 else 0
-                        rate = f"{target_fps:g} fps" if target_fps > 0 else f"{factor}x"
 
                         generation_outputs(ProgressGenerationOutput(
-                            state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{rate}>> "
+                            state=(f"Interpolating <<NUMBER:{src_count} frames>> at <<NUMBER:{src_fps:.2f} fps>> "
                                    f"-> <<NUMBER:{out_fps:.2f} fps>>"),
                             icon=Icon(name="film", effect="pulse"),
                         ))

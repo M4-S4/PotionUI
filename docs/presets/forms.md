@@ -285,6 +285,13 @@ for its auth step - it has no `{provider, ref}` resolution of its own), then han
 the resolved URL + `provider_id` to the core download queue (`src/features/downloads/`) so the
 worker's provider-authenticated download still applies.
 
+The file is saved under the entry's `name` when that name is a bare model file name (one path segment
+with an extension the indexer reads, `SUPPORTED_MODEL_EXTENSIONS`), so the `installed` match and the
+picker find it; any other name (a display label like `"RealESRGAN 4x+ Anime"`) leaves the URL's last
+path segment as the file name. That is how a checkpoint published under an extension the indexer
+ignores (RIFE 4.25 and 4.26 ship as `flownet_v4.2x.pkl`, read by the same `torch.load`) is offered as
+`flownet_v4.2x.pth`.
+
 Mixed media list (`type: "media"` — one multi-item field that accepts several kinds, from
 MiniMax-H3's `refs` mode):
 
