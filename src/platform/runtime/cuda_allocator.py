@@ -67,6 +67,12 @@ def allocator_damage() -> str | None:
     return _damage
 
 
+def needs_gpu_restart(exc: BaseException) -> bool:
+    if isinstance(exc, CudaAllocatorDamaged):
+        return True
+    return _damage is not None and "CUDA driver error:" in str(exc)
+
+
 def raise_if_allocator_damaged() -> None:
     damage = _damage
     if damage is not None:

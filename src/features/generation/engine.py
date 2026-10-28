@@ -13,12 +13,7 @@ from src.pipelines.outputs import (
 )
 from src.features.generation.error_classification import classify_generation_error
 from src.platform.assets import AssetFetcher
-from src.platform.runtime.cuda_allocator import (
-    RESTART_ACTION,
-    RESTART_HINT,
-    allocator_damage,
-    raise_if_allocator_damaged,
-)
+from src.platform.runtime.cuda_allocator import raise_if_allocator_damaged
 from src.platform.runtime.gpu import GpuMonitor
 from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
@@ -891,9 +886,6 @@ class GenerationEngine:
                 vram_note = self._live_vram_note()
                 if vram_note:
                     message = f"{message} {vram_note}"
-            if allocator_damage() is not None:
-                message = f"{message} {RESTART_HINT}"
-                hints = [RESTART_ACTION]
 
             generation_outputs(ErrorGenerationOutput(
                 error=f"{type(e).__name__}: {e}",

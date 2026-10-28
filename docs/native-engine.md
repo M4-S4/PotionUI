@@ -201,8 +201,10 @@ allocation, until the process restarts (pytorch/pytorch#188008, #166234; seen tw
 So under WSL2 the first driver-error OOM is fatal to the process (`src/platform/runtime/cuda_allocator.py`):
 it is not retried (`is_cuda_oom` answers no), the segments stop growing for the rest of the process
 (`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
-fails with a message and a hint that say to restart. Until the process restarts, every run whose
-pipes target `cuda` is refused before its first pipe, `GET /health` and the native backend's health
+fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
+use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
+to restart the backend. Until the process restarts, every run whose pipes target `cuda` is refused
+before its first pipe with that same code, `GET /health` and the native backend's health
 report `degraded` with the same reason, and nothing restarts on its own. **Restart Backend**
 (Administration › Backends, `POST /api/admin/restart`) re-executes the process in place, so the
 container keeps running; descriptors other than stdio are marked close-on-exec first, so none of
