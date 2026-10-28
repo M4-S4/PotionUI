@@ -138,7 +138,7 @@ for (const viewport of VIEWPORTS) {
 		await expect(dialog.getByTestId('picker-preview')).toHaveCount(0);
 		await dialog.getByRole('button', { name: 'Preview market.png' }).click();
 		await expect(dialog.getByTestId('picker-preview')).toBeVisible();
-		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
+		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('3 selected');
 
 		await screenshot(page, JOURNEY, `library-${viewport.name}`);
 
