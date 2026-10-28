@@ -34,6 +34,7 @@ class ResizeOperation(BaseModel):
     type: Literal["resize"]
     width: Optional[int] = None
     height: Optional[int] = None
+    quality: Optional[Literal["high", "balanced", "small"]] = None
 
 
 class RotateOperation(BaseModel):

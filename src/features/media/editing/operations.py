@@ -76,6 +76,9 @@ _CLOCKWISE_TRANSPOSE_FILTER = {
 
 _JPEG_SUFFIXES = (".jpg", ".jpeg")
 
+_RESIZE_QUALITY_CRF = {"high": 18, "balanced": 23, "small": 28}
+_H264_SUFFIXES = (".mp4", ".m4v", ".mov", ".mkv")
+
 
 class InvalidEditError(ValueError):
     """The edit cannot be applied to this media - bad geometry, wrong kind, empty.
@@ -197,6 +200,7 @@ def apply_video_operations(
     ]
     if filters:
         command += ["-vf", ",".join(filters)]
+    command += [*_resize_encoder_args(operations, dest, trim is not None)]
     command += ["-pix_fmt", "yuv420p", str(dest)]
 
     _run_encoder(command, dest)
@@ -209,6 +213,26 @@ def apply_video_operations(
         duration_seconds=out_duration,
         fps=out_fps,
     )
+
+
+def _resize_encoder_args(
+    operations: Sequence[EditOperation],
+    dest: Path,
+    trimmed: bool,
+) -> List[str]:
+    resizes = [operation for operation in operations if isinstance(operation, ResizeOperation)]
+    if not resizes:
+        return []
+    args: List[str] = []
+    if dest.suffix.lower() in _H264_SUFFIXES:
+        quality = next(
+            (operation.quality for operation in reversed(resizes) if operation.quality),
+            "balanced",
+        )
+        args += ["-c:v", "libx264", "-preset", "medium", "-crf", str(_RESIZE_QUALITY_CRF[quality])]
+    if not trimmed:
+        args += ["-c:a", "copy"]
+    return args
 
 
 def _video_filter_chain(

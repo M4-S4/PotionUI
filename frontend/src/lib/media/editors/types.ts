@@ -41,6 +41,7 @@ export const MEDIA_EDITOR_KINDS = [
 	'mask',
 	/** Cut audio into consecutive parts of a given length. */
 	'split',
+	'resize',
 	'paint'
 ] as const;
 
@@ -126,6 +127,7 @@ export function hasEditor(kind: MediaEditorKind, mediaKind: EditorMediaKind | nu
 	if (kind === 'crop' || kind === 'mask' || kind === 'paint') return mediaKind === 'image';
 	if (kind === 'frame') return mediaKind === 'video';
 	if (kind === 'split') return mediaKind === 'audio';
+	if (kind === 'resize') return mediaKind === 'image' || mediaKind === 'video';
 	return mediaKind === 'video' || mediaKind === 'audio';
 }
 
@@ -142,6 +144,7 @@ export const RESOURCE_EDIT_TOOLS: { key: MediaEditorKind; label: string; icon: s
 	{ key: 'crop', label: 'Crop', icon: 'pencil-square' },
 	{ key: 'trim', label: 'Trim', icon: 'sliders' },
 	{ key: 'split', label: 'Split', icon: 'split' },
+	{ key: 'resize', label: 'Resize', icon: 'shrink' },
 	{ key: 'frame', label: 'Frame', icon: 'photo' },
 	{ key: 'paint', label: 'Edit', icon: 'paint-brush' }
 ];
@@ -159,6 +162,8 @@ export function editorTitle(kind: MediaEditorKind, mediaKind: EditorMediaKind | 
 			return 'Split into parts';
 		case 'paint':
 			return 'Edit image';
+		case 'resize':
+			return 'Resize';
 		case 'trim':
 			return mediaKind === 'audio' ? 'Trim on waveform' : 'Trim in / out';
 	}

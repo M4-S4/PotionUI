@@ -44,6 +44,12 @@ describe('hasEditor', () => {
 		expect(hasEditor('split', 'image')).toBe(false);
 	});
 
+	it('offers resize on images and video, never on audio', () => {
+		expect(hasEditor('resize', 'image')).toBe(true);
+		expect(hasEditor('resize', 'video')).toBe(true);
+		expect(hasEditor('resize', 'audio')).toBe(false);
+	});
+
 	it('offers nothing when the kind is unknown', () => {
 		for (const kind of KINDS) {
 			expect(hasEditor(kind, null)).toBe(false);
@@ -68,6 +74,7 @@ describe('editorTitle', () => {
 		expect(editorTitle('mask', 'image')).toBe('Create inpainting mask');
 		expect(editorTitle('split', 'audio')).toBe('Split into parts');
 		expect(editorTitle('paint', 'image')).toBe('Edit image');
+		expect(editorTitle('resize', 'video')).toBe('Resize');
 	});
 
 	it('answers for every kind, so a new one cannot render an empty title', () => {
@@ -83,6 +90,7 @@ describe('editsTheResource', () => {
 		expect(editsTheResource('trim')).toBe(true);
 		expect(editsTheResource('frame')).toBe(true);
 		expect(editsTheResource('split')).toBe(true);
+		expect(editsTheResource('resize')).toBe(true);
 	});
 
 	it('is false for a mask, which is stored beside the media and changes no row', () => {

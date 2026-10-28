@@ -350,6 +350,130 @@ def test_an_odd_target_size_is_rounded_to_an_even_frame(tmp_path):
     assert (metadata.width, metadata.height) == (32, 24)
 
 
+def make_video_with_audio(path, width=128, height=72):
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-nostdin",
+            "-f", "lavfi", "-i", f"testsrc=duration=1:size={width}x{height}:rate={VIDEO_FPS}",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-shortest",
+            str(path),
+        ],
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    return path
+
+
+def audio_codec(path):
+    probe = subprocess.run(
+        ["ffmpeg", "-nostdin", "-i", str(path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    for line in probe.stderr.splitlines():
+        if "Audio:" in line:
+            return line.split("Audio:", 1)[1].split()[0]
+    return None
+
+
+def recorded_encoder(monkeypatch):
+    commands = []
+    real = operations._run_encoder
+
+    def _record(command, dest):
+        commands.append(list(command))
+        real(command, dest)
+
+    monkeypatch.setattr(operations, "_run_encoder", _record)
+    return commands
+
+
+def flag_value(command, flag):
+    return command[command.index(flag) + 1] if flag in command else None
+
+
+@needs_ffmpeg
+def test_a_video_resized_by_height_alone_keeps_its_shape_on_even_sides(tmp_path):
+    source = make_video(tmp_path / "in.mp4", width=128, height=72)
+    dest = tmp_path / "out.mp4"
+
+    metadata = apply_video_operations(
+        source, dest, [ResizeOperation(type="resize", height=50)]
+    )
+
+    assert (metadata.width, metadata.height) == (88, 50)
+
+
+@needs_ffmpeg
+def test_a_resized_video_keeps_its_sound_untouched(tmp_path, monkeypatch):
+    source = make_video_with_audio(tmp_path / "in.mp4")
+    dest = tmp_path / "out.mp4"
+    commands = recorded_encoder(monkeypatch)
+
+    apply_video_operations(source, dest, [ResizeOperation(type="resize", width=64)])
+
+    assert flag_value(commands[0], "-c:a") == "copy"
+    assert audio_codec(dest) == audio_codec(source) == "aac"
+
+
+@needs_ffmpeg
+def test_a_trimmed_and_resized_video_still_has_sound(tmp_path, monkeypatch):
+    source = make_video_with_audio(tmp_path / "in.mp4")
+    dest = tmp_path / "out.mp4"
+    commands = recorded_encoder(monkeypatch)
+
+    apply_video_operations(source, dest, [
+        TrimOperation(type="trim", start_seconds=0.2, end_seconds=0.8),
+        ResizeOperation(type="resize", width=64),
+    ])
+
+    assert "-c:a" not in commands[0]
+    assert audio_codec(dest) == "aac"
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("quality,crf", [("high", "18"), ("balanced", "23"), ("small", "28"), (None, "23")])
+def test_resize_quality_picks_the_x264_crf(tmp_path, monkeypatch, quality, crf):
+    source = make_video(tmp_path / "in.mp4", width=64, height=48)
+    dest = tmp_path / "out.mp4"
+    commands = recorded_encoder(monkeypatch)
+
+    apply_video_operations(
+        source, dest, [ResizeOperation(type="resize", width=32, quality=quality)]
+    )
+
+    assert flag_value(commands[0], "-c:v") == "libx264"
+    assert flag_value(commands[0], "-preset") == "medium"
+    assert flag_value(commands[0], "-crf") == crf
+
+
+@needs_ffmpeg
+def test_edits_without_a_resize_keep_the_default_encoder(tmp_path, monkeypatch):
+    source = make_video(tmp_path / "in.mp4", width=64, height=48)
+    dest = tmp_path / "out.mp4"
+    commands = recorded_encoder(monkeypatch)
+
+    apply_video_operations(source, dest, [RotateOperation(type="rotate", degrees=90)])
+
+    assert "-crf" not in commands[0]
+    assert "-c:a" not in commands[0]
+
+
+def test_an_image_resize_ignores_the_video_quality(tmp_path):
+    source = make_image(tmp_path / "in.png", width=200, height=100)
+    dest = tmp_path / "out.png"
+
+    apply_image_operations(
+        source, dest, [ResizeOperation(type="resize", width=100, quality="small")]
+    )
+
+    with Image.open(dest) as written:
+        assert written.size == (100, 50)
+
+
 @needs_ffmpeg
 def test_an_odd_crop_is_rounded_to_an_even_frame(tmp_path):
     source = make_video(tmp_path / "in.mp4", width=64, height=48)

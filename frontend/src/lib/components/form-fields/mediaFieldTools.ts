@@ -18,6 +18,7 @@ export type FieldToolId =
 	| 'trim'
 	| 'frame'
 	| 'split'
+	| 'resize'
 	| 'full'
 	| 'earlier'
 	| 'later'
@@ -31,7 +32,8 @@ export const FIELD_TOOL_EDITORS: Partial<Record<FieldToolId, MediaEditorKind>> =
 	mask: 'mask',
 	trim: 'trim',
 	frame: 'frame',
-	split: 'split'
+	split: 'split',
+	resize: 'resize'
 };
 
 export interface FieldToolOptions {
@@ -120,6 +122,9 @@ export function buildFieldToolGroups(options: FieldToolOptions): MediaToolGroup[
 	}
 	if (offers('split')) {
 		edit.push(definition('split', 'Split into parts', 'split', 'edit', mediaAvailability(options, 'split')));
+	}
+	if (offers('resize')) {
+		edit.push(definition('resize', 'Resize', 'shrink', 'edit', mediaAvailability(options, 'resize')));
 	}
 
 	const groups: MediaToolGroup[] = [];

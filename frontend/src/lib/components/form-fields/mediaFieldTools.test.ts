@@ -37,15 +37,15 @@ function availability(opts: FieldToolOptions, id: string) {
 
 describe('tools per kind', () => {
 	it('offers edit and crop for an image, and no mask without allow_inpaint', () => {
-		expect(fieldToolIds(options())).toEqual(['edit', 'crop', 'full']);
+		expect(fieldToolIds(options())).toEqual(['edit', 'crop', 'resize', 'full']);
 	});
 
 	it('adds the mask tools for an image when the field allows inpainting', () => {
-		expect(fieldToolIds(options({ allowInpaint: true }))).toEqual(['edit', 'crop', 'mask', 'clear-mask', 'full']);
+		expect(fieldToolIds(options({ allowInpaint: true }))).toEqual(['edit', 'crop', 'mask', 'clear-mask', 'resize', 'full']);
 	});
 
 	it('offers trim and frame for a video and never the image tools', () => {
-		expect(fieldToolIds(options({ kind: 'video', allowInpaint: true }))).toEqual(['trim', 'frame', 'full']);
+		expect(fieldToolIds(options({ kind: 'video', allowInpaint: true }))).toEqual(['trim', 'frame', 'resize', 'full']);
 	});
 
 	it('offers trim and split for audio', () => {
@@ -93,7 +93,7 @@ describe('multi field tools', () => {
 
 	it('adds order and source groups only to a multi field', () => {
 		expect(fieldToolIds(options())).not.toContain('replace');
-		expect(fieldToolIds(multi())).toEqual(['edit', 'crop', 'full', 'earlier', 'later', 'replace', 'remove-all']);
+		expect(fieldToolIds(multi())).toEqual(['edit', 'crop', 'resize', 'full', 'earlier', 'later', 'replace', 'remove-all']);
 	});
 
 	it('greys Move earlier on the first item of its group and Move later on the last', () => {
@@ -111,7 +111,7 @@ describe('multi field tools', () => {
 
 describe('compact row tools', () => {
 	it('puts replace and remove in the menu because the row has no room for buttons', () => {
-		expect(fieldToolIds(options({ inRow: true }))).toEqual(['edit', 'crop', 'full', 'replace', 'remove']);
+		expect(fieldToolIds(options({ inRow: true }))).toEqual(['edit', 'crop', 'resize', 'full', 'replace', 'remove']);
 	});
 
 	it('keeps remove-all after remove in a multi row', () => {

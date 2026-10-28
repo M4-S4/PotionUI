@@ -32,6 +32,7 @@
 	import FrameEditor from './FrameEditor.svelte';
 	import MaskEditor from './MaskEditor.svelte';
 	import SplitEditor from './SplitEditor.svelte';
+	import ResizeEditor from './ResizeEditor.svelte';
 	import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
 	import {
 		materializeGeneratedFile,
@@ -296,6 +297,16 @@
 			onExtractFrame={request.source.kind === 'video'
 				? (time) => (frameHandoff = { time })
 				: null}
+		/>
+	{:else if kind === 'resize'}
+		<ResizeEditor
+			source={request.source}
+			{busy}
+			{blockedReason}
+			{resourceNote}
+			failureMessage={failure}
+			{onClose}
+			{commit}
 		/>
 	{:else if kind === 'split'}
 		<SplitEditor

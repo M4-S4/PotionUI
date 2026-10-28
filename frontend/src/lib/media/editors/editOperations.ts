@@ -10,10 +10,13 @@
 import type { CropOperationPayload } from './cropGeometry';
 import type { TrimOperationPayload } from './trimPoints';
 
+export type ResizeQuality = 'high' | 'balanced' | 'small';
+
 export interface ResizeOperationPayload {
 	type: 'resize';
 	width?: number;
 	height?: number;
+	quality?: ResizeQuality;
 }
 
 export interface RotateOperationPayload {

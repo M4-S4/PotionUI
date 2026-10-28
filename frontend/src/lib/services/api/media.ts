@@ -69,7 +69,7 @@ export interface UploadFileInfo {
  */
 export type MediaEditOperation =
 	| { type: 'crop'; x: number; y: number; width: number; height: number }
-	| { type: 'resize'; width?: number; height?: number }
+	| { type: 'resize'; width?: number; height?: number; quality?: 'high' | 'balanced' | 'small' }
 	| { type: 'rotate'; degrees: 90 | 180 | 270 }
 	| { type: 'flip'; axis: 'horizontal' | 'vertical' }
 	| { type: 'trim'; start_seconds: number; end_seconds: number };
