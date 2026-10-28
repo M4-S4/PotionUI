@@ -10,6 +10,7 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import DropdownShell from '$lib/components/drawer/DropdownShell.svelte';
 	import DrawerHeader from '$lib/components/drawer/DrawerHeader.svelte';
@@ -22,7 +23,8 @@
 		placeholder = 'Select',
 		width = 400,
 		triggerDescription = false,
-		onchange
+		onchange,
+		trigger = undefined
 	}: {
 		value?: string | null;
 		options?: PickerOption[];
@@ -31,6 +33,7 @@
 		width?: number;
 		triggerDescription?: boolean;
 		onchange: (value: string) => void;
+		trigger?: Snippet<[{ open: boolean; selected: PickerOption | undefined; toggle: () => void; keydown: (event: KeyboardEvent) => void }]>;
 	} = $props();
 
 	const uid = $props.id();
@@ -52,6 +55,11 @@
 	}
 </script>
 
+{#if trigger}
+	<div class="flex min-w-0" bind:this={anchor}>
+		{@render trigger({ open, selected, toggle: () => (open = !open), keydown: handleTriggerKeydown })}
+	</div>
+{:else}
 <button
 	type="button"
 	class="flex h-full w-full min-w-0 items-center gap-2 rounded border border-line-strong bg-surface-1 px-3 py-2 text-left transition-colors hover:border-line-hover hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-signal/50"
@@ -77,6 +85,7 @@
 	{/if}
 	<Icon name="chevron-down" className="w-4 h-4 text-fg-subtle flex-shrink-0 transition-transform {open ? 'rotate-180' : ''}" />
 </button>
+{/if}
 
 {#if open}
 	<DropdownShell {label} {anchor} {width} fullscreen={$isMobile} onClose={() => (open = false)}>

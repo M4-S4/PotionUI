@@ -944,4 +944,18 @@ describe('ContextToolbar below 1000px', () => {
 		expect(nameOf(target.querySelector('[data-testid="preset-header-mode"] button')!)).toBe('Mode Text to Image');
 		expect(nameOf(target.querySelector('[data-testid="session-trigger"]')!)).toBe('Session Neon alley');
 	});
+
+	it('opens the Mode menu as the preset-style panel with descriptions and a checked selected row', async () => {
+		await render();
+		(target.querySelector('[data-testid="preset-header-mode"] button[aria-haspopup="listbox"]') as HTMLElement).click();
+		await tick();
+		flushSync();
+		expect(document.body.querySelector('[role="dialog"][aria-label="Choose mode"]')).not.toBeNull();
+		const [current, other] = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'));
+		expect(current.getAttribute('aria-selected')).toBe('true');
+		expect(current.className).toContain('is-current');
+		expect(current.textContent).toContain('Generate an image from a text prompt.');
+		expect(current.querySelector('svg.text-signal')).not.toBeNull();
+		expect(other.className).not.toContain('is-current');
+	});
 });

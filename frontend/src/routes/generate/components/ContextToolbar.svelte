@@ -7,7 +7,7 @@
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import CustomSelect from '$lib/components/CustomSelect.svelte';
+	import PickerSelect from '$lib/components/preset/PickerSelect.svelte';
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
 	import PresetThumbnail from '$lib/components/preset/PresetThumbnail.svelte';
 	import FormulasButton from '$lib/components/formulas/FormulasButton.svelte';
@@ -326,14 +326,12 @@
 			{@render cut()}
 			<div class="ctx-step flex flex-shrink-0 {stepPad}" data-testid="preset-header-mode" data-context-step>
 				<span id="{uid}-mode" class={labelClass} data-context-label>Mode</span>
-				<CustomSelect
+				<PickerSelect
 					value={tab.selectedMode ?? ''}
 					options={modeOptions}
-					menuMinWidth={276}
-					maxMenuHeight={560}
-					descriptionLines={2}
-					menuAlign="left"
-					on:change={(event) => onModeChange(event.detail)}
+					label="Choose mode"
+					width={400}
+					onchange={onModeChange}
 				>
 					{#snippet trigger(select)}
 						<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
@@ -343,8 +341,7 @@
 								aria-haspopup="listbox"
 								aria-expanded={select.open}
 								aria-labelledby="{uid}-mode {uid}-mode-value"
-								disabled={select.disabled}
-								onclick={select.toggle}
+																onclick={select.toggle}
 								onkeydown={select.keydown}
 							>
 								<span class="ctx-valuerow">
@@ -360,7 +357,7 @@
 							</button>
 						</Tooltip>
 					{/snippet}
-				</CustomSelect>
+				</PickerSelect>
 			</div>
 		{/if}
 
@@ -368,14 +365,12 @@
 			{@render cut()}
 			<div class="ctx-step flex flex-shrink-0 {stepPad}" data-testid="preset-variant-switch" data-context-step>
 				<span id="{uid}-variant" class={labelClass} data-context-label>Variant</span>
-				<CustomSelect
+				<PickerSelect
 					value={selectedVariant}
 					options={variantOptions}
-					menuMinWidth={240}
-					maxMenuHeight={560}
-					descriptionLines={2}
-					menuAlign="left"
-					on:change={(event) => chooseVariant(event.detail)}
+					label="Choose variant"
+					width={360}
+					onchange={chooseVariant}
 				>
 					{#snippet trigger(select)}
 						<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
@@ -395,7 +390,7 @@
 							</button>
 						</Tooltip>
 					{/snippet}
-				</CustomSelect>
+				</PickerSelect>
 			</div>
 		{/if}
 

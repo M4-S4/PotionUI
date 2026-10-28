@@ -17,7 +17,6 @@
 	export let searchable: boolean = false;
 	export let size: 'sm' | 'md' | 'lg' = 'md';
 	export let menuMinWidth: number = 0;
-	export let maxMenuHeight: number = 256;
 	export let descriptionLines: 1 | 2 = 1;
 	export let triggerDescription: boolean = true;
 	export let triggerIcon: boolean = true;
@@ -46,7 +45,7 @@
 	let containerRef: HTMLDivElement;
 	let dropdownRef: HTMLDivElement;
 	let inputRef: HTMLElement;
-	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openUpward: false, maxHeight: maxMenuHeight };
+	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openUpward: false, maxHeight: 256 };
 	let activeIndex = 0;
 	const optionIdPrefix = `custom-select-${++selectInstances}-option-`;
 	$: activeOptionId = isDropdownOpen && filteredOptions[activeIndex] ? `${optionIdPrefix}${activeIndex}` : undefined;
@@ -61,6 +60,7 @@
 		: options;
 
 
+	const MAX_MENU_HEIGHT = 256;
 	const ROW_ESTIMATE = 44;
 
 	function updateDropdownPosition() {
@@ -76,7 +76,7 @@
 			viewportHeight: window.innerHeight,
 			bottomInset: dockInsetFor(inputRef),
 			contentHeight,
-			maxMenuHeight,
+			maxMenuHeight: MAX_MENU_HEIGHT,
 			gap
 		});
 		const menuWidth = Math.max(rect.width, Math.min(menuMinWidth, window.innerWidth - 16));
