@@ -122,6 +122,7 @@ vars:
   default_frames: 49
   default_fps: 25
   edit_max_frames: 121
+  edit_window_overlap: 24
   # Quality recipe MultiModalGuider-only knobs: Lightricks' first-party
   # LTX_2_3_PARAMS (packages/ltx-pipelines/src/ltx_pipelines/utils/
   # constants.py, Apache-2.0), carried forward to 2.5 unchanged. The recipe's

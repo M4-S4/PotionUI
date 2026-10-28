@@ -6,7 +6,7 @@ fields:
         type: "video"
         label: "Input Video"
         required: true
-        description: "A black and white or faded clip. Long clips are trimmed to the first few seconds."
+        description: "A black and white or faded clip. Up to about 40 seconds."
 
       - type: "row"
         children:

@@ -231,7 +231,11 @@
       "config": {
         "audio": {
           "type": "bool",
-          "value": false
+          "value": true
+        },
+        "audio_source": {
+          "type": "str",
+          "value": "file"
         },
         "cfg": {
           "type": "float",
@@ -249,17 +253,13 @@
           "type": "int",
           "value": 121
         },
-        "match_input": {
+        "match_video": {
           "type": "bool",
           "value": true
         },
-        "match_input_max_edge": {
+        "max_pixels": {
           "type": "int",
-          "value": 1920
-        },
-        "match_input_scale": {
-          "type": "float",
-          "value": 1.0
+          "value": 2088960
         },
         "media_placements": {
           "type": "list",
@@ -321,6 +321,14 @@
         "steps": {
           "type": "int",
           "value": 30
+        },
+        "window_overlap": {
+          "type": "int",
+          "value": 24
+        },
+        "windows": {
+          "type": "bool",
+          "value": true
         }
       },
       "enabled": {

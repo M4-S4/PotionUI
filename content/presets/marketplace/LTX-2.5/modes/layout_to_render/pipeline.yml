@@ -103,9 +103,8 @@ pipeline:
       quantity: "{{ form.quantity }}"
       decode: false
       audio: false
-      match_input: true
-      match_input_scale: 1.0
-      match_input_max_edge: 960
+      match_video: true
+      max_pixels: 522240
       frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
       manual_sigmas: "{{ preset.vars.distilled_sigma_recipe }}"
@@ -135,12 +134,14 @@ pipeline:
       - ["initial_latent", "latent_upscaler", "latent"]
       - ["video", "media_loader", "video"]
       - ["image", "media_image", "image"]
+      - ["audio", "media_loader", "video"]
     enabled: true
     configuration:
       quantity: "{{ form.quantity }}"
       decode: true
-      audio: false
-      match_input: true
+      audio: true
+      audio_source: "file"
+      match_video: true
       frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
       cfg: 1.0

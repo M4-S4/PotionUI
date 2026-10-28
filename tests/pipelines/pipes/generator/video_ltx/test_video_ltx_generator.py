@@ -613,22 +613,27 @@ def test_video_sourced_reference_placement_decodes_clip_into_reference_tokens(tm
     assert p.extra_coords is not None and p.extra_coords.shape == (1, 3, n_ref, 2)
 
 
-def test_match_input_takes_geometry_from_the_reference_clip(tmp_path):
+def test_match_video_takes_geometry_from_a_reference_clip_and_caps_frames(tmp_path):
     clip = _reference_clip(tmp_path, n_frames=12, size=64)
-    cfg = _pipe(resolution="768x512", frames=121, fps=25.0, match_input=True, media_placements=[
-        {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
-    ])
+    cfg = _pipe(resolution="768x512", frames=121, fps=25.0, match_video=True, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
     ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
 
     assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (64, 64, 9, 8.0)
+    assert ctx.extra.windows == []
 
 
-def test_match_input_on_a_refine_takes_size_from_the_latent_and_fps_from_the_clip(tmp_path):
+def test_match_video_scales_the_clip_before_the_budget(tmp_path):
     clip = _reference_clip(tmp_path, n_frames=12, size=64)
-    cfg = _pipe(resolution="768x512", frames=121, fps=25.0, match_input=True, refine_sigmas="0.4, 0.0",
-                refine_reference=True, media_placements=[
-                    {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
-                ])
+    cfg = _pipe(frames=121, match_video=True, match_scale=2.0, max_pixels=96 * 96, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert (ctx.extra.width, ctx.extra.height) == (96, 96)
+
+
+def test_match_video_on_a_refine_takes_size_from_the_latent_and_fps_from_the_clip(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=12, size=64)
+    cfg = _pipe(resolution="768x512", frames=121, fps=25.0, match_video=True, refine_sigmas="0.4, 0.0",
+                refine_reference=True, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
     pipe_input = _pipe_input(videos=[str(clip)])
     pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 2, 4, 6)]
     ctx = cfg.build_context(pipe_input)
@@ -636,14 +641,62 @@ def test_match_input_on_a_refine_takes_size_from_the_latent_and_fps_from_the_cli
     assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (192, 128, 9, 8.0)
 
 
-def test_match_input_off_keeps_the_configured_geometry(tmp_path):
+def test_match_video_off_keeps_the_configured_geometry(tmp_path):
     clip = _reference_clip(tmp_path, n_frames=12, size=64)
-    cfg = _pipe(resolution="128x128", frames=17, fps=25.0, media_placements=[
-        {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
-    ])
+    cfg = _pipe(resolution="128x128", frames=17, fps=25.0, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
     ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
 
     assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (128, 128, 17, 25.0)
+
+
+def test_windows_cover_a_long_reference_clip_with_overlap(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    cfg = _pipe(frames=17, match_video=True, windows=True, window_overlap=8, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert ctx.extra.frames == 17 and ctx.extra.total_frames == 40
+    assert [start for start, _ in ctx.extra.windows] == [0, 9, 18, 23]
+    emitted = []
+    cfg.emit_results(emitted.append, [], [])
+    assert not [o for o in emitted if getattr(o, "state", None)]
+    assert all(p.base_tokens == ctx.extra.prepared.base_tokens for _, p in ctx.extra.windows)
+
+
+def test_windows_off_cuts_the_clip_at_frames(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    cfg = _pipe(frames=17, match_video=True, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert ctx.extra.windows == [] and ctx.extra.frames == 17
+    emitted = []
+    cfg.emit_results(emitted.append, [], [])
+    assert [o.state for o in emitted if getattr(o, "state", None)] == [
+        "Only the first 2.1 seconds of the input clip were used."]
+
+
+def test_windowed_generation_crossfades_every_window_and_muxes_the_source_audio(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    cfg = _pipe(frames=17, match_video=True, windows=True, window_overlap=8, audio=True, audio_source="file",
+                media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    pipe_input = _pipe_input(videos=[str(clip)])
+    pipe_input.input["audio"] = [str(clip)]
+    ctx = cfg.build_context(pipe_input)
+    calls = []
+
+    def fake_generate(_ctx, c, index, seed, progress, frames_only=False):
+        calls.append((c.prepared, frames_only))
+        return np.full((17, 2, 2, 3), len(calls) * 10, dtype=np.uint8)
+
+    encoded = {}
+    monkeypatch.setattr(cfg, "_generate", fake_generate)
+    monkeypatch.setattr("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4",
+                        lambda frames, path, fps, audio=None: encoded.update(frames=frames, audio=audio))
+    monkeypatch.setattr("src.pipelines.pipes.generator.video_ltx.main.restore_dit_best_effort", lambda *a: None)
+    cfg.generate_one(ctx, 0, 7, None)
+
+    assert [p for p, _ in calls] == [p for _, p in ctx.extra.windows] and all(f for _, f in calls)
+    assert encoded["frames"].shape[0] == 40 and encoded["audio"] == str(clip)
+    assert encoded["frames"][0, 0, 0, 0] == 10 and encoded["frames"][-1, 0, 0, 0] == 40
 
 
 def test_video_sourced_placement_index_out_of_range_raises():
@@ -1272,7 +1325,7 @@ def test_an_extension_past_the_frame_limit_is_clamped(tmp_path):
 
 
 def test_match_video_without_a_video_keyframe_is_refused():
-    with pytest.raises(ValueError, match="video keyframe clip"):
+    with pytest.raises(ValueError, match="need a video clip"):
         _pipe(match_video=True).build_context(_pipe_input())
 
 

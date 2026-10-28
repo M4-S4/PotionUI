@@ -6,7 +6,7 @@ fields:
         type: "video"
         label: "Input Video"
         required: true
-        description: "A 3D layout, playblast or blockout clip with the camera and motion you want. Long clips are trimmed to the first few seconds."
+        description: "A 3D layout, playblast or blockout clip with the camera and motion you want. Only about the first 5 seconds are used."
 
       - name: "style_image"
         type: "image"

@@ -284,17 +284,13 @@
           "type": "str",
           "value": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
         },
-        "match_input": {
+        "match_video": {
           "type": "bool",
           "value": true
         },
-        "match_input_max_edge": {
+        "max_pixels": {
           "type": "int",
-          "value": 960
-        },
-        "match_input_scale": {
-          "type": "float",
-          "value": 1.0
+          "value": 522240
         },
         "media_placements": {
           "type": "list",
@@ -353,7 +349,11 @@
       "config": {
         "audio": {
           "type": "bool",
-          "value": false
+          "value": true
+        },
+        "audio_source": {
+          "type": "str",
+          "value": "file"
         },
         "cfg": {
           "type": "float",
@@ -371,7 +371,7 @@
           "type": "int",
           "value": 121
         },
-        "match_input": {
+        "match_video": {
           "type": "bool",
           "value": true
         },

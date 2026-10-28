@@ -6,7 +6,7 @@ fields:
         type: "video"
         label: "Input Video"
         required: true
-        description: "A dry scene. Long clips are trimmed to the first few seconds."
+        description: "A dry scene. Up to about 40 seconds."
 
       - type: "row"
         children:

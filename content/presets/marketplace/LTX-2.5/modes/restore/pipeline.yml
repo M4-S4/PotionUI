@@ -86,14 +86,17 @@ pipeline:
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
       - ["video", "media_loader", "video"]
+      - ["audio", "media_loader", "video"]
     enabled: true
     configuration:
       quantity: "{{ form.quantity }}"
       decode: true
-      audio: false
-      match_input: true
-      match_input_scale: 1.0
-      match_input_max_edge: "{{ 1920 if form.output_size == '1080p' else 1280 }}"
+      audio: true
+      audio_source: "file"
+      match_video: true
+      max_pixels: "{{ 2088960 if form.output_size == '1080p' else 921600 }}"
+      windows: true
+      window_overlap: "{{ preset.vars.edit_window_overlap }}"
       frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
       manual_sigmas: "{{ preset.vars.distilled_sigma_recipe }}"

@@ -18,7 +18,7 @@ def to_frames_tensor(image: Any) -> Tensor:
     return arr
 
 
-def load_video_frames(path: str, max_frames: int) -> Tensor:
+def load_video_frames(path: str, max_frames: int, start: int = 0) -> Tensor:
     import cv2
 
     cap = cv2.VideoCapture(str(path))
@@ -26,6 +26,9 @@ def load_video_frames(path: str, max_frames: int) -> Tensor:
         raise ValueError(f"generator/video_ltx: cannot open video file {path!r}")
     frames: List[np.ndarray] = []
     try:
+        for _ in range(max(0, start)):
+            if not cap.grab():
+                break
         while len(frames) < max_frames:
             ok, frame = cap.read()
             if not ok:
