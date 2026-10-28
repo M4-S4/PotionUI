@@ -38,7 +38,7 @@ def _process(qwen_image21_template, form_over: dict | None = None, mode: str = "
         "resolution": "1024x1024",
     }
     if mode == "edit":
-        form_data["source_image"] = ["/uploads/source.png"]
+        form_data["source_image"] = "/uploads/source.png"
     if mode == "control":
         form_data["control_model"] = "/models/fun_control.safetensors"
         form_data["source_image"] = "/uploads/room.png"

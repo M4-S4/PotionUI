@@ -1,5 +1,6 @@
 name: "custom"
-short_description: "Change an existing image by instruction."
+mode_label: "Edit image"
+short_description: "Change an image by instruction, optionally only inside a painted region."
 fields:
   - type: "tabs"
     children:

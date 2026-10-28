@@ -63,6 +63,24 @@
       "name": "media_loader"
     },
     {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "mask_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "inpaint_region_crop",
+      "name": "inpaint_region_crop"
+    },
+    {
       "config": {
         "guidance_scale": {
           "type": "float",
@@ -273,6 +291,15 @@
       },
       "id": null,
       "name": "generator/qwen_image21"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "inpaint_region_restore",
+      "name": "inpaint_region_restore"
     },
     {
       "config": {},
