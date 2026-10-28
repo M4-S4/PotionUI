@@ -174,3 +174,47 @@ def resample_image(image, width, height):
     pil_img = Image.fromarray(image)
     pil_img = pil_img.resize((width, height), Image.LANCZOS)
     return np.array(pil_img)
+
+
+def mask_bbox(mask):
+    ys, xs = np.nonzero(mask > 0)
+    if len(ys) == 0:
+        return None
+    return int(ys.min()), int(ys.max()) + 1, int(xs.min()), int(xs.max()) + 1
+
+
+def _fit_axis(lo, hi, min_len, limit):
+    lo = max(0, lo)
+    hi = min(limit, hi)
+    if hi - lo < min_len:
+        need = min_len - (hi - lo)
+        lo -= need // 2
+        hi += need - need // 2
+    if lo < 0:
+        hi -= lo
+        lo = 0
+    if hi > limit:
+        lo -= hi - limit
+        hi = limit
+    return max(0, lo), hi
+
+
+def scaled_crop_box(shape, bbox, context, min_side):
+    height, width = shape[:2]
+    if bbox is None:
+        return 0, height, 0, width
+    top, bottom, left, right = bbox
+    pad = max(1, int(np.ceil(float(context) * max(bottom - top, right - left))))
+    top, bottom = _fit_axis(top - pad, bottom + pad, int(min_side), height)
+    left, right = _fit_axis(left - pad, right + pad, int(min_side), width)
+    return top, bottom, left, right
+
+
+def snap_to_multiple(value, multiple):
+    multiple = max(1, int(multiple))
+    return max(multiple, int(value / multiple + 0.5) * multiple)
+
+
+def working_size(height, width, target_area, multiple):
+    scale = (float(target_area) / max(1, height * width)) ** 0.5
+    return snap_to_multiple(height * scale, multiple), snap_to_multiple(width * scale, multiple)

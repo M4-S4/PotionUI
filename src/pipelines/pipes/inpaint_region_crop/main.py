@@ -19,10 +19,14 @@ from src.pipelines.contracts import (
 from src.platform.util.dimensions import floor_to_multiple
 from src.platform.runtime.tensors import pil_to_numpy_rgb, numpy_to_pil
 from src.pipelines.pipes._shared.inpainting.region_utils import (
+    mask_bbox,
+    scaled_crop_box,
+    working_size,
     compute_initial_abcd,
     solve_abcd,
     get_image_shape_ceil,
     set_image_shape_ceil,
+    resample_image,
 )
 
 
@@ -63,6 +67,9 @@ class InpaintRegionCropPipe(BasePipe):
             mask_pil = numpy_to_pil(mask_np)
             mask_pil = mask_pil.resize((original_W, original_H), Image.LANCZOS)
             mask_np = np.array(mask_pil)
+
+        if self.config.get("strategy", "fooocus") == "scaled":
+            return self._scaled_crop(image_np, mask_np)
 
         # Compute bounding box around masked region
         a, b, c, d = compute_initial_abcd(mask_np)
@@ -129,13 +136,47 @@ class InpaintRegionCropPipe(BasePipe):
 
         logger.debug(f"[INPAINT CROP] Storing original full-size mask for color correction")
 
+        return self._output(image_np, mask_np, cropped_image, cropped_mask, crop_region)
+
+    @staticmethod
+    def _output(image_np, mask_np, cropped_image, cropped_mask, crop_region) -> PipeOutput:
+        cropped = numpy_to_pil(cropped_image)
         return PipeOutput(output={
-            "image": numpy_to_pil(cropped_image),
+            "image": cropped,
+            "images": [cropped],
             "mask": numpy_to_pil(cropped_mask),
             "crop_region": crop_region,
             "original_image": numpy_to_pil(image_np),
-            "original_mask": numpy_to_pil(mask_np),  # Full-size mask for restore pipe
+            "original_mask": numpy_to_pil(mask_np),
         })
+
+    def _scaled_crop(self, image_np, mask_np) -> PipeOutput:
+        height, width = image_np.shape[:2]
+        top, bottom, left, right = scaled_crop_box(
+            image_np.shape,
+            mask_bbox(mask_np),
+            float(self.config.get("context", 0.5)),
+            int(self.config.get("min_side", 256)),
+        )
+        crop_h, crop_w = working_size(
+            bottom - top,
+            right - left,
+            int(self.config.get("working_area", 1024 * 1024)),
+            int(self.config.get("multiple", 8)),
+        )
+        cropped_image = resample_image(image_np[top:bottom, left:right], crop_w, crop_h)
+        cropped_mask = np.array(
+            numpy_to_pil(mask_np[top:bottom, left:right]).resize((crop_w, crop_h), Image.BILINEAR)
+        )
+        crop_region = {
+            "top": top,
+            "bottom": bottom,
+            "left": left,
+            "right": right,
+            "original_width": width,
+            "original_height": height,
+        }
+        return self._output(image_np, mask_np, cropped_image, cropped_mask, crop_region)
 
     @classmethod
     def inputs(cls) -> List[PipeInputSpec]:
@@ -148,6 +189,7 @@ class InpaintRegionCropPipe(BasePipe):
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("image", IOType.IMAGE, "Cropped image (masked region only)", is_array=False),
+            PipeOutputSpec("images", IOType.IMAGE, "Cropped image as a one-item list", is_array=True),
             PipeOutputSpec("mask", IOType.IMAGE, "Cropped mask", is_array=False),
             PipeOutputSpec("crop_region", IOType.DICT, "Crop region metadata for restore", is_array=False),
             PipeOutputSpec("original_image", IOType.IMAGE, "Original full image for restore", is_array=False),
@@ -157,6 +199,47 @@ class InpaintRegionCropPipe(BasePipe):
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
+            PipeConfigSpec(
+                name="strategy",
+                param_type=str,
+                default="fooocus",
+                description="fooocus pads to a fixed image fraction; scaled pads in proportion to the region and resamples to the working area",
+                required=False,
+                choices=["fooocus", "scaled"]
+            ),
+            PipeConfigSpec(
+                name="context",
+                param_type=float,
+                default=0.5,
+                description="Scaled strategy: padding on each side as a fraction of the region's longer side",
+                required=False,
+                min_value=0.0,
+                max_value=4.0
+            ),
+            PipeConfigSpec(
+                name="min_side",
+                param_type=int,
+                default=256,
+                description="Scaled strategy: smallest crop side in source pixels",
+                required=False,
+                min_value=16
+            ),
+            PipeConfigSpec(
+                name="working_area",
+                param_type=int,
+                default=1024 * 1024,
+                description="Scaled strategy: pixel area the crop is resampled to",
+                required=False,
+                min_value=4096
+            ),
+            PipeConfigSpec(
+                name="multiple",
+                param_type=int,
+                default=8,
+                description="Scaled strategy: both working sides snap to this multiple",
+                required=False,
+                min_value=1
+            ),
             PipeConfigSpec(
                 name="k",
                 param_type=float,
