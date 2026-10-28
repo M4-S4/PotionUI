@@ -909,6 +909,7 @@
 				label={selectedItem && typeof selectedItem.label === 'string' ? selectedItem.label : ''}
 				maxLabelLength={MAX_LABEL_LENGTH}
 				hasMask={!multiple && existingMaskUrl !== null}
+				maskUrl={multiple ? null : existingMaskUrl}
 				fromGeneration={!multiple && value && typeof value === 'object' && Boolean(value.fromGeneration)}
 				toolGroups={inspectorToolGroups}
 				uploading={inspectorUploading}

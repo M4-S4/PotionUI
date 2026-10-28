@@ -22,6 +22,7 @@
 		label = '',
 		maxLabelLength = 64,
 		hasMask = false,
+		maskUrl = null,
 		fromGeneration = false,
 		toolGroups,
 		uploading = null,
@@ -43,6 +44,7 @@
 		label?: string;
 		maxLabelLength?: number;
 		hasMask?: boolean;
+		maskUrl?: string | null;
 		fromGeneration?: boolean;
 		toolGroups: MediaToolGroup[];
 		uploading?: { name: string; size: number | null; progress: number } | null;
@@ -100,7 +102,7 @@
 		{:else if kind === 'image'}
 			<button
 				type="button"
-				class="w-full h-full flex items-center justify-center"
+				class="relative w-full h-full flex items-center justify-center"
 				aria-label={maskTool ? (hasMask ? 'Edit mask' : 'Paint mask') : 'View full size'}
 				onclick={() => (maskTool ? onTool(maskTool) : onPreview())}
 			>
@@ -110,6 +112,9 @@
 					class="max-w-full max-h-full object-contain"
 					onerror={markBroken}
 				/>
+				{#if maskUrl}
+					<span class="mask-overlay" style:--mask-url="url('{maskUrl}')" data-media-mask-overlay aria-hidden="true"></span>
+				{/if}
 			</button>
 		{:else if kind === 'video'}
 			<!-- svelte-ignore a11y_media_has_caption -->
@@ -252,6 +257,20 @@
 </div>
 
 <style>
+	.mask-overlay {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		background: rgb(var(--signal) / 0.45);
+		mask-image: var(--mask-url);
+		mask-size: contain;
+		mask-position: center;
+		mask-repeat: no-repeat;
+		-webkit-mask-image: var(--mask-url);
+		-webkit-mask-size: contain;
+		-webkit-mask-position: center;
+		-webkit-mask-repeat: no-repeat;
+	}
 	.spinner {
 		border: 2px solid rgb(var(--line-strong));
 		border-top-color: rgb(var(--signal));
