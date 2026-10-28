@@ -679,6 +679,15 @@ skipped at init and never becomes a candidate, with a warning naming it:
 `Backend '<id>' declares unknown engine '<engine>' (is its plugin enabled?)`. Re-enable or reinstall
 the plugin, or delete the orphaned backend.
 
+**`GET /health` answers 503 with `"status": "starting"` just after a start.**
+The process is up and still warming up in the background: it loads the preset catalogue and
+resolves every backend's execution device, which for the native backend imports torch and queries
+CUDA. Without it, the first request needing either paid for both, 13 to 16 seconds after a restart
+under WSL2, enough for a client with a 15-second timeout to get no answer. Health turns 200 once the
+warm-up is done, also when a step of it failed (the failure is logged). Anything waiting for a
+started instance (`./potionui start`, the restart dialogs, the Docker health check) polls `/health`
+until it answers 200.
+
 ## See also
 
 - [Generation Routing](generation-routing.md) — the rule chain that decides WHICH backend a
