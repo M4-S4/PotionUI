@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { onDestroy, setContext } from 'svelte';
-	import { FORM_VALUES_CONTEXT_KEY } from '$lib/form/formValuesContext';
 	import { writable } from 'svelte/store';
 	import { api } from '$lib/services/api/index';
 	import { tagCatalog } from '$lib/stores/tagCatalog';
@@ -118,8 +117,6 @@
 	};
 	setContext(FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY, fieldErrorActions);
 	$: fieldErrorsStore.set(fieldErrors || {});
-	const formValuesStore = writable<Record<string, any>>({});
-	setContext(FORM_VALUES_CONTEXT_KEY, formValuesStore);
 
 	const MAX_REACTION_ROUNDS = 8;
 	let reactionNonConvergenceWarned = false;
@@ -127,7 +124,6 @@
 	// State
 	let formSchema: any = null;
 	let formData: Record<string, any> = {};
-	$: formValuesStore.set(formData);
 	let schemaLoading = true;
 	let schemaError = '';
 	let initialLoadComplete = false;

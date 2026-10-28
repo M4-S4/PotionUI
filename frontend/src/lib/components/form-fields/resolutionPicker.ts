@@ -94,11 +94,7 @@ export const CUSTOM_RESOLUTION_GRANULARITY = 8;
 
 /** Validates a custom W×H entry: the MIN/MAX bound the backend also
  * enforces, plus a client-only 8px snap so a hand-typed value stays safe. */
-export function parseCustomResolution(
-	rawWidth: string,
-	rawHeight: string,
-	granularity: number = CUSTOM_RESOLUTION_GRANULARITY
-): CustomResolutionResult {
+export function parseCustomResolution(rawWidth: string, rawHeight: string): CustomResolutionResult {
 	const widthText = (rawWidth ?? '').trim();
 	const heightText = (rawHeight ?? '').trim();
 	if (!widthText || !heightText) {
@@ -124,13 +120,10 @@ export function parseCustomResolution(
 		};
 	}
 
-	if (width % granularity !== 0 || height % granularity !== 0) {
+	if (width % CUSTOM_RESOLUTION_GRANULARITY !== 0 || height % CUSTOM_RESOLUTION_GRANULARITY !== 0) {
 		return {
 			ok: false,
-			error:
-				granularity === 2
-					? 'Width and height must be even numbers.'
-					: `Width and height must be a multiple of ${granularity}px.`
+			error: `Width and height must be a multiple of ${CUSTOM_RESOLUTION_GRANULARITY}px.`
 		};
 	}
 
