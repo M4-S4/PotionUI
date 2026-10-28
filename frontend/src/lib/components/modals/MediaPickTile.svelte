@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
+	import { IconButton } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	export let label: string;
@@ -18,17 +19,19 @@
 
 <div class="flex flex-col">
 	<div
-		class="relative border-2 rounded-lg overflow-hidden bg-surface-2 {checked
+		class="group relative border-2 rounded-lg overflow-hidden bg-surface-2 {checked
 			? 'border-signal'
 			: 'border-line-strong'} {disabled ? 'opacity-50' : ''}"
 		data-selected={checked}
 	>
 		<button
 			type="button"
-			class="w-full aspect-video flex items-center justify-center cursor-pointer"
-			aria-label={`Preview ${accessibleName}`}
+			class="w-full aspect-video flex items-center justify-center {disabled ? 'cursor-not-allowed' : 'cursor-pointer'}"
+			tabindex="-1"
+			aria-hidden="true"
+			{disabled}
 			data-file={fileName || label}
-			on:click={onPreview}
+			on:click={onToggle}
 		>
 			<slot />
 		</button>
@@ -49,6 +52,18 @@
 				on:change={onToggle}
 			/>
 		</label>
+
+		<IconButton
+			icon="search"
+			label={`Preview ${accessibleName}`}
+			size="sm"
+			variant="overlay"
+			class="absolute top-2 right-2 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+			onclick={(e) => {
+				e.stopPropagation();
+				onPreview();
+			}}
+		/>
 
 		<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 pt-4 pointer-events-none">
 			<div class="pointer-events-auto">

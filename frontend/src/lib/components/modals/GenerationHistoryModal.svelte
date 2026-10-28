@@ -21,7 +21,7 @@
 		type PickedMedia,
 		type PickerMediaType
 	} from './mediaPickerSelection';
-	import { Badge, Button, Spinner, Pagination } from '$lib/components/ui';
+	import { Badge, Button, IconButton, Spinner, Pagination } from '$lib/components/ui';
 	import type { GenerationFile, GenerationHistoryItem, Tag } from '$lib/types/history';
 	import { filterFilesByMediaType } from './generationHistoryMediaFilter';
 	import { buildHistoryFilterParams } from './generationHistoryFilterParams';
@@ -623,15 +623,36 @@
 								data-file-id={pick.file.id}
 							>
 								{#if multiple}
-									<div class="relative">
-										<GenerationCard
-											generation={pick.view}
-											{tile}
-											showActions={false}
-											label={pick.accessibleName}
-											selected={$selection.includes(pick.picked.key)}
+									<div class="group relative">
+										<button
+											type="button"
+											class="block w-full rounded-lg text-left focus-visible:outline-none {allowed ? 'cursor-pointer' : 'cursor-not-allowed'}"
+											tabindex="-1"
+											aria-hidden="true"
 											disabled={!allowed}
-											on:imageClick={() => (previewKey = pick.picked.key)}
+											on:click={() => picker.toggle(pick.picked.key, onSelectionChange)}
+										>
+											<span class="pointer-events-none block" inert>
+												<GenerationCard
+													generation={pick.view}
+													{tile}
+													showActions={false}
+													interactive={false}
+													selected={$selection.includes(pick.picked.key)}
+													disabled={!allowed}
+												/>
+											</span>
+										</button>
+										<IconButton
+											icon="search"
+											label={`Preview ${pick.accessibleName}`}
+											size="sm"
+											variant="overlay"
+											class="absolute top-2 right-2 z-40 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+											onclick={(e) => {
+												e.stopPropagation();
+												previewKey = pick.picked.key;
+											}}
 										/>
 										<label
 											class="absolute top-2 left-2 z-40 flex h-7 w-7 items-center justify-center rounded border border-line-strong bg-surface-1/90 {allowed
