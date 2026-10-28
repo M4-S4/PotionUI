@@ -117,13 +117,14 @@
 								<span class="sr-only">{option.markerLabel}</span>
 							{/if}
 						</span>
+						{#if option.description}
+							<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>
+						{/if}
 						{#if option.issue}
 							<span class="flex min-w-0 items-center gap-1.5 text-sm leading-4 text-warning" data-option-issue>
 								<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-current" aria-hidden="true"></span>
 								<span class="truncate">{option.issue}</span>
 							</span>
-						{:else if option.description}
-							<span class="line-clamp-2 text-sm leading-4 text-fg-subtle">{option.description}</span>
 						{/if}
 					</span>
 					{#if current}
