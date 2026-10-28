@@ -322,8 +322,9 @@ def test_length_from_none_is_a_no_op():
 def test_auto_canvas_takes_the_first_reference_video_then_image():
     video = ReferenceMedia(kind="video", frames=_source_frames_list(30, size=(36, 64)), fps=24.0)
     image = ReferenceMedia(kind="image", image=_reference_image((64, 36)))
-    assert GeneratorMinimaxH3Pipe._auto_canvas(None, [image, video]) == source_canvas_size(64, 36)
-    assert GeneratorMinimaxH3Pipe._auto_canvas(None, [video]) == source_canvas_size(36, 64)
+    assert GeneratorMinimaxH3Pipe._auto_canvas(None, [image, video]) == source_canvas_size(36, 64)
+    assert GeneratorMinimaxH3Pipe._auto_canvas(None, [video, image]) == source_canvas_size(36, 64)
+    assert GeneratorMinimaxH3Pipe._auto_canvas(None, [image]) == source_canvas_size(64, 36)
 
 
 def test_audio_source_reference_video_muxes_the_first_reference_video(monkeypatch):

@@ -1812,6 +1812,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     return source_canvas_size(*first.size)
                 first = np.asarray(first)
                 return source_canvas_size(first.shape[1], first.shape[0])
+        for reference in raw_references:
             if reference.kind == "image" and reference.image is not None:
                 return source_canvas_size(*reference.image.size)
         return source_canvas_size(16, 9)
