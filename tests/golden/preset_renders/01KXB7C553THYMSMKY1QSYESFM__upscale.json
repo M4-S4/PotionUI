@@ -149,7 +149,7 @@
         },
         "tile_size": {
           "type": "int",
-          "value": 2048
+          "value": 0
         }
       },
       "enabled": {
