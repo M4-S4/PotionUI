@@ -12,11 +12,11 @@ from src.plugin_api import media
 
 def _world(*folders):
     entries = [SimpleNamespace(path=Path(folder)) for folder in folders]
-    return SimpleNamespace(model_roots=SimpleNamespace(type_dirs=lambda model_type: entries if model_type == "mediapipe" else []))
+    return SimpleNamespace(model_roots=SimpleNamespace(type_dirs=lambda model_type: entries if model_type == "detection_bbox" else []))
 
 
-def _box(x, y, side, score):
-    return {"x": float(x), "y": float(y), "width": float(side), "height": float(side), "score": score}
+def _row(x, y, width, height, score):
+    return [x, y, width, height, *([0.0] * 10), score]
 
 
 def test_the_face_detector_says_which_file_it_reads_and_whether_it_is_here(tmp_path):
@@ -28,8 +28,8 @@ def test_the_face_detector_says_which_file_it_reads_and_whether_it_is_here(tmp_p
         (home / media.FACE_MODEL).write_bytes(b"model")
         after = media.face_detector()
 
-    assert before == {"model": "blaze_face_short_range.tflite", "available": False}
-    assert after == {"model": "blaze_face_short_range.tflite", "available": True}
+    assert before == {"model": "face_detection_yunet_2023mar.onnx", "available": False}
+    assert after == {"model": "face_detection_yunet_2023mar.onnx", "available": True}
 
 
 def test_without_its_model_file_detecting_faces_says_so_and_downloads_nothing(tmp_path):
@@ -40,7 +40,7 @@ def test_without_its_model_file_detecting_faces_says_so_and_downloads_nothing(tm
     detect.assert_not_called()
 
 
-def test_detecting_faces_reads_the_model_file_of_the_first_mediapipe_folder_that_has_it(tmp_path):
+def test_detecting_faces_reads_the_model_file_of_the_first_detection_bbox_folder_that_has_it(tmp_path):
     first, second = tmp_path / "a", tmp_path / "b"
     first.mkdir()
     second.mkdir()
@@ -52,52 +52,43 @@ def test_detecting_faces_reads_the_model_file_of_the_first_mediapipe_folder_that
     detect.assert_called_once_with(second / media.FACE_MODEL, ["a.png"], 0.6)
 
 
-def test_an_image_is_searched_whole_then_in_square_tiles_of_two_thirds_of_its_short_side_that_overlap_by_half():
-    found = face_boxes.tiles(832, 480)
+def test_the_rows_yunet_answers_become_boxes_best_first_without_the_weak_and_empty_ones():
+    rows = [_row(10, 20, 30, 40, 0.7), _row(100, 20, 50, 50, 0.95), _row(5, 5, 8, 8, 0.3), _row(1, 1, 0, 9, 0.9)]
 
-    assert found[0] == (0, 0, 832, 480)
-    assert {right - left for left, _, right, _ in found[1:]} == {320} and {bottom - top for _, top, _, bottom in found[1:]} == {320}
-    assert [left for left, top, _, _ in found[1:] if top == 0] == [0, 128, 256, 384, 512]
-    assert sorted({top for _, top, _, _ in found[1:]}) == [0, 160]
-    assert face_boxes.tiles(100, 100) == [(0, 0, 100, 100), (0, 0, 67, 67), (33, 0, 100, 67), (0, 33, 67, 100), (33, 33, 100, 100)]
+    found = face_boxes.boxes(rows, 0.5)
 
-
-def test_a_face_found_twice_is_kept_once_with_its_best_score_and_two_faces_stay_two():
-    boxes = [_box(10, 10, 50, 0.7), _box(12, 11, 48, 0.9), _box(200, 40, 60, 0.8)]
-
-    kept = face_boxes.merged(boxes)
-
-    assert [box["score"] for box in kept] == [0.9, 0.8]
-    assert face_boxes.overlap(_box(0, 0, 10, 1), _box(5, 0, 10, 1)) == pytest.approx(50 / 150)
-    assert face_boxes.overlap(_box(0, 0, 10, 1), _box(20, 0, 10, 1)) == 0.0
+    assert found == [{"x": 100.0, "y": 20.0, "width": 50.0, "height": 50.0, "score": 0.95}, {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0, "score": 0.7}]
+    assert face_boxes.boxes(None, 0.5) == []
 
 
 class Detector:
-    def __init__(self, faces):
-        self.faces = faces
+    def __init__(self):
         self.sizes = []
 
-    def detect(self, image):
-        height, width = image.numpy_view().shape[:2]
-        self.sizes.append((width, height))
-        found = self.faces.get((width, height), [])
-        return SimpleNamespace(detections=[SimpleNamespace(categories=[SimpleNamespace(score=score)], bounding_box=SimpleNamespace(origin_x=x, origin_y=y, width=side, height=side)) for x, y, side, score in found])
+    def setInputSize(self, size):
+        self.sizes.append(size)
+
+    def detect(self, picture):
+        return 1, [_row(4, 6, 20, 20, 0.88)] if picture.shape[1] > 100 else None
 
 
-def test_the_boxes_of_a_tile_are_moved_to_the_image_and_a_weak_one_is_dropped():
-    pytest.importorskip("mediapipe")
-    detector = Detector({(320, 320): [(40, 50, 30, 0.9), (5, 5, 10, 0.2)]})
+def test_each_image_is_read_at_its_own_size_by_one_detector():
+    cv2 = pytest.importorskip("cv2")
+    detector = Detector()
 
-    boxes = face_boxes._boxes(detector, Image.new("RGB", (320, 320)), 171, 160, 0.5)
+    with patch.object(cv2.FaceDetectorYN, "create", return_value=detector) as create:
+        found = face_boxes.detect(Path("m.onnx"), [Image.new("RGB", (832, 480)), Image.new("RGB", (64, 64))], 0.5)
 
-    assert boxes == [{"x": 211.0, "y": 210.0, "width": 30.0, "height": 30.0, "score": 0.9}]
+    assert found == [[{"x": 4.0, "y": 6.0, "width": 20.0, "height": 20.0, "score": 0.88}], []]
+    assert detector.sizes == [(832, 480), (64, 64)]
+    create.assert_called_once_with("m.onnx", "", (832, 480), 0.5, face_boxes.NMS, face_boxes.TOP_K)
 
 
 @pytest.mark.requires_models
-def test_the_real_detector_finds_no_face_in_a_plain_image_and_reads_its_model_from_the_model_roots():
-    folder = Path(os.environ.get("POTIONUI_MEDIAPIPE_DIR", "models/mediapipe"))
+def test_the_real_detector_finds_no_face_in_a_plain_image():
+    folder = Path(os.environ.get("POTIONUI_FACE_MODEL_DIR", "models/detection_bbox"))
     if not (folder / media.FACE_MODEL).is_file():
-        pytest.skip("blaze_face_short_range.tflite is not on this machine")
+        pytest.skip("face_detection_yunet_2023mar.onnx is not on this machine")
 
     with patch("src.plugin_api.media.get_container", return_value=_world(folder)):
         found = media.detect_faces([Image.new("RGB", (832, 480), (120, 130, 140))])

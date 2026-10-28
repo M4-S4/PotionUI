@@ -44,14 +44,13 @@ downloaded: without its weights on this server it raises `FileNotFoundError`.
 whether its weights are here (`available`) and it is loaded now (`loaded`).
 
 `detect_faces(images)` finds the faces in images (paths or PIL images) with
-MediaPipe's BlazeFace detector, on the CPU: for each image, its boxes
-(`x`, `y`, `width`, `height` in pixels of the image, and `score`), best first.
-The whole image is searched, then overlapping tiles of it, so that the small
-face of a wide shot is found too. The model file,
-`blaze_face_short_range.tflite`, is read from a `mediapipe` folder of the model
-roots and is never downloaded: without it `detect_faces` raises
-`FileNotFoundError`. `face_detector()` tells which file it is (`model`) and
-whether it is here (`available`).
+OpenCV's YuNet detector, on the CPU: for each image, its boxes (`x`, `y`,
+`width`, `height` in pixels of the image, and `score`), best first. Each image
+is read at its own size, so that the small face of a wide shot is found too.
+The model file, `face_detection_yunet_2023mar.onnx`, is read from a
+`detection_bbox` folder of the model roots and is never downloaded: without it
+`detect_faces` raises `FileNotFoundError`. `face_detector()` tells which file
+it is (`model`) and whether it is here (`available`).
 """
 
 import asyncio
@@ -152,11 +151,12 @@ def embed_images(images: Sequence[Union[str, Path, "Image.Image"]]) -> List[List
     return embedder.embed_images(list(images))
 
 
-FACE_MODEL = "blaze_face_short_range.tflite"
+FACE_MODEL = "face_detection_yunet_2023mar.onnx"
+FACE_MODEL_TYPE = "detection_bbox"
 
 
 def _face_model() -> Optional[Path]:
-    for entry in get_container().model_roots.type_dirs("mediapipe"):
+    for entry in get_container().model_roots.type_dirs(FACE_MODEL_TYPE):
         candidate = Path(entry.path) / FACE_MODEL
         if candidate.is_file():
             return candidate
@@ -164,17 +164,17 @@ def _face_model() -> Optional[Path]:
 
 
 def face_detector() -> Dict[str, Any]:
-    """The face detector the plugins can use: `model`, its file name, and `available`, whether that file is in a mediapipe folder of the model roots."""
+    """The face detector the plugins can use: `model`, its file name, and `available`, whether that file is in a detection_bbox folder of the model roots."""
     return {"model": FACE_MODEL, "available": _face_model() is not None}
 
 
 def detect_faces(images: Sequence[Union[str, Path, "Image.Image"]], min_score: float = 0.5) -> List[List[Dict[str, float]]]:
-    """The faces BlazeFace finds in each image (paths or PIL images), on the CPU: a list of boxes `x`, `y`, `width`, `height` in pixels of the image and `score`, best first, searched in the whole image and in overlapping tiles of it; `FileNotFoundError` when the model file is not in a mediapipe folder of the model roots, which is never downloaded from here."""
+    """The faces YuNet finds in each image (paths or PIL images), on the CPU: a list of boxes `x`, `y`, `width`, `height` in pixels of the image and `score`, best first, each image read at its own size; `FileNotFoundError` when the model file is not in a detection_bbox folder of the model roots, which is never downloaded from here."""
     from src.platform.util.face_boxes import detect
 
     model = _face_model()
     if model is None:
-        raise FileNotFoundError(f"{FACE_MODEL} is not in a mediapipe folder of the model roots")
+        raise FileNotFoundError(f"{FACE_MODEL} is not in a {FACE_MODEL_TYPE} folder of the model roots")
     return detect(model, list(images), min_score)
 
 
