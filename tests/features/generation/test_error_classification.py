@@ -3,6 +3,7 @@
 import errno
 
 import httpx
+import pytest
 import safetensors
 import torch
 
@@ -245,3 +246,45 @@ def test_the_wsl_allocator_failure_classifies_as_cuda_oom():
 
     assert classification.category == "cuda_oom"
     assert classification.suggestions
+
+
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_a_driver_oom_reads_as_cuda_oom_from_its_text_alone(text):
+    assert classify_error_text(text).category == "cuda_oom"
+
+
+def test_the_refusal_of_a_damaged_process_asks_for_a_restart():
+    from src.platform.runtime.cuda_allocator import RESTART_ACTION, CudaAllocatorDamaged
+
+    classification = classify_generation_error(CudaAllocatorDamaged("CUDA driver error: device not ready"))
+
+    assert classification.category == "gpu_restart_required"
+    assert classification.summary.startswith("This process can no longer use the GPU")
+    assert classification.suggestions == [RESTART_ACTION]
+
+
+def test_a_driver_oom_is_a_restart_only_once_the_allocator_is_damaged(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    exc = RuntimeError("CUDA driver error: device not ready")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    assert classify_generation_error(exc).category == "cuda_oom"
+
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    assert classify_generation_error(exc).category == "gpu_restart_required"
+    assert classify_generation_error(torch.cuda.OutOfMemoryError("CUDA out of memory")).category == "cuda_oom"
+
+
+def test_a_stored_refusal_reads_as_a_restart_from_its_text():
+    text = "CudaAllocatorDamaged: A CUDA out-of-memory left this process's GPU allocator unusable. This process can no longer use the GPU: restart it"
+
+    assert classify_error_text(text).category == "gpu_restart_required"
+
+
+def test_users_are_told_to_ask_for_a_restart():
+    from src.features.generation.error_classification import user_classification_for_code
+
+    copy = user_classification_for_code("gpu_restart_required", video=True)
+
+    assert copy.summary == "The server's GPU needs a restart before it can generate again."
+    assert copy.suggestions == ["Ask your administrator to restart the backend"]

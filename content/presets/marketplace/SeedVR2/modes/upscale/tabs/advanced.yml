@@ -119,10 +119,10 @@ fields:
             type: "number"
             label: "Tile Size (px)"
             audience: "advanced"
-            default: 2048
-            ai_hint: "Advisory VAE decode tile size; the decode auto-tiles by live free VRAM."
+            default: 0
+            ai_hint: "Ceiling for the VAE encode/decode tile; the tiles also shrink with free VRAM. 0 = auto: 512 on a GPU of 12 GB or less, 2048 above (recommended)."
             configuration:
-              min: 256
+              min: 0
               max: 2048
               step: 64
 

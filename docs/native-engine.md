@@ -176,11 +176,41 @@ VAE is dropped to tiled/offloaded first, the TE next).
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
 `torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
 `RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
-expandable-segments allocator, which `cuda_env.py` turns on outside Windows. Under WSL2 (Docker
-Desktop) that driver error is how an exhausted card shows up, measured on a 12 GB RTX 4070 Ti on
-2026-10-25: never an `OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches
-`RuntimeError` and keeps only what `is_cuda_oom` accepts, so the same fallbacks run under WSL2;
-any other driver error propagates.
+expandable-segments allocator. Under WSL2 (Docker Desktop) with expandable segments, that driver
+error is how an exhausted card shows up, measured on a 12 GB RTX 4070 Ti on 2026-10-25: never an
+`OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches `RuntimeError` and keeps
+only what `is_cuda_oom` accepts; any other driver error propagates.
+
+`cuda_env.py` turns expandable segments on outside Windows, WSL2 included, and only when none of
+`PYTORCH_CUDA_ALLOC_CONF`, `PYTORCH_HIP_ALLOC_CONF` and `PYTORCH_ALLOC_CONF` is set: torch reads
+the first of the three that exists, so a default written into the first would hide the user's own
+setting in the last. They stay on under WSL2 because the default allocator is worse there: with
+driver 617.42 an exhausted card raises nothing and spills into Windows shared memory instead (a
+SeedVR2 1080p encode reached 47.9 GB of shared memory and the Docker VM 57.9 GiB without finishing,
+2026-10-28), so neither the tile shrink nor the batch retry ever runs.
+
+A driver-error OOM under expandable segments damages the process, though. When an expandable
+segment grows, torch 2.12 rolls the new pages back only if `cuMemCreate` returns
+`CUDA_ERROR_OUT_OF_MEMORY`; that clean case reaches the caller as `torch.OutOfMemoryError`. Any other
+failure of `cuMemCreate`, `cuMemMap` or `cuMemSetAccess` (the `device not ready` above, or an
+out-of-memory from `cuMemSetAccess`) raises with the pages still recorded, and the next growth over
+them fails on `!handles_.at(i) INTERNAL ASSERT FAILED at CUDACachingAllocator.cpp:445`, in any later
+allocation, until the process restarts (pytorch/pytorch#188008, #166234; seen twice in a row on
+2026-10-28, a SeedVR2 tiled-encode OOM followed by that assertion in the decode).
+
+So under WSL2 the first driver-error OOM is fatal to the process (`src/platform/runtime/cuda_allocator.py`):
+it is not retried (`is_cuda_oom` answers no), the segments stop growing for the rest of the process
+(`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
+fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
+use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
+to restart the backend. Until the process restarts, every run whose pipes target `cuda` is refused
+before its first pipe with that same code, `GET /health` and the native backend's health
+report `degraded` with the same reason, and nothing restarts on its own. **Restart Backend**
+(Administration › Backends, `POST /api/admin/restart`) re-executes the process in place, so the
+container keeps running; descriptors other than stdio are marked close-on-exec first, so none of
+the old process's driver handles survive the exec. `POTIONUI_CUDA_DRIVER_OOM=retry` brings back the
+retry in the same process, `POTIONUI_CUDA_DRIVER_OOM=fatal` applies the fatal path outside WSL2
+too; with expandable segments off, driver-error OOMs are always retried.
 
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:

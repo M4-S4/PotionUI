@@ -162,7 +162,7 @@ def test_generator_config_defaults_when_form_omits_optional_fields(seedvr2_templ
     assert cfg["target_short_side"] == 1080
     assert cfg["latent_noise_scale"] == 0.0
     assert cfg["input_noise_scale"] == 0.0
-    assert cfg["tile_size"] == 2048
+    assert cfg["tile_size"] == 0
     assert cfg["tile_overlap"] == 256
 
 

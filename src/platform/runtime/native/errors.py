@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from src.platform.runtime.cuda_allocator import retry_after_driver_oom
+
 _TRUNCATE = 20
 
 _CUDA_DRIVER_OOM_MESSAGES = (
@@ -31,7 +33,9 @@ def is_cuda_oom(exc: BaseException) -> bool:
     accelerator_error = getattr(torch, "AcceleratorError", None)
     if accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc):
         return True
-    return isinstance(exc, RuntimeError) and str(exc).startswith(_CUDA_DRIVER_OOM_MESSAGES)
+    if isinstance(exc, RuntimeError) and str(exc).startswith(_CUDA_DRIVER_OOM_MESSAGES):
+        return retry_after_driver_oom(exc)
+    return False
 
 
 def is_cuda_driver_error(exc: BaseException) -> bool:

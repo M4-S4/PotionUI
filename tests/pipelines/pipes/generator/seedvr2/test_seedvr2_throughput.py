@@ -768,3 +768,124 @@ def test_video_publish_failure_leaves_no_temp_survivors(monkeypatch):
     final_path = created[0]
     assert glob.glob(f"{final_path}*") == []
     assert gen.released >= 1
+
+
+class _TileRecordingGen(_FakeGen):
+    def __init__(self):
+        super().__init__(oom_at_or_above=999)
+        self.tile_sizes = []
+
+    def upscale_video(self, clips, prompt_embedding, *, seed, latent_noise_scale,
+                      tile_size=None, tile_overlap=None):
+        self.tile_sizes.append(tile_size)
+        yield from super().upscale_video(
+            clips, prompt_embedding, seed=seed, latent_noise_scale=latent_noise_scale,
+            tile_size=tile_size, tile_overlap=tile_overlap,
+        )
+
+
+@pytest.mark.parametrize(
+    ("total", "batch", "tile"),
+    [(11.99, 5, 512), (12.5, 5, 512), (23.99, _SEEDVR2_MAX_BATCH, 2048), (None, _SEEDVR2_MAX_BATCH, 2048)],
+)
+def test_auto_tile_and_batch_follow_the_card_size(monkeypatch, total, batch, tile):
+    gen = _TileRecordingGen()
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "free_vram_gb", lambda device: 24.0)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: total)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=0, tile_size=0))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [batch]
+    assert gen.tile_sizes == [tile]
+
+
+def test_a_request_with_tile_and_batch_wins_on_a_small_card(monkeypatch):
+    gen = _TileRecordingGen()
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: 11.99)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=9, tile_size=1024))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [9]
+    assert gen.tile_sizes == [1024]
+
+
+def test_the_image_path_takes_512_tiles_on_a_small_card(monkeypatch):
+    from PIL import Image
+
+    seen = {}
+
+    class _ImageGen:
+        def upscale(self, pixels, prompt_embedding, *, seed, latent_noise_scale, tile_size, tile_overlap):
+            seen["tile_size"] = tile_size
+            return np.zeros((1, pixels.shape[0], pixels.shape[1], 3), dtype=np.uint8)
+
+        def release_gpu(self):
+            pass
+
+    monkeypatch.setattr(m, "build_native_generator", lambda bundle, device="cuda": _ImageGen())
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: 11.99)
+    pipe = GeneratorSeedVR2Pipe(_base_config(tile_size=0))
+    bundle = SimpleNamespace(prompt_embedding=torch.zeros(1))
+
+    pipe.process(PipeInput(input={"image": [Image.new("RGB", (32, 32))], "model": bundle, "seed": [0]}), lambda o: None)
+
+    assert seen["tile_size"] == 512
+
+
+def test_cancelling_inside_a_video_batch_stops_the_run(monkeypatch):
+    from src.platform.runtime.native.cancellation import raise_if_cancelled
+
+    flag = {"cancelled": False}
+
+    class _CancelInsideGen(_FakeGen):
+        def upscale_video(self, clips, prompt_embedding, *, seed, latent_noise_scale,
+                          tile_size=None, tile_overlap=None):
+            for clip in clips:
+                self.batch_calls.append(int(clip.shape[0]))
+                flag["cancelled"] = True
+                raise_if_cancelled(0)
+                yield np.zeros((clip.shape[0], clip.shape[1] * 2, clip.shape[2] * 2, 3), dtype=np.uint8)
+
+    gen = _CancelInsideGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5))
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(_video_input(), lambda o: None, is_cancelled=lambda: flag["cancelled"])
+
+    assert gen.batch_calls == [5]
+    assert gen.released >= 1
+
+
+def test_cancelling_inside_an_image_upscale_stops_the_run(monkeypatch):
+    from PIL import Image
+
+    from src.platform.runtime.native.cancellation import raise_if_cancelled
+
+    released = []
+
+    class _ImageGen:
+        def upscale(self, pixels, prompt_embedding, *, seed, latent_noise_scale, tile_size, tile_overlap):
+            raise_if_cancelled(0)
+            return np.zeros((1, pixels.shape[0], pixels.shape[1], 3), dtype=np.uint8)
+
+        def release_gpu(self):
+            released.append(True)
+
+    monkeypatch.setattr(m, "build_native_generator", lambda bundle, device="cuda": _ImageGen())
+    pipe = GeneratorSeedVR2Pipe(_base_config())
+    bundle = SimpleNamespace(prompt_embedding=torch.zeros(1))
+    calls = iter([False, True])
+
+    with pytest.raises(SamplingCancelled):
+        pipe.process(
+            PipeInput(input={"image": [Image.new("RGB", (32, 32))], "model": bundle, "seed": [0]}),
+            lambda o: None,
+            is_cancelled=lambda: next(calls, True),
+        )
+
+    assert released == [True]
