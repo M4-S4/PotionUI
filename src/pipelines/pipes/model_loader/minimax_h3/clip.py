@@ -88,7 +88,10 @@ import torch
 from src.pipelines.pipes._shared.generation.clip_batch import SequentialWindowClipTextEncoder
 from src.pipelines.pipes._shared.generation.weak_model_ref import WeakModelRef
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
-from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_reference_video
+from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
+    normalize_reference_video,
+    reference_decode_seconds,
+)
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.text_encoders import image_content_fingerprint, prompt_embed_key
@@ -114,7 +117,7 @@ def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
     """A reference video's file path -> `(F, H, W, 3)` float32 tensor in
     `[0, 1]` on MiniMax-H3's own 24 fps and canvas.
 
-    Decodes every frame, then runs the SAME `normalize_reference_video` the
+    Decodes only the head of the clip that `num_frames` at 24 fps can reach, then runs the SAME `normalize_reference_video` the
     generator pipe's condition-encode runs, truncated to the SAME
     `num_frames`. The conditioner reads the result far more coarsely (every
     twelfth frame) than the video VAE does, but it has to read the same
@@ -140,8 +143,9 @@ def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
             "then truncate it at different frames. Set prompt_encoder's 'reference_video_frames' "
             "to the generated clip's frame count"
         )
-    frames, fps = read_video_frames(video)
-    normalized = normalize_reference_video(frames, fps=fps, num_frames=align_num_frames(int(num_frames)))
+    target_frames = align_num_frames(int(num_frames))
+    frames, fps = read_video_frames(video, max_seconds=reference_decode_seconds(target_frames))
+    normalized = normalize_reference_video(frames, fps=fps, num_frames=target_frames)
     return torch.from_numpy(normalized.copy()).float() / 255.0
 
 

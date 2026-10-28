@@ -327,7 +327,7 @@ def test_auto_canvas_takes_the_first_reference_video_then_image():
 
 
 def test_audio_source_reference_video_muxes_the_first_reference_video(monkeypatch):
-    monkeypatch.setattr(f"{_MAIN}.read_video_frames", lambda path: (_source_frames_list(30), 24.0))
+    monkeypatch.setattr(f"{_MAIN}.read_video_frames", lambda path, **kw: (_source_frames_list(30), 24.0))
     pipe = _source_pipe(mode="references", audio_source="reference_video", reference_videos=[{"path": "a.mp4"}],
                         frames=22)
     ctx = pipe.build_context(PipeInput(input={

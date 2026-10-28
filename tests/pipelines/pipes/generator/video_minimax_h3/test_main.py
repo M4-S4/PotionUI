@@ -3332,7 +3332,7 @@ def test_build_context_packs_the_three_modality_inputs_in_one_order(monkeypatch)
     edges happen to be declared in."""
     import src.pipelines.pipes.generator.video_minimax_h3.main as main_module
 
-    monkeypatch.setattr(main_module, "_load_reference_video", lambda path: _ref_video())
+    monkeypatch.setattr(main_module, "_load_reference_video", lambda path, max_seconds=None: _ref_video())
     monkeypatch.setattr(main_module, "_load_reference_audio", lambda path: _ref_audio())
     pipe = GeneratorMinimaxH3Pipe({
         **GeneratorMinimaxH3Pipe.get_default_config(), "mode": "references",

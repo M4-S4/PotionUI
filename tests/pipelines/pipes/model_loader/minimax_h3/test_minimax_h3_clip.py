@@ -567,6 +567,21 @@ def test_an_unknown_reference_kind_raises():
         encoder.encode_prompts([request])
 
 
+def test_a_long_reference_video_is_decoded_only_as_far_as_the_clip_reaches(monkeypatch):
+    from src.pipelines.pipes.model_loader.minimax_h3 import clip as clip_module
+
+    seen = {}
+
+    def fake_read(path, *, max_seconds=None):
+        seen["max_seconds"] = max_seconds
+        return [Image.new("RGB", (64, 64)) for _ in range(30)], 30.0
+
+    monkeypatch.setattr(clip_module, "read_video_frames", fake_read)
+    clip_module._to_fhwc_float01("/media/clip.mp4", 22)
+    assert seen["max_seconds"] is not None
+    assert seen["max_seconds"] < 2.0
+
+
 def test_a_reference_video_without_a_frame_count_raises():
     """Truncating the encoder's view and the generator's condition-encode at
     different frames conditions on two different videos, so a missing

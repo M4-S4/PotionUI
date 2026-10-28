@@ -231,6 +231,10 @@ def resample_frames(frames: np.ndarray, *, fps: float, target_fps: float = FPS) 
     return np.repeat(frames, np.diff(slots, append=math.floor(frames.shape[0] * scale + 0.5)), axis=0)
 
 
+def reference_decode_seconds(num_frames: int, *, target_fps: float = FPS, margin_seconds: float = 0.1) -> float:
+    return num_frames / target_fps + margin_seconds
+
+
 def source_canvas_size(frame_width: int, frame_height: int) -> tuple[int, int]:
     """`(height, width)` of the H3 canvas a source video is fitted onto: its
     own aspect ratio, clamped into `[1:4, 4:1]`."""

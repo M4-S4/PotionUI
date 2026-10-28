@@ -186,6 +186,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     normalize_references,
     prepare_keyframe_condition_rows,
     prepare_reference_conditioning,
+    reference_decode_seconds,
     snap_reference_video_frames,
     source_canvas_size,
     source_tail_frames,
@@ -198,6 +199,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     MAX_ASPECT_RATIO,
     MAX_DURATION_S,
     MIN_ASPECT_RATIO,
+    align_num_frames,
     audio_latent_num_frames,
     head_frames_for_latents,
     pixel_frames_for_latent_frames,
@@ -363,7 +365,7 @@ _MAX_REFERENCE_VIDEOS = MAX_VIDEO_REFERENCES
 _MAX_REFERENCE_AUDIOS = MAX_AUDIO_REFERENCES
 
 
-def _load_reference_video(video_path: Any) -> ReferenceMedia:
+def _load_reference_video(video_path: Any, max_seconds: Optional[float] = None) -> ReferenceMedia:
     """One `ref2va` video reference's file path -> its raw frames and native
     frame rate.
 
@@ -371,7 +373,7 @@ def _load_reference_video(video_path: Any) -> ReferenceMedia:
     decode lands here. The frames are RAW: `normalize_references` is what puts
     them on H3's 24 fps and canvas, and it needs the source rate to do it.
     """
-    frames, fps = read_video_frames(video_path)
+    frames, fps = read_video_frames(video_path, max_seconds=max_seconds)
     return ReferenceMedia(kind="video", frames=frames, fps=float(fps))
 
 
@@ -1496,7 +1498,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             audio_file = reference_videos[0]
 
         plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
-        raw_references = self._load_reference_media(packed) if packed else []
+        raw_references = self._load_reference_media(packed, self._reference_decode_seconds(plan, source_role, bool(initial_latents))) if packed else []
         source_frames: Optional[np.ndarray] = None
         source_overlap_latents = 0
         if initial_latents:
@@ -1813,6 +1815,18 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 return source_canvas_size(*reference.image.size)
         return source_canvas_size(16, 9)
 
+    def _reference_decode_seconds(self, plan: Any, source_role: str, has_initial_latents: bool) -> Optional[float]:
+        if has_initial_latents or str(self.config.get("length_from", "none") or "none") != "none":
+            return None
+        frames = int(self.config.get("frames", 124))
+        if plan is not None:
+            frames = max(window.frames for window in plan.windows)
+        if source_role == "continue":
+            frames += head_frames_for_latents(int(self.config.get("source_overlap_latents", 5)))
+        elif source_role == "precede":
+            frames += 1
+        return reference_decode_seconds(align_num_frames(frames))
+
     def _length_from_reference(self, frames: int, raw_references: List[ReferenceMedia]) -> int:
         length_from = str(self.config.get("length_from", "none") or "none")
         if length_from == "none":
@@ -1833,7 +1847,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         return min(frames, snap_reference_video_frames(available))
 
     @staticmethod
-    def _load_reference_media(packed: List[tuple]) -> List[ReferenceMedia]:
+    def _load_reference_media(packed: List[tuple], max_seconds: Optional[float] = None) -> List[ReferenceMedia]:
         loaded: List[ReferenceMedia] = []
         for kind, media in packed:
             if isinstance(media, RefMod):
@@ -1841,7 +1855,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             elif kind == "image":
                 loaded.append(ReferenceMedia(kind="image", image=media))
             elif kind == "video":
-                loaded.append(_load_reference_video(media))
+                loaded.append(_load_reference_video(media, max_seconds))
             else:
                 loaded.append(_load_reference_audio(media))
         return loaded
