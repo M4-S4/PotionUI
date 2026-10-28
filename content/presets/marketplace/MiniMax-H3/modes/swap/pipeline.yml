@@ -54,8 +54,8 @@ pipeline:
       p_prompt:
         input: &document >-
           subject_definitions: <Subject 1> is the person shown in {% for _ in form.character %}<Picture {{ loop.index }}>{% if not loop.last %}, {% endif %}{% endfor %}{% if form.character_description %}, {{ form.character_description }}{% endif %}. <Video 1> is the source video.
-          summary: [video editing] + [reference generation] Re-create <Video 1> with its main person replaced by <Subject 1>, keeping the camera, motion, timing and setting of <Video 1>.
-          retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair, body and outfit follow the reference pictures. <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, poses, gestures, timing, lighting and background are kept; only the main person changes.
+          summary: [video editing] + [reference generation] The main person of <Video 1> is removed and replaced by <Subject 1>; <Subject 1> performs the same motion as the original person, with the camera, timing and setting of <Video 1>. The original person no longer appears.
+          retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair, body and outfit follow the reference pictures. <Video 1> (appears in [Shot 1]): attribute_transfer - only camera movement, poses, gestures, timing, lighting and background are taken from it; the identity, face, hair and outfit of its main person are not.
           detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are. {{ form.instruction | default('', true) }}
           overall_soundscape: The same ambient and action sounds as <Video 1>.
           non_diegetic_music: N/A
