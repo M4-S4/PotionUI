@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
-	import { tick, onDestroy } from 'svelte';
+	import { tick, onDestroy, getContext } from 'svelte';
+	import { readable, type Readable } from 'svelte/store';
+	import { FORM_VALUES_CONTEXT_KEY } from '$lib/form/formValuesContext';
+	import { api } from '$lib/services/api/index';
 	import Icon from '../Icon.svelte';
 	import Tooltip from '../Tooltip.svelte';
 	import Badge from '../ui/Badge.svelte';
@@ -16,6 +19,15 @@
 		parseCustomResolution,
 		type ResolutionOptionLike
 	} from './resolutionPicker';
+	import {
+		deriveMediaSizeOptions,
+		matchingSide,
+		mediaValueKey,
+		preferredMediaSize,
+		probeElementSize,
+		resolveMediaSize,
+		type MediaSize
+	} from './mediaSizeOptions';
 
 	interface ResolutionOptionObject extends ResolutionOptionLike {
 		value: string;
@@ -33,8 +45,59 @@
 
 	$: label = config.title || name || '';
 	$: description = config.description || '';
+	const formValues =
+		getContext<Readable<Record<string, any>> | undefined>(FORM_VALUES_CONTEXT_KEY) ??
+		readable<Record<string, any>>({});
+	$: matchMedia = typeof config.match_media === 'string' && config.match_media ? config.match_media : null;
+	$: linkedValue = matchMedia ? $formValues[matchMedia] : undefined;
+	$: linkedKey = matchMedia ? mediaValueKey(linkedValue) : null;
+
+	let mediaState: 'empty' | 'loading' | 'ready' | 'unknown' = 'empty';
+	let mediaSize: MediaSize | null = null;
+	let resolvedKey: string | null | undefined = undefined;
+	let hadSource = false;
+
+	$: if (matchMedia) syncMedia(linkedKey, linkedValue);
+
+	function syncMedia(key: string | null, linked: unknown) {
+		if (key === resolvedKey) return;
+		resolvedKey = key;
+		if (!key) {
+			mediaSize = null;
+			mediaState = 'empty';
+			return;
+		}
+		mediaState = 'loading';
+		resolveMediaSize(linked, { metadata: api, probe: probeElementSize }).then((size) => {
+			if (resolvedKey !== key) return;
+			mediaSize = size;
+			mediaState = size ? 'ready' : 'unknown';
+			if (size) adoptSourceSize(size);
+		});
+	}
+
+	function adoptSourceSize(size: MediaSize) {
+		const derived = deriveMediaSizeOptions(size);
+		const sourceChanged = hadSource;
+		hadSource = true;
+		if (derived.some((opt) => opt.value === localValue)) return;
+		if (!sourceChanged && localValue && localValue !== config.default) return;
+		const pick = preferredMediaSize(derived);
+		if (pick && name) {
+			localValue = pick;
+			onChange(name, pick);
+		}
+	}
+
 	let options: ResolutionOption[] = [];
-	$: options = config.options || [];
+	$: options = matchMedia ? deriveMediaSizeOptions(mediaSize) : config.options || [];
+	$: mediaPending = !!matchMedia && (mediaState === 'empty' || mediaState === 'loading');
+	$: pickerDisabled = disabled || mediaPending;
+	$: placeholderText = !matchMedia
+		? 'Select resolution…'
+		: mediaState === 'loading'
+			? 'Reading the video size…'
+			: 'Choose a video to see sizes';
 	$: tooltip = config.tooltip;
 	$: disabled = config.disabled || false;
 
@@ -160,12 +223,16 @@
 	})();
 
 	$: selectedOpt = normalizedOptions.find((o) => o.value === localValue) ?? null;
-	$: triggerInfo = localValue ? getResolutionInfo(localValue) : null;
+	$: triggerInfo = localValue && !mediaPending ? getResolutionInfo(localValue) : null;
 	$: triggerRatioLabel = (selectedOpt && getOptRatio(selectedOpt)) || triggerInfo?.ratio || null;
-	$: triggerTierLabel = selectedOpt ? optionTier(selectedOpt) : null;
+	$: triggerTierLabel = matchMedia
+		? (selectedOpt?.description ?? (triggerInfo ? 'Custom' : null))
+		: selectedOpt
+			? optionTier(selectedOpt)
+			: null;
 
 	async function openPanel() {
-		if (disabled || panelOpen) return;
+		if (pickerDisabled || panelOpen) return;
 		panelOpen = true;
 		searchQuery = '';
 		customMode = false;
@@ -184,7 +251,7 @@
 	}
 
 	function handleTriggerClick() {
-		if (disabled) return;
+		if (pickerDisabled) return;
 		if (panelOpen) {
 			closePanel();
 		} else {
@@ -232,12 +299,20 @@
 	}
 
 	function applyCustom() {
-		const result = parseCustomResolution(customWidth, customHeight);
+		const result = matchMedia
+			? parseCustomResolution(customWidth, customHeight, 2)
+			: parseCustomResolution(customWidth, customHeight);
 		if (!result.ok || !result.value) {
 			customError = result.error ?? 'Invalid resolution.';
 			return;
 		}
 		handleSelect(result.value);
+	}
+
+	function handleCustomInput(side: 'width' | 'height') {
+		if (!mediaSize) return;
+		if (side === 'width') customHeight = matchingSide(mediaSize, 'width', customWidth);
+		else customWidth = matchingSide(mediaSize, 'height', customHeight);
 	}
 
 	function handleCustomKeydown(event: KeyboardEvent) {
@@ -308,6 +383,11 @@
 				</Tooltip>
 			{/if}
 		</label>
+		{#if matchMedia && mediaSize}
+			<span class="font-mono text-xs tabular-nums text-fg-subtle" data-testid="media-source-size"
+				>Source {mediaSize.width}×{mediaSize.height}</span
+			>
+		{/if}
 	</div>
 
 	{#if description}
@@ -319,12 +399,12 @@
 			type="button"
 			bind:this={triggerRef}
 			on:click={handleTriggerClick}
-			disabled={disabled}
+			disabled={pickerDisabled}
 			aria-haspopup="listbox"
 			aria-expanded={panelOpen}
 			class="input flex items-center gap-2.5 text-left hover:bg-surface-3 {panelOpen
 				? 'ring-2 ring-accent border-transparent'
-				: ''} {disabled ? 'opacity-50 cursor-not-allowed hover:bg-field-bg' : 'cursor-pointer'}"
+				: ''} {pickerDisabled ? 'opacity-50 cursor-not-allowed hover:bg-field-bg' : 'cursor-pointer'}"
 		>
 			{#if triggerInfo}
 				{@const [rw, rh] = getRatioNums(selectedOpt ?? { value: localValue }, triggerInfo)}
@@ -340,7 +420,7 @@
 					<Badge variant="signal" size="sm" class="ml-auto">{triggerTierLabel}</Badge>
 				{/if}
 			{:else}
-				<span class="flex-1 text-sm text-fg-subtle">Select resolution…</span>
+				<span class="flex-1 text-sm text-fg-subtle">{placeholderText}</span>
 			{/if}
 			<Icon
 				name="chevron-down"
@@ -382,7 +462,11 @@
 				</div>
 
 				<div class="flex-1 min-h-0 overflow-y-auto py-1">
-					{#if tierSections.length === 0}
+					{#if tierSections.length === 0 && matchMedia && !searchQuery}
+						<div class="px-3 py-6 text-center text-xs text-fg-subtle">
+							The video size could not be read. Enter a custom size below.
+						</div>
+					{:else if tierSections.length === 0}
 						<div class="px-3 py-6 text-center text-xs text-fg-subtle">No resolutions match "{searchQuery}"</div>
 					{:else}
 						{#each tierSections as section, si (section.tier)}
@@ -457,8 +541,9 @@
 										inputmode="numeric"
 										bind:this={customWidthRef}
 										bind:value={customWidth}
+										on:input={() => handleCustomInput('width')}
 										on:keydown={handleCustomKeydown}
-										placeholder="768"
+										placeholder={mediaSize ? String(mediaSize.width) : '768'}
 										aria-label="Custom width"
 										class="w-16 font-mono text-xs tabular-nums text-right bg-canvas border border-line-strong rounded shadow-well px-2 py-1 text-fg focus:outline-none focus:border-signal"
 									/>
@@ -467,8 +552,9 @@
 										type="text"
 										inputmode="numeric"
 										bind:value={customHeight}
+										on:input={() => handleCustomInput('height')}
 										on:keydown={handleCustomKeydown}
-										placeholder="768"
+										placeholder={mediaSize ? String(mediaSize.height) : '768'}
 										aria-label="Custom height"
 										class="w-16 font-mono text-xs tabular-nums bg-canvas border border-line-strong rounded shadow-well px-2 py-1 text-fg focus:outline-none focus:border-signal"
 									/>
