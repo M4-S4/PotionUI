@@ -78,7 +78,7 @@ def match_ring_statistics(content, original, region, inner, outer):
 
 
 def composite_region(original, content, mask, feather, color_match):
-    region = np.asarray(mask) > 0
+    region = np.asarray(mask) >= 128
     if not region.any():
         return original.copy()
     ys, xs = np.nonzero(region)

@@ -93,3 +93,27 @@ def test_faint_stray_mask_pixels_do_not_widen_the_region_or_reach_the_restore():
     assert region["bottom"] < 1500 and region["right"] < 2000
     assert np.array(out["original_mask"]).max() == 255
     assert np.array(out["original_mask"])[10, 20] == 0
+
+
+def test_default_strategy_ignores_faint_stray_mask_pixels():
+    image, mask = _scene(h=1000, w=1000, box=(480, 520, 480, 520))
+    arr = np.array(mask)
+    arr[5, 5] = 3
+    arr[990, 990] = 40
+    out = _run({}, image, Image.fromarray(arr))
+    region = out["crop_region"]
+    assert region["bottom"] - region["top"] < 1000
+    assert np.array(out["original_mask"])[5, 5] == 0
+
+
+def test_composite_region_ignores_faint_stray_pixels():
+    from src.pipelines.pipes._shared.inpainting.mask_utils import composite_region
+
+    original = np.zeros((200, 200, 3), dtype=np.uint8)
+    content = np.full((200, 200, 3), 200, dtype=np.uint8)
+    mask = np.zeros((200, 200), dtype=np.uint8)
+    mask[90:110, 90:110] = 255
+    mask[2, 2] = 30
+    out = composite_region(original, content, mask, 0.08, False)
+    assert (out[:20, :20] == 0).all()
+    assert (out[95:105, 95:105] == 200).all()
