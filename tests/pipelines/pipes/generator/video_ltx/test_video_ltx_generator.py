@@ -1174,6 +1174,43 @@ def test_a_video_keyframe_anchored_at_the_end_lands_on_the_last_latent_frames(tm
     assert float(temporal.min()) == 8 * 2 - 7 and float(p.extra_coords[0, 0, :, 1].max()) == 25
 
 
+def _sized_clip(tmp_path, n_frames, width, height, fps):
+    cv2 = pytest.importorskip("cv2", reason="video clips are cv2-backed", exc_type=ImportError)
+    path = tmp_path / "sized.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+    if not writer.isOpened():
+        pytest.skip("no mp4v encoder available to synthesize a clip")
+    try:
+        for i in range(n_frames):
+            writer.write(np.full((height, width, 3), i * 10, dtype=np.uint8))
+    finally:
+        writer.release()
+    return path
+
+
+def test_match_video_takes_size_and_rate_from_the_clip_and_extend_adds_seconds(tmp_path):
+    clip = _sized_clip(tmp_path, 9, 96, 64, 16.0)
+    cfg = _pipe(resolution="768x512", fps=25.0, frames=49, match_video=True, extend_seconds=1.0, media_placements=[
+        {"source": "video", "index": 0, "frame": "first", "role": "keyframe"},
+    ])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+    assert (ctx.extra.width, ctx.extra.height, ctx.extra.fps, ctx.extra.frames) == (96, 64, 16.0, 25)
+
+
+def test_extend_alone_keeps_the_chosen_size_and_rate(tmp_path):
+    clip = _sized_clip(tmp_path, 9, 96, 64, 16.0)
+    cfg = _pipe(resolution="64x64", fps=8.0, frames=49, extend_seconds=2.0, media_placements=[
+        {"source": "video", "index": 0, "frame": "end", "role": "keyframe"},
+    ])
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+    assert (ctx.extra.width, ctx.extra.height, ctx.extra.fps, ctx.extra.frames) == (64, 64, 8.0, 25)
+
+
+def test_match_video_without_a_video_keyframe_is_refused():
+    with pytest.raises(ValueError, match="video keyframe clip"):
+        _pipe(match_video=True).build_context(_pipe_input())
+
+
 @pytest.mark.parametrize("clip_frames, frames, expected", [
     (1, 25, 3), (9, 25, 2), (17, 25, 1), (25, 25, 0), (40, 25, 0), (12, 25, 2),
 ])

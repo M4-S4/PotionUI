@@ -72,3 +72,11 @@ def test_a_cancel_stops_without_a_joined_video(monkeypatch, tmp_path):
     monkeypatch.setattr(pipe_module, "concat_videos", cancelled)
 
     assert run(make(), video=["src.mp4"], extension=["e1.mp4", "e2.mp4"]) == []
+
+
+def test_the_overlap_clip_sets_the_seam_length(joins, monkeypatch):
+    monkeypatch.setattr(pipe_module, "probe_video_stream", lambda path: (64, 48, 30.0, 25))
+
+    run(make(overlap_frames=99, fps=24), video=["src.mp4"], extension=["e.mp4"], overlap=["ctx.mp4"])
+
+    assert joins[0]["crossfades"] == [pytest.approx(25 / 30)]

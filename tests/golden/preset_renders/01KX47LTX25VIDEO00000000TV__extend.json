@@ -36,11 +36,11 @@
       "config": {
         "fps": {
           "type": "int",
-          "value": 25
+          "value": 0
         },
-        "frames": {
+        "frame_step": {
           "type": "int",
-          "value": 25
+          "value": 8
         },
         "keep": {
           "type": "str",
@@ -49,6 +49,10 @@
         "keep_audio": {
           "type": "bool",
           "value": false
+        },
+        "seconds": {
+          "type": "int",
+          "value": 1
         }
       },
       "enabled": {
@@ -262,11 +266,11 @@
             ],
             [
               "resolution",
-              "768x512"
+              "source"
             ],
             [
               "fps",
-              25
+              "source"
             ],
             [
               "direction",
@@ -308,17 +312,21 @@
           "type": "bool",
           "value": true
         },
+        "extend_seconds": {
+          "type": "int",
+          "value": 5
+        },
         "fps": {
           "type": "int",
           "value": 25
         },
-        "frames": {
-          "type": "int",
-          "value": 150
-        },
         "manual_sigmas": {
           "type": "str",
           "value": ""
+        },
+        "match_video": {
+          "type": "bool",
+          "value": true
         },
         "media_placements": {
           "type": "list",
@@ -402,10 +410,6 @@
           "type": "str",
           "value": "after"
         },
-        "fps": {
-          "type": "int",
-          "value": 25
-        },
         "keep_audio": {
           "type": "bool",
           "value": true
@@ -413,10 +417,6 @@
         "overlap": {
           "type": "str",
           "value": "crossfade"
-        },
-        "overlap_frames": {
-          "type": "int",
-          "value": 25
         }
       },
       "enabled": {

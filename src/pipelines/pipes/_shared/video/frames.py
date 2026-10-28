@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List
+from typing import Any, List, Tuple
 import numpy as np
 import torch
 from torch import Tensor
@@ -36,6 +36,27 @@ def load_video_frames(path: str, max_frames: int) -> Tensor:
     if not frames:
         raise ValueError(f"generator/video_ltx: no frames decoded from {path!r}")
     return torch.from_numpy(np.stack(frames)).float().div_(255.0)
+
+
+def probe_video_stream(path: str) -> Tuple[int, int, float, int]:
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise ValueError(f"cannot open video file {path!r}")
+    try:
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if count <= 0:
+            while cap.grab():
+                count += 1
+    finally:
+        cap.release()
+    if width <= 0 or height <= 0 or count <= 0:
+        raise ValueError(f"no frames decoded from {path!r}")
+    return width, height, fps, count
 
 
 def resize_cover_center_crop(frames: Tensor, height: int, width: int) -> Tensor:

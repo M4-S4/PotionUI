@@ -17,8 +17,9 @@ pipeline:
     enabled: true
     configuration:
       keep: "{{ 'tail' if form.direction == 'forward' else 'head' }}"
-      frames: "{{ (((form.context_seconds * form.fps) | round | int - 1) // 8) * 8 + 1 }}"
-      fps: "{{ form.fps }}"
+      seconds: "{{ form.context_seconds }}"
+      frame_step: 8
+      fps: "{{ 0 if form.match_source else form.fps }}"
       keep_audio: false
 
   - name: "model_loader/ltx"
@@ -102,8 +103,8 @@ pipeline:
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
         - ["schedule", "{{ form.schedule }}"]
-        - ["resolution", "{{ form.resolution }}"]
-        - ["fps", "{{ form.fps }}"]
+        - ["resolution", "{{ 'source' if form.match_source else form.resolution }}"]
+        - ["fps", "{{ 'source' if form.match_source else form.fps }}"]
         - ["direction", "{{ form.direction }}"]
         - ["duration", "{{ form.duration }}"]
 
@@ -131,8 +132,9 @@ pipeline:
       step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
       step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       resolution: "{{ form.resolution }}"
-      frames: "{{ ((form.duration * form.fps) | round | int) + (((form.context_seconds * form.fps) | round | int - 1) // 8) * 8 + 1 }}"
       fps: "{{ form.fps }}"
+      match_video: "{{ form.match_source }}"
+      extend_seconds: "{{ form.duration }}"
       quantity: "{{ form.quantity }}"
       media_placements:
         - source: "video"
@@ -149,12 +151,11 @@ pipeline:
     input:
       - ["video", "source", "video"]
       - ["extension", "generator", "video"]
+      - ["overlap", "context", "video"]
     enabled: true
     configuration:
       extension_position: "{{ 'after' if form.direction == 'forward' else 'before' }}"
-      overlap_frames: "{{ (((form.context_seconds * form.fps) | round | int - 1) // 8) * 8 + 1 }}"
       overlap: "crossfade"
-      fps: "{{ form.fps }}"
       keep_audio: true
 
   - name: "gallery"

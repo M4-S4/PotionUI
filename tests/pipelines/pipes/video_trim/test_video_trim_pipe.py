@@ -33,3 +33,19 @@ def test_every_video_is_trimmed_with_the_configured_window(monkeypatch):
 def test_no_video_is_an_error():
     with pytest.raises(ValueError):
         make().process(PipeInput(input={"video": None}), lambda output: None)
+
+
+@pytest.mark.parametrize("seconds, fps, probed, step, expected", [
+    (1.0, 24.0, None, 8, 17),
+    (1.0, 0.0, 30.0, 8, 25),
+    (0.25, 8.0, None, 8, 1),
+    (0.5, 0.0, 24.0, 1, 12),
+])
+def test_a_length_in_seconds_becomes_a_stepped_frame_count(monkeypatch, seconds, fps, probed, step, expected):
+    calls = []
+    monkeypatch.setattr(pipe_module, "trim_video", lambda clip, out_path, **kwargs: calls.append(kwargs) or out_path)
+    monkeypatch.setattr(pipe_module, "probe_video_stream", lambda path: (64, 48, probed, 100))
+
+    make(seconds=seconds, fps=fps, frame_step=step).process(PipeInput(input={"video": ["a.mp4"]}), lambda output: None)
+
+    assert calls[0]["frames"] == expected and calls[0]["fps"] == fps

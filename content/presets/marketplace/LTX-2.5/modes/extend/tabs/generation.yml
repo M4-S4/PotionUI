@@ -57,11 +57,22 @@ fields:
             default: 1
             configuration: {min: 1, max: 4, step: 1}
 
+      - name: "match_source"
+        type: "checkbox"
+        formula: "size"
+        label: "Match source size and frame rate"
+        ai_hint: "On by default: the new footage takes the source video's resolution and frame rate. Turn off only to render the new part at a different size or rate; it is still fitted to the source's frame when joined."
+        default: true
+
       - name: "resolution"
         type: "resolution"
         formula: "size"
         label: "Resolution"
-        ai_hint: "Pick the source video's aspect ratio; the new footage is fitted to the source's frame when joined."
+        reactions:
+          - when: { field: "match_source", equals: true }
+            then: { set_visibility: false }
+          - when: { field: "match_source", equals: false }
+            then: { set_visibility: true }
         configuration:
           files:
             - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
@@ -72,9 +83,13 @@ fields:
         type: "slider"
         formula: "size"
         label: "FPS"
-        ai_hint: "Match the source video's frame rate so motion carries over at the same speed."
         default: 25
         configuration: {min: 1, max: 60, step: 1}
+        reactions:
+          - when: { field: "match_source", equals: true }
+            then: { set_visibility: false }
+          - when: { field: "match_source", equals: false }
+            then: { set_visibility: true }
 
       - name: "generate_audio"
         type: "checkbox"

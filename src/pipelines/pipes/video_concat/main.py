@@ -20,6 +20,7 @@ from src.pipelines.pipes._shared.media.video_concat import (
     concat_videos,
     video_paths,
 )
+from src.pipelines.pipes._shared.video.frames import probe_video_stream
 
 
 class VideoConcatPipe(BasePipe):
@@ -77,18 +78,27 @@ class VideoConcatPipe(BasePipe):
                 "extension", IOType.VIDEO, False,
                 "Clips joined to the video one at a time; each makes its own joined video", is_array=True,
             ),
+            PipeInputSpec(
+                "overlap", IOType.VIDEO, False,
+                "The clip each extension repeats at its seam; its length sets the overlap", is_array=True,
+            ),
         ]
 
     @classmethod
     def outputs(cls) -> List[PipeOutputSpec]:
         return [PipeOutputSpec("video", IOType.VIDEO, "Joined videos", is_array=True)]
 
-    def _plan(self, videos: List[str], extension: Optional[str]):
-        if extension is None:
-            return videos, None, None, 0
+    def _overlap_seconds(self, overlap_clips: List[str]) -> float:
+        if overlap_clips:
+            _, _, fps, frames = probe_video_stream(overlap_clips[0])
+            return frames / fps if fps > 0 else 0.0
         overlap = int(self.config.get("overlap_frames") or 0)
         fps = float(self.config.get("fps") or 24.0)
-        seconds = overlap / fps if overlap > 0 and fps > 0 else 0.0
+        return overlap / fps if overlap > 0 and fps > 0 else 0.0
+
+    def _plan(self, videos: List[str], extension: Optional[str], seconds: float = 0.0):
+        if extension is None:
+            return videos, None, None, 0
         before = self.config.get("extension_position", "after") == "before"
         cut = self.config.get("overlap", "crossfade") == "cut"
         clips = [extension, *videos] if before else [*videos, extension]
@@ -110,9 +120,10 @@ class VideoConcatPipe(BasePipe):
         if not videos:
             raise ValueError("video_concat needs at least one video")
         audio = as_flag(self.config.get("keep_audio", True))
+        seconds = self._overlap_seconds(video_paths(pipe_input.input.get("overlap"))) if extensions else 0.0
         joined: List[str] = []
         for extension in extensions or [None]:
-            clips, trims, crossfades, canvas = self._plan(videos, extension)
+            clips, trims, crossfades, canvas = self._plan(videos, extension, seconds)
             generation_outputs(ProgressGenerationOutput(state="Joining the clips", icon=Icon("film", "pulse")))
             with tempfile.NamedTemporaryFile(prefix="potionui-joined-", suffix=".mp4", delete=False) as handle:
                 out_path = Path(handle.name)

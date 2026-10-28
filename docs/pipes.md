@@ -1575,6 +1575,8 @@ Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA reference
 | `resolution` | `str` | `"768x512"` | no | — | — | — | Resolution (WxH) |
 | `frames` | `int` | `49` | no | — | 1 | 1001 | Number of video frames (must be 1 + 8*k; up to ~40s at 25fps) |
 | `fps` | `float` | `25.0` | no | — | 1.0 | 60.0 | Output frame rate |
+| `match_video` | `bool` | `false` | no | — | — | — | Take the resolution and frame rate from the first video keyframe clip |
+| `extend_seconds` | `float` | `0.0` | no | — | 0.0 | — | When above 0, frames = the first video keyframe clip's frames plus this many seconds |
 | `quantity` | `int` | `1` | no | — | 1 | 4 | Number of videos |
 | `seed` | `int` | `-1` | no | — | -1 | — | Random seed |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
@@ -2844,6 +2846,7 @@ Join video clips end to end, keeping their sound
 |---|---|---|---|---|
 | `video` | `VIDEO` | yes | yes | Clips joined in order |
 | `extension` | `VIDEO` | no | yes | Clips joined to the video one at a time; each makes its own joined video |
+| `overlap` | `VIDEO` | no | yes | The clip each extension repeats at its seam; its length sets the overlap |
 
 **Outputs**
 
@@ -2975,5 +2978,7 @@ Keep the first or last frames of a video
 |---|---|---|---|---|---|---|---|
 | `keep` | `str` | `"tail"` | no | `head`, `tail` | — | — | Keep the start (head) or the end (tail) of the video |
 | `frames` | `int` | `25` | no | — | 1 | — | How many frames to keep |
+| `seconds` | `float` | `0.0` | no | — | 0.0 | — | When above 0, keep this many seconds instead of a frame count |
+| `frame_step` | `int` | `1` | no | — | 1 | — | Round the kept frame count down to 1 plus a multiple of this step |
 | `fps` | `float` | `0.0` | no | — | 0.0 | — | Frame rate to resample to before counting frames; 0 keeps the source rate |
 | `keep_audio` | `bool` | `true` | no | — | — | — | Keep the sound of the kept frames |

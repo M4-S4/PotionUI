@@ -129,7 +129,8 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
 from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
-from src.pipelines.pipes._shared.video.frames import load_video_frames, to_frames_tensor
+from src.pipelines.pipes._shared.media.video_concat import as_flag
+from src.pipelines.pipes._shared.video.frames import load_video_frames, probe_video_stream, to_frames_tensor
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (
     decode_ltx_video,
@@ -295,6 +296,11 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             PipeConfigSpec("frames", int, 49, "Number of video frames (must be 1 + 8*k; up to ~40s at 25fps)",
                            required=False, min_value=1, max_value=1001),
             PipeConfigSpec("fps", float, 25.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
+            PipeConfigSpec("match_video", bool, False,
+                           "Take the resolution and frame rate from the first video keyframe clip", required=False),
+            PipeConfigSpec("extend_seconds", float, 0.0,
+                           "When above 0, frames = the first video keyframe clip's frames plus this many seconds",
+                           required=False, min_value=0.0),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
             seed_config_spec(),
             device_config_spec(),
@@ -397,6 +403,24 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 frames=media_frames, latent_index=latent_index, strength=strength, role=role))
         return conditions
 
+    def _geometry_from_clip(self, placements: List[dict], videos: List[Any], width: int, height: int,
+                            fps: float, frames: int) -> Tuple[int, int, float, int]:
+        match = as_flag(self.config.get("match_video", False))
+        extend = float(self.config.get("extend_seconds") or 0.0)
+        if not match and extend <= 0:
+            return width, height, fps, frames
+        clip = next((p for p in placements if p.get("source") == "video" and p.get("role", "keyframe") == "keyframe"), None)
+        index = int(clip.get("index", 0)) if clip is not None else 0
+        if clip is None or index >= len(videos):
+            raise ValueError("generator/video_ltx: 'match_video'/'extend_seconds' need a video keyframe clip")
+        clip_width, clip_height, clip_fps, clip_frames = probe_video_stream(videos[index])
+        if match:
+            width, height = clip_width, clip_height
+            fps = min(max(clip_fps, 1.0), 60.0) if clip_fps > 0 else fps
+        if extend > 0:
+            frames = clip_frames + round(extend * fps)
+        return width, height, fps, frames
+
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         bundle = pipe_input.input["model"]
         conditioning = pipe_input.input["conditioning"] or []
@@ -446,6 +470,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         resolution = str(self.config.get("resolution", "768x512")).split("x")
         width, height = int(resolution[0]), int(resolution[1])
+        width, height, fps, frames = self._geometry_from_clip(placements, videos, width, height, fps, frames)
         width, height, frames = snap_ltx_geometry(width, height, frames)
 
         # A stage-2 refine's temporal geometry comes from the latent it was

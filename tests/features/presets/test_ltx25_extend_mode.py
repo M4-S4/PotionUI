@@ -41,39 +41,40 @@ def inputs(pipe):
     return {(item["name"], item["provider"]) for item in pipe["input"]}
 
 
-def test_forward_conditions_on_the_tail_and_joins_the_new_footage_after_the_source(ltx25_template):
-    pipes = extend(ltx25_template, direction="forward", fps=24, duration=4, context_seconds=1.0)
+def test_by_default_the_new_footage_matches_the_source_size_and_rate(ltx25_template):
+    pipes = extend(ltx25_template, direction="forward", duration=4, context_seconds=1.0)
 
-    assert pipes["context"]["config"]["keep"] == "tail" and pipes["context"]["config"]["frames"] == 17
+    context = pipes["context"]["config"]
+    assert (context["keep"], context["seconds"], context["frame_step"], context["fps"]) == ("tail", 1.0, 8, 0)
     generator = pipes["generator"]["config"]
-    assert generator["frames"] == 96 + 17
+    assert generator["match_video"] is True and generator["extend_seconds"] == 4
     assert generator["media_placements"] == [
         {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe"},
     ]
-    joined = pipes["joined"]["config"]
-    assert joined["extension_position"] == "after" and joined["overlap_frames"] == 17 and joined["fps"] == 24
+    assert pipes["joined"]["config"]["extension_position"] == "after"
+
+
+def test_a_manual_size_and_rate_override_the_source(ltx25_template):
+    pipes = extend(ltx25_template, match_source=False, resolution="512x768", fps=24)
+
+    assert pipes["context"]["config"]["fps"] == 24
+    generator = pipes["generator"]["config"]
+    assert generator["match_video"] is False and generator["resolution"] == "512x768" and generator["fps"] == 24
 
 
 def test_backward_conditions_on_the_head_and_joins_the_new_footage_before_the_source(ltx25_template):
-    pipes = extend(ltx25_template, direction="backward", fps=25, duration=5, context_seconds=0.5)
+    pipes = extend(ltx25_template, direction="backward", context_seconds=0.5)
 
-    assert pipes["context"]["config"]["keep"] == "head" and pipes["context"]["config"]["frames"] == 9
+    assert pipes["context"]["config"]["keep"] == "head" and pipes["context"]["config"]["seconds"] == 0.5
     assert pipes["generator"]["config"]["media_placements"][0]["frame"] == "end"
-    assert pipes["generator"]["config"]["frames"] == 125 + 9
     assert pipes["joined"]["config"]["extension_position"] == "before"
 
 
-def test_the_carried_over_clip_feeds_the_generator_and_the_source_is_joined_whole(ltx25_template):
+def test_the_carried_over_clip_feeds_the_generator_and_sets_the_seam(ltx25_template):
     pipes = extend(ltx25_template)
 
     assert ("video", "source") in inputs(pipes["context"])
     assert ("video", "context") in inputs(pipes["generator"])
-    assert inputs(pipes["joined"]) >= {("video", "source"), ("extension", "generator")}
+    assert inputs(pipes["joined"]) >= {("video", "source"), ("extension", "generator"), ("overlap", "context")}
     assert ("video", "joined") in inputs(pipes["gallery"])
     assert pipes["joined"]["config"]["keep_audio"] is True
-
-
-def test_a_very_short_carry_over_still_keeps_one_frame(ltx25_template):
-    pipes = extend(ltx25_template, fps=8, context_seconds=0.25)
-
-    assert pipes["context"]["config"]["frames"] == 1 and pipes["joined"]["config"]["overlap_frames"] == 1

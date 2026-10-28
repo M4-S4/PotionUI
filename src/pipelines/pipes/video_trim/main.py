@@ -13,7 +13,14 @@ from src.pipelines.contracts import (
     logger,
 )
 from src.pipelines.outputs import Icon, ProgressGenerationOutput
-from src.pipelines.pipes._shared.media.video_concat import VideoConcatCancelled, as_flag, trim_video, video_paths
+from src.pipelines.pipes._shared.media.video_concat import (
+    DEFAULT_FPS,
+    VideoConcatCancelled,
+    as_flag,
+    trim_video,
+    video_paths,
+)
+from src.pipelines.pipes._shared.video.frames import probe_video_stream
 
 
 class VideoTrimPipe(BasePipe):
@@ -36,6 +43,22 @@ class VideoTrimPipe(BasePipe):
                 param_type=int,
                 default=25,
                 description="How many frames to keep",
+                required=False,
+                min_value=1,
+            ),
+            PipeConfigSpec(
+                name="seconds",
+                param_type=float,
+                default=0.0,
+                description="When above 0, keep this many seconds instead of a frame count",
+                required=False,
+                min_value=0.0,
+            ),
+            PipeConfigSpec(
+                name="frame_step",
+                param_type=int,
+                default=1,
+                description="Round the kept frame count down to 1 plus a multiple of this step",
                 required=False,
                 min_value=1,
             ),
@@ -64,6 +87,14 @@ class VideoTrimPipe(BasePipe):
     def outputs(cls) -> List[PipeOutputSpec]:
         return [PipeOutputSpec("video", IOType.VIDEO, "Trimmed videos, one per input", is_array=True)]
 
+    def _frame_count(self, video: str, seconds: float, fps: float, step: int) -> int:
+        if seconds <= 0:
+            count = int(self.config.get("frames") or 1)
+        else:
+            rate = fps if fps > 0 else (probe_video_stream(video)[2] or DEFAULT_FPS)
+            count = round(seconds * rate)
+        return max(1, (count - 1) // step * step + 1)
+
     def process(
         self, pipe_input: PipeInput, generation_outputs: callable, is_cancelled: Optional[callable] = None,
     ) -> PipeOutput:
@@ -71,8 +102,9 @@ class VideoTrimPipe(BasePipe):
         if not videos:
             raise ValueError("video_trim needs at least one video")
         keep = str(self.config.get("keep", "tail"))
-        frames = int(self.config.get("frames") or 1)
         fps = float(self.config.get("fps") or 0.0)
+        seconds = float(self.config.get("seconds") or 0.0)
+        step = max(1, int(self.config.get("frame_step") or 1))
         audio = as_flag(self.config.get("keep_audio", True))
         trimmed: List[str] = []
         for video in videos:
@@ -82,6 +114,7 @@ class VideoTrimPipe(BasePipe):
             with tempfile.NamedTemporaryFile(prefix="potionui-trim-", suffix=".mp4", delete=False) as handle:
                 out_path = Path(handle.name)
             try:
+                frames = self._frame_count(video, seconds, fps, step)
                 trim_video(video, out_path, keep=keep, frames=frames, fps=fps, audio=audio, is_cancelled=is_cancelled)
             except VideoConcatCancelled:
                 out_path.unlink(missing_ok=True)
@@ -89,6 +122,6 @@ class VideoTrimPipe(BasePipe):
             except Exception:
                 out_path.unlink(missing_ok=True)
                 raise
-            logger.info(f"[VIDEO_TRIM] kept the {keep} {frames} frame(s) of {video}")
+            logger.info(f"[VIDEO_TRIM] kept the {keep} frames of {video}")
             trimmed.append(str(out_path))
         return PipeOutput(output={"video": trimmed})
