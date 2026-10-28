@@ -110,6 +110,12 @@ def test_region_strategy_values(template):
     assert by_id["inpaint_region_restore"]["config"]["strategy"] == "composite"
 
 
-def test_region_context_field_reaches_the_crop(template):
-    by_id = _by_id(_render(template, source_image_inpaint_mask=MASK, region_context="1.0"))
-    assert float(by_id["inpaint_region_crop"]["config"]["context"]) == 1.0
+@pytest.mark.parametrize("value", ["0.25", "0.5", "1.0"])
+def test_region_context_options_reach_the_crop(template, value):
+    by_id = _by_id(_render(template, source_image_inpaint_mask=MASK, region_context=value))
+    assert float(by_id["inpaint_region_crop"]["config"]["context"]) == float(value)
+
+
+def test_region_context_default_maps_to_half(template):
+    by_id = _by_id(_render(template, source_image_inpaint_mask=MASK))
+    assert float(by_id["inpaint_region_crop"]["config"]["context"]) == 0.5

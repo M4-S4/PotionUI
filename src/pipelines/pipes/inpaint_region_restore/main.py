@@ -73,7 +73,9 @@ class InpaintRegionRestorePipe(BasePipe):
         # Resize inpainted image back to original crop dimensions
         content = resample_image(inpainted_np, crop_width, crop_height)
 
-        if composite and original_mask is not None:
+        if composite:
+            if original_mask is None:
+                raise ValueError("inpaint_region_restore with strategy composite needs original_mask")
             return self._composite(original_np, generated, original_mask, crop_region)
 
         # Create result image starting with original

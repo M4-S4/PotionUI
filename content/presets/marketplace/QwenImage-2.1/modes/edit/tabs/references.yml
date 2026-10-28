@@ -6,15 +6,3 @@ fields:
     configuration:
       allow_inpaint: true
     ai_hint: "The image to edit. Describe the change in the prompt and say what must stay. Paint a region on it to change only that area: the area is cropped with surrounding context, edited at the model's working size and composited back, so every pixel outside it stays exactly as it was."
-
-  - name: "region_context"
-    type: "select"
-    label: "Region context"
-    audience: "advanced"
-    default: "0.5"
-    ai_hint: "How much of the surroundings the model sees around a painted region. Tight suits small, isolated changes; Wide helps when the edit must match a large neighbouring structure. Only used when a region is painted."
-    configuration:
-      options:
-        - { label: "Tight", value: "0.25" }
-        - { label: "Balanced", value: "0.5" }
-        - { label: "Wide", value: "1.0" }

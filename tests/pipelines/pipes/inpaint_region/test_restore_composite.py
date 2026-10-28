@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from PIL import Image
 
 from src.pipelines.contracts import PipeInput
@@ -109,3 +110,18 @@ def test_fooocus_strategy_only_restores_the_first_image():
     ).output
     outs = _restore({}, crop, [crop["image"], crop["image"]])
     assert len(outs) == 1
+
+
+def test_composite_without_the_original_mask_raises():
+    image, mask = _scene()
+    crop = _crop(image, mask)
+    pipe = InpaintRegionRestorePipe(COMPOSITE)
+    with pytest.raises(ValueError, match="original_mask"):
+        pipe.process(
+            PipeInput(input={
+                "inpainted_image": [crop["image"]],
+                "crop_region": crop["crop_region"],
+                "original_image": crop["original_image"],
+            }),
+            None,
+        )
