@@ -123,7 +123,7 @@ def _run_pipe(tmp_path, monkeypatch, model, video, factor=FACTOR):
     monkeypatch.setattr(rife_main, "StreamingMp4Writer", _FakeWriter)
     monkeypatch.setattr(rife_main, "mux_audio_from_source", lambda *a, **k: False)
     monkeypatch.setattr(rife_main, "_load_model", lambda _path, _device, _models=None: model)
-    pipe = RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": factor,
+    pipe = RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": "x"}, "factor": factor,
                                  "keep_audio": False})
     pipe.process(PipeInput(input={"video": [str(video)]}), lambda o: None)
     return _FakeWriter.last.frames
@@ -286,7 +286,7 @@ def test_pipe_releases_prepared_frames_on_cancellation(tmp_path, monkeypatch):
         return calls["n"] > 3
 
     with pytest.raises(SamplingCancelled):
-        RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2}).process(
+        RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": "x"}, "factor": 2}).process(
             PipeInput(input={"video": [str(video)]}), lambda o: None, is_cancelled=cancel
         )
 

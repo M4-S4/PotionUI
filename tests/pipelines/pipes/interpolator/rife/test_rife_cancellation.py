@@ -131,7 +131,7 @@ def _install(monkeypatch, capture, writer_cls=_RealFileFakeWriter, mux=False):
 
 
 def _pipe(**config):
-    return RifeInterpolatorPipe({"model": {"file_path": "x"}, "factor": 2, **config})
+    return RifeInterpolatorPipe({"scene_detection": False, "model": {"file_path": "x"}, "factor": 2, **config})
 
 
 def _run(pipe, outputs, is_cancelled=None):
