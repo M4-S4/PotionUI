@@ -57,6 +57,9 @@
 	} = $props();
 
 	let toolsOpen = $state(false);
+	let maskTool = $derived(
+		toolGroups.flatMap((group) => group.tools).find((entry) => entry.tool.id === 'mask' && entry.availability.enabled)?.tool ?? null
+	);
 	let audioElement: HTMLAudioElement | null = $state(null);
 	let palette = $state(DEFAULT_WAVEFORM_PALETTE);
 	let chips = $derived(url && !broken ? metaChips(metadata, kind, name, { edited: false }) : []);
@@ -98,8 +101,8 @@
 			<button
 				type="button"
 				class="w-full h-full flex items-center justify-center"
-				aria-label="View full size"
-				onclick={onPreview}
+				aria-label={maskTool ? (hasMask ? 'Edit mask' : 'Paint mask') : 'View full size'}
+				onclick={() => (maskTool ? onTool(maskTool) : onPreview())}
 			>
 				<img
 					src={url}

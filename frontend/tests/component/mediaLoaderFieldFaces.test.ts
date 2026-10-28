@@ -276,6 +276,56 @@ describe('loaded face', () => {
 		expect(onOpenEditor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'crop' }));
 	});
 
+	it('opens the mask editor from the preview image when the field allows inpainting', async () => {
+		const onOpenEditor = vi.fn();
+		const { target } = mount({
+			name: 'source_image',
+			config: { title: 'Source image', accept: 'image/*', allow_inpaint: true },
+			value: imageItem('a'),
+			onChange: vi.fn(),
+			onMaskChange: vi.fn(),
+			onOpenEditor
+		});
+		await tick();
+
+		expect(buttonByLabel(target, 'View full size')).toBeUndefined();
+		buttonByLabel(target, 'Paint mask')!.click();
+		await tick();
+		expect(onOpenEditor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'mask' }));
+	});
+
+	it('runs the mask tool on M while the pointer is over the field, but not while typing', async () => {
+		const onOpenEditor = vi.fn();
+		const { target } = mount({
+			name: 'source_image',
+			config: { title: 'Source image', accept: 'image/*', allow_inpaint: true },
+			value: imageItem('a'),
+			onChange: vi.fn(),
+			onMaskChange: vi.fn(),
+			onOpenEditor
+		});
+		await tick();
+
+		const press = (el: EventTarget, key: string) =>
+			el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, composed: true }));
+
+		press(document.body, 'm');
+		expect(onOpenEditor).not.toHaveBeenCalled();
+
+		target.firstElementChild!.dispatchEvent(new MouseEvent('mouseenter'));
+		press(document.body, 'M');
+		expect(onOpenEditor).toHaveBeenCalledTimes(1);
+
+		const input = document.createElement('input');
+		document.body.appendChild(input);
+		press(input, 'm');
+		expect(onOpenEditor).toHaveBeenCalledTimes(1);
+
+		target.firstElementChild!.dispatchEvent(new MouseEvent('mouseleave'));
+		press(document.body, 'm');
+		expect(onOpenEditor).toHaveBeenCalledTimes(1);
+	});
+
 	it('peeks the single preview full size, as whichever kind it is', async () => {
 		const { target } = mount({
 			name: 'reference_image',

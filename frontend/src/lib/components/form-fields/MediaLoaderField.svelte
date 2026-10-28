@@ -772,6 +772,14 @@
 		}
 	}
 
+	let pointerInside = false;
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (!pointerInside || event.key === 'Delete') return;
+		if (event.target !== document.body && event.target !== document.documentElement) return;
+		handleRootKeydown(event);
+	}
+
 	function handleRootKeydown(event: KeyboardEvent) {
 		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
 		if (face !== 'inspector' && face !== 'strip') return;
@@ -794,6 +802,8 @@
 	$: countText = multiple && countLimit !== null ? formatCount(multiItems.length, countLimit) : null;
 </script>
 
+<svelte:window on:keydown={handleWindowKeydown} />
+
 <div
 	bind:this={uploadAreaRef}
 	class="relative {compact ? (fill ? 'h-full flex flex-col' : '') : 'field-card'}"
@@ -801,6 +811,8 @@
 	data-media-field
 	data-face={face}
 	on:keydown={handleRootKeydown}
+	on:mouseenter={() => (pointerInside = true)}
+	on:mouseleave={() => (pointerInside = false)}
 	use:fileDrop={{ onFiles: handleDroppedFiles, onActive: (active) => (isDragging = active) }}
 	on:click={() => (isPasteActive = true)}
 >
