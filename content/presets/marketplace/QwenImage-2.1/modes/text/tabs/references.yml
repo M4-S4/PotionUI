@@ -1,0 +1,8 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Image"
+    required: true
+    configuration:
+      allow_inpaint: true
+    ai_hint: "The image to edit. Describe the change in the prompt and say what must stay. Paint a region on it to change only that area: the area is cropped with surrounding context, edited at the model's working size and composited back, so every pixel outside it stays exactly as it was."

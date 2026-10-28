@@ -63,6 +63,7 @@ speed_profiles:
 vars:
   default_shift: 2.0
   promptless_modes:
+    - "text"
     - mode: "control"
       when:
         logic: "AND"
@@ -84,7 +85,12 @@ llm:
     it; describe the change you want in the prompt (e.g. "change the sign text
     to ...") and what must stay, not the whole scene from scratch. A region
     painted on the image limits the change to that area, composited back
-    pixel-exact. Control mode follows the structure of a control
+    pixel-exact. Combine images mode takes a base image plus up to 9 references,
+    each with an optional role label; the base is Image 1 and the filled
+    references are Image 2, 3 and so on, and the prompt should say what to take
+    from which (e.g. "put the jacket from Image 2 onto the person in Image 1"). Edit
+    text mode has no prompt: the user fills Current text, New text and an optional
+    style or placement, and the prompt is built from them. Control mode follows the structure of a control
     image (edges, depth, pose, lines or grayscale) and can repaint a masked part
     of an image; describe the whole finished image, not just the masked part.
 
@@ -104,6 +110,13 @@ prompt_syntax:
       help: "Exact text to render in the image, verbatim"
       color: "coral"
   edit:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
+  combine:
     - token: '"…"'
       kind: "wrap"
       pattern: '"[^"\n]*"'
@@ -133,6 +146,8 @@ negative_prompt:
 modes:
   - txt2img
   - edit
+  - combine
+  - text
   - control
 
 media:
