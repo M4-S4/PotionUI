@@ -92,6 +92,7 @@ class FormTemplate:
     default: bool = False
     order: int = 0
     negative_prompt: Optional[Dict[str, Any]] = None
+    requirements: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class ModeTemplate:

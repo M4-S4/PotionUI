@@ -18,6 +18,7 @@ from src.features.presets.requirements.contracts import RequirementBackendInfo
 from src.features.presets.requirements.evaluator import (
     MultiBackendRequirementResults,
     describe_requirement_entry,
+    entry_mode,
     evaluate_preset_requirements_for_backends,
 )
 from src.platform.plugins.requirement_checkers import requirement_checker_registry
@@ -63,6 +64,7 @@ def _build_result_items(
         item["type"] = entry.get("type")
         item["name"] = describe_requirement_entry(requirement_checker_registry, entry)
         item["optional"] = bool(entry.get("optional", False))
+        item["mode"] = entry_mode(entry)
         if chosen_id is not None and i in backend_scoped:
             item["backend_id"] = chosen_id
         items.append(item)
@@ -136,3 +138,12 @@ async def get_preset_requirements(
         "backends": backends_payload,
         "checked_at": evaluation.checked_at_for(chosen_id),
     }
+
+
+async def refresh_mode_requirements(collaborators: PresetCollaborators, preset_id: str) -> None:
+    preset = collaborators.file_repo.find_preset_by_id(preset_id)
+    if preset is None or collaborators.requirements_cache is None:
+        return
+    if not any(entry_mode(spec) for spec in preset.requirements or []):
+        return
+    await get_preset_requirements(collaborators, preset_id, refresh=True)

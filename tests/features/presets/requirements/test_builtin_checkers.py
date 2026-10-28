@@ -252,6 +252,36 @@ class TestModelRequirementChecker:
         assert result.status == "ok"
 
     @pytest.mark.asyncio
+    async def test_file_present_and_available(self):
+        repo = MagicMock(get_by_filename=MagicMock(return_value=[SimpleNamespace(is_available=True)]))
+        models = SimpleNamespace(model_repo=repo)
+
+        result = await ModelRequirementChecker().check({"type": "model", "filename": "lora.safetensors"}, _ctx(models=models))
+
+        assert result.status == "ok"
+        repo.get_by_filename.assert_called_once_with("lora.safetensors")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("rows", [[], [SimpleNamespace(is_available=False)]])
+    async def test_file_absent_or_unavailable_is_missing(self, rows):
+        models = SimpleNamespace(model_repo=MagicMock(get_by_filename=MagicMock(return_value=rows)))
+
+        result = await ModelRequirementChecker().check(
+            {"type": "model", "filename": "lora.safetensors", "hint": "Download it"}, _ctx(models=models))
+
+        assert result.status == "missing"
+        assert result.hint == "Download it"
+        assert result.action.kind == "open_downloader"
+        assert result.action.payload == {"filename": "lora.safetensors"}
+
+    def test_schema_rejects_file_with_hash(self):
+        with pytest.raises(ValidationError):
+            ModelRequirementChecker.schema.model_validate({"type": "model", "filename": "a", "hash": "b"})
+
+    def test_describe_uses_file(self):
+        assert ModelRequirementChecker().describe({"type": "model", "filename": "lora.safetensors"}) == "lora.safetensors"
+
+    @pytest.mark.asyncio
     async def test_no_models_catalog_is_unknown(self):
         checker = ModelRequirementChecker()
 

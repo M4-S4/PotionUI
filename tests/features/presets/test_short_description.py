@@ -57,7 +57,7 @@ def _preset(root, txt2img_form, edit_form, edit_variant=None):
 def served(tmp_path):
     _preset(tmp_path, FORM_WITH, FORM_WITHOUT, VARIANT)
     loader = PresetTemplateLoader([str(tmp_path)])
-    collaborators = SimpleNamespace(file_repo=FilePresetRepository(loader))
+    collaborators = SimpleNamespace(file_repo=FilePresetRepository(loader), requirements_cache=None)
     return loader, operations.get_available_modes(collaborators, PRESET_ID)
 
 
@@ -83,7 +83,7 @@ def test_mode_uses_default_variant_value(served):
 
 def test_missing_short_description_is_none(tmp_path):
     _preset(tmp_path, FORM_WITHOUT, FORM_WITHOUT)
-    collaborators = SimpleNamespace(file_repo=FilePresetRepository(PresetTemplateLoader([str(tmp_path)])))
+    collaborators = SimpleNamespace(file_repo=FilePresetRepository(PresetTemplateLoader([str(tmp_path)])), requirements_cache=None)
     result = operations.get_available_modes(collaborators, PRESET_ID)
     assert all(m["short_description"] is None for m in result["modes"])
 

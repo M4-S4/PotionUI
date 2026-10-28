@@ -26,6 +26,7 @@ class RoutingRequest:
     preset: Any
     form_data: Dict[str, Any] = field(default_factory=dict)
     user_id: Optional[str] = None
+    mode: Optional[str] = None
 
 
 @dataclass

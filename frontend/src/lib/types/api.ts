@@ -96,6 +96,9 @@ export interface PresetModeInfo {
 	/** The contributing plugin's id when this mode came from a plugin's
 	 *  `preset_modes:` instead of the preset's own preset.yml. */
 	source_plugin?: string | null;
+	/** Names of this mode's required files that are missing; `null` when not yet
+	 *  checked, empty when the mode needs nothing or everything is present. */
+	requirements_missing?: string[] | null;
 }
 
 /** Body of a 422 response from `POST /api/generations/start` when the submitted
@@ -328,6 +331,9 @@ export interface RequirementResultInfo {
 	 *  field pulled from the raw entry) - what to show as this row's name. */
 	name?: string;
 	optional?: boolean;
+	/** The mode this entry belongs to (declared in that mode's `form.yml`); `null`
+	 *  for a preset-wide entry. */
+	mode?: string | null;
 	/** Present only on a backend-scoped entry (e.g. `comfyui_node`) - which
 	 *  backend this result was evaluated against. */
 	backend_id?: string;

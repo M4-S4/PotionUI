@@ -130,6 +130,7 @@ class TestPresetOperationsQuery:
         template.llm = None
         template.prompt_resources = {}
         template.prompt_syntax = {}
+        template.requirements = []
 
         mock_mode = Mock(spec=ModeTemplate)
         mock_form = Mock()

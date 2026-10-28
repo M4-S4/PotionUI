@@ -7,6 +7,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, EmptyState, IconButton, Spinner } from '$lib/components/ui';
 	import { DetailSection } from '$lib/components/detail';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import type { RequirementBackendInfo, RequirementResultInfo } from '$lib/types/api';
 
 	export let presetId: string;
@@ -316,6 +317,7 @@
 							<div class="flex items-baseline gap-2 flex-wrap">
 								<span class="font-mono text-sm font-semibold text-fg">{item.name || item.type || 'requirement'}</span>
 								<span class="text-xs text-fg-muted">{item.detail}</span>
+								{#if item.mode}<Badge variant="info" size="sm">{modeLabel(item.mode)} mode</Badge>{/if}
 								{#if item.optional}<Badge variant="neutral" size="sm">optional</Badge>{/if}
 							</div>
 							{#if item.hint && item.status !== 'ok'}
