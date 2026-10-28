@@ -15,7 +15,7 @@ cv2 = pytest.importorskip(
 )
 
 from src.pipelines.contracts import PipeInput
-from src.pipelines.outputs import GalleryGenerationOutput
+from src.pipelines.outputs import GalleryGenerationOutput, ProgressGenerationOutput
 from src.pipelines.pipes.interpolator.rife import main as rife_main
 from src.pipelines.pipes.interpolator.rife.cadence import output_count, slot, source_per_output
 from src.pipelines.pipes.interpolator.rife.main import RifeInterpolatorPipe
@@ -151,6 +151,17 @@ def test_target_rate_sets_count_rate_and_frames(monkeypatch, src_fps, target_fps
     assert all(np.array_equal(got, want) for got, want in zip(writer.frames, expected))
     gallery = [o for o in outputs if isinstance(o, GalleryGenerationOutput)]
     assert gallery[0].videos[0].fps == target_fps
+
+
+@pytest.mark.parametrize("src_fps,config,rates", [
+    (16.0, {"target_fps": 24.0}, "<<NUMBER:16.00 fps>> -> <<NUMBER:24.00 fps>>"),
+    (10.0, {"factor": 2}, "<<NUMBER:10.00 fps>> -> <<NUMBER:20.00 fps>>"),
+])
+def test_the_progress_message_names_the_source_rate(monkeypatch, src_fps, config, rates):
+    _, outputs = _run(monkeypatch, [_ramp(i) for i in range(5)], src_fps, **config)
+
+    states = [o.state for o in outputs if isinstance(o, ProgressGenerationOutput)]
+    assert any(state.startswith("Interpolating <<NUMBER:5 frames>> at ") and state.endswith(rates) for state in states)
 
 
 def test_source_frames_pass_through_untouched_at_24_to_60(monkeypatch):
