@@ -1,0 +1,55 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed"
+    default: "quality"
+    ai_hint: "Quality runs 24 steps and holds the look of the source best. Turbo runs 4 steps and is softer. Custom hands the Steps slider on the Advanced tab to the user."
+    configuration:
+      options:
+        - { label: "Quality (24 steps)", value: "quality" }
+        - { label: "Turbo (4 steps)", value: "turbo" }
+        - { label: "Custom (set Steps yourself)", value: "custom" }
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "source_video"
+        type: "video"
+        label: "Video"
+        required: true
+        description: "The video to extend."
+        ai_hint: "The clip to extend. It is fitted onto MiniMax-H3's canvas at its own aspect ratio and joined with the new footage. When extending after it, its last 17 frames and the sound leading up to them carry the motion and audio into the new part. When adding a lead-in, only its first frame is used, so the new footage ends exactly where the video begins."
+      - name: "direction"
+        type: "select"
+        label: "Add footage"
+        default: "after"
+        configuration:
+          options:
+            - { label: "After the video", value: "after" }
+            - { label: "Before the video", value: "before" }
+      - name: "added_seconds"
+        type: "slider"
+        formula: "size"
+        label: "Added length (seconds)"
+        default: 5
+        description: "How much new footage to add."
+        ai_hint: "Seconds of new footage, generated in one MiniMax-H3 window. Cost is close to linear in this. The prompt describes only what happens in the new part, not the original clip."
+        configuration: {min: 1, max: 13.5, step: 0.5}
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_fl2va.yml"

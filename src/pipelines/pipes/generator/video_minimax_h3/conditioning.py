@@ -80,6 +80,10 @@ from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     FPS,
     FRAMES_PER_CHUNK,
     LATENTS_PER_CHUNK,
+    MAX_ASPECT_RATIO,
+    MIN_ASPECT_RATIO,
+    frames_to_encode_for_continuation,
+    head_frames_for_latents,
     resolve_canvas_size,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.layout import ReferenceBlock, patchify_video_latents
@@ -203,14 +207,7 @@ def normalize_reference_video(
             f"a reference video must be (num_frames, height, width, 3) RGB frames, got {tuple(frames.shape)}"
         )
 
-    if fps <= 0:
-        raise ValueError(f"a reference video must have a positive frame rate, got {fps}")
-    if fps != target_fps:
-        scale = target_fps / fps
-        slots = np.floor(np.arange(frames.shape[0]) * scale + 0.5).astype(np.int64)
-        frames = np.repeat(frames, np.diff(slots, append=math.floor(frames.shape[0] * scale + 0.5)), axis=0)
-
-    frames = frames[:num_frames]
+    frames = resample_frames(frames, fps=fps, target_fps=target_fps)[:num_frames]
     height, width = resolve_canvas_size(
         frames.shape[2], frames.shape[1],
         canvas_multiple=canvas_multiple, short_edge=short_edge, max_pixels=max_pixels,
@@ -220,6 +217,62 @@ def normalize_reference_video(
     return np.stack([
         np.asarray(Image.fromarray(frame).resize((width, height), Image.Resampling.LANCZOS)) for frame in frames
     ])
+
+
+def resample_frames(frames: np.ndarray, *, fps: float, target_fps: float = FPS) -> np.ndarray:
+    """Constant-frame-rate resample of a `(F, H, W, 3)` stack, dropping and
+    duplicating whole frames the way `ffmpeg`'s `fps` filter does."""
+    if fps <= 0:
+        raise ValueError(f"a video must have a positive frame rate, got {fps}")
+    if fps == target_fps:
+        return frames
+    scale = target_fps / fps
+    slots = np.floor(np.arange(frames.shape[0]) * scale + 0.5).astype(np.int64)
+    return np.repeat(frames, np.diff(slots, append=math.floor(frames.shape[0] * scale + 0.5)), axis=0)
+
+
+def source_canvas_size(frame_width: int, frame_height: int) -> tuple[int, int]:
+    """`(height, width)` of the H3 canvas a source video is fitted onto: its
+    own aspect ratio, clamped into `[1:4, 4:1]`."""
+    if frame_width <= 0 or frame_height <= 0:
+        raise ValueError(f"a source video must have a positive size, got {frame_width}x{frame_height}")
+    ratio = min(max(frame_width / frame_height, MIN_ASPECT_RATIO), MAX_ASPECT_RATIO)
+    return resolve_canvas_size(ratio, 1.0)
+
+
+def fit_source_video(frames: Any, *, fps: float, height: int, width: int, target_fps: float = FPS) -> np.ndarray:
+    """A user's source video -> `(F, height, width, 3)` uint8 at `target_fps`,
+    cover-cropped onto the canvas so a clip outside H3's aspect range still fits."""
+    frames = np.asarray(frames)
+    if frames.dtype != np.uint8:
+        frames = (frames * 255.0).round().clip(0, 255).astype(np.uint8)
+    if frames.ndim != 4 or frames.shape[3] != 3 or frames.shape[0] == 0:
+        raise ValueError(
+            f"a source video must be (num_frames, height, width, 3) RGB frames, got {tuple(frames.shape)}"
+        )
+    frames = resample_frames(frames, fps=fps, target_fps=target_fps)
+    if frames.shape[1:3] == (height, width):
+        return frames
+    return np.stack([
+        np.asarray(fit_keyframe_to_canvas(Image.fromarray(frame), height, width, is_geometry_anchor=False))
+        for frame in frames
+    ])
+
+
+def source_tail_frames(frames: np.ndarray, num_latents: int) -> np.ndarray:
+    """The last real frames covering `num_latents` head latents, padded with
+    the final frame up to the count the video VAE needs to encode them."""
+    real = head_frames_for_latents(num_latents)
+    if real > len(frames):
+        raise ValueError(
+            f"continuing from {num_latents} latent frame(s) needs {real} source frames, but the clip "
+            f"has only {len(frames)}"
+        )
+    tail = frames[-real:]
+    padding = frames_to_encode_for_continuation(num_latents) - real
+    if padding > 0:
+        tail = np.concatenate([tail, np.repeat(tail[-1:], padding, axis=0)], axis=0)
+    return tail.copy()
 
 
 def snap_reference_video_frames(
@@ -347,6 +400,31 @@ def encode_continuation_condition(
     pixels = _pixels_from_frames(tail_frames, device)
     latent = encode_keyframe_condition(vae_module, pixels, latents_mean=latents_mean, latents_std=latents_std)
     return latent[:, :, :num_latents]
+
+
+def encode_source_video_condition(
+    vae_module: Any, frames: np.ndarray, *, num_latents: int, anchor_start: int, patch_size: tuple[int, int, int],
+    device: Any, dtype: torch.dtype, latents_mean: Any, latents_std: Any, generator: torch.Generator,
+) -> tuple[tuple[int, ...], Tensor]:
+    """`num_latents` latent frames of a pixel clip as noised keyframe
+    condition rows anchored at latent frames `anchor_start ..`, one noise draw
+    per latent frame -- the Director continuation recipe at any position."""
+    if num_latents < 1:
+        raise ValueError(f"num_latents must be >= 1, got {num_latents}")
+    if anchor_start < 0:
+        raise ValueError(f"anchor_start must not be negative, got {anchor_start}")
+    latent = encode_continuation_condition(
+        vae_module, frames, num_latents=num_latents, device=device,
+        latents_mean=latents_mean, latents_std=latents_std,
+    )
+    if latent.shape[2] < num_latents:
+        raise ValueError(f"the clip encoded to {latent.shape[2]} latent frame(s), {num_latents} needed")
+    rows = []
+    for offset in range(num_latents):
+        frame = latent[:, :, offset: offset + 1].to(device=device, dtype=torch.float32)
+        noise = torch.randn(frame.shape, generator=generator, device=device, dtype=torch.float32)
+        rows.append(patchify_video_latents(scale_noise(frame, KEYFRAME_NOISE_AUG, noise).to(dtype), patch_size))
+    return tuple(range(anchor_start, anchor_start + num_latents)), torch.cat(rows, dim=0)
 
 
 # Bytes budget for the request-local `VisualLatentCache` below. Sized to hold a

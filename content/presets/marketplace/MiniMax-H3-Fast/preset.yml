@@ -223,3 +223,4 @@ formulas:
 modes:
   - video
   - refine_faces
+  - extend
