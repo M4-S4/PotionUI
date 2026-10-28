@@ -45,6 +45,10 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  matting_tags:
+    type: "model_tags"
+    label: "Matting model tags"
+    description: "Only models with any of these tags appear in the Matting Model picker."
   control_tags:
     type: "model_tags"
     label: "Fun ControlNet tags"
@@ -64,6 +68,7 @@ vars:
   default_shift: 2.0
   promptless_modes:
     - "text"
+    - "restyle"
     - mode: "control"
       when:
         logic: "AND"
@@ -90,7 +95,9 @@ llm:
     references are Image 2, 3 and so on, and the prompt should say what to take
     from which (e.g. "put the jacket from Image 2 onto the person in Image 1"). Edit
     text mode has no prompt: the user fills Current text, New text and an optional
-    style or placement, and the prompt is built from them. Control mode follows the structure of a control
+    style or placement, and the prompt is built from them. Restyle mode also has no prompt: the user
+    picks a task (style, background, lighting, colourise, restore) and describes the
+    result in a few words. Control mode follows the structure of a control
     image (edges, depth, pose, lines or grayscale) and can repaint a masked part
     of an image; describe the whole finished image, not just the masked part.
 
@@ -148,6 +155,7 @@ modes:
   - edit
   - combine
   - text
+  - restyle
   - control
 
 media:

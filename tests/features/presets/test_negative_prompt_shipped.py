@@ -19,7 +19,7 @@ EXPECTED = {
     ("LTX-2.5", "video"), ("LTX-2.5", "upscale"),
     ("ZImage", "txt2img"), ("Wan", "video"),
     ("QwenImage", "txt2img"), ("QwenImage", "img2img"), ("QwenImage", "edit"),
-    ("QwenImage-2.1", "txt2img"), ("QwenImage-2.1", "edit"), ("QwenImage-2.1", "combine"), ("QwenImage-2.1", "text"), ("QwenImage-2.1", "control"),
+    ("QwenImage-2.1", "txt2img"), ("QwenImage-2.1", "edit"), ("QwenImage-2.1", "combine"), ("QwenImage-2.1", "text"), ("QwenImage-2.1", "restyle"), ("QwenImage-2.1", "control"),
     ("Anima", "txt2img"),
     ("Flux1", "txt2img"), ("Flux1", "img2img"), ("Flux2", "txt2img"), ("Flux2", "img2img"),
     ("Flux3", "txt2img"), ("Flux3", "edit"),

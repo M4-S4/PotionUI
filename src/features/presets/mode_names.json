@@ -87,6 +87,10 @@
     "label": "Edit text",
     "icon": "pencil"
   },
+  "restyle": {
+    "label": "Restyle",
+    "icon": "palette"
+  },
   "control": {
     "label": "Control",
     "icon": "sliders"
