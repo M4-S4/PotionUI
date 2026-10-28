@@ -133,3 +133,17 @@ def test_generator_resolves_the_edit_profile_defaults(template):
     cfg = _render(template)["generator/qwen_image21"]["config"]
     assert int(cfg["steps"]) == 40
     assert float(cfg["guidance"]) == 4.0
+
+
+def test_blank_current_text_and_hint_give_the_plain_add_prompt(template):
+    pipes = _render(template, current_text="   ", text_hint="  ")
+    assert _prompt(pipes) == 'Add the text "OPEN". Keep the rest of the image unchanged.'
+    assert "Placement" not in _prompt(pipes)
+
+
+def test_blank_new_text_is_rejected(template):
+    with pytest.raises(FormBindingError):
+        bound_form_data(template, "text", {
+            "diffusion_model": "/m/d.safetensors", "text_encoder": "/m/t.safetensors", "vae": "/m/v.safetensors",
+            "source_image": "/uploads/sign.png", "new_text": "   ",
+        })

@@ -1026,7 +1026,8 @@ def _validate_field(
             _fail(missing)
         return
 
-    if required and (value is None or value == ""):
+    blank_text = field.type in _TEXT_FIELD_TYPES and isinstance(value, str) and not value.strip()
+    if required and (value is None or value == "" or blank_text):
         _fail(missing)
         return
 

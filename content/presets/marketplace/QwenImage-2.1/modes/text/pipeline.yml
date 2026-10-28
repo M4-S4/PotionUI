@@ -54,7 +54,7 @@ pipeline:
     configuration:
       p_prompt:
         input: ""
-        output: "{% set cur = (form.current_text | default('', true)) | trim %}{% set hint = (form.text_hint | default('', true)) | trim %}{% if cur %}Change the text \"{{ cur }}\" to \"{{ form.new_text | trim }}\".{% else %}Add the text \"{{ form.new_text | trim }}\".{% endif %}{% if hint %} Placement and style: {{ hint }}.{% endif %}{% if cur %} Keep the font, size, colour and background.{% else %} Keep the rest of the image unchanged.{% endif %}"
+        output: &text_prompt "{% set cur = (form.current_text | default('', true)) | trim %}{% set hint = (form.text_hint | default('', true)) | trim %}{% if cur %}Change the text \"{{ cur }}\" to \"{{ form.new_text | trim }}\".{% else %}Add the text \"{{ form.new_text | trim }}\".{% endif %}{% if hint %} Placement and style: {{ hint }}.{% endif %}{% if cur %} Keep the font, size, colour and background.{% else %} Keep the rest of the image unchanged.{% endif %}"
       n_prompt:
         input: ""
         output: ""
@@ -90,7 +90,7 @@ pipeline:
         - "@loop":
             items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
-        - ["positive_prompt", "{% set cur = (form.current_text | default('', true)) | trim %}{% set hint = (form.text_hint | default('', true)) | trim %}{% if cur %}Change the text \"{{ cur }}\" to \"{{ form.new_text | trim }}\".{% else %}Add the text \"{{ form.new_text | trim }}\".{% endif %}{% if hint %} Placement and style: {{ hint }}.{% endif %}{% if cur %} Keep the font, size, colour and background.{% else %} Keep the rest of the image unchanged.{% endif %}"]
+        - ["positive_prompt", *text_prompt]
         - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
