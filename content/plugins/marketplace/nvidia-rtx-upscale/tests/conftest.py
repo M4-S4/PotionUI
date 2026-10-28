@@ -12,6 +12,8 @@ import torch
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 PIPE_MAIN = PLUGIN_ROOT / "pipes" / "upscaler_rtx" / "main.py"
+VFG_MAIN = PLUGIN_ROOT / "pipes" / "interpolator_rtx" / "main.py"
+PIPE_PATHS = (PIPE_MAIN, VFG_MAIN)
 
 #: The only module the pipe must not touch at import time. `PipeCatalog`
 #: imports pipe modules to discover them, and `_load_pipe_module` swallows any
@@ -80,6 +82,16 @@ def pipe_module() -> ModuleType:
     return load_pipe_module()
 
 
+@pytest.fixture(scope="session")
+def vfg_module() -> ModuleType:
+    return load_pipe_module(VFG_MAIN)
+
+
+@pytest.fixture(scope="session")
+def pipe_paths():
+    return PIPE_PATHS
+
+
 # Exposed as fixtures, not bare module-level names imported by test files:
 # other plugins in this repo cross-import their conftest as
 # `tests.plugins.<name>.conftest`, which resolves only when the main repo's
@@ -112,35 +124,43 @@ class _FakeQualityLevel(IntEnum):
     MEDIUM = 2
     HIGH = 3
     ULTRA = 4
-    DENOISE_LOW = 5
-    DENOISE_MEDIUM = 6
-    DENOISE_HIGH = 7
-    DENOISE_ULTRA = 8
-    DEBLUR_LOW = 9
-    DEBLUR_MEDIUM = 10
-    DEBLUR_HIGH = 11
-    DEBLUR_ULTRA = 12
-    HIGHBITRATE_LOW = 13
-    HIGHBITRATE_MEDIUM = 14
-    HIGHBITRATE_HIGH = 15
-    HIGHBITRATE_ULTRA = 16
+    DENOISE_LOW = 8
+    DENOISE_MEDIUM = 9
+    DENOISE_HIGH = 10
+    DENOISE_ULTRA = 11
+    DEBLUR_LOW = 12
+    DEBLUR_MEDIUM = 13
+    DEBLUR_HIGH = 14
+    DEBLUR_ULTRA = 15
+    HIGHBITRATE_LOW = 16
+    HIGHBITRATE_MEDIUM = 17
+    HIGHBITRATE_HIGH = 18
+    HIGHBITRATE_ULTRA = 19
+    STREAMING_MEDIUM = 21
+    STREAMING_ULTRA = 23
 
 
-@pytest.fixture
-def fake_nvvfx(monkeypatch):
-    """Installs a fake `nvvfx` module in `sys.modules` for the duration of the
-    test. `FakeVideoSuperRes.run()` deliberately reuses the SAME tensor buffer
-    across calls (overwritten in place, like the real DLPack-backed result the
-    brief describes) so a pipe that forgets `.clone()` fails a test rather than
-    the real GPU.
-    """
+class _FakeMode(IntEnum):
+    LOW = 0
+    MEDIUM = 1
+    HIGH = 2
 
+
+def _fake_video_super_res(takes_strength):
     class FakeVideoSuperRes:
         QualityLevel = _FakeQualityLevel
         instances = []
+        fail_load = None
+        fail_run = None
 
-        def __init__(self, quality):
+        def __init__(self, quality=None, **kwargs):
+            if "strength" in kwargs and not takes_strength:
+                raise TypeError("__init__() got an unexpected keyword argument 'strength'")
             self.quality = quality
+            self.kwargs = dict(kwargs)
+            if takes_strength:
+                self.input_width = None
+                self.input_height = None
             self.output_width = None
             self.output_height = None
             self.load_calls = 0
@@ -151,14 +171,16 @@ def fake_nvvfx(monkeypatch):
 
         def load(self):
             assert self.output_width and self.output_height, "load() called before output size was set"
+            if FakeVideoSuperRes.fail_load is not None:
+                raise FakeVideoSuperRes.fail_load
             self.load_calls += 1
 
         def run(self, frame):
+            if FakeVideoSuperRes.fail_run is not None:
+                raise FakeVideoSuperRes.fail_run
             h, w = self.output_height, self.output_width
             if self._buffer is None or tuple(self._buffer.shape[-2:]) != (h, w):
                 self._buffer = torch.zeros(3, h, w)
-            # Distinct value per call, still inside the [0,1] range `nvvfx`
-            # itself uses -- 0.0, 0.5, 1.0 for calls 0, 1, 2.
             self._buffer.fill_(min(1.0, 0.5 * self.run_calls))
             self.run_calls += 1
             return SimpleNamespace(image=self._buffer)
@@ -166,8 +188,73 @@ def fake_nvvfx(monkeypatch):
         def close(self):
             self.closed = True
 
+    return FakeVideoSuperRes
+
+
+class FakeVideoFrameGeneration:
+    """Blends the two frames at the asked instant into ONE reused buffer, like the SDK-owned output."""
+
+    Mode = _FakeMode
+    instances = []
+
+    def __init__(self, mode=None, automatic_shot_change_detection_enabled=True, **kwargs):
+        self.mode = mode
+        self.scene_detection = automatic_shot_change_detection_enabled
+        self.input_width = None
+        self.input_height = None
+        self.frame_multiplier = None
+        self.load_calls = 0
+        self.calls = []
+        self.closed = False
+        self._buffer = None
+        FakeVideoFrameGeneration.instances.append(self)
+
+    def load(self):
+        assert self.input_width and self.input_height, "load() called before input size was set"
+        self.load_calls += 1
+
+    def _blend(self, previous, current, t):
+        assert tuple(previous.shape) == tuple(current.shape) == (3, self.input_height, self.input_width)
+        if self._buffer is None:
+            self._buffer = torch.zeros_like(previous)
+        self._buffer.copy_(previous * (1.0 - t) + current * t)
+        return SimpleNamespace(image=self._buffer)
+
+    def run(self, previous_frame, current_frame, *, frame_index=1, shot_change=False, **kwargs):
+        assert self.frame_multiplier, "run() needs frame_multiplier"
+        self.calls.append(("index", frame_index))
+        return self._blend(previous_frame, current_frame, frame_index / self.frame_multiplier)
+
+    def run_at_timestep(self, previous_frame, current_frame, timestep, *, shot_change=False, **kwargs):
+        assert 0.0 < timestep < 1.0, timestep
+        self.calls.append(("timestep", timestep))
+        return self._blend(previous_frame, current_frame, timestep)
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def fake_nvvfx(monkeypatch):
+    """Installs a fake `nvvfx` 0.2 module in `sys.modules` for the duration of
+    the test. `FakeVideoSuperRes.run()` deliberately reuses the SAME tensor
+    buffer across calls (overwritten in place, like the real DLPack-backed
+    result the brief describes) so a pipe that forgets `.clone()` fails a test
+    rather than the real GPU.
+    """
+    FakeVideoFrameGeneration.instances = []
     module = ModuleType("nvvfx")
-    module.VideoSuperRes = FakeVideoSuperRes
+    module.VideoSuperRes = _fake_video_super_res(takes_strength=True)
+    module.VideoFrameGeneration = FakeVideoFrameGeneration
+    monkeypatch.setitem(sys.modules, "nvvfx", module)
+    return module
+
+
+@pytest.fixture
+def fake_nvvfx_01(monkeypatch):
+    """A fake `nvvfx` 0.1: Video Super Resolution without `strength`, and no Video Frame Generation."""
+    module = ModuleType("nvvfx")
+    module.VideoSuperRes = _fake_video_super_res(takes_strength=False)
     monkeypatch.setitem(sys.modules, "nvvfx", module)
     return module
 

@@ -13,7 +13,9 @@ NOT_INSTALLED) on a host without the package -- see `_import_nvvfx()`.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import math
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -65,13 +67,23 @@ _QUALITY_LEVEL_NAMES = {
 #: Denoise/deblur are same-resolution enhancement -- `scale` is ignored for them.
 _SAME_RESOLUTION_INTENTS = {"denoise", "deblur"}
 
+MIN_SCALE = 1.0
+MAX_SCALE = 4.0
+DEFAULT_STRENGTH = 1.0
+
 INSTALL_HINT = (
-    "pip install nvidia-vfx -- requires an NVIDIA RTX GPU (Turing or newer), a "
-    "Linux NVIDIA driver >= 570.190, and downloads a ~600MB wheel from "
-    "pypi.nvidia.com. The PyPI package name (nvidia-vfx) differs from its "
-    "import name (nvvfx), so the plugin catalog's generic installer cannot run "
-    "this for you -- install it yourself with the command above."
+    'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com -- '
+    "requires an NVIDIA RTX GPU (Turing or newer; Ada or Blackwell for Video Frame "
+    "Generation) and an NVIDIA driver >= 570.190 on Linux (>= 570.65 on Windows). "
+    "pypi.org only carries a 3.7 kB source stub: the ~440 MB wheel comes from "
+    "pypi.nvidia.com, hence the extra index. Under WSL2, users report that the "
+    "library only loads with LD_LIBRARY_PATH=/usr/lib/wsl/lib set before Python "
+    "starts. The PyPI package name (nvidia-vfx) differs from its import name "
+    "(nvvfx), so the plugin catalog's generic installer cannot run this for you "
+    "-- install it yourself with the command above."
 )
+
+SDK_SIZE_ERROR_CODE = "-7"
 
 
 def _import_nvvfx():
@@ -117,14 +129,52 @@ def round_to_8(value: float) -> int:
     return max(8, round(value / 8) * 8)
 
 
-def target_size(intent: str, scale: float, width: int, height: int) -> Tuple[int, int]:
+def ceil_to_8(value: float) -> int:
+    """The smallest multiple of 8 at or above `value`, never below 8."""
+    return max(8, -(-int(math.ceil(value)) // 8) * 8)
+
+
+def effective_scale(scale: float, target_short_side: int, width: int, height: int) -> float:
+    """The scale an upscale runs at: the one that brings the short side to `target_short_side` when it is set, else `scale`, held to [1, 4]."""
+    if target_short_side and target_short_side > 0 and min(width, height) > 0:
+        scale = target_short_side / min(width, height)
+    return min(MAX_SCALE, max(MIN_SCALE, float(scale)))
+
+
+def target_size(intent: str, scale: float, width: int, height: int, target_short_side: int = 0) -> Tuple[int, int]:
     """The (width, height) to load `VideoSuperRes` for, given one frame's
     source size. Denoise/deblur force output size = input size; the two
-    upscale intents multiply by `scale`. Either way the result lands on the
-    8px grid `nvvfx` requires."""
+    upscale intents multiply by `scale`, or by the scale that reaches
+    `target_short_side` when it is set, and never land below the source.
+    Either way the result lands on the 8px grid `nvvfx` requires."""
     if intent in _SAME_RESOLUTION_INTENTS:
         return round_to_8(width), round_to_8(height)
-    return round_to_8(width * scale), round_to_8(height * scale)
+    factor = effective_scale(scale, target_short_side, width, height)
+    return (
+        max(round_to_8(width * factor), ceil_to_8(width)),
+        max(round_to_8(height * factor), ceil_to_8(height)),
+    )
+
+
+def sdk_error(exc: Exception, source: Optional[Tuple[int, int]], output: Optional[Tuple[int, int]]) -> GenerationExecutionError:
+    """A readable error for an `nvvfx` failure, naming the sizes when the SDK rejected them."""
+    sizes = ""
+    if source and output:
+        sizes = f" ({source[0]}x{source[1]} to {output[0]}x{output[1]})"
+    if SDK_SIZE_ERROR_CODE in str(exc) or "invalid parameter" in str(exc).lower():
+        return GenerationExecutionError(
+            f"NVIDIA RTX Video Super Resolution refused the frame size{sizes}: the SDK rejects a "
+            f"target smaller than the source, and some driver and library pairs also reject small "
+            f"outputs. Pick a larger target, or Denoise/Deblur to keep the size. SDK error: {exc}"
+        )
+    return GenerationExecutionError(f"NVIDIA RTX Video Super Resolution failed{sizes}: {exc}")
+
+
+def default_stream(torch_module):
+    """Run the SDK on the default CUDA stream, the only one `nvvfx` 0.2 accepts."""
+    if torch_module.cuda.is_available():
+        return torch_module.cuda.stream(torch_module.cuda.default_stream())
+    return contextlib.nullcontext()
 
 
 def _clone_dlpack_result(result) -> "torch.Tensor":
@@ -140,6 +190,17 @@ def _clone_dlpack_result(result) -> "torch.Tensor":
     return torch.from_dlpack(result.image).clone()
 
 
+def _make_effect(effect_cls, quality_level, strength: Optional[float]):
+    """Build the effect, passing `strength` only when it departs from the SDK default, and without it on an `nvvfx` 0.1 that does not take it."""
+    if strength is None or abs(float(strength) - DEFAULT_STRENGTH) < 1e-9:
+        return effect_cls(quality=quality_level)
+    try:
+        return effect_cls(quality=quality_level, strength=float(strength))
+    except TypeError:
+        logger.warning("[UPSCALER_RTX] this nvvfx takes no strength (nvidia-vfx < 0.2): running at full strength")
+        return effect_cls(quality=quality_level)
+
+
 class _RtxSession:
     """One `nvvfx.VideoSuperRes` instance for an entire pipe run.
 
@@ -151,26 +212,37 @@ class _RtxSession:
     changes; `ensure_loaded` no-ops when it hasn't.
     """
 
-    def __init__(self, nvvfx_module, quality_level):
-        self._effect = nvvfx_module.VideoSuperRes(quality=quality_level)
+    def __init__(self, nvvfx_module, quality_level, strength: Optional[float] = None):
+        self._effect = _make_effect(nvvfx_module.VideoSuperRes, quality_level, strength)
         self._loaded_size: Optional[Tuple[int, int]] = None
+        self._loaded_source: Optional[Tuple[int, int]] = None
 
-    def ensure_loaded(self, width: int, height: int) -> None:
-        if self._loaded_size == (width, height):
+    def ensure_loaded(self, width: int, height: int, source: Optional[Tuple[int, int]] = None) -> None:
+        if self._loaded_size == (width, height) and self._loaded_source == source:
             return
+        if source is not None and hasattr(self._effect, "input_width"):
+            self._effect.input_width, self._effect.input_height = source
         self._effect.output_width = width
         self._effect.output_height = height
-        self._effect.load()
+        try:
+            self._effect.load()
+        except Exception as exc:
+            raise sdk_error(exc, source, (width, height)) from exc
         self._loaded_size = (width, height)
+        self._loaded_source = source
 
     def process_frame(self, image: Image.Image) -> Image.Image:
         import torch
 
         rgb = image.convert("RGB")
         arr = np.asarray(rgb, dtype=np.float32) / 255.0
-        frame = torch.from_numpy(arr).permute(2, 0, 1).contiguous().cuda().float()
-        result = self._effect.run(frame)
-        out = _clone_dlpack_result(result)
+        with default_stream(torch):
+            frame = torch.from_numpy(arr).permute(2, 0, 1).contiguous().cuda().float()
+            try:
+                result = self._effect.run(frame)
+            except Exception as exc:
+                raise sdk_error(exc, image.size, self._loaded_size) from exc
+            out = _clone_dlpack_result(result)
         del frame
 
         out = out.clamp(0.0, 1.0).mul(255.0).round().to(torch.uint8)
@@ -207,6 +279,8 @@ class RtxUpscalePipe(BasePipe):
             "intent": "upscale",
             "quality": "ultra",
             "scale": 2.0,
+            "target_short_side": 0,
+            "strength": DEFAULT_STRENGTH,
             "keep_audio": True,
         }
 
@@ -226,8 +300,18 @@ class RtxUpscalePipe(BasePipe):
             ),
             PipeConfigSpec(
                 name="scale", param_type=float, default=2.0,
-                description="Output area multiplier; ignored for denoise/deblur (same-resolution enhancement)",
-                required=False, min_value=1.0, max_value=4.0,
+                description="Output size multiplier per side; ignored for denoise/deblur (same-resolution enhancement) and when target_short_side is set",
+                required=False, min_value=MIN_SCALE, max_value=MAX_SCALE,
+            ),
+            PipeConfigSpec(
+                name="target_short_side", param_type=int, default=0,
+                description="Short side of the output in pixels (0 = use scale); the scale it implies is held to 1x-4x",
+                required=False, min_value=0, max_value=8192,
+            ),
+            PipeConfigSpec(
+                name="strength", param_type=float, default=DEFAULT_STRENGTH,
+                description="Effect strength (nvidia-vfx >= 0.2); 1.0 is the SDK default and is not sent",
+                required=False, min_value=0.0, max_value=1.0,
             ),
             PipeConfigSpec(
                 name="keep_audio", param_type=bool, default=True,
@@ -283,10 +367,13 @@ class RtxUpscalePipe(BasePipe):
         intent = str(self.config.get("intent", "upscale"))
         quality = str(self.config.get("quality", "ultra"))
         scale = float(self.config.get("scale", 2.0))
+        target_short_side = int(float(self.config.get("target_short_side") or 0))
+        strength = self.config.get("strength")
+        strength = DEFAULT_STRENGTH if strength in (None, "") else float(strength)
         keep_audio = bool(self.config.get("keep_audio", True))
         level = _quality_level(nvvfx_module, intent, quality)
 
-        session = _RtxSession(nvvfx_module, level)
+        session = _RtxSession(nvvfx_module, level, strength)
         out_images: List[ImageGenerationOutput] = []
         out_videos: List[VideoGenerationOutput] = []
         try:
@@ -299,8 +386,8 @@ class RtxUpscalePipe(BasePipe):
                     progress=Progress(idx, len(images)),
                 ))
                 width, height = image.size
-                out_w, out_h = target_size(intent, scale, width, height)
-                session.ensure_loaded(out_w, out_h)
+                out_w, out_h = target_size(intent, scale, width, height, target_short_side)
+                session.ensure_loaded(out_w, out_h, (width, height))
                 processed = session.process_frame(image)
                 out_images.append(ImageGenerationOutput(image=processed))
 
@@ -309,7 +396,7 @@ class RtxUpscalePipe(BasePipe):
                     break
                 out_videos.append(self._process_video(
                     session, str(video_path), intent, scale, keep_audio,
-                    generation_outputs, is_cancelled,
+                    generation_outputs, is_cancelled, target_short_side,
                 ))
         finally:
             session.close()
@@ -333,6 +420,7 @@ class RtxUpscalePipe(BasePipe):
         keep_audio: bool,
         generation_outputs: callable,
         is_cancelled: Optional[callable],
+        target_short_side: int = 0,
     ) -> VideoGenerationOutput:
         import cv2
 
@@ -356,8 +444,8 @@ class RtxUpscalePipe(BasePipe):
 
                 rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
                 pil_frame = Image.fromarray(rgb)
-                out_w, out_h = target_size(intent, scale, pil_frame.width, pil_frame.height)
-                session.ensure_loaded(out_w, out_h)
+                out_w, out_h = target_size(intent, scale, pil_frame.width, pil_frame.height, target_short_side)
+                session.ensure_loaded(out_w, out_h, pil_frame.size)
                 processed = session.process_frame(pil_frame)
 
                 if writer is None:
