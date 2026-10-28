@@ -80,3 +80,16 @@ def test_default_strategy_keeps_the_exposed_contract():
     assert names["strategy"] == "fooocus"
     assert names["k"] == 0.618
     assert names["min_size"] == 1024 and names["max_size"] == 1024
+
+
+def test_faint_stray_mask_pixels_do_not_widen_the_region_or_reach_the_restore():
+    image, mask = _scene()
+    arr = np.array(mask)
+    arr[10, 20] = 3
+    arr[1490, 1980] = 40
+    out = _run(SCALED, image, Image.fromarray(arr))
+    region = out["crop_region"]
+    assert region["top"] > 0 and region["left"] > 0
+    assert region["bottom"] < 1500 and region["right"] < 2000
+    assert np.array(out["original_mask"]).max() == 255
+    assert np.array(out["original_mask"])[10, 20] == 0

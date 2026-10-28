@@ -152,6 +152,7 @@ class InpaintRegionCropPipe(BasePipe):
 
     def _scaled_crop(self, image_np, mask_np) -> PipeOutput:
         height, width = image_np.shape[:2]
+        mask_np = np.where(mask_np >= 128, 255, 0).astype(np.uint8)
         top, bottom, left, right = scaled_crop_box(
             image_np.shape,
             mask_bbox(mask_np),
