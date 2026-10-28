@@ -189,6 +189,27 @@ driver 617.42 an exhausted card raises nothing and spills into Windows shared me
 SeedVR2 1080p encode reached 47.9 GB of shared memory and the Docker VM 57.9 GiB without finishing,
 2026-10-28), so neither the tile shrink nor the batch retry ever runs.
 
+A driver-error OOM under expandable segments damages the process, though. When an expandable
+segment grows, torch 2.12 rolls the new pages back only if `cuMemCreate` returns
+`CUDA_ERROR_OUT_OF_MEMORY`; that clean case reaches the caller as `torch.OutOfMemoryError`. Any other
+failure of `cuMemCreate`, `cuMemMap` or `cuMemSetAccess` (the `device not ready` above, or an
+out-of-memory from `cuMemSetAccess`) raises with the pages still recorded, and the next growth over
+them fails on `!handles_.at(i) INTERNAL ASSERT FAILED at CUDACachingAllocator.cpp:445`, in any later
+allocation, until the process restarts (pytorch/pytorch#188008, #166234; seen twice in a row on
+2026-10-28, a SeedVR2 tiled-encode OOM followed by that assertion in the decode).
+
+So under WSL2 the first driver-error OOM is fatal to the process (`src/platform/runtime/cuda_allocator.py`):
+it is not retried (`is_cuda_oom` answers no), the segments stop growing for the rest of the process
+(`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
+fails with a message and a hint that say to restart. Until the process restarts, every run whose
+pipes target `cuda` is refused before its first pipe, `GET /health` and the native backend's health
+report `degraded` with the same reason, and nothing restarts on its own. **Restart Backend**
+(Administration › Backends, `POST /api/admin/restart`) re-executes the process in place, so the
+container keeps running; descriptors other than stdio are marked close-on-exec first, so none of
+the old process's driver handles survive the exec. `POTIONUI_CUDA_DRIVER_OOM=retry` brings back the
+retry in the same process, `POTIONUI_CUDA_DRIVER_OOM=fatal` applies the fatal path outside WSL2
+too; with expandable segments off, driver-error OOMs are always retried.
+
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
 

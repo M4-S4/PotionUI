@@ -3,6 +3,7 @@
 import errno
 
 import httpx
+import pytest
 import safetensors
 import torch
 
@@ -245,3 +246,8 @@ def test_the_wsl_allocator_failure_classifies_as_cuda_oom():
 
     assert classification.category == "cuda_oom"
     assert classification.suggestions
+
+
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_a_driver_oom_reads_as_cuda_oom_from_its_text_alone(text):
+    assert classify_error_text(text).category == "cuda_oom"
