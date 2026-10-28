@@ -97,8 +97,8 @@ llm:
     text mode has no prompt: the user fills Current text, New text and an optional
     style or placement, and the prompt is built from them. Restyle mode also has no prompt: the user
     picks a task (style, background, lighting, colourise, restore) and describes the
-    result in a few words. Control mode follows the structure of a control
-    image (edges, depth, pose, lines or grayscale) and can repaint a masked part
+    result in a few words. Structure mode follows the structure of a guide
+    image (edges, depth, pose, lines or grayscale; use Pose to transfer a pose) and can repaint a masked part
     of an image; describe the whole finished image, not just the masked part.
 
 prompt_resources:

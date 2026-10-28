@@ -441,3 +441,13 @@ def test_the_new_switches_join_the_control_formula_group(qwen_image21_template):
     assert _field(qwen_image21_template, "guide_save").formula == "control"
     assert _field(qwen_image21_template, "guide_save").default is False
     assert _field(qwen_image21_template, "guide_only").default is False
+
+
+def test_control_mode_keeps_its_id_and_is_named_structure():
+    from src.features.presets.loader import read_mode_naming
+    from src.features.presets.mode_labels import mode_display_name
+
+    assert (PRESET_DIR / "modes" / "control" / "pipeline.yml").is_file()
+    naming = read_mode_naming(PRESET_DIR / "modes" / "control")
+    assert mode_display_name("control", naming["mode_label"]) == "Structure"
+    assert mode_display_name("control") == "Control"
