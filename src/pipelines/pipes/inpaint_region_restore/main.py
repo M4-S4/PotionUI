@@ -17,7 +17,7 @@ from src.pipelines.contracts import (
     PipeConfigSpec,
 )
 from src.pipelines.pipes._shared.inpainting.region_utils import resample_image
-from src.pipelines.pipes._shared.inpainting.mask_utils import color_correction
+from src.pipelines.pipes._shared.inpainting.mask_utils import color_correction, composite_region
 
 
 class InpaintRegionRestorePipe(BasePipe):
@@ -30,6 +30,12 @@ class InpaintRegionRestorePipe(BasePipe):
             generation_outputs: callable
     ) -> PipeOutput:
         inpainted_image = pipe_input.input["inpainted_image"]
+        composite = self.config.get("strategy", "fooocus") == "composite"
+        if isinstance(inpainted_image, (list, tuple)):
+            generated = list(inpainted_image) if composite else list(inpainted_image[:1])
+            inpainted_image = generated[0]
+        else:
+            generated = [inpainted_image]
         crop_region = pipe_input.input["crop_region"]
         original_image = pipe_input.input["original_image"]
 
@@ -67,6 +73,9 @@ class InpaintRegionRestorePipe(BasePipe):
         # Resize inpainted image back to original crop dimensions
         content = resample_image(inpainted_np, crop_width, crop_height)
 
+        if composite and original_mask is not None:
+            return self._composite(original_np, generated, original_mask, crop_region)
+
         # Create result image starting with original
         result = original_np.copy()
 
@@ -101,10 +110,35 @@ class InpaintRegionRestorePipe(BasePipe):
             "image": [numpy_to_pil(result)],
         })
 
+    def _composite(self, original_np, generated, original_mask, crop_region) -> PipeOutput:
+        top, bottom, left, right = (crop_region[k] for k in ("top", "bottom", "left", "right"))
+        if isinstance(original_mask, Image.Image):
+            mask_np = np.array(original_mask.convert("L"))
+        else:
+            mask_np = original_mask
+        if mask_np.shape[:2] != original_np.shape[:2]:
+            mask_np = np.array(
+                numpy_to_pil(mask_np).resize((original_np.shape[1], original_np.shape[0]), Image.BILINEAR)
+            )
+        images = []
+        for item in generated:
+            item_np = pil_to_numpy_rgb(item) if isinstance(item, Image.Image) else item
+            content = resample_image(item_np, right - left, bottom - top)
+            result = original_np.copy()
+            result[top:bottom, left:right] = composite_region(
+                original_np[top:bottom, left:right],
+                content,
+                mask_np[top:bottom, left:right],
+                float(self.config.get("feather", 0.08)),
+                bool(self.config.get("color_match", True)),
+            )
+            images.append(numpy_to_pil(result))
+        return PipeOutput(output={"image": images})
+
     @classmethod
     def inputs(cls) -> List[PipeInputSpec]:
         return [
-            PipeInputSpec("inpainted_image", IOType.IMAGE, True, "Inpainted cropped image", is_array=False),
+            PipeInputSpec("inpainted_image", IOType.IMAGE, True, "Inpainted cropped image", is_array=True),
             PipeInputSpec("crop_region", IOType.DICT, True, "Crop region metadata from crop pipe", is_array=False),
             PipeInputSpec("original_image", IOType.IMAGE, True, "Original full image", is_array=False),
             PipeInputSpec("original_mask", IOType.IMAGE, False, "Original full-size mask for color correction (Fooocus-style)", is_array=False),
@@ -119,6 +153,30 @@ class InpaintRegionRestorePipe(BasePipe):
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
+            PipeConfigSpec(
+                name="strategy",
+                param_type=str,
+                default="fooocus",
+                description="fooocus pastes the crop and blends by the mask; composite feathers in proportion to the region, matches colour to its surroundings and leaves every pixel outside the feather untouched",
+                required=False,
+                choices=["fooocus", "composite"]
+            ),
+            PipeConfigSpec(
+                name="feather",
+                param_type=float,
+                default=0.08,
+                description="Composite strategy: feather width as a fraction of the region's longer side",
+                required=False,
+                min_value=0.0,
+                max_value=1.0
+            ),
+            PipeConfigSpec(
+                name="color_match",
+                param_type=bool,
+                default=True,
+                description="Composite strategy: match the edit's colour statistics to a ring around the region",
+                required=False
+            ),
             PipeConfigSpec(
                 name="color_correction",
                 param_type=bool,
