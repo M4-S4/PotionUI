@@ -1,0 +1,24 @@
+name: "custom"
+mode_label: "Colorize"
+short_description: "Add natural color to a black and white video."
+negative_prompt:
+  applies_when: false
+requirements:
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-colorization-0.9.safetensors"
+    hint: "Download the Colorize LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/colorize/tabs/generation.yml"
+      - type: "tab"
+        label: "Models"
+        configuration:
+          icon: "model"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/restore/tabs/models.yml"

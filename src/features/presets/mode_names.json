@@ -158,5 +158,33 @@
   "merge_loras": {
     "label": "Merge LoRAs",
     "icon": "lora"
+  },
+  "restore": {
+    "label": "Restore",
+    "icon": "wand"
+  },
+  "colorize": {
+    "label": "Colorize",
+    "icon": "palette"
+  },
+  "day_to_night": {
+    "label": "Day to Night",
+    "icon": "film"
+  },
+  "add_water": {
+    "label": "Add Water",
+    "icon": "sparkles"
+  },
+  "remove_object": {
+    "label": "Remove Object",
+    "icon": "scissors"
+  },
+  "layout_to_render": {
+    "label": "Layout to Render",
+    "icon": "cube"
+  },
+  "cinemagraph": {
+    "label": "Cinemagraph",
+    "icon": "film"
   }
 }

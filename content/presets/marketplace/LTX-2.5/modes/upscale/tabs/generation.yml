@@ -29,6 +29,60 @@ fields:
   - type: "section"
     label: "Enhancement"
     children:
+      - name: "upscale_method"
+        type: "select"
+        formula: "enhance"
+        label: "Method"
+        default: "latent"
+        description: "Generative 2x and Refine details go up to 1080p and need their own LoRA."
+        configuration:
+          options:
+            - { label: "Standard", value: "latent" }
+            - { label: "Generative 2x", value: "pixel_spatial" }
+            - { label: "Refine details", value: "refine_details" }
+
+      - name: "pixel_spatial_lora"
+        type: "model"
+        formula: "models"
+        label: "Generative 2x LoRA"
+        required: true
+        description: "Needed for Generative 2x."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Pixel-Spatial-Upscaler", "file": "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors", "revision": "main"}'
+              size: "327.3 MB"
+              description: "LTX-2.5 Pixel-Spatial-Upscaler IC-LoRA, x2. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
+        reactions:
+          - when: { field: "upscale_method", not_equals: "pixel_spatial" }
+            then: { set_visibility: false }
+          - when: { field: "upscale_method", equals: "pixel_spatial" }
+            then: { set_visibility: true }
+
+      - name: "refine_details_lora"
+        type: "model"
+        formula: "models"
+        label: "Refine details LoRA"
+        required: true
+        description: "Needed for Refine details."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Refine-Details", "file": "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors", "revision": "main"}'
+              size: "1.31 GB"
+              description: "LTX-2.5 Refine-Details IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
+        reactions:
+          - when: { field: "upscale_method", not_equals: "refine_details" }
+            then: { set_visibility: false }
+          - when: { field: "upscale_method", equals: "refine_details" }
+            then: { set_visibility: true }
+
       - name: "refine_strength"
         type: "select"
         formula: "enhance"
@@ -40,6 +94,11 @@ fields:
             - { label: "Strong (recommended)", value: "strong" }
             - { label: "Balanced", value: "balanced" }
             - { label: "Light", value: "light" }
+        reactions:
+          - when: { field: "upscale_method", not_equals: "latent" }
+            then: { set_visibility: false }
+          - when: { field: "upscale_method", equals: "latent" }
+            then: { set_visibility: true }
 
       - name: "enhance_faces_hands"
         type: "checkbox"

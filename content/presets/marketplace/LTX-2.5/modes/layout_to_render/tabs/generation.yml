@@ -1,0 +1,54 @@
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        description: "A 3D layout, playblast or blockout clip with the camera and motion you want. Long clips are trimmed to the first few seconds."
+
+      - name: "style_image"
+        type: "image"
+        label: "First Frame"
+        required: true
+        description: "How the finished first frame should look, for example made with an image model."
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+
+          - name: "quantity"
+            type: "slider"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+
+  - type: "section"
+    label: "Effect"
+    children:
+      - name: "effect_lora"
+        type: "model"
+        formula: "models"
+        label: "Layout to render LoRA"
+        required: true
+        description: "Needed for this mode."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render", "file": "ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors", "revision": "main"}'
+              size: "1.31 GB"
+              description: "LTX-2.5 Layout-To-Render IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
+
+      - name: "effect_strength"
+        type: "slider"
+        label: "Strength"
+        default: 1.0
+        description: "How closely the result follows the layout."
+        configuration: {min: 0.5, max: 1.5, step: 0.05}

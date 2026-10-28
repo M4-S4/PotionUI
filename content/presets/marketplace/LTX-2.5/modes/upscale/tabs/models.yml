@@ -80,6 +80,11 @@ fields:
     formula: "models"
     label: "Spatial Upscaler"
     required: true
+    reactions:
+      - when: { field: "upscale_method", not_equals: "latent" }
+        then: { set_visibility: false }
+      - when: { field: "upscale_method", equals: "latent" }
+        then: { set_visibility: true }
     configuration:
       model_type: "upscaler"
       placeholder: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0..."

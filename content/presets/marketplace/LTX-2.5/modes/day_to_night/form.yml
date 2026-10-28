@@ -1,0 +1,22 @@
+name: "custom"
+mode_label: "Day to night"
+short_description: "Relight a daytime video as night."
+requirements:
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors"
+    hint: "Download the Day to night LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/day_to_night/tabs/generation.yml"
+      - type: "tab"
+        label: "Models"
+        configuration:
+          icon: "model"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/restore/tabs/models.yml"

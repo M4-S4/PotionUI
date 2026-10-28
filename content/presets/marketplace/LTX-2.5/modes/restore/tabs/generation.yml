@@ -1,0 +1,115 @@
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        description: "The clip to clean up. Long clips are trimmed to the first few seconds."
+
+      - name: "restore_task"
+        type: "select"
+        label: "Fix"
+        default: "restore"
+        configuration:
+          options:
+            - { label: "Restore old footage", value: "restore" }
+            - { label: "Remove blur", value: "deblur" }
+            - { label: "Remove compression", value: "decompress" }
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+
+          - name: "quantity"
+            type: "slider"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+
+  - type: "section"
+    label: "Effect"
+    children:
+      - name: "restore_lora"
+        type: "model"
+        formula: "models"
+        label: "Restore LoRA"
+        required: true
+        description: "Needed for this fix."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-restore-1.0.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-restore-1.0.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Restore", "file": "ltx-2.5-22b-ic-lora-restore-1.0.safetensors", "revision": "main"}'
+              size: "1.71 GB"
+              description: "LTX-2.5 Restore IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
+        reactions:
+          - when: { field: "restore_task", not_equals: "restore" }
+            then: { set_visibility: false }
+          - when: { field: "restore_task", equals: "restore" }
+            then: { set_visibility: true }
+
+      - name: "deblur_lora"
+        type: "model"
+        formula: "models"
+        label: "Remove blur LoRA"
+        required: true
+        description: "Needed for this fix."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Deblur", "file": "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors", "revision": "main"}'
+              size: "906.1 MB"
+              description: "LTX-2.5 Deblur IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
+        reactions:
+          - when: { field: "restore_task", not_equals: "deblur" }
+            then: { set_visibility: false }
+          - when: { field: "restore_task", equals: "deblur" }
+            then: { set_visibility: true }
+
+      - name: "decompress_lora"
+        type: "model"
+        formula: "models"
+        label: "Remove compression LoRA"
+        required: true
+        description: "Needed for this fix."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Decompression", "file": "ltx-2.5-22b-ic-lora-decompression-0.9.safetensors", "revision": "main"}'
+              size: "906.1 MB"
+              description: "LTX-2.5 Decompression IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
+        reactions:
+          - when: { field: "restore_task", not_equals: "decompress" }
+            then: { set_visibility: false }
+          - when: { field: "restore_task", equals: "decompress" }
+            then: { set_visibility: true }
+
+      - name: "effect_strength"
+        type: "slider"
+        label: "Strength"
+        default: 1.0
+        description: "Keep it at 1 unless the result over-tints or barely changes."
+        configuration: {min: 0.5, max: 1.5, step: 0.05}
+
+      - name: "output_size"
+        type: "select"
+        label: "Size"
+        default: "1080p"
+        description: "Pick 720p if you run out of memory."
+        configuration:
+          options:
+            - { label: "720p", value: "720p" }
+            - { label: "1080p", value: "1080p" }

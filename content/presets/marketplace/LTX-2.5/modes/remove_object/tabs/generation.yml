@@ -1,0 +1,58 @@
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        description: "The shot to clean up. Long clips are trimmed to the first few seconds."
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+
+          - name: "quantity"
+            type: "slider"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+
+  - type: "section"
+    label: "Effect"
+    children:
+      - name: "effect_lora"
+        type: "model"
+        formula: "models"
+        label: "Remove object LoRA"
+        required: true
+        description: "Needed for this mode."
+        configuration:
+          model_type: "lora"
+          placeholder: "ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors"
+          recommendations:
+            - name: "ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Lightricks/LTX-2.5-22b-IC-LoRA-Clean-Plate", "file": "ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors", "revision": "main"}'
+              size: "327.3 MB"
+              description: "LTX-2.5 Clean-Plate IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."
+
+      - name: "effect_strength"
+        type: "slider"
+        label: "Strength"
+        default: 1.0
+        description: "How strongly objects are removed."
+        configuration: {min: 0.5, max: 1.5, step: 0.05}
+
+      - name: "output_size"
+        type: "select"
+        label: "Size"
+        default: "1080p"
+        description: "Pick 720p if you run out of memory."
+        configuration:
+          options:
+            - { label: "720p", value: "720p" }
+            - { label: "1080p", value: "1080p" }

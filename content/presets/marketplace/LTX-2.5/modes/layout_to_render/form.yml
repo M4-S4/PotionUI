@@ -1,0 +1,24 @@
+name: "custom"
+mode_label: "Layout to render"
+short_description: "Turn a 3D layout or blockout into a finished shot."
+negative_prompt:
+  applies_when: false
+requirements:
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors"
+    hint: "Download the Layout to render LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/layout_to_render/tabs/generation.yml"
+      - type: "tab"
+        label: "Models"
+        configuration:
+          icon: "model"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/layout_to_render/tabs/models.yml"
