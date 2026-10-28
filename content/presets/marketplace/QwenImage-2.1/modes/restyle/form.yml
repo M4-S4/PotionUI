@@ -11,7 +11,7 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/restyle/tabs/generation.yml"
       - type: "tab"
-        label: "References"
+        label: "Image"
         configuration:
           icon: "image"
           icon_display: "icon_only"
