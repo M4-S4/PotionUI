@@ -138,3 +138,23 @@ def test_generator_resolves_the_edit_profile_defaults(template):
     cfg = _render(template, restyle_text="x")["generator/qwen_image21"]["config"]
     assert int(cfg["steps"]) == 40
     assert float(cfg["guidance"]) == 4.0
+
+
+def test_keep_subject_without_a_matting_model_is_rejected_with_a_clear_message(template):
+    with pytest.raises(FormBindingError) as excinfo:
+        bound_form_data(
+            template,
+            "restyle",
+            {**BASE, "restyle_task": "background", "restyle_text": "a white studio", "keep_subject": True},
+        )
+    assert "matting_model" in excinfo.value.field_errors
+    assert "matting model" in excinfo.value.field_errors["matting_model"][0].lower()
+
+
+def test_keep_subject_with_a_matting_model_is_accepted(template):
+    values = bound_form_data(
+        template,
+        "restyle",
+        {**BASE, "restyle_task": "background", "restyle_text": "x", "keep_subject": True, "matting_model": MATTING},
+    )
+    assert values["matting_model"] == MATTING
