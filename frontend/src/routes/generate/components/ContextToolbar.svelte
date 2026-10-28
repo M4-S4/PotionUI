@@ -330,6 +330,7 @@
 					value={tab.selectedMode ?? ''}
 					options={modeOptions}
 					menuMinWidth={276}
+					maxMenuHeight={560}
 					descriptionLines={2}
 					menuAlign="left"
 					on:change={(event) => onModeChange(event.detail)}
@@ -371,6 +372,7 @@
 					value={selectedVariant}
 					options={variantOptions}
 					menuMinWidth={240}
+					maxMenuHeight={560}
 					descriptionLines={2}
 					menuAlign="left"
 					on:change={(event) => chooseVariant(event.detail)}

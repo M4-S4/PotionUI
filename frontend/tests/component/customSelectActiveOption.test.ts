@@ -101,3 +101,16 @@ describe('CustomSelect active option', () => {
 		}
 	});
 });
+
+describe('CustomSelect menu height cap', () => {
+	it('defaults to 256px and honours maxMenuHeight', async () => {
+		let trigger = await mountSelect();
+		await key(trigger, 'ArrowDown');
+		expect((document.body.querySelector('[role="listbox"]') as HTMLElement).style.maxHeight).toBe('256px');
+		unmount(instance!);
+		document.body.innerHTML = '';
+		trigger = await mountSelect({ maxMenuHeight: 560 });
+		await key(trigger, 'ArrowDown');
+		expect((document.body.querySelector('[role="listbox"]') as HTMLElement).style.maxHeight).toBe('560px');
+	});
+});
