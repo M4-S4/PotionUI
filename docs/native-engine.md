@@ -176,11 +176,18 @@ VAE is dropped to tiled/offloaded first, the TE next).
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
 `torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
 `RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
-expandable-segments allocator, which `cuda_env.py` turns on outside Windows. Under WSL2 (Docker
-Desktop) that driver error is how an exhausted card shows up, measured on a 12 GB RTX 4070 Ti on
-2026-10-25: never an `OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches
-`RuntimeError` and keeps only what `is_cuda_oom` accepts, so the same fallbacks run under WSL2;
-any other driver error propagates.
+expandable-segments allocator. Under WSL2 (Docker Desktop) with expandable segments, that driver
+error is how an exhausted card shows up, measured on a 12 GB RTX 4070 Ti on 2026-10-25: never an
+`OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches `RuntimeError` and keeps
+only what `is_cuda_oom` accepts; any other driver error propagates.
+
+`cuda_env.py` turns expandable segments on outside Windows, WSL2 included, and only when none of
+`PYTORCH_CUDA_ALLOC_CONF`, `PYTORCH_HIP_ALLOC_CONF` and `PYTORCH_ALLOC_CONF` is set: torch reads
+the first of the three that exists, so a default written into the first would hide the user's own
+setting in the last. They stay on under WSL2 because the default allocator is worse there: with
+driver 617.42 an exhausted card raises nothing and spills into Windows shared memory instead (a
+SeedVR2 1080p encode reached 47.9 GB of shared memory and the Docker VM 57.9 GiB without finishing,
+2026-10-28), so neither the tile shrink nor the batch retry ever runs.
 
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
