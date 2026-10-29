@@ -840,3 +840,42 @@ def test_the_reference_conditioning_key_follows_the_flattened_pixels():
 
     assert key(_transparent_red()) == key(Image.new("RGB", (64, 48), (255, 255, 255)))
     assert key(_transparent_red()) != key(Image.new("RGB", (64, 48), (255, 0, 0)))
+
+
+def _tall_cutout() -> Image.Image:
+    pixels = np.zeros((120, 24, 4), dtype=np.uint8)
+    pixels[..., 0] = 255
+    pixels[40:80, 6:18, :3] = (0, 0, 255)
+    pixels[40:80, 6:18, 3] = 255
+    return Image.fromarray(pixels, mode="RGBA")
+
+
+def _reference_media(image) -> torch.Tensor:
+    te = _RecordingEncodeReferenceRequest()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    encoder.encode_prompts([{"prompt": "a prompt", "negative_prompt": "", "references": _image_references(image)}])
+    return te.calls[0][2][0].media
+
+
+def test_a_reference_outside_one_to_four_reaches_the_vision_path_padded_with_white():
+    expected = np.ones((120, 30, 3), dtype=np.float32)
+    expected[40:80, 9:21] = (0.0, 0.0, 1.0)
+    assert torch.equal(_reference_media(_tall_cutout()), torch.from_numpy(expected))
+
+
+def test_the_text_encoder_and_the_generator_read_the_same_padded_reference():
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_reference_image
+
+    generator_view = normalize_reference_image(_tall_cutout(), canvas_multiple=1, short_edge=30)
+    assert torch.equal(_reference_media(_tall_cutout()), torch.from_numpy(np.array(generator_view)).float() / 255.0)
+
+
+def test_a_reference_within_one_to_four_reaches_the_vision_path_at_its_own_size():
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 256, (120, 48, 3), dtype=np.uint8))
+    assert torch.equal(_reference_media(image), torch.from_numpy(np.array(image)).float() / 255.0)
+
+
+def test_a_decoded_reference_array_outside_one_to_four_is_not_padded():
+    pixels = np.full((120, 24, 3), 128, dtype=np.uint8)
+    assert _reference_media(pixels).shape == (120, 24, 3)

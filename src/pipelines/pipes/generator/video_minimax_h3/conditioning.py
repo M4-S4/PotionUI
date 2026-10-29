@@ -144,6 +144,21 @@ def fit_keyframe_to_canvas(image: Image.Image, height: int, width: int, *, is_ge
     return resized.crop((left, top, left + width, top + height))
 
 
+def pad_reference_to_aspect_range(image: Image.Image) -> Image.Image:
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        raise ValueError(f"a reference image must have a positive size, got {image.size}")
+    if width > height * MAX_ASPECT_RATIO:
+        padded_size = (width, math.ceil(width / MAX_ASPECT_RATIO))
+    elif width < height * MIN_ASPECT_RATIO:
+        padded_size = (math.ceil(height * MIN_ASPECT_RATIO), height)
+    else:
+        return image
+    canvas = Image.new("RGBA", padded_size, (0, 0, 0, 0))
+    canvas.alpha_composite(image.convert("RGBA"), ((padded_size[0] - width) // 2, (padded_size[1] - height) // 2))
+    return flatten_onto(canvas)
+
+
 def normalize_reference_image(
     image: Image.Image, *, canvas_multiple: int, short_edge: int = REFERENCE_IMAGE_SHORT_EDGE,
 ) -> Image.Image:
@@ -152,15 +167,9 @@ def normalize_reference_image(
     `canvas_multiple` with a floor of `canvas_multiple`, no upper pixel cap
     and no crop -- unlike `fit_keyframe_to_canvas`'s target-canvas fit
     (`MiniMaxH3Ref2VASetupStep`'s image branch).
-
-    Raises on an aspect ratio outside `[1:4, 4:1]`, the same bound the target
-    canvas and a video reference are held to.
     """
+    image = pad_reference_to_aspect_range(image)
     width, height = image.size
-    if width <= 0 or height <= 0:
-        raise ValueError(f"a reference image must have a positive size, got {image.size}")
-    if width > 4 * height or height > 4 * width:
-        raise ValueError(f"a reference image must be within 1:4 and 4:1, got {width}x{height}")
     scale = short_edge / min(width, height)
     target_height = max(canvas_multiple, round(height * scale / canvas_multiple) * canvas_multiple)
     target_width = max(canvas_multiple, round(width * scale / canvas_multiple) * canvas_multiple)

@@ -91,6 +91,7 @@ from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     normalize_reference_video,
+    pad_reference_to_aspect_range,
     reference_decode_seconds,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames
@@ -112,6 +113,12 @@ def _to_hwc_float01(image: Any) -> Tensor:
         return torch.from_numpy(np.array(flatten_onto(image))).float() / 255.0
     tensor = torch.as_tensor(image, dtype=torch.float32)
     return tensor / 255.0 if tensor.max() > 1.5 else tensor
+
+
+def _to_reference_hwc_float01(image: Any) -> Tensor:
+    if hasattr(image, "convert"):
+        image = pad_reference_to_aspect_range(image)
+    return _to_hwc_float01(image)
 
 
 def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
@@ -170,7 +177,7 @@ def _build_references(request: Dict[str, Any]) -> List[MiniMaxH3Reference]:
         kind = entry.get("kind")
         media = entry.get("media")
         if kind == "image":
-            references.append(MiniMaxH3Reference(kind="image", media=_to_hwc_float01(media)))
+            references.append(MiniMaxH3Reference(kind="image", media=_to_reference_hwc_float01(media)))
         elif kind == "video":
             references.append(MiniMaxH3Reference(kind="video", media=_to_fhwc_float01(media, num_frames)))
         elif kind == "audio":

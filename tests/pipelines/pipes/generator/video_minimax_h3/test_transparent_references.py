@@ -21,6 +21,7 @@ LATENT_CHANNELS = 24
 MEAN = [0.0] * LATENT_CHANNELS
 STD = [1.0] * LATENT_CHANNELS
 RED = (255, 0, 0)
+BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 
 
@@ -43,6 +44,20 @@ def _cutout(size=(32, 32), hidden=RED, subject=None) -> Image.Image:
         pixels[8:24, 8:24, :3] = subject
         pixels[8:24, 8:24, 3] = 255
     return Image.fromarray(pixels, mode="RGBA")
+
+
+def _tall_cutout() -> Image.Image:
+    pixels = np.zeros((120, 24, 4), dtype=np.uint8)
+    pixels[..., :3] = RED
+    pixels[40:80, 6:18, :3] = BLUE
+    pixels[40:80, 6:18, 3] = 255
+    return Image.fromarray(pixels, mode="RGBA")
+
+
+def _padded_on_white(tall: bool) -> np.ndarray:
+    expected = np.full((120, 30, 3), 255, dtype=np.uint8)
+    expected[40:80, 9:21] = BLUE
+    return expected if tall else expected.transpose(1, 0, 2)
 
 
 def _reference_input(image: Image.Image) -> torch.Tensor:
@@ -144,3 +159,33 @@ def test_transparent_reference_video_frames_flatten_onto_white():
 
 def test_single_image_pixels_flatten_onto_white():
     assert torch.equal(_pixels_from_image(_cutout(), "cpu"), torch.full((1, 3, 1, 32, 32), 255, dtype=torch.uint8))
+
+
+@pytest.mark.parametrize("tall", [True, False])
+def test_a_one_to_five_cutout_normalizes_to_exactly_one_to_four_with_white_padding(tall):
+    cutout = _tall_cutout() if tall else _tall_cutout().transpose(Image.Transpose.TRANSPOSE)
+    normalized = normalize_references(
+        [ReferenceMedia(kind="image", image=cutout)], num_frames=22, canvas_multiple=1, reference_short_edge=30,
+    )
+    fitted = normalized[0].image
+    assert fitted.size == ((30, 120) if tall else (120, 30))
+    assert np.array_equal(np.asarray(fitted), _padded_on_white(tall))
+
+
+def test_a_padded_cutout_encodes_the_subject_on_white_all_the_way_out():
+    normalized = normalize_references(
+        [ReferenceMedia(kind="image", image=_tall_cutout())], num_frames=22, canvas_multiple=1,
+        reference_short_edge=30,
+    )
+    assert torch.equal(
+        _reference_input(normalized[0].image), _reference_input(Image.fromarray(_padded_on_white(True))),
+    )
+    assert not torch.equal(_reference_input(normalized[0].image), _reference_input(_tall_cutout()))
+
+
+def test_an_in_range_cutout_keeps_its_alpha_through_normalization():
+    cutout = _cutout(size=(48, 48), subject=BLUE)
+    normalized = normalize_references(
+        [ReferenceMedia(kind="image", image=cutout)], num_frames=22, canvas_multiple=16, reference_short_edge=32,
+    )
+    assert normalized[0].image.mode == "RGBA"
