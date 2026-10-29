@@ -5,6 +5,7 @@ import pytest
 
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
+from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
 from src.platform.templating.processor import TemplateProcessor
 
 from ._bound_form import bound_form_data
@@ -89,8 +90,13 @@ def ltx25_template():
 
 
 def process(template, mode, prompt, **over):
+    return process_images(template, mode, [{"positive": prompt, "negative": ""}], **over)
+
+
+def process_images(template, mode, prompts, **over):
     form_data = bound_form_data(template, mode, {
         "input_video": "/media/clip.mp4",
+        "quantity": len(prompts),
         "model": "/models/ltx25_dit.safetensors",
         "text_encoder": "/models/gemma4.safetensors",
         "video_vae": "/models/ltx25_video_vae.safetensors",
@@ -104,9 +110,7 @@ def process(template, mode, prompt, **over):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()), settings=Mock(), preset_template_loader=Mock(),
     )
-    pipes = processor.process(template, {
-        "prompts": [{"positive": prompt, "negative": ""}], "mode": mode, "form_data": form_data,
-    })
+    pipes = processor.process(template, {"prompts": prompts, "mode": mode, "form_data": form_data})
     return {pipe.get("id") or pipe["name"]: pipe for pipe in pipes}
 
 
@@ -154,3 +158,122 @@ def test_the_provenance_parameter_keeps_the_users_prompt_not_the_caption(ltx25_t
 
     parameters = pipes["param_emitter"]["config"]["parameters"]
     assert ["positive_prompt", [f"{SCENE}."]] in parameters
+
+
+RESTORE_DEFAULT = (
+    "Restored archival footage with natural colour, sharp photographic detail, crisp faces and clothing texture, "
+    "natural grain, high resolution footage"
+)
+NIGHT_DEFAULT = (
+    "A realistic nighttime scene with photorealistic moonlight and deep natural shadows. "
+    "Only the lighting changes from day to night; identical composition, subjects and camera motion."
+)
+NIGHT_NEGATIVE = "daylight, sunshine, bright sky, pitch black, underexposed, crushed shadows, low quality, distorted"
+CLEAN_PLATE_DEFAULT = (
+    "An empty clean plate of the exact same location with no people and no moving objects, only the static background."
+)
+LAYOUT_DEFAULT = "A cinematic, photorealistic finished shot"
+CINEMAGRAPH_DEFAULT = "subtle natural motion in one part of the scene"
+CINEMAGRAPH_NEGATIVE = (
+    "camera movement, pan, tilt, zoom, parallax, whole image moving, background sliding, "
+    "flicker on entire image, noisy texture, crawling texture, distorted, blurry, low quality"
+)
+LAYOUT_FORM = {"style_image": "/media/first.png", "upscale_model": "/models/upscaler.safetensors"}
+CINEMAGRAPH_FORM = {"input_image": "/media/still.png"}
+
+
+def trimmed(raw):
+    return raw.strip().rstrip(". ")
+
+
+def cinemagraph(raw):
+    return (
+        f"CINEMAGRAPH_MOTION {raw or CINEMAGRAPH_DEFAULT}. "
+        "Tripod locked-off static camera, zero camera movement, everything else stays still, seamless natural loop."
+    )
+
+
+EVERY_MODE = [
+    pytest.param("add_water", {}, lambda raw: water(trimmed(raw)), "", id="add_water"),
+    pytest.param("colorize", {}, lambda raw: colorize(trimmed(raw)), "", id="colorize"),
+    pytest.param("restore", {"restore_task": "deblur"}, lambda raw: deblur(trimmed(raw)), "", id="deblur"),
+    pytest.param("restore", {"restore_task": "decompress"}, lambda raw: decompress(trimmed(raw)), "", id="decompress"),
+    pytest.param("restore", {"restore_task": "restore"}, lambda raw: raw or RESTORE_DEFAULT, "", id="restore"),
+    pytest.param("day_to_night", {}, lambda raw: raw or NIGHT_DEFAULT, NIGHT_NEGATIVE, id="day_to_night"),
+    pytest.param("remove_object", {}, lambda raw: raw or CLEAN_PLATE_DEFAULT, "", id="remove_object"),
+    pytest.param("layout_to_render", LAYOUT_FORM, lambda raw: raw or LAYOUT_DEFAULT, "", id="layout_to_render"),
+    pytest.param("cinemagraph", CINEMAGRAPH_FORM, cinemagraph, CINEMAGRAPH_NEGATIVE, id="cinemagraph"),
+]
+
+IMAGE_TEXTS = [
+    pytest.param(("a cat sleeps on a sofa.", "a dog runs on a beach."), id="trailing_periods"),
+    pytest.param(("a cat sleeps on a sofa", "a dog runs on a beach"), id="no_periods"),
+    pytest.param(("the scene", "water"), id="wrapper_words"),
+    pytest.param(("water.", "the scene."), id="wrapper_words_with_periods"),
+    pytest.param(("", "a dog runs on a beach."), id="empty_first"),
+    pytest.param(("a cat sleeps on a sofa.", ""), id="empty_second"),
+    pytest.param(("a cat sleeps on a sofa.", "a cat sleeps on a sofa."), id="same_text"),
+]
+
+
+def final_prompts(pipes, count):
+    config = pipes["prompt_encoder"]["config"]
+    pipe = PromptEncoderPipe({**PromptEncoderPipe.get_default_config(), **config})
+    p_prompt, n_prompt = config["p_prompt"], config["n_prompt"]
+    return [
+        pipe._final_prompt_pair(
+            p_prompt["output"], p_prompt["input"], n_prompt["output"], n_prompt["input"], config["pairs"], index,
+        )
+        for index in range(count)
+    ]
+
+
+@pytest.mark.parametrize("texts", IMAGE_TEXTS)
+@pytest.mark.parametrize("mode, over, caption, default_negative", EVERY_MODE)
+def test_every_image_gets_its_own_text_inside_its_own_caption(
+    ltx25_template, mode, over, caption, default_negative, texts,
+):
+    prompts = [{"positive": text, "negative": ""} for text in texts]
+
+    pipes = process_images(ltx25_template, mode, prompts, **over)
+
+    assert [positive for positive, _ in final_prompts(pipes, 2)] == [caption(text) for text in texts]
+
+
+@pytest.mark.parametrize("mode, over, caption, default_negative", EVERY_MODE)
+def test_every_image_keeps_its_own_negative_prompt(ltx25_template, mode, over, caption, default_negative):
+    prompts = [
+        {"positive": "a cat sleeps on a sofa.", "negative": "blurry, ugly"},
+        {"positive": "a dog runs on a beach.", "negative": "grainy"},
+    ]
+
+    pipes = process_images(ltx25_template, mode, prompts, **over)
+
+    assert [negative for _, negative in final_prompts(pipes, 2)] == ["blurry, ugly", "grainy"]
+
+
+@pytest.mark.parametrize("negatives", [("", "grainy"), ("grainy", ""), ("", "")])
+@pytest.mark.parametrize("mode, over, caption, default_negative", EVERY_MODE)
+def test_an_image_without_a_negative_prompt_gets_the_default_of_the_mode(
+    ltx25_template, mode, over, caption, default_negative, negatives,
+):
+    prompts = [{"positive": "a cat sleeps on a sofa.", "negative": negative} for negative in negatives]
+
+    pipes = process_images(ltx25_template, mode, prompts, **over)
+
+    assert [negative for _, negative in final_prompts(pipes, 2)] == [
+        negative or default_negative for negative in negatives
+    ]
+
+
+@pytest.mark.parametrize("mode, over, caption, default_negative", EVERY_MODE)
+def test_the_first_image_is_captioned_the_same_with_or_without_company(
+    ltx25_template, mode, over, caption, default_negative,
+):
+    alone = process_images(ltx25_template, mode, [{"positive": "a cat sleeps on a sofa.", "negative": ""}], **over)
+    together = process_images(ltx25_template, mode, [
+        {"positive": "a cat sleeps on a sofa.", "negative": ""}, {"positive": "a dog runs.", "negative": ""},
+    ], **over)
+
+    assert final_prompts(alone, 1)[0] == final_prompts(together, 2)[0]
+    assert final_prompts(alone, 1)[0][0] == caption("a cat sleeps on a sofa.")

@@ -78,7 +78,7 @@
         },
         "p_prompt.input": {
           "type": "str",
-          "value": "golden positive prompt"
+          "value": "CINEMAGRAPH_MOTION golden positive prompt. Tripod locked-off static camera, zero camera movement, everything else stays still, seamless natural loop."
         },
         "p_prompt.output": {
           "type": "str",
@@ -89,7 +89,7 @@
           "value": [
             {
               "negative": "golden negative prompt",
-              "positive": "golden positive prompt"
+              "positive": "CINEMAGRAPH_MOTION golden positive prompt. Tripod locked-off static camera, zero camera movement, everything else stays still, seamless natural loop."
             }
           ]
         },

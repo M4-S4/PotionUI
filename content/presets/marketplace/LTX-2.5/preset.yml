@@ -227,6 +227,70 @@ llm:
     motion artifacts, fused fingers, bad anatomy, weird hand, ugly, transition,
     static." Trim items that don't apply and add what the shot risks.
 
+  modes:
+    restore:
+      guide: |
+        Restore mode: an IC-LoRA repairs the reference clip, so never write a shot list,
+        camera language or the 4-8 sentence video paragraph. The Fix field picks the
+        task. For Remove blur and Remove compression write one or two plain sentences
+        describing the scene in the clip ("a man walks a dog down a street"), nothing
+        about the fault itself. For Restore old footage describe the period, place,
+        light, materials and clothing of the footage, as the Restore LoRA card asks
+        ("a 1950s market street at midday in soft sunlight, wool coats and straw
+        baskets").
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    colorize:
+      guide: |
+        Colorize mode: an IC-LoRA adds natural colour to a black and white clip, so
+        never write a shot list, camera language or the 4-8 sentence video paragraph.
+        Write one or two plain sentences describing the scene in the clip ("a man walks
+        a dog down a street"), not the colouring itself.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    day_to_night:
+      guide: |
+        Day to night mode: an IC-LoRA relights the reference clip as night, so never
+        write a shot list, camera language or the 4-8 sentence video paragraph. Describe
+        the night look: the moonlight or lamplight, the shadows and the sky ("a moonlit
+        street with warm lamplight in the windows and deep blue shadows"). Only the
+        lighting changes, so add no new action.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    add_water:
+      guide: |
+        Add water mode: an IC-LoRA adds water to the reference clip, so never write a
+        shot list, camera language or the 4-8 sentence video paragraph. Write only the
+        water: its type, its motion and how it touches the subject ("a clear shallow
+        stream flowing across the ground and splashing around the dog's paws"). Never
+        re-describe the scene.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    remove_object:
+      guide: |
+        Remove object mode: an IC-LoRA returns a clean plate of the reference clip, so
+        never write a shot list, camera language or the 4-8 sentence video paragraph.
+        Describe the empty scene and name what must not appear ("an empty street at
+        dusk, with no people, no dog and no cars").
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    layout_to_render:
+      guide: |
+        Layout to render mode: an IC-LoRA turns a layout or blockout clip into a
+        finished shot, so never write a shot list or the 4-8 sentence video paragraph.
+        Write one or two sentences describing the finished shot, matching the First
+        Frame picture. Never use the words clay, 3D or Unreal.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    cinemagraph:
+      guide: |
+        Cinemagraph mode: an IC-LoRA turns a still image into a seamless loop, so never
+        write a shot list or the 4-8 sentence video paragraph. Name exactly what moves
+        ("the flag ripples and the candle flame flickers"); everything else stays
+        still, and there are no camera moves.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+
 formulas:
   groups:
     speed:    { label: "Speed and sampling" }

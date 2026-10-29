@@ -35,12 +35,17 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: "{{ generation.prompts.first.positive }}"
-        output: "{{ 'Reference shows the original scene. Edited shows the same scene with water added. ADD WATER {0}. Subject identity, clothing, framing, and background geometry are identical to the reference; only water-related elements differ between reference and edited.'.format((generation.prompts.first.positive or '').strip().rstrip('. ') or 'a clear shallow stream of water flowing across the ground and splashing around everything that moves') }}"
+        input: &caption "{% set water = ((item.positive if item is defined else generation.prompts.first.positive) or '').strip().rstrip('. ') %}Reference shows the original scene. Edited shows the same scene with water added. ADD WATER {{ water or 'a clear shallow stream of water flowing across the ground and splashing around everything that moves' }}. Subject identity, clothing, framing, and background geometry are identical to the reference; only water-related elements differ between reference and edited."
+        output: *caption
       n_prompt:
-        input: "{{ generation.prompts.first.negative }}"
-        output: "{{ generation.prompts.first.negative }}"
-      pairs: "{{ generation.prompts.pairs }}"
+        input: &negative "{{ item.negative if item is defined else generation.prompts.first.negative }}"
+        output: *negative
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *caption
+            negative: *negative
       quantity: "{{ form.quantity }}"
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       negative_applied: "{{ generation.negative_applied }}"

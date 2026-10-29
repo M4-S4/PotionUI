@@ -35,12 +35,17 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: "{{ generation.prompts.first.positive }}"
-        output: "{{ generation.prompts.first.positive or 'An empty clean plate of the exact same location with no people and no moving objects, only the static background.' }}"
+        input: &caption "{{ (item.positive if item is defined else generation.prompts.first.positive) or 'An empty clean plate of the exact same location with no people and no moving objects, only the static background.' }}"
+        output: *caption
       n_prompt:
-        input: "{{ generation.prompts.first.negative }}"
-        output: "{{ generation.prompts.first.negative }}"
-      pairs: "{{ generation.prompts.pairs }}"
+        input: &negative "{{ item.negative if item is defined else generation.prompts.first.negative }}"
+        output: *negative
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *caption
+            negative: *negative
       quantity: "{{ form.quantity }}"
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       negative_applied: "{{ generation.negative_applied }}"

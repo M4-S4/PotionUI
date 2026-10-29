@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -32,6 +33,7 @@ import yaml
 from scripts.preset_render import build_fixture_form_data, build_processor
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
+from src.features.prompt_enhancement.operations import _gather_preset_guide
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
 
@@ -307,3 +309,64 @@ def test_each_optional_prompt_mode_builds_a_prompt_when_none_is_written(ltx25_te
 def test_the_modes_that_pass_the_prompt_straight_through_keep_requiring_it(ltx25_template, mode):
     assert mode not in ltx25_template.vars["optional_prompt_modes"]
     assert not _prompt_built_from_an_empty_prompt(ltx25_template, mode).strip()
+
+
+TRIGGER_WORDS = "ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION"
+MODE_GUIDE_RULES = {
+    "restore": ["The Fix field picks the task", "describe the period, place, light, materials and clothing"],
+    "colorize": ["one or two plain sentences describing the scene"],
+    "day_to_night": ["Describe the night look"],
+    "add_water": ["Write only the water: its type, its motion and how it touches the subject"],
+    "remove_object": ["Describe the empty scene and name what must not appear"],
+    "layout_to_render": [
+        "one or two sentences describing the finished shot, matching the First Frame",
+        "Never use the words clay, 3D or Unreal",
+    ],
+    "cinemagraph": ["Name exactly what moves", "everything else stays still", "there are no camera moves"],
+}
+
+
+def _guide(template, mode):
+    return " ".join(template.llm["modes"][mode]["guide"].split())
+
+
+def _prompt_writer_guide(template, mode):
+    collaborators = SimpleNamespace(
+        preset_collaborators=SimpleNamespace(file_repo=Mock(find_preset_by_id=Mock(return_value=template))),
+    )
+    return _gather_preset_guide(collaborators, {"preset": template.id, "mode": mode})
+
+
+def test_only_the_reference_video_modes_override_the_video_guide(ltx25_template):
+    assert set(ltx25_template.llm["modes"]) == set(MODE_GUIDE_RULES) == set(OPTIONAL_PROMPT_MODES)
+    assert ltx25_template.llm["guide"].startswith("Write ONE chronological paragraph")
+
+
+@pytest.mark.parametrize("mode", MODE_GUIDE_RULES)
+def test_each_reference_video_mode_tells_the_prompt_writer_what_that_mode_wants(ltx25_template, mode):
+    guide = _guide(ltx25_template, mode)
+
+    for rule in MODE_GUIDE_RULES[mode]:
+        assert rule in guide
+    assert "The prompt is optional, and the mode adds the caption and trigger word itself" in guide
+    assert f"never type {TRIGGER_WORDS}" in guide
+    assert guide != " ".join(ltx25_template.llm["guide"].split())
+
+
+def test_the_restore_guide_names_the_fixes_by_the_labels_the_form_shows(ltx25_template):
+    path = Path("content/presets/marketplace/LTX-2.5/modes/restore/tabs/references.yml")
+    fields = yaml.safe_load(path.read_text(encoding="utf-8"))["fields"]
+    task = next(field for field in fields if field["name"] == "restore_task")
+    labels = [option["label"] for option in task["configuration"]["options"]]
+    guide = _guide(ltx25_template, "restore")
+
+    assert f"The {task['label']} field" in guide
+    assert labels == ["Restore old footage", "Remove blur", "Remove compression"]
+    assert all(label in guide for label in labels)
+
+
+@pytest.mark.parametrize("mode", [*MODE_GUIDE_RULES, "video", "upscale", "extend", "refine_faces"])
+def test_the_prompt_writer_gets_the_guide_of_the_active_mode(ltx25_template, mode):
+    expected = ltx25_template.llm["modes"][mode]["guide"] if mode in MODE_GUIDE_RULES else ltx25_template.llm["guide"]
+
+    assert _prompt_writer_guide(ltx25_template, mode) == expected
