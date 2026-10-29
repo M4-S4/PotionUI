@@ -106,14 +106,6 @@ class PluginController(BaseController):
         actions = operations.get_active_quick_actions(self.repository, self.registry)
         return self.success_response(data=actions)
 
-    # ========== History Tools ==========
-
-    @guarded(fallback=Fail("plugin_history_tools_get_failed", "Failed to get plugin history tools", 500))
-    async def get_plugin_history_tools(self) -> APIResponse:
-        """Get History page selection-bar tools from enabled plugins"""
-        tools = operations.get_active_history_tools(self.repository, self.registry)
-        return self.success_response(data=tools)
-
     # ========== Sidebar Widgets ==========
 
     @guarded(fallback=Fail("sidebar_widgets_get_failed", "Failed to get sidebar widgets", 500))
@@ -446,11 +438,6 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_plugin_quick_actions(current_user = Depends(get_current_active_user)):
         """Get quick actions from enabled plugins."""
         return await controller.get_plugin_quick_actions()
-
-    @router.get("/history-tools", response_model=APIResponse, summary="Get Plugin History Tools")
-    async def get_plugin_history_tools(current_user = Depends(get_current_active_user)):
-        """Get History page selection-bar tools from enabled plugins."""
-        return await controller.get_plugin_history_tools()
 
     @router.get("/frontend-extensions", response_model=APIResponse, summary="Get Frontend Extensions")
     async def get_frontend_extensions(current_user = Depends(get_current_active_user)):

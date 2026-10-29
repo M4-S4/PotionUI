@@ -30,7 +30,6 @@ from src.features.plugins.operations.settings import (
 )
 from src.features.plugins.operations.frontend import (
     get_active_quick_actions,
-    get_active_history_tools,
     get_active_sidebar_widgets,
     role_gate_open,
     get_frontend_extensions,
@@ -48,7 +47,6 @@ __all__ = [
     "update_plugin_settings",
     "encrypt_declared_secrets",
     "get_active_quick_actions",
-    "get_active_history_tools",
     "get_active_sidebar_widgets",
     "role_gate_open",
     "get_frontend_extensions",

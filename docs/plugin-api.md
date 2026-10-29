@@ -1460,59 +1460,179 @@ Three hooks bracket the path (full payloads in `GET /api/plugins/hooks/catalog`)
 
 Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` immediately.
 
-## Contributing a media tool
+## Media tools
 
-The History page's selection bar (and, for a tool that opts in, the Library page's) has
-a **Tools** menu that runs one action over the selected media. Core owns three groups —
-**Compare** (`analyze`), **Stitch** (`compose`) and **Download .zip** (`export`) — and a
-plugin tool joins one of them, or opens a new plugin-owned group under any other
-`category` string. Declare each tool in `manifest.yml` under the `history_tools` root —
-the key stayed `history_tools` even though a tool can now run on the Library page too,
-since renaming it would break every plugin already shipping one:
+A **media tool** is one declaration of something that edits media: trim a clip, resize an image, loop
+a video. Core ships twelve; a plugin adds its own. The Tools menu on the Library and History pages, a
+media field's toolbar, presets, PotionAI chat and automation all read the same catalog, so a plugin tool
+shows up in every one of them as soon as the plugin is enabled and disappears when it is disabled.
+Tools change shape or time (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
+crop to subject, colour key) and run deterministically with no model. Looks (grain, VHS, grades) are
+photo filters, not tools: see [Contributing photo filters and filter ops](#contributing-photo-filters-and-filter-ops).
+
+### Core tools
+
+| id | accepts | produces | params |
+|---|---|---|---|
+| `trim` | video, audio | same | `start`, `end` (seconds) |
+| `crop` | image, video | same | `x`, `y`, `width`, `height` (px) |
+| `resize` | image, video | same | `width`, `height` (one side keeps the aspect ratio), `quality` high / balanced / small |
+| `rotate` | image, video | same | `degrees` 90 / 180 / 270, clockwise |
+| `flip` | image, video | same | `axis` horizontal / vertical |
+| `speed` | video, audio | same | `speed` 0.25 to 4, `keep_pitch` |
+| `fit_canvas` | image | same | `width`, `height`, `scale_percent`, `anchor`, `fill` |
+| `color_key` | image | same | `key_mode`, `key_color`, `tolerance`, `softness`, `despill`, `feather` |
+| `crop_subject` | image with transparency | same | `margin`, `alpha_threshold` |
+| `frame` | video | image | `time` (seconds) |
+| `split` | audio | audio, many | `part_seconds` |
+| `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
+
+Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
+transparency (a JPEG that gains an alpha channel is saved as PNG).
+
+### Declaring a tool
+
+A plugin declares tools in `manifest.yml` under `media_tools`. Disabling the plugin removes them from
+every surface.
 
 ```yaml
-history_tools:
-  - id: "contact-sheet"                  # unique within the plugin; served as "<plugin_id>:<id>"
-    label: "Contact sheet"
-    description: "Lay the selected images out on one sheet"   # optional
-    icon: "grid"                          # optional, an Icon name; default "extension"
-    category: "compose"                   # core: analyze | compose | export; any other string = a plugin-owned group
-    component: "ContactSheetModal.svelte" # your plugin frontend asset, same build as any other
-    scopes: ["history"]                   # optional; history | library | field (a media field's Tools menu, one selected item); default ["history"] (every tool declared before scopes existed)
-    applies_to:                           # optional; every key optional
-      min_selection: 2                    # selected generations (history) or items (library)
-      max_selection: 12
-      media_kinds: ["image"]              # image | video | audio | mesh - selection must contain at least one file of one of these kinds
+media_tools:
+  - id: boomerang.loop              # must be "<plugin-id>.<tool>"
+    label: Boomerang
+    icon: repeat                    # optional, an Icon name; default "extension"
+    description: Play the clip forward, then backward   # optional
+    accepts: [video]                # image | video | audio, at least one
+    produces: same                  # same | image | video | audio
+    cardinality: one_to_one         # one_to_one | one_to_many | many_to_one
+    params:
+      - { name: style, type: select, options: [forward, pingpong], default: pingpong }
+      - { name: repeats, type: integer, min: 1, max: 8, default: 2 }
+    requires: { has_audio: false }  # optional: has_audio, has_alpha, min_duration (seconds)
+    selection: { min: 1, max: 4 }   # optional: how many items the tool takes
+    scopes: [library, history]      # optional: library | history | field; default all three
+    preview: false                  # true needs python; the dialog then shows a before/after pane
+    python: tools/loop.py:LoopTool  # optional: a path inside the plugin dir, then :ClassName
+    component: loop-preview         # optional: a plugin frontend asset
 ```
 
-`GET /api/plugins/history-tools` returns `{"tools": [...]}` — every enabled plugin's
-tools, in plugin order, each as:
+At least one of `python` and `component` is required. The id must start with your plugin id and a dot,
+and a plugin cannot take an id another plugin or core already registered; an entry that breaks either
+rule keeps the plugin from enabling.
 
-```json
-{
-  "id": "my-plugin:contact-sheet",
-  "plugin_id": "my-plugin",
-  "label": "Contact sheet",
-  "description": "Lay the selected images out on one sheet",
-  "icon": "grid",
-  "category": "compose",
-  "component": "plugin:my-plugin:ContactSheetModal.svelte",
-  "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]},
-  "scopes": ["history"]
-}
+`params` are form fields. `type` is `integer`, `float`, `select`, `checkbox`, `color`, `string` or
+`anchor`, with these keys: `name`, `label`, `default`, `min`, `max`, `step`, `unit`, `options` (a list of
+values or of `{label, value}`), `allow_transparent` (a `color` that may also be `transparent`), `when`
+and `description`. `when` uses the preset form's `when:` grammar (`{ field: key_mode, equals: color }`),
+and a parameter whose condition is false is dropped from the validated params. A parameter without a
+`default` is required; `default: null` makes it optional. The dialog builds its controls from this
+list: a select with up to four options becomes a segmented control, a number with `min` and `max` a
+slider, a checkbox a switch.
+
+### The Python half
+
+```python
+from src.plugin_api.media_tools import FilterFragment, InvalidToolParams, MediaTool, ToolContext, ToolMedia
+
+
+class LoopTool(MediaTool):
+    def run(self, inputs: list[ToolMedia], params: dict, ctx: ToolContext) -> list[ToolMedia]:
+        source = inputs[0]
+        out = ctx.new_path(".mp4")
+        ctx.ffmpeg(["-i", str(source.path), "-filter_complex", "...", str(out)], duration=source.duration)
+        return [ctx.probe(out)]
 ```
 
-`component` is the same `plugin:<id>:<asset>` reference string a `phrasebook_ops[].component`
-resolves to. Your `component` is mounted in a modal with props `{ generationIds: string[],
-generations: GenerationHistoryItem[], onClose(), onDone() }`: it owns its own UI and runs the
-tool itself, and calls `onDone()` once it has finished successfully — the page clears the
-current selection. `onClose()` just closes the modal without touching the selection. There is
-no backend registration and no separate run endpoint — a media tool is a UI contribution
-only; if it needs to call the backend, it does so through its own plugin API route like any
-other plugin frontend component. A tool scoped to `library` still receives the same props;
-`generationIds`/`generations` are empty there since a library item carries no generation.
+`run(inputs, params, ctx)` receives the already validated `params` and returns the produced files, which
+must live under `ctx.scratch_dir`: the host publishes them to the Library and deletes the scratch
+directory afterwards, whatever happens.
 
-Disabling the plugin removes its tools from `GET /api/plugins/history-tools` immediately.
+- **`ToolMedia`** is a frozen dataclass: `path`, `kind` (`image` | `video` | `audio`), `width`, `height`,
+  `duration`, `fps`, `has_audio`, `has_alpha`. Everything except `path` and `kind` may be `None`.
+- **`ToolContext`** gives you `scratch_dir`, `new_path(suffix)` for a fresh output path,
+  `progress(fraction, label="")`, `is_cancelled()`, `probe(path)` and `ffmpeg(args, duration=None)`.
+  `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
+  pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
+  without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
+- **`check_params(params)`** is an optional override for rules that span parameters (`end` must be greater
+  than `start`); raise `InvalidToolParams(field, message)`.
+- **`validate_params(spec, params)`** is what the API, presets and chat all call before running; it applies
+  defaults, coerces, checks ranges and options, and raises `InvalidToolParams`.
+
+#### Chains and the fast paths
+
+A request is a list of steps, and a single tool is a chain of one. The runner fuses neighbouring steps
+that offer a fast path so the media is decoded and encoded once:
+
+```python
+class Mirror(MediaTool):
+    def video_filter(self, media: ToolMedia, params: dict) -> FilterFragment | None:
+        return FilterFragment(vf=["hflip"])
+
+    def image(self, image, params):
+        return image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+```
+
+- `video_filter(media, params)` returns a `FilterFragment`: `vf` and `af` are lists of ffmpeg filters,
+  `start` and `end` a time window, `drop_audio` removes the sound. A fragment that changes the picture size,
+  the length or the quality reports it in the optional `width`, `height`, `duration` and `crf` so the next
+  step is validated against the right media. Consecutive fragments merge into one ffmpeg pass; a leading
+  `start`/`end` becomes an input seek. It is also asked about audio files, where only `af` and the window
+  apply. Return `None` to say "no fast path for this input".
+- `image(image, params)` receives and returns a PIL image. Consecutive image steps run in memory and the
+  result is saved once, with the source's EXIF orientation already applied.
+- A step with neither fast path runs `run()` on the previous step's output file.
+
+### Component-only tools
+
+An entry with a `component` and no `python` is a tool the browser runs itself, the case the old
+`history_tools` key covered. It gets no run endpoint: the catalog lists it so the Tools menu can offer it
+for the selected media, and the host mounts the component in a modal.
+
+```yaml
+media_tools:
+  - id: my-plugin.contact-sheet
+    label: Contact sheet
+    icon: grid
+    accepts: [image]
+    selection: { min: 2, max: 12 }
+    scopes: [history]
+    component: ContactSheetModal.svelte
+```
+
+The catalog serves its `component` as `plugin:<plugin-id>:<asset>`, the same reference string a
+`phrasebook_ops[].component` resolves to. The component is mounted with the props `{ items,
+generationIds, generations, onClose(), onDone() }`: `items` is the selection as
+`{ id, kind, url, filename, width, height }`, `generationIds` and `generations` are filled on the History
+page, and `onDone()` clears the selection once the tool finished. If it needs the backend it calls its own
+plugin API route.
+
+### The API
+
+Successful JSON responses use the usual `{success, data}` envelope. A refusal answers with `detail: {success: false, error, message, ...}`; the codes are listed per route.
+
+- `GET /api/media-tools?kind=&scope=` returns `{tools: [...]}`: every tool for the kind and scope, with the
+  declaration (`id`, `label`, `icon`, `accepts`, `produces`, `cardinality`, `params`, `requires`,
+  `selection`, `scopes`, `editor`, `preview`, `component`, `source`) plus `last_params`, the values this
+  user ran the tool with last (or `null`). `source` is `core` or the plugin id.
+- `POST /api/media-tools/runs` takes `{steps: [{tool, params}], inputs: [{item_id} | {generation_file_id}],
+  output: {mode: "new" | "replace"}}` and answers 202 `{run_id}`. A generation file is read straight from
+  storage and the result is always a new Library item; `replace` keeps the row, its tags and its
+  collections, and is only allowed for one Library item, tools that return one file per input, and a result
+  of the same kind. A 400 before anything runs carries one of `unknown_tool`, `unsupported_media`,
+  `invalid_params` (with `field` and `step_index`), `invalid_selection` or `replace_not_allowed`; an item that
+  is missing or not the caller's answers 404 `not_found`. The same upload quota the editor used applies
+  (403 `limit_exceeded`), and a refusal leaves no file behind.
+- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error}`.
+  `status` is `queued`, `running`, `completed`, `failed` or `cancelled`; `items` are the resulting Library
+  items; a failed run carries `error: {code, message}` (a tool's `requires` check ends the run with
+  `unsupported_media`). An unknown run id, or another user's, is a 404.
+- `DELETE /api/media-tools/runs/{run_id}` cancels: the encoder is killed and nothing is published.
+- `POST /api/media-tools/preview` takes `{tool, params, input, time_seconds?}` for a tool with
+  `preview: true` and returns `image/webp` with a long side of at most 512.
+
+Runs are in-process: at most two execute at once, the rest wait their turn, and a finished run is kept for
+ten minutes. A user only ever sees, polls and cancels their own runs. After a single-step run completes, its
+parameters are stored as that user's `last_params` for the tool.
 
 ## Reading model files and folders
 

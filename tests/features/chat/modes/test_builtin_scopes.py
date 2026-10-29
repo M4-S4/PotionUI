@@ -122,7 +122,7 @@ class TestScopeModeToolMembership:
         assert "list_models" in names
         assert "get_model_info" in names
 
-    def test_models_mode_does_not_see_history_tools(self):
+    def test_models_mode_does_not_see_history_mode_tools(self):
         registry = self._registry()
         names = {t.name for t in registry.get_for_mode(build_models_mode())}
         assert "organize_gallery" not in names

@@ -22,6 +22,8 @@ from src.platform.plugins.router_mounter import (
     MountResult,
     PluginRouterMounter,
 )
+from src.platform.media_tools import MediaTool, ToolSpec
+from src.platform.media_tools.types import DEFAULT_SCOPES
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry
 from src.platform.plugins.login_providers import login_provider_registry
 from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec
@@ -173,6 +175,7 @@ _SOURCE_REGISTRY_ATTRS = (
     "requirement_checker_registry",
     "recipe_step_kind_registry",
     "llm_provider_registry",
+    "media_tool_registry",
 )
 
 
@@ -206,6 +209,7 @@ class PluginRegistry:
         llm_provider_registry: Optional[LLMProviderRegistry] = None,
         organize_registry: Optional[OrganizeRegistry] = None,
         limit_kind_registry: Optional[LimitKindRegistry] = None,
+        media_tool_registry=None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -253,6 +257,7 @@ class PluginRegistry:
         # Recipe step kinds a plugin contributes (manifest `recipe_steps:`).
         self.recipe_step_kind_registry = recipe_step_kind_registry
         self.llm_provider_registry = llm_provider_registry
+        self.media_tool_registry = media_tool_registry
         self.organize_registry = organize_registry if organize_registry is not None else _shared_organize_registry
         self.limit_kind_registry = (
             limit_kind_registry if limit_kind_registry is not None else _shared_limit_kind_registry
@@ -521,6 +526,7 @@ class PluginRegistry:
             self._register_plugin_field_types,
             self._register_plugin_model_metadata_fields,
             self._register_plugin_tools,
+            self._register_plugin_media_tools,
             self._register_plugin_chat_modes,
             self._register_plugin_resources,
             self._register_plugin_automation_nodes,
@@ -1124,6 +1130,49 @@ class PluginRegistry:
                 return f"Tool name collision: '{tool.name}' is already registered"
 
             self.tool_registry.register(tool, source=plugin_id)
+
+        return None
+
+    def _register_plugin_media_tools(self, manifest: PluginManifest) -> Optional[str]:
+        skip, error = self._require_registry(
+            manifest.media_tools, self.media_tool_registry, "media_tools", "media tool"
+        )
+        if skip:
+            return error
+
+        for entry in manifest.media_tools:
+            impl = None
+            reference = entry.get("python")
+            if reference:
+                file_part, _, class_name = reference.partition(":")
+                module_path = file_part[:-3].replace("/", ".")
+                impl, error = self._instantiate_entry(manifest, f"{module_path}:{class_name}", "media tool class")
+                if error:
+                    return error
+                if not isinstance(impl, MediaTool):
+                    return f"Media tool '{entry['id']}' class must subclass MediaTool: {reference}"
+
+            selection = entry.get("selection")
+            try:
+                self.media_tool_registry.register(ToolSpec(
+                    id=entry["id"],
+                    label=entry["label"],
+                    icon=entry.get("icon") or "extension",
+                    description=entry.get("description") or None,
+                    accepts=tuple(entry["accepts"]),
+                    produces=entry.get("produces") or "same",
+                    cardinality=entry.get("cardinality") or "one_to_one",
+                    params=[dict(param) for param in entry.get("params") or []],
+                    requires=dict(entry.get("requires") or {}),
+                    selection=dict(selection) if selection else None,
+                    scopes=tuple(entry.get("scopes") or DEFAULT_SCOPES),
+                    preview=bool(entry.get("preview")),
+                    component=_plugin_asset(manifest.id, entry.get("component"), None),
+                    source=manifest.id,
+                    impl=impl,
+                ))
+            except ValueError as exc:
+                return str(exc)
 
         return None
 
