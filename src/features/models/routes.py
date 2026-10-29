@@ -9,6 +9,7 @@ This controller delegates all business logic to `src.features.models.operations`
 """
 
 import asyncio
+from pathlib import Path
 from typing import Any, Optional, List, TYPE_CHECKING
 
 from fastapi import APIRouter, BackgroundTasks, Query, Depends
@@ -50,6 +51,8 @@ from src.features.models import (
     ModelAssignmentException,
 )
 from src.features.downloads.exceptions import DownloadNotFoundException
+from src.features.downloads.utils import derived_download_name
+from src.features.fields.model import RECOMMENDATION_EXTENSIONS
 from src.features.models import operations
 from src.features.models.exceptions import (
     ModelDigestUnavailableException,
@@ -764,6 +767,12 @@ class ModelController(BaseController):
 
         return ref, None
 
+    @staticmethod
+    def _recommendation_filename(name: str) -> Optional[str]:
+        if Path(name).suffix.lower() not in RECOMMENDATION_EXTENSIONS:
+            return None
+        return derived_download_name(name)
+
     @guarded(fallback=Fail("download_failed", "Failed to queue download", detail=failure_detail), admin="current_user")
     async def queue_recommendation_download(
         self,
@@ -798,6 +807,7 @@ class ModelController(BaseController):
 
         download = await self.download_queue.queue_model_download(
             url=url,
+            filename=self._recommendation_filename(request.name),
             model_type=request.model_type,
             checksum_sha256=request.sha256,
             provider_id=request.provider,

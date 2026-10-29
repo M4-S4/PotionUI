@@ -18,3 +18,9 @@ fields:
       placeholder: "Select a BiRefNet checkpoint..."
       filter_tags: "@config:matting_tags"
       allow_info_modal: true
+      recommendations:
+        - name: "BiRefNet-general.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "ZhengPeng7/BiRefNet", "file": "model.safetensors", "revision": "main"}'
+          size: "444 MB"
+          sha256: "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154"
