@@ -202,7 +202,7 @@ EVERY_MODE = [
     pytest.param("day_to_night", {}, lambda raw: raw or NIGHT_DEFAULT, NIGHT_NEGATIVE, id="day_to_night"),
     pytest.param("remove_object", {}, lambda raw: raw or CLEAN_PLATE_DEFAULT, "", id="remove_object"),
     pytest.param("layout_to_render", LAYOUT_FORM, lambda raw: raw or LAYOUT_DEFAULT, "", id="layout_to_render"),
-    pytest.param("cinemagraph", CINEMAGRAPH_FORM, cinemagraph, CINEMAGRAPH_NEGATIVE, id="cinemagraph"),
+    pytest.param("cinemagraph", CINEMAGRAPH_FORM, lambda raw: cinemagraph(trimmed(raw)), CINEMAGRAPH_NEGATIVE, id="cinemagraph"),
 ]
 
 IMAGE_TEXTS = [
@@ -277,3 +277,12 @@ def test_the_first_image_is_captioned_the_same_with_or_without_company(
 
     assert final_prompts(alone, 1)[0] == final_prompts(together, 2)[0]
     assert final_prompts(alone, 1)[0][0] == caption("a cat sleeps on a sofa.")
+
+@pytest.mark.parametrize("prompt, text", PROMPTS)
+def test_the_cinemagraph_caption_is_the_trigger_the_users_text_and_one_full_stop(ltx25_template, prompt, text):
+    pipes = process(ltx25_template, "cinemagraph", prompt, **CINEMAGRAPH_FORM)
+
+    output = pipes["prompt_encoder"]["config"]["p_prompt"]["output"]
+    assert output == cinemagraph(text)
+    assert ".." not in output
+    assert output.count("CINEMAGRAPH_MOTION ") == 1
