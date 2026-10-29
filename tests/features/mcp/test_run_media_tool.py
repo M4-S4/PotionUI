@@ -34,7 +34,7 @@ class McpMediaToolCase(MediaToolsTestBase):
         return result["content"][0]["text"]
 
 
-class TestListing(McpMediaToolCase):
+class TestMcpListsRunMediaTool(McpMediaToolCase):
 
     def test_run_media_tool_is_listed_with_a_schema_built_from_the_catalog(self):
         tool = self.listed()["run_media_tool"]
@@ -57,7 +57,7 @@ class TestListing(McpMediaToolCase):
         self.assertNotIn("acme.mirror", tool["inputSchema"]["properties"]["steps"]["items"]["properties"]["tool"]["enum"])
 
 
-class TestCalls(McpMediaToolCase):
+class TestMcpCallsRunMediaTool(McpMediaToolCase):
 
     def test_a_new_mode_call_runs_and_returns_the_items(self):
         item = self.image_item()
