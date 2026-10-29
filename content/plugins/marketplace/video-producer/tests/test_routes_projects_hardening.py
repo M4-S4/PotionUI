@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-import src.plugin_api.generation as api_generation
 from backend import core_bridge, projects
 from src.plugin_api import AccountType, get_current_active_user
 
@@ -232,6 +231,25 @@ def test_a_document_over_four_mebibytes_is_too_large_to_create_or_save(api, proj
     assert _count(project_db, "SELECT COUNT(*) FROM video_producer_versions") == 1
 
 
+def test_a_stored_version_that_no_longer_passes_the_checks_of_a_saved_document_cannot_be_restored(api, project_db, starter):
+    created = _create(api, starter)
+    broken = copy.deepcopy(starter)
+    broken["unexpected"] = 1
+    huge = _named(starter, "Huge")
+    huge["synopsis"] = "x" * projects.MAX_DOC_BYTES
+
+    for stored, code in ((broken, "invalid_doc"), (huge, "doc_too_large")):
+        with project_db.get_cursor() as cursor:
+            cursor.execute("UPDATE video_producer_versions SET doc = ? WHERE project_id = ? AND version = 1", (projects.canonical(stored), created["id"]))
+
+        response = api.post(_url(created["id"], "versions", 1, "restore"))
+
+        assert response.status_code == 422, response.text
+        assert _detail(response)["error"] == code
+    assert api.get(_url(created["id"])).json()["data"]["project"]["version"] == 1
+    assert _count(project_db, "SELECT COUNT(*) FROM video_producer_versions") == 1
+
+
 def test_the_size_limit_counts_bytes_not_characters(api, starter):
     accented = _named(starter, "Accents")
     accented["synopsis"] = "é" * (projects.MAX_DOC_BYTES // 2)
@@ -430,8 +448,14 @@ def test_put_me_cannot_probe_for_projects_of_others_by_telling_them_apart(app, a
 
 
 @pytest.fixture
-def core_without_media(monkeypatch):
-    monkeypatch.setattr(api_generation, "get_container", lambda: SimpleNamespace())
+def core_refusing_odd_ids(monkeypatch):
+    def resolve(user, ref):
+        ids = [value for key, value in ref.items() if key != "kind"]
+        if all(isinstance(value, str) and value for value in ids):
+            raise AssertionError(f"the core was asked for a well-formed ref this test never sends: {ref!r}")
+        raise core_bridge.MediaRefError("invalid_ref", "A media reference needs text ids.")
+
+    monkeypatch.setattr(core_bridge, "resolve_media", resolve)
 
 
 @pytest.mark.parametrize(
@@ -450,7 +474,7 @@ def core_without_media(monkeypatch):
     ],
     ids=repr,
 )
-def test_a_media_origin_whose_ids_are_not_text_is_an_invalid_ref(api, core_without_media, origin):
+def test_a_media_origin_whose_ids_are_not_text_is_an_invalid_ref(api, core_refusing_odd_ids, origin):
     response = api.post(RESOLVE_URL, json={"origin": origin})
 
     assert response.status_code == 422
