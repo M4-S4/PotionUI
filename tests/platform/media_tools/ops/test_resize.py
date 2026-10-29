@@ -78,6 +78,12 @@ def test_video_resize_with_width_only_keeps_aspect_and_sound(need_ffmpeg, tmp_pa
     assert out.duration == pytest.approx(1.0, abs=0.15)
 
 
+def test_video_resize_with_height_only_keeps_the_shape_on_even_sides(need_ffmpeg, tmp_path, ctx):
+    path = make_video(tmp_path / "in.mp4", seconds=1.0, size=(128, 72))
+    out = run_one("resize", {"height": 50}, path, ctx)
+    assert (out.width, out.height) == (88, 50)
+
+
 def test_video_resize_forces_even_dimensions(need_ffmpeg, tmp_path, ctx):
     path = make_video(tmp_path / "in.mp4", seconds=1.0, size=(64, 48))
     out = run_one("resize", {"width": 31}, path, ctx)

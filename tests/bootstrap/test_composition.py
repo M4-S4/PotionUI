@@ -102,7 +102,7 @@ report = {
     "limit_wiring": {
         "orchestrator": c.generation_orchestrator.limit_guard is c.limit_guard,
         "uploads": c.media_controller.manager.limit_guard is c.limit_guard,
-        "editor": c.media_edit_controller.manager.limit_guard is c.limit_guard,
+        "media_tools": c.media_tool_service.publisher.limit_guard is c.limit_guard,
         "library": c.library_collaborators.limit_guard is c.limit_guard,
         "inspirations": c.inspiration_collaborators.limit_guard is c.limit_guard,
         "refunds": c.limit_guard.on_generation_terminal in c.generation_status_tracker._terminal_listeners,
@@ -117,6 +117,18 @@ report = {
         "pushes_go_to_the_notification_hub": c.tab_draft_manager.notifier is notification_connection_hub,
         "housekeeping_sweeps_the_container_manager": any(
             t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
+        ),
+    },
+    "media_tool_wiring": {
+        "chat_tools_use_the_container_service": c.chat_runtime.tool_services.media_tool_service is c.media_tool_service,
+        "mcp_tools_use_the_container_service": c.mcp_tool_collaborators.services.media_tool_service is c.media_tool_service,
+        "automation_nodes_use_the_container_service": (
+            c.automation_controller.manager.engine.services.media_tool_service is c.media_tool_service
+        ),
+        "the_chat_tool_reads_the_container_catalog": c.tool_registry.get("run_media_tool")._registry is c.media_tool_registry,
+        "the_service_reads_the_container_catalog": c.media_tool_service.registry is c.media_tool_registry,
+        "generation_engines_inject_the_container_catalog_into_pipes": (
+            c.backend_registry.generation_engine_factory().media_tools is c.media_tool_registry
         ),
     },
     "turn_store_wiring": {
@@ -241,6 +253,10 @@ def test_the_digest_pool_is_wired_to_the_scanner_and_the_coordinator(report):
 
 def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):
     assert [k for k, v in report["tab_draft_wiring"].items() if not v] == []
+
+
+def test_chat_mcp_and_automation_run_media_tools_through_the_one_service_and_catalog(report):
+    assert [k for k, v in report["media_tool_wiring"].items() if not v] == []
 
 
 def test_chat_turns_are_stored_durably_by_the_one_container_store(report):

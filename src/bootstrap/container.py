@@ -260,8 +260,6 @@ from src.features.housekeeping.worker import HousekeepingWorker, build_tasks
 from src.features.backup.admin import BackupRuns
 from src.features.backup.settings import repo_root as backup_repo_root
 from src.features.media.preset_prerender import PresetMediaPrerenderQueue
-from src.features.media.editing.editor import MediaEditor
-from src.features.media.editing.routes import MediaEditController
 from src.features.media_tools.repository import MediaToolParamsRepository
 from src.features.media_tools.routes import MediaToolController
 from src.features.media_tools.service import MediaToolService
@@ -502,7 +500,6 @@ class AppContainer:
     backup_runs: "BackupRuns"
     media_controller: "MediaController"
     media_access: "MediaAccess"
-    media_edit_controller: "MediaEditController"
     media_tool_repository: "MediaToolParamsRepository"
     media_tool_service: "MediaToolService"
     media_tool_controller: "MediaToolController"
@@ -685,9 +682,12 @@ def build_container() -> AppContainer:
     # their tools/chat_modes/resources into them. Builtins are registered
     # first so a plugin colliding with a builtin fails plugin enable.
 
+    media_tool_registry = MediaToolRegistry()
+    register_core_media_tools(media_tool_registry)
+
     tool_registry = ToolRegistry()
     _rr._global_tool_registry = tool_registry
-    register_builtin_tools(tool_registry)
+    register_builtin_tools(tool_registry, media_tool_registry)
 
     chat_mode_registry = ChatModeRegistry()
     builtin_modes = [
@@ -747,9 +747,6 @@ def build_container() -> AppContainer:
 
     organize_registry = _shared_organize_registry
     limit_kind_registry = _shared_limit_kind_registry
-
-    media_tool_registry = MediaToolRegistry()
-    register_core_media_tools(media_tool_registry)
 
     plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
@@ -929,6 +926,7 @@ def build_container() -> AppContainer:
             llm_service=llm_service,
             models=model_lifecycle,
             assets=download_queue,
+            media_tools=media_tool_registry,
         )
 
     backend_registry = BackendRegistry(
@@ -1539,14 +1537,6 @@ def build_container() -> AppContainer:
     preset_media_prerender_queue.schedule_scan(preset_template_loader.presets)
 
 
-    media_editor = MediaEditor(
-        upload_repository=upload_repository,
-        media_type_resolver=media_type_resolver,
-        storage_driver=storage_driver,
-        limit_guard=limit_guard,
-    )
-    media_edit_controller = MediaEditController(media_editor)
-
     media_tool_repository = MediaToolParamsRepository()
     media_tool_service = MediaToolService(
         registry=media_tool_registry,
@@ -1558,6 +1548,7 @@ def build_container() -> AppContainer:
         limit_guard=limit_guard,
     )
     media_tool_controller = MediaToolController(media_tool_service)
+    automation_services.media_tool_service = media_tool_service
 
     # Library components (uploads as first-class, curatable resources)
 
@@ -1758,6 +1749,7 @@ def build_container() -> AppContainer:
         content_safety=content_safety,
         library_collaborators=library_collaborators,
         tab_drafts=tab_draft_manager,
+        media_tool_service=media_tool_service,
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,

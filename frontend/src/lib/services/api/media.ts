@@ -62,23 +62,6 @@ export interface UploadFileInfo {
 	created_at?: string;
 }
 
-/**
- * One operation in a media edit. Mirrors the `EditOperation` union
- * (src/features/media/editing/dto.py); build these with the helpers in
- * `$lib/media/editors`, which clamp the geometry the way the server does.
- */
-export type MediaEditOperation =
-	| { type: 'crop'; x: number; y: number; width: number; height: number }
-	| { type: 'resize'; width?: number; height?: number; quality?: 'high' | 'balanced' | 'small' }
-	| { type: 'rotate'; degrees: 90 | 180 | 270 }
-	| { type: 'flip'; axis: 'horizontal' | 'vertical' }
-	| { type: 'trim'; start_seconds: number; end_seconds: number };
-
-/**
- * The library resource an edit produced. Mirrors `EditedMediaItem`
- * (src/features/media/editing/dto.py). `url` is a real served path, so an
- * `<img>` or `<video>` can render one directly.
- */
 export interface EditedMediaItem {
 	id: string;
 	filename: string;
@@ -92,17 +75,6 @@ export interface EditedMediaItem {
 	fps?: number;
 	size?: number;
 	created_at?: string;
-}
-
-/** Mirrors `EditMediaResult` (src/features/media/editing/dto.py). */
-export interface EditMediaResult {
-	item: EditedMediaItem;
-	replaced: boolean;
-}
-
-/** Mirrors the split endpoint's response (src/features/media/editing). */
-export interface SplitMediaResult {
-	items: EditedMediaItem[];
 }
 
 /** Mirrors `UploadListResult` (src/features/media/dto.py). */
@@ -225,57 +197,6 @@ export function createMediaApi(client: AxiosInstance, getBaseURL: () => string) 
 			formData.append('file', file);
 			if (purpose) formData.append('purpose', purpose);
 			const response = await client.post('/api/media/upload', formData);
-			return response.data;
-		},
-
-		/**
-		 * Crops / resizes / rotates / flips / trims one library resource.
-		 *
-		 * `mode: 'replace'` keeps the row - and so its tags and collection
-		 * memberships - and swaps the file behind it; `'new'` leaves the
-		 * original untouched and records a second resource. Either way the
-		 * result is a real library resource with a served `url`.
-		 *
-		 * The geometry is validated and clamped server-side, so a 400 here means
-		 * the client's own bounds check missed something.
-		 */
-		async editMediaItem(
-			itemId: string,
-			operations: MediaEditOperation[],
-			mode: 'new' | 'replace' = 'new'
-		): Promise<APIResponse<EditMediaResult>> {
-			const response = await client.post(`/api/media/edit/${itemId}`, { operations, mode });
-			return response.data;
-		},
-
-		/**
-		 * Saves one frame of a video as a NEW image resource - never a replace,
-		 * because a row that a form field or a collection was given as a video
-		 * cannot become a still underneath them.
-		 */
-		async extractMediaFrame(
-			itemId: string,
-			timeSeconds: number
-		): Promise<APIResponse<EditMediaResult>> {
-			const response = await client.post(`/api/media/edit/${itemId}/frame`, {
-				time_seconds: timeSeconds
-			});
-			return response.data;
-		},
-
-		/**
-		 * Cuts one library resource into consecutive parts of `partSeconds` each,
-		 * with a final short clip for whatever remainder is left. Unlike
-		 * `editMediaItem`, this always produces NEW resources - the original is
-		 * never modified, so there is no `mode` to choose here.
-		 */
-		async splitMediaItem(
-			itemId: string,
-			partSeconds: number
-		): Promise<APIResponse<SplitMediaResult>> {
-			const response = await client.post(`/api/media/split/${itemId}`, {
-				part_seconds: partSeconds
-			});
 			return response.data;
 		}
 	};

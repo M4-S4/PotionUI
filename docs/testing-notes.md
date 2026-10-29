@@ -305,12 +305,14 @@ These are container/environment artefacts, not regressions caused by your change
   which is unrelated and still open.
 - `tests/pipelines/pipes/generator/img2vid_wan22/*` can OOM when the GPU is busy
   (shared box — check `nvidia-smi` before assuming a regression).
-- The media-editing suite (`tests/features/media/editing/`) skips every video and
-  audio test with "ffmpeg is not installed" when the binary is absent — 23 silent
-  skips, leaving only the Pillow image path exercised. `sudo apt-get install -y
-  ffmpeg` turns them into real round-trips. The backend assumes ffmpeg in
-  production (`media_probe` shells out to ffprobe), so a container without it
-  reports a green suite for code that has never run.
+- The media tool suites (`tests/platform/media_tools/`, `tests/features/media_tools/`,
+  `tests/pipelines/pipes/media_tool/`, `tests/pipelines/pipes/video_trim/`,
+  `tests/pipelines/pipes/video_concat/`) skip every video and audio test with
+  "ffmpeg is not available" when no ffmpeg binary can be found (`find_ffmpeg`
+  also accepts the one bundled by `imageio-ffmpeg`), leaving only the Pillow
+  image path exercised. `sudo apt-get install -y ffmpeg` turns them into real
+  round-trips, so a container without ffmpeg reports a green suite for code
+  that has never run.
 - The suite should otherwise be green. Judge a change by the **set of failing
   test IDs before vs. after**, not by a raw count: capture the failing IDs on a
   clean tree first, then compare. Report the failure-ID diff honestly.
