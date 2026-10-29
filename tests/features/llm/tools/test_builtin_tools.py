@@ -144,6 +144,7 @@ class TestRegisterBuiltinTools:
             "manage_collections",
             "organize_gallery",
             "start_generation",
+            "run_media_tool",
         }
 
     TOOL_GROUPS = {

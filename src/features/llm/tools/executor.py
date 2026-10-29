@@ -197,7 +197,7 @@ class ToolExecutor:
             logger.debug(f"[ToolExecutor] Executing tool: {tool_name} with args: {arguments}")
             result = await tool.execute(context, **arguments)
             logger.debug(f"[ToolExecutor] Tool {tool_name} completed: success={result.success}")
-            pending = tool.requires_approval and result.success
+            pending = tool.approval_required(arguments) and result.success
             return result, pending
         except Exception as e:
             logger.error(f"[ToolExecutor] Tool {tool_name} failed: {e}", exc_info=True)
@@ -253,7 +253,7 @@ class ToolExecutor:
                 data="",
                 error=f"Tool '{tool_name}' not found",
             )
-        if not tool.requires_approval:
+        if not tool.approval_required(arguments):
             return ToolResult(
                 success=False,
                 data="",

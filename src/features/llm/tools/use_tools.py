@@ -6,12 +6,13 @@ from src.features.llm.tools.base import BaseTool, ToolResult
 
 USE_TOOLS_NAME = "use_tools"
 
-STANDARD_TIER_DEFERRED_GROUPS = frozenset({"library"})
+STANDARD_TIER_DEFERRED_GROUPS = frozenset({"library", "media"})
 
 _GROUP_SUMMARIES = {
     "phrasebook_write": "browse a category's values by id and create, edit or remove categories and values",
     "memory_maintenance": "read, edit or delete saved memory notes",
     "director": "lay out a timed Prompt Relay video timeline",
+    "media": "edit the user's images, videos and audio: trim, crop, resize, rotate, flip, speed, split, join and more",
     "library": (
         "saved segments, templates and prompts, uploaded files, collections, the model and "
         "preset catalogs, and starting a generation for an explicit preset"

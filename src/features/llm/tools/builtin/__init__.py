@@ -58,12 +58,18 @@ from src.features.llm.tools.builtin.music_director_tool import GetMusicDirectorT
 from src.features.llm.tools.builtin.manage_collections_tool import ManageCollectionsTool
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
 from src.features.llm.tools.builtin.start_generation_tool import StartGenerationTool
+from src.features.llm.tools.builtin.run_media_tool_tool import RunMediaToolTool
+from src.platform.media_tools import MediaToolRegistry
+from src.platform.media_tools.ops import register_core_tools as register_core_media_tools
 
 logger = logging.getLogger(__name__)
 
 
-def register_builtin_tools(registry) -> None:
+def register_builtin_tools(registry, media_tool_registry=None) -> None:
     """Register all built-in tools with the given registry."""
+    if media_tool_registry is None:
+        media_tool_registry = MediaToolRegistry()
+        register_core_media_tools(media_tool_registry)
     tools = [
         ListSegmentCategoriesTool(),
         GetSavedSegmentsTool(),
@@ -119,6 +125,7 @@ def register_builtin_tools(registry) -> None:
         ListLibraryItemsTool(),
         OrganizeGalleryTool(),
         StartGenerationTool(),
+        RunMediaToolTool(media_tool_registry),
     ]
     for tool in tools:
         registry.register(tool)

@@ -34,6 +34,7 @@ class ToolRegistry:
         # filter repeatedly, so cache the built list and drop it whenever the
         # registry actually changes instead of on a TTL.
         self._schema_cache: Dict[Optional[Tuple[str, ...]], List[Dict]] = {}
+        self._schema_revisions: Tuple = ()
 
     def register(self, tool: BaseTool, source: str = "builtin") -> None:
         """Register a tool in the registry, tracking its source for cleanup."""
@@ -108,6 +109,7 @@ class ToolRegistry:
         filter on every iteration); the cache is cleared on any registration
         change, so it never serves a stale schema list.
         """
+        self._sync_schema_revisions()
         cache_key = tuple(sorted(names)) if names is not None else None
         cached = self._schema_cache.get(cache_key)
         if cached is not None:
@@ -119,6 +121,16 @@ class ToolRegistry:
         schemas = [self._render_schema_conditionals(tool.to_schema(), allowed) for tool in tools]
         self._schema_cache[cache_key] = schemas
         return schemas
+
+    def _sync_schema_revisions(self) -> None:
+        revisions = tuple(
+            (name, revision)
+            for name, tool in self._tools.items()
+            if (revision := tool.schema_revision()) is not None
+        )
+        if revisions != self._schema_revisions:
+            self._schema_revisions = revisions
+            self._schema_cache.clear()
 
     @classmethod
     def _render_schema_conditionals(cls, node: Any, allowed: Optional[Set[str]]) -> Any:

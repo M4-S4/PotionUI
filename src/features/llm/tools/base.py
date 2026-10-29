@@ -5,7 +5,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Hashable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +110,7 @@ class ToolServices:
     content_safety: Any = None
     library_collaborators: Any = None
     tab_drafts: Any = None
+    media_tool_service: Any = None
 
 
 @dataclass
@@ -153,6 +154,7 @@ class ToolContext:
     content_safety: Any = None
     library_collaborators: Any = None
     tab_drafts: Any = None
+    media_tool_service: Any = None
     chat_session: bool = True
 
     @classmethod
@@ -232,6 +234,12 @@ class BaseTool(ABC):
         Override in subclasses. Returns empty string by default (tool won't appear in system prompt hints).
         """
         return ""
+
+    def approval_required(self, arguments: Dict[str, Any]) -> bool:
+        return self.requires_approval
+
+    def schema_revision(self) -> Optional[Hashable]:
+        return None
 
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         """Whether this tool should be advertised for the turn's form state.
