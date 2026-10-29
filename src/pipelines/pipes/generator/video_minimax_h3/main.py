@@ -178,6 +178,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     MAX_IMAGE_REFERENCES,
     MAX_REFERENCES,
     MAX_VIDEO_REFERENCES,
+    REFERENCE_IMAGE_SHORT_EDGE,
     ReferenceMedia,
     VisualLatentCache,
     encode_source_video_condition,
@@ -1246,6 +1247,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 required=False,
             ),
             PipeConfigSpec(
+                "reference_short_edge", int, REFERENCE_IMAGE_SHORT_EDGE,
+                "Short edge, in pixels, every reference PICTURE is resized to before it is encoded "
+                "(each axis then rounded to the 32px canvas grid, aspect ratio kept). The default is "
+                "the released checkpoint's own. An encoded picture costs one token per 32x32 block, "
+                "and every token of every reference is attended to on every step, so a lower value "
+                "shortens the sequence and speeds each step up, at the price of fine detail in the "
+                "reference. Reference videos are not affected: they follow the canvas rule.",
+                required=False, min_value=CANVAS_MULTIPLE,
+            ),
+            PipeConfigSpec(
                 "reference_mods", list, [],
                 "RefMod bundles (`_shared.generation.refmods`, ported from the community "
                 "ComfyUI-MiniMaxH3Mod project): a list of `{file_path, strength}` dicts, each a "
@@ -1671,7 +1682,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if plan is not None and plan.windows:
             reference_num_frames = max(window.frames for window in plan.windows)
         references = (
-            tuple(normalize_references(raw_references, num_frames=reference_num_frames)) if packed else ()
+            tuple(normalize_references(
+                raw_references, num_frames=reference_num_frames,
+                reference_short_edge=int(self.config.get("reference_short_edge", REFERENCE_IMAGE_SHORT_EDGE)),
+            )) if packed else ()
         )
         source_path = source_videos[0] if source_frames is not None else None
         source_has_audio = bool(source_path is not None and source_role == "continue" and has_audio_stream(source_path))

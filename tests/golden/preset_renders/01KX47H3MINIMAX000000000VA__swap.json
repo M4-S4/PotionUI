@@ -245,6 +245,10 @@
           "type": "int",
           "value": 1
         },
+        "reference_short_edge": {
+          "type": "int",
+          "value": 1024
+        },
         "reference_videos": {
           "type": "list",
           "value": [

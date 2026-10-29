@@ -113,6 +113,7 @@ pipeline:
       references: "{{ form.character }}"
       reference_videos: ["{{ form.source_video }}"]
       length_from: "reference_video"
+      reference_short_edge: 1024
       audio_source: "{{ 'reference_video' if form.keep_sound else 'generate' }}"
       resolution: "auto"
       frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"

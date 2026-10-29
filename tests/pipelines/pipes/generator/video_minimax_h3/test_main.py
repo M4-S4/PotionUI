@@ -13,12 +13,14 @@ import numpy as np
 import pytest
 import torch
 
+from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.outputs import GenerationExecutionError
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import AudioTrack
 from tests.pipelines.pipes.generator.video_minimax_h3.vae_stub import StubVideoVae
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
+    REFERENCE_IMAGE_SHORT_EDGE,
     ReferenceConditioning,
     ReferenceMedia,
     visual_latent_cache_key,
@@ -160,6 +162,69 @@ def test_build_context_accepts_reference_images_alone():
     assert [reference.kind for reference in ctx.extra.references] == ["image", "image"]
     assert ctx.extra.keyframe_images == []
     assert ctx.extra.keyframe_anchors == ()
+
+
+def _build_reference_context(config_overrides, image):
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(),
+        "references": [{"path": "ref1"}],
+        **config_overrides,
+    })
+    return pipe.build_context(_pipe_input(
+        model=_fake_bundle(), conditioning=[_fake_conditioning(3)], reference_images=[image],
+    ))
+
+
+def test_reference_short_edge_is_declared_with_the_released_default():
+    spec = next(spec for spec in GeneratorMinimaxH3Pipe.configuration() if spec.name == "reference_short_edge")
+    assert spec.param_type is int
+    assert spec.default == REFERENCE_IMAGE_SHORT_EDGE == 2048
+    assert spec.min_value == CANVAS_MULTIPLE
+    assert GeneratorMinimaxH3Pipe.get_default_config()["reference_short_edge"] == 2048
+
+
+@pytest.mark.parametrize("value", [0, -1, CANVAS_MULTIPLE - 1, "wide"])
+def test_reference_short_edge_below_one_canvas_tile_or_not_a_number_is_rejected(value):
+    with pytest.raises(ValueError, match="reference_short_edge"):
+        validate_pipe_configuration(
+            GeneratorMinimaxH3Pipe, {"mode": "references", "reference_short_edge": value},
+        )
+
+
+@pytest.mark.parametrize("value", [CANVAS_MULTIPLE, 1024, 2048, 4096])
+def test_reference_short_edge_of_at_least_one_canvas_tile_is_accepted(value):
+    validated = validate_pipe_configuration(
+        GeneratorMinimaxH3Pipe, {"mode": "references", "reference_short_edge": value},
+    )
+    assert validated["reference_short_edge"] == value
+
+
+def test_reference_short_edge_left_unset_validates_to_the_released_default():
+    validated = validate_pipe_configuration(GeneratorMinimaxH3Pipe, {"mode": "references"})
+    assert validated["reference_short_edge"] == 2048
+
+
+@pytest.mark.parametrize(("overrides", "expected"), [({}, 2048), ({"reference_short_edge": 1024}, 1024)])
+def test_build_context_passes_the_reference_short_edge_to_normalize_references(overrides, expected):
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_references
+
+    with patch(f"{_MAIN}.normalize_references", wraps=normalize_references) as spy:
+        _build_reference_context(overrides, _reference_image())
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs["reference_short_edge"] == expected
+
+
+@pytest.mark.parametrize(("overrides", "expected_size", "expected_tokens"), [
+    ({}, (2048, 3680), 64 * 115),
+    ({"reference_short_edge": 1024}, (1024, 1824), 32 * 57),
+])
+def test_build_context_fits_a_reference_picture_to_the_configured_short_edge(
+    overrides, expected_size, expected_tokens,
+):
+    ctx = _build_reference_context(overrides, _reference_image((1072, 1920)))
+    fitted = ctx.extra.references[0].image
+    assert fitted.size == expected_size
+    assert (fitted.width // CANVAS_MULTIPLE) * (fitted.height // CANVAS_MULTIPLE) == expected_tokens
 
 
 def test_build_context_rejects_too_many_reference_images():
