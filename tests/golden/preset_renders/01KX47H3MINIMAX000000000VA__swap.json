@@ -91,17 +91,44 @@
     },
     {
       "config": {
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "matting",
+      "name": "matting/birefnet"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "crop_subject",
+      "name": "crop_subject"
+    },
+    {
+      "config": {
         "guidance_scale": {
           "type": "float",
           "value": 1.0
         },
         "p_prompt.input": {
           "type": "str",
-          "value": "subject_definitions: <Subject 1> is the person shown in <Picture 1>. <Video 1> is the source video. summary: [video editing] + [reference generation] The main person of <Video 1> is removed and replaced by <Subject 1>; <Subject 1> performs the same motion as the original person, with the camera, timing and setting of <Video 1>. The original person no longer appears. retention_analysis: <Subject 1> (appears in [Shot 1]): partially_preserved - only the face, hair, body and outfit are taken from the reference pictures; their framing, camera distance, pose and background are not used. <Video 1> (appears in [Shot 1]): partially_preserved - framing, camera distance, camera movement, composition, poses, gestures, timing, lighting and background are kept exactly from its first frame to its last; only the identity, face, hair and outfit of its main person are replaced. detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] From the very first frame the shot has exactly the framing and camera distance of <Video 1>, with no zoom, cut or transition from the reference pictures. The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are.  overall_soundscape: The same ambient and action sounds as <Video 1>. non_diegetic_music: N/A"
+          "value": "subject_definitions: <Subject 1> is the person shown in <Picture 1>. <Video 1> is the source video. summary: [video editing] + [reference generation] The main person of <Video 1> is removed and replaced by <Subject 1>; <Subject 1> performs the same motion as the original person, with the camera, timing and setting of <Video 1>. The original person no longer appears. retention_analysis: <Subject 1> (appears in [Shot 1]): partially_preserved - only the face, hair, body and outfit are taken from the reference pictures; their framing, camera distance, pose and background are not used. The reference pictures show <Subject 1> on a plain background, which is not used. The background, setting and lighting all come from <Video 1>. <Video 1> (appears in [Shot 1]): partially_preserved - framing, camera distance, camera movement, composition, poses, gestures, timing, lighting and background are kept exactly from its first frame to its last; only the identity, face, hair and outfit of its main person are replaced. detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] From the very first frame the shot has exactly the framing and camera distance of <Video 1>, with no zoom, cut or transition from the reference pictures. The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are.  overall_soundscape: The same ambient and action sounds as <Video 1>. non_diegetic_music: N/A"
         },
         "p_prompt.output": {
           "type": "str",
-          "value": "subject_definitions: <Subject 1> is the person shown in <Picture 1>. <Video 1> is the source video. summary: [video editing] + [reference generation] The main person of <Video 1> is removed and replaced by <Subject 1>; <Subject 1> performs the same motion as the original person, with the camera, timing and setting of <Video 1>. The original person no longer appears. retention_analysis: <Subject 1> (appears in [Shot 1]): partially_preserved - only the face, hair, body and outfit are taken from the reference pictures; their framing, camera distance, pose and background are not used. <Video 1> (appears in [Shot 1]): partially_preserved - framing, camera distance, camera movement, composition, poses, gestures, timing, lighting and background are kept exactly from its first frame to its last; only the identity, face, hair and outfit of its main person are replaced. detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] From the very first frame the shot has exactly the framing and camera distance of <Video 1>, with no zoom, cut or transition from the reference pictures. The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are.  overall_soundscape: The same ambient and action sounds as <Video 1>. non_diegetic_music: N/A"
+          "value": "subject_definitions: <Subject 1> is the person shown in <Picture 1>. <Video 1> is the source video. summary: [video editing] + [reference generation] The main person of <Video 1> is removed and replaced by <Subject 1>; <Subject 1> performs the same motion as the original person, with the camera, timing and setting of <Video 1>. The original person no longer appears. retention_analysis: <Subject 1> (appears in [Shot 1]): partially_preserved - only the face, hair, body and outfit are taken from the reference pictures; their framing, camera distance, pose and background are not used. The reference pictures show <Subject 1> on a plain background, which is not used. The background, setting and lighting all come from <Video 1>. <Video 1> (appears in [Shot 1]): partially_preserved - framing, camera distance, camera movement, composition, poses, gestures, timing, lighting and background are kept exactly from its first frame to its last; only the identity, face, hair and outfit of its main person are replaced. detailed_description: The style, lighting and colour match <Video 1>. [Shot 1] From the very first frame the shot has exactly the framing and camera distance of <Video 1>, with no zoom, cut or transition from the reference pictures. The shot follows <Video 1> moment by moment: <Subject 1> takes the place of its main person and performs the same movements, gestures, expressions and lip movements in the same positions, while the camera, the background and every other person and object stay as they are.  overall_soundscape: The same ambient and action sounds as <Video 1>. non_diegetic_music: N/A"
         },
         "pairs": {
           "type": "list",
@@ -175,6 +202,12 @@
             [
               "model",
               "/GOLDEN/models/audio_vae.safetensors"
+            ],
+            [
+              [
+                "model",
+                "/GOLDEN/models/matting_model.safetensors"
+              ]
             ],
             [],
             [

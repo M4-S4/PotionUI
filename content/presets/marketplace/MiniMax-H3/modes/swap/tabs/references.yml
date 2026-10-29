@@ -14,6 +14,12 @@ fields:
     configuration:
       multi: true
       max_items: 4
+  - name: "remove_background"
+    type: "checkbox"
+    label: "Remove the picture's background"
+    default: true
+    description: "Keeps only the person."
+    ai_hint: "Cuts the person out of each character picture before MiniMax-H3 sees it, so the pictures' own backgrounds cannot leak into the video; the background always comes from the source video. Needs the Matting Model on the Generation tab. Leave it on unless the pictures already show the person on a plain background."
   - name: "character_description"
     type: "string"
     label: "Who they are"

@@ -49,6 +49,10 @@ configuration:
     type: "model_tags"
     label: "Latent upscaler tags"
     description: "Only models with any of these tags appear in the Latent Upscaler picker."
+  matting_tags:
+    type: "model_tags"
+    label: "Matting model tags"
+    description: "Only models with any of these tags appear in the Matting Model picker."
 
 # Selectable speed profiles (docs/presets.md "Speed profiles"), same pattern as
 # presets/native/LTX-2 and presets/native/Krea2. Each profile bakes the ACTUAL

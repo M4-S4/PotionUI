@@ -187,3 +187,32 @@ def test_fixed_recipes_stay_the_unpinned_default(schemas, case):
     assert steps["default"] == FIXED_RECIPES[case]
     custom = [r for r in steps["reactions"] if r["when"]["value"] == "custom"]
     assert custom and all(r["then"].get("set_value") is None for r in custom)
+
+
+def test_swap_background_toggle_sits_right_after_the_character_pictures(schemas):
+    names = [c.get("name") for c in _tab(schemas[(H3, "swap")], "References")["children"]]
+    assert names.index("remove_background") == names.index("character") + 1
+    toggle = _fields(_tab(schemas[(H3, "swap")], "References"))["remove_background"]
+    assert toggle["type"] == "boolean"
+    assert toggle["default"] is True
+    assert toggle["title"] == "Remove the picture's background"
+
+
+def test_swap_matting_model_is_a_models_picker_shown_and_required_only_with_the_toggle(schemas):
+    models = _tab(schemas[(H3, "swap")], "Generation")["children"][2]
+    assert [c.get("name") for c in models["children"]] == [
+        "model", "text_encoder", "video_vae", "audio_vae", "matting_model",
+    ]
+    matting = _fields(models)["matting_model"]
+    assert matting["required"] is True
+    assert matting["configuration"]["model_type"] == "detection_segm"
+    visibility = {
+        (r["when"]["field"], r["when"]["value"]): r["then"]["set_visibility"] for r in matting["reactions"]
+    }
+    assert visibility == {("remove_background", False): False, ("remove_background", True): True}
+
+
+@pytest.mark.parametrize("case", [c for c in CASES if c != (H3, "swap")], ids=[i for c, i in zip(CASES, IDS) if c != (H3, "swap")])
+def test_only_swap_carries_the_background_removal_fields(schemas, case):
+    names = set(_fields(schemas[case]["properties"]["tabs"]))
+    assert not {"remove_background", "matting_model"} & names
