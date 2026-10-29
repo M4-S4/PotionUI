@@ -686,7 +686,12 @@ CUDA. Without it, the first request needing either paid for both, 13 to 16 secon
 under WSL2, enough for a client with a 15-second timeout to get no answer. Health turns 200 once the
 warm-up is done, also when a step of it failed (the failure is logged). Anything waiting for a
 started instance (`./potionui start`, the restart dialogs, the Docker health check) polls `/health`
-until it answers 200.
+until it answers 200. `./potionui start` reads the 503 body: while it says `"starting"`, the process
+is alive and answering, so the CLI keeps waiting (and says so once) instead of counting those seconds
+against its `--timeout`, which only bounds the time the backend gives no answer at all; a large
+preset catalogue or a cold torch cache on a slow disk therefore no longer gets the backend stopped
+mid-warm-up. The Docker health check (`start-period` 120 s, then 3 × 30 s) and the onboarding
+sandbox watcher only poll and print; neither stops the process on a long warm-up.
 
 ## See also
 
