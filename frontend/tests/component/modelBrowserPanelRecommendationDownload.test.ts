@@ -32,16 +32,16 @@ const { createClassComponent } = await import('svelte/legacy');
 const BIREFNET = {
 	name: 'BiRefNet-general.safetensors',
 	installed: false,
-	provider: 'huggingface',
-	ref: '{"repo": "ZhengPeng7/BiRefNet", "file": "model.safetensors", "revision": "main"}',
-	size: '444 MB'
+	link: 'https://huggingface.co/ZhengPeng7/BiRefNet/resolve/main/model.safetensors',
+	size: '444 MB',
+	sha256: '9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154'
 };
 
-const UPSCALER = {
-	name: 'RealESRGAN_x4plus.pth',
+const PROVIDER_BACKED = {
+	name: 'Great Checkpoint.safetensors',
 	installed: false,
-	link: 'https://example.com/RealESRGAN_x4plus.pth',
-	sha256: 'f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f155e99da'
+	provider: 'civitai',
+	ref: '{"model_id": "12345", "version_id": "67890"}'
 };
 
 let destroy: (() => void) | undefined;
@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 describe('ModelBrowserPanel recommendation download', () => {
-	it('posts the recommendation name and the field model type for a provider-backed recommendation', async () => {
+	it('posts the name, link and checksum with the field model type for a link recommendation', async () => {
 		stubApi();
 		const target = mountPanel({ modelType: 'detection_segm', recommendations: [BIREFNET] });
 
@@ -95,22 +95,22 @@ describe('ModelBrowserPanel recommendation download', () => {
 		expect(api.startModelDownload).toHaveBeenCalledWith({
 			name: 'BiRefNet-general.safetensors',
 			model_type: 'detection_segm',
-			provider: 'huggingface',
-			ref: BIREFNET.ref
+			link: BIREFNET.link,
+			sha256: BIREFNET.sha256
 		});
 	});
 
-	it('posts the recommendation name, link and checksum for a direct-link recommendation', async () => {
+	it('posts the name, provider and ref with the field model type for a provider-backed recommendation', async () => {
 		stubApi();
-		const target = mountPanel({ modelType: 'upscaler', recommendations: [UPSCALER] });
+		const target = mountPanel({ modelType: 'checkpoint', recommendations: [PROVIDER_BACKED] });
 
-		await clickDownload(target, UPSCALER.name);
+		await clickDownload(target, PROVIDER_BACKED.name);
 
 		expect(api.startModelDownload).toHaveBeenCalledWith({
-			name: 'RealESRGAN_x4plus.pth',
-			model_type: 'upscaler',
-			link: UPSCALER.link,
-			sha256: UPSCALER.sha256
+			name: 'Great Checkpoint.safetensors',
+			model_type: 'checkpoint',
+			provider: 'civitai',
+			ref: PROVIDER_BACKED.ref
 		});
 	});
 });

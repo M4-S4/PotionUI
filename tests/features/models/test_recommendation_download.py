@@ -155,6 +155,24 @@ async def test_a_provider_less_link_recommendation_is_named_too(client, repo, de
 
 
 @pytest.mark.asyncio
+async def test_a_link_recommendation_keeps_its_name_url_and_checksum(client, repo, depot, providers):
+    body = {
+        "name": "BiRefNet-general.safetensors",
+        "model_type": "detection_segm",
+        "link": RESOLVED_URL,
+        "sha256": BIREFNET_SHA,
+    }
+    download = await _queue(client, repo, body)
+
+    assert download.filename == "BiRefNet-general.safetensors"
+    assert Path(download.destination_path) == _type_dir(depot) / "BiRefNet-general.safetensors"
+    assert download.filename_supplied is True
+    assert download.url == RESOLVED_URL
+    assert download.checksum_sha256 == BIREFNET_SHA
+    assert providers.calls == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("name", ["../escape.safetensors", "nested/matte.safetensors", "/abs/matte.safetensors", "..\\escape.safetensors"])
 async def test_an_unsafe_name_never_leaves_the_type_directory(client, repo, depot, name):
     download = await _queue(client, repo, _body(name))
