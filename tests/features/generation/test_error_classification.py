@@ -239,7 +239,10 @@ def test_a_cloud_failure_with_context_leads_with_it():
     assert classify_generation_error(CloudRunError("credits", "x")).summary == "The cloud provider account is out of credits."
 
 
-def test_the_wsl_allocator_failure_classifies_as_cuda_oom():
+def test_the_wsl_allocator_failure_classifies_as_cuda_oom(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     exc = RuntimeError("CUDA driver error: device not ready")
 
     classification = classify_generation_error(exc)
@@ -267,12 +270,28 @@ def test_a_driver_oom_is_a_restart_only_once_the_allocator_is_damaged(monkeypatc
     from src.platform.runtime import cuda_allocator
 
     exc = RuntimeError("CUDA driver error: device not ready")
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     monkeypatch.setattr(cuda_allocator, "_damage", None)
     assert classify_generation_error(exc).category == "cuda_oom"
 
     monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
     assert classify_generation_error(exc).category == "gpu_restart_required"
     assert classify_generation_error(torch.cuda.OutOfMemoryError("CUDA out of memory")).category == "cuda_oom"
+
+
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_the_driver_oom_that_damages_the_allocator_asks_for_a_restart_at_once(monkeypatch, text):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    classification = classify_generation_error(RuntimeError(text))
+
+    assert classification.category == "gpu_restart_required"
+    assert cuda_allocator.allocator_damage() == text
 
 
 def test_a_stored_refusal_reads_as_a_restart_from_its_text():

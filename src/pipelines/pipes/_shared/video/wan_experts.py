@@ -5,6 +5,7 @@ import traceback
 from typing import Any
 import numpy as np
 import torch
+from src.platform.runtime.cuda_allocator import needs_gpu_restart
 from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_driver_error, is_cuda_oom
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
@@ -12,7 +13,15 @@ from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
 from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
-from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, causal3d_frame_need_gb, chunked_decode_causal3d
+from src.platform.runtime.native.vae.tiling import (
+    causal3d_chunk_frames,
+    causal3d_decode_overlap,
+    causal3d_decode_tile,
+    causal3d_frame_need_gb,
+    chunked_decode_causal3d,
+    smaller_decode_tile,
+    tiled_decode_causal3d,
+)
 from src.platform.runtime.system_memory import get_system_memory
 from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.contracts import logger
@@ -253,14 +262,41 @@ def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> tor
     return chunked_decode_causal3d(vae_module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu")
 
 
+def _retries_after(exc: BaseException) -> bool:
+    return (is_cuda_oom(exc) or is_cuda_driver_error(exc)) and not needs_gpu_restart(exc)
+
+
+def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
+    tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free)
+    scale = int(getattr(c, "spatial_downscale", 8))
+    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free: decoding in spatial tiles of %d latent px",
+                free, tile)
+    while True:
+        try:
+            return tiled_decode_causal3d(
+                c.vae.module, z, tile_size=tile, overlap=causal3d_decode_overlap(tile), scale=scale,
+                accumulate_device="cpu",
+            )
+        except Exception as exc:
+            smaller = smaller_decode_tile(tile)
+            if smaller >= tile or not _retries_after(exc):
+                raise
+            traceback.clear_frames(exc.__traceback__)
+            logger.warning("[WAN DECODE] tiled VAE decode failed for lack of VRAM at %d latent px (%s); "
+                           "clearing the card and retrying at %d", tile, str(exc).splitlines()[0][:200], smaller)
+        _clear_card_for_decode(c)
+        tile = smaller
+
+
 def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
-    chunk_frames = causal3d_chunk_frames(
-        c.vae.module, z, free_vram_gb_value=effective_free_vram_gb(c.device), single_frame_on_overflow=True,
-    )
+    free = effective_free_vram_gb(c.device)
+    if free is not None and free < causal3d_frame_need_gb((z.shape[-2], z.shape[-1])):
+        return _decode_tiled(c, z, free)
+    chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free, single_frame_on_overflow=True)
     try:
         return _decode_latent(c.vae.module, z, chunk_frames)
     except Exception as exc:
-        if not (is_cuda_oom(exc) or is_cuda_driver_error(exc)):
+        if not _retries_after(exc):
             raise
         traceback.clear_frames(exc.__traceback__)
         logger.warning("[WAN DECODE] VAE decode failed for lack of VRAM at %s latent frame(s) per chunk (%s); "

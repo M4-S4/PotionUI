@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest import mock
 
+import pytest
 import torch
 
 from vendor.gpl.comfyui.ops import disable_weight_init
@@ -14,6 +15,9 @@ from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import (
     VAE_SPATIAL_DOWNSCALE,
     auto_tile_size,
+    causal3d_decode_overlap,
+    causal3d_decode_tile,
+    smaller_decode_tile,
     tiled_decode,
     tiled_decode_causal3d,
     tiled_encode,
@@ -231,3 +235,37 @@ def test_tiled_decode_causal3d_honours_a_16x_rgba_vae():
     assert torch.isfinite(tiled).all()
     interior = (slice(None), slice(None), slice(None), slice(64, -64), slice(64, -64))
     assert torch.allclose(tiled[interior], whole[interior], atol=5e-2)
+
+
+@pytest.mark.parametrize(
+    ("latent_hw", "free", "expected"),
+    [
+        ((78, 186), None, 88),
+        ((78, 186), 64.0, 88),
+        ((78, 186), 4.0, 40),
+        ((78, 186), 0.5, 16),
+        ((10, 12), None, 16),
+    ],
+)
+def test_the_decode_tile_is_half_the_long_axis_capped_by_free_vram(latent_hw, free, expected):
+    assert causal3d_decode_tile(latent_hw, free) == expected
+
+
+@pytest.mark.parametrize(("tile", "overlap", "smaller"), [(16, 8, 16), (40, 8, 16), (64, 8, 32), (128, 16, 64)])
+def test_the_decode_tile_overlap_and_shrink(tile, overlap, smaller):
+    assert causal3d_decode_overlap(tile) == overlap
+    assert smaller_decode_tile(tile) == smaller
+
+
+@pytest.mark.parametrize(("tile_size", "overlap"), [(8, 4), (64, 8)])
+def test_tiled_decode_causal3d_can_accumulate_on_another_device(tile_size, overlap):
+    torch.manual_seed(0)
+    vae = _tiny_causal3d_vae()
+    latent = torch.randn(1, 16, 2, 4, 12)
+
+    with torch.no_grad():
+        here = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap)
+        there = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap, accumulate_device="cpu")
+
+    assert there.device.type == "cpu"
+    assert torch.equal(here, there)

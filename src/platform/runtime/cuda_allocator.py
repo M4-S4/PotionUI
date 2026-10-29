@@ -14,6 +14,10 @@ RESTART_HINT = (
     "(Administration > Backends) before the next generation."
 )
 RESTART_ACTION = "Restart PotionUI: Administration > Backends > Restart Backend"
+DRIVER_OOM_MESSAGES = (
+    "CUDA driver error: device not ready",
+    "CUDA driver error: out of memory",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +51,10 @@ def driver_oom_is_fatal(environ: Mapping[str, str] | None = None, kernel_release
     return is_wsl(kernel_release)
 
 
+def is_driver_oom(exc: BaseException) -> bool:
+    return isinstance(exc, RuntimeError) and str(exc).startswith(DRIVER_OOM_MESSAGES)
+
+
 def retry_after_driver_oom(exc: BaseException) -> bool:
     global _damage
     if not driver_oom_is_fatal() or not expandable_segments_enabled():
@@ -69,6 +77,8 @@ def allocator_damage() -> str | None:
 
 def needs_gpu_restart(exc: BaseException) -> bool:
     if isinstance(exc, CudaAllocatorDamaged):
+        return True
+    if is_driver_oom(exc) and not retry_after_driver_oom(exc):
         return True
     return _damage is not None and "CUDA driver error:" in str(exc)
 

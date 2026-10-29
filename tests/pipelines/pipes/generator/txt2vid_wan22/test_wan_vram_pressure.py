@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -9,6 +9,7 @@ import torch
 
 import src.pipelines.pipes._shared.video.wan_experts as wan_experts
 from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter, decode_wan_video
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import causal3d_frame_need_gb
@@ -133,24 +134,157 @@ def test_the_vae_decode_keeps_a_text_encoder_that_leaves_room_for_one_latent_fra
     assert encoder.offloads == 0
 
 
-def test_a_clip_whose_single_frame_overflows_the_estimate_decodes_one_latent_frame_per_chunk(monkeypatch):
+def test_a_clip_whose_single_latent_frame_overflows_is_decoded_in_spatial_tiles(monkeypatch):
+    torch.manual_seed(0)
     vae_module = _tiny_wan_vae()
+    latent = torch.randn(1, 16, 3, 4, 12)
+    whole = decode_wan_video(SimpleNamespace(vae=_Vae(vae_module), device="cpu", latent_channels=16), latent.clone())
+    real_tiled = wan_experts.tiled_decode_causal3d
     seen = []
 
-    def fake_chunked(vae, z, chunk_latent_frames, **kw):
-        seen.append((chunk_latent_frames, kw.get("accumulate_device")))
-        return vae.decode(z)
+    def spy(vae, z, **kw):
+        seen.append(kw)
+        return real_tiled(vae, z, **kw)
 
     monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
-    monkeypatch.setattr(wan_experts, "chunked_decode_causal3d", fake_chunked)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free: 8)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", spy)
+    monkeypatch.setattr(wan_experts, "chunked_decode_causal3d", Mock(side_effect=AssertionError("chunked")))
     c = SimpleNamespace(vae=_Vae(vae_module), device="cpu", latent_channels=16)
 
-    decode_wan_video(c, torch.randn(1, 16, 5, 4, 4))
+    out = decode_wan_video(c, latent.clone())
 
-    assert seen == [(1, "cpu")]
+    assert seen == [{"tile_size": 8, "overlap": 4, "scale": 8, "accumulate_device": "cpu"}]
+    assert out.shape == whole.shape
+    assert c.vae.offloads == 1
+
+
+def test_a_clip_whose_single_latent_frame_fits_is_not_tiled(monkeypatch):
+    vae_module = _tiny_wan_vae()
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: causal3d_frame_need_gb((4, 4)))
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", Mock(side_effect=AssertionError("tiled")))
+
+    decode_wan_video(SimpleNamespace(vae=_Vae(vae_module), device="cpu", latent_channels=16), torch.randn(1, 16, 3, 4, 4))
+
+
+def test_the_tiles_follow_the_spatial_factor_of_a_wan22_vae(monkeypatch):
+    scales = []
+
+    def tiled(vae, z, **kw):
+        scales.append(kw["scale"])
+        return torch.zeros(1, 3, 1, 64, 64)
+
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", tiled)
+    c = SimpleNamespace(vae=_Vae(None), device="cpu", latent_channels=48, spatial_downscale=16)
+
+    decode_wan_video(c, torch.zeros(1, 48, 1, 4, 4))
+
+    assert scales == [16]
+
+
+def test_a_tiled_decode_short_of_vram_clears_the_card_and_shrinks_its_tile(monkeypatch):
+    tiles = []
+
+    def tiled(vae, z, *, tile_size, **kw):
+        tiles.append(tile_size)
+        if tile_size > 16:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")
+        return torch.zeros(1, 3, 1, 32, 32)
+
+    cleared = []
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free: 64)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", tiled)
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+    c = SimpleNamespace(vae=_Vae(None), device="cpu", latent_channels=48)
+
+    decode_wan_video(c, torch.zeros(1, 48, 1, 4, 4))
+
+    assert tiles == [64, 32, 16]
+    assert cleared == [c, c]
+
+
+@pytest.mark.parametrize(
+    ("first_tile", "error"),
+    [
+        (16, torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")),
+        (64, RuntimeError("CUDA error: an illegal memory access was encountered")),
+    ],
+)
+def test_a_tiled_decode_raises_at_the_smallest_tile_or_on_an_error_not_about_vram(monkeypatch, first_tile, error):
+    tiles = []
+
+    def tiled(vae, z, *, tile_size, **kw):
+        tiles.append(tile_size)
+        raise error
+
+    cleared = []
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free: first_tile)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", tiled)
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+
+    with pytest.raises(type(error)):
+        decode_wan_video(SimpleNamespace(vae=_Vae(None), device="cpu", latent_channels=48), torch.zeros(1, 48, 1, 4, 4))
+
+    assert tiles == [first_tile]
+    assert cleared == []
+
+
+def _fatal_driver_oom_policy(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+
+def test_a_fatal_driver_oom_in_the_decode_is_not_retried(monkeypatch):
+    _fatal_driver_oom_policy(monkeypatch)
+    vae_module = _tiny_wan_vae()
+    frames_per_call = []
+
+    def decode_failing(z, **kw):
+        frames_per_call.append(z.shape[2])
+        raise RuntimeError("CUDA driver error: device not ready")
+
+    vae_module.decode = decode_failing
+    cleared = []
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        decode_wan_video(SimpleNamespace(vae=_Vae(vae_module), device="cpu", latent_channels=16), torch.randn(1, 16, 5, 4, 4))
+
+    assert frames_per_call == [5]
+    assert cleared == []
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
+def test_a_fatal_driver_oom_in_a_tiled_decode_is_not_retried(monkeypatch):
+    _fatal_driver_oom_policy(monkeypatch)
+    tiles = []
+
+    def tiled(vae, z, *, tile_size, **kw):
+        tiles.append(tile_size)
+        raise RuntimeError("CUDA driver error: device not ready")
+
+    cleared = []
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free: 64)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", tiled)
+    monkeypatch.setattr(wan_experts, "_clear_card_for_decode", cleared.append)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        decode_wan_video(SimpleNamespace(vae=_Vae(None), device="cpu", latent_channels=48), torch.zeros(1, 48, 1, 4, 4))
+
+    assert tiles == [64]
+    assert cleared == []
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
 
 
 def test_a_decode_the_driver_fails_for_lack_of_vram_is_retried_one_latent_frame_at_a_time(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     torch.manual_seed(0)
     vae_module = _tiny_wan_vae()
     latent = torch.randn(1, 16, 5, 4, 4)
