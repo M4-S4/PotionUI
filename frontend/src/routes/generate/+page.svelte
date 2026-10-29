@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { modeDescription } from '$lib/utils/modeDescription';
 	import { modeUnavailableReason } from '$lib/utils/modeRequirements';
+	import { createModeRequirementsRecheck } from '$lib/utils/modeRequirementsRecheck';
+	import { onModelInstalled } from '$lib/stores/modelInstalls';
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
@@ -877,6 +879,7 @@
 
 	onMount(async () => {
 		mounted = true;
+		unsubscribeModelInstalled = onModelInstalled(() => void modeRequirementsRecheck.run());
 
 		// One-time migration: Clear selectedMode for all tabs if no preset selected
 		tabs.forEach(tab => {
@@ -1135,6 +1138,9 @@
 
 	onDestroy(() => {
 		overlayTracker.destroy();
+		unsubscribeModelInstalled?.();
+		unsubscribeModelInstalled = null;
+		modeRequirementsRecheck.dispose();
 		clearTimeout(estimateTimer);
 		restoreController.abort();
 		unregisterChatRunGeneration?.();
@@ -1208,7 +1214,7 @@
 		}
 	}
 
-	async function loadModesForTab(tabId: string, presetId: string) {
+	async function loadModesForTab(tabId: string, presetId: string, options: { background?: boolean } = {}) {
 		const requestKey = `${tabId}:${presetId}`;
 		const existing = modesInFlight.get(requestKey);
 		if (existing) return existing;
@@ -1242,6 +1248,7 @@
 				}
 			} catch (error) {
 				console.error('Failed to load modes:', error);
+				if (options.background) return;
 				if (!modesErrorShown.has(requestKey)) {
 					modesErrorShown.add(requestKey);
 					toasts.error("Couldn't load this preset's modes. Try reselecting the preset.");
@@ -1266,6 +1273,16 @@
 		modesInFlight.set(requestKey, request);
 		return request;
 	}
+
+	const modeRequirementsRecheck = createModeRequirementsRecheck({
+		target: () =>
+			currentTab?.selectedPreset && currentTab.selectedMode
+				? { tabId: currentTab.id, presetId: currentTab.selectedPreset, mode: currentTab.selectedMode }
+				: null,
+		isBlocked: (target) => !!modeUnavailableReason(modesPerTab[target.tabId], target.mode),
+		reload: (target) => loadModesForTab(target.tabId, target.presetId, { background: true })
+	});
+	let unsubscribeModelInstalled: (() => void) | null = null;
 
 	// The preset-declared separator between enabled prompt segments
 	// (`vars.prompt.segment_join` in preset.yml — `paragraph` for song-section-style
