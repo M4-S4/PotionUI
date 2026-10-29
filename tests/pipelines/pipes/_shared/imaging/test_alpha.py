@@ -123,6 +123,21 @@ def test_flatten_onto_leaves_opaque_rgb_untouched():
     assert flatten_onto(image).getpixel((0, 0)) == (10, 20, 30)
 
 
+@pytest.mark.parametrize("mode", ["RGB", "L", "P", "CMYK", "RGBA", "LA"])
+def test_flatten_onto_is_byte_identical_to_an_rgb_convert_for_opaque_images(mode):
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 256, (24, 32, 3), dtype=np.uint8)).convert(mode)
+
+    assert flatten_onto(image).tobytes() == image.convert("RGB").tobytes()
+
+
+def test_flatten_onto_whitens_a_fully_transparent_image_whatever_rgb_it_hides():
+    hidden = np.zeros((24, 32, 4), dtype=np.uint8)
+    hidden[..., 0] = 255
+
+    assert np.array_equal(np.array(flatten_onto(_rgba(hidden))), np.full((24, 32, 3), 255, dtype=np.uint8))
+
+
 def test_flatten_onto_honours_palette_transparency():
     image = Image.new("P", (1, 1), 0)
     image.putpalette([200, 0, 0] + [0, 0, 0] * 255)

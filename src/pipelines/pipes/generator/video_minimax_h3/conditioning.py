@@ -66,6 +66,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (
     AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
@@ -196,7 +197,7 @@ def normalize_reference_video(
     `(F, 3, H, W)` tensor, uint8 or floating point over `[0, 1]`.
     """
     if isinstance(frames, list):
-        frames = np.stack([np.asarray(frame.convert("RGB")) for frame in frames])
+        frames = np.stack([np.asarray(flatten_onto(frame)) for frame in frames])
     if isinstance(frames, torch.Tensor):
         frames = frames.movedim(-3, -1).cpu().numpy()
     frames = np.asarray(frames)
@@ -317,7 +318,7 @@ def _pixels_from_array(image_hw3: np.ndarray, device: Any) -> Tensor:
 
 def _pixels_from_image(image: Image.Image, device: Any) -> Tensor:
     """PIL RGB image -> `(1, 3, 1, H, W)` uint8-valued float32 tensor."""
-    return _pixels_from_array(np.array(image.convert("RGB")), device)
+    return _pixels_from_array(np.array(flatten_onto(image)), device)
 
 
 def _pixels_from_frames(frames: np.ndarray, device: Any) -> Tensor:
@@ -681,7 +682,7 @@ def keyframe_visual_cache_key(
     would build for `keyframes[index]` -- shared with `keyframes_need_encode`
     so the two can never disagree about which keyframes are misses."""
     fitted = fit_keyframe_to_canvas(image, height, width, is_geometry_anchor=index == 0)
-    fitted_array = np.array(fitted.convert("RGB"))
+    fitted_array = np.array(flatten_onto(fitted))
     return visual_latent_cache_key(
         fitted_array, fit_role=_keyframe_fit_role(index), target_size=(height, width), frame_selection=(),
         vae_module=vae_module, weight_revision=weight_revision,
@@ -734,7 +735,7 @@ def prepare_keyframe_condition_rows(
     rows: list[Tensor] = []
     for index, (image, _anchor) in enumerate(zip(keyframes, anchors)):
         fitted = fit_keyframe_to_canvas(image, height, width, is_geometry_anchor=index == 0)
-        fitted_array = np.array(fitted.convert("RGB"))
+        fitted_array = np.array(flatten_onto(fitted))
         pixels = _pixels_from_array(fitted_array, device)
         cache_key = None
         if cache is not None:
@@ -988,7 +989,7 @@ def _reference_fit_signature(reference: ReferenceMedia) -> Optional[tuple[str, n
     if reference.latent is not None:
         return None
     if reference.kind == "image":
-        pixels = np.array(reference.image.convert("RGB"))
+        pixels = np.array(flatten_onto(reference.image))
         return "reference:image", pixels, (reference.image.height, reference.image.width), ()
     if reference.kind == "video":
         frames = np.asarray(reference.frames)

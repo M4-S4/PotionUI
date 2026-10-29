@@ -87,6 +87,7 @@ import torch
 
 from src.pipelines.pipes._shared.generation.clip_batch import SequentialWindowClipTextEncoder
 from src.pipelines.pipes._shared.generation.weak_model_ref import WeakModelRef
+from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     normalize_reference_video,
@@ -108,7 +109,7 @@ def _to_hwc_float01(image: Any) -> Tensor:
     `images` (a pipe-side concern: the TE never does PIL/CHW conversion or
     resizing beyond the vision tower's own smart-resize)."""
     if hasattr(image, "convert"):
-        return torch.from_numpy(np.array(image.convert("RGB"))).float() / 255.0
+        return torch.from_numpy(np.array(flatten_onto(image))).float() / 255.0
     tensor = torch.as_tensor(image, dtype=torch.float32)
     return tensor / 255.0 if tensor.max() > 1.5 else tensor
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 import torch.nn as nn
@@ -794,3 +795,48 @@ def test_gpu_encode_actually_moves_the_te_off_the_cpu_it_loaded_on():
     assert cuda_moves, f"expected a move to cuda, got {devices_requested}"
     assert cpu_moves and cpu_moves[-1] > cuda_moves[0], f"expected a move back to cpu after cuda, got {devices_requested}"
     assert module._probe.device.type == "cpu"  # left resting on CPU, not GPU-resident after the encode
+
+
+def _transparent_red() -> Image.Image:
+    pixels = np.zeros((48, 64, 4), dtype=np.uint8)
+    pixels[..., 0] = 255
+    return Image.fromarray(pixels, mode="RGBA")
+
+
+def test_a_transparent_reference_reaches_the_vision_path_as_white_not_its_hidden_red():
+    te = _RecordingEncodeReferenceRequest()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    encoder.encode_prompts([{
+        "prompt": "a prompt", "negative_prompt": "", "references": _image_references(_transparent_red()),
+    }])
+    assert torch.equal(te.calls[0][2][0].media, torch.ones(48, 64, 3))
+
+
+def test_a_transparent_keyframe_reaches_the_vision_path_as_white():
+    te = _RecordingEncodeReferenceRequest()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    encoder.encode_prompts([{"prompt": "a prompt", "negative_prompt": "", "images": [_transparent_red()]}])
+    assert torch.equal(te.calls[0][2][0], torch.ones(48, 64, 3))
+
+
+@pytest.mark.parametrize("mode", ["RGB", "L", "P", "RGBA"])
+def test_an_opaque_image_reaches_the_vision_path_exactly_as_before(mode):
+    from src.pipelines.pipes.model_loader.minimax_h3.clip import _to_hwc_float01
+
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 256, (48, 64, 3), dtype=np.uint8)).convert(mode)
+    expected = torch.from_numpy(np.array(image.convert("RGB"))).float() / 255.0
+    assert torch.equal(_to_hwc_float01(image), expected)
+
+
+def test_the_reference_conditioning_key_follows_the_flattened_pixels():
+    te = _real_text_encoder()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu", model_fingerprint="fp")
+
+    def key(image):
+        return encoder._encode_fn_and_key({
+            "prompt": "a prompt", "negative_prompt": "", "references": _image_references(image),
+        })[1]
+
+    assert key(_transparent_red()) == key(Image.new("RGB", (64, 48), (255, 255, 255)))
+    assert key(_transparent_red()) != key(Image.new("RGB", (64, 48), (255, 0, 0)))
