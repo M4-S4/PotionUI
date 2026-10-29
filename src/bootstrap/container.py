@@ -98,6 +98,8 @@ from src.platform.plugins.limit_kinds import (
     LimitKindRegistry,
     limit_kind_registry as _shared_limit_kind_registry,
 )
+from src.platform.media_tools import MediaToolRegistry
+from src.platform.media_tools.ops import register_core_tools as register_core_media_tools
 from src.features.fields.builtin import register_builtin_fields
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
 from src.features.presets.requirements.evaluator import RequirementsCache
@@ -260,6 +262,9 @@ from src.features.backup.settings import repo_root as backup_repo_root
 from src.features.media.preset_prerender import PresetMediaPrerenderQueue
 from src.features.media.editing.editor import MediaEditor
 from src.features.media.editing.routes import MediaEditController
+from src.features.media_tools.repository import MediaToolParamsRepository
+from src.features.media_tools.routes import MediaToolController
+from src.features.media_tools.service import MediaToolService
 from src.features.library import LibraryCollaborators, LibraryRepository
 from src.features.library.routes import LibraryController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
@@ -348,6 +353,7 @@ class AppContainer:
     recipe_step_kind_registry: RecipeStepKindRegistry
     requirements_cache: RequirementsCache
     tool_registry: "ToolRegistry"
+    media_tool_registry: MediaToolRegistry
     tool_executor: "ToolExecutor"
     chat_mode_registry: "ChatModeRegistry"
     resource_registry: "ResourceRegistry"
@@ -497,6 +503,9 @@ class AppContainer:
     media_controller: "MediaController"
     media_access: "MediaAccess"
     media_edit_controller: "MediaEditController"
+    media_tool_repository: "MediaToolParamsRepository"
+    media_tool_service: "MediaToolService"
+    media_tool_controller: "MediaToolController"
 
     # Library
     library_repository: "LibraryRepository"
@@ -739,6 +748,9 @@ def build_container() -> AppContainer:
     organize_registry = _shared_organize_registry
     limit_kind_registry = _shared_limit_kind_registry
 
+    media_tool_registry = MediaToolRegistry()
+    register_core_media_tools(media_tool_registry)
+
     plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
         marketplace_dir="content/plugins/marketplace",
@@ -757,6 +769,7 @@ def build_container() -> AppContainer:
         recipe_step_kind_registry=recipe_step_kind_registry,
         llm_provider_registry=llm_provider_registry,
         limit_kind_registry=limit_kind_registry,
+        media_tool_registry=media_tool_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -1533,6 +1546,18 @@ def build_container() -> AppContainer:
         limit_guard=limit_guard,
     )
     media_edit_controller = MediaEditController(media_editor)
+
+    media_tool_repository = MediaToolParamsRepository()
+    media_tool_service = MediaToolService(
+        registry=media_tool_registry,
+        params_repository=media_tool_repository,
+        upload_repository=upload_repository,
+        file_repository=file_repo,
+        media_type_resolver=media_type_resolver,
+        storage_driver=storage_driver,
+        limit_guard=limit_guard,
+    )
+    media_tool_controller = MediaToolController(media_tool_service)
 
     # Library components (uploads as first-class, curatable resources)
 
