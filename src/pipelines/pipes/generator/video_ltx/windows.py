@@ -22,7 +22,7 @@ def min_window_frames(overlap: int) -> int:
 def plan_windows(total: int, cap: int, overlap: int) -> Tuple[int, List[int]]:
     cap = snap_frames_down(cap)
     if total <= cap:
-        return snap_frames_down(total), [0]
+        return snap_frames_up(total), [0]
     overlap = max(0, min(int(overlap), cap - 1))
     count = 2
     while True:

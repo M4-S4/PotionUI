@@ -34,7 +34,7 @@ def test_every_plan_covers_the_clip_with_at_least_the_overlap_using_equal_valid_
     length, starts = plan_windows(total, cap, overlap)
     assert (length - 1) % 8 == 0 and length <= cap
     if total <= cap:
-        assert starts == [0] and length <= total < length + 8
+        assert starts == [0] and total <= length < total + 8
         return
     assert starts[0] == 0 and starts[-1] + length == total
     assert all(b - a <= length - overlap for a, b in zip(starts, starts[1:]))
@@ -45,8 +45,8 @@ def test_every_plan_covers_the_clip_with_at_least_the_overlap_using_equal_valid_
     assert (length - 8) * count - (count - 1) * overlap < total
 
 
-def test_a_clip_that_fits_one_window_drops_only_the_tail_that_is_not_a_valid_length():
-    assert plan_windows(136, 137, 24) == (129, [0])
+def test_a_clip_that_fits_one_window_is_padded_to_the_next_valid_length():
+    assert plan_windows(136, 137, 24) == (137, [0])
     assert plan_windows(129, 1001, 24) == (129, [0])
 
 
