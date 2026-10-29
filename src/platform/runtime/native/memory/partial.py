@@ -42,7 +42,7 @@ from typing import Iterator, Sequence
 import torch
 import torch.nn as nn
 
-from src.platform.runtime.native.kernels import CastWeightBiasOp
+from src.platform.runtime.native.kernels import CastWeightBiasOp, stream_wait
 from src.platform.observability.profiling import add_pinned_bytes, get_profiler
 from src.platform.settings.runtime_flags import runtime_flag
 
@@ -654,7 +654,11 @@ class LayerPrefetcher:
             return  # not prefetched (first leaf, or its predecessor was skipped) -> on-demand copy
         gpu_w, event = entry
         compute = _current_cuda_stream(self._device)
+        recorder = stream_wait.recorder
+        waited_from = recorder.mark(compute) if recorder is not None else None
         compute.wait_event(event)          # compute must not read the weight until the copy is done
+        if waited_from is not None:
+            recorder.span(waited_from, recorder.mark(compute))
         _record_stream_on(gpu_w, compute)  # defer allocator reuse until compute passes this point
         self._orig_weight[id(leaf)] = leaf.weight.data
         leaf.weight.data = gpu_w
@@ -674,6 +678,8 @@ class LayerPrefetcher:
             event.record(self._copy_stream)
         self._staged[id(nxt)] = (gpu_w, event)
         self._max_staged = max(self._max_staged, len(self._staged))
+        if stream_wait.recorder is not None:
+            stream_wait.recorder.add_bytes(weight.numel() * weight.element_size())
 
     # -- failure / cleanup -------------------------------------------------
 

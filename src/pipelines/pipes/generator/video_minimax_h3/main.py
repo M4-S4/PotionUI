@@ -129,9 +129,10 @@ from src.platform.runtime.native.memory.residency import effective_free_vram_gb,
 from src.platform.runtime.native.sampling.hooks import ProgressHook, run_hooks
 from src.platform.runtime.native.sampling.preview import make_preview_hook
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache, normalize_options
-from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_context
+from src.platform.runtime.native.sampling.step_profile import StepPlanHook, cache_skip_probe, with_step_profile
+from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_context, sla_attn_disabled_reason
 from src.platform.runtime.native.sla_attn import estimate_transient_gb as sla_estimate_transient_gb
-from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context
+from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context, sol_attn_disabled_reason
 from src.platform.runtime.native.sol_attn import estimate_transient_gb as sol_estimate_transient_gb
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows, effective_mlp_chunk_rows
 from src.platform.runtime.native.arch.minimax_h3.vdn import (
@@ -658,6 +659,16 @@ def is_dense_step(step_index: int, num_steps: int, dense_last_steps: int, dense_
     if step_index < math.ceil(dense_start_percent * num_steps):
         return True
     return step_index >= num_steps - dense_last_steps
+
+
+def step_attention_mode(sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext], dense: bool, vdn: bool = False) -> str:
+    if vdn:
+        return "vdn"
+    if sparse_attn_ctx is None or dense:
+        return "dense"
+    if isinstance(sparse_attn_ctx, SolAttnContext):
+        return "dense" if sol_attn_disabled_reason() is not None else "sol-attn"
+    return "dense" if sla_attn_disabled_reason() is not None else "sla"
 
 
 def build_vdn_layout(
@@ -2454,9 +2465,15 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # sequence it was primed on, and a window may differ from its
         # predecessor in frame count, condition rows or prompt length.
         step_cache = build_step_cache(self.config)
+        loop_hooks = with_step_profile(
+            hooks, cache_skip_probe(step_cache),
+            StepPlanHook(lambda i, n: {"attn": step_attention_mode(
+                sparse_attn_ctx, is_dense_step(i, n, dense_last_steps, dense_start_percent), vdn_layout is not None,
+            )}),
+        )
 
         try:
-            run_hooks(hooks, "on_start", num_steps)
+            run_hooks(loop_hooks, "on_start", num_steps)
             for step_index in range(num_steps):
                 if is_cancelled is not None and is_cancelled():
                     raise SamplingCancelled(step_index=step_index)
@@ -2513,8 +2530,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     )
                 else:
                     video_x0_5d = None
-                run_hooks(hooks, "on_step", step_index, num_steps, video_rows, video_schedule.sigmas[step_index], video_x0_5d)
-            run_hooks(hooks, "on_end")
+                run_hooks(loop_hooks, "on_step", step_index, num_steps, video_rows, video_schedule.sigmas[step_index], video_x0_5d)
 
             if step_cache is not None:
                 stats = step_cache.stats()
@@ -2523,6 +2539,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     stats["skipped"], stats["skipped"] + stats["computed"], step_cache.rel_threshold,
                 )
         finally:
+            run_hooks(loop_hooks, "on_end")
             forward.release()
             if lora_snapshot is not None:
                 restore_lora_state(lora_snapshot)

@@ -105,6 +105,7 @@ from src.platform.runtime.native.sampling import (
     denoise_prenoised,
     make_preview_hook,
 )
+from src.platform.runtime.native.sampling.step_profile import StepPlanHook
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon, ProgressGenerationOutput
@@ -926,7 +927,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         logger.debug("[GENERATOR VIDEO-LTX] video %d/%d, seed %d, state tokens %s (base %d + extra %d + audio %d)",
                     index + 1, ctx.quantity, seed, tuple(x.shape),
                     prepared.base_tokens, prepared.n_extra, c.audio_tokens)
-        hooks = [ProgressHook(on_progress)]
+        hooks = [ProgressHook(on_progress), StepPlanHook(lambda i, n: {"attn": "dense"})]
         if self.config.get("preview", True):
             preview_hook = make_preview_hook(c.spec, progress.preview, latent_transform=forward.unpack_base)
             if preview_hook is not None:

@@ -39,6 +39,7 @@ from .flow_schedule import build_sigmas
 from .registry import sampler_registry
 from .hooks import with_numerics_watchdog
 from .step_cache import StepCacheSet
+from .step_profile import cache_skip_probe, with_step_profile
 
 logger = logging.getLogger(__name__)
 
@@ -492,7 +493,9 @@ def denoise(
 
     # NaN/Inf watchdog: fails the generation loudly instead of decoding a black
     # image (uniform across all samplers via the shared on_step dispatch).
-    watched_hooks = with_numerics_watchdog(hooks, sampler_name, sampler_options)
+    watched_hooks = with_step_profile(
+        with_numerics_watchdog(hooks, sampler_name, sampler_options), cache_skip_probe(cache_set),
+    )
 
     # start_step is only in euler's signature; pass it solely on a warm-start
     # (engine-gated to euler) so the uniform sampler contract is untouched.

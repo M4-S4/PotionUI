@@ -14,6 +14,7 @@ from ..io.quant_formats import (
     extract_convrot_config,
     parse_comfy_quant,
 )
+from . import stream_wait as _stream_wait
 from .lora_math import _note_lora_path, linear_with_lora_deltas
 
 
@@ -28,6 +29,8 @@ def cast_to(
         return None
     if tensor.device == device and tensor.dtype == dtype:
         return tensor
+    if not tensor.is_cuda and _stream_wait.recorder is not None:
+        return _stream_wait.recorder.copy(tensor, dtype, device, non_blocking)
     return tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
 
 

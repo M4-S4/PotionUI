@@ -201,7 +201,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
         values = dequant_values(self.nvfp4_packed, self.out_features, self.in_features)
         num_blocks = self.in_features // NVFP4_BLOCK
         weight = scale_values(values, self.build_dequant_table(), self.out_features, self.in_features, num_blocks)
-        weight = weight.to(device=input.device, dtype=input.dtype)
+        weight = cast_to(weight, input.dtype, input.device)
         bias = None if self.bias is None else self.bias.to(input.dtype)
         return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features, owner=self)
 
