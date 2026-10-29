@@ -171,6 +171,35 @@ class ModelsAwarePipe:
         return PipeOutput(output={})
 
 
+class MediaToolsAwarePipe:
+    name = "media_tools_aware/fake"
+    description = "fake"
+    received = "not set"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return [PipeInputSpec(name="MEDIA_TOOLS", io_type=IOType.SERVICE, required=False)]
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        type(self).received = pipe_input.input.get("MEDIA_TOOLS", "missing")
+        return PipeOutput(output={})
+
+
 class CondEncoderPipe:
     name = "cond_encoder/fake"
     description = "fake"
@@ -393,6 +422,7 @@ CATALOG = FakeCatalog({
     "generator/fake": GeneratorPipe,
     "failing/fake": FailingPipe,
     "models_aware/fake": ModelsAwarePipe,
+    "media_tools_aware/fake": MediaToolsAwarePipe,
     "cond_encoder/fake": CondEncoderPipe,
     "cond_single/fake": SingleCondConsumerPipe,
     "cond_array/fake": ArrayCondConsumerPipe,
@@ -617,6 +647,18 @@ def test_the_models_service_is_none_when_the_executor_has_no_lifecycle(tmp_path)
     executor.run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
 
     assert ModelsAwarePipe.received_models is None
+
+
+def test_the_media_tools_service_is_none_on_a_worker_without_a_warning(tmp_path, caplog):
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="m", pipe_type="media_tools_aware/fake", config={}, inputs={}),
+    ))
+
+    with caplog.at_level("WARNING"):
+        _executor(tmp_path).run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
+
+    assert MediaToolsAwarePipe.received is None
+    assert "does not provide" not in caplog.text
 
 
 def test_cancellation_stops_before_the_next_pipe_starts(tmp_path):

@@ -215,6 +215,7 @@ class GenerationEngine:
             models=None,  # ModelLifecycle - central model/artifact cache
             plugin_registry=None,  # Optional PluginRegistry for backward compatibility
             assets: Optional[AssetFetcher] = None,
+            media_tools=None,
     ):
         self.gpu_monitor = gpu
         self.pipe_catalog = pipe_catalog
@@ -225,6 +226,7 @@ class GenerationEngine:
         self.models = models
         self.plugin_registry = plugin_registry
         self.assets = assets
+        self.media_tools = media_tools
 
         self._cancelled = False
         self._running_generation_id: Optional[str] = None
@@ -330,7 +332,7 @@ class GenerationEngine:
             services: Optional[Mapping[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Inject built-in services (GPU, SYSTEM, MEMORY, LLM, MODELS, ASSETS)
+        Inject built-in services (GPU, SYSTEM, MEMORY, LLM, MODELS, ASSETS, SETTINGS, MEDIA_TOOLS)
         into pipe inputs.
 
         Built-in services are identified by SERVICE IOType and uppercase names.
@@ -381,10 +383,13 @@ class GenerationEngine:
                 elif service_name == "SETTINGS":
                     pipe_input[input_spec.name] = self.settings
                     logger.debug(f"[GENERATION] Injected SETTINGS service into {pipe_class.name}")
+                elif service_name == "MEDIA_TOOLS":
+                    pipe_input[input_spec.name] = self.media_tools
+                    logger.debug(f"[GENERATION] Injected MEDIA_TOOLS service into {pipe_class.name}")
                 else:
                     logger.warning(
                         f"[GENERATION] Unknown service '{service_name}' requested by {pipe_class.name}. "
-                        f"Available services: GPU, SYSTEM, MEMORY, LLM, MODELS, ASSETS, SETTINGS"
+                        f"Available services: GPU, SYSTEM, MEMORY, LLM, MODELS, ASSETS, SETTINGS, MEDIA_TOOLS"
                     )
 
         return pipe_input
