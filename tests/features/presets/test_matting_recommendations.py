@@ -11,6 +11,8 @@ MATTING_TABS = [
     "ImageTools/modes/remove_background/tabs/generation.yml",
     "ImageTools/modes/prepare/tabs/generation.yml",
     "Pixal3D/modes/views2mesh/tabs/generation.yml",
+    "Pixal3D/modes/img2mesh/tabs/generation.yml",
+    "TRELLIS2/modes/img2mesh/tabs/generation.yml",
 ]
 BIREFNET_GENERAL = {
     "name": "BiRefNet-general.safetensors",
