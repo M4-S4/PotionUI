@@ -106,6 +106,8 @@ export function isRunnable(tool: ToolDTO): boolean {
 	return !(tool.component && tool.params.length === 0 && !tool.editor);
 }
 
+export const MAX_RUN_INPUTS = 50;
+
 export function selectionBounds(tool: ToolDTO): { min: number; max: number } {
 	const fallbackMin = tool.cardinality === 'many_to_one' ? 2 : 1;
 	return {
@@ -130,6 +132,9 @@ export function toolAvailability(
 	sources: readonly MediaToolSource[]
 ): ToolAvailability {
 	if (sources.length === 0) return { enabled: false, reason: 'Select an item' };
+	if (sources.length > MAX_RUN_INPUTS) {
+		return { enabled: false, reason: `Select up to ${MAX_RUN_INPUTS} items` };
+	}
 
 	const { min, max } = selectionBounds(tool);
 	if (sources.length < min || sources.length > max) {

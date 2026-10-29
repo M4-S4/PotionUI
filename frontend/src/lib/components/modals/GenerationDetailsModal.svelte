@@ -38,8 +38,6 @@
 	import { generationItemRule } from '$lib/organize/itemPrefill';
 	import MediaToolRow, { type RowPageAction } from '$lib/media-tools/MediaToolRow.svelte';
 	import { buildHistoryEntryContext } from '$lib/tools/entryMenu';
-	import { notifySavedToLibrary } from '$lib/tools/savedToLibrary';
-	import type { EditedMediaItem } from '$lib/services/api/media';
 	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
@@ -528,10 +526,6 @@
 			? buildHistoryEntryContext(activeGeneration, currentFile, null).items
 			: [];
 
-	function handleToolResult(results: EditedMediaItem[]) {
-		notifySavedToLibrary(results);
-	}
-
 	let exportingBundle = false;
 
 	async function handleExportBundle() {
@@ -865,7 +859,6 @@
 							scope="history"
 							pageLabel="Generation"
 							pageActions={generationActions}
-							onResult={handleToolResult}
 							onEditingChange={(editing) => (toolEditing = editing)}
 						/>
 					</div>

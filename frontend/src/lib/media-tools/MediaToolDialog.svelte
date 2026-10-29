@@ -7,6 +7,7 @@
 	import { selectionBounds, toolAvailability } from './catalog';
 	import { describeMediaToolFailure } from './errors';
 	import { executeMediaTool } from './execute';
+	import type { AnnounceSetting } from './announce';
 	import {
 		canReplace,
 		NOT_IN_LIBRARY,
@@ -36,6 +37,7 @@
 		items,
 		scope,
 		detach = false,
+		announce = undefined,
 		runs = mediaToolRuns,
 		onClose,
 		onResult
@@ -44,6 +46,7 @@
 		items: MediaToolSource[];
 		scope: ToolScope;
 		detach?: boolean;
+		announce?: AnnounceSetting;
 		runs?: MediaToolRunsStore;
 		onClose: () => void;
 		onResult: (result: { items: MediaToolItem[]; replaced: boolean }) => void | Promise<void>;
@@ -203,7 +206,7 @@
 				sources,
 				refs: resolution.refs,
 				mode: effectiveMode,
-				announce: detach,
+				announce: announce ?? detach,
 				runs
 			});
 

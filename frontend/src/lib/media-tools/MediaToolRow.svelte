@@ -12,7 +12,7 @@
 </script>
 
 <script lang="ts">
-	import { onMount, setContext, untrack } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Menu } from '$lib/components/ui';
@@ -21,13 +21,14 @@
 		MediaEditorRequest,
 		MediaEditorResult
 	} from '$lib/media/editors/types';
-	import { PAINT_INITIAL_TOOL } from '$lib/components/imageEditor/initialTool';
 	import { editImageRequest } from '$lib/tools/editImage';
 	import { loadPluginMediaTools, mediaToolRegistrations } from '$lib/tools/pluginTools';
 	import { buildRowContext, buildRowModel, type RowTool } from '$lib/tools/rowModel';
 	import type { MediaToolItem as RowItem } from '$lib/tools/tools';
 	import type { MediaToolItem as ToolResultItem } from './types';
 	import { openMediaTool } from './open';
+	import { SAVED_TO_LIBRARY_ANNOUNCE } from './announce';
+	import { notifySavedToLibrary } from '$lib/tools/savedToLibrary';
 
 	let {
 		items,
@@ -46,10 +47,7 @@
 	} = $props();
 
 	let paintRequest = $state<MediaEditorRequest | null>(null);
-	let paintTool = $state<string | null>(null);
 	let moreOpen = $state(false);
-
-	setContext(PAINT_INITIAL_TOOL, () => paintTool);
 
 	let model = $derived.by(() => {
 		void $mediaToolRegistrations;
@@ -68,8 +66,7 @@
 	function openPaint(initialTool: string | null) {
 		const request = editImageRequest(buildRowContext(scope, items));
 		if (!request) return;
-		paintTool = initialTool;
-		paintRequest = request;
+		paintRequest = initialTool ? { ...request, initialTool } : request;
 	}
 
 	function run(entry: RowTool) {
@@ -82,13 +79,15 @@
 			toolId,
 			items,
 			scope,
+			announce: scope === 'history' ? SAVED_TO_LIBRARY_ANNOUNCE : undefined,
 			onResult: (results: ToolResultItem[]) => onResult?.(results)
 		});
 	}
 
 	function handlePaintResult(result: MediaEditorResult) {
-		if (result.type === 'item') onResult?.([result.item]);
-		else if (result.type === 'items') onResult?.(result.items);
+		const saved = result.type === 'item' ? [result.item] : result.type === 'items' ? result.items : [];
+		if (scope === 'history') notifySavedToLibrary(saved);
+		if (saved.length > 0) onResult?.(saved);
 	}
 
 	function subline(entry: RowTool): string {

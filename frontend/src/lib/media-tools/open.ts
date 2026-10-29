@@ -2,6 +2,7 @@ import { mount, unmount, type Component } from 'svelte';
 import { toasts } from '$lib/stores/toast';
 import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
 import MediaToolDialog from './MediaToolDialog.svelte';
+import type { AnnounceOptions, AnnounceSetting } from './announce';
 import ToolHost from '$lib/components/tools/ToolHost.svelte';
 import { isSurfaceEditorKind, type MediaEditorKind, type MediaEditorResult } from '$lib/media/editors/types';
 import type { MediaTool, MediaToolContext, MediaKind } from '$lib/tools/tools';
@@ -23,6 +24,7 @@ export interface OpenMediaToolOptions {
 	onResult?: (items: MediaToolItem[], info: MediaToolResultInfo) => void | Promise<void>;
 	onClose?: () => void;
 	context?: MediaToolContext;
+	announce?: false | AnnounceOptions;
 }
 
 export function routeFor(tool: ToolDTO): MediaToolRoute {
@@ -104,6 +106,8 @@ function editorResultItems(result: MediaEditorResult): { items: MediaToolItem[];
 
 export async function openMediaTool(options: OpenMediaToolOptions): Promise<boolean> {
 	const { toolId, scope, onResult, onClose } = options;
+	const announce: AnnounceSetting =
+		scope === 'field' ? false : options.announce === false ? 'failures' : (options.announce ?? true);
 	await loadMediaToolCatalog();
 	const tool = toolById(toolId);
 	if (!tool) {
@@ -163,6 +167,7 @@ export async function openMediaTool(options: OpenMediaToolOptions): Promise<bool
 		close = mountHost(MediaEditors, {
 			request: { kind: tool.editor as MediaEditorKind, source: toEditorSource(source), itemIndex: null },
 			detach: scope !== 'field',
+			announce,
 			onClose: () => {
 				close();
 				onClose?.();
@@ -181,6 +186,7 @@ export async function openMediaTool(options: OpenMediaToolOptions): Promise<bool
 		items: sources,
 		scope,
 		detach: scope !== 'field',
+		announce,
 		onClose: () => {
 			close();
 			onClose?.();

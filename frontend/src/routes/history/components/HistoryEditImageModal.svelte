@@ -5,9 +5,12 @@
 	import type { MediaToolModalProps } from '$lib/tools/tools';
 	import { editImageRequest } from '../tools/editImage';
 
-	let { context, onClose }: MediaToolModalProps = $props();
+	let { context, onClose, initialTool }: MediaToolModalProps & { initialTool?: string } = $props();
 
-	let request = $derived(editImageRequest(context));
+	let request = $derived.by(() => {
+		const base = editImageRequest(context);
+		return base && initialTool ? { ...base, initialTool } : base;
+	});
 
 	async function handleResult() {
 		if (context.scope === 'library') await libraryStore.showNewRows();

@@ -1,18 +1,13 @@
 <script lang="ts">
-	import { getContext } from 'svelte';
-	import { PAINT_INITIAL_TOOL } from '$lib/components/imageEditor/initialTool';
-
 	let {
 		request = null,
 		onClose,
 		onResult
 	}: {
-		request?: { kind: string; source: { url: string; fileName: string } } | null;
+		request?: { kind: string; initialTool?: string; source: { url: string; fileName: string } } | null;
 		onClose: () => void;
 		onResult: (result: unknown, request: unknown) => void;
 	} = $props();
-
-	const initialTool = getContext<(() => string | null) | undefined>(PAINT_INITIAL_TOOL);
 </script>
 
 {#if request}
@@ -20,7 +15,7 @@
 		data-editor-stub
 		data-kind={request.kind}
 		data-url={request.source.url}
-		data-initial-tool={initialTool?.() ?? ''}
+		data-initial-tool={request.initialTool ?? ''}
 	>
 		<button type="button" data-stub-close onclick={onClose}>close</button>
 		<button

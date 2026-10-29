@@ -1,5 +1,7 @@
+import { goto } from '$app/navigation';
 import { toasts } from '$lib/stores/toast';
 import { rememberToolParams } from './catalog';
+import type { AnnounceOptions, AnnounceSetting } from './announce';
 import { mediaToolRuns, type MediaToolRunOutcome, type MediaToolRunsStore, type RunHandle } from './runs';
 import type {
 	MediaToolInputRef,
@@ -15,7 +17,7 @@ export interface ExecuteOptions {
 	sources: readonly MediaToolSource[];
 	refs: MediaToolInputRef[];
 	mode: MediaToolOutputMode;
-	announce?: boolean;
+	announce?: AnnounceSetting;
 	runs?: MediaToolRunsStore;
 }
 
@@ -29,8 +31,9 @@ export function announceStart(label: string, mode: MediaToolOutputMode) {
 	});
 }
 
-export function announceOutcome(outcome: MediaToolRunOutcome) {
+export function announceOutcome(outcome: MediaToolRunOutcome, options: AnnounceOptions = {}, quietSuccess = false) {
 	if (outcome.status === 'completed') {
+		if (quietSuccess) return;
 		if (outcome.replaced) {
 			toasts.show('success', `${nameOf(outcome.items[0])} was updated.`, { title: 'Original replaced' });
 			return;
@@ -39,7 +42,12 @@ export function announceOutcome(outcome: MediaToolRunOutcome) {
 			outcome.items.length === 1
 				? `${nameOf(outcome.items[0])} is in your library.`
 				: `${outcome.items.length} items are in your library.`;
-		toasts.show('success', message, { title: 'Saved as new' });
+		toasts.show('success', message, {
+			title: options.title ?? 'Saved as new',
+			action: options.action
+				? { label: options.action.label, onClick: () => void goto(options.action!.href) }
+				: undefined
+		});
 	} else if (outcome.status === 'failed') {
 		toasts.show('error', outcome.message, { title: 'Edit failed' });
 	} else {
@@ -59,13 +67,17 @@ export async function executeMediaTool(options: ExecuteOptions): Promise<RunHand
 			output: { mode: options.mode }
 		}
 	});
-	if (options.announce) announceStart(options.label, options.mode);
+	const setting = options.announce ?? false;
+	const full = setting !== false && setting !== 'failures';
+	if (full) announceStart(options.label, options.mode);
 
 	const done = handle.done.then((outcome) => {
 		if (outcome.status === 'completed' && options.steps.length === 1) {
 			rememberToolParams(options.steps[0].tool, options.steps[0].params);
 		}
-		if (options.announce) announceOutcome(outcome);
+		if (setting !== false) {
+			announceOutcome(outcome, typeof setting === 'object' ? setting : {}, !full);
+		}
 		return outcome;
 	});
 	return { runId: handle.runId, done };

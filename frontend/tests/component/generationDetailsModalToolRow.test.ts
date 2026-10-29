@@ -247,21 +247,21 @@ describe('GenerationDetailsModal running a tool', () => {
 		expect(call.items[0]).toMatchObject({ generationId: 'gen-row', generationFileId: '42', kind: 'image' });
 	});
 
-	it('names the result with a link to the Library when a tool saves it', async () => {
+	it('asks the tool run to name the result with a link to the Library, and posts no toast of its own', async () => {
 		await open(generation('image'));
 		rowButton('Resize').click();
+
+		expect(openMediaTool.mock.calls[0][0].announce).toEqual({
+			title: 'Saved to Library',
+			action: { label: 'Open Library', href: '/library' }
+		});
 
 		await openMediaTool.mock.calls[0][0].onResult(
 			[{ id: 'lib-1', filename: 'x-uuid.png', original_filename: 'gen-resized.png', media_type: 'image', url: '/u' }],
 			{ toolId: 'resize', replaced: false }
 		);
 
-		expect(toastShow).toHaveBeenCalledTimes(1);
-		const [type, message, options] = toastShow.mock.calls[0];
-		expect(type).toBe('success');
-		expect(message).toContain('gen-resized.png');
-		options.action.onClick();
-		expect(goto).toHaveBeenCalledWith('/library');
+		expect(toastShow).not.toHaveBeenCalled();
 	});
 
 	it('opens the image editor for Edit image and keeps the details open', async () => {

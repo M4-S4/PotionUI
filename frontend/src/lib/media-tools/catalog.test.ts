@@ -17,6 +17,7 @@ import {
 	mediaToolCatalogRevision,
 	refreshMediaToolCatalog,
 	rememberToolParams,
+	selectionBounds,
 	resetMediaToolCatalog,
 	toolAvailability,
 	toolById,
@@ -180,8 +181,20 @@ describe('toolAvailability', () => {
 		expect(toolAvailability(concat, nine).enabled).toBe(false);
 	});
 
-	it('lets a one-to-one tool take several items', () => {
+	it('lets a one-to-one tool take several items, as the run endpoint does, up to its cap of fifty', () => {
 		expect(toolAvailability(rotate, [source(), source({ id: 's2' })])).toEqual({ enabled: true });
+		const fifty = Array.from({ length: 50 }, (_, index) => source({ id: `s${index}` }));
+		expect(toolAvailability(rotate, fifty)).toEqual({ enabled: true });
+		expect(toolAvailability(rotate, [...fifty, source({ id: 'one-more' })])).toEqual({
+			enabled: false,
+			reason: 'Select up to 50 items'
+		});
+	});
+
+	it('bounds a one-to-one tool at one item or more and a many-to-one tool at two or more', () => {
+		expect(selectionBounds(rotate)).toEqual({ min: 1, max: Number.POSITIVE_INFINITY });
+		expect(selectionBounds(tool({ id: 'x', cardinality: 'many_to_one' }))).toEqual({ min: 2, max: Number.POSITIVE_INFINITY });
+		expect(selectionBounds(concat)).toEqual({ min: 2, max: 8 });
 	});
 
 	it('refuses a kind the tool does not accept', () => {

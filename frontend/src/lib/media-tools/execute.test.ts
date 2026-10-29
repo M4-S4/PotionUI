@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 
+const goto = vi.fn();
+vi.mock('$app/navigation', () => ({ goto: (...args: unknown[]) => goto(...args) }));
+
 vi.mock('$lib/services/api/mediaTools', () => ({
 	startMediaToolRun: vi.fn(),
 	getMediaToolRun: vi.fn(),
@@ -10,6 +13,7 @@ vi.mock('$lib/services/api/mediaTools', () => ({
 import { toasts } from '$lib/stores/toast';
 import { resetMediaToolCatalog, toolById } from './catalog';
 import { announceOutcome, executeMediaTool } from './execute';
+import { SAVED_TO_LIBRARY_ANNOUNCE } from './announce';
 import { createMediaToolRuns, type RunsApi } from './runs';
 import type { MediaToolRun, ToolDTO } from './types';
 
@@ -33,6 +37,7 @@ function toastMessages() {
 }
 
 beforeEach(() => {
+	goto.mockReset();
 	vi.useRealTimers();
 	for (const entry of get(toasts)) toasts.remove(entry.id);
 	resetMediaToolCatalog();
@@ -183,5 +188,70 @@ describe('announceOutcome', () => {
 	it('says nothing was saved after a cancel', () => {
 		announceOutcome({ status: 'cancelled' });
 		expect(toastMessages()).toEqual(['Edit cancelled|Nothing was saved.']);
+	});
+});
+
+describe('announce settings', () => {
+	function run(announce: Parameters<typeof executeMediaTool>[0]['announce'], result?: MediaToolRun) {
+		const { runs } = setup(result);
+		return executeMediaTool({
+			label: 'Speed',
+			steps: [{ tool: 'speed', params: {} }],
+			sources,
+			refs: [{ item_id: 'row-1' }],
+			mode: 'new',
+			announce,
+			runs
+		}).then((handle) => handle.done);
+	}
+
+	it('puts a link on the result toast and retitles it when the host gives an action', async () => {
+		await run(SAVED_TO_LIBRARY_ANNOUNCE);
+
+		const success = get(toasts).filter((entry) => entry.type === 'success');
+		expect(success).toHaveLength(1);
+		expect(success[0].title).toBe('Saved to Library');
+		expect(success[0].message).toBe('clip-speed.mp4 is in your library.');
+		expect(success[0].action?.label).toBe('Open Library');
+		success[0].action!.onClick();
+		expect(goto).toHaveBeenCalledWith('/library');
+	});
+
+	it('still says the edit started, once, with that setting', async () => {
+		await run(SAVED_TO_LIBRARY_ANNOUNCE);
+		expect(get(toasts).filter((entry) => entry.title === 'Edit started')).toHaveLength(1);
+	});
+
+	it('adds no link to the default toast', async () => {
+		await run(true);
+		const success = get(toasts).filter((entry) => entry.type === 'success');
+		expect(success).toHaveLength(1);
+		expect(success[0].title).toBe('Saved as new');
+		expect(success[0].action).toBeUndefined();
+	});
+
+	it('says nothing about the start or the success when only failures are announced', async () => {
+		await run('failures');
+		expect(toastMessages()).toEqual([]);
+	});
+
+	it('still reports a failure when only failures are announced', async () => {
+		const failed: MediaToolRun = { run_id: 'run-1', status: 'failed', progress: 0, label: '', items: [], replaced: false, error: { code: 'x', message: 'The encoder stopped' } };
+		await run('failures', failed);
+		expect(get(toasts)).toHaveLength(1);
+		expect(get(toasts)[0]).toMatchObject({ type: 'error', message: 'The encoder stopped' });
+	});
+
+	it('says nothing at all when announcing is off', async () => {
+		const failed: MediaToolRun = { run_id: 'run-1', status: 'failed', progress: 0, label: '', items: [], replaced: false, error: { code: 'x', message: 'The encoder stopped' } };
+		await run(false, failed);
+		expect(toastMessages()).toEqual([]);
+	});
+
+	it('does not put the link on an original that was replaced', async () => {
+		await run(SAVED_TO_LIBRARY_ANNOUNCE, completed({ replaced: true }));
+		const success = get(toasts).filter((entry) => entry.type === 'success');
+		expect(success[0].title).toBe('Original replaced');
+		expect(success[0].action).toBeUndefined();
 	});
 });

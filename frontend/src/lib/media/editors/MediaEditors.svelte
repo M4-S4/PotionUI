@@ -14,6 +14,7 @@
 	import { resolveEditableResource, type ResourceOrigin } from './editorSource';
 	import { describeMediaToolFailure } from '$lib/media-tools/errors';
 	import { executeMediaTool } from '$lib/media-tools/execute';
+	import type { AnnounceSetting } from '$lib/media-tools/announce';
 	import { mediaToolRuns, type MediaToolRunOutcome, type RunHandle } from '$lib/media-tools/runs';
 	import type { MediaToolInputRef, MediaToolStep } from '$lib/media-tools/types';
 	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
@@ -33,6 +34,7 @@
 	export let request: MediaEditorRequest | null = null;
 	export let existingMaskUrl: string | null = null;
 	export let detach: boolean = false;
+	export let announce: AnnounceSetting | undefined = undefined;
 	export let onClose: () => void;
 	export let onResult: (
 		result: MediaEditorResult,
@@ -270,7 +272,7 @@
 			sources: [{ id: key, kind: source.kind, url: source.url, filename: source.fileName }],
 			refs: [ref],
 			mode: 'item_id' in ref ? plan.mode : 'new',
-			announce: detach
+			announce: announce ?? detach
 		});
 
 		if (detach) {
@@ -355,6 +357,7 @@
 				source={request.source}
 				draw={request.draw ?? null}
 				hasMask={existingMaskUrl !== null}
+				initialTool={request.initialTool ?? null}
 				{busy}
 				failureMessage={failure}
 				{onClose}
