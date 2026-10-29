@@ -1,5 +1,6 @@
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
+from src.features.cloud.capabilities import ResolvedCloudModel
 from src.features.cloud.clock import Clock, MonotonicClock
 from src.features.cloud.contracts import (
     CANONICAL_PARAMS,
@@ -60,6 +61,7 @@ from src.features.cloud.contracts import (
 from src.features.cloud.director import DirectorEstimateError
 from src.features.cloud.http import CloudHttp, HttpResponse, default_error_mapper, parse_retry_after
 from src.features.cloud.inline import decode_inline, encode_media
+from src.features.cloud.records import CloudCatalogEntry
 from src.features.cloud.rate_limit import TokenBucket
 from src.features.cloud.redaction import redact_headers, redact_url, scrub_text
 from src.features.cloud.registration import register_cloud_provider
@@ -72,6 +74,7 @@ __all__ = [
     "CLOUD_ENGINE",
     "CloudArtifact",
     "CloudBackendConfig",
+    "CloudCatalogEntry",
     "CloudCost",
     "CloudError",
     "CloudHealth",
@@ -120,12 +123,14 @@ __all__ = [
     "ROLE_SOURCE_AUDIO",
     "ROLE_SOURCE_IMAGE",
     "ROLE_SOURCE_VIDEO",
+    "ResolvedCloudModel",
     "TASK_KINDS",
     "TERMINAL_STATES",
     "TaskKind",
     "TokenBucket",
     "decode_inline",
     "default_error_mapper",
+    "enabled_cloud_models",
     "encode_media",
     "estimate_cloud_cost",
     "is_canonical_param",
@@ -134,6 +139,7 @@ __all__ = [
     "redact_headers",
     "redact_url",
     "register_cloud_provider",
+    "resolve_cloud_model",
     "scrub_text",
     "spec_problems",
     "valid_specs",
@@ -161,6 +167,16 @@ CLOUD_BLOCKS = (
     "models/upscale_image.yml",
     "models/upscale_video.yml",
 )
+
+
+def enabled_cloud_models(backend_id: str) -> List[CloudCatalogEntry]:
+    """The models turned on in a cloud backend's catalog, by slug, each with its tasks, outputs and spec."""
+    return get_container().cloud_catalog.repository.list_enabled(backend_id)
+
+
+def resolve_cloud_model(model_id: str) -> Optional[ResolvedCloudModel]:
+    """The backend, driver and catalog entry of an enabled cloud model, or None when no enabled cloud backend offers it."""
+    return get_container().cloud_capabilities.resolve(model_id)
 
 
 def estimate_cloud_cost(

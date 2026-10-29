@@ -35,6 +35,13 @@ default (`purpose="user_upload"`); `purpose="derived_artifact"` keeps the file
 servable but out of the Library. They raise `MediaRefError` with a `code`, and
 let `LimitExceeded` through when the user's storage plan is full.
 
+`media_local_path(kind, key)` is the absolute path on this server of a
+`history` or `library` media key (a generation file or an upload), or `None`
+when the storage keeps it elsewhere, such as object storage;
+`copy_media_file(kind, key, target)` streams that key into a file of the
+plugin and says `False` when it is not stored. `find_upload(user_id, key)`
+tells which Library item an `uploads/` key of that user is.
+
 `embed_images(images)` turns images (paths or PIL images) into the vectors of
 the application's image embedder, the SigLIP model the gallery search uses,
 L2-normalized so that the dot product of two vectors is their cosine. The model
@@ -118,15 +125,18 @@ __all__ = [
     "VideoProbe",
     "VideoTranscodeError",
     "convert_image_to_base64",
+    "copy_media_file",
     "detect_faces",
     "embed_images",
     "extract_frame",
     "face_detector",
     "face_identifier",
     "find_ffmpeg",
+    "find_upload",
     "has_audio_stream",
     "identify_faces",
     "image_embedder",
+    "media_local_path",
     "mux_audio_from_source",
     "probe_video",
     "save_user_media",
@@ -222,6 +232,55 @@ def identify_faces(faces: Sequence[Any]) -> List[List[float]]:
     if not path.is_file():
         raise FileNotFoundError(f"{IDENTITY_MODEL} is not at {path}")
     return embed(path, [(image, landmarks) for image, landmarks in faces])
+
+
+MEDIA_KINDS = ("history", "library")
+_COPY_CHUNK = 1 << 20
+
+
+def _storage_driver(kind: str) -> Any:
+    container = get_container()
+    if kind == "history":
+        return container.file_service.storage_driver
+    if kind == "library":
+        return container.media_store.storage_driver
+    raise ValueError(f"kind must be one of {', '.join(MEDIA_KINDS)}")
+
+
+def media_local_path(kind: str, key: str) -> Optional[Path]:
+    """The absolute path on this server of a `history` or `library` media key, or None when the storage keeps it elsewhere."""
+    path = _storage_driver(kind).local_path(key)
+    return None if path is None else Path(path).resolve()
+
+
+def copy_media_file(kind: str, key: str, target: Union[str, Path]) -> bool:
+    """Stream a `history` or `library` media key into the file `target`; False when it is not stored, and no file left behind when the copy fails."""
+    driver = _storage_driver(kind)
+    if not driver.exists(key):
+        return False
+    destination = Path(target)
+    try:
+        with destination.open("wb") as handle:
+            for chunk in driver.get_stream(key, _COPY_CHUNK):
+                handle.write(chunk)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    return True
+
+
+def find_upload(user_id: str, key: str) -> Optional[Dict[str, Any]]:
+    """The Library item an `uploads/` key of the user is: its `id`, `filename` as uploaded, `width` and `height`; None when the user has no such upload."""
+    filename = key.replace("\\", "/").rsplit("/", 1)[-1]
+    upload = get_container().media_store.upload_repo.get_by_filename(filename, user_id)
+    if upload is None:
+        return None
+    return {
+        "id": upload.id,
+        "filename": upload.original_filename or filename,
+        "width": upload.width,
+        "height": upload.height,
+    }
 
 
 def _owner_id(user) -> str:

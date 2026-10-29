@@ -440,6 +440,44 @@ def test_state_of_a_live_failed_generation_never_carries_the_detail(world):
     _assert_no_leak(state)
 
 
+def test_the_stored_row_of_a_live_generation_is_read_beside_its_live_state(world):
+    world.generation("g1")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+    world.live["g1"] = SimpleNamespace(user_id="owner", model_dump=lambda: {"id": "g1", "status": "running"})
+
+    record = api.generation_record(world.owner, "g1")
+
+    assert api.generation_state(world.owner, "g1")["status"] == "running"
+    assert record["status"] == "failed"
+    assert record["error_code"] == "missing_model_file"
+    assert "error_detail" not in record
+    with pytest.raises(GenerationNotFoundException):
+        api.generation_record(world.other, "g1")
+
+
+def test_a_live_generation_not_yet_stored_has_no_record(world):
+    world.live["g1"] = SimpleNamespace(user_id="owner", model_dump=lambda: {"id": "g1", "status": "pending"})
+
+    assert api.generation_record(world.owner, "g1") is None
+
+
+def test_an_administrator_reads_the_raw_detail_of_a_failure(world):
+    world.generation("g1")
+    world.generation("g2")
+    world.generations.update_status("g1", "failed", failure=_failure().columns())
+
+    report = api.generation_failure(world.admin, "g1")
+
+    assert report["error_code"] == "missing_model_file"
+    assert report["detail"] == world.generations.get_by_id("g1").error_detail
+    assert "loader.py" in report["detail"]
+    assert api.generation_failure(world.admin, "g2") is None
+    assert api.generation_failure(world.admin, "missing") is None
+    for user in (world.owner, None):
+        with pytest.raises(PermissionError):
+            api.generation_failure(user, "g1")
+
+
 def test_files_come_in_canonical_order_with_their_unfiltered_index(world):
     world.generation("g1")
     world.file("g1", "f-a", is_final=False)
