@@ -1,6 +1,7 @@
 """Identity vectors of faces from AuraFace, an ArcFace face recognition model run by onnxruntime on the CPU, each face aligned on the five landmarks YuNet finds."""
 
 import importlib
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple, Union
 
@@ -13,6 +14,7 @@ THREADS = 2
 Face = Tuple[Union[str, Path, Image.Image], Sequence[Sequence[float]]]
 
 _sessions: Dict[str, Any] = {}
+_sessions_lock = threading.Lock()
 
 
 def _rgb(image: Union[str, Path, Image.Image]) -> Image.Image:
@@ -44,15 +46,24 @@ def runtime_imports() -> bool:
 
 
 def _session(model: Path) -> Any:
+    key = str(model)
+    session = _sessions.get(key)
+    if session is not None:
+        return session
+    with _sessions_lock:
+        session = _sessions.get(key)
+        if session is None:
+            session = _sessions[key] = _new_session(key)
+    return session
+
+
+def _new_session(path: str) -> Any:
     import onnxruntime
 
-    key = str(model)
-    if key not in _sessions:
-        options = onnxruntime.SessionOptions()
-        options.intra_op_num_threads = THREADS
-        options.inter_op_num_threads = 1
-        _sessions[key] = onnxruntime.InferenceSession(key, options, providers=["CPUExecutionProvider"])
-    return _sessions[key]
+    options = onnxruntime.SessionOptions()
+    options.intra_op_num_threads = THREADS
+    options.inter_op_num_threads = 1
+    return onnxruntime.InferenceSession(path, options, providers=["CPUExecutionProvider"])
 
 
 def embed(model: Path, faces: Sequence[Face]) -> List[List[float]]:
