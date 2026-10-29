@@ -34,7 +34,7 @@ import torch
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes
 from src.platform.settings.runtime_flags import runtime_flag
 
-from ..errors import HostMemoryExhaustedError, is_cuda_oom
+from ..errors import HostMemoryExhaustedError, retry_after_cuda_oom
 from .text_encoder import (
     TextEncoderFootprint,
     TextEncoderPlacementSettings,
@@ -915,7 +915,7 @@ def _run_text_encode_uncached(
             )
             return result
         except RuntimeError as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             logger.warning("residency: co-resident TE encode OOM'd; freeing VRAM and retrying")
             torch.cuda.empty_cache()
@@ -940,7 +940,7 @@ def _run_text_encode_uncached(
         )
         return result
     except RuntimeError as exc:
-        if not is_cuda_oom(exc):
+        if not retry_after_cuda_oom(exc):
             raise
         logger.warning("residency: TE encode still OOM after eviction; encoding on CPU")
         try:
@@ -1027,7 +1027,7 @@ def _run_streamed_encode(
             result = encode_fn()
         except RuntimeError as exc:
             streaming.teardown()
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             logger.warning(
                 "residency: streamed TE encode OOM'd at a %.1fGB resident budget; %s",

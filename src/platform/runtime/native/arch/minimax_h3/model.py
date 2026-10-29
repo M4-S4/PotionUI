@@ -73,7 +73,7 @@ _fallback_sdpa = F.scaled_dot_product_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
 from ...cancellation import raise_if_cancelled
-from ...errors import is_cuda_oom
+from ...errors import retry_after_cuda_oom
 from ...ops.embedding import sinusoidal_embedding
 from ...lora.row_mask import FULL, ROWS, SKIP, RowMaskTarget, lora_row_mask, lora_row_window
 from ...sampling.step_cache import GroupedProbe
@@ -262,7 +262,7 @@ class MiniMaxH3Attention(nn.Module):
                 try:
                     out = _dispatch_attention(qT, kT, vT, heads=self.heads, mask=None)
                 except RuntimeError as exc:
-                    if not is_cuda_oom(exc):
+                    if not retry_after_cuda_oom(exc):
                         raise
                     # Once a sequence length has OOM'd the dispatch, every later
                     # call at >= that length is doomed the same way (sage's

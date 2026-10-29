@@ -95,7 +95,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base import NativeArchModule
-from ..errors import is_cuda_oom
+from ..errors import retry_after_cuda_oom
 
 logger = logging.getLogger(__name__)
 
@@ -763,7 +763,7 @@ class MiniMaxH3VideoVAE(NativeArchModule):
                     decoded.extend(self._decode_tile_batch(tiles[index : index + group]))
                     break
                 except RuntimeError as exc:
-                    if not is_cuda_oom(exc):
+                    if not retry_after_cuda_oom(exc):
                         raise
                     if group == 1:
                         raise

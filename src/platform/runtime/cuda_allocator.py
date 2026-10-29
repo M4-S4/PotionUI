@@ -55,10 +55,14 @@ def is_driver_oom(exc: BaseException) -> bool:
     return isinstance(exc, RuntimeError) and str(exc).startswith(DRIVER_OOM_MESSAGES)
 
 
-def retry_after_driver_oom(exc: BaseException) -> bool:
+def driver_oom_retries() -> bool:
+    return not driver_oom_is_fatal() or not expandable_segments_enabled()
+
+
+def record_driver_oom(exc: BaseException) -> None:
     global _damage
-    if not driver_oom_is_fatal() or not expandable_segments_enabled():
-        return True
+    if not is_driver_oom(exc) or driver_oom_retries():
+        return
     with _lock:
         first = _damage is None
         if first:
@@ -68,7 +72,6 @@ def retry_after_driver_oom(exc: BaseException) -> bool:
             "CUDA driver error under expandable segments (%s): no retry in this process. %s", exc, RESTART_HINT
         )
         _stop_growing_expandable_segments()
-    return False
 
 
 def allocator_damage() -> str | None:
@@ -78,7 +81,7 @@ def allocator_damage() -> str | None:
 def needs_gpu_restart(exc: BaseException) -> bool:
     if isinstance(exc, CudaAllocatorDamaged):
         return True
-    if is_driver_oom(exc) and not retry_after_driver_oom(exc):
+    if is_driver_oom(exc) and not driver_oom_retries():
         return True
     return _damage is not None and "CUDA driver error:" in str(exc)
 

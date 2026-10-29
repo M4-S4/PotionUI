@@ -39,7 +39,7 @@ from .cache_identity import identity_usable, tensor_identity
 from .base import load_into_module, release_derived_caches, release_module_storage
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
-from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError, is_cuda_oom
+from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError, retry_after_cuda_oom
 from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, load_torch_file_stripped
 from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
@@ -1441,7 +1441,7 @@ class NativeGenerator:
             try:
                 streaming.apply(device, budget)
             except RuntimeError as exc:
-                if not is_cuda_oom(exc):
+                if not retry_after_cuda_oom(exc):
                     raise
                 logger.warning(
                     "streamed text-encoder placement OOM'd (budget %.1fGB); streaming every leaf", budget,
@@ -1513,7 +1513,7 @@ class NativeGenerator:
         try:
             self.dit.move_to(device)
         except RuntimeError as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             logger.warning("DiT move to %s OOM'd; evicting all foreign residents and retrying", device)
             get_residency_registry().offload_all(device, exclude=self._own_models())
@@ -1522,7 +1522,7 @@ class NativeGenerator:
             try:
                 self.dit.move_to(device)
             except RuntimeError as exc:
-                if not is_cuda_oom(exc):
+                if not retry_after_cuda_oom(exc):
                     raise
                 # A co-tenant process can grab VRAM between the placement
                 # decision and the move (we can't evict other processes).
@@ -1580,7 +1580,7 @@ class NativeGenerator:
         try:
             self.dit.stream_to(device, budget)
         except RuntimeError as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             logger.warning("partial-residency DiT placement OOM'd (budget %.1fGB); "
                            "evicting all foreign residents and streaming fully", budget)
@@ -2103,7 +2103,7 @@ class NativeGenerator:
                 try:
                     return self._decode_once(latents, vram_free_gb=vram_free_gb)
                 except RuntimeError as exc:
-                    if not is_cuda_oom(exc):
+                    if not retry_after_cuda_oom(exc):
                         raise
                     logger.warning("untiled causal-3D decode OOM — trying temporal chunk, else TILED")
                     if torch.cuda.is_available():
@@ -2118,14 +2118,14 @@ class NativeGenerator:
                 try:
                     return self._decode_causal3d_chunked(latents, device, chunk_frames)
                 except RuntimeError as exc:
-                    if not is_cuda_oom(exc):
+                    if not retry_after_cuda_oom(exc):
                         raise
                     logger.warning("temporal-chunked decode OOM — falling back to SPATIAL tiled")
                     self._free_for_decode_retry(device)
             try:
                 return self._decode_causal3d_tiled(latents, device)
             except RuntimeError as exc:
-                if not is_cuda_oom(exc):
+                if not retry_after_cuda_oom(exc):
                     raise
                 logger.warning("tiled causal-3D decode OOM — clearing the card and retrying TILED")
                 self._free_for_decode_retry(device)
@@ -2142,7 +2142,7 @@ class NativeGenerator:
         try:
             return self._decode_once(latents, vram_free_gb=decode_free)
         except RuntimeError as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             logger.warning("decode OOM; offloading our DiT+TE, evicting foreign residents, and retrying TILED")
         # The retry MUST run after the ``except`` block exits: the failed attempt's
@@ -2216,7 +2216,7 @@ class NativeGenerator:
                 pixels = tiled_decode_causal3d(self.vae.module, denorm, tile_size=tile, overlap=overlap, scale=self._spatial_downscale())
                 break
             except RuntimeError as exc:
-                if not is_cuda_oom(exc):
+                if not retry_after_cuda_oom(exc):
                     raise
                 if tile <= _MIN_DECODE_TILE_LATENT:
                     raise
@@ -2312,7 +2312,7 @@ class NativeGenerator:
                 )
                 break
             except RuntimeError as exc:
-                if not is_cuda_oom(exc):
+                if not retry_after_cuda_oom(exc):
                     raise
                 if chunk <= 1:
                     raise
@@ -2468,7 +2468,7 @@ class NativeGenerator:
         try:
             latent = self._encode_dispatch(pixels, device, vram_free_gb)
         except RuntimeError as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             logger.warning(
                 "ref-image encode OOM'd; freeing our DiT/TE + evicting foreign residents and retrying"

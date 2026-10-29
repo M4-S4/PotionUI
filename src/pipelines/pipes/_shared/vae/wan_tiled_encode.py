@@ -18,7 +18,7 @@ from typing import Any, Callable, Iterable
 
 import torch
 
-from src.platform.runtime.native.errors import is_cuda_oom
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import get_residency_registry
 from src.platform.runtime.native.vae.tiling import tiled_encode_causal3d
 
@@ -47,7 +47,7 @@ def make_wan_vae_encode(vae_module: Any, width: int, height: int, *, log_prefix:
         try:
             return vae_module.encode(pixels)
         except Exception as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             logger.warning(
                 "[%s] VAE encode OOM at %dx%d; retrying spatially tiled",
@@ -62,7 +62,7 @@ def make_wan_vae_encode(vae_module: Any, width: int, height: int, *, log_prefix:
             try:
                 return tiled_encode_causal3d(vae_module, pixels, tile_size=tile)
             except Exception as exc:
-                if not is_cuda_oom(exc) or tile <= ENCODE_TILE_FLOOR:
+                if not retry_after_cuda_oom(exc) or tile <= ENCODE_TILE_FLOOR:
                     raise
                 tile = _snap8(tile // 2)
                 logger.warning("[%s] tiled VAE encode still OOM; shrinking tile to %dpx", log_prefix, tile)

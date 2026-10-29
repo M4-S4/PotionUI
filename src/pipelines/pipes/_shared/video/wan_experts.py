@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import torch
 from src.platform.runtime.cuda_allocator import needs_gpu_restart
-from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_driver_error, is_cuda_oom
+from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_driver_error, retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
@@ -177,7 +177,7 @@ class ExpertRouter:
         try:
             dit.stream_to(self.device, budget)
         except Exception as exc:
-            if not (is_cuda_oom(exc) or is_cuda_driver_error(exc)):
+            if not (retry_after_cuda_oom(exc) or is_cuda_driver_error(exc)):
                 raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
@@ -263,7 +263,7 @@ def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> tor
 
 
 def _retries_after(exc: BaseException) -> bool:
-    return (is_cuda_oom(exc) or is_cuda_driver_error(exc)) and not needs_gpu_restart(exc)
+    return (retry_after_cuda_oom(exc) or is_cuda_driver_error(exc)) and not needs_gpu_restart(exc)
 
 
 def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:

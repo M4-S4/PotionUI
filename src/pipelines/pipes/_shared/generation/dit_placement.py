@@ -93,7 +93,7 @@ import torch
 
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
-from src.platform.runtime.native.errors import is_cuda_oom
+from src.platform.runtime.native.errors import retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -835,7 +835,7 @@ def _forward_with_degrade(
     try:
         return forward(*args, **kwargs)
     except _CUDA_OOM_ERRORS as exc:
-        if not is_cuda_oom(exc):
+        if not retry_after_cuda_oom(exc):
             raise
         logger.warning(
             "[LTX PLACEMENT] first sampling forward OOM'd (S=%d video +%d audio, reserve %.2fGB); "
@@ -851,7 +851,7 @@ def _forward_with_degrade(
     try:
         return forward(*args, **kwargs)
     except _CUDA_OOM_ERRORS as exc:
-        if not is_cuda_oom(exc):
+        if not retry_after_cuda_oom(exc):
             raise
 
     # Tier 2: hand the forward the whole card by streaming every DiT weight
@@ -869,7 +869,7 @@ def _forward_with_degrade(
         try:
             return forward(*args, **kwargs)
         except _CUDA_OOM_ERRORS as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
 
     raise _sampling_oom(device=device, decision=decision, fit_hint=fit_hint)
@@ -950,7 +950,7 @@ def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
         dit.move_to(device)
         return "resident"
     except _CUDA_OOM_ERRORS as exc:
-        if not is_cuda_oom(exc):
+        if not retry_after_cuda_oom(exc):
             raise
         logger.warning("[LTX PLACEMENT] DiT move to %s OOM'd; evicting foreign residents and retrying", device)
         get_residency_registry().offload_all(device, exclude=own_models)
@@ -960,7 +960,7 @@ def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
             dit.move_to(device)
             return "resident"
         except _CUDA_OOM_ERRORS as exc:
-            if not is_cuda_oom(exc):
+            if not retry_after_cuda_oom(exc):
                 raise
             free = free_vram_gb(device) or 0.0
             budget = max(0.0, free - minimum_inference_memory_gb())
@@ -982,7 +982,7 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
         dit.stream_to(device, weight_budget_gb)
         return "partial"
     except _CUDA_OOM_ERRORS as exc:
-        if not is_cuda_oom(exc):
+        if not retry_after_cuda_oom(exc):
             raise
         logger.warning(
             "[LTX PLACEMENT] partial-residency DiT placement OOM'd (budget %.1fGB); "
