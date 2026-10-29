@@ -348,6 +348,10 @@
           "type": "int",
           "value": 1
         },
+        "refine_scale": {
+          "type": "float",
+          "value": 2.0
+        },
         "sampler": {
           "type": "str",
           "value": "euler_ancestral"

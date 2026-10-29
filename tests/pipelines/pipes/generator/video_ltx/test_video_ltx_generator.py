@@ -775,6 +775,40 @@ def test_the_real_memory_model_never_plans_past_the_frame_limit():
     assert _real_fit_plan(1000.0, clip_frames=5000) == (MAX_FRAMES, [0])
 
 
+_LAYOUT_PLACEMENTS = [
+    {"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"},
+    {"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe"},
+]
+
+
+@pytest.mark.parametrize(("free_gb", "refine_scale", "expected"), [
+    (30.0, 1.0, (481, [0])),
+    (30.0, 2.0, (481, [0])),
+    (10.0, 1.0, (481, [0])),
+    (10.0, 2.0, (193, [0])),
+    (12.0, 2.0, (233, [0])),
+])
+def test_a_two_stage_clip_is_planned_so_the_upscaled_refine_fits_too(free_gb, refine_scale, expected):
+    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cpu")
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
+        assert _pipe()._plan_clip(dit, "cuda:0", 481, 960, 544, 24.0, _LAYOUT_PLACEMENTS, (1, 1), "none",
+                                  None, refine_scale) == expected
+
+
+def test_a_two_stage_first_pass_trims_to_what_its_refine_can_hold(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    _fit_tokens(monkeypatch, 0, activation_tokens=2 * 3 * 16)
+    placements = [_CLIP_REFERENCE[0], {"source": "image", "index": 0, "frame": "first", "strength": 1.0,
+                                       "role": "keyframe"}]
+    ctx = _pipe(match_video=True, decode=False, refine_scale=2.0, media_placements=placements).build_context(
+        _pipe_input(images=[_pil_image()], videos=[str(clip)]))
+    assert ctx.extra.frames == 17 and ctx.extra.total_frames == 17
+
+    ctx = _pipe(match_video=True, decode=False, media_placements=placements).build_context(
+        _pipe_input(images=[_pil_image()], videos=[str(clip)]))
+    assert ctx.extra.frames == 41 and ctx.extra.total_frames == 40
+
+
 def _refine_after(tmp_path, t_lat):
     clip = _reference_clip(tmp_path, n_frames=40, size=64)
     cfg = _pipe(match_video=True, refine_sigmas="0.4, 0.0", refine_reference=True, media_placements=_CLIP_REFERENCE)

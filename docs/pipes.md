@@ -1579,6 +1579,7 @@ Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA reference
 | `match_scale` | `float` | `1.0` | no | — | 0.25 | 4.0 | With match_video, multiply the clip's size by this before the pixel budget (2.0 for a 2x upscaler) |
 | `max_pixels` | `int` | `0` | no | — | 0 | — | With match_video, scale the clip's size down to at most this many pixels; 0 = no cap |
 | `windows` | `bool` | `false` | no | — | — | — | With match_video and only IC-LoRA reference clips, a clip that one pass cannot fit in free VRAM is processed in the fewest equal overlapping windows that do and crossfaded, up to the frame limit, instead of being cut |
+| `refine_scale` | `float` | `1.0` | no | — | 1.0 | 4.0 | With match_video on a decode=false pass, the spatial scale of the refine pass its latent feeds (2.0 behind a 2x latent upscaler): the clip length is chosen so that pass fits in free VRAM too |
 | `window_overlap` | `int` | `16` | no | — | 0 | 200 | With windows, frames shared by neighbouring windows and crossfaded |
 | `extend_seconds` | `float` | `0.0` | no | — | 0.0 | — | When above 0, frames = the first video keyframe clip's frames plus this many seconds |
 | `quantity` | `int` | `1` | no | — | 1 | 4 | Number of videos |

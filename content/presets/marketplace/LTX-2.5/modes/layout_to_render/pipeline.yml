@@ -116,6 +116,7 @@ pipeline:
       audio: false
       match_video: true
       max_pixels: 522240
+      refine_scale: 2.0
       fps: 24.0
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       cfg: "{{ form.cfg | default(generation.profile.guidance) }}"

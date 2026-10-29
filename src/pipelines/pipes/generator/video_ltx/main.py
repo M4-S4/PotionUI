@@ -349,6 +349,10 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            "With match_video and only IC-LoRA reference clips, a clip that one pass cannot fit "
                            "in free VRAM is processed in the fewest equal overlapping windows that do and "
                            "crossfaded, up to the frame limit, instead of being cut", required=False),
+            PipeConfigSpec("refine_scale", float, 1.0,
+                           "With match_video on a decode=false pass, the spatial scale of the refine pass its latent "
+                           "feeds (2.0 behind a 2x latent upscaler): the clip length is chosen so that pass fits in "
+                           "free VRAM too", required=False, min_value=1.0, max_value=4.0),
             PipeConfigSpec("window_overlap", int, 16,
                            "With windows, frames shared by neighbouring windows and crossfaded",
                            required=False, min_value=0, max_value=200),
@@ -503,28 +507,35 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
     def _plan_clip(self, dit: Any, device: str, clip_frames: int, width: int, height: int, fps: float,
                    placements: List[dict], reference_scales: Tuple[int, int], audio_mode: str,
-                   overlap: Optional[int]) -> Tuple[int, List[int]]:
+                   overlap: Optional[int], refine_scale: float = 1.0) -> Tuple[int, List[int]]:
         total = max(1, min(clip_frames, MAX_FRAMES))
         one = snap_frames_up(total)
         fit = sequence_fit(dit, device)
         if fit is None:
             return one, [0]
+        sizes = [(width, height)]
+        if refine_scale != 1.0:
+            grid = LTX_SPATIAL_DOWNSCALE
+            sizes.append((max(grid, round(width * refine_scale / grid) * grid),
+                          max(grid, round(height * refine_scale / grid) * grid)))
 
-        def tokens(frames: int) -> Tuple[int, int]:
+        def tokens(frames: int, size: Tuple[int, int]) -> Tuple[int, int]:
             audio = audio_token_count(frames, fps) if audio_mode == "generate" else 0
-            return self._sequence_tokens(placements, frames, width, height, reference_scales), audio
+            return self._sequence_tokens(placements, frames, size[0], size[1], reference_scales), audio
 
         floor = min_window_frames(overlap) if overlap is not None else 1
+        checks = (fit.resident, fit.activations_fit) if overlap is not None else (fit.activations_fit,)
         frames = None
-        for check in (fit.resident, fit.activations_fit):
-            frames = largest_fitting_frames(one, lambda f, check=check: check(*tokens(f)), floor)
+        for check in checks:
+            frames = largest_fitting_frames(
+                one, lambda f, check=check: all(check(*tokens(f, size)) for size in sizes), floor)
             if frames is not None:
                 break
         if frames is None:
             frames = one if overlap is None else min(one, floor)
         length, starts = (frames, [0]) if overlap is None else plan_windows(total, frames, overlap)
         logger.info("[GENERATOR VIDEO-LTX] clip of %d frame(s): %d pass(es) of %d frame(s), %d tokens each",
-                    clip_frames, len(starts), length, sum(tokens(length)))
+                    clip_frames, len(starts), length, sum(tokens(length, sizes[0])))
         return length, starts
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
@@ -658,7 +669,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                         and all(p.get("source") == "video" and p.get("role") == "reference" for p in placements))
             frames, window_starts = self._plan_clip(
                 bundle.dit, device, clip_frames, width, height, fps, placements, reference_scales, audio_mode,
-                int(self.config.get("window_overlap", 16)) if windowed else None)
+                int(self.config.get("window_overlap", 16)) if windowed else None,
+                float(self.config.get("refine_scale") or 1.0))
             total_frames = min(clip_frames, MAX_FRAMES, window_starts[-1] + frames)
         pad_video = _matched_clip_index(placements) if clip_length else None
         conditions = self._build_conditions(placements, images, videos, frames, reference_scales,
