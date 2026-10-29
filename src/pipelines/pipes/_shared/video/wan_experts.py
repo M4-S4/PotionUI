@@ -177,7 +177,7 @@ class ExpertRouter:
         try:
             dit.stream_to(self.device, budget)
         except Exception as exc:
-            if not (retry_after_cuda_oom(exc) or is_cuda_driver_error(exc)):
+            if not _retries_after(exc):
                 raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)

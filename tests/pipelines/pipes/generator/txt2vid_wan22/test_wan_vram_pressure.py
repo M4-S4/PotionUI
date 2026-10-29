@@ -239,6 +239,42 @@ def _fatal_driver_oom_policy(monkeypatch):
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 
+def _stream_failing(expert, error):
+    def stream_to(device, budget):
+        expert.streamed.append((device, budget))
+        if budget > 0:
+            raise error
+
+    expert.stream_to = stream_to
+
+
+def test_a_fatal_driver_oom_while_placing_an_expert_is_not_retried(monkeypatch):
+    _fatal_driver_oom_policy(monkeypatch)
+    monkeypatch.setattr(wan_experts, "get_residency_registry", GpuResidencyRegistry)
+    expert = _Expert(13.0)
+    _stream_failing(expert, RuntimeError("CUDA driver error: device not ready"))
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        _place_high_expert(monkeypatch, expert, [20.0, 20.0])
+
+    assert len(expert.streamed) == 1
+    assert expert.streamed[0][1] > 0
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
+def test_a_retried_driver_oom_while_placing_an_expert_streams_it_fully(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+    monkeypatch.setattr(wan_experts, "get_residency_registry", GpuResidencyRegistry)
+    expert = _Expert(13.0)
+    _stream_failing(expert, RuntimeError("CUDA driver error: device not ready"))
+
+    _place_high_expert(monkeypatch, expert, [20.0, 20.0])
+
+    assert [budget for _, budget in expert.streamed][1:] == [0.0]
+    assert cuda_allocator.allocator_damage() is None
+
+
 def test_a_fatal_driver_oom_in_the_decode_is_not_retried(monkeypatch):
     _fatal_driver_oom_policy(monkeypatch)
     vae_module = _tiny_wan_vae()
