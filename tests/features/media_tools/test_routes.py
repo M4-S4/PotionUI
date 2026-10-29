@@ -657,7 +657,7 @@ class TestOwnerIsolation(MediaToolsTestBase):
         self.assertNotEqual(my_run.items[0].id, their_run.items[0].id)
 
 
-class TestCancel(MediaToolsTestBase):
+class TestCancelRunRoute(MediaToolsTestBase):
 
     def test_cancelling_a_running_run_stops_it_and_leaves_nothing_behind(self):
         item = self.image_item()
