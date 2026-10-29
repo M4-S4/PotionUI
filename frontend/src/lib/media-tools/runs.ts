@@ -7,6 +7,7 @@ import {
 	startMediaToolRun
 } from '$lib/services/api/mediaTools';
 import {
+	isTerminalStatus,
 	type MediaToolItem,
 	type MediaToolOutputMode,
 	type MediaToolRun,
@@ -18,7 +19,7 @@ export const POLL_FAST_MS = 400;
 export const POLL_SLOW_MS = 1000;
 export const POLL_SLOW_AFTER_MS = 10_000;
 export const POLL_ERROR_CAP_MS = 5000;
-export const MAX_POLL_ERRORS = 5;
+export const POLL_ERROR_GIVE_UP_MS = 120_000;
 export const CANCEL_FAILED_MESSAGE = "Couldn't cancel. It may already be finished.";
 
 export interface MediaToolRunState {
@@ -53,7 +54,7 @@ export interface RunHandle {
 export interface RunsApi {
 	start: (body: StartMediaToolRunBody) => Promise<{ run_id: string }>;
 	get: (runId: string, signal?: AbortSignal) => Promise<MediaToolRun>;
-	cancel: (runId: string) => Promise<void>;
+	cancel: (runId: string) => Promise<MediaToolRun | null | undefined>;
 }
 
 interface RunRecord {
@@ -68,6 +69,7 @@ interface RunRecord {
 	message: string | null;
 	cancelling: boolean;
 	errors: number;
+	errorSince: number | null;
 	timer: ReturnType<typeof setTimeout> | null;
 	controller: AbortController | null;
 	settle: (outcome: MediaToolRunOutcome) => void;
@@ -89,6 +91,10 @@ const defaultApi: RunsApi = {
 function httpStatus(error: unknown): number | null {
 	const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
 	return typeof status === 'number' ? status : null;
+}
+
+function isDefinitiveRefusal(status: number | null): boolean {
+	return status !== null && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
 function isAbort(error: unknown): boolean {
@@ -192,11 +198,13 @@ export function createMediaToolRuns(api: RunsApi = defaultApi): MediaToolRunsSto
 			if (!records.has(record.runId) || controller.signal.aborted) return;
 			record.controller = null;
 			record.errors = 0;
+			record.errorSince = null;
 			apply(record, run);
 		} catch (error) {
 			if (!records.has(record.runId) || controller.signal.aborted || isAbort(error)) return;
 			record.controller = null;
-			if (httpStatus(error) === 404) {
+			const status = httpStatus(error);
+			if (status === 404) {
 				finish(record, {
 					status: 'failed',
 					message: 'This edit was interrupted before it finished.',
@@ -204,8 +212,17 @@ export function createMediaToolRuns(api: RunsApi = defaultApi): MediaToolRunsSto
 				});
 				return;
 			}
+			if (isDefinitiveRefusal(status)) {
+				finish(record, {
+					status: 'failed',
+					message: 'The status of this edit could not be read.',
+					code: 'poll_refused'
+				});
+				return;
+			}
 			record.errors += 1;
-			if (record.errors >= MAX_POLL_ERRORS) {
+			record.errorSince ??= Date.now();
+			if (Date.now() - record.errorSince >= POLL_ERROR_GIVE_UP_MS) {
 				logger.error('Lost track of a media tool run:', getErrorMessage(error));
 				finish(record, {
 					status: 'failed',
@@ -237,6 +254,7 @@ export function createMediaToolRuns(api: RunsApi = defaultApi): MediaToolRunsSto
 			message: null,
 			cancelling: false,
 			errors: 0,
+			errorSince: null,
 			timer: null,
 			controller: null,
 			settle
@@ -258,8 +276,9 @@ export function createMediaToolRuns(api: RunsApi = defaultApi): MediaToolRunsSto
 		record.cancelling = true;
 		publish(record);
 		try {
-			await api.cancel(runId);
-			finish(record, { status: 'cancelled' });
+			const snapshot = await api.cancel(runId);
+			if (!records.has(runId)) return;
+			if (snapshot && isTerminalStatus(snapshot.status)) apply(record, snapshot);
 		} catch (error) {
 			if (!records.has(runId)) return;
 			logger.error('Could not cancel the media tool run:', getErrorMessage(error));

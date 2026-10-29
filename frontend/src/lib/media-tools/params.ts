@@ -119,6 +119,7 @@ export function visibleParams(
 
 function typedDefault(param: ToolParam): unknown {
 	if (param.default !== undefined) return param.default;
+	if ((param.type === 'integer' || param.type === 'float') && hasRange(param)) return param.min;
 	switch (param.type) {
 		case 'checkbox':
 			return false;

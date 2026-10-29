@@ -45,8 +45,11 @@ export function createMediaToolsApi(client: AxiosInstance) {
 			return unwrap(response.data, 'The edit status could not be read');
 		},
 
-		async cancelMediaToolRun(runId: string): Promise<void> {
-			await client.delete(`/api/media-tools/runs/${encodeURIComponent(runId)}`);
+		async cancelMediaToolRun(runId: string): Promise<MediaToolRun | null> {
+			const response = await client.delete<APIResponse<MediaToolRun>>(
+				`/api/media-tools/runs/${encodeURIComponent(runId)}`
+			);
+			return response.data?.data ?? null;
 		},
 
 		async previewMediaTool(body: PreviewMediaToolBody, signal?: AbortSignal): Promise<Blob> {
@@ -77,7 +80,7 @@ export async function getMediaToolRun(runId: string, signal?: AbortSignal): Prom
 	return bound().getMediaToolRun(runId, signal);
 }
 
-export async function cancelMediaToolRun(runId: string): Promise<void> {
+export async function cancelMediaToolRun(runId: string): Promise<MediaToolRun | null> {
 	return bound().cancelMediaToolRun(runId);
 }
 

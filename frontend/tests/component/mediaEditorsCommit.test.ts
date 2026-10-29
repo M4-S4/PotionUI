@@ -224,6 +224,29 @@ describe('crop editor', () => {
 		expect(steps).toEqual([{ tool: 'resize', params: { height: 768 } }]);
 	});
 
+	it('sends new when Replace was picked while the file was still being looked up and turned out to be a generation', async () => {
+		let resolveMedia: (value: unknown) => void = () => undefined;
+		listGenerationMedia.mockReturnValue(new Promise((resolve) => (resolveMedia = resolve)));
+		const generated = { ...imageSource, itemId: null, storedPath: 'outputs/2026-08-13/01KABC/0.png' };
+		const target = mount({ request: { kind: 'crop', source: generated, itemIndex: null }, onClose: vi.fn(), onResult: vi.fn() });
+		await settle();
+
+		expect(buttonByText(target, 'Replace original')).toBeDefined();
+		buttonByText(target, 'Replace original')!.click();
+		await settle();
+		resolveMedia({ success: true, data: { media: [{ id: 'file-7', filename: '0.png' }] } });
+		await settle();
+		expect(buttonByText(target, 'Replace original')).toBeUndefined();
+
+		buttonByText(target, '1:1')!.click();
+		await settle();
+		buttonByText(target, 'Apply')!.click();
+		await settle();
+
+		expect(startMediaToolRun.mock.calls[0][0].inputs).toEqual([{ generation_file_id: 'file-7' }]);
+		expect(startMediaToolRun.mock.calls[0][0].output).toEqual({ mode: 'new' });
+	});
+
 	it('refuses to send an untouched plan, which the server rejects as empty', async () => {
 		const target = mount({
 			request: { kind: 'crop', source: imageSource, itemIndex: null },
@@ -703,7 +726,7 @@ describe('a run in flight', () => {
 
 	it('cancels the run from the footer and goes back to the form without a result', async () => {
 		getMediaToolRun.mockResolvedValue(running(0.4));
-		cancelMediaToolRun.mockResolvedValue(undefined);
+		cancelMediaToolRun.mockResolvedValue({ run_id: 'run-1', status: 'cancelled', progress: 0.4, label: '', items: [], replaced: false, error: null });
 		const { target, onClose, onResult } = openCrop();
 		await pressSave(target);
 
@@ -715,6 +738,30 @@ describe('a run in flight', () => {
 		expect(onClose).not.toHaveBeenCalled();
 		expect(target.querySelector('[data-tool-progress]')).toBeNull();
 		expect(buttonByText(target, 'Apply')!.disabled).toBe(false);
+	});
+
+	it('hands the result over when the cancel is answered with a run that had already completed', async () => {
+		getMediaToolRun.mockResolvedValue(running(0.95));
+		cancelMediaToolRun.mockResolvedValue({
+			run_id: 'run-1',
+			status: 'completed',
+			progress: 1,
+			label: '',
+			items: [{ id: 'row-1', filename: 'late.png', media_type: 'image', url: '/late.png' }],
+			replaced: true,
+			error: null
+		});
+		const { target, onClose, onResult } = openCrop();
+		await pressSave(target);
+
+		buttonByText(target, 'Cancel edit')!.click();
+		await settle();
+
+		expect(onResult).toHaveBeenCalledWith(
+			{ type: 'item', item: expect.objectContaining({ filename: 'late.png' }), replaced: true },
+			expect.anything()
+		);
+		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
 	it('shows the reason a run failed on the server and stays open', async () => {

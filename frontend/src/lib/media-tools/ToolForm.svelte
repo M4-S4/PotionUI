@@ -13,12 +13,30 @@
 	let {
 		params,
 		values,
+		errors = {},
 		onChange
 	}: {
 		params: ToolParam[];
 		values: Record<string, unknown>;
+		errors?: Record<string, string>;
 		onChange: (name: string, value: unknown) => void;
 	} = $props();
+
+	function invalidMarker(node: HTMLElement, message: string | undefined) {
+		function mark(next: string | undefined) {
+			for (const element of node.querySelectorAll('input, select, textarea')) {
+				if (next) {
+					element.setAttribute('aria-invalid', 'true');
+					element.setAttribute('aria-describedby', `${node.dataset.param}-server-error`);
+				} else {
+					element.removeAttribute('aria-describedby');
+					if (element.getAttribute('aria-invalid') === 'true') element.removeAttribute('aria-invalid');
+				}
+			}
+		}
+		mark(message);
+		return { update: mark };
+	}
 
 	const COMPONENTS: Record<ControlKind, any> = {
 		segmented: SegmentedField,
@@ -55,13 +73,30 @@
 		{#each row.params as param (param.name)}
 			{@const control = controlFor(param)}
 			{@const Control = COMPONENTS[control]}
-			<div data-param={param.name} data-control={control} class="min-w-0">
+			{@const error = errors[param.name]}
+			<div
+				data-param={param.name}
+				data-control={control}
+				data-invalid={error ? 'true' : undefined}
+				use:invalidMarker={error}
+				class="min-w-0 {error ? '-m-1.5 rounded p-1.5 ring-1 ring-danger/60' : ''}"
+			>
 				<Control
 					name={param.name}
 					config={toFieldConfig(param)}
 					value={values[param.name]}
 					onChange={(name: string, next: unknown) => onChange(name, next)}
 				/>
+				{#if error}
+					<p
+						id="{param.name}-server-error"
+						role="alert"
+						data-param-error
+						class="mt-1 font-mono text-sm text-danger"
+					>
+						{error}
+					</p>
+				{/if}
 			</div>
 		{/each}
 	</div>

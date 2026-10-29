@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 import { writable } from 'svelte/store';
+import { mountComponent } from './helpers/mount';
 
 const { default: EditorSaveControls } = await import('$lib/media/editors/EditorSaveControls.svelte');
 const { EDITOR_RUN_CONTEXT_KEY } = await import('$lib/media/editors/editorRunContext');
@@ -131,5 +132,36 @@ describe('EditorSaveControls', () => {
 		expect(labels(target)).toEqual(['Cancel edit']);
 		(target.querySelector('button') as HTMLButtonElement).click();
 		expect(cancel).toHaveBeenCalledTimes(1);
+	});
+
+	it('sends new, not a replace picked earlier, once the choice is no longer offered', () => {
+		const onSave = vi.fn();
+		const view = mountComponent(EditorSaveControls as never, { onCancel: vi.fn(), onSave, allowReplace: true });
+		const press = (text: string) =>
+			(Array.from(view.target.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement).click();
+
+		press('Replace original');
+		flushSync();
+		view.rerender({ allowReplace: false });
+		press('Apply');
+
+		expect(onSave).toHaveBeenCalledTimes(1);
+		expect(onSave).toHaveBeenCalledWith('new');
+	});
+
+	it('does not bring the old pick back when the choice is offered again', () => {
+		const onSave = vi.fn();
+		const view = mountComponent(EditorSaveControls as never, { onCancel: vi.fn(), onSave, allowReplace: true });
+		const press = (text: string) =>
+			(Array.from(view.target.querySelectorAll('button')).find((b) => b.textContent?.trim() === text) as HTMLButtonElement).click();
+
+		press('Replace original');
+		flushSync();
+		view.rerender({ allowReplace: false });
+		view.rerender({ allowReplace: true });
+		const pressed = view.target.querySelector('[role="group"] [aria-pressed="true"]');
+		expect(pressed?.textContent?.trim()).toBe('Save as new');
+		press('Apply');
+		expect(onSave).toHaveBeenCalledWith('new');
 	});
 });

@@ -18,6 +18,7 @@ export interface PreviewControllerOptions {
 
 export interface PreviewController {
 	schedule(immediate?: boolean): void;
+	cancel(): void;
 	clear(): void;
 	destroy(): void;
 }
@@ -81,6 +82,10 @@ export function createPreviewController(options: PreviewControllerOptions): Prev
 			emit(true, null);
 			if (immediate) void run();
 			else timer = setTimeout(() => void run(), debounceMs);
+		},
+		cancel() {
+			abort();
+			emit(false, null);
 		},
 		clear() {
 			abort();

@@ -76,10 +76,29 @@
 			{/if}
 		</div>
 
+		<input
+			type="range"
+			min="0"
+			max="100"
+			bind:value={split}
+			aria-label="Before and after split"
+			data-split-input
+			class="peer absolute inset-0 z-[4] m-0 h-full w-full cursor-ew-resize opacity-0"
+		/>
 		<span
-			class="pointer-events-none absolute inset-y-0 z-[3] w-0.5 -translate-x-1/2 bg-scrim-on"
+			data-split-line
+			class="pointer-events-none absolute inset-y-0 z-[3] w-0.5 -translate-x-1/2 bg-scrim-on peer-focus-visible:w-1 peer-focus-visible:bg-signal"
 			style="left: {split}%;"
 		></span>
+		<span
+			data-split-handle
+			class="pointer-events-none absolute top-1/2 z-[3] grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded bg-scrim/70 text-scrim-on backdrop-blur-sm peer-focus-visible:ring-2 peer-focus-visible:ring-signal peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-scrim"
+			style="left: {split}%;"
+		>
+			<svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 8l-4 4 4 4M16 8l4 4-4 4" />
+			</svg>
+		</span>
 		<span
 			class="pointer-events-none absolute left-2 top-2 z-[3] rounded bg-scrim/70 px-1.5 py-0.5 font-mono text-sm uppercase tracking-[0.07em] text-scrim-on backdrop-blur-sm"
 		>
@@ -90,14 +109,6 @@
 		>
 			After
 		</span>
-		<input
-			type="range"
-			min="0"
-			max="100"
-			bind:value={split}
-			aria-label="Before and after split"
-			class="absolute inset-0 z-[4] m-0 h-full w-full cursor-ew-resize opacity-0"
-		/>
 	</div>
 </section>
 

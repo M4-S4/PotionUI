@@ -5,7 +5,7 @@
 	import { hasIcon } from '$lib/utils/IconLibrary';
 	import { previewMediaTool } from '$lib/services/api/mediaTools';
 	import { selectionBounds, toolAvailability } from './catalog';
-	import { describeMediaToolFailure } from './errors';
+	import { parseMediaToolFailure } from './errors';
 	import { executeMediaTool } from './execute';
 	import type { AnnounceSetting } from './announce';
 	import {
@@ -60,8 +60,8 @@
 	let mode = $state<MediaToolOutputMode>('new');
 	let phase = $state<'edit' | 'working'>('edit');
 	let failure = $state<string | null>(null);
+	let fieldErrors = $state<Record<string, string>>({});
 	let activeRun = $state<RunHandle | null>(null);
-	let cancelling = $state(false);
 	let resolution = $state<{ ready: boolean; refs: MediaToolInputRef[]; reason: string | null }>({
 		ready: false,
 		refs: [],
@@ -162,7 +162,10 @@
 	let firstPreview = true;
 
 	$effect(() => {
-		if (!previewKey || !previewable || !resolution.ready || resolution.reason || hasIssues) return;
+		if (!previewKey || !previewable || !resolution.ready || resolution.reason || hasIssues) {
+			if (previewable) previewer.cancel();
+			return;
+		}
 		const immediate = firstPreview;
 		firstPreview = false;
 		previewer.schedule(immediate);
@@ -175,6 +178,10 @@
 
 	function setValue(name: string, next: unknown) {
 		values = { ...values, [name]: next };
+		if (fieldErrors[name]) {
+			const { [name]: _cleared, ...rest } = fieldErrors;
+			fieldErrors = rest;
+		}
 	}
 
 	function moveClip(from: number, to: number) {
@@ -197,8 +204,8 @@
 	async function apply() {
 		if (!canApply) return;
 		failure = null;
+		fieldErrors = {};
 		phase = 'working';
-		cancelling = false;
 		try {
 			const handle = await executeMediaTool({
 				label: tool.label,
@@ -234,16 +241,16 @@
 		} catch (error) {
 			activeRun = null;
 			if (disposed) return;
-			failure = describeMediaToolFailure(error);
+			const refusal = parseMediaToolFailure(error);
+			failure = refusal.message;
+			if (refusal.field) fieldErrors = { [refusal.field]: refusal.message };
 			phase = 'edit';
 		}
 	}
 
 	async function cancelRun() {
-		if (!activeRun || cancelling) return;
-		cancelling = true;
+		if (!activeRun) return;
 		await runs.cancelRun(activeRun.runId);
-		cancelling = false;
 	}
 </script>
 
@@ -300,7 +307,7 @@
 			</div>
 		{/if}
 
-		<ToolForm params={tool.params} {values} onChange={setValue} />
+		<ToolForm params={tool.params} {values} errors={fieldErrors} onChange={setValue} />
 
 		{#if readout}
 			<div
@@ -324,7 +331,7 @@
 			working={phase === 'working'}
 			progress={runState?.progress ?? 0}
 			statusLabel={runState?.message ?? null}
-			{cancelling}
+			cancelling={runState?.cancelling ?? false}
 			{failure}
 			{blocked}
 			onMode={(next) => (mode = next)}

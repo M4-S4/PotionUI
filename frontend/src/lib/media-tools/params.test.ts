@@ -171,6 +171,28 @@ describe('initialValues', () => {
 		});
 	});
 
+	it('starts a ranged number without a default on its minimum, which is what its slider shows', () => {
+		const ranged: ToolParam[] = [
+			{ name: 'repeats', type: 'integer', min: 1, max: 8 },
+			{ name: 'feather', type: 'float', min: 0, max: 16 },
+			{ name: 'offset', type: 'float', min: -5, max: 5 }
+		];
+		const values = initialValues({ params: ranged, last_params: null });
+		expect(values).toEqual({ repeats: 1, feather: 0, offset: -5 });
+		expect(buildParams(ranged, values)).toEqual({ repeats: 1, feather: 0, offset: -5 });
+	});
+
+	it('leaves a number with only one bound empty, since its box has nothing to show', () => {
+		const half: ToolParam[] = [{ name: 'width', type: 'integer', min: 1 }, { name: 'cap', type: 'float', max: 9 }];
+		expect(initialValues({ params: half, last_params: null })).toEqual({ width: undefined, cap: undefined });
+	});
+
+	it('still prefers a declared default and a remembered value over the minimum', () => {
+		const withDefault: ToolParam[] = [{ name: 'repeats', type: 'integer', min: 1, max: 8, default: 3 }];
+		expect(initialValues({ params: withDefault, last_params: null })).toEqual({ repeats: 3 });
+		expect(initialValues({ params: withDefault, last_params: { repeats: 6 } })).toEqual({ repeats: 6 });
+	});
+
 	it('prefers what the user last used', () => {
 		const values = initialValues({ params, last_params: { speed: 3.5, keep_pitch: false, mode: 'c', width: 640 } });
 		expect(values).toMatchObject({ speed: 3.5, keep_pitch: false, mode: 'c', width: 640 });

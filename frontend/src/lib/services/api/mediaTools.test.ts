@@ -78,10 +78,23 @@ describe('getMediaToolRun', () => {
 });
 
 describe('cancelMediaToolRun', () => {
-	it('deletes the run', async () => {
-		const del = vi.fn().mockResolvedValue({ data: { success: true } });
-		await createMediaToolsApi(client({ delete: del })).cancelMediaToolRun('run-9');
+	it('deletes the run and returns the snapshot the server answers with, which may already be final', async () => {
+		const snapshot = { run_id: 'run-9', status: 'completed', progress: 1, label: '', items: [{ id: 'r' }], replaced: true, error: null };
+		const del = vi.fn().mockResolvedValue({ data: { success: true, data: snapshot } });
+		const result = await createMediaToolsApi(client({ delete: del })).cancelMediaToolRun('run-9');
 		expect(del).toHaveBeenCalledWith('/api/media-tools/runs/run-9');
+		expect(result).toEqual(snapshot);
+	});
+
+	it('returns null when the answer carries no run', async () => {
+		const del = vi.fn().mockResolvedValue({ data: { success: true } });
+		expect(await createMediaToolsApi(client({ delete: del })).cancelMediaToolRun('run-9')).toBeNull();
+	});
+
+	it('encodes the run id', async () => {
+		const del = vi.fn().mockResolvedValue({ data: { success: true } });
+		await createMediaToolsApi(client({ delete: del })).cancelMediaToolRun('a/b');
+		expect(del).toHaveBeenCalledWith('/api/media-tools/runs/a%2Fb');
 	});
 });
 

@@ -192,6 +192,46 @@ describe('announceOutcome', () => {
 	});
 });
 
+describe('a cancel that races with completion', () => {
+	function setupCancel(answer: MediaToolRun) {
+		const start = vi.fn().mockResolvedValue({ run_id: 'run-1' });
+		const getRun = vi.fn().mockResolvedValue({ run_id: 'run-1', status: 'running', progress: 0.9, label: 'Saving', items: [], replaced: false, error: null });
+		const cancel = vi.fn().mockResolvedValue(answer);
+		return createMediaToolRuns({ start, get: getRun, cancel });
+	}
+
+	async function runAndCancel(answer: MediaToolRun) {
+		const runs = setupCancel(answer);
+		const handle = await executeMediaTool({
+			label: 'Speed',
+			steps: [{ tool: 'speed', params: {} }],
+			sources,
+			refs: [{ item_id: 'row-1' }],
+			mode: 'replace',
+			announce: true,
+			runs
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await runs.cancel('row-1');
+		return handle.done;
+	}
+
+	it('announces the replaced original and never says nothing was saved', async () => {
+		const outcome = await runAndCancel(completed({ replaced: true }));
+
+		expect(outcome).toMatchObject({ status: 'completed', replaced: true });
+		expect(toastMessages()).toContain('Original replaced|clip-speed.mp4 was updated.');
+		expect(get(toasts).some((entry) => entry.title === 'Edit cancelled')).toBe(false);
+	});
+
+	it('says the edit was cancelled when the answer says it was', async () => {
+		const outcome = await runAndCancel({ ...completed(), status: 'cancelled', items: [] });
+
+		expect(outcome).toEqual({ status: 'cancelled' });
+		expect(toastMessages()).toContain('Edit cancelled|Nothing was saved.');
+	});
+});
+
 describe('announce settings', () => {
 	function run(announce: Parameters<typeof executeMediaTool>[0]['announce'], result?: MediaToolRun) {
 		const { runs } = setup(result);

@@ -126,6 +126,60 @@ describe('createPreviewController', () => {
 		expect(states.at(-1)?.error).toBeNull();
 	});
 
+	it('cancel stops the pending request and the one in flight and keeps the image on show', async () => {
+		const signals: AbortSignal[] = [];
+		const request = vi
+			.fn()
+			.mockResolvedValueOnce(blob())
+			.mockImplementation((signal: AbortSignal) => {
+				signals.push(signal);
+				return new Promise<Blob>(() => undefined);
+			});
+		const { controller, states, revoked } = setup(request);
+		controller.schedule(true);
+		await vi.advanceTimersByTimeAsync(0);
+		controller.schedule(true);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(states.at(-1)?.loading).toBe(true);
+
+		controller.cancel();
+
+		expect(signals[0].aborted).toBe(true);
+		expect(revoked).toEqual([]);
+		expect(states.at(-1)).toEqual({ url: 'blob:1', loading: false, error: null });
+	});
+
+	it('cancel drops a request still waiting out its delay', async () => {
+		const request = vi.fn().mockResolvedValue(blob());
+		const { controller, states } = setup(request);
+		controller.schedule();
+		controller.cancel();
+		await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS * 2);
+
+		expect(request).not.toHaveBeenCalled();
+		expect(states.at(-1)).toEqual({ url: null, loading: false, error: null });
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it('cancel after destroy does nothing', async () => {
+		const { controller, states } = setup(vi.fn().mockResolvedValue(blob()));
+		controller.destroy();
+		const before = states.length;
+		controller.cancel();
+		expect(states).toHaveLength(before);
+	});
+
+	it('can schedule again after a cancel', async () => {
+		const request = vi.fn().mockResolvedValue(blob());
+		const { controller, states } = setup(request);
+		controller.schedule();
+		controller.cancel();
+		controller.schedule();
+		await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS);
+		expect(request).toHaveBeenCalledTimes(1);
+		expect(states.at(-1)?.url).toBe('blob:1');
+	});
+
 	it('clear drops the image and any pending request', async () => {
 		const request = vi.fn().mockResolvedValue(blob());
 		const { controller, states, revoked } = setup(request);

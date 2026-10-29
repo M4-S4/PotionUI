@@ -156,7 +156,7 @@ beforeEach(() => {
 	resetMediaToolCatalog();
 	startMediaToolRun.mockReset().mockResolvedValue({ run_id: 'run-1' });
 	getMediaToolRun.mockReset().mockResolvedValue(run({ items: [RESULT_ITEM] }));
-	cancelMediaToolRun.mockReset().mockResolvedValue(undefined);
+	cancelMediaToolRun.mockReset().mockResolvedValue(run({ status: 'cancelled', progress: 0.1 }));
 	previewMediaTool.mockReset().mockResolvedValue(new Blob(['x'], { type: 'image/webp' }));
 	listGenerationMedia.mockReset().mockResolvedValue({ success: false });
 	listUploads.mockReset().mockResolvedValue({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } });
@@ -250,6 +250,25 @@ describe('the form built from the params', () => {
 		open({ tool: { ...SPEED, last_params: { speed: 99 } } });
 		await settle();
 		expect(param('speed').textContent).toContain('2×');
+	});
+
+	it('shows and sends the minimum for a ranged number that declares no default', async () => {
+		const loop = toolDto({
+			id: 'acme.loop',
+			label: 'Loop',
+			accepts: ['video'],
+			params: [{ name: 'repeats', type: 'integer', label: 'Repeats', min: 2, max: 8 }]
+		});
+		open({ tool: loop, detach: true });
+		await settle();
+
+		expect(param('repeats').getAttribute('data-control')).toBe('slider');
+		expect(param('repeats').textContent).toContain('2');
+		expect((param('repeats').querySelector('input[type="range"]') as HTMLInputElement).value).toBe('2');
+		buttonByText('Apply')!.click();
+		await settle();
+
+		expect(startMediaToolRun.mock.calls[0][0].steps).toEqual([{ tool: 'acme.loop', params: { repeats: 2 } }]);
 	});
 
 	it('draws nothing but the source for a tool with no params', async () => {
@@ -436,6 +455,115 @@ describe('applying', () => {
 		expect(dialog().querySelector('[data-tool-blocked]')?.textContent).toContain('not in your library');
 	});
 
+	describe('when the server names the param it refused', () => {
+		const refusal = (field: string | undefined) => ({
+			message: 'Request failed with status code 400',
+			response: {
+				data: {
+					detail: { error: 'invalid_params', message: 'key_color must be a hex colour', ...(field ? { field } : {}), step_index: 0 }
+				}
+			}
+		});
+
+		async function openKeyed() {
+			const view = open({ tool: { ...COLOR_KEY, last_params: { key_mode: 'color' } }, items: [still] });
+			await settle();
+			return view;
+		}
+
+		it('marks that control invalid with the message beside it, and keeps the footer message too', async () => {
+			startMediaToolRun.mockRejectedValue(refusal('key_color'));
+			await openKeyed();
+
+			buttonByText('Apply')!.click();
+			await settle();
+
+			const control = param('key_color');
+			expect(control.getAttribute('data-invalid')).toBe('true');
+			expect(control.querySelector('[data-param-error]')?.textContent?.trim()).toBe('key_color must be a hex colour');
+			expect(control.querySelector('[data-param-error]')?.getAttribute('role')).toBe('alert');
+			const input = control.querySelector('input[type="text"]') as HTMLInputElement;
+			expect(input.getAttribute('aria-invalid')).toBe('true');
+			expect(input.getAttribute('aria-describedby')).toBe('key_color-server-error');
+			expect(dialog().querySelector('[data-tool-failure]')?.textContent).toBe('key_color must be a hex colour');
+			expect(param('tolerance').getAttribute('data-invalid')).toBeNull();
+		});
+
+		it('clears the mark when the value is changed, and keeps the footer message until the next try', async () => {
+			startMediaToolRun.mockRejectedValue(refusal('key_color'));
+			await openKeyed();
+			buttonByText('Apply')!.click();
+			await settle();
+
+			const input = param('key_color').querySelector('input[type="text"]') as HTMLInputElement;
+			input.focus();
+			input.value = '#112233';
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+			input.blur();
+			await settle();
+
+			expect(param('key_color').getAttribute('data-invalid')).toBeNull();
+			expect(param('key_color').querySelector('[data-param-error]')).toBeNull();
+			expect(param('key_color').querySelector('input[type="text"]')?.getAttribute('aria-invalid')).not.toBe('true');
+		});
+
+		it('leaves other controls alone when another one is changed', async () => {
+			startMediaToolRun.mockRejectedValue(refusal('key_color'));
+			await openKeyed();
+			buttonByText('Apply')!.click();
+			await settle();
+
+			const slider = param('tolerance').querySelector('input[type="range"]') as HTMLInputElement;
+			slider.value = '50';
+			slider.dispatchEvent(new Event('input', { bubbles: true }));
+			await settle();
+
+			expect(param('key_color').getAttribute('data-invalid')).toBe('true');
+		});
+
+		it('clears the mark when the edit is tried again', async () => {
+			startMediaToolRun.mockRejectedValueOnce(refusal('key_color')).mockResolvedValue({ run_id: 'run-1' });
+			await openKeyed();
+			buttonByText('Apply')!.click();
+			await settle();
+			expect(param('key_color').getAttribute('data-invalid')).toBe('true');
+
+			buttonByText('Apply')!.click();
+			await settle();
+
+			expect(param('key_color')?.getAttribute('data-invalid') ?? null).toBeNull();
+		});
+
+		it('marks nothing for a field the form does not have, and still shows the footer message', async () => {
+			startMediaToolRun.mockRejectedValue(refusal('mystery'));
+			await openKeyed();
+			buttonByText('Apply')!.click();
+			await settle();
+
+			expect(dialog().querySelector('[data-invalid]')).toBeNull();
+			expect(dialog().querySelector('[data-tool-failure]')?.textContent).toBe('key_color must be a hex colour');
+		});
+
+		it('marks nothing when the server names no field', async () => {
+			startMediaToolRun.mockRejectedValue(refusal(undefined));
+			await openKeyed();
+			buttonByText('Apply')!.click();
+			await settle();
+			expect(dialog().querySelector('[data-invalid]')).toBeNull();
+			expect(dialog().querySelector('[data-tool-failure]')).not.toBeNull();
+		});
+
+		it('shows the footer message for a refused param that is hidden by a condition', async () => {
+			startMediaToolRun.mockRejectedValue(refusal('key_color'));
+			open({ tool: COLOR_KEY, items: [still] });
+			await settle();
+			buttonByText('Apply')!.click();
+			await settle();
+			expect(param('key_color')).toBeNull();
+			expect(dialog().querySelector('[data-tool-failure]')).not.toBeNull();
+		});
+	});
+
 	it('shows the refusal of a request the server turned down and stays open', async () => {
 		startMediaToolRun.mockRejectedValue({
 			message: 'Request failed with status code 400',
@@ -489,6 +617,44 @@ describe('a run that is waited for', () => {
 		expect(onClose).not.toHaveBeenCalled();
 		expect(buttonByText('Apply')).toBeDefined();
 		expect(dialog().querySelector('[data-tool-progress]')).toBeNull();
+	});
+
+	it('hands the result over when the cancel is answered with a run that had already completed', async () => {
+		let finish: (value: unknown) => void = () => undefined;
+		getMediaToolRun
+			.mockResolvedValueOnce(run({ status: 'running', progress: 0.95, label: 'Saving', items: [] }))
+			.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+		cancelMediaToolRun.mockResolvedValue(run({ status: 'completed', progress: 1, items: [RESULT_ITEM], replaced: true }));
+		const { onClose, onResult } = open({ tool: SPEED, scope: 'field', items: [{ ...clip, id: 'field', itemId: 'row-1' }] });
+		await applyNow();
+
+		buttonByText('Cancel edit')!.click();
+		await settle();
+
+		expect(onResult).toHaveBeenCalledWith({ items: [RESULT_ITEM], replaced: true });
+		expect(onClose).toHaveBeenCalledTimes(1);
+		expect(dialog().querySelector('[data-tool-failure]')).toBeNull();
+		void finish;
+	});
+
+	it('stays in the progress state while a cancel is not final and then follows the poll to the end', async () => {
+		getMediaToolRun.mockResolvedValue(run({ status: 'running', progress: 0.9, items: [] }));
+		cancelMediaToolRun.mockResolvedValue(run({ status: 'running', progress: 0.9 }));
+		const { onClose, onResult } = open({ tool: SPEED, scope: 'field', items: [{ ...clip, id: 'field', itemId: 'row-1' }] });
+		await applyNow();
+
+		buttonByText('Cancelling')?.click();
+		buttonByText('Cancel edit')!.click();
+		await settle();
+
+		expect(buttonByText('Cancelling')?.disabled).toBe(true);
+		expect(onResult).not.toHaveBeenCalled();
+		expect(onClose).not.toHaveBeenCalled();
+
+		getMediaToolRun.mockResolvedValue(run({ status: 'completed', progress: 1, items: [RESULT_ITEM], replaced: false }));
+		await new Promise((resolve) => setTimeout(resolve, 450));
+		await settle();
+		expect(onResult).toHaveBeenCalledWith({ items: [RESULT_ITEM], replaced: false });
 	});
 
 	it('shows why a run failed and offers the form again', async () => {
@@ -610,6 +776,69 @@ describe('the preview', () => {
 		await vi.advanceTimersByTimeAsync(1000);
 
 		expect(previewMediaTool).not.toHaveBeenCalled();
+	});
+
+	it('drops the request waiting out its delay when the params turn invalid, and keeps the image shown', async () => {
+		open({ tool: FIT_CANVAS, items: [still] });
+		await settle();
+		expect(afterImage()?.getAttribute('src')).toBe('blob:preview');
+		previewMediaTool.mockClear();
+
+		const width = param('width').querySelector('input') as HTMLInputElement;
+		width.value = '800';
+		width.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+		await vi.advanceTimersByTimeAsync(100);
+		expect(dialog().querySelector('[data-preview-loading]')).not.toBeNull();
+		width.value = '0';
+		width.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+		await vi.advanceTimersByTimeAsync(1000);
+
+		expect(previewMediaTool).not.toHaveBeenCalled();
+		expect(dialog().querySelector('[data-preview-loading]')).toBeNull();
+		expect(afterImage()?.getAttribute('src')).toBe('blob:preview');
+		expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+	});
+
+	it('aborts the request in flight when the params turn invalid, and shows nothing stale', async () => {
+		const signals: AbortSignal[] = [];
+		previewMediaTool.mockImplementation((_body: unknown, signal: AbortSignal) => {
+			signals.push(signal);
+			return new Promise(() => undefined);
+		});
+		open({ tool: FIT_CANVAS, items: [still] });
+		await settle();
+		expect(signals).toHaveLength(1);
+		expect(signals[0].aborted).toBe(false);
+
+		const width = param('width').querySelector('input') as HTMLInputElement;
+		width.value = '0';
+		width.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+		await settle();
+
+		expect(signals[0].aborted).toBe(true);
+		expect(dialog().querySelector('[data-preview-loading]')).toBeNull();
+	});
+
+	it('asks again once the params are valid again', async () => {
+		open({ tool: FIT_CANVAS, items: [still] });
+		await settle();
+		const width = param('width').querySelector('input') as HTMLInputElement;
+		width.value = '0';
+		width.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+		await settle();
+		previewMediaTool.mockClear();
+
+		width.value = '640';
+		width.dispatchEvent(new Event('input', { bubbles: true }));
+		flushSync();
+		await vi.advanceTimersByTimeAsync(300);
+
+		expect(previewMediaTool).toHaveBeenCalledTimes(1);
+		expect(previewMediaTool.mock.calls[0][0].params.width).toBe(640);
 	});
 
 	it('frees the preview image and stops its timers when the dialog goes away', async () => {

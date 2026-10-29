@@ -21,6 +21,7 @@
 	let mode: MediaEditorSaveMode = 'new';
 
 	$: running = busy && $progress !== null;
+	$: if (!allowReplace) mode = 'new';
 </script>
 
 <ToolFooter
@@ -40,6 +41,6 @@
 	blocked={blockedReason}
 	onMode={(next) => (mode = next)}
 	{onCancel}
-	onApply={() => onSave(mode)}
+	onApply={() => onSave(allowReplace ? mode : 'new')}
 	onCancelRun={() => run?.cancel()}
 />

@@ -3,7 +3,7 @@ import { get } from 'svelte/store';
 import { toasts } from '$lib/stores/toast';
 import {
 	CANCEL_FAILED_MESSAGE,
-	MAX_POLL_ERRORS,
+	POLL_ERROR_GIVE_UP_MS,
 	POLL_FAST_MS,
 	POLL_SLOW_AFTER_MS,
 	POLL_SLOW_MS,
@@ -36,7 +36,7 @@ function run(overrides: Partial<MediaToolRun> = {}): MediaToolRun {
 function fakeApi(): { api: RunsApi; start: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> } {
 	const start = vi.fn().mockResolvedValue({ run_id: 'run-1' });
 	const getRun = vi.fn().mockResolvedValue(run());
-	const cancel = vi.fn().mockResolvedValue(undefined);
+	const cancel = vi.fn().mockResolvedValue(run({ status: 'cancelled' }));
 	return { api: { start, get: getRun, cancel }, start, get: getRun, cancel };
 }
 
@@ -266,6 +266,132 @@ describe('cancelling', () => {
 		expect(get(runs)['row-1'].cancelling).toBe(true);
 		release();
 		await pending;
+		runs.destroy();
+	});
+
+	it('hands the result over when the server answers the cancel with a run that completed', async () => {
+		const { api, get: getRun, cancel } = fakeApi();
+		const item = { id: 'r2', filename: 'a-speed.mp4', media_type: 'video', url: '/a-speed.mp4' };
+		cancel.mockResolvedValue(run({ status: 'completed', progress: 1, items: [item], replaced: true }));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+
+		await runs.cancel('row-1');
+
+		await expect(handle.done).resolves.toEqual({ status: 'completed', items: [item], replaced: true });
+		expect(get(runs)).toEqual({});
+		getRun.mockClear();
+		await vi.advanceTimersByTimeAsync(5000);
+		expect(getRun).not.toHaveBeenCalled();
+	});
+
+	it('reports the failure when the server answers the cancel with a run that failed', async () => {
+		const { api, cancel } = fakeApi();
+		cancel.mockResolvedValue(run({ status: 'failed', error: { code: 'publish_failed', message: 'Storage is full' } }));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+
+		await runs.cancel('row-1');
+
+		await expect(handle.done).resolves.toEqual({ status: 'failed', message: 'Storage is full', code: 'publish_failed' });
+	});
+
+	it('settles as cancelled only when the answer says the run was cancelled', async () => {
+		const { api, cancel } = fakeApi();
+		cancel.mockResolvedValue(run({ status: 'cancelled' }));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+
+		await runs.cancel('row-1');
+
+		await expect(handle.done).resolves.toEqual({ status: 'cancelled' });
+	});
+
+	it('keeps the run cancelling and lets the poll deliver the end when the answer is not final', async () => {
+		const { api, get: getRun, cancel } = fakeApi();
+		cancel.mockResolvedValue(run({ status: 'running', progress: 0.9 }));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+		let settled = false;
+		void handle.done.then(() => (settled = true));
+
+		await runs.cancel('row-1');
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(settled).toBe(false);
+		expect(get(runs)['row-1']).toMatchObject({ cancelling: true });
+		expect(vi.getTimerCount()).toBe(1);
+		getRun.mockResolvedValue(run({ status: 'cancelled' }));
+		await vi.advanceTimersByTimeAsync(400);
+		await expect(handle.done).resolves.toEqual({ status: 'cancelled' });
+		expect(get(runs)).toEqual({});
+	});
+
+	it('delivers a completion that arrives by poll after a cancel that came too late', async () => {
+		const { api, get: getRun, cancel } = fakeApi();
+		const item = { id: 'r2', filename: 'a.mp4', media_type: 'video', url: '/a.mp4' };
+		cancel.mockResolvedValue(run({ status: 'running', progress: 0.95, label: 'Saving' }));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+
+		await runs.cancel('row-1');
+		getRun.mockResolvedValue(run({ status: 'completed', progress: 1, items: [item], replaced: false }));
+		await vi.advanceTimersByTimeAsync(400);
+
+		await expect(handle.done).resolves.toEqual({ status: 'completed', items: [item], replaced: false });
+	});
+
+	it('treats an empty 200 as not final, never as cancelled', async () => {
+		const { api, cancel } = fakeApi();
+		cancel.mockResolvedValue(null);
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		let settled = false;
+		void handle.done.then(() => (settled = true));
+
+		await runs.cancel('row-1');
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(settled).toBe(false);
+		expect(get(runs)['row-1']).toMatchObject({ cancelling: true });
+		runs.destroy();
+	});
+
+	it('does not abort a poll in flight that may carry the completion when the answer is not final', async () => {
+		const { api, get: getRun, cancel } = fakeApi();
+		const signals: AbortSignal[] = [];
+		let resolvePoll: (value: MediaToolRun) => void = () => undefined;
+		getRun.mockImplementation((_id: string, signal?: AbortSignal) => {
+			if (signal) signals.push(signal);
+			return new Promise<MediaToolRun>((resolve) => (resolvePoll = resolve));
+		});
+		cancel.mockResolvedValue(run({ status: 'running' }));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+
+		await runs.cancel('row-1');
+
+		expect(signals[0].aborted).toBe(false);
+		const item = { id: 'r2', filename: 'a.mp4', media_type: 'video', url: '/a.mp4' };
+		resolvePoll(run({ status: 'completed', progress: 1, items: [item], replaced: true }));
+		await expect(handle.done).resolves.toEqual({ status: 'completed', items: [item], replaced: true });
+	});
+
+	it('ignores a second press while the first cancel is being settled', async () => {
+		const { api, cancel } = fakeApi();
+		cancel.mockResolvedValue(run({ status: 'running' }));
+		const runs = createMediaToolRuns(api);
+		await runs.start(OPTIONS);
+
+		await runs.cancel('row-1');
+		await runs.cancel('row-1');
+
+		expect(cancel).toHaveBeenCalledTimes(1);
+		runs.destroy();
 	});
 
 	it('asks the server once however many times it is pressed', async () => {
@@ -415,18 +541,64 @@ describe('trouble reaching the server', () => {
 		await expect(handle.done).resolves.toMatchObject({ status: 'completed' });
 	});
 
-	it('gives up after repeated failures', async () => {
+	it('keeps polling network errors well past the first few seconds, at the five second cap', async () => {
 		const { api, get: getRun } = fakeApi();
 		getRun.mockRejectedValue(new Error('offline'));
 		const runs = createMediaToolRuns(api);
 		const handle = await runs.start(OPTIONS);
+		let settled = false;
+		void handle.done.then(() => (settled = true));
 
-		await vi.advanceTimersByTimeAsync(60_000);
+		await vi.advanceTimersByTimeAsync(30_000);
+
+		expect(settled).toBe(false);
+		expect(getRun.mock.calls.length).toBeGreaterThan(8);
+		const before = getRun.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(5000);
+		expect(getRun.mock.calls.length - before).toBe(1);
+		runs.destroy();
+	});
+
+	it('gives up on network errors only after two minutes', async () => {
+		const { api, get: getRun } = fakeApi();
+		getRun.mockRejectedValue(new Error('offline'));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		let settled = false;
+		void handle.done.then(() => (settled = true));
+
+		await vi.advanceTimersByTimeAsync(POLL_ERROR_GIVE_UP_MS - 6000);
+		expect(settled).toBe(false);
+		await vi.advanceTimersByTimeAsync(12_000);
 
 		await expect(handle.done).resolves.toMatchObject({ status: 'failed', code: 'connection_lost' });
-		expect(getRun).toHaveBeenCalledTimes(MAX_POLL_ERRORS);
 		expect(get(runs)).toEqual({});
 		expect(vi.getTimerCount()).toBe(0);
+		expect(POLL_ERROR_GIVE_UP_MS).toBe(120_000);
+	});
+
+	it('keeps polling through server errors and requests that were asked to slow down', async () => {
+		for (const status of [500, 502, 503, 408, 429]) {
+			const { api, get: getRun } = fakeApi();
+			getRun.mockRejectedValueOnce({ response: { status } }).mockRejectedValueOnce({ response: { status } });
+			getRun.mockResolvedValue(run({ status: 'completed' }));
+			const handle = await createMediaToolRuns(api).start(OPTIONS);
+
+			await vi.advanceTimersByTimeAsync(2000);
+
+			await expect(handle.done).resolves.toMatchObject({ status: 'completed' });
+		}
+	});
+
+	it('fails at once on an answer that will never change', async () => {
+		for (const status of [400, 401, 403, 410, 422]) {
+			const { api, get: getRun } = fakeApi();
+			getRun.mockRejectedValue({ response: { status } });
+			const handle = await createMediaToolRuns(api).start(OPTIONS);
+			await vi.advanceTimersByTimeAsync(0);
+			await expect(handle.done).resolves.toMatchObject({ status: 'failed', code: 'poll_refused' });
+			expect(getRun).toHaveBeenCalledTimes(1);
+		}
 	});
 
 	it('fails at once when the server no longer knows the run', async () => {
@@ -438,21 +610,28 @@ describe('trouble reaching the server', () => {
 		expect(getRun).toHaveBeenCalledTimes(1);
 	});
 
-	it('does not count a good poll against the failure budget', async () => {
+	it('starts the two minutes again after a good poll', async () => {
 		const { api, get: getRun } = fakeApi();
-		const outcomes: Array<Error | MediaToolRun> = [];
-		for (let round = 0; round < 3; round += 1) {
-			outcomes.push(new Error('offline'), new Error('offline'), new Error('offline'), run());
-		}
-		outcomes.push(run({ status: 'completed' }));
-		for (const outcome of outcomes) {
-			if (outcome instanceof Error) getRun.mockRejectedValueOnce(outcome);
-			else getRun.mockResolvedValueOnce(outcome);
-		}
-		const handle = await createMediaToolRuns(api).start(OPTIONS);
+		let offline = true;
+		getRun.mockImplementation(async () => {
+			if (offline) throw new Error('offline');
+			return run();
+		});
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		let settled = false;
+		void handle.done.then(() => (settled = true));
 
-		await vi.advanceTimersByTimeAsync(60_000);
+		await vi.advanceTimersByTimeAsync(100_000);
+		offline = false;
+		await vi.advanceTimersByTimeAsync(6000);
+		offline = true;
+		await vi.advanceTimersByTimeAsync(100_000);
 
+		expect(settled).toBe(false);
+		offline = false;
+		getRun.mockResolvedValue(run({ status: 'completed' }));
+		await vi.advanceTimersByTimeAsync(6000);
 		await expect(handle.done).resolves.toMatchObject({ status: 'completed' });
 	});
 });

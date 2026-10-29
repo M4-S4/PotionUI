@@ -241,6 +241,31 @@ test.describe('media tool dialog behaviour', () => {
 		await expect.poll(() => log.previews.at(-1) && (log.previews.at(-1)!.params as Record<string, unknown>).degrees).toBe(270);
 	});
 
+	test('shows where the before and after split has focus when it is reached by keyboard', async ({ page }) => {
+		await prepareFieldPage(page, size);
+		const host = await mountField(page, size, { config: { title: 'Image', accept: 'image/*' }, value: imageItem(1) });
+		await pickTool(page, host, 'fit_canvas');
+		const dialog = dialogOf(page, 'Fit canvas');
+		const splitInput = dialog.locator('[data-split-input]');
+		await expect(splitInput).toHaveCount(1);
+
+		await splitInput.focus();
+		await page.keyboard.press('Shift+Tab');
+		await page.keyboard.press('Tab');
+		await expect(splitInput).toBeFocused();
+
+		const handle = dialog.locator('[data-split-handle]');
+		const ring = await handle.evaluate((el) => getComputedStyle(el).boxShadow);
+		expect(ring).not.toBe('none');
+		const before = await dialog.locator('[data-split-line]').evaluate((el) => getComputedStyle(el).width);
+		expect(parseFloat(before)).toBeGreaterThanOrEqual(4);
+		await screenshot(page, JOURNEY, 'split-focus');
+
+		await page.keyboard.press('ArrowRight');
+		const moved = await splitInput.inputValue();
+		expect(Number(moved)).toBeGreaterThan(50);
+	});
+
 	test('closes on Escape and on Cancel without starting anything', async ({ page }) => {
 		const log = await prepareFieldPage(page, size);
 		const host = await mountField(page, size, { config: { title: 'Image', accept: 'image/*' }, value: imageItem(1) });
