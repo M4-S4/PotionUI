@@ -446,10 +446,15 @@ class DownloadWorker:
                         raise Exception("Checksum verification failed")
                 self._streamed_digests.pop(download_id, None)
 
-                # Update status to completed
-                self.repo.update_status(download_id, DownloadStatus.COMPLETED)
+                indexed = None
+                if is_remote:
+                    warning = await self._index_remote_backend(download)
+                else:
+                    indexed = await self._index_local_download(download)
+                    warning = (indexed or {}).get("warning")
 
-                # Notify via WebSocket
+                self.repo.update_status(download_id, DownloadStatus.COMPLETED, warning)
+
                 await self.conn.send_download_status(
                     download_id,
                     'completed',
@@ -467,11 +472,6 @@ class DownloadWorker:
 
                 logger.info(f"Download completed: {download.filename}")
 
-                indexed = None
-                if is_remote:
-                    await self._index_remote_backend(download)
-                else:
-                    indexed = await self._index_local_download(download)
                 await self._fire_after_complete(download, indexed)
 
         except asyncio.CancelledError:
@@ -920,24 +920,18 @@ class DownloadWorker:
 
             await asyncio.sleep(interval)
 
-    async def _index_remote_backend(self, download: Download) -> None:
-        """Re-index the destination backend so the fetched model's row +
-        Remote-only availability appear exactly as manual indexing would.
-        A failure here leaves the download COMPLETED (the bytes are on the
-        worker regardless) with a warning in `error_message`."""
+    async def _index_remote_backend(self, download: Download) -> Optional[str]:
         if self.backend_registry is None:
-            return
+            return None
         backend = self.backend_registry.get_backend(download.destination_backend_id)
         if backend is None:
-            return
+            return None
         try:
             await self.backend_model_indexer.index_backend(backend)
         except Exception as exc:
             logger.warning(f"Indexing backend '{download.destination_backend_id}' after remote fetch failed: {exc}")
-            self.repo.update_status(
-                download.id, DownloadStatus.COMPLETED,
-                f"Downloaded, but the catalog could not be refreshed automatically: {exc}",
-            )
+            return f"Downloaded, but the catalog could not be refreshed automatically: {exc}"
+        return None
 
     async def _index_local_download(self, download: Download) -> Optional[Dict[str, Any]]:
         if (
@@ -948,9 +942,9 @@ class DownloadWorker:
             await self._reconcile_local_native_availability()
             return None
 
-        fresh = await asyncio.to_thread(self.repo.get_by_id, download.id)
-        path = (fresh.destination_path if fresh else None) or download.destination_path
         try:
+            fresh = await asyncio.to_thread(self.repo.get_by_id, download.id)
+            path = (fresh.destination_path if fresh else None) or download.destination_path
             result = await asyncio.to_thread(self.local_model_indexer, path)
         except Exception as exc:
             logger.warning(f"Indexing downloaded model '{download.filename}' failed: {exc}")
@@ -962,7 +956,6 @@ class DownloadWorker:
         warning = result.get("warning")
         if warning:
             logger.warning(f"Classifying downloaded model '{download.filename}': {warning}")
-            self.repo.update_status(download.id, DownloadStatus.COMPLETED, warning)
         return result
 
     async def _fire_after_complete(self, download: Download, indexed: Optional[Dict[str, Any]]) -> None:

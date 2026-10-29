@@ -113,7 +113,7 @@ async def test_indexer_failure_leaves_the_download_completed(mock_settings, mock
     with patch.object(DownloadWorker, "_download_file", fake_download_file):
         await worker._process_download('dl-1')
 
-    mock_repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED)
+    mock_repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED, None)
     assert not any(c.args[1] == DownloadStatus.FAILED for c in mock_repository.update_status.call_args_list)
 
 @pytest.mark.asyncio
@@ -143,8 +143,8 @@ async def test_hf_repo_child_download_is_not_indexed_as_a_model(mock_settings, m
 @pytest.mark.parametrize(
     ("warning", "expected"),
     [
-        ("header unreadable", [("dl-1", DownloadStatus.COMPLETED), ("dl-1", DownloadStatus.COMPLETED, "header unreadable")]),
-        (None, [("dl-1", DownloadStatus.COMPLETED)]),
+        ("header unreadable", [("dl-1", DownloadStatus.COMPLETED, "header unreadable")]),
+        (None, [("dl-1", DownloadStatus.COMPLETED, None)]),
     ],
 )
 async def test_the_completed_record_carries_the_classification_warning_only_when_there_is_one(
