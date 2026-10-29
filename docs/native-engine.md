@@ -225,6 +225,12 @@ reason); the remote native backend's health reports `degraded` with the same rea
 worker, and refuses to dispatch until the worker restarts. The hint names the worker process or
 container rather than Restart Backend, which only re-executes the host's own process. A CPU worker
 never records damage, and a worker under native Linux keeps retrying driver-error OOMs as before.
+A code the host does not classify (`expired`, `model_digest_mismatch`, `pipe_failed`, `worker_error`,
+...) is kept at the head of the failure's stored detail as `Worker error code: ...`, where the
+administrator's failure view shows it, and the category then comes from the message text. A
+failure that reaches the host as text alone (such a worker code, a worker predating the codes, or a
+stored error) follows the same policy as the exception would: a CUDA driver error reads as
+`gpu_restart_required` where driver-error OOMs are fatal, and as `cuda_oom` where they retry.
 
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
