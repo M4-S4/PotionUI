@@ -10,6 +10,7 @@ from src.platform.runtime.native.errors import (
     SamplingNumericsError,
     is_cuda_driver_error,
     is_cuda_oom,
+    retry_after_cuda_oom,
 )
 
 
@@ -121,6 +122,29 @@ def test_is_cuda_oom_stops_retrying_a_driver_oom_under_wsl_by_default(monkeypatc
     monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
 
     assert not is_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
-    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
     assert is_cuda_oom(torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB"))
     assert is_cuda_oom(torch.AcceleratorError("CUDA error: out of memory"))
+    assert cuda_allocator.allocator_damage() is None
+
+
+def test_a_fallback_records_the_driver_oom_it_will_not_retry(monkeypatch):
+    stopped = []
+    monkeypatch.setenv("POTIONUI_CUDA_DRIVER_OOM", "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: stopped.append(True))
+
+    assert retry_after_cuda_oom(torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB"))
+    assert cuda_allocator.allocator_damage() is None
+    assert not retry_after_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+    assert stopped == [True]
+
+
+def test_a_fallback_under_the_retry_policy_retries_a_driver_oom_and_records_nothing(monkeypatch):
+    monkeypatch.setenv("POTIONUI_CUDA_DRIVER_OOM", "retry")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+
+    assert retry_after_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
+    assert cuda_allocator.allocator_damage() is None

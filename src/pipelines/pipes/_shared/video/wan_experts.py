@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import torch
 from src.platform.runtime.cuda_allocator import needs_gpu_restart
-from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_driver_error, is_cuda_oom
+from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_driver_error, retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
@@ -177,7 +177,7 @@ class ExpertRouter:
         try:
             dit.stream_to(self.device, budget)
         except Exception as exc:
-            if not (is_cuda_oom(exc) or is_cuda_driver_error(exc)):
+            if not _retries_after(exc):
                 raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
@@ -263,19 +263,19 @@ def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> tor
 
 
 def _retries_after(exc: BaseException) -> bool:
-    return (is_cuda_oom(exc) or is_cuda_driver_error(exc)) and not needs_gpu_restart(exc)
+    return (retry_after_cuda_oom(exc) or is_cuda_driver_error(exc)) and not needs_gpu_restart(exc)
 
 
 def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
     tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free)
     scale = int(getattr(c, "spatial_downscale", 8))
-    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free: decoding in spatial tiles of %d latent px",
-                free, tile)
+    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free: decoding in spatial tiles of %d latent px, "
+                "one latent frame at a time", free, tile)
     while True:
         try:
             return tiled_decode_causal3d(
                 c.vae.module, z, tile_size=tile, overlap=causal3d_decode_overlap(tile), scale=scale,
-                accumulate_device="cpu",
+                accumulate_device="cpu", chunk_latent_frames=1,
             )
         except Exception as exc:
             smaller = smaller_decode_tile(tile)

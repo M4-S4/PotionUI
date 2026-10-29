@@ -154,9 +154,31 @@ def test_a_clip_whose_single_latent_frame_overflows_is_decoded_in_spatial_tiles(
 
     out = decode_wan_video(c, latent.clone())
 
-    assert seen == [{"tile_size": 8, "overlap": 4, "scale": 8, "accumulate_device": "cpu"}]
+    assert seen == [{"tile_size": 8, "overlap": 4, "scale": 8, "accumulate_device": "cpu", "chunk_latent_frames": 1}]
     assert out.shape == whole.shape
     assert c.vae.offloads == 1
+
+
+def test_each_tile_of_a_long_clip_is_decoded_one_latent_frame_at_a_time(monkeypatch):
+    torch.manual_seed(0)
+    vae_module = _tiny_wan_vae()
+    latent = torch.randn(1, 16, 5, 4, 12)
+    whole = decode_wan_video(SimpleNamespace(vae=_Vae(vae_module), device="cpu", latent_channels=16), latent.clone())
+    real_decode = vae_module.decode
+    frames = []
+
+    def spy(z, **kw):
+        frames.append(z.shape[2])
+        return real_decode(z, **kw)
+
+    vae_module.decode = spy
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free: 8)
+
+    out = decode_wan_video(SimpleNamespace(vae=_Vae(vae_module), device="cpu", latent_channels=16), latent.clone())
+
+    assert frames == [1] * 10
+    assert out.shape == whole.shape
 
 
 def test_a_clip_whose_single_latent_frame_fits_is_not_tiled(monkeypatch):
@@ -237,6 +259,42 @@ def _fatal_driver_oom_policy(monkeypatch):
     monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
     monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+
+def _stream_failing(expert, error):
+    def stream_to(device, budget):
+        expert.streamed.append((device, budget))
+        if budget > 0:
+            raise error
+
+    expert.stream_to = stream_to
+
+
+def test_a_fatal_driver_oom_while_placing_an_expert_is_not_retried(monkeypatch):
+    _fatal_driver_oom_policy(monkeypatch)
+    monkeypatch.setattr(wan_experts, "get_residency_registry", GpuResidencyRegistry)
+    expert = _Expert(13.0)
+    _stream_failing(expert, RuntimeError("CUDA driver error: device not ready"))
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        _place_high_expert(monkeypatch, expert, [20.0, 20.0])
+
+    assert len(expert.streamed) == 1
+    assert expert.streamed[0][1] > 0
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
+def test_a_retried_driver_oom_while_placing_an_expert_streams_it_fully(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+    monkeypatch.setattr(wan_experts, "get_residency_registry", GpuResidencyRegistry)
+    expert = _Expert(13.0)
+    _stream_failing(expert, RuntimeError("CUDA driver error: device not ready"))
+
+    _place_high_expert(monkeypatch, expert, [20.0, 20.0])
+
+    assert [budget for _, budget in expert.streamed][1:] == [0.0]
+    assert cuda_allocator.allocator_damage() is None
 
 
 def test_a_fatal_driver_oom_in_the_decode_is_not_retried(monkeypatch):

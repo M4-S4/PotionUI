@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from src.platform.runtime.cuda_allocator import is_driver_oom, retry_after_driver_oom
+from src.platform.runtime.cuda_allocator import driver_oom_retries, is_driver_oom, record_driver_oom
 
 _TRUNCATE = 20
 
@@ -29,8 +29,13 @@ def is_cuda_oom(exc: BaseException) -> bool:
     if accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc):
         return True
     if is_driver_oom(exc):
-        return retry_after_driver_oom(exc)
+        return driver_oom_retries()
     return False
+
+
+def retry_after_cuda_oom(exc: BaseException) -> bool:
+    record_driver_oom(exc)
+    return is_cuda_oom(exc)
 
 
 def is_cuda_driver_error(exc: BaseException) -> bool:

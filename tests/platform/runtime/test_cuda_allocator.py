@@ -11,11 +11,12 @@ from src.platform.runtime.cuda_allocator import (
     CudaAllocatorDamaged,
     allocator_damage,
     driver_oom_is_fatal,
+    driver_oom_retries,
     expandable_segments_enabled,
     is_driver_oom,
     needs_gpu_restart,
     raise_if_allocator_damaged,
-    retry_after_driver_oom,
+    record_driver_oom,
 )
 from src.platform.runtime.cuda_env import ALLOCATOR_CONF_VARS
 
@@ -78,7 +79,9 @@ def test_retry_policy_retries_and_records_nothing(monkeypatch, fake_torch):
     monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "retry")
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-    assert retry_after_driver_oom(DEVICE_NOT_READY)
+    record_driver_oom(DEVICE_NOT_READY)
+
+    assert driver_oom_retries()
     assert allocator_damage() is None
     fake_torch.assert_not_called()
 
@@ -88,14 +91,18 @@ def test_without_a_policy_only_wsl_stops_retrying(monkeypatch, fake_torch, wsl, 
     monkeypatch.setattr(cuda_allocator, "is_wsl", lambda kernel_release=None: wsl)
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-    assert retry_after_driver_oom(DEVICE_NOT_READY) is retried
+    record_driver_oom(DEVICE_NOT_READY)
+
+    assert driver_oom_retries() is retried
     assert (allocator_damage() is None) is retried
 
 
 def test_fatal_policy_without_expandable_segments_retries(monkeypatch, fake_torch):
     monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "fatal")
 
-    assert retry_after_driver_oom(DEVICE_NOT_READY)
+    record_driver_oom(DEVICE_NOT_READY)
+
+    assert driver_oom_retries()
     assert allocator_damage() is None
     fake_torch.assert_not_called()
 
@@ -104,11 +111,23 @@ def test_fatal_policy_records_the_first_damage_and_stops_growing_segments(monkey
     monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "fatal")
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128, expandable_segments:True")
 
-    assert not retry_after_driver_oom(DEVICE_NOT_READY)
-    assert not retry_after_driver_oom(RuntimeError("CUDA driver error: out of memory"))
+    record_driver_oom(DEVICE_NOT_READY)
+    record_driver_oom(RuntimeError("CUDA driver error: out of memory"))
 
+    assert not driver_oom_retries()
     assert allocator_damage() == "CUDA driver error: device not ready"
     fake_torch.assert_called_once_with("max_split_size_mb:128,expandable_segments:False")
+
+
+def test_only_a_driver_oom_is_recorded_as_damage(monkeypatch, fake_torch):
+    monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    record_driver_oom(RuntimeError("CUDA driver error: invalid argument"))
+    record_driver_oom(ValueError("CUDA driver error: device not ready"))
+
+    assert allocator_damage() is None
+    fake_torch.assert_not_called()
 
 
 def test_a_failed_switch_still_records_the_damage(monkeypatch, fake_torch):
@@ -116,17 +135,18 @@ def test_a_failed_switch_still_records_the_damage(monkeypatch, fake_torch):
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     fake_torch.side_effect = RuntimeError("cannot change")
 
-    assert not retry_after_driver_oom(DEVICE_NOT_READY)
+    record_driver_oom(DEVICE_NOT_READY)
+
     assert allocator_damage() == "CUDA driver error: device not ready"
 
 
-def test_the_first_fatal_driver_oom_needs_a_restart_and_records_the_damage(monkeypatch, fake_torch):
+def test_a_fatal_driver_oom_needs_a_restart_without_recording_anything(monkeypatch, fake_torch):
     monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "fatal")
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     assert needs_gpu_restart(DEVICE_NOT_READY)
-    assert allocator_damage() == "CUDA driver error: device not ready"
-    fake_torch.assert_called_once_with("expandable_segments:False")
+    assert allocator_damage() is None
+    fake_torch.assert_not_called()
     assert not needs_gpu_restart(RuntimeError("CUDA error: an illegal memory access was encountered"))
 
 

@@ -1,5 +1,6 @@
 """Identity vectors of faces from AuraFace, an ArcFace face recognition model run by onnxruntime on the CPU, each face aligned on the five landmarks YuNet finds."""
 
+import importlib
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple, Union
 
@@ -31,6 +32,15 @@ def align(image: Union[str, Path, Image.Image], landmarks: Sequence[Sequence[flo
     if matrix is None:
         raise ValueError("The five landmarks of the face give no alignment.")
     return cv2.warpAffine(np.asarray(_rgb(image)), matrix, (SIZE, SIZE), borderValue=0)
+
+
+def runtime_imports() -> bool:
+    """Whether onnxruntime, which runs the model, imports in this process."""
+    try:
+        importlib.import_module("onnxruntime")
+    except ImportError:
+        return False
+    return True
 
 
 def _session(model: Path) -> Any:

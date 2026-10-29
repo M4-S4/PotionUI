@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.cloud import CloudRunError
-from src.platform.runtime.cuda_allocator import RESTART_ACTION, needs_gpu_restart
+from src.platform.runtime.cuda_allocator import RESTART_ACTION, needs_gpu_restart, record_driver_oom
 
 _CUDA_OOM_MARKERS = (
     "cuda out of memory",
@@ -289,6 +289,7 @@ def classify_generation_error(exc: BaseException) -> ErrorClassification:
         if context:
             classification.summary = f"{context} {classification.summary}"
         return classification
+    record_driver_oom(exc)
     for category, matches in _EXCEPTION_CHECKS:
         if matches(exc):
             return classification_for_code(category)

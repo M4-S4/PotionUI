@@ -1,6 +1,7 @@
 import os
+import sys
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +21,7 @@ def _points(scale=1.0, dx=40.0, dy=40.0):
 
 def test_the_face_identifier_is_looked_for_in_the_home_model_root_unless_a_file_is_named(tmp_path, monkeypatch):
     monkeypatch.delenv(media.IDENTITY_ENV, raising=False)
+    monkeypatch.setitem(sys.modules, "onnxruntime", ModuleType("onnxruntime"))
     target = tmp_path / "face_recognition" / "auraface" / "glintr100.onnx"
     with patch("src.plugin_api.media.get_container", return_value=_world(tmp_path)):
         before = media.face_identifier()
@@ -39,6 +41,26 @@ def test_the_face_identifier_is_looked_for_in_the_home_model_root_unless_a_file_
     assert after == {"model": "glintr100.onnx", "path": str(target), "available": True}
     assert missing == {"model": "glintr100.onnx", "path": str(named), "available": False}
     assert found == {"model": "glintr100.onnx", "path": str(named), "available": True}
+
+
+def test_the_face_identifier_is_unavailable_while_onnxruntime_does_not_import(tmp_path, monkeypatch):
+    model = tmp_path / "glintr100.onnx"
+    model.write_bytes(b"model")
+    monkeypatch.setenv(media.IDENTITY_ENV, str(model))
+    monkeypatch.setitem(sys.modules, "onnxruntime", None)
+
+    assert media.face_identifier() == {"model": "glintr100.onnx", "path": str(model), "available": False}
+
+    monkeypatch.setitem(sys.modules, "onnxruntime", ModuleType("onnxruntime"))
+
+    assert media.face_identifier()["available"] is True
+
+
+def test_onnxruntime_is_a_direct_dependency_of_every_install():
+    root = Path(__file__).resolve().parents[2]
+    for requirements in ("requirements.txt", "requirements-cpu.txt"):
+        names = {line.split(">", 1)[0].split("=", 1)[0].strip() for line in (root / requirements).read_text(encoding="utf-8").splitlines()}
+        assert "onnxruntime" in names, requirements
 
 
 def test_without_its_model_file_identifying_faces_says_so_and_downloads_nothing(tmp_path, monkeypatch):

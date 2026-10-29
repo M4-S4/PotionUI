@@ -203,15 +203,16 @@ def tiled_decode_causal3d(
     scale: int = VAE_SPATIAL_DOWNSCALE,
     *,
     accumulate_device: "str | torch.device | None" = None,
+    chunk_latent_frames: int | None = None,
 ) -> torch.Tensor:
     """Spatial tiled ``vae.decode`` for the causal-3D (Wan-shaped) VAE, with
     linear-blended seams -- the decode twin of :func:`tiled_encode_causal3d`.
 
     Tiles only the H/W axes of a ``(B, 16, T, H, W)`` *latent* tensor; the full
-    temporal axis is passed through each tile whole, so the VAE's causal
-    ``feat_cache`` temporal chunking is byte-for-byte unchanged (SPATIAL tiling
-    only -- the ``feat_cache`` 1-then-4 frame grouping is architecturally
-    required and must not be split, see ``causal_3d.py``). Each tile is decoded
+    temporal axis is passed through each tile whole, or in slices of
+    ``chunk_latent_frames`` that share one ``feat_cache`` through
+    :func:`chunked_decode_causal3d`, so the VAE's causal temporal state is
+    unchanged either way. Each tile is decoded
     independently and the ``8x``-upscaled pixel tiles are feathered together in
     OUTPUT (pixel) space with a linear ramp over the overlap region, normalized
     by the summed weight where tiles overlap.
@@ -227,7 +228,7 @@ def tiled_decode_causal3d(
     """
     b, _c, _t, h, w = latent.shape
     if h <= tile_size and w <= tile_size:
-        pixels = vae.decode(latent)
+        pixels = _decode_causal3d(vae, latent, chunk_latent_frames, accumulate_device)
         return pixels if accumulate_device is None else pixels.to(accumulate_device)
 
     feather = round(overlap * scale)
@@ -248,7 +249,7 @@ def tiled_decode_causal3d(
             raise_if_cancelled(tile_index)
             tile_index += 1
             tile_in = latent[:, :, :, y:y + ty, xx:xx + tx]
-            tile_out = vae.decode(tile_in)
+            tile_out = _decode_causal3d(vae, tile_in, chunk_latent_frames, accumulate_device)
             tile_out = tile_out.to(device=accumulate_device or tile_out.device, dtype=torch.float32)
 
             if out is None:
@@ -267,6 +268,12 @@ def tiled_decode_causal3d(
             out_weight[:, :, :, oy:oy + oh, ox:ox + ow] += mask
 
     return (out / out_weight.clamp_min(1e-8)).to(dtype=latent.dtype)
+
+
+def _decode_causal3d(vae, latent: torch.Tensor, chunk_latent_frames: int | None, accumulate_device) -> torch.Tensor:
+    if chunk_latent_frames is None:
+        return vae.decode(latent)
+    return chunked_decode_causal3d(vae, latent, chunk_latent_frames, accumulate_device=accumulate_device)
 
 
 @torch.no_grad()
@@ -302,13 +309,8 @@ def chunked_decode_causal3d(
     ``first_chunk=True`` on (and only on) the call carrying the clip's true
     first latent frame -- threaded through here automatically.
 
-    NOT composed with spatial tiling (:func:`tiled_decode_causal3d`): that
-    would need a separate persistent ``feat_cache`` per spatial-tile position
-    (the cached tensors are shaped to whatever spatial slice produced them),
-    which is more machinery than the current spatial tiler's stateless
-    tile-then-blend loop supports. Ship temporal-only for now; a caller that
-    needs both should pick one axis to bound VRAM on the current call site
-    rather than force the composition.
+    :func:`tiled_decode_causal3d` composes it with spatial tiling one tile at a
+    time (``chunk_latent_frames``), so only that tile's ``feat_cache`` is alive.
 
     Engine wiring note: nothing here decides WHEN to chunk (VRAM-based sizing)
     or calls this from the decode orchestration path -- that's

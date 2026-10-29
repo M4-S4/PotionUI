@@ -64,7 +64,8 @@ person have a high cosine, two people a cosine near 0. The model file,
 root, or from the file the environment variable `POTIONUI_FACE_IDENTITY_MODEL`
 names, and is never downloaded: without it `identify_faces` raises
 `FileNotFoundError`. `face_identifier()` tells which file it is (`model`), where
-it is looked for (`path`) and whether it is here (`available`).
+it is looked for (`path`) and whether it is here with onnxruntime to run it
+(`available`).
 """
 
 import asyncio
@@ -206,9 +207,11 @@ def _identity_path() -> Path:
 
 
 def face_identifier() -> Dict[str, Any]:
-    """The face recognition model the plugins can use: `model`, its file name, `path`, where it is looked for (the file `POTIONUI_FACE_IDENTITY_MODEL` names, else face_recognition/auraface in the home model root), and `available`, whether that file is there."""
+    """The face recognition model the plugins can use: `model`, its file name, `path`, where it is looked for (the file `POTIONUI_FACE_IDENTITY_MODEL` names, else face_recognition/auraface in the home model root), and `available`, whether that file is there and onnxruntime imports to run it."""
+    from src.platform.util.face_identity import runtime_imports
+
     path = _identity_path()
-    return {"model": IDENTITY_MODEL, "path": str(path), "available": path.is_file()}
+    return {"model": IDENTITY_MODEL, "path": str(path), "available": path.is_file() and runtime_imports()}
 
 
 def identify_faces(faces: Sequence[Any]) -> List[List[float]]:
