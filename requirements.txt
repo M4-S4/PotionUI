@@ -51,6 +51,7 @@ pyyaml>=6.0.1
 # Pipeline dependencies
 ultralytics>=8.3.199  # For ADetailer - minimum version for A2C2f class support
 mediapipe>=0.10.0   # For ADetailer face detection
+onnxruntime>=1.20.0
 
 # Video interpolation
 # rife-ncnn-vulkan-python>=1.2.1  # RIFE video frame interpolation (requires Vulkan SDK)
