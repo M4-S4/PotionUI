@@ -52,7 +52,7 @@ BALANCED_RECIPE = "0.725, 0.421875, 0.0"
 LIGHT_RECIPE = "0.421875, 0.0"
 
 PRESET_DIR = Path("content/presets/marketplace/LTX-2")
-SHARED_UPSCALE_ADVANCED = Path("content/presets/_shared/tabs/ltx_upscale_advanced.yml")
+UPSCALE_ADVANCED = PRESET_DIR / "modes/upscale/tabs/advanced.yml"
 
 _DOC_T2V = {
     "settings": {"seed": 123, "duration": 5, "fps": 25},
@@ -233,7 +233,7 @@ def test_upscale_mode_advanced_override_still_wins_over_select(ltx_template):
     "tab_path,field_name",
     [
         (PRESET_DIR / "modes/video/tabs/advanced.yml", "upscale_refine_sigmas"),
-        (SHARED_UPSCALE_ADVANCED, "refine_sigmas"),
+        (UPSCALE_ADVANCED, "refine_sigmas"),
     ],
 )
 def test_raw_sigma_field_is_advanced_audience_with_empty_default(tab_path, field_name):
@@ -333,7 +333,7 @@ def test_upscale_mode_quality_prompt_disabled_with_empty_prompt_sends_empty_stri
 
 
 def test_upscale_mode_apply_quality_prompt_field_is_advanced_checkbox_default_true():
-    tab_path = SHARED_UPSCALE_ADVANCED
+    tab_path = UPSCALE_ADVANCED
     data = yaml.safe_load(tab_path.read_text())
     field = field_by_name(data["fields"], "apply_quality_prompt")
     assert field is not None
@@ -360,3 +360,48 @@ def test_video_stage2_reuses_stage1_conditioning_not_a_second_encode(ltx_templat
     stage1_conditioning_source = next(i for i in stage1["input"] if i["name"] == "conditioning")["provider"]
     stage2_conditioning_source = next(i for i in stage2["input"] if i["name"] == "conditioning")["provider"]
     assert stage1_conditioning_source == stage2_conditioning_source == "prompt_encoder"
+
+
+def test_upscale_mode_refine_profile_runs_the_recipe(ltx_template):
+    pipes = _process(ltx_template, "upscale", {"speed_profile": "refine"})
+    gen = _pipe(pipes, "generator_refine")["config"]
+    assert gen["cfg"] == 1.0
+    assert gen["sampler"] == "euler"
+    encoder = _pipe(pipes, "prompt_encoder")["config"]
+    assert encoder["guidance_scale"] == 1.0
+    assert encoder["negative_applied"] is False
+
+
+def test_upscale_mode_custom_profile_reaches_refine_pass(ltx_template):
+    pipes = _process(ltx_template, "upscale", {"speed_profile": "custom", "cfg": 3.0, "sampler": "euler_ancestral"})
+    gen = _pipe(pipes, "generator_refine")["config"]
+    assert gen["cfg"] == 3.0
+    assert isinstance(gen["cfg"], float)
+    assert gen["sampler"] == "euler_ancestral"
+    encoder = _pipe(pipes, "prompt_encoder")["config"]
+    assert encoder["guidance_scale"] == 3.0
+    assert encoder["negative_applied"] is True
+    params = dict(p for p in _pipe(pipes, "param_emitter")["config"]["parameters"] if isinstance(p, list) and len(p) == 2)
+    assert params["cfg"] == 3.0
+    assert params["sampler"] == "euler_ancestral"
+
+
+def test_video_refine_cfg_and_sampler_reach_stage2_only(ltx_template):
+    pipes = _process(ltx_template, "video", {
+        "upscale": "2.0x", "upscale_model": "/models/upscaler.safetensors",
+        "speed_profile": "distilled", "refine_cfg": 2.5, "refine_sampler": "euler_ancestral",
+    })
+    stage1 = _pipe(pipes, "generator_stage1")["config"]
+    stage2 = _pipe(pipes, "generator_stage2")["config"]
+    assert (stage1["cfg"], stage1["sampler"]) == (1.0, "euler_cfg_pp")
+    assert (stage2["cfg"], stage2["sampler"]) == (2.5, "euler_ancestral")
+    encoder = _pipe(pipes, "prompt_encoder")["config"]
+    assert encoder["guidance_scale"] == 2.5
+    assert encoder["negative_applied"] is True
+
+
+def test_video_refine_cfg_is_ignored_while_upscale_is_off(ltx_template):
+    pipes = _process(ltx_template, "video", {"speed_profile": "distilled", "refine_cfg": 6.0})
+    encoder = _pipe(pipes, "prompt_encoder")["config"]
+    assert encoder["guidance_scale"] == 1.0
+    assert encoder["negative_applied"] is False

@@ -2,7 +2,8 @@ def field_by_name(fields, name):
     for f in fields:
         if f.get("name") == name:
             return f
-        found = field_by_name(f.get("children") or [], name)
+        children = f.get("children")
+        found = field_by_name(children, name) if isinstance(children, list) else None
         if found is not None:
             return found
     return None
