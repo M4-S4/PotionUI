@@ -45,17 +45,32 @@ whether its weights are here (`available`) and it is loaded now (`loaded`).
 
 `detect_faces(images)` finds the faces in images (paths or PIL images) with
 OpenCV's YuNet detector, on the CPU: for each image, its boxes (`x`, `y`,
-`width`, `height` in pixels of the image, and `score`), best first. Each image
-is read at its own size, so that the small face of a wide shot is found too.
-The model file, `face_detection_yunet_2023mar.onnx`, is read from a
-`detection_bbox` folder of the model roots and is never downloaded: without it
-`detect_faces` raises `FileNotFoundError`. `face_detector()` tells which file
-it is (`model`) and whether it is here (`available`).
+`width`, `height` in pixels of the image, `score`, and `landmarks`, the five
+points right eye, left eye, nose tip, right and left corners of the mouth, as
+the face sees them), best first. Each image is read at its own size, so that
+the small face of a wide shot is found too. The model file,
+`face_detection_yunet_2023mar.onnx`, is read from a `detection_bbox` folder of
+the model roots and is never downloaded: without it `detect_faces` raises
+`FileNotFoundError`. `face_detector()` tells which file it is (`model`) and
+whether it is here (`available`).
+
+`identify_faces(faces)` gives the identity vector of faces with AuraFace
+(`fal/AuraFace-v1`, an ArcFace face recognition model under the Apache-2.0
+license), on the CPU: each face is an image (path or PIL image) and the
+`landmarks` `detect_faces` found for it, the face aligned on the ArcFace
+template before it is read. The vectors are L2-normalized: two faces of one
+person have a high cosine, two people a cosine near 0. The model file,
+`glintr100.onnx`, is read from `face_recognition/auraface` in the home model
+root, or from the file the environment variable `POTIONUI_FACE_IDENTITY_MODEL`
+names, and is never downloaded: without it `identify_faces` raises
+`FileNotFoundError`. `face_identifier()` tells which file it is (`model`), where
+it is looked for (`path`) and whether it is here (`available`).
 """
 
 import asyncio
 import io
 import math
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Literal, Optional, Sequence, Union
@@ -106,8 +121,10 @@ __all__ = [
     "embed_images",
     "extract_frame",
     "face_detector",
+    "face_identifier",
     "find_ffmpeg",
     "has_audio_stream",
+    "identify_faces",
     "image_embedder",
     "mux_audio_from_source",
     "probe_video",
@@ -169,13 +186,39 @@ def face_detector() -> Dict[str, Any]:
 
 
 def detect_faces(images: Sequence[Union[str, Path, "Image.Image"]], min_score: float = 0.5) -> List[List[Dict[str, float]]]:
-    """The faces YuNet finds in each image (paths or PIL images), on the CPU: a list of boxes `x`, `y`, `width`, `height` in pixels of the image and `score`, best first, each image read at its own size; `FileNotFoundError` when the model file is not in a detection_bbox folder of the model roots, which is never downloaded from here."""
+    """The faces YuNet finds in each image (paths or PIL images), on the CPU: a list of boxes `x`, `y`, `width`, `height` in pixels of the image, `score` and the five `landmarks`, best first, each image read at its own size; `FileNotFoundError` when the model file is not in a detection_bbox folder of the model roots, which is never downloaded from here."""
     from src.platform.util.face_boxes import detect
 
     model = _face_model()
     if model is None:
         raise FileNotFoundError(f"{FACE_MODEL} is not in a {FACE_MODEL_TYPE} folder of the model roots")
     return detect(model, list(images), min_score)
+
+
+IDENTITY_MODEL = "glintr100.onnx"
+IDENTITY_DIR = "face_recognition/auraface"
+IDENTITY_ENV = "POTIONUI_FACE_IDENTITY_MODEL"
+
+
+def _identity_path() -> Path:
+    configured = os.environ.get(IDENTITY_ENV, "").strip()
+    return Path(configured) if configured else get_container().model_roots.asset_dir(IDENTITY_DIR) / IDENTITY_MODEL
+
+
+def face_identifier() -> Dict[str, Any]:
+    """The face recognition model the plugins can use: `model`, its file name, `path`, where it is looked for (the file `POTIONUI_FACE_IDENTITY_MODEL` names, else face_recognition/auraface in the home model root), and `available`, whether that file is there."""
+    path = _identity_path()
+    return {"model": IDENTITY_MODEL, "path": str(path), "available": path.is_file()}
+
+
+def identify_faces(faces: Sequence[Any]) -> List[List[float]]:
+    """The L2-normalized AuraFace identity vector of each face, given as an image (path or PIL image) and the five `landmarks` detect_faces found for that face, on the CPU; `FileNotFoundError` when the model file is not where face_identifier says, which is never downloaded from here."""
+    from src.platform.util.face_identity import embed
+
+    path = _identity_path()
+    if not path.is_file():
+        raise FileNotFoundError(f"{IDENTITY_MODEL} is not at {path}")
+    return embed(path, [(image, landmarks) for image, landmarks in faces])
 
 
 def _owner_id(user) -> str:

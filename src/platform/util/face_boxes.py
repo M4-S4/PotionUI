@@ -5,11 +5,12 @@ from typing import Any, Dict, List, Sequence, Union
 
 from PIL import Image
 
-Box = Dict[str, float]
+Box = Dict[str, Any]
 
 NMS = 0.3
 TOP_K = 5000
 SCORE = 14
+LANDMARKS = range(4, 14, 2)
 
 
 def _rgb(image: Union[str, Path, Image.Image]) -> Image.Image:
@@ -20,12 +21,13 @@ def _rgb(image: Union[str, Path, Image.Image]) -> Image.Image:
 
 
 def boxes(faces: Any, min_score: float) -> List[Box]:
-    """The rows YuNet answers (x, y, width, height, five landmarks, score) as boxes, best first, the weak and the empty ones left out."""
+    """The rows YuNet answers (x, y, width, height, five landmarks, score) as boxes with their five landmarks (right eye, left eye, nose tip, right and left corners of the mouth, as the face sees them), best first, the weak and the empty ones left out."""
     found = []
     for face in [] if faces is None else faces:
         x, y, width, height, score = (float(value) for value in (face[0], face[1], face[2], face[3], face[SCORE]))
         if score >= min_score and width > 0 and height > 0:
-            found.append({"x": x, "y": y, "width": width, "height": height, "score": round(score, 4)})
+            landmarks = [[float(face[index]), float(face[index + 1])] for index in LANDMARKS]
+            found.append({"x": x, "y": y, "width": width, "height": height, "score": round(score, 4), "landmarks": landmarks})
     return sorted(found, key=lambda box: box["score"], reverse=True)
 
 
