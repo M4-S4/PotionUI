@@ -6,6 +6,7 @@
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import TagSelector from '$lib/components/TagSelector.svelte';
+	import FavoriteButton from '$lib/components/FavoriteButton.svelte';
 	import { Badge, Button } from '$lib/components/ui';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
@@ -61,6 +62,11 @@
 
 	async function handleTagsChange(event: CustomEvent<string[]>) {
 		await libraryStore.setItemTags(item.id, event.detail);
+	}
+
+	async function handleFavoriteToggle() {
+		const ok = await libraryStore.setItemFavorite(item.id, !item.is_favorite);
+		if (!ok) toasts.error('Could not update the favorite');
 	}
 
 	// --- Editing -----------------------------------------------------------
@@ -121,7 +127,18 @@
 
 <BaseModal isOpen={true} size="xl" title={displayName} closeable={editorRequest === null} on:close={onClose}>
 	<div class="p-4 md:p-6 flex flex-col gap-4">
-		<div class="rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[60vh]">
+		<div class="relative rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[60vh]">
+			<div
+				data-library-favorite
+				class="absolute top-3 right-3 z-20 flex items-center rounded-lg bg-black/50 p-3 shadow-lg backdrop-blur-sm transition-colors hover:bg-black/70"
+			>
+				<FavoriteButton
+					active={!!item.is_favorite}
+					tone="onMedia"
+					size="lg"
+					onToggle={handleFavoriteToggle}
+				/>
+			</div>
 			{#if kind === 'video'}
 				<video src={item.url} class="max-h-[60vh] max-w-full" controls playsinline>
 					<track kind="captions" />

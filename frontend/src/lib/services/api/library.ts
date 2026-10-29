@@ -27,6 +27,7 @@ export interface LibraryItem {
 	size?: number;
 	created_at?: string;
 	tags: LibraryItemTag[];
+	is_favorite?: boolean;
 }
 
 export interface LibraryItemTag {
@@ -107,6 +108,16 @@ export function createLibraryApi(client: AxiosInstance) {
 			tagIds: string[]
 		): Promise<APIResponse<{ tags: LibraryItemTag[] }>> {
 			const response = await client.put(`/api/library/items/${itemId}/tags`, { tag_ids: tagIds });
+			return response.data;
+		},
+
+		async setLibraryFavorite(
+			itemId: string,
+			isFavorite: boolean
+		): Promise<APIResponse<{ id: string; is_favorite: boolean }>> {
+			const response = await client.put(`/api/library/items/${itemId}/favorite`, {
+				is_favorite: isFavorite
+			});
 			return response.data;
 		},
 

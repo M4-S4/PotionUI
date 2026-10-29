@@ -35,6 +35,7 @@ const host = {
 	open: vi.fn(),
 	remove: vi.fn(),
 	deselect: vi.fn(),
+	favorite: vi.fn(),
 	addToCollection: vi.fn()
 };
 const entryMenu = createLibraryEntryMenu({
@@ -122,7 +123,7 @@ describe('library card', () => {
 		expect(media.contains(mounted.target.querySelector('[data-entry-menu-trigger]'))).toBe(false);
 	});
 
-	it('never offers a favorite action', () => {
+	it('keeps Favorite in the menu rather than on the tile', () => {
 		mounted = mountCard();
 
 		expect(mounted.labels().join(' ')).not.toMatch(/favorit/i);
@@ -145,7 +146,7 @@ describe('library card', () => {
 		flushSync();
 
 		const ids = Array.from(document.body.querySelectorAll('[data-tool]')).map((el) => el.getAttribute('data-tool'));
-		expect(ids).toEqual(['open-details', 'edit-image', 'download', 'copy-image', 'add-to-collection', 'delete']);
+		expect(ids).toEqual(['open-details', 'edit-image', 'download', 'copy-image', 'favorite', 'add-to-collection', 'delete']);
 		document.body.querySelector<HTMLButtonElement>('[data-tool="open-details"]')!.click();
 		expect(host.open).toHaveBeenCalledTimes(1);
 	});

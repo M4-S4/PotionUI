@@ -133,6 +133,13 @@
 		}
 	}
 
+	async function toggleFavorite(ctx: MediaToolContext) {
+		const found = items.find((candidate) => candidate.id === ctx.items[0]?.id);
+		if (!found) return;
+		const ok = await libraryStore.setItemFavorite(found.id, !found.is_favorite);
+		if (!ok) toasts.error('Could not update the favorite');
+	}
+
 	const host: ToolRunHost = {
 		open: (ctx) => {
 			const found = items.find((candidate) => candidate.id === ctx.items[0]?.id);
@@ -148,6 +155,7 @@
 		},
 		deselect: (_ctx, entryId) =>
 			libraryStore.setSelection(state.selectedIds.filter((id) => id !== entryId)),
+		favorite: toggleFavorite,
 		addToCollection
 	};
 

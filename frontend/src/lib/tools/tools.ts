@@ -71,6 +71,7 @@ export interface MediaToolEntryInfo {
 	stackCells: number | null;
 	looseCell: boolean;
 	error: string | null;
+	favorite?: boolean;
 }
 
 export type MediaToolSurface = 'entry' | 'selection' | 'bar';

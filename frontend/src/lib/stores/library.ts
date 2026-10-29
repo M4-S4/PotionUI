@@ -326,6 +326,39 @@ function createLibraryStore() {
 			return response;
 		},
 
+		async setItemFavorite(itemId: string, isFavorite: boolean): Promise<boolean> {
+			const previous = snapshot();
+			const before =
+				previous.items.find((item) => item.id === itemId)?.is_favorite ??
+				(previous.selectedItem?.id === itemId ? previous.selectedItem.is_favorite : undefined) ??
+				false;
+			const patch = (value: boolean) =>
+				update((state) => ({
+					...state,
+					items: state.items.map((item) =>
+						item.id === itemId ? { ...item, is_favorite: value } : item
+					),
+					selectedItem:
+						state.selectedItem?.id === itemId
+							? { ...state.selectedItem, is_favorite: value }
+							: state.selectedItem
+				}));
+
+			patch(isFavorite);
+			try {
+				const response = await api.setLibraryFavorite(itemId, isFavorite);
+				if (!response.success) throw new Error('Favorite update failed');
+			} catch (error) {
+				logger.error('Failed to set library favorite:', getErrorMessage(error));
+				patch(before);
+				return false;
+			}
+
+			if (!isFavorite && snapshot().filters.favoritesOnly) await reloadAfterRemoval(1);
+			await libraryCollectionsStore.load();
+			return true;
+		},
+
 		/**
 		 * Folds an edit's result back in.
 		 *
