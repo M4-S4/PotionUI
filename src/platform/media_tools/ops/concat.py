@@ -15,6 +15,9 @@ from src.platform.media_tools.types import (
 
 SAMPLE_RATE = 48000
 DEFAULT_FPS = 24.0
+EDGE_NUDGE_SECONDS = 0.001
+
+ClipTrims = Sequence[tuple[float, float]]
 
 SPEC = dict(
     id="concat",
@@ -72,6 +75,25 @@ def fit_filter(width: int, height: int, fit: str) -> str:
     )
 
 
+def trim_filter(name: str, duration: float, start: float, end: float) -> str:
+    if start <= 0 and end <= 0:
+        return ""
+    parts = []
+    if start > 0:
+        parts.append(f"start={max(0.0, start - EDGE_NUDGE_SECONDS):.6f}")
+    if end > 0:
+        parts.append(f"end={duration - end - EDGE_NUDGE_SECONDS:.6f}")
+    reset = "asetpts" if name == "atrim" else "setpts"
+    return f"{name}={':'.join(parts)},{reset}=PTS-STARTPTS,"
+
+
+def kept_lengths(clips: Sequence[ToolMedia], trims: ClipTrims) -> list[float]:
+    lengths = [float(clip.duration) - start - end for clip, (start, end) in zip(clips, trims)]
+    if any(start < 0 or end < 0 for start, end in trims) or any(length <= 0 for length in lengths):
+        raise InvalidToolParams("trims", "A clip has nothing left after trimming")
+    return lengths
+
+
 def check_layout(lengths: Sequence[float], crossfades: Sequence[float]) -> None:
     joined = lengths[0]
     for fade, length in zip(crossfades, lengths[1:]):
@@ -114,13 +136,16 @@ def concat_args(
     crossfades: Sequence[float],
     audio: bool,
     fit: str,
+    trims: ClipTrims | None = None,
+    canvas: int = 0,
 ) -> list[str]:
-    first = clips[0]
-    fps = first.fps if first.fps and first.fps > 0 else DEFAULT_FPS
-    width, height = _even(int(first.width)), _even(int(first.height))
+    reference = clips[canvas]
+    fps = reference.fps if reference.fps and reference.fps > 0 else DEFAULT_FPS
+    width, height = _even(int(reference.width)), _even(int(reference.height))
     with_audio = audio and any(clip.has_audio for clip in clips)
     blended = any(fade > 0 for fade in crossfades)
-    lengths = [float(clip.duration) for clip in clips]
+    windows = list(trims) if trims is not None else [(0.0, 0.0)] * len(clips)
+    lengths = kept_lengths(clips, windows)
 
     args: list[str] = []
     for clip in clips:
@@ -130,22 +155,25 @@ def concat_args(
         if with_audio and not clip.has_audio:
             silence_inputs[index] = len(clips) + len(silence_inputs)
             args += [
-                "-f", "lavfi", "-t", f"{lengths[index]:.3f}",
+                "-f", "lavfi", "-t", f"{float(clip.duration):.3f}",
                 "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo",
             ]
 
     filters: list[str] = []
     joined = ""
     timebase = ",settb=AVTB" if blended else ""
-    for index in range(len(clips)):
+    for index, clip in enumerate(clips):
+        start, end = windows[index]
         filters.append(
-            f"[{index}:v]{fit_filter(width, height, fit)},setsar=1,fps={fps:g},format=yuv420p{timebase}[v{index}]"
+            f"[{index}:v]{trim_filter('trim', float(clip.duration), start, end)}"
+            f"{fit_filter(width, height, fit)},setsar=1,fps={fps:g},format=yuv420p{timebase}[v{index}]"
         )
         joined += f"[v{index}]"
         if with_audio:
             source = f"{silence_inputs[index]}:a" if index in silence_inputs else f"{index}:a"
             filters.append(
-                f"[{source}]aresample={SAMPLE_RATE},aformat=channel_layouts=stereo[a{index}]"
+                f"[{source}]{trim_filter('atrim', float(clip.duration), start, end)}"
+                f"aresample={SAMPLE_RATE},aformat=channel_layouts=stereo[a{index}]"
             )
             joined += f"[a{index}]"
     if blended:
@@ -164,41 +192,64 @@ def concat_args(
     return args
 
 
+def join_clips(
+    clips: Sequence[ToolMedia],
+    ctx: ToolContext,
+    *,
+    trims: ClipTrims | None = None,
+    crossfades: Sequence[float] | None = None,
+    canvas: int = 0,
+    fit: str = "pad",
+    audio: bool = True,
+) -> ToolMedia:
+    clips = list(clips)
+    if not clips:
+        raise InvalidToolParams("inputs", "There are no clips to join")
+    for clip in clips:
+        if not clip.width or not clip.height or not clip.duration or clip.duration <= 0:
+            raise UnsupportedMedia(f"The clip {clip.path.name} cannot be joined: its size or length is unknown")
+    if not 0 <= canvas < len(clips):
+        raise InvalidToolParams("canvas", f"The canvas clip {canvas} is not one of the {len(clips)} clips")
+    windows = list(trims) if trims is not None else [(0.0, 0.0)] * len(clips)
+    fades = list(crossfades) if crossfades is not None else [0.0] * (len(clips) - 1)
+    if len(windows) != len(clips):
+        raise InvalidToolParams("trims", f"Expected {len(clips)} trim(s), got {len(windows)}")
+    if len(fades) != len(clips) - 1:
+        raise InvalidToolParams("crossfades", f"Expected {len(clips) - 1} crossfade(s), got {len(fades)}")
+    lengths = kept_lengths(clips, windows)
+    check_layout(lengths, fades)
+
+    out_path = ctx.new_path(".mp4", stem="joined")
+    try:
+        ctx.ffmpeg(
+            concat_args(clips, out_path, crossfades=fades, audio=audio, fit=fit, trims=windows, canvas=canvas),
+            duration=sum(lengths) - sum(fades),
+        )
+        if not out_path.is_file() or out_path.stat().st_size == 0:
+            raise ToolFailed("The encoder produced an empty file")
+        return ctx.probe(out_path, "video")
+    except BaseException:
+        out_path.unlink(missing_ok=True)
+        raise
+
+
 class Concat(MediaTool):
     def run(self, inputs: list[ToolMedia], params: dict, ctx: ToolContext) -> list[ToolMedia]:
         clips = list(inputs)
         if not clips:
             raise InvalidToolParams("inputs", "There are no clips to join")
-        for clip in clips:
-            if not clip.width or not clip.height or not clip.duration or clip.duration <= 0:
-                raise UnsupportedMedia(f"The clip {clip.path.name} cannot be joined: its size or length is unknown")
-
         first = clips[0]
         rate = first.fps if first.fps and first.fps > 0 else DEFAULT_FPS
         overlap_frames = int(params.get("overlap_frames") or 0)
         fade = overlap_frames / rate if params.get("overlap") == "crossfade" and overlap_frames > 0 else 0.0
-        crossfades = [fade] * (len(clips) - 1)
-        lengths = [float(clip.duration) for clip in clips]
-        check_layout(lengths, crossfades)
-
-        out_path = ctx.new_path(".mp4", stem="joined")
-        try:
-            ctx.ffmpeg(
-                concat_args(
-                    clips,
-                    out_path,
-                    crossfades=crossfades,
-                    audio=bool(params.get("keep_audio", True)),
-                    fit=str(params.get("fit") or "pad"),
-                ),
-                duration=sum(lengths) - sum(crossfades),
-            )
-            if not out_path.is_file() or out_path.stat().st_size == 0:
-                raise ToolFailed("The encoder produced an empty file")
-            return [ctx.probe(out_path, "video")]
-        except BaseException:
-            out_path.unlink(missing_ok=True)
-            raise
+        joined = join_clips(
+            clips,
+            ctx,
+            crossfades=[fade] * (len(clips) - 1),
+            fit=str(params.get("fit") or "pad"),
+            audio=bool(params.get("keep_audio", True)),
+        )
+        return [joined]
 
 
 def spec() -> ToolSpec:
