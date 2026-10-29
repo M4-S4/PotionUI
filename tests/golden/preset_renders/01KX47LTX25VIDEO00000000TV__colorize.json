@@ -94,7 +94,7 @@
         },
         "p_prompt.output": {
           "type": "str",
-          "value": "Reference shows golden positive prompt. Edited shows the same scene with natural colors restored. COLORIZE natural, true-to-life colors."
+          "value": "Reference shows golden positive prompt, in black and white. Edited shows the same scene with natural colors restored. COLORIZE golden positive prompt, in natural, true-to-life colors. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited."
         },
         "pairs": {
           "type": "list",

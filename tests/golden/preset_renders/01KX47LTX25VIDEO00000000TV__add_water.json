@@ -94,7 +94,7 @@
         },
         "p_prompt.output": {
           "type": "str",
-          "value": "Reference shows golden positive prompt. Edited shows the same scene with water added. ADD WATER"
+          "value": "Reference shows the original scene. Edited shows the same scene with water added. ADD WATER golden positive prompt. Subject identity, clothing, framing, and background geometry are identical to the reference; only water-related elements differ between reference and edited."
         },
         "pairs": {
           "type": "list",

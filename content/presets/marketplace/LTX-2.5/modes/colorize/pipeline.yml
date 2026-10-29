@@ -36,7 +36,7 @@ pipeline:
     configuration:
       p_prompt:
         input: "{{ generation.prompts.first.positive }}"
-        output: "{{ 'Reference shows ' ~ (generation.prompts.first.positive or 'a black and white scene') ~ '. Edited shows the same scene with natural colors restored. COLORIZE natural, true-to-life colors.' }}"
+        output: "{{ 'Reference shows {0}. Edited shows the same scene with natural colors restored. COLORIZE {1}. Subject identity, framing, and background geometry are identical to the reference; only color information differs between reference and edited.'.format(((generation.prompts.first.positive or '').strip().rstrip('. ') ~ ', in black and white') if (generation.prompts.first.positive or '').strip().rstrip('. ') else 'a black and white scene', ((generation.prompts.first.positive or '').strip().rstrip('. ') ~ ', in natural, true-to-life colors') if (generation.prompts.first.positive or '').strip().rstrip('. ') else 'the same scene in natural, true-to-life colors') }}"
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"

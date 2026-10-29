@@ -36,7 +36,7 @@ pipeline:
     configuration:
       p_prompt:
         input: "{{ generation.prompts.first.positive }}"
-        output: "{{ 'Reference shows ' ~ (generation.prompts.first.positive or 'a dry scene') ~ '. Edited shows the same scene with water added. ADD WATER' }}"
+        output: "{{ 'Reference shows the original scene. Edited shows the same scene with water added. ADD WATER {0}. Subject identity, clothing, framing, and background geometry are identical to the reference; only water-related elements differ between reference and edited.'.format((generation.prompts.first.positive or '').strip().rstrip('. ') or 'a clear shallow stream of water flowing across the ground and splashing around everything that moves') }}"
       n_prompt:
         input: "{{ generation.prompts.first.negative }}"
         output: "{{ generation.prompts.first.negative }}"
