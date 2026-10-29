@@ -60,6 +60,17 @@ CASES = [
     ("presets/marketplace/Pixal3D", "img2mesh", {"source_image"}),
     ("presets/marketplace/Pixal3D", "views2mesh", {"front_image", "left_image", "back_image", "right_image"}),
     ("presets/marketplace/MiniMax-H3", "refs", {"references"}),
+    ("presets/marketplace/LTX-2", "upscale", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "extend", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "upscale", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "refine_faces", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "restore", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "colorize", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "day_to_night", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "add_water", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "remove_object", {"input_video"}),
+    ("presets/marketplace/LTX-2.5", "layout_to_render", {"input_video", "style_image"}),
+    ("presets/marketplace/LTX-2.5", "cinemagraph", {"input_image"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
     ("comfyui-backend/presets/QwenImage", "img2img", {"source_image", "ref_image_2", "ref_image_3"}),
 ]
@@ -86,8 +97,6 @@ UNTOUCHED_CASES = [
     ("presets/marketplace/VideoTools", "interpolate"),
     ("presets/marketplace/SeedVR2", "upscale"),
     ("presets/marketplace/SeedVR2", "video_upscale"),
-    ("presets/marketplace/LTX-2", "upscale"),
-    ("presets/marketplace/LTX-2.5", "upscale"),
 ]
 
 

@@ -1,6 +1,11 @@
 name: "custom"
 mode_label: "Day to night"
 short_description: "Relight a daytime video as night."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
     filename: "ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors"
@@ -15,8 +20,21 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/day_to_night/tabs/generation.yml"
       - type: "tab"
-        label: "Models"
+        label: "References"
         configuration:
-          icon: "model"
+          icon: "image"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/restore/tabs/models.yml"
+        children: "{{ paths.preset }}/modes/day_to_night/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/day_to_night/tabs/advanced.yml"

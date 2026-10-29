@@ -22,6 +22,10 @@
     },
     {
       "config": {
+        "loras": {
+          "type": "list",
+          "value": []
+        },
         "model.file_path": {
           "type": "str",
           "value": "/GOLDEN/models/model.safetensors"
@@ -69,8 +73,8 @@
           "value": "golden negative prompt"
         },
         "negative_applied": {
-          "type": "NoneType",
-          "value": null
+          "type": "bool",
+          "value": true
         },
         "p_prompt.input": {
           "type": "str",
@@ -177,6 +181,7 @@
               "model",
               "/GOLDEN/models/effect_lora.safetensors"
             ],
+            [],
             [
               "positive_prompt",
               [
@@ -194,8 +199,16 @@
               4.0
             ],
             [
+              "steps",
+              30
+            ],
+            [
               "sampler",
               "euler_ancestral"
+            ],
+            [
+              "schedule",
+              "ltx_dynamic"
             ],
             [
               "strength",
@@ -240,6 +253,10 @@
         "frames": {
           "type": "int",
           "value": 72
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": ""
         },
         "media_placements": {
           "type": "list",
@@ -301,6 +318,18 @@
               "weight": 1.0
             }
           ]
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
         },
         "steps": {
           "type": "int",

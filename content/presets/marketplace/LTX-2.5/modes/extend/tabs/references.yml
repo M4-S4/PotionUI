@@ -1,0 +1,24 @@
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Video to extend"
+    required: true
+    ai_hint: "The clip to continue. Its last moments (or first, when adding before) are carried into the new footage, which is then joined to it with its sound."
+
+  - name: "direction"
+    type: "select"
+    label: "Direction"
+    default: "forward"
+    ai_hint: "Forward continues after the last frame. Backward creates what happens before the first frame; describe the lead-in in the prompt."
+    configuration:
+      options:
+        - { label: "Continue after the end", value: "forward" }
+        - { label: "Add before the start", value: "backward" }
+
+  - name: "context_seconds"
+    type: "slider"
+    label: "Carried-over length (seconds)"
+    audience: "advanced"
+    default: 1
+    ai_hint: "How much of the source the new footage starts from (or leads into). Longer keeps motion and identity steadier but leaves less room for change; 1 second suits most clips."
+    configuration: {min: 0.25, max: 3, step: 0.25}

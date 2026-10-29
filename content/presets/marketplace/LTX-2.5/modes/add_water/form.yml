@@ -2,7 +2,10 @@ name: "custom"
 mode_label: "Add water"
 short_description: "Add water to a scene."
 negative_prompt:
-  applies_when: false
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
     filename: "ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors"
@@ -17,8 +20,21 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/add_water/tabs/generation.yml"
       - type: "tab"
-        label: "Models"
+        label: "References"
         configuration:
-          icon: "model"
+          icon: "image"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/restore/tabs/models.yml"
+        children: "{{ paths.preset }}/modes/add_water/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/add_water/tabs/advanced.yml"

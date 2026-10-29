@@ -22,12 +22,13 @@
 # DiT is transformer-only, so there is no embedded `vae.*` to slice -- see the
 # video mode's header note). There is no `audio:`/`audio_model:` config here at
 # all: this mode never generates audio, so the audio VAE is never loaded and
-# the Models tab has no audio picker.
+# the Models section has no audio picker.
 #
-# Neither generator here selects `schedule: "ltx_dynamic"` -- unlike the video
-# mode's stage 1, this pipeline's only sampling pass runs an explicit
+# generator_refine (Standard) selects no `schedule:` -- it runs an explicit
 # `refine_sigmas` list, which leaves no generated curve for a dynamic shift to
-# shape.
+# shape. generator_ic (Generative 2x / Refine details) is a fresh generation
+# against the source as an IC-LoRA reference, so it takes the Speed profile and
+# the Advanced tab's Sampling knobs exactly like the edit modes do.
 pipeline:
   - name: "media_loader"
     id: "media_loader"
@@ -87,11 +88,12 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
-      # Refine pass runs at CFG 1.0 (Lightricks' SimpleDenoiser, no negative
-      # pass) -- see generator_refine's `cfg` below; guidance_scale <= 1.0 here
-      # means the negative branch is never encoded (do_cfg check in
-      # prompt_encoder), matching that recipe exactly.
-      guidance_scale: 1.0
+      # Standard's refine pass runs at Refine CFG, 1.0 by default (Lightricks'
+      # SimpleDenoiser, no negative pass) -- see generator_refine's `cfg` below;
+      # guidance_scale <= 1.0 here means the negative branch is never encoded
+      # (do_cfg check in prompt_encoder), matching that recipe exactly.
+      # generator_ic runs the Speed profile's CFG instead.
+      guidance_scale: "{{ form.refine_cfg if form.upscale_method == 'latent' else (form.cfg | default(generation.profile.guidance)) }}"
       negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
@@ -145,8 +147,8 @@ pipeline:
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
-        - ["cfg", 1.0]
-        - ["sampler", "euler"]
+        - ["cfg", "{{ form.refine_cfg if form.upscale_method == 'latent' else (form.cfg | default(generation.profile.guidance)) }}"]
+        - ["sampler", "{{ form.refine_sampler if form.upscale_method == 'latent' else (form.sampler | default(generation.profile.sampler)) }}"]
         - ["refine_strength", "{{ form.refine_strength }}"]
         - ["upscale_method", "{{ form.upscale_method }}"]
         - ["model", "{{ form.pixel_spatial_lora if form.upscale_method == 'pixel_spatial' else (form.refine_details_lora if form.upscale_method == 'refine_details' else '') }}"]
@@ -190,12 +192,13 @@ pipeline:
     configuration:
       quantity: "{{ form.quantity }}"
       decode: true
-      # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
-      # pass) and a plain DETERMINISTIC Euler loop for the refine stage --
-      # unchanged from 2.3 to 2.5. Stage-1 ancestral sampling (the video mode)
-      # does not apply to a refine pass.
-      cfg: 1.0
-      sampler: "euler"
+      # Refine CFG / Refine Sampler (Advanced tab) default to Lightricks' own
+      # two-stage recipe: CFG 1 (SimpleDenoiser, no negative pass) and a plain
+      # DETERMINISTIC Euler loop for the refine stage -- unchanged from 2.3 to
+      # 2.5. Stage-1 ancestral sampling (the video mode) does not apply to a
+      # refine pass.
+      cfg: "{{ form.refine_cfg }}"
+      sampler: "{{ form.refine_sampler }}"
       # Step cache (FBCache) is deliberately NOT bound here -- unlike
       # video/pipeline.yml's two-stage mode, this pipeline has no earlier
       # generator_stage1 to point at: this node IS the whole generative step in
@@ -231,9 +234,20 @@ pipeline:
       window_overlap: "{{ preset.vars.edit_window_overlap }}"
       frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
-      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe }}"
-      cfg: 1.0
-      sampler: "euler_ancestral"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
+      quality_mode: "{{ (form.speed_profile) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      quality_stg: "{{ preset.vars.quality_stg }}"
+      quality_rescale: "{{ preset.vars.quality_rescale }}"
+      quality_modality: "{{ preset.vars.quality_modality }}"
+      quality_stg_blocks: "{{ preset.vars.quality_stg_blocks }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       media_placements:
         - { source: "video", index: 0, frame: "first", strength: 1.0, role: "reference" }
       scoped_loras:

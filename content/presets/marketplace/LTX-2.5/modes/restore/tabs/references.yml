@@ -1,0 +1,23 @@
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Input Video"
+    required: true
+    description: "The clip to clean up. Up to about 40 seconds."
+
+  - name: "restore_task"
+    type: "select"
+    label: "Fix"
+    default: "restore"
+    configuration:
+      options:
+        - { label: "Restore old footage", value: "restore" }
+        - { label: "Remove blur", value: "deblur" }
+        - { label: "Remove compression", value: "decompress" }
+
+  - name: "effect_strength"
+    type: "slider"
+    label: "Strength"
+    default: 1.0
+    description: "Keep it at 1 unless the result over-tints or barely changes."
+    configuration: {min: 0.5, max: 1.5, step: 0.05}

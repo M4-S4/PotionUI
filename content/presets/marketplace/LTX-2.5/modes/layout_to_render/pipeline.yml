@@ -33,6 +33,12 @@ pipeline:
       upscale_model:
         file_path: "{{ form.upscale_model }}"
         name: "{{ form.upscale_model }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
 
   - name: "prompt_encoder"
     input:
@@ -47,7 +53,7 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
-      guidance_scale: 1.0
+      guidance_scale: "{{ [form.cfg | default(generation.profile.guidance), form.refine_cfg] | max }}"
       negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
@@ -83,10 +89,15 @@ pipeline:
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.video_vae }}"]
         - ["model", "{{ form.effect_lora }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
-        - ["cfg", 1.0]
-        - ["sampler", "euler_ancestral"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
         - ["strength", "{{ form.effect_strength }}"]
         - ["model", "{{ form.upscale_model }}"]
 
@@ -107,9 +118,20 @@ pipeline:
       max_pixels: 522240
       frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
-      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe }}"
-      cfg: 1.0
-      sampler: "euler_ancestral"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
+      quality_mode: "{{ (form.speed_profile) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      quality_stg: "{{ preset.vars.quality_stg }}"
+      quality_rescale: "{{ preset.vars.quality_rescale }}"
+      quality_modality: "{{ preset.vars.quality_modality }}"
+      quality_stg_blocks: "{{ preset.vars.quality_stg_blocks }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       media_placements:
         - { source: "video", index: 0, frame: "first", strength: 1.0, role: "reference" }
         - { source: "image", index: 0, frame: "first", strength: 1.0, role: "keyframe" }
@@ -144,9 +166,13 @@ pipeline:
       match_video: true
       frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
-      cfg: 1.0
-      sampler: "euler"
-      refine_sigmas: "{{ preset.vars.stage2_sigma_recipe }}"
+      # The Speed profile drives generator_stage1 only. This refine reads the
+      # Advanced tab's 2x refine knobs, which default to the two-stage recipe
+      # the video mode's generator_stage2 runs: cfg 1.0, deterministic euler
+      # and preset.vars.stage2_sigma_recipe.
+      cfg: "{{ form.refine_cfg }}"
+      sampler: "{{ form.refine_sampler }}"
+      refine_sigmas: "{{ form.refine_sigmas or preset.vars.stage2_sigma_recipe }}"
       refine_reference: true
       media_placements:
         - { source: "video", index: 0, frame: "first", strength: 1.0, role: "reference" }

@@ -16,11 +16,11 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/extend/tabs/generation.yml"
       - type: "tab"
-        label: "Models"
+        label: "References"
         configuration:
-          icon: "model"
+          icon: "image"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/video/tabs/models.yml"
+        children: "{{ paths.preset }}/modes/extend/tabs/references.yml"
       - type: "tab"
         label: "LoRA"
         configuration:

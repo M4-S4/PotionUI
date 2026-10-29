@@ -1,3 +1,19 @@
+# LTX-2.5 ships its components as SEPARATE files, unlike the 2.0/2.3
+# all-in-one checkpoints the `LTX-2 / 2.3` preset targets: the DiT file is
+# transformer-only, the video VAE and audio VAE(+vocoder) are standalone, and
+# the text-embedding projection has moved off the DiT onto the Gemma4 text
+# encoder. Every picker here therefore points at a different file -- see
+# docs/models/ltx.md's split-file layout table.
+#
+# `video_vae` is REQUIRED, not optional: with a transformer-only DiT there is
+# no embedded `vae.*` to slice, and model_loader/ltx's `_require_embedded_
+# component` pre-flight would reject the run. `audio_vae` stays optional
+# because audio itself is optional (Generate Audio, Generation tab) -- the
+# same pre-flight raises only when audio is actually requested.
+#
+# Only the conv-decode video VAE is supported -- the non-conv variant needs a
+# diffusion decoder this engine doesn't implement (docs/models/ltx.md "Not yet
+# supported").
 fields:
   - name: "model"
     type: "model"
@@ -72,18 +88,17 @@ fields:
           size: "1.37 GB"
           description: "LTX-2.5 video VAE, diffusion decode - sharper, heavier. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
 
-  - name: "upscale_model"
+  - name: "audio_vae"
     type: "model"
-    formula: "models"
-    label: "Spatial Upscaler"
-    required: true
+    label: "Audio VAE (required for Generate Audio)"
+    ai_hint: "Only needed when Generate Audio (Generation tab) is on, or when the Director timeline carries its own audio clips. Leave empty for a silent render -- the audio VAE and vocoder are then never loaded, costing nothing."
     configuration:
-      model_type: "upscaler"
-      placeholder: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0..."
-      filter_tags: "@config:upscaler_tags"
+      model_type: "vae"
+      placeholder: "ltx-2.5-audio-vae-bf16..."
+      filter_tags: "@config:vae_tags"
       recommendations:
-        - name: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+        - name: "ltx-2.5-audio-vae-bf16.safetensors"
           provider: "huggingface"
-          ref: '{"repo": "Lightricks/LTX-2.5", "file": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors", "revision": "main"}'
-          size: "949.6 MB"
-          description: "LTX-2.5 latent spatial upscaler, x2. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "vae/ltx-2.5-audio-vae-bf16.safetensors", "revision": "main"}'
+          size: "348.0 MB"
+          description: "LTX-2.5 audio VAE + vocoder - required only when generating audio. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."

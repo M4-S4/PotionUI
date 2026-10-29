@@ -2,7 +2,10 @@ name: "custom"
 mode_label: "Restore"
 short_description: "Clean up old, blurry or compressed footage."
 negative_prompt:
-  applies_when: false
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
 requirements:
   - type: "model"
     filename: "ltx-2.5-22b-ic-lora-restore-1.0.safetensors"
@@ -26,8 +29,21 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/restore/tabs/generation.yml"
       - type: "tab"
-        label: "Models"
+        label: "References"
         configuration:
-          icon: "model"
+          icon: "image"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/restore/tabs/models.yml"
+        children: "{{ paths.preset }}/modes/restore/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/restore/tabs/advanced.yml"

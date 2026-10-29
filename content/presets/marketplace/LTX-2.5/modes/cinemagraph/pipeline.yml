@@ -19,6 +19,12 @@ pipeline:
       vae:
         file_path: "{{ form.video_vae }}"
         name: "{{ form.video_vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
 
   - name: "prompt_encoder"
     input:
@@ -33,7 +39,7 @@ pipeline:
         output: "{{ generation.prompts.first.negative or 'camera movement, pan, tilt, zoom, parallax, whole image moving, background sliding, flicker on entire image, noisy texture, crawling texture, distorted, blurry, low quality' }}"
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
-      guidance_scale: 4.0
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
@@ -69,10 +75,15 @@ pipeline:
         - ["model", "{{ form.text_encoder }}"]
         - ["model", "{{ form.video_vae }}"]
         - ["model", "{{ form.effect_lora }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
-        - ["cfg", 4.0]
-        - ["sampler", "euler_ancestral"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
         - ["strength", "{{ form.effect_strength }}"]
         - ["resolution", "{{ form.resolution }}"]
 
@@ -91,16 +102,20 @@ pipeline:
       resolution: "{{ form.resolution }}"
       frames: "{{ (form.duration * 24) | round | int }}"
       fps: 24.0
-      steps: 30
-      cfg: 4.0
-      sampler: "euler_ancestral"
-      schedule: "ltx_dynamic"
-      quality_mode: true
-      quality_cfg: 4.0
-      quality_stg: 1.0
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
+      quality_mode: "{{ (form.speed_profile) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      quality_stg: "{{ preset.vars.quality_stg }}"
       quality_rescale: "{{ preset.vars.quality_rescale }}"
       quality_modality: "{{ preset.vars.quality_modality }}"
       quality_stg_blocks: "29"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
       media_placements:
         - { source: "image", index: 0, frame: "first", strength: 0.8, role: "keyframe" }
       scoped_loras:

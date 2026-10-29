@@ -1,0 +1,90 @@
+# The Sampling section of every LTX-2.5 Advanced tab: the knobs the Speed
+# profile (Generation tab) bakes. Included with `vars:` so each mode states its
+# own defaults -- `steps`/`cfg` are the values its default profile runs, and
+# `quality_cfg` is the CFG its Quality profile runs (3.0 on the preset's own
+# Quality recipe; a mode whose effect LoRA was tuned at another CFG passes that
+# instead). Field defaults must equal what the default profile's reactions set,
+# so the server-side defaults and the browser agree.
+#
+# Every profile bakes euler_ancestral, the first-party LTX-2.5 stage-1 sampler
+# (see preset.yml's speed_profiles comment for exactly how far the diffusers
+# evidence goes), unlike 2.0/2.3 where the base pass is deterministic. The field
+# stays selectable so a user can still fall back to a deterministic sampler.
+# `include`, not the whole registry catalog: generator/video_ltx holds
+# conditioned tokens clean by re-deriving the clamp and the x0 blend at every
+# step, so a multistep integrator that mixes PAST velocities into its update is
+# invalid here -- see that pipe's module docstring.
+#
+# LTX-2.5's own resolution-aware sigma shift (`ltx_dynamic`) is the default
+# schedule; every profile resets to it. A non-empty Manual Sigmas (or the
+# Distilled profile's own sigma list) takes priority over it.
+fields:
+  - name: "steps"
+    type: "slider"
+    label: "Steps"
+    audience: "advanced"
+    default: "{{ vars.steps }}"
+    configuration: {min: 1, max: 100, step: 1}
+    reactions:
+      - when: { field: "speed_profile", equals: "balanced" }
+        then: { set_value: 24, set_disabled: false }
+      - when: { field: "speed_profile", equals: "distilled" }
+        then: { set_value: 8, set_disabled: false }
+      - when: { field: "speed_profile", equals: "quality" }
+        then: { set_value: 30, set_disabled: false }
+      - when: { field: "speed_profile", equals: "custom" }
+        then: { set_disabled: false }
+
+  - type: "row"
+    children:
+      - name: "sampler"
+        type: "sampler"
+        label: "Sampler"
+        audience: "advanced"
+        default: "euler_ancestral"
+        configuration:
+          family: "ltx"
+          include: ["euler_ancestral", "euler", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: "euler_ancestral", set_disabled: false }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: "euler_ancestral", set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: "euler_ancestral", set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "schedule"
+        type: "schedule"
+        label: "Schedule"
+        audience: "advanced"
+        default: "ltx_dynamic"
+        configuration:
+          family: "ltx"
+          exclude: ["manual"]
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: "ltx_dynamic", set_disabled: false }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: "ltx_dynamic", set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: "ltx_dynamic", set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+  - name: "cfg"
+    type: "slider"
+    label: "CFG Scale"
+    audience: "advanced"
+    default: "{{ vars.cfg }}"
+    configuration: {min: 1.0, max: 20.0, step: 0.5}
+    reactions:
+      - when: { field: "speed_profile", equals: "balanced" }
+        then: { set_value: 4.0, set_disabled: false }
+      - when: { field: "speed_profile", equals: "distilled" }
+        then: { set_value: 1.0, set_disabled: false }
+      - when: { field: "speed_profile", equals: "quality" }
+        then: { set_value: "{{ vars.quality_cfg }}", set_disabled: false }
+      - when: { field: "speed_profile", equals: "custom" }
+        then: { set_disabled: false }

@@ -5,7 +5,7 @@
 ## preset instead of another branch inside `LTX-2 / 2.3`: the `model` file is
 ## the transformer alone, the video VAE and the audio VAE(+vocoder) are
 ## standalone files, and the text-embedding projection has moved off the DiT
-## onto a Gemma4-12B text encoder. Four pickers instead of two (Models tab),
+## onto a Gemma4-12B text encoder. Four pickers instead of two (Models section),
 ## and a base pass that samples ancestrally where 2.0/2.3's is deterministic.
 ##
 ## For the 2.0/2.3 all-in-one checkpoints (ltx-2-19b-dev, ltx-2.3-22b-dev),
@@ -37,7 +37,10 @@ media:
 # Selectable speed profiles (docs/presets.md "Speed profiles"), same pattern as
 # presets/native/LTX-2 and presets/native/Krea2. Each profile bakes the ACTUAL
 # steps/guidance/sampler the recipe runs at, so the visible Steps/CFG/Sampler
-# fields (modes/*/tabs/generation.yml reactions) always match what executes.
+# fields (files/form/sampling.yml reactions, on every mode's Advanced tab)
+# always match what executes. A mode may run its Quality profile at another
+# CFG (Day to night 3.5, Cinemagraph 4.0) -- that mode's Advanced tab passes
+# it to sampling.yml as `quality_cfg`, and its speed picker's sub-label says so.
 #
 # `sampler` is euler_ancestral on every profile, including Distilled -- the one
 # recipe knob that genuinely changed generation-over-generation. The
@@ -114,8 +117,8 @@ vars:
   # Distilled recipe: Lightricks' own DISTILLED_SIGMA_VALUES constant
   # (packages/ltx-pipelines in github.com/Lightricks/LTX-2, Apache-2.0) --
   # unchanged from 2.3 to 2.5, so this list is byte-identical to
-  # presets/native/LTX-2's var of the same name. Read by modes/video/
-  # pipeline.yml for the "Distilled" speed profile above; a non-empty
+  # presets/native/LTX-2's var of the same name. Read by the pipeline.yml of
+  # every mode with a Speed profile, for its "Distilled" profile; a non-empty
   # manual_sigmas takes priority over the `ltx_dynamic` schedule stage 1
   # otherwise runs (see guidance_options.py's schedule_settings_overrides).
   distilled_sigma_recipe: "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"

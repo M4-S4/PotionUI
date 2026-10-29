@@ -34,6 +34,10 @@
     },
     {
       "config": {
+        "loras": {
+          "type": "list",
+          "value": []
+        },
         "model.file_path": {
           "type": "str",
           "value": "/GOLDEN/models/model.safetensors"
@@ -189,6 +193,7 @@
               "model",
               "/GOLDEN/models/effect_lora.safetensors"
             ],
+            [],
             [
               "positive_prompt",
               [
@@ -206,8 +211,16 @@
               1.0
             ],
             [
+              "steps",
+              8
+            ],
+            [
               "sampler",
               "euler_ancestral"
+            ],
+            [
+              "schedule",
+              "ltx_dynamic"
             ],
             [
               "strength",
@@ -277,6 +290,30 @@
             }
           ]
         },
+        "quality_cfg": {
+          "type": "float",
+          "value": 1.0
+        },
+        "quality_modality": {
+          "type": "float",
+          "value": 3.0
+        },
+        "quality_mode": {
+          "type": "bool",
+          "value": false
+        },
+        "quality_rescale": {
+          "type": "float",
+          "value": 0.7
+        },
+        "quality_stg": {
+          "type": "float",
+          "value": 1.0
+        },
+        "quality_stg_blocks": {
+          "type": "str",
+          "value": "28"
+        },
         "quantity": {
           "type": "int",
           "value": 1
@@ -284,6 +321,10 @@
         "sampler": {
           "type": "str",
           "value": "euler_ancestral"
+        },
+        "schedule": {
+          "type": "str",
+          "value": "ltx_dynamic"
         },
         "scoped_loras": {
           "type": "list",
@@ -293,6 +334,22 @@
               "weight": 1.0
             }
           ]
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 8
         },
         "window_overlap": {
           "type": "int",
