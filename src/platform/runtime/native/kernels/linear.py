@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -56,6 +57,33 @@ def fast_path(layer: object) -> FastPath | None:
         requires_resident_weight=kind is FastPathKind.NVFP4_GEMM,
         lora_fused=bool(output_side) and _lora_fused_enabled(),
         reason=reason,
+    )
+
+
+def nvfp4_path_summary(module: object) -> str | None:
+    walk = getattr(module, "modules", None)
+    if not callable(walk):
+        return None
+    eligible = 0
+    other = 0
+    dequant: Counter[str] = Counter()
+    for layer in walk():
+        if not isinstance(layer, torch.nn.Linear):
+            continue
+        if quant_format(layer) is not QuantFormat.NVFP4:
+            other += 1
+            continue
+        path = fast_path(layer)
+        if path.kind is FastPathKind.NVFP4_GEMM:
+            eligible += 1
+        else:
+            dequant[path.reason or "unknown"] += 1
+    if not eligible and not dequant:
+        return None
+    reasons = ", ".join(f"{reason}: {count}" for reason, count in dequant.most_common())
+    return (
+        f"nvfp4 linears: {eligible} fast-path eligible, {sum(dequant.values())} dequant"
+        f"{f' ({reasons})' if reasons else ''}, {other} non-nvfp4"
     )
 
 

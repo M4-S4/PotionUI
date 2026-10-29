@@ -33,6 +33,7 @@ from .lora_math import (
 logger = logging.getLogger(__name__)
 
 NVFP4_MATMUL_FLAG = "native_nvfp4_matmul"
+NVFP4_MATMUL_OFF_REASON = "the 'nvfp4 fast multiply' setting (Admin → Backends → Optimizations) is off"
 
 
 def _nvfp4_matmul_enabled() -> bool:
@@ -84,14 +85,20 @@ def _nvfp4_scaled_mm_fast_path_ok(
 _nvfp4_fast_path_reject_reasons_logged: set[str] = set()
 
 
-def _log_nvfp4_fast_path_rejection(reason: str) -> None:
+def _log_nvfp4_fast_path_rejection(reason: str, detail: str | None = None) -> None:
     if reason in _nvfp4_fast_path_reject_reasons_logged:
         return
     _nvfp4_fast_path_reject_reasons_logged.add(reason)
     logger.warning(
-        "nvfp4 matmul: fast path unavailable (%s); using LUT dequant instead "
-        "(logged once per distinct reason)", reason,
+        "nvfp4 matmul: fast path unavailable (%s); nvfp4 weights are being dequantized instead "
+        "(logged once per distinct reason)", f"{reason}: {detail}" if detail else reason,
     )
+
+
+def _nvfp4_matmul_disabled_reason() -> str:
+    if not runtime_flag(NVFP4_MATMUL_FLAG):
+        return NVFP4_MATMUL_OFF_REASON
+    return gemm_support().nvfp4_reason or "the fp4 GEMM is unsupported here"
 
 
 def reset_nvfp4_fast_path_rejection_log() -> None:
@@ -168,6 +175,8 @@ class Nvfp4Linear(Fp8ScaledLinear):
             else:
                 _log_nvfp4_fast_path_rejection(reject_reason)
                 dequant_reason = reject_reason
+        else:
+            _log_nvfp4_fast_path_rejection(_nvfp4_matmul_disabled_reason())
         if self.lora_deltas:
             output_side, weight_side = partition_output_branch_deltas(self.lora_deltas, self.out_features)
             _note_lora_path(self, _lora_dequant_path(weight_side, dequant_reason, output_side))
@@ -183,8 +192,10 @@ class Nvfp4Linear(Fp8ScaledLinear):
         w_block = self.nvfp4_weight_block_scale
         w_global = self.nvfp4_weight_global_scale
         if w_block is None or w_global is None:
+            _log_nvfp4_fast_path_rejection("weight scales missing")
             return None
         if w_block.device != device or self.nvfp4_packed.device != device:
+            _log_nvfp4_fast_path_rejection("weight scales not on the input device")
             return None
 
         orig_shape = input.shape
@@ -194,8 +205,9 @@ class Nvfp4Linear(Fp8ScaledLinear):
 
         try:
             x_packed, x_block, x_global = quantize_nvfp4_dynamic(x2d)
-        except Exception:
+        except Exception as exc:
             logger.debug("nvfp4 matmul: activation quant failed; using dequant path", exc_info=True)
+            _log_nvfp4_fast_path_rejection(f"activation quant failed ({type(exc).__name__})", str(exc)[:300])
             return None
 
         weight_packed = self.nvfp4_packed if self.nvfp4_packed.is_contiguous() else self.nvfp4_packed.contiguous()
@@ -212,8 +224,9 @@ class Nvfp4Linear(Fp8ScaledLinear):
                 swizzle_b=[F.SwizzleType.SWIZZLE_32_4_4, F.SwizzleType.NO_SWIZZLE],
                 output_dtype=input.dtype,
             )
-        except (RuntimeError, torch.cuda.OutOfMemoryError):
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as exc:
             logger.debug("nvfp4 matmul: _scaled_mm_v2 rejected operands; using dequant path", exc_info=True)
+            _log_nvfp4_fast_path_rejection(f"scaled_mm rejected operands ({type(exc).__name__})", str(exc)[:300])
             return None
         if self.lora_deltas:
             if _lora_fused_enabled():

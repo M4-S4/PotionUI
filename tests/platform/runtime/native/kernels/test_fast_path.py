@@ -16,6 +16,7 @@ from src.platform.runtime.native.kernels import (
     disable_weight_init,
     fast_path,
     fp8_ops,
+    nvfp4_path_summary,
     fp8_linear,
     gemm,
     linear,
@@ -541,3 +542,19 @@ def test_per_call_input_conditions_are_deliberately_not_part_of_the_answer(machi
 
     assert expected.kind is not FastPathKind.DEQUANT
     assert set(recorder.kinds) == {FastPathKind.DEQUANT}
+
+
+def test_the_nvfp4_summary_counts_fast_path_dequant_reasons_and_other_linears(machine):
+    model = torch.nn.Sequential(_nvfp4(), _nvfp4(), _nvfp4(in_f=48), _fp8(), torch.nn.Linear(4, 4))
+    machine("blackwell", fp8=False, nvfp4=True)
+    assert nvfp4_path_summary(model) == (
+        "nvfp4 linears: 2 fast-path eligible, 1 dequant (in_features_not_multiple_of_32: 1), 2 non-nvfp4")
+    machine("blackwell", fp8=False, nvfp4=False)
+    assert nvfp4_path_summary(model) == (
+        "nvfp4 linears: 0 fast-path eligible, 3 dequant "
+        "(native_nvfp4_matmul is off: 2, in_features_not_multiple_of_32: 1), 2 non-nvfp4")
+
+
+def test_a_model_without_nvfp4_linears_has_no_summary():
+    assert nvfp4_path_summary(torch.nn.Sequential(_fp8(), torch.nn.Linear(4, 4))) is None
+    assert nvfp4_path_summary(SimpleNamespace()) is None

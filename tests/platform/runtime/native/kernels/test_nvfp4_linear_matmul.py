@@ -267,3 +267,79 @@ def test_forward_comfy_cast_weights_does_not_log_when_fast_path_eligible(monkeyp
         lin.forward_comfy_cast_weights(x)
 
     assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_nvfp4_layers_running_with_the_setting_off_warn_once_per_process(monkeypatch, caplog):
+    monkeypatch.setitem(runtime_flag_values(), "native_nvfp4_matmul", False)
+    layers = [_nvfp4_layer(seed=1), _nvfp4_layer(seed=2)]
+    x = torch.randn(1, 32, dtype=torch.bfloat16)
+    with installed_gemm_verdicts(nvfp4=True), caplog.at_level("WARNING"):
+        for _ in range(3):
+            for lin in layers:
+                lin(x)
+
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert "dequantized" in warnings[0] and "'nvfp4 fast multiply' setting" in warnings[0]
+    assert "Admin → Backends → Optimizations" in warnings[0]
+
+
+def test_nvfp4_layers_on_the_fast_path_with_the_setting_on_never_warn(monkeypatch, caplog):
+    monkeypatch.setitem(runtime_flag_values(), "native_nvfp4_matmul", True)
+    lin = _nvfp4_layer()
+    x = torch.randn(1, 32, dtype=torch.bfloat16)
+    with installed_gemm_verdicts(nvfp4=True), \
+         patch.object(nvfp4_linear, "_nvfp4_fast_path_reject_reason", return_value=None), \
+         patch("torch.nn.functional.scaled_mm", return_value=torch.zeros(1, 16, dtype=torch.bfloat16)), \
+         caplog.at_level("WARNING"):
+        for _ in range(3):
+            lin.forward_comfy_cast_weights(x)
+
+    assert _warnings(caplog) == []
+
+
+def test_the_setting_on_without_fp4_gemm_support_warns_with_the_probe_reason(monkeypatch, caplog):
+    monkeypatch.setitem(runtime_flag_values(), "native_nvfp4_matmul", True)
+    lin = _nvfp4_layer()
+    x = torch.randn(1, 32, dtype=torch.bfloat16)
+    with installed_gemm_verdicts(nvfp4=False), caplog.at_level("WARNING"):
+        lin(x)
+        lin(x)
+
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1 and "faked unsupported" in warnings[0]
+
+
+@pytest.mark.parametrize(("attempt", "reason"), [
+    ("activation", "activation quant failed (ValueError)"),
+    ("kernel", "scaled_mm rejected operands (RuntimeError)"),
+])
+def test_a_failed_fast_path_attempt_warns_once_with_its_cause(attempt, reason, caplog):
+    lin = _nvfp4_layer()
+    x = torch.randn(1, 32, dtype=torch.bfloat16)
+    quant = patch.object(nvfp4_linear, "quantize_nvfp4_dynamic", side_effect=ValueError("bad activations")) \
+        if attempt == "activation" else patch("torch.nn.functional.scaled_mm", side_effect=RuntimeError("no kernel image"))
+    with quant, caplog.at_level("WARNING"):
+        for _ in range(3):
+            assert lin._forward_nvfp4_scaled_mm(x) is None
+
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1 and reason in warnings[0]
+    assert ("bad activations" if attempt == "activation" else "no kernel image") in warnings[0]
+
+
+def test_missing_or_misplaced_weight_scales_warn_instead_of_bailing_silently(caplog):
+    x = torch.randn(1, 32, dtype=torch.bfloat16)
+    misplaced = _nvfp4_layer()
+    misplaced.nvfp4_weight_block_scale = misplaced.nvfp4_weight_block_scale.to("meta")
+    with caplog.at_level("WARNING"):
+        assert fp8_ops.Linear(32, 16, bias=False)._forward_nvfp4_scaled_mm(x) is None
+        assert misplaced._forward_nvfp4_scaled_mm(x) is None
+
+    warnings = _warnings(caplog)
+    assert len(warnings) == 2
+    assert "weight scales missing" in warnings[0] and "weight scales not on the input device" in warnings[1]
