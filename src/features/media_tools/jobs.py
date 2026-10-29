@@ -15,7 +15,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CONCURRENT = 2
 DEFAULT_RETENTION_SECONDS = 600.0
+DEFAULT_MAX_QUEUED_PER_USER = 8
 CANCEL_WAIT_SECONDS = 5.0
+SHUTDOWN_WAIT_SECONDS = 4.0
 GENERIC_FAILURE = "The tool could not finish"
 
 
@@ -39,6 +41,7 @@ class _Run:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     done: threading.Event = field(default_factory=threading.Event)
     finished_at: Optional[float] = None
+    callbacks: List[Callable[[], None]] = field(default_factory=list)
 
 
 class RunControl:
@@ -60,8 +63,11 @@ class MediaToolJobManager:
         retention_seconds: float = DEFAULT_RETENTION_SECONDS,
         clock: Callable[[], float] = time.monotonic,
         cancel_wait_seconds: float = CANCEL_WAIT_SECONDS,
+        max_queued_per_user: int = DEFAULT_MAX_QUEUED_PER_USER,
     ):
         self._max = max(1, int(max_concurrent))
+        self._max_queued_per_user = max(1, int(max_queued_per_user))
+        self._closed = False
         self._retention = retention_seconds
         self._clock = clock
         self._cancel_wait = cancel_wait_seconds
@@ -73,7 +79,16 @@ class MediaToolJobManager:
     def submit(self, user_id: str, work: Callable[[RunControl], RunOutcome]) -> str:
         run = _Run(run_id=uuid.uuid4().hex, user_id=user_id, work=work)
         with self._lock:
+            if self._closed:
+                raise DomainError("shutting_down", "The server is shutting down", status_code=503)
             self._purge()
+            queued = sum(1 for other in self._runs.values() if other.user_id == user_id and other.status == "queued")
+            if queued >= self._max_queued_per_user:
+                raise DomainError(
+                    "too_many_queued",
+                    f"You already have {queued} runs waiting; let some finish first",
+                    status_code=429,
+                )
             self._runs[run.run_id] = run
             self._queue.append(run.run_id)
         self._pump()
@@ -95,13 +110,28 @@ class MediaToolJobManager:
                 return self._snapshot(run)
             run.cancel_event.set()
             if run.status == "queued":
-                run.status = "cancelled"
-                run.finished_at = self._clock()
-                run.done.set()
-                return self._snapshot(run)
+                callbacks = self._settle_queued(run)
+            else:
+                callbacks = None
+            if callbacks is not None:
+                snapshot = self._snapshot(run)
+        if callbacks is not None:
+            self._fire(callbacks)
+            return snapshot
         run.done.wait(self._cancel_wait)
         with self._lock:
             return self._snapshot(run)
+
+    def on_done(self, user_id: str, run_id: str, callback: Callable[[], None]) -> bool:
+        with self._lock:
+            run = self._owned(user_id, run_id)
+            if run is None:
+                return False
+            if run.status not in TERMINAL_STATUSES:
+                run.callbacks.append(callback)
+                return True
+        callback()
+        return True
 
     def wait(self, user_id: str, run_id: str, timeout: Optional[float]) -> Optional[RunDTO]:
         with self._lock:
@@ -124,6 +154,24 @@ class MediaToolJobManager:
                     tally["finished"] += 1
             return tally
 
+    def shutdown(self, timeout: float = SHUTDOWN_WAIT_SECONDS) -> None:
+        with self._lock:
+            self._closed = True
+            runs = list(self._runs.values())
+            pending: List[List[Callable[[], None]]] = []
+            for run in runs:
+                if run.status == "queued":
+                    run.cancel_event.set()
+                    pending.append(self._settle_queued(run))
+                elif run.status not in TERMINAL_STATUSES:
+                    run.cancel_event.set()
+        for callbacks in pending:
+            self._fire(callbacks)
+        deadline = time.monotonic() + max(0.0, timeout)
+        for run in runs:
+            if run.status == "running":
+                run.done.wait(max(0.0, deadline - time.monotonic()))
+
     def join_all(self, timeout: float = CANCEL_WAIT_SECONDS) -> None:
         with self._lock:
             runs = list(self._runs.values())
@@ -133,6 +181,21 @@ class MediaToolJobManager:
         for run in runs:
             if run.status == "running":
                 run.done.wait(timeout)
+
+    def _settle_queued(self, run: _Run) -> List[Callable[[], None]]:
+        run.status = "cancelled"
+        run.finished_at = self._clock()
+        run.done.set()
+        callbacks, run.callbacks = run.callbacks, []
+        return callbacks
+
+    @staticmethod
+    def _fire(callbacks: List[Callable[[], None]]) -> None:
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception:
+                logger.exception("A media tool run callback failed")
 
     def _owned(self, user_id: str, run_id: str) -> Optional[_Run]:
         run = self._runs.get(run_id)
@@ -220,4 +283,6 @@ class MediaToolJobManager:
             run.finished_at = self._clock()
             self._running -= 1
             run.done.set()
+            callbacks, run.callbacks = run.callbacks, []
+        self._fire(callbacks)
         self._pump()

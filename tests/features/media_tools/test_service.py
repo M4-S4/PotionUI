@@ -269,7 +269,10 @@ class FailingRepository:
     def delete(self, filename, user_id):
         return self.inner.delete(filename, user_id)
 
-    def update_file(self, **kwargs):
+    def get_by_id(self, upload_id, user_id):
+        return self.inner.get_by_id(upload_id, user_id)
+
+    def replace_file(self, **kwargs):
         return None
 
 

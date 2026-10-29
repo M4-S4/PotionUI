@@ -50,6 +50,7 @@ class ToolDTO(BaseModel):
     component: Optional[str] = None
     source: str
     description: Optional[str] = None
+    runnable: bool = True
     last_params: Optional[Dict[str, Any]] = None
 
 
@@ -74,6 +75,9 @@ class MediaToolItem(BaseModel):
     fps: Optional[float] = None
     size: Optional[int] = None
     created_at: Optional[str] = None
+    thumbnail_small: Optional[str] = None
+    thumbnail_medium: Optional[str] = None
+    thumbnail_large: Optional[str] = None
 
 
 class RunError(BaseModel):

@@ -1490,6 +1490,18 @@ photo filters, not tools: see [Contributing photo filters and filter ops](#contr
 Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
 transparency (a JPEG that gains an alpha channel is saved as PNG).
 
+### From chat, MCP and automation
+
+PotionAI's `run_media_tool` chat tool, the same tool over MCP and the `action.media_tool` automation node run
+the catalog tools that have a Python implementation (`python:`). Component-only tools have no run API and are
+not offered. The chat tool builds its description and `tool` enum from the live catalog each turn, so a
+plugin's tools appear in the model's schema while the plugin is enabled, with each parameter written as
+`name type[min..max]unit =default`. Keep parameter names short and give a `min`, `max` and `default` where
+they make sense, because the model reads them verbatim. Every run goes through the same service as the API:
+the same ownership checks, parameter validation and Library quota. `mode: replace` is the one call that waits
+for the user's approval in chat. See [Chat Modes](chat-modes.md#tool-approval) and
+[Automation Nodes](automation-nodes.md#media-tool).
+
 ### Declaring a tool
 
 A plugin declares tools in `manifest.yml` under `media_tools`. Disabling the plugin removes them from
@@ -1612,23 +1624,37 @@ Successful JSON responses use the usual `{success, data}` envelope. A refusal an
 
 - `GET /api/media-tools?kind=&scope=` returns `{tools: [...]}`: every tool for the kind and scope, with the
   declaration (`id`, `label`, `icon`, `accepts`, `produces`, `cardinality`, `params`, `requires`,
-  `selection`, `scopes`, `editor`, `preview`, `component`, `source`) plus `last_params`, the values this
-  user ran the tool with last (or `null`). `source` is `core` or the plugin id.
+  `selection`, `scopes`, `editor`, `preview`, `component`, `source`) plus `runnable` (`true` when the tool has
+  a Python implementation, `false` for a component-only tool that has no run API) and `last_params`, the
+  values this user ran the tool with last (or `null`). `source` is `core` or the plugin id. A param's `max`
+  is enforced before a run starts, so a value above it is a 400.
 - `POST /api/media-tools/runs` takes `{steps: [{tool, params}], inputs: [{item_id} | {generation_file_id}],
   output: {mode: "new" | "replace"}}` and answers 202 `{run_id}`. A generation file is read straight from
   storage and the result is always a new Library item; `replace` keeps the row, its tags and its
   collections, and is only allowed for one Library item, tools that return one file per input, and a result
-  of the same kind. A 400 before anything runs carries one of `unknown_tool`, `unsupported_media`,
-  `invalid_params` (with `field` and `step_index`), `invalid_selection` or `replace_not_allowed`; an item that
-  is missing or not the caller's answers 404 `not_found`. The same upload quota the editor used applies
-  (403 `limit_exceeded`), and a refusal leaves no file behind.
+  of the same kind. A run takes 1 to 8 steps and 1 to 50 inputs. A 400 before anything runs carries one of
+  `unknown_tool`, `unsupported_media`, `invalid_params` (with `field` and `step_index`), `invalid_selection`
+  or `replace_not_allowed`; an item that is missing or not the caller's answers 404 `not_found`. A user may
+  have 8 runs waiting at once (429 `too_many_queued`) and nothing starts while the server shuts down (503
+  `shutting_down`). The same upload quota the editor used applies (403 `limit_exceeded`), and a refusal
+  leaves no file behind.
+- Results look like normal uploads: each carries its content hash, images get their thumbnails before the run
+  completes, and a video's thumbnails are rendered right after (the Library card fills in a moment later). A
+  run item lists `thumbnail_small`, `thumbnail_medium` and `thumbnail_large` URLs for the sizes that exist.
+  `replace` swaps the thumbnails together with the file and deletes the old ones. If another run replaced the
+  same item first, the later run fails with `conflict` and publishes nothing. A run that would create more
+  than 500 files fails with `too_many_outputs` before anything is published.
 - `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error}`.
   `status` is `queued`, `running`, `completed`, `failed` or `cancelled`; `items` are the resulting Library
   items; a failed run carries `error: {code, message}` (a tool's `requires` check ends the run with
   `unsupported_media`). An unknown run id, or another user's, is a 404.
 - `DELETE /api/media-tools/runs/{run_id}` cancels: the encoder is killed and nothing is published.
 - `POST /api/media-tools/preview` takes `{tool, params, input, time_seconds?}` for a tool with
-  `preview: true` and returns `image/webp` with a long side of at most 512.
+  `preview: true` and returns `image/webp` with a long side of at most 512. Pixel params (`unit: px`) are
+  scaled down together when the largest exceeds 512, so a huge canvas renders as a small one. For a video,
+  `time_seconds` must be finite, not negative and not past the end, otherwise 400 `invalid_params` on
+  `time_seconds`. Only two previews render at once; one that cannot get a slot within a few seconds answers
+  429 `preview_busy`.
 
 Runs are in-process: at most two execute at once, the rest wait their turn, and a finished run is kept for
 ten minutes. A user only ever sees, polls and cancels their own runs. After a single-step run completes, its

@@ -1,15 +1,19 @@
 import asyncio
 import io
 import logging
+import math
+import os
 import shutil
 import tempfile
+import threading
+import time
 import uuid
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple, Union, TYPE_CHECKING
 
-from PIL import Image
+from PIL import Image, ImageOps
 from pydantic import ValidationError
 
 from src.features.media_tools.dto import (
@@ -22,11 +26,16 @@ from src.features.media_tools.dto import (
     StepRequest,
     ToolDTO,
 )
-from src.features.media_tools.jobs import MediaToolJobManager, RunControl, RunOutcome
+from src.features.media_tools.jobs import (
+    SHUTDOWN_WAIT_SECONDS,
+    MediaToolJobManager,
+    RunControl,
+    RunOutcome,
+)
 from src.features.media_tools.publisher import MediaToolPublisher, to_item
 from src.features.media_tools.repository import MediaToolParamsRepository
 from src.features.media_tools.sources import InputResolver, ResolvedInput
-from src.platform.http.errors import InvalidInputError, NotFoundError
+from src.platform.http.errors import DomainError, InvalidInputError, NotFoundError
 from src.platform.media_tools import (
     InvalidSelection,
     InvalidToolParams,
@@ -40,7 +49,6 @@ from src.platform.media_tools import (
     run_chain,
     validate_params,
 )
-from src.platform.media_tools.fastpath import prepare_image
 from src.platform.media_tools.probe import has_alpha_mode
 
 if TYPE_CHECKING:
@@ -49,11 +57,20 @@ if TYPE_CHECKING:
     from src.features.media.upload_repository import UploadRepository
     from src.features.plans.guard import LimitGuard
     from src.platform.filesystem.storage_driver import FileStorageDriver
+    from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
 MAX_STEPS = 8
 MAX_INPUTS = 50
+MAX_OUTPUTS = 500
+PREVIEW_CONCURRENCY = 2
+PREVIEW_WAIT_SECONDS = 5.0
+PREVIEW_TIME_TOLERANCE = 0.05
+PREVIEW_END_BACKOFF_SECONDS = 0.5
+PIXEL_UNIT = "px"
+SCRATCH_PREFIX = "media-tool-"
+STALE_SCRATCH_SECONDS = 6 * 3600.0
 PREVIEW_SOURCE_SIDE = 1024
 PREVIEW_OUTPUT_SIDE = 512
 PREVIEW_QUALITY = 80
@@ -75,6 +92,42 @@ class _Plan:
 
 def _user_id(user: Any) -> str:
     return str(getattr(user, "id", user))
+
+
+def _safe_stem(name: Optional[str]) -> str:
+    cleaned = (name or "").replace("\\", "-").replace("/", "-")
+    return Path(cleaned).stem or "media"
+
+
+def _load_preview_source(path: Path) -> Image.Image:
+    with Image.open(path) as opened:
+        opened.thumbnail((PREVIEW_SOURCE_SIDE, PREVIEW_SOURCE_SIDE), Image.Resampling.LANCZOS)
+        image = ImageOps.exif_transpose(opened) or opened
+        image.load()
+        return image
+
+
+def _scale_pixel_params(spec: ToolSpec, params: Mapping[str, Any], side: int) -> dict:
+    measured = [
+        param
+        for param in spec.params
+        if param.get("unit") == PIXEL_UNIT
+        and param.get("type") in ("integer", "float")
+        and isinstance(params.get(param["name"]), (int, float))
+        and not isinstance(params.get(param["name"]), bool)
+    ]
+    largest = max((abs(float(params[param["name"]])) for param in measured), default=0.0)
+    scaled = dict(params)
+    if largest <= side:
+        return scaled
+    factor = side / largest
+    for param in measured:
+        name = param["name"]
+        value = float(params[name]) * factor
+        if param.get("min") is not None:
+            value = max(value, float(param["min"]))
+        scaled[name] = int(round(value)) if param["type"] == "integer" else value
+    return scaled
 
 
 def _model(cls, value, field: str):
@@ -108,25 +161,93 @@ class MediaToolService:
         limit_guard: Optional["LimitGuard"] = None,
         jobs: Optional[MediaToolJobManager] = None,
         scratch_root: Optional[Path] = None,
+        settings: Optional["Settings"] = None,
+        thumbnail_runner: Optional[Callable[[Callable[[], None]], None]] = None,
+        sweep_stale: bool = True,
+        preview_wait_seconds: float = PREVIEW_WAIT_SECONDS,
     ):
         self.registry = registry
         self.params_repo = params_repository
         self.resolver = InputResolver(upload_repository, file_repository, storage_driver)
         self.publisher = MediaToolPublisher(
-            upload_repository, media_type_resolver, storage_driver, limit_guard
+            upload_repository,
+            media_type_resolver,
+            storage_driver,
+            limit_guard,
+            settings=settings,
+            thumbnail_runner=thumbnail_runner,
         )
         self.jobs = jobs if jobs is not None else MediaToolJobManager()
         self.scratch_root = Path(scratch_root) if scratch_root else Path(tempfile.gettempdir())
+        self._scratch_lock = threading.Lock()
+        self._live_scratch: set = set()
+        self._preview_slots = threading.BoundedSemaphore(PREVIEW_CONCURRENCY)
+        self._preview_wait = preview_wait_seconds
+        if sweep_stale:
+            self.sweep_scratch()
+
+    @contextmanager
+    def _scratch(self):
+        path = self.scratch_root / f"{SCRATCH_PREFIX}{uuid.uuid4().hex}"
+        path.mkdir(parents=True)
+        with self._scratch_lock:
+            self._live_scratch.add(path)
+        try:
+            yield path
+        finally:
+            shutil.rmtree(path, ignore_errors=True)
+            with self._scratch_lock:
+                self._live_scratch.discard(path)
+
+    def sweep_scratch(self, max_age: float = STALE_SCRATCH_SECONDS, now: Optional[float] = None) -> int:
+        try:
+            entries = list(os.scandir(self.scratch_root))
+        except OSError:
+            return 0
+        with self._scratch_lock:
+            live = {str(path) for path in self._live_scratch}
+        cutoff = (time.time() if now is None else now) - max_age
+        removed = 0
+        for entry in entries:
+            if not entry.name.startswith(SCRATCH_PREFIX) or entry.path in live:
+                continue
+            try:
+                if not entry.is_dir(follow_symlinks=False) or entry.stat(follow_symlinks=False).st_mtime > cutoff:
+                    continue
+            except OSError:
+                continue
+            shutil.rmtree(entry.path, ignore_errors=True)
+            removed += 1
+        return removed
+
+    def shutdown(self, timeout: float = SHUTDOWN_WAIT_SECONDS) -> None:
+        self.jobs.shutdown(timeout)
+        with self._scratch_lock:
+            leftover = list(self._live_scratch)
+        for path in leftover:
+            shutil.rmtree(path, ignore_errors=True)
 
     def catalog(
         self, user: Any, kind: Optional[str] = None, scope: Optional[str] = None
     ) -> List[ToolDTO]:
         specs = self.registry.list(kind=kind or None, scope=scope or None)
         remembered = self.params_repo.get_many(_user_id(user), [spec.id for spec in specs])
-        return [ToolDTO(**spec.to_dict(), last_params=remembered.get(spec.id)) for spec in specs]
+        return [
+            ToolDTO(**spec.to_dict(), runnable=spec.impl is not None, last_params=remembered.get(spec.id))
+            for spec in specs
+        ]
 
     def last_params(self, user: Any, tool_id: str) -> Optional[dict]:
         return self.params_repo.get(_user_id(user), tool_id)
+
+    def check(
+        self,
+        user: Any,
+        steps: Sequence[StepLike],
+        inputs: Sequence[InputLike],
+        output: OutputLike = None,
+    ) -> List[ResolvedInput]:
+        return self._plan(_user_id(user), steps, inputs, output).inputs
 
     def start_run(
         self,
@@ -185,11 +306,29 @@ class MediaToolService:
             if isinstance(started, str):
                 await asyncio.shield(asyncio.to_thread(self.jobs.cancel, user_id, started))
             raise
+        loop = asyncio.get_running_loop()
+        finished: asyncio.Future = loop.create_future()
+
+        def resolve() -> None:
+            if not finished.done():
+                finished.set_result(None)
+
+        def notify() -> None:
+            try:
+                loop.call_soon_threadsafe(resolve)
+            except RuntimeError:
+                return
+
+        known = self.jobs.on_done(user_id, run_id, notify)
         try:
-            run = await asyncio.to_thread(self.jobs.wait, user_id, run_id, timeout)
+            if known:
+                await asyncio.wait_for(finished, timeout)
+        except asyncio.TimeoutError:
+            pass
         except asyncio.CancelledError:
             await asyncio.shield(asyncio.to_thread(self.jobs.cancel, user_id, run_id))
             raise
+        run = await asyncio.to_thread(self.jobs.get, user_id, run_id)
         return await asyncio.to_thread(self._settle, user_id, run_id, run)
 
     def preview(
@@ -204,6 +343,7 @@ class MediaToolService:
         spec = self._spec(tool)
         if not spec.preview or spec.impl is None or not spec.impl.has_image_path():
             raise InvalidInputError("unsupported_media", f"{spec.label} has no preview")
+        at = self._preview_time(time_seconds)
         resolved = self.resolver.resolve(user_id, _model(InputRef, input_ref, "input"))
         if resolved.kind not in spec.accepts or resolved.kind == "audio":
             raise InvalidInputError(
@@ -213,38 +353,71 @@ class MediaToolService:
             validated = validate_params(spec, dict(params or {}))
         except InvalidToolParams as exc:
             raise _refusal(exc) from exc
+        validated = _scale_pixel_params(spec, validated, PREVIEW_OUTPUT_SIDE)
 
-        scratch = self.scratch_root / f"media-tool-{uuid.uuid4().hex}"
+        if not self._preview_slots.acquire(timeout=self._preview_wait):
+            raise DomainError(
+                "preview_busy", "Too many previews are rendering; try again in a moment", status_code=429
+            )
         try:
-            scratch.mkdir(parents=True)
-            with self.resolver.stage(resolved) as path:
-                source = self._preview_source(resolved, path, scratch, time_seconds)
-            source.thumbnail((PREVIEW_SOURCE_SIDE, PREVIEW_SOURCE_SIDE), Image.Resampling.LANCZOS)
-            try:
-                result = spec.impl.image(source, validated)
-            except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
-                raise _refusal(exc) from exc
-            result.thumbnail((PREVIEW_OUTPUT_SIDE, PREVIEW_OUTPUT_SIDE), Image.Resampling.LANCZOS)
-            if result.mode not in ("RGB", "RGBA"):
-                result = result.convert("RGBA" if has_alpha_mode(result) else "RGB")
-            buffer = io.BytesIO()
-            result.save(buffer, format="WEBP", quality=PREVIEW_QUALITY)
-            return buffer.getvalue()
+            with self._scratch() as scratch:
+                try:
+                    with self.resolver.stage(resolved) as path:
+                        source = self._preview_source(resolved, path, scratch, at)
+                    result = spec.impl.image(source, validated)
+                except (InvalidToolParams, UnsupportedMedia, InvalidSelection) as exc:
+                    raise _refusal(exc) from exc
+                result.thumbnail((PREVIEW_OUTPUT_SIDE, PREVIEW_OUTPUT_SIDE), Image.Resampling.LANCZOS)
+                if result.mode not in ("RGB", "RGBA"):
+                    result = result.convert("RGBA" if has_alpha_mode(result) else "RGB")
+                buffer = io.BytesIO()
+                result.save(buffer, format="WEBP", quality=PREVIEW_QUALITY)
+                return buffer.getvalue()
         finally:
-            shutil.rmtree(scratch, ignore_errors=True)
+            self._preview_slots.release()
+
+    @staticmethod
+    def _preview_time(time_seconds: Optional[float]) -> float:
+        if time_seconds is None:
+            return 0.0
+        try:
+            at = float(time_seconds)
+        except (TypeError, ValueError):
+            at = math.nan
+        if not math.isfinite(at) or at < 0:
+            raise InvalidInputError(
+                "invalid_params", "time_seconds must be zero or more", field="time_seconds"
+            )
+        return at
 
     def _preview_source(
-        self, resolved: ResolvedInput, path: Path, scratch: Path, time_seconds: Optional[float]
+        self, resolved: ResolvedInput, path: Path, scratch: Path, at: float
     ) -> Image.Image:
         if resolved.kind == "image":
-            return prepare_image(path)
+            return _load_preview_source(path)
         ctx = ToolContext(scratch)
+        media = ctx.probe(path, "video")
+        duration = media.duration
+        if duration is not None and at > duration + PREVIEW_TIME_TOLERANCE:
+            raise InvalidInputError(
+                "invalid_params",
+                f"time_seconds ({at:g}) is past the end of the video ({duration:.3f}s)",
+                field="time_seconds",
+            )
         frame = ctx.new_path(".png", stem="frame")
-        at = max(0.0, float(time_seconds or 0.0))
-        ctx.ffmpeg(["-ss", f"{at:.3f}", "-i", str(path), "-frames:v", "1", str(frame)])
-        if not frame.is_file():
-            raise ToolFailed("Could not read a frame from the video")
-        return prepare_image(frame)
+        for seek in self._frame_seeks(at, duration):
+            ctx.ffmpeg(["-ss", f"{seek:.3f}", "-i", str(path), "-frames:v", "1", str(frame)])
+            if frame.is_file() and frame.stat().st_size > 0:
+                return _load_preview_source(frame)
+        raise ToolFailed("Could not read a frame from the video")
+
+    @staticmethod
+    def _frame_seeks(at: float, duration: Optional[float]) -> List[float]:
+        seeks = [at]
+        if duration is not None and duration > 0:
+            seeks.append(max(0.0, min(at, duration) - PREVIEW_END_BACKOFF_SECONDS))
+            seeks.append(0.0)
+        return seeks
 
     def _settle(self, user_id: str, run_id: str, run: Optional[RunDTO]) -> RunResult:
         if run is None:
@@ -352,9 +525,7 @@ class MediaToolService:
 
     def _work(self, user_id: str, plan: _Plan) -> Callable[[RunControl], RunOutcome]:
         def work(control: RunControl) -> RunOutcome:
-            scratch = self.scratch_root / f"media-tool-{uuid.uuid4().hex}"
-            try:
-                scratch.mkdir(parents=True)
+            with self._scratch() as scratch:
                 base = ToolContext(
                     scratch, progress=control.report, is_cancelled=control.is_cancelled
                 )
@@ -365,12 +536,15 @@ class MediaToolService:
                     outputs = run_chain(plan.steps, media, ctx, validate=False)
                     if control.is_cancelled():
                         raise ToolCancelled()
+                    if len(outputs) > MAX_OUTPUTS:
+                        raise InvalidInputError(
+                            "too_many_outputs",
+                            f"This run would create {len(outputs)} files; the limit is {MAX_OUTPUTS}",
+                        )
                     control.report(SAVE_PROGRESS, "Saving")
                     outcome = self._publish(user_id, plan, outputs)
                 self._remember(user_id, plan)
                 return outcome
-            finally:
-                shutil.rmtree(scratch, ignore_errors=True)
 
         return work
 
@@ -391,10 +565,10 @@ class MediaToolService:
         for index, media in enumerate(outputs):
             matched = last.cardinality == "one_to_one" and len(plan.inputs) == total
             source = plan.inputs[index] if matched else plan.inputs[0]
-            stem = Path(source.original_filename or "").stem or "media"
+            stem = _safe_stem(source.original_filename)
             extension = media.path.suffix
             if last.cardinality == "one_to_many":
-                names.append(f"{stem} — part {index + 1}/{total}{extension}")
+                names.append(f"{stem} — part {index + 1} of {total}{extension}")
             elif last.cardinality == "many_to_one":
                 names.append(f"{stem}{last.name_suffix or '-joined'}{extension}")
             else:

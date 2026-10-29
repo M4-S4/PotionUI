@@ -29,7 +29,7 @@ class TestCatalog(MediaToolsTestBase):
             sorted([
                 "id", "label", "icon", "accepts", "produces", "cardinality", "params", "requires",
                 "selection", "scopes", "editor", "preview", "component", "source", "description",
-                "last_params",
+                "last_params", "runnable",
             ]),
         )
         self.assertEqual(entry["accepts"], ["image"])
@@ -37,6 +37,17 @@ class TestCatalog(MediaToolsTestBase):
         self.assertTrue(entry["preview"])
         self.assertIsNone(entry["last_params"])
         self.assertNotIn("impl", entry)
+
+    def test_runnable_is_true_for_python_tools_and_false_for_component_only_tools(self):
+        tools = self.client.get("/api/media-tools").json()["data"]["tools"]
+
+        self.assertTrue(self.tool(tools, "shrink")["runnable"])
+        self.assertTrue(self.tool(tools, "acme.mirror")["runnable"])
+        self.assertFalse(self.tool(tools, "acme.panel")["runnable"])
+        self.assertEqual(
+            {tool["id"]: tool["runnable"] for tool in tools if tool["component"]},
+            {"acme.panel": False},
+        )
 
     def test_kind_filter_keeps_only_tools_that_accept_the_kind(self):
         audio = self.client.get("/api/media-tools", params={"kind": "audio"}).json()["data"]["tools"]
@@ -132,6 +143,7 @@ class TestRunHappyPaths(MediaToolsTestBase):
             sorted([
                 "id", "filename", "original_filename", "media_type", "mime_type", "url", "width",
                 "height", "duration_seconds", "fps", "size", "created_at",
+                "thumbnail_small", "thumbnail_medium", "thumbnail_large",
             ]),
         )
 
@@ -185,7 +197,7 @@ class TestRunHappyPaths(MediaToolsTestBase):
         self.assertEqual(run.status, "completed")
         self.assertEqual(
             [entry.original_filename for entry in run.items],
-            ["original-sound — part 1/2.wav", "original-sound — part 2/2.wav"],
+            ["original-sound — part 1 of 2.wav", "original-sound — part 2 of 2.wav"],
         )
         self.assertEqual(len(self.upload_rows()), 3)
 

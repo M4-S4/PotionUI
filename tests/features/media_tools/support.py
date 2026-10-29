@@ -179,6 +179,25 @@ class Noop(MediaTool):
         return FilterFragment()
 
 
+class PadPx(MediaTool):
+    def __init__(self):
+        self.seen = []
+
+    def image(self, image, params):
+        self.seen.append((params["width"], params["height"], image.size))
+        return Image.new("RGB", (params["width"], params["height"]), (10, 200, 10))
+
+
+class FanMany(MediaTool):
+    def run(self, inputs, params, ctx):
+        outputs = []
+        for index in range(params["n"]):
+            out = ctx.new_path(inputs[0].path.suffix, stem=f"fan{index}")
+            shutil.copyfile(inputs[0].path, out)
+            outputs.append(ctx.probe(out, inputs[0].kind))
+        return outputs
+
+
 def build_registry(gate):
     registry = MediaToolRegistry()
     size = {"name": "size", "type": "integer", "label": "Size", "default": 8, "min": 1, "max": 64}
@@ -220,6 +239,16 @@ def build_registry(gate):
     ))
     registry.register(ToolSpec(
         id="toimage", label="To image", accepts=("video",), produces="image", impl=Noop(),
+    ))
+    pixel = {"type": "integer", "default": 64, "min": 1, "max": 8192, "unit": "px"}
+    registry.register(ToolSpec(
+        id="padpx", label="Pad px", accepts=("image",), preview=True, impl=PadPx(),
+        params=[{"name": "width", "label": "Width", **pixel}, {"name": "height", "label": "Height", **pixel}],
+    ))
+    registry.register(ToolSpec(
+        id="fanmany", label="Fan many", accepts=("image",), cardinality="one_to_many", name_suffix="-fan",
+        impl=FanMany(),
+        params=[{"name": "n", "type": "integer", "label": "Copies", "default": 2, "min": 1, "max": 600}],
     ))
     registry.register(ToolSpec(
         id="acme.panel", label="Panel", accepts=("image", "video"), component="plugin:acme:panel",
@@ -395,7 +424,11 @@ class MediaToolsTestBase(PersistenceTestBase):
         return self.upload_repo.list_for_user(user_id or self.user_id, limit=500)
 
     def stored_files(self):
-        return sorted(path.name for path in self.uploads_dir.iterdir())
+        return sorted(path.name for path in self.uploads_dir.iterdir() if path.is_file())
+
+    def thumbnail_files(self):
+        directory = self.uploads_dir / "thumbnails"
+        return sorted(path.name for path in directory.iterdir()) if directory.is_dir() else []
 
     def scratch_entries(self):
         return sorted(path.name for path in self.scratch_root.iterdir())
