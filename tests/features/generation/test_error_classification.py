@@ -307,3 +307,32 @@ def test_users_are_told_to_ask_for_a_restart():
 
     assert copy.summary == "The server's GPU needs a restart before it can generate again."
     assert copy.suggestions == ["Ask your administrator to restart the backend"]
+
+
+def test_a_workers_refusal_asks_for_the_worker_restart_not_the_backend():
+    from src.platform.runtime.cuda_allocator import WORKER_RESTART_ACTION
+
+    classification = classification_for_code("worker_gpu_restart_required")
+
+    assert classification.category == "worker_gpu_restart_required"
+    assert classification.summary.startswith("The remote worker can no longer use the GPU")
+    assert classification.suggestions == [WORKER_RESTART_ACTION]
+    assert "Restart Backend" not in classification.summary
+
+
+def test_a_stored_worker_refusal_reads_as_a_worker_restart_from_its_text():
+    from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged
+
+    text = f"CudaAllocatorDamaged: {CudaAllocatorDamaged('CUDA driver error: device not ready', worker=True)}"
+
+    assert classify_error_text(text).category == "worker_gpu_restart_required"
+    assert classify_error_text(str(CudaAllocatorDamaged("CUDA driver error: device not ready"))).category == "gpu_restart_required"
+
+
+def test_users_are_told_to_ask_for_the_worker_restart():
+    from src.features.generation.error_classification import user_classification_for_code
+
+    copy = user_classification_for_code("worker_gpu_restart_required", video=True)
+
+    assert copy.summary == "The server's GPU needs a restart before it can generate again."
+    assert copy.suggestions == ["Ask your administrator to restart the worker"]

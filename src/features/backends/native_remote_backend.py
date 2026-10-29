@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Set
 
 from src.features.backends.base_backend import BaseBackend, ExecutionDevice
+from src.features.generation.error_classification import ERROR_CATEGORIES
 from src.features.generation.input_assets import collect_input_assets
 from src.features.generation.package_assembly import (
     assemble_execution_package,
@@ -61,6 +62,7 @@ from src.pipelines.remote_fingerprint import (
     compute_remote_plugin_bundle_fingerprint,
 )
 from src.platform.observability.logger import logger
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged
 from src.platform.settings.runtime_flags import engine_flag_values
 from src.platform.util.ids import generate_ulid
 from src.platform.worker_protocol import (
@@ -75,6 +77,8 @@ from src.platform.worker_protocol import (
 #: rather than retrying forever.
 _MAX_EVENT_STREAM_RECONNECTS = 3
 _EVENT_STREAM_RECONNECT_DELAY_SECONDS = 0.05
+
+_WORKER_GPU_RESTART_CODE = "worker_gpu_restart_required"
 
 _CUDA_UNAVAILABLE_MESSAGE = (
     "Worker reports CUDA unavailable — generation would run on CPU. The pod's "
@@ -208,6 +212,10 @@ class RemoteNativeBackend(BaseBackend):
             # run the same build, so it is the reason worth reading first.
             health["status"] = "degraded"
             health["reason"] = cuda_reason
+        damage_reason = self._allocator_damage_reason(info)
+        if damage_reason is not None:
+            health["status"] = "degraded"
+            health["reason"] = damage_reason
         catalog_note = self._catalog_mismatch_note(info)
         if catalog_note is not None:
             health["catalog_note"] = catalog_note
@@ -251,6 +259,12 @@ class RemoteNativeBackend(BaseBackend):
         if info.cuda_error:
             return f"{_CUDA_UNAVAILABLE_MESSAGE} Worker reports: {info.cuda_error}"
         return _CUDA_UNAVAILABLE_MESSAGE
+
+    def _allocator_damage_reason(self, info: WorkerInfoV1) -> Optional[str]:
+        damage = info.capabilities.allocator_damage
+        if not damage or not (info.device or "").startswith("cuda"):
+            return None
+        return f"Worker '{info.worker_id}': {CudaAllocatorDamaged(damage, worker=True)}"
 
     def _catalog_mismatch_note(self, info: WorkerInfoV1) -> Optional[str]:
         mismatched = [
@@ -422,6 +436,15 @@ class RemoteNativeBackend(BaseBackend):
             emit(ErrorGenerationOutput(error=cuda_reason))
             return
 
+        damage_reason = self._allocator_damage_reason(info)
+        if damage_reason is not None:
+            self._repository.apply_state(
+                row.id, RemoteExecutionState.FAILED,
+                error_code=_WORKER_GPU_RESTART_CODE, error_message=damage_reason,
+            )
+            emit(ErrorGenerationOutput(error=damage_reason, error_code=_WORKER_GPU_RESTART_CODE))
+            return
+
         mismatch = self._fingerprint_mismatch(info)
         if mismatch is not None:
             self._repository.apply_state(
@@ -589,4 +612,8 @@ class RemoteNativeBackend(BaseBackend):
             return
 
         if event.kind in ("failed", "rejected") and event.error is not None:
-            emit(ErrorGenerationOutput(error=event.error.message, detail=event.error.detail))
+            code = event.error.code
+            emit(ErrorGenerationOutput(
+                error=event.error.message, detail=event.error.detail,
+                error_code=code if code in ERROR_CATEGORIES else None,
+            ))

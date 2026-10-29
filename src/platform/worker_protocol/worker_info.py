@@ -46,6 +46,7 @@ class WorkerCapabilitiesV1(ProtocolModel):
     cuda_version: str | None = None
     platform: str = ""
     attention_backends: tuple[str, ...] = ()
+    allocator_damage: str | None = None
     #: Open-ended capability tokens. This is the extension point that keeps
     #: ``extra="forbid"`` affordable: a worker advertising something new emits
     #: a token here instead of a new field, and a core that does not know the

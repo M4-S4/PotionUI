@@ -13,7 +13,8 @@ from unittest.mock import patch
 
 from src.features.backends.backend_config import NativeRemoteBackendConfig
 from src.features.backends.native_remote_backend import RemoteNativeBackend
-from src.platform.worker_protocol import WorkerInfoV1
+from src.platform.runtime.cuda_allocator import WORKER_RESTART_HINT
+from src.platform.worker_protocol import WorkerCapabilitiesV1, WorkerInfoV1
 
 DRIVER_TOO_OLD = "The NVIDIA driver on your system is too old (found version 12040)."
 
@@ -67,6 +68,36 @@ async def test_a_worker_predating_the_cuda_fields_is_healthy():
 
 async def test_a_deliberate_cpu_worker_is_not_degraded():
     health = await _health(device="cpu", cuda_available=False)
+
+    assert health["status"] == "healthy"
+    assert "reason" not in health
+
+
+async def test_a_worker_whose_allocator_is_damaged_is_degraded_and_named():
+    health = await _health(
+        device="cuda", cuda_available=True,
+        capabilities=WorkerCapabilitiesV1(allocator_damage="CUDA driver error: device not ready"),
+    )
+
+    assert health["status"] == "degraded"
+    assert health["reason"].startswith("Worker 'worker-1'")
+    assert "CUDA driver error: device not ready" in health["reason"]
+    assert health["reason"].endswith(WORKER_RESTART_HINT)
+    assert "Restart Backend" not in health["reason"]
+
+
+async def test_a_cpu_worker_reporting_allocator_damage_is_not_degraded():
+    health = await _health(
+        device="cpu", cuda_available=False,
+        capabilities=WorkerCapabilitiesV1(allocator_damage="CUDA driver error: device not ready"),
+    )
+
+    assert health["status"] == "healthy"
+    assert "reason" not in health
+
+
+async def test_a_worker_reporting_no_damage_is_healthy():
+    health = await _health(device="cuda", cuda_available=True, capabilities=WorkerCapabilitiesV1())
 
     assert health["status"] == "healthy"
     assert "reason" not in health

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import torch
 from PIL import Image
 
 from src.features.remote_execution.output_codec import decode_output
@@ -25,6 +26,8 @@ from src.pipelines.outputs import (
     Progress,
     VideoGenerationOutput,
 )
+from src.platform.runtime import cuda_allocator
+from src.platform.runtime.cuda_allocator import DRIVER_OOM_POLICY_ENV, WORKER_RESTART_HINT
 from src.platform.worker_protocol import ProcessedPipelineV1, ProcessedPipeV1
 
 
@@ -137,6 +140,60 @@ class FailingPipe:
 
     def process(self, pipe_input, generation_outputs):
         raise RuntimeError("boom")
+
+
+class OutOfMemoryPipe:
+    name = "oom/fake"
+    description = "fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")
+
+
+class DriverOomPipe:
+    name = "driver_oom/fake"
+    description = "fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        raise RuntimeError("CUDA driver error: device not ready")
 
 
 class ModelsAwarePipe:
@@ -392,6 +449,8 @@ CATALOG = FakeCatalog({
     "loader/fake": LoaderPipe,
     "generator/fake": GeneratorPipe,
     "failing/fake": FailingPipe,
+    "oom/fake": OutOfMemoryPipe,
+    "driver_oom/fake": DriverOomPipe,
     "models_aware/fake": ModelsAwarePipe,
     "cond_encoder/fake": CondEncoderPipe,
     "cond_single/fake": SingleCondConsumerPipe,
@@ -579,8 +638,72 @@ def test_a_raising_pipe_becomes_a_retryable_pipe_execution_error(tmp_path):
     ))
     with pytest.raises(PipeExecutionError) as exc_info:
         _executor(tmp_path).run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
+    assert exc_info.value.code == "pipe_failed"
     assert exc_info.value.retryable is True
     assert exc_info.value.pipe_id == "bad"
+
+
+def _single(pipe_type: str, pipe_id: str = "p") -> ProcessedPipelineV1:
+    return ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id=pipe_id, pipe_type=pipe_type, config={}, inputs={}),
+    ))
+
+
+def test_a_pipe_raising_a_cuda_oom_fails_under_the_cuda_oom_code(tmp_path, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    with pytest.raises(PipeExecutionError) as exc_info:
+        _executor(tmp_path).run(_single("oom/fake"), emit=lambda e: None, is_cancelled=lambda: False)
+    assert exc_info.value.code == "cuda_oom"
+    assert exc_info.value.retryable is True
+    assert "Tried to allocate 2.00 GiB" in exc_info.value.message
+
+
+def test_a_damaged_allocator_refuses_a_cuda_pipe_before_it_is_built(tmp_path, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    LoaderPipe.execution_count = 0
+    events = []
+    with pytest.raises(PipeExecutionError) as exc_info:
+        _executor(tmp_path).run(_single("loader/fake", "loader"), emit=events.append, is_cancelled=lambda: False)
+    assert exc_info.value.code == "worker_gpu_restart_required"
+    assert exc_info.value.retryable is False
+    assert exc_info.value.pipe_id == "loader"
+    assert "CUDA driver error: device not ready" in exc_info.value.message
+    assert exc_info.value.message.endswith(WORKER_RESTART_HINT)
+    assert LoaderPipe.execution_count == 0
+    assert [e.kind for e in events] == ["pipe_started"]
+
+
+def test_a_damaged_allocator_does_not_stop_a_cpu_worker(tmp_path, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    LoaderPipe.execution_count = 0
+    executor = WorkerPipelineExecutor(
+        CATALOG, device="cpu", dtype="fp32", vram_limit_gb=None, artifacts_dir=tmp_path,
+    )
+    executor.run(_single("loader/fake", "loader"), emit=lambda e: None, is_cancelled=lambda: False)
+    assert LoaderPipe.execution_count == 1
+
+
+def test_a_driver_oom_that_damages_the_allocator_asks_for_a_worker_restart_at_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    with pytest.raises(PipeExecutionError) as exc_info:
+        _executor(tmp_path).run(_single("driver_oom/fake"), emit=lambda e: None, is_cancelled=lambda: False)
+    assert exc_info.value.code == "worker_gpu_restart_required"
+    assert exc_info.value.retryable is False
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
+def test_a_driver_oom_that_is_retried_stays_a_cuda_oom(tmp_path, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "retry")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    with pytest.raises(PipeExecutionError) as exc_info:
+        _executor(tmp_path).run(_single("driver_oom/fake"), emit=lambda e: None, is_cancelled=lambda: False)
+    assert exc_info.value.code == "cuda_oom"
+    assert exc_info.value.retryable is True
+    assert cuda_allocator.allocator_damage() is None
 
 
 def test_an_unknown_pipe_type_is_not_retryable(tmp_path):
