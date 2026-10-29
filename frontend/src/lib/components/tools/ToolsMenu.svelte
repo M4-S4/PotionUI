@@ -9,6 +9,7 @@
 	import menuNav from '$lib/actions/menuNav';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { isTypingInField } from '$lib/utils/editableTarget';
+	import { retryMediaToolCatalog } from '$lib/tools/pluginTools';
 	import {
 		toolLabel,
 		type MediaTool,
@@ -111,6 +112,10 @@
 			preferred: anchorPoint ? 'down' : placement
 		});
 	}
+
+	$effect(() => {
+		if (open && scope !== 'field') void retryMediaToolCatalog();
+	});
 
 	$effect(() => {
 		if (!open) {

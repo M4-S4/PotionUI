@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
+const retryMediaToolCatalog = vi.fn();
+vi.mock('$lib/tools/pluginTools', () => ({
+	retryMediaToolCatalog: (...args: unknown[]) => retryMediaToolCatalog(...args)
+}));
+
 import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 import type { MediaTool, MediaToolGroup } from '$lib/tools/tools';
 
@@ -32,6 +37,7 @@ function groups(): MediaToolGroup[] {
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
+	retryMediaToolCatalog.mockReset();
 	cleanup?.();
 	cleanup = undefined;
 	document.body.innerHTML = '';
@@ -262,5 +268,58 @@ describe('ToolsMenu second line', () => {
 	it('shows the second line in the phone sheet too', () => {
 		render({ groups: noted(), sheet: true, title: 'clip.mp4' });
 		expect(sub('frame')!.textContent).toBe('Saves one image');
+	});
+});
+
+describe('ToolsMenu catalog retry', () => {
+	it('asks the catalog to retry when a page menu opens', () => {
+		render({ open: true, scope: 'library' });
+		expect(retryMediaToolCatalog).toHaveBeenCalledTimes(1);
+	});
+
+	it('does so for a History menu and a card menu as well', () => {
+		render({ open: true, scope: 'history', variant: 'entry' });
+		expect(retryMediaToolCatalog).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not ask while the menu is closed', () => {
+		render({ open: false, scope: 'library' });
+		expect(retryMediaToolCatalog).not.toHaveBeenCalled();
+	});
+
+	it('asks again each time the menu is opened', async () => {
+		const { createClassComponent } = await import('svelte/legacy');
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const instance = createClassComponent({
+			component: ToolsMenu as never,
+			target,
+			props: {
+				open: false,
+				scope: 'library',
+				groups: groups(),
+				onToggle: vi.fn(),
+				onClose: vi.fn(),
+				onPick: vi.fn()
+			}
+		});
+		cleanup = () => {
+			instance.$destroy();
+			target.remove();
+		};
+		flushSync();
+		instance.$set({ open: true });
+		flushSync();
+		instance.$set({ open: false });
+		flushSync();
+		instance.$set({ open: true });
+		flushSync();
+
+		expect(retryMediaToolCatalog).toHaveBeenCalledTimes(2);
+	});
+
+	it('leaves a field menu alone, which builds its tools from its own catalog call', () => {
+		render({ open: true, scope: 'field' });
+		expect(retryMediaToolCatalog).not.toHaveBeenCalled();
 	});
 });
