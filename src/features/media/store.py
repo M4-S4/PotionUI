@@ -11,7 +11,6 @@ import io
 import logging
 import shutil
 import tempfile
-import threading
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -34,8 +33,7 @@ from src.platform.settings.settings import Settings
 from src.features.generation.file_repository import FileRepository
 from src.features.generation.repository import GenerationRepository
 from src.features.generation import media_probe
-from src.features.generation.handlers.image_handler import generate_thumbnails
-from src.features.generation.handlers.video_handler import generate_video_thumbnails, render_poster_frame
+from src.features.generation.handlers.video_handler import render_poster_frame
 from src.features.generation.thumbnail_profile import (
     SIZE_ORDER,
     fallback_sizes,
@@ -51,6 +49,11 @@ from src.platform.filesystem.storage_driver import (
 )
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
+from src.features.media.upload_thumbnails import (
+    render_image_thumbnails,
+    render_video_thumbnails,
+    run_in_background,
+)
 from src.features.media.validators import UPLOAD_PURPOSE_USER, validate_upload_purpose_policy
 from src.features.media.dto import (
     MediaResult,
@@ -624,8 +627,8 @@ class MediaStore:
         try:
             image = Image.open(io.BytesIO(file_data))
             image.load()
-            return generate_thumbnails(
-                image, self.storage_driver, "uploads", stem, load_thumbnail_profile(self.settings)
+            return render_image_thumbnails(
+                self.storage_driver, load_thumbnail_profile(self.settings), image, stem
             )
         except Exception as e:
             logger.warning(f"Failed to generate thumbnails for uploaded image: {e}")
@@ -644,26 +647,9 @@ class MediaStore:
         profile = load_thumbnail_profile(self.settings)
 
         def worker():
-            try:
-                with self._local_copy(key, file_ext) as local_path:
-                    thumbnail_paths = generate_video_thumbnails(
-                        str(local_path), storage_driver, "uploads", stem, profile
-                    )
+            render_video_thumbnails(storage_driver, upload_repo, profile, key, file_ext, upload_id, stem)
 
-                if thumbnail_paths:
-                    upload_repo.set_thumbnail_paths(
-                        upload_id,
-                        thumbnail_paths.get('small'),
-                        thumbnail_paths.get('medium'),
-                        thumbnail_paths.get('large'),
-                        profile_hash(profile),
-                    )
-                else:
-                    logger.warning(f"Failed to generate thumbnails for uploaded video: {key}")
-            except Exception as e:
-                logger.error(f"Error generating thumbnails for uploaded video {key}: {e}")
-
-        threading.Thread(target=worker, daemon=True).start()
+        run_in_background(worker)
 
     def _record_upload_ownership(
         self,
