@@ -5,7 +5,7 @@ from PIL import Image
 
 from src.platform.media_tools import InvalidToolParams
 from tests.platform.media_tools.media_factory import make_image
-from tests.platform.media_tools.ops.geometry_support import resolved, run_one, tool_of
+from tests.platform.media_tools.ops.geometry_support import resolved, run_one, spec_of, tool_of
 
 RED = (200, 0, 0, 255)
 CLEAR = (0, 0, 0, 0)
@@ -151,3 +151,23 @@ def test_palette_source_is_converted_before_scaling():
     source.putpalette([255, 0, 0] * 256)
     out = fit(source, width=20, height=20)
     assert out.getpixel((10, 10)) == (255, 0, 0, 255)
+
+
+@pytest.mark.parametrize("field", ["width", "height"])
+def test_canvas_over_the_limit_is_refused_by_validation_before_the_tool_runs(field):
+    other = "height" if field == "width" else "width"
+    with pytest.raises(InvalidToolParams) as caught:
+        resolved("fit_canvas", **{field: 8193, other: 10})
+    assert caught.value.field == field
+    assert "at most 8192" in caught.value.message
+
+
+def test_canvas_limit_boundary_is_accepted_by_validation():
+    params = resolved("fit_canvas", width=8192, height=8192)
+    assert (params["width"], params["height"]) == (8192, 8192)
+
+
+def test_spec_exposes_the_canvas_limit_to_the_catalog():
+    declared = {p["name"]: p for p in spec_of("fit_canvas").params}
+    assert declared["width"]["max"] == 8192
+    assert declared["height"]["max"] == 8192

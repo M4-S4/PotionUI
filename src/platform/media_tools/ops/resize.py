@@ -19,8 +19,8 @@ SPEC = dict(
     editor="resize",
     name_suffix="-resize",
     params=[
-        {"name": "width", "type": "integer", "label": "Width", "default": None, "min": 1, "unit": "px"},
-        {"name": "height", "type": "integer", "label": "Height", "default": None, "min": 1, "unit": "px"},
+        {"name": "width", "type": "integer", "label": "Width", "default": None, "min": 1, "max": MAX_IMAGE_DIMENSION, "unit": "px"},
+        {"name": "height", "type": "integer", "label": "Height", "default": None, "min": 1, "max": MAX_IMAGE_DIMENSION, "unit": "px"},
         {
             "name": "quality",
             "type": "select",

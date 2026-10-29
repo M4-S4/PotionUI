@@ -153,7 +153,12 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
     suffix = out_path.suffix.lower()
     args = _seek_args(plan)
     args += ["-i", str(media.path)]
-    reencode_audio = bool(plan.af) or plan.seek_start is not None or plan.seek_end is not None
+    reencode_audio = (
+        bool(plan.af)
+        or plan.seek_start is not None
+        or plan.seek_end is not None
+        or suffix != media.path.suffix.lower()
+    )
 
     if media.kind == "audio":
         args += ["-vn"]

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from PIL import Image
 
-from src.platform.media_tools import InvalidToolParams
+from src.platform.media_tools import InvalidToolParams, ToolMedia
 from tests.platform.media_tools.media_factory import make_image, make_video
-from tests.platform.media_tools.ops.geometry_support import resolved, run_one, tool_of
+from tests.platform.media_tools.ops.geometry_support import resolved, run_one, spec_of, tool_of
 
 
 def test_resize_needs_a_width_or_a_height():
@@ -111,3 +113,30 @@ def test_video_resize_without_an_encoder_choice_uses_the_balanced_crf(need_ffmpe
     run_one("resize", {"height": 24}, path, ctx)
     command = ctx.commands[0]
     assert command[command.index("-crf") + 1] == "23"
+
+
+@pytest.mark.parametrize("field", ["width", "height"])
+def test_resize_over_the_image_limit_is_refused_by_validation_before_the_tool_runs(field):
+    with pytest.raises(InvalidToolParams) as caught:
+        resolved("resize", **{field: 8193})
+    assert caught.value.field == field
+    assert "at most 8192" in caught.value.message
+
+
+def test_resize_limit_boundary_is_accepted_by_validation():
+    assert resolved("resize", width=8192)["width"] == 8192
+    assert resolved("resize", height=8192)["height"] == 8192
+
+
+def test_spec_exposes_the_resize_limit_to_the_catalog():
+    declared = {p["name"]: p for p in spec_of("resize").params}
+    assert declared["width"]["max"] == 8192
+    assert declared["height"]["max"] == 8192
+
+
+def test_video_limit_is_still_tighter_than_the_validated_maximum():
+    media = ToolMedia(path=Path("/m/clip.mp4"), kind="video", width=64, height=48, duration=1.0)
+    params = resolved("resize", width=5000)
+    with pytest.raises(InvalidToolParams) as caught:
+        tool_of("resize").video_filter(media, params)
+    assert caught.value.field == "width"

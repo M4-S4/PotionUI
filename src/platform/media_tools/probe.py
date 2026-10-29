@@ -44,13 +44,13 @@ def kind_for_suffix(path: Path) -> Optional[str]:
 def probe(path: Path | str, kind: Optional[str] = None) -> ToolMedia:
     path = Path(path)
     if not path.is_file():
-        raise UnsupportedMedia(f"The media file is missing: {path.name}")
+        raise UnsupportedMedia("The media file is missing")
     resolved = kind or kind_for_suffix(path) or _sniff_kind(path)
     if resolved == "image":
         return _probe_image(path)
     if resolved in ("video", "audio"):
         return _probe_timed(path, resolved)
-    raise UnsupportedMedia(f"Cannot tell what kind of media {path.name} is")
+    raise UnsupportedMedia("Cannot tell what kind of media this is")
 
 
 def _sniff_kind(path: Path) -> Optional[str]:
@@ -81,7 +81,8 @@ def _probe_image(path: Path) -> ToolMedia:
             except Exception:
                 orientation = None
     except (UnidentifiedImageError, OSError) as exc:
-        raise UnsupportedMedia(f"This image cannot be read: {exc}") from exc
+        logger.warning("Could not read image %s: %s", path, exc)
+        raise UnsupportedMedia("This image cannot be read") from exc
     if orientation in _TRANSPOSED_ORIENTATIONS:
         width, height = height, width
     return ToolMedia(path=path, kind="image", width=width, height=height, has_alpha=alpha)

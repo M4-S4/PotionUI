@@ -244,3 +244,72 @@ def test_a_failing_ffprobe_falls_back_to_the_ffmpeg_banner(monkeypatch, tmp_path
     media = probe(path)
 
     assert (media.width, media.height) == (64, 48)
+
+
+TOKEN = "zq7secrettoken"
+
+
+def private_dir(tmp_path):
+    folder = tmp_path / TOKEN
+    folder.mkdir()
+    return folder
+
+
+def assert_message_is_clean(message, tmp_path, *forbidden):
+    assert TOKEN not in message
+    assert str(tmp_path) not in message
+    for text in forbidden:
+        assert text not in message
+
+
+def test_corrupt_image_message_is_fixed_and_leaks_neither_path_nor_exception_text(tmp_path, caplog):
+    bad = private_dir(tmp_path) / "pic.png"
+    bad.write_bytes(b"definitely not an image")
+    try:
+        Image.open(bad)
+    except Exception as exc:
+        raw = str(exc)
+    assert TOKEN in raw
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(UnsupportedMedia) as raised:
+            probe(bad)
+
+    assert raised.value.message == "This image cannot be read"
+    assert str(raised.value) == "This image cannot be read"
+    assert_message_is_clean(raised.value.message, tmp_path, raw)
+    assert any(TOKEN in record.getMessage() for record in caplog.records)
+
+
+def test_missing_file_message_does_not_name_the_file(tmp_path):
+    with pytest.raises(UnsupportedMedia) as raised:
+        probe(private_dir(tmp_path) / "gone.png")
+
+    assert raised.value.message == "The media file is missing"
+    assert_message_is_clean(raised.value.message, tmp_path, "gone.png")
+
+
+@pytest.mark.usefixtures("need_ffmpeg")
+def test_unrecognisable_file_message_does_not_name_the_file(tmp_path):
+    blob = private_dir(tmp_path) / "blob.zzz"
+    blob.write_bytes(b"neither an image nor a video")
+
+    with pytest.raises(UnsupportedMedia) as raised:
+        probe(blob)
+
+    assert raised.value.message == "Cannot tell what kind of media this is"
+    assert_message_is_clean(raised.value.message, tmp_path, "blob.zzz")
+
+
+@pytest.mark.usefixtures("need_ffmpeg")
+def test_corrupt_video_and_audio_messages_leak_nothing(tmp_path):
+    folder = private_dir(tmp_path)
+    video = folder / "clip.mp4"
+    audio = folder / "tone.wav"
+    video.write_bytes(b"this is not a video at all")
+    audio.write_bytes(b"this is not audio at all")
+
+    for path in (video, audio):
+        with pytest.raises(UnsupportedMedia) as raised:
+            probe(path)
+        assert_message_is_clean(raised.value.message, tmp_path, path.name)

@@ -78,7 +78,8 @@ class ColorKey(MediaTool):
 
         threshold = (tolerance / 100.0) * MAX_CHROMA_DISTANCE
         ramp_half = (softness / 100.0) * (MAX_CHROMA_DISTANCE / 2.0)
-        alpha = feather_alpha(soft_alpha(distance, threshold, ramp_half), feather)
+        keyed = feather_alpha(soft_alpha(distance, threshold, ramp_half), feather)
+        alpha = np.round(keyed.astype(np.float64) * rgba[..., 3] / 255.0).astype(np.uint8)
 
         out_rgb = despill(rgb, key_rgb) if despill_on else rgb
         return Image.fromarray(np.dstack([out_rgb, alpha]).astype(np.uint8))

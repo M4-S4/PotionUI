@@ -17,8 +17,8 @@ SPEC = dict(
     preview=True,
     name_suffix="-canvas",
     params=[
-        {"name": "width", "type": "integer", "label": "Width", "default": 1024, "min": 1, "unit": "px"},
-        {"name": "height", "type": "integer", "label": "Height", "default": 1024, "min": 1, "unit": "px"},
+        {"name": "width", "type": "integer", "label": "Width", "default": 1024, "min": 1, "max": MAX_IMAGE_DIMENSION, "unit": "px"},
+        {"name": "height", "type": "integer", "label": "Height", "default": 1024, "min": 1, "max": MAX_IMAGE_DIMENSION, "unit": "px"},
         {"name": "scale_percent", "type": "float", "label": "Scale", "default": 100, "min": 1, "max": 400, "step": 1, "unit": "%"},
         {"name": "anchor", "type": "anchor", "label": "Anchor", "default": "center"},
         {"name": "fill", "type": "color", "label": "Fill", "default": "transparent", "allow_transparent": True},

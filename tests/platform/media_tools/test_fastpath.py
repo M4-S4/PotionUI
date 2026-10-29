@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from src.platform.media_tools import FilterFragment, ToolContext, ToolMedia, UnsupportedMedia
+from src.platform.media_tools import FilterFragment, ToolContext, ToolMedia, UnsupportedMedia, run_chain
 from src.platform.media_tools.fastpath import (
     EVEN_CROP,
     advance_media,
@@ -19,7 +19,7 @@ from src.platform.media_tools.fastpath import (
     video_output_suffix,
 )
 from tests.platform.media_tools import fake_tools as fakes
-from tests.platform.media_tools.media_factory import make_audio, make_image, make_video
+from tests.platform.media_tools.media_factory import make_audio, make_image, make_video, run_ffmpeg
 
 
 def video(path="/m/clip.mp4", **kw):
@@ -121,6 +121,55 @@ def test_audio_is_reencoded_when_filtered_or_windowed(tmp_path):
     assert "-vf" not in windowed
     assert windowed[windowed.index("-ss") + 1] == "1.000000"
     assert windowed[windowed.index("-t") + 1] == "1.000000"
+
+
+@pytest.mark.parametrize("source", ["/m/clip.avi", "/m/clip.wmv", "/m/clip.ogv", "/m/clip.flv"])
+def test_audio_is_reencoded_when_the_output_container_differs_from_the_source(tmp_path, source):
+    media = video(path=source)
+    out = tmp_path / ("o" + video_output_suffix(media))
+
+    args = build_timed_args(media, merge_fragments(media, [FilterFragment(vf=["hflip"])]), out)
+
+    assert out.suffix == ".mp4"
+    assert args[args.index("-c:a") + 1] == "aac"
+
+
+@pytest.mark.parametrize("source", ["/m/clip.mp4", "/m/CLIP.MP4", "/m/clip.mkv", "/m/clip.mov"])
+def test_audio_is_copied_when_the_container_is_kept_and_nothing_touches_it(tmp_path, source):
+    media = video(path=source)
+    out = tmp_path / ("o" + video_output_suffix(media))
+
+    args = build_timed_args(media, merge_fragments(media, [FilterFragment(vf=["hflip"])]), out)
+
+    assert args[args.index("-c:a") + 1] == "copy"
+
+
+def test_audio_is_reencoded_for_a_suffix_change_even_in_a_webm_source(tmp_path):
+    media = video(path="/m/clip.webm")
+
+    args = build_timed_args(media, merge_fragments(media, [FilterFragment(vf=["hflip"])]), tmp_path / "o.mp4")
+
+    assert args[args.index("-c:a") + 1] == "aac"
+
+
+@pytest.mark.usefixtures("need_ffmpeg")
+def test_wma_audio_from_an_avi_survives_the_fallback_mp4_container(tmp_path):
+    source = tmp_path / "wma.avi"
+    run_ffmpeg(
+        "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10:duration=1",
+        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=22050:duration=1",
+        "-c:v", "mpeg4", "-c:a", "wmav2", "-shortest", str(source),
+    )
+    context = ToolContext(tmp_path / "scratch")
+    media = context.probe(source)
+    assert media.has_audio is True
+    mirror = fakes.make_spec("mirror", fakes.Mirror(), accepts=("image", "video"))
+
+    outputs = run_chain([(mirror, {})], [media], context)
+
+    assert outputs[0].path.suffix == ".mp4"
+    assert outputs[0].has_audio is True
+    assert outputs[0].duration == pytest.approx(1.0, abs=0.2)
 
 
 def test_audio_filters_are_skipped_when_the_source_has_no_sound(tmp_path):
