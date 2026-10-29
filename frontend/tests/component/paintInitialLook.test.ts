@@ -19,6 +19,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { default: MediaEditors } = await import('$lib/media/editors/MediaEditors.svelte');
 const { resetFilterCatalog } = await import('$lib/filters/catalog');
+const { PaintSession } = await import('$lib/components/imageEditor/session');
 
 let restoreCanvas: () => void;
 
@@ -59,14 +60,15 @@ afterEach(() => {
 
 const draw = { width: 64, height: 64, background: 'white' as const, pen: null, scribble: false };
 
-function open(initialTool: string) {
+function open(initialTool: string | undefined, initialFilter?: string) {
 	return mountComponent(MediaEditors, {
 		request: {
 			kind: 'paint',
 			source: { url: '', kind: 'image', fileName: 'Untitled drawing' },
 			itemIndex: null,
 			draw,
-			initialTool
+			...(initialTool ? { initialTool } : {}),
+			...(initialFilter ? { initialFilter } : {})
 		},
 		onClose: vi.fn(),
 		onResult: vi.fn()
@@ -85,7 +87,7 @@ async function ready() {
 
 describe('the image editor opens on a recent look', () => {
 	it('selects the look it was asked for on the Filters tool', async () => {
-		open('filters:noir');
+		open('filters', 'noir');
 		await ready();
 
 		expect(document.body.querySelector('button[aria-label="Filters"]')!.getAttribute('aria-pressed')).toBe('true');
@@ -93,7 +95,7 @@ describe('the image editor opens on a recent look', () => {
 	});
 
 	it('leaves Apply enabled and focused so one key press applies it', async () => {
-		open('filters:ember');
+		open('filters', 'ember');
 		await ready();
 
 		expect(applyButton()).not.toBeNull();
@@ -111,7 +113,7 @@ describe('the image editor opens on a recent look', () => {
 	});
 
 	it('opens on Filters with nothing selected when the look no longer exists', async () => {
-		open('filters:deleted');
+		open('filters', 'deleted');
 		await ready();
 
 		expect(document.body.querySelector('button[aria-label="Filters"]')!.getAttribute('aria-pressed')).toBe('true');
@@ -121,7 +123,7 @@ describe('the image editor opens on a recent look', () => {
 
 	it('does not select a look that needs a plugin which is not enabled', async () => {
 		serve([look('vhs', { needs_plugin: 'retro-tape' })]);
-		open('filters:vhs');
+		open('filters', 'vhs');
 		await ready();
 
 		expect(filterName()).toBeNull();
@@ -129,9 +131,39 @@ describe('the image editor opens on a recent look', () => {
 
 	it('keeps a plugin look id with a colon in it whole', async () => {
 		serve([look('retro-tape:vhs', { source: 'plugin', plugin_id: 'retro-tape' })]);
-		open('filters:retro-tape:vhs');
+		open('filters', 'retro-tape:vhs');
 		await ready();
 
 		expect(filterName()).toBe('Retro-tape:vhs');
+	});
+
+	it('selects a plugin look whose id has a colon in it, which is why the look is its own field', async () => {
+		serve([look('retro-tape:vhs', { source: 'plugin', plugin_id: 'retro-tape' }), look('retro-tape', { name: 'Wrong' })]);
+		open('filters', 'retro-tape:vhs');
+		await ready();
+
+		expect(filterName()).toBe('Retro-tape:vhs');
+		expect(applyButton()!.disabled).toBe(false);
+	});
+
+	it('ignores the look when the editor is not opened on the Filters tool', async () => {
+		const setFilter = vi.spyOn(PaintSession.prototype, 'setFilter');
+		open(undefined, 'ember');
+		await ready();
+
+		expect(setFilter).not.toHaveBeenCalled();
+		expect(filterName()).toBeNull();
+		expect(document.body.querySelector('button[aria-label="Filters"]')!.getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('takes the look as a prop of the editor and the request, with no string protocol left', async () => {
+		const editor = await import('$lib/components/imageEditor/PaintEditor.svelte?raw');
+		const editors = await import('$lib/media/editors/MediaEditors.svelte?raw');
+		const types = await import('$lib/media/editors/types?raw');
+
+		expect(editor.default).toContain('export let initialFilter');
+		expect(editor.default).not.toContain('parseInitialTool');
+		expect(editors.default).toContain('initialFilter={request.initialFilter ?? null}');
+		expect(types.default).toContain('initialFilter?: string;');
 	});
 });

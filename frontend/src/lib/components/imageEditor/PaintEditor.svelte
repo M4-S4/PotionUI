@@ -11,7 +11,6 @@
 	import type { DrawConfig } from './drawConfig';
 	import { preselectLook } from '$lib/filters/preselect';
 	import { defaultExportStem, exportFileName } from './exportName';
-	import { parseInitialTool } from './initialTool';
 	import { PAINT_ICONS } from './icons';
 	import FilterStrip from './FilterStrip.svelte';
 	import ImageSourceMenu from './ImageSourceMenu.svelte';
@@ -29,6 +28,7 @@
 	export let draw: DrawConfig | null = null;
 	export let hasMask: boolean = false;
 	export let initialTool: string | null = null;
+	export let initialFilter: string | null = null;
 	export let busy: boolean = false;
 	export let failureMessage: string | null = null;
 	export let onClose: () => void;
@@ -125,10 +125,9 @@
 			} else if (source) {
 				await session.openSource(source.url, source.fileName);
 			}
-			if (initialTool) {
-				const wanted = parseInitialTool(initialTool);
-				session.setTool(wanted.tool);
-				if (wanted.look) focusApply = await preselectLook(session, wanted.look);
+			if (initialTool) session.setTool(initialTool);
+			if (initialTool === 'filters' && initialFilter) {
+				focusApply = await preselectLook(session, initialFilter);
 			}
 		} catch {
 			loadError = 'This image could not be opened for editing.';

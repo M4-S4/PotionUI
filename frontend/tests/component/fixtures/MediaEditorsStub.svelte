@@ -4,7 +4,12 @@
 		onClose,
 		onResult
 	}: {
-		request?: { kind: string; initialTool?: string; source: { url: string; fileName: string } } | null;
+		request?: {
+			kind: string;
+			initialTool?: string;
+			initialFilter?: string;
+			source: { url: string; fileName: string };
+		} | null;
 		onClose: () => void;
 		onResult: (result: unknown, request: unknown) => void;
 	} = $props();
@@ -16,6 +21,8 @@
 		data-kind={request.kind}
 		data-url={request.source.url}
 		data-initial-tool={request.initialTool ?? ''}
+		data-initial-filter={request.initialFilter ?? ''}
+		data-has-initial-filter={'initialFilter' in request}
 	>
 		<button type="button" data-stub-close onclick={onClose}>close</button>
 		<button

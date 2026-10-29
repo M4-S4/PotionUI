@@ -125,14 +125,14 @@ async function throughDetailsRow(result: 'new' | 'replace') {
 	return after;
 }
 
-async function throughMenu(result: 'new' | 'replace', initialTool?: string) {
+async function throughMenu(result: 'new' | 'replace', initialTool?: string, initialFilter?: string) {
 	await seedLibrary();
 	const context = buildLibraryToolContext([SERVER[1] as never], null);
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const instance = mount(HistoryEditImageModal, {
 		target,
-		props: { context, onClose: vi.fn(), onDone: vi.fn(), initialTool }
+		props: { context, onClose: vi.fn(), onDone: vi.fn(), initialTool, initialFilter }
 	});
 	cleanup = () => {
 		unmount(instance);
@@ -219,7 +219,7 @@ describe('Edit image on the Library, from the details row or from the Tools and 
 
 	it('behaves the same when the menu opens the editor on a look', async () => {
 		const plain = await throughMenu('new');
-		const onLook = await throughMenu('new', 'filters:noir');
+		const onLook = await throughMenu('new', 'filters', 'noir');
 
 		expect(onLook).toEqual(plain);
 	});

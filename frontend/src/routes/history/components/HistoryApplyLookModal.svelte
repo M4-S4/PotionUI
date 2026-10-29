@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { FILTERS_TOOL, lookTool } from '$lib/components/imageEditor/initialTool';
 	import type { MediaToolModalProps } from '$lib/tools/tools';
 	import HistoryEditImageModal from './HistoryEditImageModal.svelte';
 
@@ -10,5 +9,6 @@
 	{context}
 	{onClose}
 	{onDone}
-	initialTool={lookId ? lookTool(lookId) : FILTERS_TOOL}
+	initialTool="filters"
+	initialFilter={lookId}
 />

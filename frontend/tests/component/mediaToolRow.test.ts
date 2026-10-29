@@ -451,7 +451,8 @@ describe('MediaToolRow recent looks', () => {
 		flushSync();
 
 		expect(stub()?.getAttribute('data-kind')).toBe('paint');
-		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters:noir');
+		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters');
+		expect(stub()?.getAttribute('data-initial-filter')).toBe('noir');
 	});
 
 	it('keep a plugin look id that has a colon in it', async () => {
@@ -461,7 +462,8 @@ describe('MediaToolRow recent looks', () => {
 		button(root, 'VHS').click();
 		flushSync();
 
-		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters:retro-tape:vhs');
+		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters');
+		expect(stub()?.getAttribute('data-initial-filter')).toBe('retro-tape:vhs');
 	});
 
 	it('leave Apply a look opening the editor on Filters alone', async () => {
@@ -472,6 +474,7 @@ describe('MediaToolRow recent looks', () => {
 		flushSync();
 
 		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters');
+		expect(stub()?.getAttribute('data-has-initial-filter')).toBe('false');
 	});
 
 	it('appear without a reload when a look is applied while the row is open', async () => {

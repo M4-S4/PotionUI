@@ -6,11 +6,17 @@
 	import type { MediaToolModalProps } from '$lib/tools/tools';
 	import { editImageRequest } from '../tools/editImage';
 
-	let { context, onClose, initialTool }: MediaToolModalProps & { initialTool?: string } = $props();
+	let {
+		context,
+		onClose,
+		initialTool,
+		initialFilter
+	}: MediaToolModalProps & { initialTool?: string; initialFilter?: string } = $props();
 
 	let request = $derived.by(() => {
 		const base = editImageRequest(context);
-		return base && initialTool ? { ...base, initialTool } : base;
+		if (!base || !initialTool) return base;
+		return initialFilter ? { ...base, initialTool, initialFilter } : { ...base, initialTool };
 	});
 
 	async function handleResult(result: MediaEditorResult) {

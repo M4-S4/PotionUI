@@ -423,7 +423,8 @@ describe('Library page media tools', () => {
 
 		const stub = document.body.querySelector('[data-editor-stub]');
 		expect(stub?.getAttribute('data-kind')).toBe('paint');
-		expect(stub?.getAttribute('data-initial-tool')).toBe('filters:noir');
+		expect(stub?.getAttribute('data-initial-tool')).toBe('filters');
+		expect(stub?.getAttribute('data-initial-filter')).toBe('noir');
 	});
 
 	it('opens a recent look from a card menu on that look', async () => {
@@ -436,7 +437,9 @@ describe('Library page media tools', () => {
 		toolRow('look:ember')!.click();
 		await settle(4);
 
-		expect(document.body.querySelector('[data-editor-stub]')?.getAttribute('data-initial-tool')).toBe('filters:ember');
+		const stub = document.body.querySelector('[data-editor-stub]');
+		expect(stub?.getAttribute('data-initial-tool')).toBe('filters');
+		expect(stub?.getAttribute('data-initial-filter')).toBe('ember');
 	});
 
 	it('shows no recent look on a card menu for a video', async () => {

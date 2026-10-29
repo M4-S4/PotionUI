@@ -100,6 +100,7 @@ export interface MediaEditorRequest {
 	 */
 	itemIndex: number | null;
 	initialTool?: string;
+	initialFilter?: string;
 }
 
 /**

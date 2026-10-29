@@ -21,7 +21,6 @@
 		MediaEditorRequest,
 		MediaEditorResult
 	} from '$lib/media/editors/types';
-	import { FILTERS_TOOL, lookTool } from '$lib/components/imageEditor/initialTool';
 	import { recentLooks } from '$lib/filters/recentLooks';
 	import { editImageRequest } from '$lib/tools/editImage';
 	import { loadPluginMediaTools, mediaToolRegistrations } from '$lib/tools/pluginTools';
@@ -66,17 +65,19 @@
 		void loadPluginMediaTools();
 	});
 
-	function openPaint(initialTool: string | null) {
+	function openPaint(initialTool: string | null, initialFilter: string | null = null) {
 		const request = editImageRequest(buildRowContext(scope, items));
 		if (!request) return;
-		paintRequest = initialTool ? { ...request, initialTool } : request;
+		if (!initialTool) paintRequest = request;
+		else if (initialFilter) paintRequest = { ...request, initialTool, initialFilter };
+		else paintRequest = { ...request, initialTool };
 	}
 
 	function run(entry: RowTool) {
 		if (!entry.enabled) return;
 		if (entry.action === 'edit-image') return openPaint(null);
 		if (entry.action === 'apply-look') {
-			return openPaint(entry.lookId ? lookTool(entry.lookId) : FILTERS_TOOL);
+			return openPaint('filters', entry.lookId ?? null);
 		}
 		const toolId = entry.tool?.catalogToolId;
 		if (!toolId) return;

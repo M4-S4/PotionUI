@@ -52,6 +52,21 @@ describe('preselectLook', () => {
 		expect(session.setFilter.mock.calls[0][0]).toMatchObject({ id: 'noir', name: 'NOIR', defaultIntensity: 80 });
 	});
 
+	it('finds a plugin look by its whole id, colon and all, not by the part before the colon', async () => {
+		const session = fakeSession();
+		catalog.set({
+			status: 'ready',
+			items: [item('retro-tape'), item('retro-tape:vhs', { source: 'plugin', plugin_id: 'retro-tape' })],
+			ops: [],
+			groups: [],
+			error: null
+		});
+
+		expect(await preselectLook(session as never, 'retro-tape:vhs')).toBe(true);
+
+		expect(session.setFilter.mock.calls[0][0]).toMatchObject({ id: 'retro-tape:vhs', name: 'RETRO-TAPE:VHS' });
+	});
+
 	it('waits for the filter catalog first', async () => {
 		const session = fakeSession();
 		catalog.set({ status: 'idle', items: [], ops: [], groups: [], error: null });
