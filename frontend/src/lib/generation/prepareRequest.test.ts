@@ -38,6 +38,7 @@ function prepare(tab: any, extra: Record<string, unknown> = {}) {
 		segmentJoin: 'space',
 		promptRelayActive: false,
 		promptlessActive: false,
+		promptOptionalActive: false,
 		videoDirector: null,
 		musicDirector: null,
 		random: () => 0,
@@ -239,6 +240,40 @@ describe('prepareRequest', () => {
 		const promptless = prepare(baseTab({ prompt: '' }), { promptlessActive: true });
 		expect(promptless.ok).toBe(true);
 	});
+
+	it('lets an optional-prompt mode generate without a prompt but still sends one when written', () => {
+		const empty = prepare(baseTab({ prompt: '   ' }), { promptOptionalActive: true });
+		expect(empty.ok).toBe(true);
+		if (empty.ok) expect(empty.request.prompts).toEqual([{ positive: '', negative: 'blur' }]);
+
+		const written = prepare(baseTab(), { promptOptionalActive: true });
+		expect(written.ok).toBe(true);
+		if (written.ok) expect(written.request.prompts?.[0].positive).toBe('a lighthouse at dusk');
+	});
+
+	it('still needs a preset in an optional-prompt mode', () => {
+		expect(prepare(baseTab({ selectedPreset: null, prompt: '' }), { promptOptionalActive: true })).toEqual({
+			ok: false,
+			code: 'no_preset',
+			reason: null
+		});
+	});
+
+	it('accepts an empty prompt in a batch only in an optional-prompt mode', () => {
+		const tab = baseTab({
+			promptTabs: [
+				{ prompt: 'first', negativePrompt: '', promptSegments: [], negativePromptSegments: [] },
+				{ prompt: '', negativePrompt: '', promptSegments: [], negativePromptSegments: [] }
+			],
+			activePromptTab: 0
+		});
+
+		expect(prepare(tab, { canBatch: true })).toEqual({ ok: false, code: 'no_prompt', reason: null });
+
+		const optional = prepare(tab, { canBatch: true, promptOptionalActive: true });
+		expect(optional.ok).toBe(true);
+		if (optional.ok) expect(optional.request.prompts?.map((p) => p.positive)).toEqual(['first', '']);
+	});
 });
 
 describe('buildGenerationRequest', () => {
@@ -306,6 +341,53 @@ describe('prepareRequestFromSession', () => {
 			mode: 'upscale',
 			session: { formData: { input_image: 'uploads/a.png' } },
 			presetVars: { promptless_modes: ['upscale'] },
+			random: () => 0,
+			now: () => 1
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
+	it('treats an optional-prompt mode as ready without a prompt', () => {
+		const result = prepareRequestFromSession({
+			presetId: 'preset-1',
+			mode: 'swap',
+			session: { prompt: '', formData: { video: 'uploads/a.mp4' } },
+			presetVars: { optional_prompt_modes: ['swap'] },
+			random: () => 0,
+			now: () => 1
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.request.prompts).toEqual([{ positive: '', negative: '' }]);
+	});
+
+	it('needs no prompt only while a conditional optional-prompt entry holds', () => {
+		const run = (task: string) =>
+			prepareRequestFromSession({
+				presetId: 'preset-1',
+				mode: 'restyle',
+				session: { prompt: '', formData: { restyle_task: task } },
+				presetVars: {
+					optional_prompt_modes: [
+						{ mode: 'restyle', when: { field: 'restyle_task', in: ['colourise', 'restore'] } }
+					]
+				},
+				random: () => 0,
+				now: () => 1
+			});
+
+		expect(run('colourise').ok).toBe(true);
+		expect(run('restore').ok).toBe(true);
+		expect(run('custom')).toEqual({ ok: false, code: 'no_prompt', reason: null });
+	});
+
+	it('keeps a promptless mode promptless when it is also listed as optional', () => {
+		const result = prepareRequestFromSession({
+			presetId: 'preset-1',
+			mode: 'upscale',
+			session: { formData: {} },
+			presetVars: { promptless_modes: ['upscale'], optional_prompt_modes: ['upscale'] },
 			random: () => 0,
 			now: () => 1
 		});

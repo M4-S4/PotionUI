@@ -104,7 +104,28 @@ needs no schema change and rejects nothing when the prompt is empty. A promptles
 `pipeline.yml` **must not read `generation.prompts`** — with no prompt submitted, the array is
 `[{positive: '', negative: ''}]`, so `generation.prompts.first` is `{'positive': '', 'negative': ''}`
 and any per-image expansion yields empty strings rather than failing. If a mode legitimately
-needs a prompt, leave it out of this list.
+needs a prompt, leave it out of this list; if it takes one but does not require it, use
+[`optional_prompt_modes`](#varsoptional_prompt_modes-modes-where-the-prompt-is-optional).
+
+### `vars.optional_prompt_modes` (modes where the prompt is optional)
+
+Some modes take a prompt but do not need one — a swap or talking-head mode whose text only
+steers the result. List them here and the prompt pane stays fully visible (segments,
+phrasebooks, variables), but Generate no longer waits for prompt text. The entries have the
+same shape as `promptless_modes`, including the `when` condition:
+
+```yaml
+vars:
+  optional_prompt_modes:
+    - "swap"
+    - mode: "restyle"
+      when: { field: "restyle_task", in: ["colourise", "restore"] }
+```
+
+A mode listed in both `promptless_modes` and `optional_prompt_modes` is promptless. It is a UI
+hint like `promptless_modes`; the backend rejects nothing when the prompt is empty. The prompt
+can be read by the pipeline, but with nothing written `generation.prompts.first` is
+`{'positive': '', 'negative': ''}`, so the pipeline must handle an empty prompt.
 
 ### Prompt segment templates
 

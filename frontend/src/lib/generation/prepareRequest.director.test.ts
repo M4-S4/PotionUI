@@ -35,6 +35,7 @@ function prepare(extra: Record<string, unknown>) {
 		segmentJoin: 'space',
 		promptRelayActive: false,
 		promptlessActive: false,
+		promptOptionalActive: false,
 		videoDirector: null,
 		musicDirector: null,
 		random: () => 0,

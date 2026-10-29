@@ -51,7 +51,7 @@
 	import GenerationPanels from './components/GenerationPanels.svelte';
 	import DesktopWorkspace from './components/DesktopWorkspace.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
-	import { isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
@@ -839,6 +839,10 @@
 	$: promptlessActive =
 		requestContext.promptlessActive ||
 		isPromptlessMode(currentPresetVars, currentTab.selectedMode, currentTab.formData);
+	$: promptOptionalActive =
+		!promptlessActive &&
+		(requestContext.promptOptionalActive ||
+			isOptionalPromptMode(currentPresetVars, currentTab.selectedMode, currentTab.formData));
 
 	// Load preset vars when preset changes
 	$: if (currentTab.selectedPreset && mounted) {
@@ -1432,6 +1436,7 @@
 			segmentJoin: segmentJoinForPreset(currentTab.selectedPreset),
 			promptRelayActive,
 			promptlessActive,
+			promptOptionalActive,
 			videoDirector:
 				videoDirectorActive && videoDirectorCaps
 					? {
@@ -1802,7 +1807,7 @@
 		} else {
 			const sentPrompts = canBatch ? promptList(currentTab) : promptList(currentTab).slice(0, 1);
 			const emptyAt = firstEmptyPrompt(sentPrompts);
-			hasPrompt = emptyAt < 0;
+			hasPrompt = promptOptionalActive || emptyAt < 0;
 			if (!hasPrompt && sentPrompts.length > 1) noPromptReason = `Prompt ${emptyAt + 1} is empty`;
 		}
 
