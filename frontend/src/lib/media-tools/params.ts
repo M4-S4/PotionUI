@@ -1,3 +1,4 @@
+import { ANCHOR_VALUES } from '$lib/components/form-fields/anchorValues';
 import { evaluateCondition } from '$lib/form/reactions';
 import type { ToolDTO, ToolParam, ToolParamOption } from './types';
 
@@ -13,19 +14,7 @@ export type ControlKind =
 
 export const SEGMENTED_MAX_OPTIONS = 4;
 
-export const ANCHOR_VALUES = [
-	'top_left',
-	'top',
-	'top_right',
-	'left',
-	'center',
-	'right',
-	'bottom_left',
-	'bottom',
-	'bottom_right'
-] as const;
-
-export type AnchorValue = (typeof ANCHOR_VALUES)[number];
+export { ANCHOR_VALUES, type AnchorValue } from '$lib/components/form-fields/anchorValues';
 
 export function humanize(value: unknown): string {
 	const words = String(value ?? '')

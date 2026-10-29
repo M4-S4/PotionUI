@@ -32,6 +32,9 @@ import CameraShotField from '$lib/components/form-fields/CameraShotField.svelte'
 import TagsField from '$lib/components/form-fields/TagsField.svelte';
 import CloudOptionsField from '$lib/components/form-fields/CloudOptionsField.svelte';
 import KeyValueField from '$lib/components/form-fields/KeyValueField.svelte';
+import SegmentedField from '$lib/components/form-fields/SegmentedField.svelte';
+import AnchorField from '$lib/components/form-fields/AnchorField.svelte';
+import ColorField from '$lib/components/form-fields/ColorField.svelte';
 
 let registered = false;
 
@@ -76,7 +79,10 @@ export function registerBuiltinFieldComponents(): void {
 		prompt_timeline: PromptTimelineField,
 		camera_shot: CameraShotField,
 		tags: TagsField,
-		key_value_list: KeyValueField
+		key_value_list: KeyValueField,
+		segmented: SegmentedField,
+		anchor: AnchorField,
+		color: ColorField
 	};
 
 	for (const [type, component] of Object.entries(table)) {

@@ -10,6 +10,9 @@ import { resolveFieldComponent } from './registry';
 import SelectField from '$lib/components/form-fields/SelectField.svelte';
 import TagsField from '$lib/components/form-fields/TagsField.svelte';
 import KeyValueField from '$lib/components/form-fields/KeyValueField.svelte';
+import SegmentedField from '$lib/components/form-fields/SegmentedField.svelte';
+import AnchorField from '$lib/components/form-fields/AnchorField.svelte';
+import ColorField from '$lib/components/form-fields/ColorField.svelte';
 
 describe('fields/builtin', () => {
 	it('registers sampler and schedule onto the same component select uses', async () => {
@@ -41,5 +44,19 @@ describe('fields/builtin', () => {
 		const keyValueList = await resolveFieldComponent('key_value_list');
 
 		expect(keyValueList).toBe(KeyValueField);
+	});
+
+	it('registers segmented, anchor and color so presets can use the controls the media tool dialog draws', async () => {
+		registerBuiltinFieldComponents();
+
+		const [segmented, anchor, color] = await Promise.all([
+			resolveFieldComponent('segmented'),
+			resolveFieldComponent('anchor'),
+			resolveFieldComponent('color')
+		]);
+
+		expect(segmented).toBe(SegmentedField);
+		expect(anchor).toBe(AnchorField);
+		expect(color).toBe(ColorField);
 	});
 });
