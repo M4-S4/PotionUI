@@ -7,6 +7,9 @@ const openMediaTool = vi.fn();
 const listMediaTools = vi.fn();
 
 vi.mock('$lib/media-tools/open', () => ({ openMediaTool: (...args: unknown[]) => openMediaTool(...args) }));
+vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
+	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
+}));
 vi.mock('$lib/services/api/mediaTools', () => ({
 	listMediaTools: (...args: unknown[]) => listMediaTools(...args),
 	startMediaToolRun: vi.fn(),
@@ -38,6 +41,7 @@ class FakeResizeObserver {
 
 const { api } = await import('$lib/services/api/index');
 const { libraryStore } = await import('$lib/stores/library');
+const { recentLooks } = await import('$lib/filters/recentLooks');
 const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 const { unregisterMediaTools } = await import('$lib/tools/tools');
 const { default: LibraryPage } = await import('../../src/routes/library/+page.svelte');
@@ -87,6 +91,7 @@ async function openBarMenu() {
 }
 
 beforeEach(() => {
+	recentLooks.set([]);
 	originalResizeObserver = (globalThis as any).ResizeObserver;
 	(globalThis as any).ResizeObserver = FakeResizeObserver;
 	widthSpy = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1200);
@@ -266,5 +271,247 @@ describe('Library page media tools', () => {
 		let state: any;
 		libraryStore.subscribe((value) => (state = value))();
 		expect(state.items.find((entry: { id: string }) => entry.id === 'a').is_favorite).toBe(true);
+	});
+
+	async function pickFromBar(id: string, toolId: string) {
+		libraryStore.toggleSelect(id);
+		await settle(4);
+		await openBarMenu();
+		toolRow(toolId)!.click();
+	}
+
+	const cardImage = (id: string) =>
+		document.body.querySelector<HTMLImageElement>(`[data-library-card="${id}"] img`)?.getAttribute('src');
+
+	it('points the card of a replaced item at the new file, not at the thumbnail of the deleted one', async () => {
+		await mountPage();
+		expect(cardImage('a')).toBe('/t/a.jpg');
+		await pickFromBar('a', 'crop');
+
+		await openMediaTool.mock.calls[0][0].onResult(
+			[{ id: 'a', filename: 'a-new-file.png', media_type: 'image', url: '/u/a-new-file.png' }],
+			{ toolId: 'crop', replaced: true }
+		);
+		await settle(4);
+
+		expect(cardImage('a')).toBe('/u/a-new-file.png');
+	});
+
+	it('uses the thumbnail the backend provides for the replaced file', async () => {
+		await mountPage();
+		await pickFromBar('a', 'crop');
+
+		await openMediaTool.mock.calls[0][0].onResult(
+			[
+				{
+					id: 'a',
+					filename: 'a-new-file.png',
+					media_type: 'image',
+					url: '/u/a-new-file.png',
+					thumbnail_medium: '/t/a-new-file.jpg'
+				}
+			],
+			{ toolId: 'crop', replaced: true }
+		);
+		await settle(4);
+
+		expect(cardImage('a')).toBe('/t/a-new-file.jpg');
+	});
+
+	it('does not move to page 1 or reload when a replace finishes after the user paged away', async () => {
+		await mountPage();
+		await pickFromBar('a', 'crop');
+		libraryStore.setPage(2);
+		vi.mocked(api.listLibraryItems).mockResolvedValue({
+			success: true,
+			data: { items: [row('x', 'image', 'x.png'), row('y', 'image', 'y.png')], total: 30, limit: 24, offset: 24 }
+		} as never);
+		await libraryStore.load();
+		vi.mocked(api.listLibraryItems).mockClear();
+
+		await openMediaTool.mock.calls[0][0].onResult(
+			[{ id: 'a', filename: 'a-new.png', media_type: 'image', url: '/u/a-new.png' }],
+			{ toolId: 'crop', replaced: true }
+		);
+		await settle(4);
+
+		let state: any;
+		libraryStore.subscribe((value) => (state = value))();
+		expect(state.currentPage).toBe(2);
+		expect(vi.mocked(api.listLibraryItems)).not.toHaveBeenCalled();
+	});
+
+	it('forgets the New mark and the placement when the page is left and opened again', async () => {
+		const old = new Date(Date.now() - 3 * 86_400_000).toISOString();
+		const server = [
+			row('a', 'image', 'a.png'),
+			{ ...row('b', 'video', 'b.mp4'), created_at: old },
+			{ ...row('c', 'image', 'c.png'), created_at: old }
+		];
+		vi.mocked(api.listLibraryItems).mockResolvedValue({
+			success: true,
+			data: { items: server, total: 3, limit: 24, offset: 0 }
+		} as never);
+		await mountPage();
+		await pickFromBar('c', 'crop');
+		const created = new Date().toISOString();
+		await openMediaTool.mock.calls[0][0].onResult(
+			[{ id: 'c2', filename: 'c2.png', media_type: 'image', url: '/u/c2.png', created_at: created }],
+			{ toolId: 'crop', replaced: false }
+		);
+		await settle(6);
+		const headers = () =>
+			Array.from(document.body.querySelectorAll('.font-mono.uppercase')).map((node) => node.textContent?.trim());
+		expect(document.body.querySelector('[data-library-card="c2"] [data-new-tag]')).toBeTruthy();
+		expect(headers().filter((text) => text === 'Today')).toHaveLength(1);
+		expect(cardIds()).toEqual(['a', 'b', 'c2', 'c']);
+		const group = (id: string) => document.body.querySelector(`[data-library-card="${id}"]`)!.parentElement;
+		expect(group('c2')).toBe(group('c'));
+		expect(group('c2')).not.toBe(group('a'));
+
+		destroy?.();
+		destroy = undefined;
+		vi.mocked(api.listLibraryItems).mockResolvedValue({
+			success: true,
+			data: {
+				items: [{ ...row('c2', 'image', 'c-crop.png'), created_at: created }, ...server],
+				total: 4,
+				limit: 24,
+				offset: 0
+			}
+		} as never);
+		await mountPage();
+
+		expect(cardIds()).toEqual(['c2', 'a', 'b', 'c']);
+		expect(document.body.querySelector('[data-new-tag]')).toBeNull();
+		expect(headers().filter((text) => text === 'Today')).toHaveLength(1);
+		const placed = (id: string) => document.body.querySelector(`[data-library-card="${id}"]`)!.parentElement;
+		expect(placed('c2')).toBe(placed('a'));
+		expect(placed('c2')).not.toBe(placed('c'));
+	});
+
+	it('clears the marks when the page is left', async () => {
+		await mountPage();
+		await pickFromBar('a', 'crop');
+		await openMediaTool.mock.calls[0][0].onResult(
+			[{ id: 'a2', filename: 'a2.png', media_type: 'image', url: '/u/a2.png' }],
+			{ toolId: 'crop', replaced: false }
+		);
+		await settle(4);
+		let state: any;
+		const stop = libraryStore.subscribe((value) => (state = value));
+		expect(state.freshIds).toEqual(['a2']);
+
+		destroy?.();
+		destroy = undefined;
+
+		expect(state.freshIds).toEqual([]);
+		expect(state.placedIds).toEqual([]);
+		stop();
+	});
+
+	it('opens a recent look from the bar on that look', async () => {
+		recentLooks.set([{ id: 'noir', name: 'Noir', group: 'Black and white' }]);
+		await mountPage();
+		libraryStore.toggleSelect('a');
+		await settle(4);
+		await openBarMenu();
+
+		expect(toolRow('look:noir')!.textContent).toContain('Noir');
+		toolRow('look:noir')!.click();
+		await settle(4);
+
+		const stub = document.body.querySelector('[data-editor-stub]');
+		expect(stub?.getAttribute('data-kind')).toBe('paint');
+		expect(stub?.getAttribute('data-initial-tool')).toBe('filters:noir');
+	});
+
+	it('opens a recent look from a card menu on that look', async () => {
+		recentLooks.set([{ id: 'ember', name: 'Ember', group: 'Colour' }]);
+		await mountPage();
+
+		const card = document.body.querySelector('[data-library-card="c"]')!;
+		card.querySelector<HTMLButtonElement>('[data-entry-menu-trigger]')!.click();
+		await settle(4);
+		toolRow('look:ember')!.click();
+		await settle(4);
+
+		expect(document.body.querySelector('[data-editor-stub]')?.getAttribute('data-initial-tool')).toBe('filters:ember');
+	});
+
+	it('shows no recent look on a card menu for a video', async () => {
+		recentLooks.set([{ id: 'ember', name: 'Ember', group: 'Colour' }]);
+		await mountPage();
+
+		const card = document.body.querySelector('[data-library-card="b"]')!;
+		card.querySelector<HTMLButtonElement>('[data-entry-menu-trigger]')!.click();
+		await settle(4);
+
+		expect(toolRow('look:ember')).toBeNull();
+		expect(toolRow('apply-look')).toBeNull();
+	});
+
+	it('clears marks that arrived while the page was closed, as soon as it opens', async () => {
+		await mountPage();
+		destroy?.();
+		destroy = undefined;
+		await libraryStore.applyToolResult(
+			[{ id: 'late', filename: 'late.png', media_type: 'image', url: '/u/late.png' }],
+			['gone']
+		);
+		vi.mocked(api.listLibraryItems).mockRejectedValue(new Error('offline'));
+		let state: any;
+		const stop = libraryStore.subscribe((value) => (state = value));
+		expect(state.freshIds).toEqual(['late']);
+
+		await mountPage();
+
+		expect(state.freshIds).toEqual([]);
+		stop();
+	});
+
+	it('files a row that arrived through a reload under its real day, not under its neighbour', async () => {
+		const old = new Date(Date.now() - 3 * 86_400_000).toISOString();
+		const created = new Date().toISOString();
+		await mountPage();
+		await pickFromBar('a', 'crop');
+		vi.mocked(api.listLibraryItems).mockResolvedValue({
+			success: true,
+			data: {
+				items: [
+					{ ...row('x', 'image', 'x.png'), created_at: old },
+					{ ...row('y', 'image', 'y.png'), created_at: old }
+				],
+				total: 2,
+				limit: 24,
+				offset: 0
+			}
+		} as never);
+		await libraryStore.load();
+		vi.mocked(api.listLibraryItems).mockResolvedValue({
+			success: true,
+			data: {
+				items: [
+					{ ...row('late', 'image', 'late.png'), created_at: created },
+					{ ...row('x', 'image', 'x.png'), created_at: old },
+					{ ...row('y', 'image', 'y.png'), created_at: old }
+				],
+				total: 3,
+				limit: 24,
+				offset: 0
+			}
+		} as never);
+
+		await openMediaTool.mock.calls[0][0].onResult(
+			[{ id: 'late', filename: 'late.png', media_type: 'image', url: '/u/late.png', created_at: created }],
+			{ toolId: 'crop', replaced: false }
+		);
+		await settle(6);
+
+		const group = (id: string) => document.body.querySelector(`[data-library-card="${id}"]`)!.parentElement;
+		expect(cardIds()).toEqual(['late', 'x', 'y']);
+		expect(group('late')).not.toBe(group('x'));
+		expect(group('x')).toBe(group('y'));
+		expect(document.body.querySelector('[data-library-card="late"] [data-new-tag]')).toBeTruthy();
 	});
 });

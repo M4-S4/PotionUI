@@ -9,6 +9,13 @@ const listMediaTools = vi.fn();
 
 vi.mock('$lib/media-tools/open', () => ({ openMediaTool: (...args: unknown[]) => openMediaTool(...args) }));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
+vi.mock('$lib/services/api/index', () => ({
+	api: {
+		listLibraryItems: vi.fn().mockResolvedValue({ success: false }),
+		getLibraryFacets: vi.fn().mockResolvedValue({ success: false }),
+		listCollections: vi.fn().mockResolvedValue({ success: false })
+	}
+}));
 vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
 	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
 }));
@@ -103,14 +110,17 @@ describe('the row on History', () => {
 		expect(onResult).toHaveBeenCalledTimes(1);
 	});
 
-	it('posts no toast of its own for an image saved from the editor on the Library', async () => {
+	it('posts the one plain toast, with no link, for an image saved from the editor on the Library', async () => {
 		const root = await render({ scope: 'library', items: [image] });
 		button(root, 'Edit image').click();
 		flushSync();
 
 		document.body.querySelector<HTMLButtonElement>('[data-stub-result]')!.click();
-		flushSync();
+		await settle();
 
-		expect(get(toasts)).toEqual([]);
+		const saved = get(toasts);
+		expect(saved).toHaveLength(1);
+		expect(saved[0].message).toBe('Saved to your library as a new image');
+		expect(saved[0].action).toBeUndefined();
 	});
 });

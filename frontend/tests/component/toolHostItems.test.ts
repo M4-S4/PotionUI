@@ -12,6 +12,7 @@ vi.mock('$lib/stores/toast', () => ({ toasts: { error: vi.fn(), success: vi.fn()
 
 const { default: ToolHost } = await import('$lib/components/tools/ToolHost.svelte');
 const { default: PluginToolStub } = await import('./fixtures/PluginToolStub.svelte');
+const { default: CoreModalStub } = await import('./fixtures/CoreModalStub.svelte');
 const { buildHistoryToolContext, buildLibraryToolContext } = await import('$lib/tools/tools');
 
 let cleanup: (() => void) | undefined;
@@ -172,6 +173,56 @@ describe('ToolHost plugin components', () => {
 		document.body.querySelector<HTMLButtonElement>('[data-stub-close]')!.click();
 
 		expect(onDone).toHaveBeenCalledTimes(1);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('ToolHost core components', () => {
+	const coreTool = {
+		id: 'look:noir',
+		label: 'Noir',
+		icon: 'palette',
+		category: 'effects',
+		source: 'core' as const,
+		scopes: ['library' as const],
+		component: CoreModalStub as never,
+		applies: () => ({ enabled: true })
+	};
+
+	const modal = () => document.body.querySelector<HTMLElement>('[data-core-stub]');
+
+	it('mounts the component with the context it was picked for', () => {
+		render({ tool: coreTool, context: buildLibraryToolContext([], null) });
+
+		expect(modal()).toBeTruthy();
+		expect(modal()!.getAttribute('data-item-count')).toBe('0');
+	});
+
+	it('hands the tool its own props, which is how a recent look names itself', () => {
+		render({
+			tool: { ...coreTool, componentProps: { lookId: 'retro-tape:vhs' } },
+			context: buildLibraryToolContext([], null)
+		});
+
+		expect(modal()!.getAttribute('data-look-id')).toBe('retro-tape:vhs');
+	});
+
+	it('passes no extra props for a tool that declares none', () => {
+		render({ tool: coreTool, context: buildLibraryToolContext([], null) });
+
+		expect(modal()!.getAttribute('data-look-id')).toBe('');
+	});
+
+	it('cannot override what the host owns with a prop of the tool', () => {
+		const onClose = vi.fn();
+		render({
+			tool: { ...coreTool, componentProps: { onClose: () => undefined } },
+			context: buildLibraryToolContext([], null),
+			onClose
+		});
+
+		document.body.querySelector<HTMLButtonElement>('[data-stub-close]')!.click();
+
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 });

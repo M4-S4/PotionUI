@@ -134,6 +134,8 @@ export interface MediaTool {
 	labelFor?: (ctx: MediaToolContext) => string;
 	catalogToolId?: string;
 	builtInEditor?: boolean;
+	lookId?: string;
+	componentProps?: Record<string, unknown>;
 	note?: string;
 }
 

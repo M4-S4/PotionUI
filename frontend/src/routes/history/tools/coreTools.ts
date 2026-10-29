@@ -1,4 +1,5 @@
 import type { ComponentType } from 'svelte';
+import { recentLooks } from '$lib/filters/recentLooks';
 import { registerMediaTool } from '$lib/tools/tools';
 import { registerEntryTools } from '$lib/tools/entryTools';
 import HistoryApplyLookModal from '../components/HistoryApplyLookModal.svelte';
@@ -7,6 +8,7 @@ import HistoryEditImageModal from '../components/HistoryEditImageModal.svelte';
 import HistoryExportZipModal from '../components/HistoryExportZipModal.svelte';
 import HistoryStitchModal from '../components/HistoryStitchModal.svelte';
 import { applyLookAvailability, editImageAvailability } from './editImage';
+import { syncRecentLookTools } from './recentLookTools';
 
 let registered = false;
 
@@ -95,4 +97,6 @@ export function registerCoreHistoryTools(): void {
 		applies: applyLookAvailability,
 		component: HistoryApplyLookModal as unknown as ComponentType
 	});
+
+	recentLooks.subscribe(syncRecentLookTools);
 }

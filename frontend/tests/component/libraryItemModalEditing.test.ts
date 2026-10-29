@@ -270,6 +270,21 @@ describe('LibraryItemModal running a tool', () => {
 		expect(state().freshIds).toEqual([]);
 	});
 
+	it('tells the store whether the run replaced the row, rather than leaving it to guess', async () => {
+		const apply = vi.spyOn(libraryStore, 'applyToolResult');
+		const target = mount(image);
+		await settle();
+		buttonByText(target, 'Resize')!.click();
+		const produced = [{ id: 'row-1', filename: 'x.png', media_type: 'image', url: '/x.png' }];
+
+		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'resize', replaced: true });
+		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'resize', replaced: false });
+
+		expect(apply.mock.calls[0]).toEqual([produced, ['row-1'], { replaced: true }]);
+		expect(apply.mock.calls[1]).toEqual([produced, ['row-1'], { replaced: false }]);
+		apply.mockRestore();
+	});
+
 	it('opens the image editor for Edit image without leaving the modal', async () => {
 		const target = mount(image);
 		await settle();

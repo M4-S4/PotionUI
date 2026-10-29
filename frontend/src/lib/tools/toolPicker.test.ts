@@ -70,6 +70,15 @@ describe('pickTool', () => {
 		const produced = [{ id: 'new-1' }];
 		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'crop', replaced: false });
 
-		expect(h.onResult).toHaveBeenCalledWith(produced, libraryCtx);
+		expect(h.onResult).toHaveBeenCalledWith(produced, libraryCtx, { toolId: 'crop', replaced: false });
+	});
+
+	it('tells the page whether the run replaced the original', async () => {
+		const h = handlers();
+		pickTool(mediaToolFromCatalog(CORE_TOOLS[1]), libraryCtx, h);
+
+		await openMediaTool.mock.calls[0][0].onResult([{ id: 'u1' }], { toolId: 'crop', replaced: true });
+
+		expect(h.onResult.mock.calls[0][2]).toEqual({ toolId: 'crop', replaced: true });
 	});
 });

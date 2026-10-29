@@ -10,11 +10,17 @@ import {
 	DEFAULT_LIBRARY_FILTERS,
 	buildLibraryQuery,
 	clampLibraryPage,
+	hasActiveLibraryFilters,
 	totalLibraryPages,
 	type LibraryFilters
 } from '$lib/library/libraryQuery';
 import { collectCopyableFileIds, type CopyableGeneration } from '$lib/library/copyToLibrary';
-import { isSameLibraryRow, libraryItemFromEdit, mergeEditedLibraryItem } from '$lib/library/libraryItemEdit';
+import {
+	isSameLibraryRow,
+	libraryItemFromEdit,
+	mergeEditedLibraryItem,
+	type EditedLibraryResult
+} from '$lib/library/libraryItemEdit';
 import type { EditedMediaItem } from '$lib/services/api/media';
 import { isPerItemError, refusalMessage } from '$lib/plans/refusal';
 import { blockedUploadMessage } from '$lib/plans/uploadLimit';
@@ -41,6 +47,7 @@ export interface LibraryPageState {
 	availableTags: Tag[];
 	mediaTypeCounts: Record<string, number>;
 	freshIds: string[];
+	placedIds: string[];
 }
 
 const initialState: LibraryPageState = {
@@ -56,7 +63,8 @@ const initialState: LibraryPageState = {
 	selectedIds: [],
 	availableTags: [],
 	mediaTypeCounts: {},
-	freshIds: []
+	freshIds: [],
+	placedIds: []
 };
 
 function isItemsPerPageOption(value: number): boolean {
@@ -104,7 +112,9 @@ function createLibraryStore() {
 					...state,
 					items: data.items,
 					totalCount: data.total,
-					loading: false
+					loading: false,
+					freshIds: [],
+					placedIds: []
 				}));
 			} else {
 				update((state) => ({ ...state, loading: false }));
@@ -159,7 +169,7 @@ function createLibraryStore() {
 		},
 
 		setPage(page: number) {
-			update((state) => ({ ...state, currentPage: page, freshIds: [] }));
+			update((state) => ({ ...state, currentPage: page, freshIds: [], placedIds: [] }));
 		},
 
 		setItemsPerPage(itemsPerPage: number) {
@@ -171,7 +181,7 @@ function createLibraryStore() {
 					// Keep the in-memory selection when localStorage is unavailable.
 				}
 			}
-			update((state) => ({ ...state, itemsPerPage, currentPage: 1, freshIds: [] }));
+			update((state) => ({ ...state, itemsPerPage, currentPage: 1, freshIds: [], placedIds: [] }));
 		},
 
 		// Restores the viewer's display preference after hydration, before the
@@ -187,7 +197,8 @@ function createLibraryStore() {
 				...state,
 				filters: { ...state.filters, [key]: value },
 				currentPage: 1,
-				freshIds: []
+				freshIds: [],
+				placedIds: []
 			}));
 		},
 
@@ -203,7 +214,8 @@ function createLibraryStore() {
 							: [...state.filters.selectedTagIds, tagId]
 					},
 					currentPage: 1,
-					freshIds: []
+					freshIds: [],
+					placedIds: []
 				};
 			});
 		},
@@ -213,7 +225,8 @@ function createLibraryStore() {
 				...state,
 				filters: { ...state.filters, selectedTagIds: [] },
 				currentPage: 1,
-				freshIds: []
+				freshIds: [],
+				placedIds: []
 			}));
 		},
 
@@ -222,7 +235,8 @@ function createLibraryStore() {
 				...state,
 				filters: { ...DEFAULT_LIBRARY_FILTERS },
 				currentPage: 1,
-				freshIds: []
+				freshIds: [],
+				placedIds: []
 			}));
 		},
 
@@ -394,17 +408,18 @@ function createLibraryStore() {
 		},
 
 		async applyToolResult(
-			results: EditedMediaItem[],
-			sourceIds: string[]
+			results: EditedLibraryResult[],
+			sourceIds: string[],
+			options: { replaced?: boolean } = {}
 		): Promise<{ added: number; replaced: number }> {
 			const before = snapshot();
 			const known = new Set(before.items.map((item) => item.id));
 			if (before.selectedItem) known.add(before.selectedItem.id);
-			const replacedItems = results.filter((result) => known.has(result.id));
-			const addedItems = results.filter((result) => !known.has(result.id));
+			const patched = results.filter((result) => known.has(result.id));
+			const added = options.replaced === true ? [] : results.filter((result) => !known.has(result.id));
 
-			if (replacedItems.length > 0) {
-				const byId = new Map(replacedItems.map((result) => [result.id, result]));
+			if (patched.length > 0) {
+				const byId = new Map(patched.map((result) => [result.id, result]));
 				update((state) => ({
 					...state,
 					items: state.items.map((item) => {
@@ -418,35 +433,49 @@ function createLibraryStore() {
 				}));
 			}
 
-			if (addedItems.length > 0) {
+			if (added.length > 0) {
+				const fresh = added.map((result) => result.id);
+				const markFresh = (placed: boolean) =>
+					update((state) => ({
+						...state,
+						freshIds: [...state.freshIds, ...fresh],
+						placedIds: placed ? [...state.placedIds, ...fresh] : state.placedIds
+					}));
 				const sourceIndex = before.items.findIndex((item) => sourceIds.includes(item.id));
-				const fresh = addedItems.map((result) => result.id);
-				if (sourceIndex >= 0) {
-					const rows = addedItems.map(libraryItemFromEdit);
+
+				if (hasActiveLibraryFilters(before.filters)) {
+					await load({ silent: true });
+					markFresh(false);
+				} else if (sourceIndex >= 0) {
+					const rows = added.map(libraryItemFromEdit);
 					update((state) => {
 						const at = state.items.findIndex((item) => sourceIds.includes(item.id));
 						const index = at >= 0 ? at : 0;
 						return {
 							...state,
 							items: [...state.items.slice(0, index), ...rows, ...state.items.slice(index)],
-							totalCount: state.totalCount + rows.length,
-							freshIds: [...state.freshIds, ...fresh]
+							totalCount: state.totalCount + rows.length
 						};
 					});
+					markFresh(true);
 				} else {
 					await this.showNewRows();
-					update((state) => ({ ...state, freshIds: [...state.freshIds, ...fresh] }));
+					markFresh(false);
 				}
 				await Promise.all([this.loadFacets(), libraryCollectionsStore.load()]);
 			} else {
 				await this.loadFacets();
 			}
 
-			return { added: addedItems.length, replaced: replacedItems.length };
+			return { added: added.length, replaced: patched.length };
 		},
 
 		clearFresh() {
-			update((state) => (state.freshIds.length > 0 ? { ...state, freshIds: [] } : state));
+			update((state) =>
+				state.freshIds.length > 0 || state.placedIds.length > 0
+					? { ...state, freshIds: [], placedIds: [] }
+					: state
+			);
 		},
 
 		/**

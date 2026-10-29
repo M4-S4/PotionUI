@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import EditorShell from '$lib/media/editors/EditorShell.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
@@ -9,7 +9,9 @@
 	import type { EditorCommitFn, MediaEditorSource } from '$lib/media/editors/types';
 	import CanvasPanel from './CanvasPanel.svelte';
 	import type { DrawConfig } from './drawConfig';
+	import { preselectLook } from '$lib/filters/preselect';
 	import { defaultExportStem, exportFileName } from './exportName';
+	import { parseInitialTool } from './initialTool';
 	import { PAINT_ICONS } from './icons';
 	import FilterStrip from './FilterStrip.svelte';
 	import ImageSourceMenu from './ImageSourceMenu.svelte';
@@ -37,6 +39,7 @@
 	const session = new PaintSession();
 	const modifier = primaryModifier();
 
+	let focusApply = false;
 	let stageHost: HTMLDivElement;
 	let stageCanvas: HTMLCanvasElement;
 	let overlayCanvas: HTMLCanvasElement;
@@ -122,11 +125,21 @@
 			} else if (source) {
 				await session.openSource(source.url, source.fileName);
 			}
-			if (initialTool) session.setTool(initialTool);
+			if (initialTool) {
+				const wanted = parseInitialTool(initialTool);
+				session.setTool(wanted.tool);
+				if (wanted.look) focusApply = await preselectLook(session, wanted.look);
+			}
 		} catch {
 			loadError = 'This image could not be opened for editing.';
 		}
 		state = session.snapshot();
+		if (focusApply) {
+			await tick();
+			requestAnimationFrame(() =>
+				document.querySelector<HTMLButtonElement>('[data-filter-apply] button:not([disabled])')?.focus()
+			);
+		}
 	});
 
 	onDestroy(() => {

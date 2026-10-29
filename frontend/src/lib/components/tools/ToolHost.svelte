@@ -48,7 +48,7 @@
 
 {#if tool && context}
 	{#if CoreModal}
-		<CoreModal {context} {onClose} {onDone} />
+		<CoreModal {...tool.componentProps} {context} {onClose} {onDone} />
 	{:else if pluginModal}
 		<BaseModal isOpen={true} title={tool.label} size="lg" on:close={onClose}>
 			<div class="p-4 md:p-6">

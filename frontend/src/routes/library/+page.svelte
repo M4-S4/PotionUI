@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { libraryStore } from '$lib/stores/library';
 	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { toasts } from '$lib/stores/toast';
@@ -40,11 +40,16 @@
 		});
 	}
 
-	async function handleToolResult(items: EditedMediaItem[], context: MediaToolContext) {
+	async function handleToolResult(
+		items: EditedMediaItem[],
+		context: MediaToolContext,
+		info: { replaced: boolean }
+	) {
 		if (items.length > 0) {
 			await libraryStore.applyToolResult(
 				items,
-				context.items.map((item) => item.id)
+				context.items.map((item) => item.id),
+				{ replaced: info.replaced }
 			);
 		}
 		if (!context.entry) libraryStore.clearSelection();
@@ -83,12 +88,15 @@
 	$: state = $libraryStore;
 
 	onMount(() => {
+		libraryStore.clearFresh();
 		libraryStore.restoreItemsPerPage();
 		libraryStore.load().then(() => libraryStore.loadTags());
 		libraryStore.loadFacets();
 		collectionsStore.load();
 		void loadPluginMediaTools();
 	});
+
+	onDestroy(() => libraryStore.clearFresh());
 
 	function pickFiles() {
 		fileInput?.click();

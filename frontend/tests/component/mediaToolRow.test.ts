@@ -9,6 +9,16 @@ const listMediaTools = vi.fn();
 
 vi.mock('$lib/media-tools/open', () => ({ openMediaTool: (...args: unknown[]) => openMediaTool(...args) }));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
+vi.mock('$lib/stores/toast', () => ({
+	toasts: { show: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }
+}));
+vi.mock('$lib/services/api/index', () => ({
+	api: {
+		listLibraryItems: vi.fn().mockResolvedValue({ success: false }),
+		getLibraryFacets: vi.fn().mockResolvedValue({ success: false }),
+		listCollections: vi.fn().mockResolvedValue({ success: false })
+	}
+}));
 vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
 	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
 }));
@@ -17,6 +27,7 @@ const { default: MediaToolRow } = await import('$lib/media-tools/MediaToolRow.sv
 const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 const { unregisterMediaTools } = await import('$lib/tools/tools');
 const { registerEntryTools } = await import('$lib/tools/entryTools');
+const { recentLooks } = await import('$lib/filters/recentLooks');
 
 registerEntryTools();
 
@@ -68,6 +79,7 @@ async function renderSettled(props: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+	recentLooks.set([]);
 	openMediaTool.mockReset();
 	listMediaTools.mockReset();
 	listMediaTools.mockResolvedValue(CORE_TOOLS);
@@ -290,9 +302,10 @@ describe('MediaToolRow running a tool', () => {
 		button(root, 'Resize').click();
 
 		const produced = [{ id: 'new-1', filename: 'photo-resized.png' }];
-		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'resize', replaced: false });
+		const info = { toolId: 'resize', replaced: false };
+		await openMediaTool.mock.calls[0][0].onResult(produced, info);
 
-		expect(onResult).toHaveBeenCalledWith(produced);
+		expect(onResult).toHaveBeenCalledWith(produced, info);
 	});
 
 	it('runs a page action when it is pressed', async () => {
@@ -366,15 +379,18 @@ describe('MediaToolRow image editor', () => {
 		expect(stub()?.getAttribute('data-initial-tool')).toBe('');
 	});
 
-	it('reports the saved image to the page', async () => {
+	it('folds an image saved on the Library into the library store and says so, without asking the page', async () => {
 		const onResult = vi.fn();
 		const root = await renderSettled({ items: [item('image')], onResult });
 		button(root, 'Apply a look…').click();
 		flushSync();
 
 		document.body.querySelector<HTMLButtonElement>('[data-stub-result]')!.click();
+		await settle();
 
-		expect(onResult).toHaveBeenCalledWith([expect.objectContaining({ id: 'looked' })]);
+		expect(onResult).not.toHaveBeenCalled();
+		const { toasts } = await import('$lib/stores/toast');
+		expect(toasts.success).toHaveBeenCalledWith('Saved to your library as a new image');
 	});
 
 	it('tells the modal it is editing while the editor is open', async () => {
@@ -398,5 +414,73 @@ describe('MediaToolRow image editor', () => {
 			false
 		);
 		expect(stub()).toBeNull();
+	});
+});
+
+describe('MediaToolRow recent looks', () => {
+	const looks = [
+		{ id: 'noir', name: 'Noir', group: 'Black and white' },
+		{ id: 'retro-tape:vhs', name: 'VHS', group: 'Retro Tape' }
+	];
+
+	function button(root: ParentNode, text: string) {
+		return Array.from(root.querySelectorAll('button')).find((entry) => (entry.textContent ?? '').trim() === text)!;
+	}
+
+	const stub = () => document.body.querySelector<HTMLElement>('[data-editor-stub]');
+
+	it('sit after Apply a look as one button each', async () => {
+		recentLooks.set(looks);
+		const root = await renderSettled({ items: [item('image')] });
+
+		expect(labels(group(root, 'effects')!)).toEqual(['Effects', 'Apply a look…', 'Noir', 'VHS']);
+	});
+
+	it('are not shown for a video', async () => {
+		recentLooks.set(looks);
+		const root = await renderSettled({ items: [item('video')] });
+
+		expect(group(root, 'effects')).toBeNull();
+	});
+
+	it('open the editor on that look, focused on Apply', async () => {
+		recentLooks.set(looks);
+		const root = await renderSettled({ items: [item('image')] });
+
+		button(root, 'Noir').click();
+		flushSync();
+
+		expect(stub()?.getAttribute('data-kind')).toBe('paint');
+		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters:noir');
+	});
+
+	it('keep a plugin look id that has a colon in it', async () => {
+		recentLooks.set(looks);
+		const root = await renderSettled({ items: [item('image')] });
+
+		button(root, 'VHS').click();
+		flushSync();
+
+		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters:retro-tape:vhs');
+	});
+
+	it('leave Apply a look opening the editor on Filters alone', async () => {
+		recentLooks.set(looks);
+		const root = await renderSettled({ items: [item('image')] });
+
+		button(root, 'Apply a look…').click();
+		flushSync();
+
+		expect(stub()?.getAttribute('data-initial-tool')).toBe('filters');
+	});
+
+	it('appear without a reload when a look is applied while the row is open', async () => {
+		const root = await renderSettled({ items: [item('image')] });
+		expect(labels(group(root, 'effects')!)).toEqual(['Effects', 'Apply a look…']);
+
+		recentLooks.set([looks[0]]);
+		flushSync();
+
+		expect(labels(group(root, 'effects')!)).toEqual(['Effects', 'Apply a look…', 'Noir']);
 	});
 });

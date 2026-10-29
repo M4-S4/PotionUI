@@ -49,7 +49,7 @@
 	// One flat keyed list per group: flex-wrap reproduces the packer's rows from
 	// the boxes' own widths, so a card keeps its DOM identity when a gridWidth
 	// reflow moves it across a row boundary (see flattenJustifiedRows).
-	$: groupLayouts = groupByDay(items, state.freshIds).map((group) => ({
+	$: groupLayouts = groupByDay(items, state.placedIds).map((group) => ({
 		...group,
 		boxes: flattenJustifiedRows(
 			layoutJustifiedRows(

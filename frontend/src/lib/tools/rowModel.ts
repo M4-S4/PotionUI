@@ -1,3 +1,4 @@
+import type { RecentLook } from '$lib/filters/recentLooks';
 import { applyLookAvailability, editImageAvailability } from './editImage';
 import {
 	listToolGroups,
@@ -17,6 +18,7 @@ export interface RowTool {
 	enabled: boolean;
 	reason: string;
 	note: string;
+	lookId?: string;
 	tool?: MediaTool;
 }
 
@@ -42,7 +44,7 @@ export function buildRowContext(
 	};
 }
 
-export function buildRowModel(ctx: MediaToolContext): RowModel {
+export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[] = []): RowModel {
 	const catalog: RowTool[] = [];
 	for (const group of listToolGroups(ctx)) {
 		if (group.category.id !== 'edit') continue;
@@ -87,7 +89,19 @@ export function buildRowModel(ctx: MediaToolContext): RowModel {
 					enabled: look.enabled,
 					reason: look.reason ?? '',
 					note: ''
-				}
+				},
+				...looks.map(
+					(recent): RowTool => ({
+						id: `look:${recent.id}`,
+						label: recent.name,
+						icon: '',
+						action: 'apply-look',
+						enabled: look.enabled,
+						reason: look.reason ?? '',
+						note: recent.group,
+						lookId: recent.id
+					})
+				)
 			];
 
 	return {

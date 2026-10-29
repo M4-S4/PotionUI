@@ -14,6 +14,7 @@ import { runFilters, type FilterStep } from './adjustments/run';
 import { defaultFilterValues } from './adjustments/builtin';
 import { filterCatalog } from '$lib/filters/catalog';
 import { sharedExtensions } from '$lib/filters/extensions';
+import { recordRecentLook } from '$lib/filters/recentLooks';
 import { LutMemo, renderRecipe } from '$lib/filters/render';
 import { makeThumbSource } from '$lib/filters/thumbs';
 import type { FilterExtensions, FilterStep as RecipeStep } from '$lib/filters/engine';
@@ -1384,6 +1385,7 @@ export class PaintSession implements ToolHost, EditorApi {
 				{ x: 0, y: 0, width: layer.canvas.width, height: layer.canvas.height },
 				before
 			);
+			recordRecentLook({ id: active.id, name: active.name, group: active.group });
 		} catch (error) {
 			this.failFilter(error);
 			return;

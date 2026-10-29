@@ -32,6 +32,7 @@ const { historyStore } = await import('$lib/stores/history');
 const { syncCatalogTools } = await import('$lib/tools/catalogTools');
 const { unregisterMediaTools } = await import('$lib/tools/tools');
 const { registerCoreHistoryTools } = await import('../../src/routes/history/tools/coreTools');
+const { recentLooks } = await import('$lib/filters/recentLooks');
 const { default: LibrarySelectionToolbar } = await import(
 	'../../src/routes/library/components/LibrarySelectionToolbar.svelte'
 );
@@ -150,6 +151,7 @@ async function historyMenu(kind: Kind): Promise<MenuGroup[]> {
 const byLabel = (groups: MenuGroup[], label: string) => groups.find((group) => group.label === label);
 
 beforeEach(() => {
+	recentLooks.set([]);
 	libraryStore.reset();
 	historyStore.clearSelection();
 	unregisterMediaTools((tool) => !!tool.catalogToolId);
@@ -248,5 +250,46 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 
 		const library = await libraryMenu('image');
 		expect(byLabel(library, 'Plugins')).toBeUndefined();
+	});
+
+	it('lists up to three recent looks under Apply a look, with the look group underneath, on both pages', async () => {
+		recentLooks.set([
+			{ id: 'noir', name: 'Noir', group: 'Black and white' },
+			{ id: 'ember', name: 'Ember', group: 'Colour' },
+			{ id: 'retro-tape:vhs', name: 'VHS', group: 'Retro Tape' }
+		]);
+		const library = await libraryMenu('image');
+		destroy?.();
+		document.body.innerHTML = '';
+		libraryStore.reset();
+		const history = await historyMenu('image');
+
+		for (const groups of [library, history]) {
+			const effects = byLabel(groups, 'Effects')!;
+			expect(effects.tools).toEqual(['apply-look', 'look:noir', 'look:ember', 'look:retro-tape:vhs']);
+			expect(effects.subs['look:noir']).toBe('Black and white');
+			expect(effects.subs['look:retro-tape:vhs']).toBe('Retro Tape');
+		}
+	});
+
+	it('shows no recent looks for a video or audio, where Effects is hidden', async () => {
+		recentLooks.set([{ id: 'noir', name: 'Noir', group: 'Black and white' }]);
+
+		const video = await libraryMenu('video');
+
+		expect(byLabel(video, 'Effects')).toBeUndefined();
+	});
+
+	it('rebuilds an open bar menu when a look is applied', async () => {
+		const before = await libraryMenu('image');
+		expect(byLabel(before, 'Effects')!.tools).toEqual(['apply-look']);
+		destroy?.();
+		document.body.innerHTML = '';
+		libraryStore.reset();
+
+		recentLooks.set([{ id: 'noir', name: 'Noir', group: 'Black and white' }]);
+		const after = await libraryMenu('image');
+
+		expect(byLabel(after, 'Effects')!.tools).toEqual(['apply-look', 'look:noir']);
 	});
 });

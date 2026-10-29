@@ -132,7 +132,7 @@
 		</p>
 
 		<div class="flex items-center gap-2">
-			<div class="flex-1">
+			<div class="flex-1" data-filter-apply>
 				<Button variant="primary" size="sm" icon="check" class="w-full" disabled={!applicable} onclick={() => session.applyFilterToLayer()}>
 					Apply
 				</Button>

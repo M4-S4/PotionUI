@@ -1,7 +1,8 @@
 <script lang="ts">
 	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
-	import { libraryStore } from '$lib/stores/library';
+	import type { MediaEditorResult } from '$lib/media/editors/types';
 	import { toasts } from '$lib/stores/toast';
+	import { applyLibraryPaintResult } from '$lib/tools/paintResult';
 	import type { MediaToolModalProps } from '$lib/tools/tools';
 	import { editImageRequest } from '../tools/editImage';
 
@@ -12,8 +13,14 @@
 		return base && initialTool ? { ...base, initialTool } : base;
 	});
 
-	async function handleResult() {
-		if (context.scope === 'library') await libraryStore.showNewRows();
+	async function handleResult(result: MediaEditorResult) {
+		if (context.scope === 'library') {
+			await applyLibraryPaintResult(
+				result,
+				context.items.map((item) => item.id)
+			);
+			return;
+		}
 		toasts.success('Saved to your library as a new image');
 	}
 </script>

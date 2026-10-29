@@ -364,32 +364,55 @@ test.describe('the tool catalog fails to load', () => {
 		await loginAsOwner(page);
 	});
 
-	test('shows one toast, and the next menu open brings the Edit group back', async ({ page }) => {
-		let healthy = false;
-		let requests = 0;
+	async function mockCatalog(page: Page, state: { healthy: boolean; requests: number }) {
 		await mockBackend(page);
 		await page.route(/\/api\/media-tools(\?.*)?$/, async (route) => {
-			requests += 1;
-			if (!healthy) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"success":false}' });
+			state.requests += 1;
+			if (!state.healthy) {
+				return route.fulfill({ status: 500, contentType: 'application/json', body: '{"success":false}' });
+			}
 			return json(route, { tools: CATALOG });
 		});
+	}
 
+	async function selectHarbour(page: Page) {
 		await page.goto('/library');
 		await expect(page.locator('[data-library-card]')).toHaveCount(3);
-		const toast = page.getByText("Editing tools couldn't load");
-		await expect(toast).toHaveCount(1);
+		await page
+			.locator('[data-library-card]')
+			.filter({ hasText: 'harbour.png' })
+			.getByRole('button', { name: 'Select item' })
+			.click();
+	}
 
-		await page.locator('[data-library-card]').filter({ hasText: 'harbour.png' }).getByRole('button', { name: 'Select item' }).click();
-		await page.locator('[data-tools-trigger]').first().click();
-		await expect(menu(page)).toBeVisible();
-		expect(await groupLabels(page)).not.toContain('Edit');
-		await page.keyboard.press('Escape');
-		await expect(toast).toHaveCount(1);
+	test('shows one toast, and the next menu open brings the Edit group back', async ({ page }) => {
+		const state = { healthy: false, requests: 0 };
+		await mockCatalog(page, state);
+		await selectHarbour(page);
+		await expect(page.getByText("Editing tools couldn't load")).toHaveCount(1);
 
-		healthy = true;
+		state.healthy = true;
 		await page.locator('[data-tools-trigger]').first().click();
+
 		await expect.poll(() => groupLabels(page)).toContain('Edit');
-		expect(requests).toBeGreaterThanOrEqual(3);
+		expect(state.requests).toBe(2);
+		await expect(page.getByText("Editing tools couldn't load")).toHaveCount(1);
+		await screenshot(page, JOURNEY, 'catalog-retry-1440');
+	});
+
+	test('retries once only, and stays quiet while the catalog is still down', async ({ page }) => {
+		const state = { healthy: false, requests: 0 };
+		await mockCatalog(page, state);
+		await selectHarbour(page);
+		await expect(page.getByText("Editing tools couldn't load")).toHaveCount(1);
+
+		for (let attempt = 0; attempt < 3; attempt += 1) {
+			await page.locator('[data-tools-trigger]').first().click();
+			await expect(menu(page)).toBeVisible();
+			await page.keyboard.press('Escape');
+		}
+
+		expect(state.requests).toBe(2);
 		await expect(page.getByText("Editing tools couldn't load")).toHaveCount(1);
 	});
 });

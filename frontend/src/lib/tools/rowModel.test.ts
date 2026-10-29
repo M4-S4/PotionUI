@@ -86,6 +86,43 @@ describe('buildRowModel', () => {
 	});
 });
 
+describe('recent looks in the Effects row', () => {
+	const looks = [
+		{ id: 'noir', name: 'Noir', group: 'Black and white' },
+		{ id: 'retro-tape:vhs', name: 'VHS', group: 'Retro Tape' }
+	];
+
+	it('follow Apply a look, one button each, in the order given', () => {
+		const model = buildRowModel(buildRowContext('library', [item('image')]), looks);
+
+		expect(ids(model.effects)).toEqual(['apply-look', 'look:noir', 'look:retro-tape:vhs']);
+		expect(model.effects.map((entry) => entry.label)).toEqual(['Apply a look…', 'Noir', 'VHS']);
+	});
+
+	it('carry the look id and group, which Apply a look does not', () => {
+		const [open, noir] = buildRowModel(buildRowContext('library', [item('image')]), looks).effects;
+
+		expect(open.lookId).toBeUndefined();
+		expect(noir).toMatchObject({ lookId: 'noir', note: 'Black and white', action: 'apply-look' });
+	});
+
+	it('are left out for video and audio along with the rest of Effects', () => {
+		expect(buildRowModel(buildRowContext('library', [item('video')]), looks).effects).toEqual([]);
+		expect(buildRowModel(buildRowContext('library', [item('audio')]), looks).effects).toEqual([]);
+	});
+
+	it('show on both pages alike', () => {
+		const library = buildRowModel(buildRowContext('library', [item('image')]), looks);
+		const history = buildRowModel(buildRowContext('history', [item('image', { generationId: 'g' })]), looks);
+
+		expect(ids(history.effects)).toEqual(ids(library.effects));
+	});
+
+	it('are absent when no look was applied yet', () => {
+		expect(ids(buildRowModel(buildRowContext('library', [item('image')])).effects)).toEqual(['apply-look']);
+	});
+});
+
 describe('buildRowContext', () => {
 	it('builds the same context a card entry does, so hidden rules agree', () => {
 		const ctx = buildRowContext('library', [item('video')]);

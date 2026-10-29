@@ -83,8 +83,8 @@
 		{ id: 'download', label: 'Download', icon: 'download', onclick: handleDownload }
 	];
 
-	async function handleToolResult(results: EditedMediaItem[]) {
-		await libraryStore.applyToolResult(results, [item.id]);
+	async function handleToolResult(results: EditedMediaItem[], info: { replaced: boolean }) {
+		await libraryStore.applyToolResult(results, [item.id], { replaced: info.replaced });
 	}
 </script>
 

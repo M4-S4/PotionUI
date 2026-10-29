@@ -21,14 +21,17 @@
 		MediaEditorRequest,
 		MediaEditorResult
 	} from '$lib/media/editors/types';
+	import { FILTERS_TOOL, lookTool } from '$lib/components/imageEditor/initialTool';
+	import { recentLooks } from '$lib/filters/recentLooks';
 	import { editImageRequest } from '$lib/tools/editImage';
 	import { loadPluginMediaTools, mediaToolRegistrations } from '$lib/tools/pluginTools';
 	import { buildRowContext, buildRowModel, type RowTool } from '$lib/tools/rowModel';
 	import type { MediaToolItem as RowItem } from '$lib/tools/tools';
 	import type { MediaToolItem as ToolResultItem } from './types';
-	import { openMediaTool } from './open';
+	import { openMediaTool, type MediaToolResultInfo } from './open';
 	import { SAVED_TO_LIBRARY_ANNOUNCE } from './announce';
 	import { notifySavedToLibrary } from '$lib/tools/savedToLibrary';
+	import { applyLibraryPaintResult } from '$lib/tools/paintResult';
 
 	let {
 		items,
@@ -42,7 +45,7 @@
 		scope: 'history' | 'library';
 		pageLabel: string;
 		pageActions?: RowPageAction[];
-		onResult?: (items: ToolResultItem[]) => void;
+		onResult?: (items: ToolResultItem[], info: MediaToolResultInfo) => void;
 		onEditingChange?: (editing: boolean) => void;
 	} = $props();
 
@@ -51,7 +54,7 @@
 
 	let model = $derived.by(() => {
 		void $mediaToolRegistrations;
-		return buildRowModel(buildRowContext(scope, items));
+		return buildRowModel(buildRowContext(scope, items), $recentLooks);
 	});
 
 	$effect(() => {
@@ -72,7 +75,9 @@
 	function run(entry: RowTool) {
 		if (!entry.enabled) return;
 		if (entry.action === 'edit-image') return openPaint(null);
-		if (entry.action === 'apply-look') return openPaint('filters');
+		if (entry.action === 'apply-look') {
+			return openPaint(entry.lookId ? lookTool(entry.lookId) : FILTERS_TOOL);
+		}
 		const toolId = entry.tool?.catalogToolId;
 		if (!toolId) return;
 		void openMediaTool({
@@ -80,14 +85,20 @@
 			items,
 			scope,
 			announce: scope === 'history' ? SAVED_TO_LIBRARY_ANNOUNCE : undefined,
-			onResult: (results: ToolResultItem[]) => onResult?.(results)
+			onResult: (results: ToolResultItem[], info: MediaToolResultInfo) => onResult?.(results, info)
 		});
 	}
 
 	function handlePaintResult(result: MediaEditorResult) {
+		if (scope === 'library') {
+			return applyLibraryPaintResult(
+				result,
+				items.map((item) => item.id)
+			);
+		}
 		const saved = result.type === 'item' ? [result.item] : result.type === 'items' ? result.items : [];
-		if (scope === 'history') notifySavedToLibrary(saved);
-		if (saved.length > 0) onResult?.(saved);
+		notifySavedToLibrary(saved);
+		if (saved.length > 0) onResult?.(saved, { toolId: 'edit-image', replaced: false });
 	}
 
 	function subline(entry: RowTool): string {
@@ -164,7 +175,7 @@
 			<div class="flex flex-wrap items-center gap-2" role="group" aria-label="Effects" data-row-group="effects">
 				<span class={labelClass}>Effects</span>
 				{#each model.effects as entry (entry.id)}
-					<Tooltip text={entry.enabled ? '' : entry.reason}>
+					<Tooltip text={entry.enabled ? entry.note : entry.reason}>
 						<Button
 							variant="secondary"
 							size="sm"

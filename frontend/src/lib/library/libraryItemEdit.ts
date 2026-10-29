@@ -20,12 +20,27 @@ import type { EditedMediaItem } from '$lib/services/api/media';
  * item's, never the result's: the API does not return them because an edit
  * cannot change them.
  */
+export type EditedLibraryResult = EditedMediaItem & {
+	thumbnail_small?: string | null;
+	thumbnail_medium?: string | null;
+	thumbnail_large?: string | null;
+};
+
+function thumbnailsOf(edited: EditedLibraryResult) {
+	return {
+		thumbnail_small: edited.thumbnail_small ?? undefined,
+		thumbnail_medium: edited.thumbnail_medium ?? undefined,
+		thumbnail_large: edited.thumbnail_large ?? undefined
+	};
+}
+
 export function mergeEditedLibraryItem(
 	existing: LibraryItem,
-	edited: EditedMediaItem
+	edited: EditedLibraryResult
 ): LibraryItem {
 	return {
 		...existing,
+		...thumbnailsOf(edited),
 		filename: edited.filename,
 		original_filename: edited.original_filename ?? existing.original_filename,
 		media_type: edited.media_type || existing.media_type,
@@ -45,8 +60,9 @@ export function isSameLibraryRow(item: LibraryItem, edited: EditedMediaItem): bo
 	return item.id === edited.id;
 }
 
-export function libraryItemFromEdit(edited: EditedMediaItem): LibraryItem {
+export function libraryItemFromEdit(edited: EditedLibraryResult): LibraryItem {
 	return {
+		...thumbnailsOf(edited),
 		id: edited.id,
 		filename: edited.filename,
 		original_filename: edited.original_filename,
