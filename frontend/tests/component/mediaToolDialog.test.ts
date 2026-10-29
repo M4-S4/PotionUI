@@ -311,6 +311,16 @@ describe('applying', () => {
 		expect(onClose).toHaveBeenCalledTimes(1);
 	});
 
+	it('closes at once while the run is still going when detached', async () => {
+		getMediaToolRun.mockResolvedValue(run({ status: 'running', progress: 0.3, items: [] }));
+		const { onClose, onResult } = open({ tool: SPEED, detach: true });
+
+		await applyNow();
+
+		expect(onClose).toHaveBeenCalledTimes(1);
+		expect(onResult).not.toHaveBeenCalled();
+	});
+
 	it('hands the items to the host when a detached run completes', async () => {
 		const { onResult } = open({ tool: SPEED, detach: true });
 		await applyNow();
@@ -567,7 +577,7 @@ describe('the preview', () => {
 		expect(dialog().querySelector('[data-before-after]')?.textContent).toContain('After');
 	});
 
-	it('draws no preview for a tool without one, and none for a video that cannot be shown', async () => {
+	it('draws no preview pane and asks for no preview for a tool that declares none', async () => {
 		open({ tool: SPEED });
 		await settle();
 		expect(dialog().querySelector('[data-preview]')).toBeNull();

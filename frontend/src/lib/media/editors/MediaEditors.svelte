@@ -271,7 +271,7 @@
 			steps: plan.steps,
 			sources: [{ id: key, kind: source.kind, url: source.url, filename: source.fileName }],
 			refs: [ref],
-			mode: 'item_id' in ref ? plan.mode : 'new',
+			mode: plan.mode,
 			announce: announce ?? detach
 		});
 
