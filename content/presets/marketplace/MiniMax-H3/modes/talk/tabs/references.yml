@@ -19,11 +19,3 @@ fields:
     configuration:
       input_type: "textarea"
       rows: 2
-  - name: "scene"
-    type: "string"
-    label: "Scene"
-    description: "Optional, e.g. talking to the camera in a cafe."
-    ai_hint: "Plain English: framing, place, mood and how the person moves while speaking."
-    configuration:
-      input_type: "textarea"
-      rows: 2

@@ -5,11 +5,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.forms.binding import FormBindingError
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.loader import read_mode_naming
 from src.features.presets.mode_labels import mode_display_icon, mode_display_name
 from src.features.presets.processor import PresetProcessor
+from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
 from src.platform.templating.processor import TemplateProcessor
 
 from ._bound_form import bound_form_data
@@ -40,12 +40,13 @@ def template():
     return found
 
 
-def _render(template, **over):
+def _render(template, prompt="", prompts=None, **over):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()), settings=Mock(), preset_template_loader=Mock(),
     )
     form = bound_form_data(template, "restyle", {**BASE, **over})
-    pipes = processor.process(template, {"prompts": [], "mode": "restyle", "form_data": form})
+    pairs = prompts or [{"positive": prompt, "negative": ""}]
+    pipes = processor.process(template, {"prompts": pairs, "mode": "restyle", "form_data": form})
     return {p.get("id") or p["name"]: p for p in pipes}
 
 
@@ -53,12 +54,45 @@ def _prompt(pipes):
     return pipes["prompt_encoder"]["config"]["p_prompt"]["output"]
 
 
-def test_mode_follows_text_is_named_restyle_and_needs_no_prompt(template):
+def _emitted(pipes, name):
+    parameters = pipes["param_emitter"]["config"]["parameters"]
+    flat = [entry for item in parameters for entry in (item if item and isinstance(item[0], list) else [item])]
+    return [entry[1] for entry in flat if entry and entry[0] == name]
+
+
+def _final_prompts(pipes, count):
+    config = pipes["prompt_encoder"]["config"]
+    pipe = PromptEncoderPipe({**PromptEncoderPipe.get_default_config(), **config})
+    return [
+        pipe._final_prompt_pair(
+            config["p_prompt"]["output"], config["p_prompt"]["input"],
+            config["n_prompt"]["output"], config["n_prompt"]["input"], config["pairs"], index,
+        )
+        for index in range(count)
+    ]
+
+
+def test_mode_follows_text_is_named_restyle_and_takes_the_standard_prompt(template):
     assert list(template.modes)[:5] == ["txt2img", "edit", "combine", "text", "restyle"]
     naming = read_mode_naming(Path("content/presets/marketplace/QwenImage-2.1/modes/restyle"))
     assert mode_display_name("restyle", naming["mode_label"]) == "Restyle"
     assert mode_display_icon("restyle") == "palette"
-    assert "restyle" in template.vars["promptless_modes"]
+    assert all(isinstance(e, dict) and e["mode"] != "restyle" for e in template.vars["promptless_modes"])
+    entry = next(e for e in template.vars["optional_prompt_modes"] if isinstance(e, dict) and e["mode"] == "restyle")
+    assert entry["when"] == {"field": "restyle_task", "in": ["colourise", "restore"]}
+
+
+def test_the_description_field_is_gone(template):
+    stack = list(template.modes["restyle"].forms[0].fields)
+    names = set()
+    while stack:
+        node = stack.pop()
+        if node.name:
+            names.add(node.name)
+        if isinstance(node.children, list):
+            stack.extend(node.children)
+    assert "restyle_text" not in names
+    assert "restyle_task" in names
 
 
 @pytest.mark.parametrize("task, text, expected", [
@@ -71,29 +105,40 @@ def test_mode_follows_text_is_named_restyle_and_needs_no_prompt(template):
     ("restore", "faces first", RESTORE + " Details: faces first."),
 ])
 def test_each_task_builds_its_documented_prompt(template, task, text, expected):
-    pipes = _render(template, restyle_task=task, restyle_text=text)
+    pipes = _render(template, prompt=text, restyle_task=task)
     assert _prompt(pipes) == expected
+    assert _final_prompts(pipes, 1)[0][0] == expected
 
 
 def test_default_task_is_style(template):
-    assert _prompt(_render(template, restyle_text="watercolour")) == STYLE
+    assert _prompt(_render(template, prompt="watercolour")) == STYLE
 
 
 def test_history_records_the_same_prompt(template):
-    pipes = _render(template, restyle_task="lighting", restyle_text="golden hour")
-    emitted = next(p for p in pipes["param_emitter"]["config"]["parameters"] if p and p[0] == "positive_prompt")
-    assert emitted[1] == LIGHTING
+    pipes = _render(template, prompt="golden hour", restyle_task="lighting")
+    assert _emitted(pipes, "positive_prompt") == [LIGHTING]
 
 
-@pytest.mark.parametrize("task", ["style", "background", "lighting"])
-def test_a_description_is_required_for_the_describing_tasks(template, task):
-    with pytest.raises(FormBindingError):
-        bound_form_data(template, "restyle", {**BASE, "restyle_task": task, "restyle_text": ""})
+@pytest.mark.parametrize("task", ["style", "background", "lighting", "colourise", "restore"])
+def test_no_description_is_asked_for_by_the_form(template, task):
+    bound_form_data(template, "restyle", {**BASE, "restyle_task": task})
 
 
-@pytest.mark.parametrize("task", ["colourise", "restore"])
-def test_a_description_is_optional_for_colourise_and_restore(template, task):
-    bound_form_data(template, "restyle", {**BASE, "restyle_task": task, "restyle_text": ""})
+def test_every_image_gets_its_own_wrapped_prompt(template):
+    prompts = [{"positive": "watercolour", "negative": "blurry"}, {"positive": "oil painting", "negative": "noisy"}]
+    pipes = _render(template, prompts=prompts, quantity=2)
+    first, second = _final_prompts(pipes, 2)
+    assert first == (STYLE, "blurry")
+    assert second == (STYLE.replace("watercolour", "oil painting"), "noisy")
+    assert _emitted(pipes, "positive_prompt") == [first[0], second[0]]
+    assert _emitted(pipes, "negative_prompt") == [["blurry", "noisy"]]
+
+
+def test_a_prompt_that_repeats_the_wrapper_words_still_lands_in_its_slot(template):
+    prompts = [{"positive": "the whole image", "negative": ""}, {"positive": "composition", "negative": ""}]
+    first, second = _final_prompts(_render(template, prompts=prompts, quantity=2), 2)
+    assert first[0] == STYLE.replace("watercolour", "the whole image")
+    assert second[0] == STYLE.replace("watercolour", "composition")
 
 
 def test_the_flow_is_a_plain_edit_for_every_task(template):

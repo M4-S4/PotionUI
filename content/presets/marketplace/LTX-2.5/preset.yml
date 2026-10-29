@@ -168,6 +168,7 @@ vars:
   # NOT applied to the video mode's in-flow upscale stage-2 refine -- see that
   # pipeline.yml's stage-2 comment for why (shared conditioning with stage 1).
   refine_quality_prompt: "the video is sharp and richly detailed, with clean well-defined edges, natural skin and material texture, smooth coherent motion, and free of compression artifacts, noise, or blurring"
+  optional_prompt_modes: ["restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "cinemagraph"]
 
   # Video Director capabilities for the `video` mode. Read by
   # normalize_video_director() (src/features/video_director/normalize.py) via

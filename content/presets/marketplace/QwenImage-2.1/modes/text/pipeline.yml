@@ -53,11 +53,17 @@ pipeline:
     enabled: true
     configuration:
       p_prompt:
-        input: ""
-        output: &text_prompt "{% set cur = (form.current_text | default('', true)) | trim %}{% set hint = (form.text_hint | default('', true)) | trim %}{% if cur %}Change the text \"{{ cur }}\" to \"{{ form.new_text | trim }}\".{% else %}Add the text \"{{ form.new_text | trim }}\".{% endif %}{% if hint %} Placement and style: {{ hint }}.{% endif %}{% if cur %} Keep the font, size, colour and background.{% else %} Keep the rest of the image unchanged.{% endif %}"
+        input: &text_prompt "{% set cur = (form.current_text | default('', true)) | trim %}{% set hint = ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim %}{% if cur %}Change the text \"{{ cur }}\" to \"{{ form.new_text | trim }}\".{% else %}Add the text \"{{ form.new_text | trim }}\".{% endif %}{% if hint %} Placement and style: {{ hint }}.{% endif %}{% if cur %} Keep the font, size, colour and background.{% else %} Keep the rest of the image unchanged.{% endif %}"
+        output: *text_prompt
       n_prompt:
-        input: ""
-        output: ""
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *text_prompt
+            negative: "{{ item.negative }}"
       quantity: "{{ form.quantity }}"
       guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       negative_applied: "{{ generation.negative_applied }}"
@@ -66,6 +72,13 @@ pipeline:
     enabled: true
     configuration:
       seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
 
   - name: "from_iotype"
@@ -90,7 +103,10 @@ pipeline:
         - "@loop":
             items: "{{ form.loras | active_loras }}"
             template: ["model", "{{ item.model }}"]
-        - ["positive_prompt", *text_prompt]
+        - "@loop":
+            items: "{{ generation.prompts.pairs }}"
+            template: ["positive_prompt", *text_prompt]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
         - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
         - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
         - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]

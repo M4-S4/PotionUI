@@ -4,16 +4,7 @@ fields:
     label: "Video"
     required: true
     description: "The video to re-create."
-    ai_hint: "The clip to remix. Its camera, motion and timing are kept and the requested change is applied; MiniMax-H3 reads it as <Video 1> of a video-editing request. Up to 14 seconds are used."
-  - name: "instruction"
-    type: "string"
-    label: "Change"
-    required: true
-    description: "What should be different."
-    ai_hint: "One or two plain English sentences describing the change, e.g. 'it is snowing and the street is at night'. Describe the result, not the edit steps."
-    configuration:
-      input_type: "textarea"
-      rows: 3
+    ai_hint: "The clip to remix. Its camera, motion and timing are kept and the change written in the prompt is applied; MiniMax-H3 reads it as <Video 1> of a video-editing request. Up to 14 seconds are used."
   - name: "pictures"
     type: "image"
     label: "Pictures"

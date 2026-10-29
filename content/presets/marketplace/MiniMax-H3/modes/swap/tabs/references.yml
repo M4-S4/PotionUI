@@ -20,22 +20,6 @@ fields:
     default: true
     description: "Keeps only the person."
     ai_hint: "Cuts the person out of each character picture before MiniMax-H3 sees it, so the pictures' own backgrounds cannot leak into the video; the background always comes from the source video. Needs the Matting Model on the Generation tab. Leave it on unless the pictures already show the person on a plain background."
-  - name: "character_description"
-    type: "string"
-    label: "Who they are"
-    description: "Optional, e.g. a tall woman in a red coat."
-    ai_hint: "A short plain description of the character's look, used to name them in the request. Leave empty to rely on the pictures."
-    configuration:
-      input_type: "textarea"
-      rows: 2
-  - name: "instruction"
-    type: "string"
-    label: "Anything else"
-    description: "Optional extra direction."
-    ai_hint: "Extra direction for the re-created clip, written as plain English, e.g. 'she smiles at the end'. Leave empty for a straight swap."
-    configuration:
-      input_type: "textarea"
-      rows: 2
   - name: "keep_sound"
     type: "checkbox"
     label: "Keep original sound"

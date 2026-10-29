@@ -29,6 +29,7 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
+from scripts.preset_render import build_fixture_form_data, build_processor
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -274,3 +275,35 @@ def test_every_windowed_edit_mode_takes_its_frames_from_the_clip():
                 assert "frames" not in config, path
                 windowed += bool(config.get("windows"))
     assert windowed >= 6
+
+
+OPTIONAL_PROMPT_MODES = [
+    "restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "cinemagraph",
+]
+PROMPT_PASS_THROUGH_MODES = ["extend", "refine_faces"]
+
+
+def _prompt_built_from_an_empty_prompt(template, mode):
+    generation = {
+        "mode": mode, "form_data": build_fixture_form_data(template, mode),
+        "prompts": [{"positive": "", "negative": ""}],
+    }
+    pipes = build_processor().process(template, generation)
+    return next(p for p in pipes if p["name"] == "prompt_encoder")["config"]["p_prompt"]["output"]
+
+
+def test_the_modes_with_a_built_in_sentence_take_an_optional_prompt(ltx25_template):
+    assert ltx25_template.vars["optional_prompt_modes"] == OPTIONAL_PROMPT_MODES
+    assert "promptless_modes" not in ltx25_template.vars
+    assert set(OPTIONAL_PROMPT_MODES) <= set(ltx25_template.modes)
+
+
+@pytest.mark.parametrize("mode", OPTIONAL_PROMPT_MODES)
+def test_each_optional_prompt_mode_builds_a_prompt_when_none_is_written(ltx25_template, mode):
+    assert _prompt_built_from_an_empty_prompt(ltx25_template, mode).strip()
+
+
+@pytest.mark.parametrize("mode", PROMPT_PASS_THROUGH_MODES)
+def test_the_modes_that_pass_the_prompt_straight_through_keep_requiring_it(ltx25_template, mode):
+    assert mode not in ltx25_template.vars["optional_prompt_modes"]
+    assert not _prompt_built_from_an_empty_prompt(ltx25_template, mode).strip()

@@ -88,11 +88,11 @@
         },
         "n_prompt.input": {
           "type": "str",
-          "value": ""
+          "value": "golden negative prompt"
         },
         "n_prompt.output": {
           "type": "str",
-          "value": ""
+          "value": "golden negative prompt"
         },
         "negative_applied": {
           "type": "bool",
@@ -100,11 +100,20 @@
         },
         "p_prompt.input": {
           "type": "str",
-          "value": ""
+          "value": "Add the text \"GOLDEN placeholder text\". Placement and style: golden positive prompt. Keep the rest of the image unchanged."
         },
         "p_prompt.output": {
           "type": "str",
-          "value": "Add the text \"GOLDEN placeholder text\". Keep the rest of the image unchanged."
+          "value": "Add the text \"GOLDEN placeholder text\". Placement and style: golden positive prompt. Keep the rest of the image unchanged."
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "Add the text \"GOLDEN placeholder text\". Placement and style: golden positive prompt. Keep the rest of the image unchanged."
+            }
+          ]
         },
         "quantity": {
           "type": "int",
@@ -135,6 +144,29 @@
       },
       "id": null,
       "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
     },
     {
       "config": {
@@ -169,8 +201,16 @@
             ],
             [],
             [
-              "positive_prompt",
-              "Add the text \"GOLDEN placeholder text\". Keep the rest of the image unchanged."
+              [
+                "positive_prompt",
+                "Add the text \"GOLDEN placeholder text\". Placement and style: golden positive prompt. Keep the rest of the image unchanged."
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
             ],
             [
               "cfg",

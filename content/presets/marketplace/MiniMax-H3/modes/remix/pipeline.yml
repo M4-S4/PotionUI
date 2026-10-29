@@ -53,14 +53,19 @@ pipeline:
     configuration:
       p_prompt:
         input: &document >-
-          subject_definitions: <Video 1> is the source video.{% for _ in (form.pictures or []) %} <Picture {{ loop.index }}> shows a look the change borrows.{% endfor %}
-          summary: [video editing]{% if form.pictures %} + [reference generation]{% endif %} Re-create <Video 1> with this change: {{ form.instruction }}
+          {% set prompt = ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim %}subject_definitions: <Video 1> is the source video.{% for _ in (form.pictures or []) %} <Picture {{ loop.index }}> shows a look the change borrows.{% endfor %}
+          summary: [video editing]{% if form.pictures %} + [reference generation]{% endif %} Re-create <Video 1> with this change: {{ prompt }}
           retention_analysis: <Video 1> (appears in [Shot 1]): partially_preserved - camera movement, motion, timing and composition are kept and the requested change is applied.{% for _ in (form.pictures or []) %} <Picture {{ loop.index }}> (appears in [Shot 1]): attribute_transfer - its look is applied where the change asks for it.{% endfor %}
-          detailed_description: The video follows <Video 1> moment by moment, keeping its camera movement, motion and timing. [Shot 1] {{ form.instruction }}
+          detailed_description: The video follows <Video 1> moment by moment, keeping its camera movement, motion and timing. [Shot 1] {{ prompt }}
           overall_soundscape: The same sounds as <Video 1>.
           non_diegetic_music: N/A
         output: *document
-      pairs: []
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *document
+            negative: ""
       quantity: "{{ form.quantity }}"
       guidance_scale: 1.0
       reference_video_frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
@@ -69,6 +74,13 @@ pipeline:
     enabled: true
     configuration:
       seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
 
   - name: "from_iotype"

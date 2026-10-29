@@ -101,10 +101,14 @@ vars:
   # so this is a constant the pipeline reports rather than a knob.
   fps: 24
   default_frames: 124
-  promptless_modes: ["swap", "remix", "talk"]
+  optional_prompt_modes: ["swap", "talk"]
 
   prompt:
     segment_join: "paragraph"
+    modes:
+      swap: { segment_templates: [] }
+      remix: { segment_templates: [] }
+      talk: { segment_templates: [] }
     segment_templates:
       - name: "H3 prompt document"
         description: "The three labeled fields MiniMax-H3 was trained on, in order."
@@ -374,6 +378,36 @@ llm:
         never abstract mood words; "N/A" when no score. When reference audio is
         reused, state the copy/reference relationship only in the section matching
         the audible layer.
+
+    swap:
+      guide: |
+        Swap character mode: the preset writes the structured request itself from
+        the source video and the character pictures, so never write the
+        three-field or six-section document here. The prompt is optional plain
+        English, a sentence or two added to the shot description: how the person
+        looks or behaves beyond the pictures ("a tall woman in a red coat", "she
+        smiles at the end"). Leave it empty for a straight swap. Never describe
+        the source video's camera, setting or lighting; those come from the video.
+
+    remix:
+      guide: |
+        Remix video mode: the preset writes the structured request itself from the
+        source video and any pictures, so never write the three-field or
+        six-section document here. The prompt is required: one or two plain
+        English sentences saying what should be different in the re-created video,
+        describing the result rather than the edit steps ("it is snowing and the
+        street is at night"). The source video's camera movement, motion and
+        timing are kept.
+
+    talk:
+      guide: |
+        Talking portrait mode: the preset writes the structured request itself from
+        the portrait and the voice clip, so never write the three-field or
+        six-section document here. The prompt is optional plain English for the
+        scene: framing, place, mood and how the person moves while speaking
+        ("talking to the camera in a cafe"). Leave it empty for a medium close-up
+        facing the camera. What the person says comes from the voice clip and the
+        Words field, never from the prompt.
 
     upscale:
       guide: |

@@ -6,6 +6,7 @@ import pytest
 
 from src.features.forms.binding import FormBindingError, bind_form
 from src.features.presets.processor import PresetProcessor
+from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
 from src.platform.templating.processor import TemplateProcessor
 
 _MODELS = {
@@ -27,7 +28,7 @@ def _inputs(pipe):
     return {edge["name"]: (edge["provider"], edge["output_var"]) for edge in pipe["input"]}
 
 
-def _process(template, mode, form, prompt=""):
+def _process(template, mode, form, prompt="", prompts=None):
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()), settings=Mock(), preset_template_loader=Mock(),
     )
@@ -35,7 +36,7 @@ def _process(template, mode, form, prompt=""):
         template, mode, form_name=None, raw_form_data={**_MODELS, **form}, user_id=None, storage_dir=None,
     )
     return processor.process(template, {
-        "prompts": [{"positive": prompt, "negative": ""}], "mode": mode, "form_data": dict(bound.values),
+        "prompts": prompts or [{"positive": prompt, "negative": ""}], "mode": mode, "form_data": dict(bound.values),
     })
 
 
@@ -60,8 +61,37 @@ def _document(pipes):
     return encoder["config"]["p_prompt"]["output"]
 
 
-def test_the_form_only_modes_hide_the_prompt(h3_template):
-    assert set(h3_template.vars["promptless_modes"]) == {"swap", "remix", "talk"}
+def _final_prompts(pipes, count):
+    config = next(p for p in pipes if p["name"] == "prompt_encoder")["config"]
+    pipe = PromptEncoderPipe({**PromptEncoderPipe.get_default_config(), **config})
+    p_prompt, n_prompt = config["p_prompt"], config.get("n_prompt", {})
+    return [
+        pipe._final_prompt_pair(
+            p_prompt["output"], p_prompt["input"], n_prompt.get("output", ""), n_prompt.get("input", ""),
+            config["pairs"], index,
+        )[0]
+        for index in range(count)
+    ]
+
+
+def test_the_task_modes_take_the_standard_prompt(h3_template):
+    assert not {"swap", "remix", "talk"} & set(h3_template.vars.get("promptless_modes", []))
+    assert h3_template.vars["optional_prompt_modes"] == ["swap", "talk"]
+
+
+@pytest.mark.parametrize("mode, field", [
+    ("swap", "character_description"), ("swap", "instruction"), ("remix", "instruction"), ("talk", "scene"),
+])
+def test_the_free_text_direction_fields_are_gone(h3_template, mode, field):
+    stack = list(h3_template.modes[mode].forms[0].fields)
+    names = set()
+    while stack:
+        node = stack.pop()
+        if node.name:
+            names.add(node.name)
+        if isinstance(node.children, list):
+            stack.extend(node.children)
+    assert field not in names
 
 
 @pytest.mark.parametrize("mode", ["swap", "remix", "talk"])
@@ -70,7 +100,7 @@ def test_every_task_mode_is_declared(h3_template, mode):
 
 
 def test_swap_sends_the_video_and_every_character_picture(h3_template):
-    pipes = _process(h3_template, "swap", {**_SWAP, "character_description": "a tall woman in a red coat"})
+    pipes = _process(h3_template, "swap", _SWAP, prompt="a tall woman in a red coat")
     generator = _pipe(pipes, "generator")
     assert generator["config"]["mode"] == "references"
     assert _inputs(generator)["reference_videos"] == ("reference_videos", "video")
@@ -79,8 +109,15 @@ def test_swap_sends_the_video_and_every_character_picture(h3_template):
     assert generator["config"]["length_from"] == "reference_video"
     assert generator["config"]["audio_source"] == "reference_video"
     document = _document(pipes)
-    assert "<Picture 1>, <Picture 2>, a tall woman in a red coat." in document
+    assert "<Subject 1> is the person shown in <Picture 1>, <Picture 2>. <Video 1> is the source video." in document
     assert "[video editing] + [reference generation]" in document
+    assert "stay as they are. a tall woman in a red coat overall_soundscape" in document
+    assert "None" not in document
+
+
+def test_swap_without_a_prompt_is_a_straight_swap(h3_template):
+    document = _document(_process(h3_template, "swap", _SWAP))
+    assert "stay as they are. overall_soundscape" in " ".join(document.split())
     assert "None" not in document
 
 
@@ -134,17 +171,18 @@ def test_swap_tells_h3_the_pictures_background_is_not_used(h3_template):
 
 
 def test_remix_without_pictures_skips_the_picture_loader(h3_template):
-    pipes = _process(h3_template, "remix", {"source_video": "/media/clip.mp4", "instruction": "it is snowing"})
+    pipes = _process(h3_template, "remix", {"source_video": "/media/clip.mp4"}, prompt="it is snowing")
     assert _pipe(pipes, "references")["enabled"] is False
     document = _document(pipes)
-    assert "[video editing] Re-create <Video 1> with this change: it is snowing" in document
+    assert "[video editing] Re-create <Video 1> with this change: it is snowing retention_analysis" in document
+    assert "[Shot 1] it is snowing overall_soundscape" in document
     assert "<Picture" not in document
 
 
 def test_remix_with_pictures_cites_them(h3_template):
     pipes = _process(h3_template, "remix", {
-        "source_video": "/media/clip.mp4", "instruction": "wear this", "pictures": ["/media/coat.png"],
-    })
+        "source_video": "/media/clip.mp4", "pictures": ["/media/coat.png"],
+    }, prompt="wear this")
     assert _pipe(pipes, "references")["enabled"] is True
     document = _document(pipes)
     assert "+ [reference generation]" in document
@@ -165,7 +203,49 @@ def test_talk_reuses_the_voice_and_muxes_it(h3_template):
     assert '<Subject 1> (S1) says, "<d>hello there</d>"' in document
 
 
-def test_talk_without_words_or_scene_uses_the_defaults(h3_template):
+def test_talk_without_words_or_a_prompt_uses_the_defaults(h3_template):
     document = _document(_process(h3_template, "talk", {"portrait": "/media/face.png", "voice": "/media/v.wav"}))
     assert "speaks the words of <Audio 1>" in document
     assert "A medium close-up of <Subject 1>" in document
+
+
+def test_talk_puts_the_prompt_in_the_scene_slot_and_keeps_the_words_verbatim(h3_template):
+    pipes = _process(h3_template, "talk", {
+        "portrait": "/media/face.png", "voice": "/media/voice.wav", "words": "{hi|bye} ${name}",
+    }, prompt="talking to the camera in a cafe")
+    document = _document(pipes)
+    assert "[Shot 1] talking to the camera in a cafe <Subject 1> (S1)" in document
+    assert "A medium close-up" not in document
+    assert '<d>{hi|bye} ${name}</d>' in document
+
+
+_CLIPS = {
+    "swap": (_SWAP, ["stay as they are. {} overall_soundscape"]),
+    "remix": (
+        {"source_video": "/media/clip.mp4"},
+        ["with this change: {} retention_analysis", "[Shot 1] {} overall_soundscape"],
+    ),
+    "talk": ({"portrait": "/media/face.png", "voice": "/media/voice.wav"}, ["[Shot 1] {} <Subject 1> (S1)"]),
+}
+
+
+@pytest.mark.parametrize("mode", list(_CLIPS))
+@pytest.mark.parametrize("texts", [("the wind rises", "a bell rings"), ("camera", "hair")])
+def test_every_clip_gets_its_own_prompt_inside_the_document(h3_template, mode, texts):
+    form, slots = _CLIPS[mode]
+    prompts = [{"positive": text, "negative": ""} for text in texts]
+    pipes = _process(h3_template, mode, {**form, "quantity": 2}, prompts=prompts)
+    first, second = _final_prompts(pipes, 2)
+    expected = first
+    for slot in slots:
+        assert slot.format(texts[0]) in expected
+        expected = expected.replace(slot.format(texts[0]), slot.format(texts[1]))
+    assert second == expected
+
+
+def test_talk_without_a_prompt_gives_every_clip_the_default_scene(h3_template):
+    form, _ = _CLIPS["talk"]
+    prompts = [{"positive": "", "negative": ""}] * 2
+    first, second = _final_prompts(_process(h3_template, "talk", {**form, "quantity": 2}, prompts=prompts), 2)
+    assert first == second
+    assert "[Shot 1] A medium close-up of <Subject 1>" in first

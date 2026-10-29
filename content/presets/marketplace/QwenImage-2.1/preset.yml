@@ -63,8 +63,6 @@ speed_profiles:
 vars:
   default_shift: 2.0
   promptless_modes:
-    - "text"
-    - "restyle"
     - mode: "control"
       when:
         logic: "AND"
@@ -72,6 +70,10 @@ vars:
           - { field: "guide_only", equals: true }
           - { field: "guide_extract", equals: true }
           - { field: "guide", not_in: ["none", "grayscale"] }
+  optional_prompt_modes:
+    - "text"
+    - mode: "restyle"
+      when: { field: "restyle_task", in: ["colourise", "restore"] }
 
 llm:
   guide: |
@@ -90,10 +92,13 @@ llm:
     and the others are references; refer to them in the prompt as <image1>, <image2>
     and so on, by position (e.g. "put the jacket from <image2> onto the person in
     <image1>"). Edit
-    text mode has no prompt: the user fills Current text, New text and an optional
-    style or placement, and the prompt is built from them. Restyle mode also has no prompt: the user
-    picks a task (style, background, lighting, colourise, restore) and describes the
-    result in a few words. Structure mode follows the structure of a guide
+    text mode builds its own instruction from the Current text and New text fields;
+    the prompt is optional and holds only where the text goes and how it looks (e.g.
+    "in white capitals at the top"), never the text itself. Restyle mode builds its own
+    instruction from the task the user picks (style, background, lighting, colourise,
+    restore); the prompt is the result in a few words ("watercolour painting", "a white
+    studio", "golden hour"), required for style, background and lighting and optional
+    extra details for colourise and restore. Structure mode follows the structure of a guide
     image (edges, depth, pose, lines or grayscale; use Pose to transfer a pose) and can repaint a masked part
     of an image; describe the whole finished image, not just the masked part.
 

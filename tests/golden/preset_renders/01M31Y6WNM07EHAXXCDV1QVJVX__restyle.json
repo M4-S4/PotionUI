@@ -70,11 +70,11 @@
         },
         "n_prompt.input": {
           "type": "str",
-          "value": ""
+          "value": "golden negative prompt"
         },
         "n_prompt.output": {
           "type": "str",
-          "value": ""
+          "value": "golden negative prompt"
         },
         "negative_applied": {
           "type": "bool",
@@ -82,11 +82,20 @@
         },
         "p_prompt.input": {
           "type": "str",
-          "value": ""
+          "value": "Restyle the whole image as golden positive prompt. Keep the composition, subjects and layout unchanged."
         },
         "p_prompt.output": {
           "type": "str",
-          "value": "Restyle the whole image as GOLDEN placeholder text. Keep the composition, subjects and layout unchanged."
+          "value": "Restyle the whole image as golden positive prompt. Keep the composition, subjects and layout unchanged."
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "Restyle the whole image as golden positive prompt. Keep the composition, subjects and layout unchanged."
+            }
+          ]
         },
         "quantity": {
           "type": "int",
@@ -117,6 +126,29 @@
       },
       "id": null,
       "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
     },
     {
       "config": {
@@ -151,8 +183,16 @@
             ],
             [],
             [
-              "positive_prompt",
-              "Restyle the whole image as GOLDEN placeholder text. Keep the composition, subjects and layout unchanged."
+              [
+                "positive_prompt",
+                "Restyle the whole image as golden positive prompt. Keep the composition, subjects and layout unchanged."
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
             ],
             [
               "cfg",
