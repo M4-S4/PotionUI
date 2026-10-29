@@ -2,37 +2,15 @@ fields:
   - name: "speed_profile"
     type: "select"
     formula: "speed"
-    label: "Speed"
+    label: "Speed profile"
     default: "distilled"
     ai_hint: "FastH3 is distilled for exactly 8 steps, so there is no speed choice to make."
     configuration:
       options:
-        - { label: "Distilled (8 steps, fixed)", value: "distilled" }
+        - { label: "Distilled", value: "distilled", sub_label: "8 steps · fixed by the checkpoint" }
   - type: "section"
     label: "Video"
     children:
-      - name: "source_video"
-        type: "video"
-        label: "Video"
-        required: true
-        description: "The video to extend."
-        ai_hint: "The clip to extend. It is fitted onto MiniMax-H3's canvas at its own aspect ratio and joined with the new footage. When extending after it, its last 17 frames and the sound leading up to them carry the motion and audio into the new part. When adding a lead-in, only its first frame is used, so the new footage ends exactly where the video begins."
-      - name: "direction"
-        type: "select"
-        label: "Add footage"
-        default: "after"
-        configuration:
-          options:
-            - { label: "After the video", value: "after" }
-            - { label: "Before the video", value: "before" }
-      - name: "added_seconds"
-        type: "slider"
-        formula: "size"
-        label: "Added length (seconds)"
-        default: 5
-        description: "How much new footage to add."
-        ai_hint: "Seconds of new footage, generated in one MiniMax-H3 window. Cost is close to linear in this. The prompt describes only what happens in the new part, not the original clip."
-        configuration: {min: 1, max: 13.5, step: 0.5}
       - type: "row"
         children:
           - name: "seed"
@@ -47,6 +25,14 @@ fields:
             configuration: {min: 1, max: 4, step: 1}
             width: "2/5"
             full_width: true
+      - name: "added_seconds"
+        type: "slider"
+        formula: "size"
+        label: "Added length (seconds)"
+        default: 5
+        description: "How much new footage to add."
+        ai_hint: "Seconds of new footage, generated in one MiniMax-H3 window. Cost is close to linear in this. The prompt describes only what happens in the new part, not the original clip."
+        configuration: {min: 1, max: 13.5, step: 0.5}
   - type: "section"
     label: "Models"
     formula: "models"

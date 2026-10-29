@@ -2,60 +2,17 @@ fields:
   - name: "speed_profile"
     type: "select"
     formula: "speed"
-    label: "Speed"
+    label: "Speed profile"
     default: "quality"
     ai_hint: "Quality runs 24 steps and holds a likeness best; pick it whenever a face or outfit has to come back. Turbo runs 4 steps and drifts more. Custom hands the Steps slider on the Advanced tab to the user."
     configuration:
       options:
-        - { label: "Quality (24 steps)", value: "quality" }
-        - { label: "Turbo (4 steps)", value: "turbo" }
-        - { label: "Custom (set Steps yourself)", value: "custom" }
+        - { label: "Quality", value: "quality", sub_label: "24 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "4 steps" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps, left alone" }
   - type: "section"
     label: "Video"
     children:
-      - name: "source_video"
-        type: "video"
-        label: "Video"
-        required: true
-        description: "The performance to keep."
-        ai_hint: "The clip whose main person is replaced. Its camera, motion, timing and setting are kept; MiniMax-H3 reads it as <Video 1> of a video-editing request. Up to 14 seconds are used."
-      - name: "character"
-        type: "image"
-        label: "Character"
-        required: true
-        description: "One to four pictures of who should appear."
-        ai_hint: "Pictures of the person who takes over the performance. Several angles of the same person help likeness; all of them describe one character."
-        configuration:
-          multi: true
-          max_items: 4
-      - name: "character_description"
-        type: "string"
-        label: "Who they are"
-        description: "Optional, e.g. a tall woman in a red coat."
-        ai_hint: "A short plain description of the character's look, used to name them in the request. Leave empty to rely on the pictures."
-        configuration:
-          input_type: "textarea"
-          rows: 2
-      - name: "instruction"
-        type: "string"
-        label: "Anything else"
-        description: "Optional extra direction."
-        ai_hint: "Extra direction for the re-created clip, written as plain English, e.g. 'she smiles at the end'. Leave empty for a straight swap."
-        configuration:
-          input_type: "textarea"
-          rows: 2
-      - name: "keep_sound"
-        type: "checkbox"
-        label: "Keep original sound"
-        default: true
-      - name: "max_seconds"
-        type: "slider"
-        formula: "size"
-        label: "Max length (seconds)"
-        default: 14
-        description: "Longer videos are cut here."
-        ai_hint: "The clip follows the source video length, up to this many seconds."
-        configuration: {min: 1, max: 14, step: 0.5}
       - type: "row"
         children:
           - name: "seed"
@@ -70,6 +27,14 @@ fields:
             configuration: {min: 1, max: 4, step: 1}
             width: "2/5"
             full_width: true
+      - name: "max_seconds"
+        type: "slider"
+        formula: "size"
+        label: "Max length (seconds)"
+        default: 14
+        description: "Longer videos are cut here."
+        ai_hint: "The clip follows the source video length, up to this many seconds."
+        configuration: {min: 1, max: 14, step: 0.5}
   - type: "section"
     label: "Models"
     formula: "models"

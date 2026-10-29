@@ -83,7 +83,7 @@ pipeline:
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["refine_strength", "{{ form.enhancement_strength }}"]
-        - ["refine_steps", "{{ form.refine_steps }}"]
+        - ["refine_steps", "{{ form.steps | default(generation.profile.steps) }}"]
 
   - name: "detailer/video_minimax_h3"
     id: "detailer"
@@ -102,7 +102,7 @@ pipeline:
       detection_confidence: "{{ form.detection_confidence }}"
       working_short_side: "{{ form.working_short_side }}"
       color_correction: "{{ form.color_correction }}"
-      refine_steps: "{{ form.refine_steps }}"
+      refine_steps: "{{ form.steps | default(generation.profile.steps) }}"
       refine_sampler: "{{ form.refine_sampler }}"
       face_model: "{{ form.face_detector_model or 'models/mediapipe/face_landmarker.task' }}"
       hand_model: "{{ form.hand_detector_model or 'models/mediapipe/hand_landmarker.task' }}"

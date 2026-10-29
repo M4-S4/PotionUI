@@ -59,14 +59,10 @@ configuration:
     label: "Latent upscaler tags"
     description: "Only models with any of these tags appear in the Latent Upscaler picker."
 
-# ONE speed profile: FastH3 is a DMD2 distillation trained for exactly 8
-# steps, not a range a user can trade off -- there is no quality/turbo/custom
-# choice to offer the way the base MiniMax-H3 preset does. The Steps slider on
-# the Advanced tab is still driven through the same reaction pattern (see
-# modes/video/tabs/advanced.yml) so it can never disagree with what runs, it
-# just always resolves to this one entry.
 speed_profiles:
   distilled:
+    steps: 8
+  custom:
     steps: 8
 
 vars:

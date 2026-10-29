@@ -1,13 +1,20 @@
 fields:
   - type: "section"
-    label: "Refine"
+    label: "Sampling"
     children:
-      - name: "refine_steps"
+      - name: "steps"
         type: "slider"
-        formula: "enhance"
-        label: "Refine steps"
+        formula: "speed"
+        label: "Steps"
+        audience: "advanced"
         default: 4
+        ai_hint: "Denoising steps per tracked face or hand window. The face refine's recipe runs 4; raise it only if refined faces stay soft."
         configuration: {min: 2, max: 24, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: 8, set_disabled: true }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
 
       - name: "refine_sampler"
         type: "select"
@@ -22,6 +29,9 @@ fields:
             - { label: "ER-SDE (stochastic)", value: "er_sde" }
             - { label: "SA-Solver", value: "sa_solver" }
 
+  - type: "section"
+    label: "Refine"
+    children:
       - name: "working_short_side"
         type: "slider"
         formula: "enhance"

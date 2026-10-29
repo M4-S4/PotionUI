@@ -1,78 +1,21 @@
 fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "custom"
+    ai_hint: "The face refine's own recipe is 4 steps; Custom starts there and leaves the Steps slider on the Advanced tab to the user. Distilled pins the checkpoint's fixed 8 steps."
+    configuration:
+      options:
+        - { label: "Distilled", value: "distilled", sub_label: "8 steps · fixed by the checkpoint" }
+        - { label: "Custom", value: "custom", sub_label: "4 steps by default, left alone" }
   - type: "section"
     label: "Video"
     children:
-      - name: "input_video"
-        type: "video"
-        label: "Input Video"
-        required: true
-        ai_hint: "The video whose faces and hands should be refined, for example a clip from the Video mode. Each face or hand is tracked through the clip, refined with a light MiniMax-H3-Fast pass in windows of up to 15 seconds and blended back; everything else, including the audio, stays as it was."
-
       - name: "seed"
         type: "seed"
         label: "Seed"
         default: -1
-
-  - type: "section"
-    label: "Refine"
-    children:
-      - type: "row"
-        children:
-          - name: "refine_faces"
-            type: "checkbox"
-            formula: "enhance"
-            label: "Faces"
-            default: true
-
-          - name: "refine_hands"
-            type: "checkbox"
-            formula: "enhance"
-            label: "Hands"
-            default: true
-
-      - name: "enhancement_strength"
-        type: "select"
-        formula: "enhance"
-        label: "Strength"
-        ai_hint: "Balanced is the safe default. Suggest Light when the user worries a face's identity changes, Strong only when they want maximum detail and accept more deviation."
-        default: "balanced"
-        configuration:
-          options:
-            - { label: "Light", value: "light" }
-            - { label: "Balanced", value: "balanced" }
-            - { label: "Strong", value: "strong" }
-
-      - name: "max_subjects"
-        type: "slider"
-        formula: "enhance"
-        label: "Max subjects"
-        ai_hint: "How many faces and hands are refined at most, largest and longest on screen first."
-        default: 4
-        configuration: {min: 1, max: 16, step: 1}
-
-      - name: "face_detector_model"
-        type: "model"
-        formula: "models"
-        label: "Face Detection Model"
-        configuration:
-          model_type: "mediapipe"
-        reactions:
-          - when: { field: "refine_faces", equals: false }
-            then: { set_visibility: false }
-          - when: { field: "refine_faces", equals: true }
-            then: { set_visibility: true }
-
-      - name: "hand_detector_model"
-        type: "model"
-        formula: "models"
-        label: "Hand Detection Model"
-        configuration:
-          model_type: "mediapipe"
-        reactions:
-          - when: { field: "refine_hands", equals: false }
-            then: { set_visibility: false }
-          - when: { field: "refine_hands", equals: true }
-            then: { set_visibility: true }
 
   - type: "section"
     label: "Models"
@@ -156,3 +99,27 @@ fields:
               size: "577.2 MB"
               sha256: "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
               description: "MiniMax-H3 audio VAE, fp32 - required for the audio track."
+
+      - name: "face_detector_model"
+        type: "model"
+        formula: "models"
+        label: "Face Detection Model"
+        configuration:
+          model_type: "mediapipe"
+        reactions:
+          - when: { field: "refine_faces", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "refine_faces", equals: true }
+            then: { set_visibility: true }
+
+      - name: "hand_detector_model"
+        type: "model"
+        formula: "models"
+        label: "Hand Detection Model"
+        configuration:
+          model_type: "mediapipe"
+        reactions:
+          - when: { field: "refine_hands", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "refine_hands", equals: true }
+            then: { set_visibility: true }
