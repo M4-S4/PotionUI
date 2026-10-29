@@ -8,7 +8,10 @@ logic (install/assign/configure), for a plugin that needs more than a lookup.
 
 `describe_preset` reads one preset's modes, fields, engine, category and
 hardware guidance; `list_presets(user)` describes every installed preset that
-user may run.
+user may run. `preset_template` hands over a loaded preset as its loader built
+it, `resolve_preset_path` fills the `{{ paths.preset }}` and
+`{{ paths._shared }}` variables of a path it names, and `preset_install_state`
+tells whether a preset is installed and assigned to anyone.
 
 To actually generate, build a `GenerationRequest` - the preset, the mode, the
 `PromptPair`s and the form data its fields expect - and hand it to the generation
@@ -44,11 +47,13 @@ See docs/presets.md.
 
 import copy
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations as preset_operations
+from src.features.presets.children_paths import resolve_children_path
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.linter import (
     COVER_VIDEO_MAX_BYTES as PRESET_COVER_VIDEO_MAX_BYTES,
@@ -64,7 +69,7 @@ from src.features.presets.requirements.contracts import (
 )
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
-from src.features.presets.templates import default_form_name
+from src.features.presets.templates import PresetTemplate, default_form_name
 from src.features.video_director.binding import DirectorBindingError
 from src.features.video_director.binding import bind_director_media as _bind_director_media
 from src.platform.plugins.runtime_registries import get_container
@@ -82,7 +87,9 @@ __all__ = [
     "PRESET_COVER_VIDEO_MAX_BYTES",
     "PRESET_MEDIA_MAX_BYTES",
     "PresetDescription",
+    "PresetInstallState",
     "PresetMedia",
+    "PresetTemplate",
     "RequirementAction",
     "RequirementChecker",
     "RequirementBackendInfo",
@@ -93,8 +100,11 @@ __all__ = [
     "downscale_and_save_webp",
     "lint_preset_dir",
     "list_presets",
+    "preset_install_state",
     "preset_operations",
+    "preset_template",
     "PromptPair",
+    "resolve_preset_path",
 ]
 
 
@@ -201,6 +211,36 @@ def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) ->
             )
         if isinstance(form_field.children, list):
             _describe_fields(form_field.children, out)
+
+
+@dataclass(frozen=True)
+class PresetInstallState:
+    installed: bool
+    assigned: bool
+
+
+def preset_template(preset_id: str) -> Optional[PresetTemplate]:
+    """A loaded preset as its loader built it, with its `path`, `driver` and modes down to each form field, or None."""
+    return get_container().file_preset_repository.find_preset_by_id(preset_id)
+
+
+def resolve_preset_path(preset_id: str, reference: str) -> Optional[Path]:
+    """A path a preset names with its `{{ paths.preset }}` and `{{ paths._shared }}` variables filled, or None when the preset is not loaded."""
+    repository = get_container().file_preset_repository
+    template = repository.find_preset_by_id(preset_id)
+    if template is None:
+        return None
+    return resolve_children_path(reference, Path(template.path), Path(repository.preset_loader.shared_path))
+
+
+def preset_install_state(preset_id: str) -> PresetInstallState:
+    """Whether a preset is installed on this instance and, when it is, assigned to a user or a group."""
+    collaborators = get_container().preset_collaborators
+    if not collaborators.db_repo.is_preset_installed(preset_id):
+        return PresetInstallState(installed=False, assigned=False)
+    summary = collaborators.db_repo.get_preset_assignment_summary(preset_id) or {}
+    groups = collaborators.group_repo.get_group_count_for_preset(preset_id) or 0
+    return PresetInstallState(installed=True, assigned=int(summary.get("total_assignments") or 0) + int(groups) > 0)
 
 
 def describe_preset(preset_id: str) -> Optional[PresetDescription]:

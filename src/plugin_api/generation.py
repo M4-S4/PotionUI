@@ -5,11 +5,13 @@ from src.features.forms.binding import FormBindingError
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
+from src.features.generation.failure import failure_report
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
 from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.generation.state_lookup import GenerationStateView, resolve_generation_state
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.security.user import AccountType
 
 __all__ = [
     "FormBindingError",
@@ -27,6 +29,8 @@ __all__ = [
     "SubmittedGeneration",
     "cancel_generation",
     "generation_active",
+    "generation_failure",
+    "generation_record",
     "generation_state",
     "get_session_snapshot",
     "list_generation_files",
@@ -143,6 +147,24 @@ def generation_active() -> bool:
 
 def generation_state(user, generation_id: str) -> Dict[str, Any]:
     return _require_access(get_container(), user, generation_id).payload
+
+
+def generation_record(user, generation_id: str) -> Optional[Dict[str, Any]]:
+    """The stored row of a generation the user may read, as generation_state returns it once the generation has left the queue, or None while it is not stored."""
+    container = get_container()
+    _require_access(container, user, generation_id)
+    row = container.generation_repository.get_by_id(generation_id)
+    return None if row is None else row.to_dict()
+
+
+def generation_failure(user, generation_id: str) -> Optional[Dict[str, Any]]:
+    """The failure of a failed generation with its raw `detail`, as `GET /api/generations/{id}/failure` answers it, or None when it did not fail; administrators only, PermissionError for anyone else."""
+    if getattr(user, "account_type", None) != AccountType.ADMIN:
+        raise PermissionError("Only an administrator can read the detail of a failure")
+    row = get_container().generation_repository.get_by_id(generation_id)
+    if row is None or row.status != "failed":
+        return None
+    return failure_report(row)
 
 
 def _visible_files(container, user, generation_id: str) -> List[Dict[str, Any]]:
