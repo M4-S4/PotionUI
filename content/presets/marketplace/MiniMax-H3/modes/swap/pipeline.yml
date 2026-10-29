@@ -53,11 +53,15 @@ pipeline:
         file_path: "{{ form.matting_model | default('') }}"
         name: "{{ form.matting_model | default('') }}"
 
-  - name: "crop_subject"
+  - name: "media_tool"
     id: "crop_subject"
     enabled: "{{ form.remove_background }}"
     input:
       - ["image", "matting", "image"]
+    configuration:
+      display_title: "Cropping subject"
+      tool: "crop_subject"
+      skip_unfit: true
 
   - name: "prompt_encoder"
     input:

@@ -61,13 +61,25 @@
     },
     {
       "config": {
-        "alpha_threshold": {
+        "display_title": {
+          "type": "str",
+          "value": "Cropping subject"
+        },
+        "params.alpha_threshold": {
           "type": "int",
           "value": 16
         },
-        "margin": {
+        "params.margin": {
           "type": "int",
           "value": 0
+        },
+        "skip_unfit": {
+          "type": "bool",
+          "value": true
+        },
+        "tool": {
+          "type": "str",
+          "value": "crop_subject"
         }
       },
       "enabled": {
@@ -75,7 +87,7 @@
         "value": true
       },
       "id": "crop_subject",
-      "name": "crop_subject"
+      "name": "media_tool"
     },
     {
       "config": {},

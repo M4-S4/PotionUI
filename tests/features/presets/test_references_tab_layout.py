@@ -6,7 +6,7 @@ ia2v, ref2va, edit, inpaint) carry their media loaders on a dedicated
 any LoRA tab. The video presets (LTX-2, LTX-2.5, MiniMax-H3 and its Fast
 variant) put every mode's input there, upscale and refine modes included.
 Modes whose media is the sole OPERAND of a transform (the
-ImageTools/AudioTools/VideoTools utilities, the SeedVR2 upscalers, the
+ImageTools/VideoTools utilities, the SeedVR2 upscalers, the
 LTX-2-3 utility preset, WAN interpolation) deliberately do NOT get the tab --
 their input is the subject of the operation, not a reference, and moving it
 would leave the first tab holding one stray slider.
@@ -105,7 +105,6 @@ SETTING_CASES = [
 UNTOUCHED_CASES = [
     ("presets/marketplace/ImageTools", "remove_background"),
     ("presets/marketplace/ImageTools", "crop_subject"),
-    ("presets/marketplace/AudioTools", "trim"),
     ("presets/marketplace/VideoTools", "interpolate"),
     ("presets/marketplace/SeedVR2", "upscale"),
     ("presets/marketplace/SeedVR2", "video_upscale"),

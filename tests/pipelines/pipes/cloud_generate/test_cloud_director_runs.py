@@ -1,3 +1,4 @@
+import importlib
 from decimal import Decimal
 from pathlib import Path
 
@@ -309,12 +310,12 @@ def test_a_single_text_shot_sends_no_frames_and_a_failure_is_not_relabelled(tmp_
 
 
 def test_a_joining_failure_keeps_every_shot_and_says_so(tmp_path, monkeypatch):
-    from src.pipelines.pipes._shared.media.video_concat import VideoConcatError
+    from src.platform.media_tools import ToolFailed
 
     def broken(clips, out_path, **kwargs):
-        raise VideoConcatError("no frames")
+        raise ToolFailed("Failed to encode the media")
 
-    monkeypatch.setattr(pipe_module, "concat_videos", broken)
+    monkeypatch.setattr(pipe_module, "join_video_files", broken)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 
@@ -322,27 +323,23 @@ def test_a_joining_failure_keeps_every_shot_and_says_so(tmp_path, monkeypatch):
     assert any("could not be joined" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
 
 
-def test_a_join_without_sound_says_so(tmp_path, monkeypatch):
-    real = pipe_module.concat_videos
-
-    def without_ffmpeg(clips, out_path, **kwargs):
-        return real(clips, out_path, find=lambda: None, **kwargs)
-
-    monkeypatch.setattr(pipe_module, "concat_videos", without_ffmpeg)
+def test_without_ffmpeg_every_shot_is_kept_and_the_film_is_not_joined(tmp_path, monkeypatch):
+    for name in ("probe", "ffmpeg"):
+        monkeypatch.setattr(importlib.import_module(f"src.platform.media_tools.{name}"), "find_ffmpeg", lambda: None)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 
-    assert len(output["video"]) == 1
-    assert any("no sound" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
+    assert output["video"] == [] and len(saved_shots(emitted)) == 2
+    assert any("could not be joined" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
 
 
 def test_cancelling_while_the_shots_are_joined_keeps_the_shots_and_makes_no_film(tmp_path, monkeypatch):
-    from src.pipelines.pipes._shared.media.video_concat import VideoConcatCancelled
+    from src.platform.media_tools import ToolCancelled
 
     def cancelled(clips, out_path, **kwargs):
-        raise VideoConcatCancelled()
+        raise ToolCancelled()
 
-    monkeypatch.setattr(pipe_module, "concat_videos", cancelled)
+    monkeypatch.setattr(pipe_module, "join_video_files", cancelled)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 

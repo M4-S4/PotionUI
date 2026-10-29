@@ -35,8 +35,9 @@ from src.pipelines.outputs import (
     VideoGenerationOutput,
 )
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame
-from src.pipelines.pipes._shared.media.video_concat import VideoConcatCancelled, VideoConcatError, concat_videos
+from src.pipelines.pipes._shared.media.tools import join_video_files
 from src.pipelines.pipes.cloud_generate.director import CloudShot, kept_text, plan_shots, stitch_wanted
+from src.platform.media_tools import MediaToolError, ToolCancelled
 
 DEFAULT_ROLES = {
     "images": "reference",
@@ -397,18 +398,16 @@ class CloudGeneratePipe(BasePipe):
 
     @staticmethod
     def _stitch(clips: List[str], generation_outputs: callable, is_cancelled: Optional[callable] = None) -> Optional[str]:
-        generation_outputs(ProgressGenerationOutput(state="Joining the shots", icon=Icon("film", "pulse")))
         with tempfile.NamedTemporaryFile(prefix="potionui-cloud-film-", suffix=".mp4", delete=False) as handle:
             out_path = Path(handle.name)
         try:
-            concat_videos(
-                clips, out_path, is_cancelled=is_cancelled,
-                notify=lambda text: generation_outputs(ProgressGenerationOutput(state=text, icon=Icon("alert-triangle", "beat"))),
+            join_video_files(
+                clips, out_path, emit=generation_outputs, is_cancelled=is_cancelled, label="Joining the shots",
             )
-        except VideoConcatCancelled:
+        except ToolCancelled:
             out_path.unlink(missing_ok=True)
             return None
-        except (VideoConcatError, OSError) as error:
+        except (MediaToolError, OSError) as error:
             out_path.unlink(missing_ok=True)
             logger.warning(f"[CLOUD_DIRECTOR] the shots could not be joined: {type(error).__name__}: {error}")
             generation_outputs(ProgressGenerationOutput(

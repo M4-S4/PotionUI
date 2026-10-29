@@ -6,8 +6,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Iterator, Optional, Sequence
 
-from src.pipelines.outputs import Icon, Progress, ProgressGenerationOutput
-from src.platform.media_tools import MediaToolRegistry, ToolContext
+from src.pipelines.outputs import GenerationExecutionError, Icon, Progress, ProgressGenerationOutput
+from src.platform.media_tools import MediaToolError, MediaToolRegistry, ToolContext
 from src.platform.media_tools.ops import register_core_tools
 from src.platform.media_tools.ops.concat import ClipTrims, join_clips
 
@@ -62,7 +62,9 @@ class ProgressRelay:
         if marker == self._sent:
             return
         self._sent = marker
-        self._emit(ProgressGenerationOutput(state=label, icon=self._icon, progress=Progress(marker[0], 100)))
+        self._emit(ProgressGenerationOutput(
+            state=label, icon=self._icon, progress=Progress(marker[0], 100), bar=False,
+        ))
 
     def context(self, scratch: Path, is_cancelled: Optional[Callable[[], bool]] = None) -> ToolContext:
         def poll() -> bool:
@@ -70,6 +72,27 @@ class ProgressRelay:
             return bool(is_cancelled is not None and is_cancelled())
 
         return ToolContext(scratch, progress=self.update, is_cancelled=poll)
+
+
+@contextmanager
+def tool_session(
+    emit: Callable,
+    label: str,
+    is_cancelled: Optional[Callable[[], bool]] = None,
+    *,
+    icon: str = DEFAULT_ICON,
+    effect: Optional[str] = None,
+) -> Iterator[ToolContext]:
+    relay = ProgressRelay(emit, label, icon, effect)
+    relay.flush()
+    with scratch_dir() as scratch:
+        yield relay.context(scratch, is_cancelled)
+        relay.update(1.0)
+        relay.flush()
+
+
+def as_pipe_error(error: MediaToolError) -> GenerationExecutionError:
+    return GenerationExecutionError(error.message)
 
 
 def join_video_files(
@@ -85,13 +108,10 @@ def join_video_files(
     fit: str = "pad",
     audio: bool = True,
 ) -> Path:
-    relay = ProgressRelay(emit, label, icon="film", effect="pulse")
     destination = Path(out_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with scratch_dir() as scratch:
-        ctx = relay.context(scratch, is_cancelled)
+    with tool_session(emit, label, is_cancelled, icon="film", effect="pulse") as ctx:
         media = [ctx.probe(clip, "video") for clip in clips]
         joined = join_clips(media, ctx, trims=trims, crossfades=crossfades, canvas=canvas, fit=fit, audio=audio)
-        relay.flush()
         shutil.move(str(joined.path), str(destination))
     return destination

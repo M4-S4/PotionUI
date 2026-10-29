@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 
 from src.platform.media_tools import (
@@ -27,7 +29,7 @@ from src.platform.media_tools.ops.concat import (
     trim_filter,
 )
 from tests.platform.media_tools.media_factory import make_audio, make_video, run_ffmpeg
-from tests.platform.media_tools.ops.time_helpers import fake_video, files_under, slow_context
+from tests.platform.media_tools.ops.time_helpers import count_video_frames, fake_video, files_under, slow_context
 
 pytestmark = pytest.mark.usefixtures("need_ffmpeg")
 
@@ -413,3 +415,75 @@ class TestJoinClips:
         with pytest.raises(ToolCancelled):
             join_clips([clips["a"], clips["wide"]], ctx)
         assert files_under(ctx.scratch_dir) == []
+
+
+class TestExtendFrameCounts:
+    def test_a_trimmed_head_and_a_crossfade_give_the_expected_frame_count(self, tmp_path, ctx):
+        first = probe(make_video(tmp_path / "first.mp4", seconds=2.0, size=(32, 24), fps=8, audio=False))
+        second = probe(make_video(tmp_path / "second.mp4", seconds=2.0, size=(32, 24), fps=8, audio=False))
+
+        result = join_clips([first, second], ctx, trims=[(0.0, 0.0), (0.25, 0.0)], crossfades=[0.375])
+
+        assert count_video_frames(result.path) == 16 + 14 - 3
+
+    def test_a_plain_join_has_the_sum_of_the_frames(self, tmp_path, ctx):
+        first = probe(make_video(tmp_path / "first.mp4", seconds=1.0, size=(32, 24), fps=8, audio=False))
+        second = probe(make_video(tmp_path / "second.mp4", seconds=2.0, size=(32, 24), fps=8, audio=False))
+
+        result = join_clips([first, second], ctx)
+
+        assert count_video_frames(result.path) == 8 + 16
+
+    def test_a_trimmed_tail_and_a_crossfade_give_the_expected_frame_count(self, tmp_path, ctx):
+        extension = probe(make_video(tmp_path / "extension.mp4", seconds=2.0, size=(32, 24), fps=8, audio=False))
+        source = probe(make_video(tmp_path / "source.mp4", seconds=2.0, size=(32, 24), fps=8, audio=False))
+
+        result = join_clips([extension, source], ctx, trims=[(0.0, 0.25), (0.0, 0.0)], crossfades=[0.25], canvas=1)
+
+        assert count_video_frames(result.path) == 14 + 16 - 2
+
+
+class TestNarrowerClipFit:
+    @pytest.fixture
+    def white(self, tmp_path):
+        def make_white(name, width):
+            path = tmp_path / f"{name}.mp4"
+            run_ffmpeg(
+                "-f", "lavfi", "-i", f"color=c=white:size={width}x128:rate=10:duration=1",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
+            )
+            return probe(path)
+
+        return make_white
+
+    def last_frame(self, path):
+        capture = cv2.VideoCapture(str(path))
+        last = None
+        while True:
+            ok, frame = capture.read()
+            if not ok:
+                break
+            last = frame
+        capture.release()
+        return last
+
+    @pytest.mark.parametrize("fit, edges_are_lit", [("pad", False), ("cover", True)])
+    def test_black_bars_only_show_when_padding(self, white, ctx, fit, edges_are_lit):
+        source, extension = white("source", 72), white("extension", 56)
+
+        result = join_clips([source, extension], ctx, fit=fit)
+
+        frame = self.last_frame(result.path)
+        assert frame.shape[:2] == (128, 72)
+        edges = float(np.concatenate([frame[:, :4], frame[:, -4:]]).mean())
+        assert (edges > 224) is edges_are_lit
+        assert (edges < 32) is (not edges_are_lit)
+
+    def test_the_source_fills_the_frame_when_it_comes_second_and_sets_the_canvas(self, white, ctx):
+        source, extension = white("source", 72), white("extension", 56)
+
+        result = join_clips([extension, source], ctx, fit="cover", canvas=1)
+
+        assert (result.width, result.height) == (72, 128)
+        first_frame = cv2.VideoCapture(str(result.path)).read()[1]
+        assert float(np.concatenate([first_frame[:, :4], first_frame[:, -4:]]).mean()) > 224

@@ -16,10 +16,10 @@ from src.pipelines.contracts import (
 from src.pipelines.outputs import GenerationExecutionError
 from src.pipelines.pipes._shared.media.inputs import as_flag, media_paths
 from src.pipelines.pipes._shared.media.tools import (
-    ProgressRelay,
+    as_pipe_error,
     keep_file,
     resolve_registry,
-    scratch_dir,
+    tool_session,
 )
 from src.platform.media_tools import (
     InvalidToolParams,
@@ -75,6 +75,13 @@ class MediaToolPipe(BasePipe):
                 param_type=dict,
                 default={},
                 description="The tool's parameters; anything left out takes the tool's default",
+                required=False,
+            ),
+            PipeConfigSpec(
+                name="display_title",
+                param_type=str,
+                default=None,
+                description="Title shown on the status line while this step runs; without one it reads Editing media",
                 required=False,
             ),
             PipeConfigSpec(
@@ -213,22 +220,20 @@ class MediaToolPipe(BasePipe):
         spec = self._spec(pipe_input)
         params = self._params(spec)
         items = self._inputs(pipe_input, spec)
-        relay = ProgressRelay(generation_outputs, spec.label)
         produced: Dict[str, list] = {kind: [] for kind in KINDS}
         kept: List[str] = []
         try:
-            with scratch_dir() as scratch:
-                self._run(spec, params, items, relay.context(scratch, is_cancelled), produced, kept)
+            with tool_session(generation_outputs, spec.label, is_cancelled) as ctx:
+                self._run(spec, params, items, ctx, produced, kept)
         except ToolCancelled:
             self._discard(kept)
             return PipeOutput(output={kind: [] for kind in KINDS})
         except MediaToolError as error:
             self._discard(kept)
-            raise GenerationExecutionError(error.message) from error
+            raise as_pipe_error(error) from error
         except BaseException:
             self._discard(kept)
             raise
-        relay.flush()
         logger.info(f"[MEDIA_TOOL] {spec.id} ran on {len(items)} item(s)")
         return PipeOutput(output=produced)
 

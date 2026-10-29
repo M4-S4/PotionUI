@@ -291,6 +291,17 @@ class TestFiles:
         assert leftovers(scratch_root) == []
 
 
+def test_the_relays_fractions_are_text_only_so_they_never_drive_the_overall_bar():
+    from src.pipelines.pipes._shared.media.tools import ProgressRelay
+
+    seen = []
+    relay = ProgressRelay(seen.append, "Working")
+    relay.update(0.5)
+    relay.flush()
+
+    assert seen[0].progress.current == 50 and seen[0].bar is False
+
+
 def test_the_progress_relay_reports_each_percent_once():
     from src.pipelines.pipes._shared.media.tools import ProgressRelay
 

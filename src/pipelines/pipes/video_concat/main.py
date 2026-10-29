@@ -12,15 +12,10 @@ from src.pipelines.contracts import (
     PipeOutputSpec,
     logger,
 )
-from src.pipelines.outputs import Icon, ProgressGenerationOutput
-from src.pipelines.pipes._shared.media.video_concat import (
-    ClipTrim,
-    VideoConcatCancelled,
-    as_flag,
-    concat_videos,
-    video_paths,
-)
+from src.pipelines.pipes._shared.media.inputs import as_flag, media_paths
+from src.pipelines.pipes._shared.media.tools import as_pipe_error, join_video_files
 from src.pipelines.pipes._shared.video.frames import probe_video_stream
+from src.platform.media_tools import MediaToolError, ToolCancelled
 
 
 class VideoConcatPipe(BasePipe):
@@ -110,12 +105,12 @@ class VideoConcatPipe(BasePipe):
         before = self.config.get("extension_position", "after") == "before"
         cut = self.config.get("overlap", "crossfade") == "cut"
         clips = [extension, *videos] if before else [*videos, extension]
-        trims = [ClipTrim()] * len(clips)
+        trims = [(0.0, 0.0)] * len(clips)
         crossfades = [0.0] * (len(clips) - 1)
         if seconds > 0 and cut and before:
-            trims[0] = ClipTrim(end=seconds)
+            trims[0] = (0.0, seconds)
         elif seconds > 0 and cut:
-            trims[-1] = ClipTrim(start=seconds)
+            trims[-1] = (seconds, 0.0)
         elif seconds > 0:
             crossfades[0 if before else -1] = seconds
         return clips, trims, crossfades, 1 if before else 0
@@ -123,28 +118,28 @@ class VideoConcatPipe(BasePipe):
     def process(
         self, pipe_input: PipeInput, generation_outputs: callable, is_cancelled: Optional[callable] = None,
     ) -> PipeOutput:
-        videos = video_paths(pipe_input.input.get("video"))
-        extensions = video_paths(pipe_input.input.get("extension"))
+        videos = media_paths(pipe_input.input.get("video"))
+        extensions = media_paths(pipe_input.input.get("extension"))
         if not videos:
             raise ValueError("video_concat needs at least one video")
         audio = as_flag(self.config.get("keep_audio", True))
-        seconds = self._overlap_seconds(video_paths(pipe_input.input.get("overlap"))) if extensions else 0.0
+        seconds = self._overlap_seconds(media_paths(pipe_input.input.get("overlap"))) if extensions else 0.0
         joined: List[str] = []
         for extension in extensions or [None]:
             clips, trims, crossfades, canvas = self._plan(videos, extension, seconds)
-            generation_outputs(ProgressGenerationOutput(state="Joining the clips", icon=Icon("film", "pulse")))
             with tempfile.NamedTemporaryFile(prefix="potionui-joined-", suffix=".mp4", delete=False) as handle:
                 out_path = Path(handle.name)
             try:
-                concat_videos(
-                    clips, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas,
-                    fit=self.config.get("fit", "pad"), is_cancelled=is_cancelled,
-                    notify=lambda text: generation_outputs(
-                        ProgressGenerationOutput(state=text, icon=Icon("alert-triangle", "beat"))),
+                join_video_files(
+                    clips, out_path, emit=generation_outputs, is_cancelled=is_cancelled, trims=trims,
+                    crossfades=crossfades, canvas=canvas, fit=self.config.get("fit", "pad"), audio=audio,
                 )
-            except VideoConcatCancelled:
+            except ToolCancelled:
                 out_path.unlink(missing_ok=True)
                 break
+            except MediaToolError as error:
+                out_path.unlink(missing_ok=True)
+                raise as_pipe_error(error) from error
             except Exception:
                 out_path.unlink(missing_ok=True)
                 raise

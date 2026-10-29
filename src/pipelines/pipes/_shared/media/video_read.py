@@ -1,13 +1,9 @@
 """Read a whole video into an in-memory frame sequence + its native fps.
 
-Complements the two other media helpers in this package:
-  * ``frame_extract.extract_frame`` -- ONE frame at an exact index.
-  * ``video_frame_extractor`` (pipe) -- frames sampled at an *interval* fps.
-
-Neither returns *every* frame together with the source frame rate, which is what
-a frame-for-frame video transform (e.g. SeedVR2 upscale) needs: every source
-frame is upscaled and the clip is re-encoded at the original fps. This reader
-fills that gap with the same OpenCV idioms the extractor already uses.
+Complements ``frame_extract.extract_frame`` (ONE frame at an exact index): it
+returns *every* frame together with the source frame rate, which is what a
+frame-for-frame video transform (e.g. SeedVR2 upscale) needs: every source
+frame is upscaled and the clip is re-encoded at the original fps.
 """
 
 from __future__ import annotations

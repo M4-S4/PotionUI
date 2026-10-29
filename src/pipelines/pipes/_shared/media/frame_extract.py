@@ -1,10 +1,10 @@
-"""Frame-exact video frame extraction, shared by ``video_frame_extractor`` and
-any pipe that needs a single specific frame (e.g. the last frame of a clip for
-chained/FLF video conditioning) rather than an fps-interval sequence.
+"""Frame-exact video frame extraction, for any pipe that needs a single specific
+frame (e.g. the last frame of a clip for chained/FLF video conditioning) rather
+than an fps-interval sequence.
 
-Uses the same OpenCV idioms as ``video_frame_extractor`` (``CAP_PROP_FRAME_COUNT``,
-``CAP_PROP_POS_FRAMES`` seek + ``read()``), with a sequential-read fallback for
-codecs where seeking to an arbitrary frame index is unreliable.
+Uses OpenCV (``CAP_PROP_FRAME_COUNT``, ``CAP_PROP_POS_FRAMES`` seek + ``read()``),
+with a sequential-read fallback for codecs where seeking to an arbitrary frame
+index is unreliable.
 """
 
 from __future__ import annotations

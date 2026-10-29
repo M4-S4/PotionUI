@@ -115,10 +115,6 @@
     "label": "Interpolate",
     "icon": "film"
   },
-  "trim": {
-    "label": "Trim",
-    "icon": "scissors"
-  },
   "prepare": {
     "label": "Prepare",
     "icon": "crop"

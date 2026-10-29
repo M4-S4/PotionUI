@@ -16,7 +16,7 @@ def _progress_calls(pipe_dir):
             yield {kw.arg: kw.value for kw in node.keywords}
 
 
-@pytest.mark.parametrize("pipe_dir", ["media_loader", "controlnet_preprocessor", "video_frame_extractor"])
+@pytest.mark.parametrize("pipe_dir", ["media_loader", "controlnet_preprocessor"])
 def test_every_fraction_the_pipe_emits_is_text_only(pipe_dir):
     with_fraction = [kw for kw in _progress_calls(pipe_dir) if "progress" in kw]
     assert with_fraction

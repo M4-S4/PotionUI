@@ -362,7 +362,7 @@ def _extract_last_video_frame_as_image(video_path: str, storage_path: Path) -> s
     like an image-typed 'first' entry.
 
     Delegates the actual decode to `extract_frame` (`_shared/media/
-    frame_extract.py`, shared with `video_frame_extractor` and the RIFE/FLF
+    frame_extract.py`, shared with the RIFE/FLF
     pipes that already extract a clip's last frame for chained conditioning)
     rather than re-deriving cv2 seek/fallback logic here. Cached by a digest
     of the source path + size + mtime so re-normalizing the same submission

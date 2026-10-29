@@ -138,7 +138,8 @@ def test_swap_cuts_the_person_out_of_the_pictures_before_h3_sees_them(h3_templat
     matting, crop = _pipe(pipes, "matting"), _pipe(pipes, "crop_subject")
     assert (matting["name"], matting["enabled"]) == ("matting/birefnet", True)
     assert matting["config"]["model"]["file_path"] == _MATTING
-    assert (crop["name"], crop["enabled"]) == ("crop_subject", True)
+    assert (crop["name"], crop["enabled"]) == ("media_tool", True)
+    assert crop["config"]["tool"] == "crop_subject"
     assert _consumers(pipes, "references") == [("matting", "image")]
     assert _consumers(pipes, "matting") == [("crop_subject", "image")]
     assert _consumers(pipes, "crop_subject") == [("generator", "reference_images"), ("prompt_encoder", "reference_image")]

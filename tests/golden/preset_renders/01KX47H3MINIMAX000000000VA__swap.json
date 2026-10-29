@@ -108,13 +108,26 @@
       "name": "matting/birefnet"
     },
     {
-      "config": {},
+      "config": {
+        "display_title": {
+          "type": "str",
+          "value": "Cropping subject"
+        },
+        "skip_unfit": {
+          "type": "bool",
+          "value": true
+        },
+        "tool": {
+          "type": "str",
+          "value": "crop_subject"
+        }
+      },
       "enabled": {
         "type": "bool",
         "value": true
       },
       "id": "crop_subject",
-      "name": "crop_subject"
+      "name": "media_tool"
     },
     {
       "config": {

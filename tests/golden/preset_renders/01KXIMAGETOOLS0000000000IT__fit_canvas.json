@@ -69,25 +69,33 @@
     },
     {
       "config": {
-        "anchor": {
+        "display_title": {
+          "type": "str",
+          "value": "Fitting canvas"
+        },
+        "params.anchor": {
           "type": "str",
           "value": "center"
         },
-        "fill": {
+        "params.fill": {
           "type": "str",
           "value": "transparent"
         },
-        "height": {
+        "params.height": {
           "type": "int",
           "value": 1024
         },
-        "scale_percent": {
+        "params.scale_percent": {
           "type": "int",
           "value": 100
         },
-        "width": {
+        "params.width": {
           "type": "int",
           "value": 1024
+        },
+        "tool": {
+          "type": "str",
+          "value": "fit_canvas"
         }
       },
       "enabled": {
@@ -95,7 +103,7 @@
         "value": true
       },
       "id": "canvas_fit",
-      "name": "canvas_fit"
+      "name": "media_tool"
     },
     {
       "config": {},

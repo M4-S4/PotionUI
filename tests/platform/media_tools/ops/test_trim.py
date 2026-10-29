@@ -3,11 +3,13 @@ from __future__ import annotations
 import sys
 
 import pytest
+import soundfile
 
 from src.platform.media_tools import (
     InvalidToolParams,
     ToolCancelled,
     ToolContext,
+    ToolFailed,
     probe,
     run_chain,
     validate_params,
@@ -234,3 +236,58 @@ def test_trim_spec_is_registered_with_the_contract_shape():
     assert [p["name"] for p in spec.params] == ["start", "end"]
     assert isinstance(spec.impl, trim.Trim)
     assert spec.impl.has_image_path() is False
+
+
+class TestAudioFormat:
+    @pytest.mark.parametrize("rate, channels", [(22050, 1), (44100, 2), (16000, 1), (48000, 2)])
+    def test_sample_rate_channel_count_and_wav_container_survive_a_trim(self, tmp_path, ctx, rate, channels):
+        source = tmp_path / "tone.wav"
+        run_ffmpeg(
+            "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate={rate}:duration=2",
+            "-ac", str(channels), str(source),
+        )
+
+        (result,) = run_trim(probe(source), ctx, 0.5, 1.5)
+
+        info = soundfile.info(result.path)
+        assert result.path.suffix == ".wav"
+        assert (info.samplerate, info.channels) == (rate, channels)
+        assert info.frames / info.samplerate == pytest.approx(1.0, abs=0.02)
+
+    def test_the_window_starts_where_asked(self, tmp_path, ctx):
+        source = tmp_path / "ramp.wav"
+        run_ffmpeg(
+            "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,1)\\,0.0\\,0.5):s=8000:d=2", "-ac", "1", str(source),
+        )
+
+        (result,) = run_trim(probe(source), ctx, 1.0, 2.0)
+
+        samples, _ = soundfile.read(result.path)
+        assert abs(samples[: len(samples) // 2]).mean() > 0.4
+
+    def test_a_window_cut_from_the_start_keeps_the_sources_beginning(self, tmp_path, ctx):
+        source = tmp_path / "ramp.wav"
+        run_ffmpeg(
+            "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,1)\\,0.5\\,0.0):s=8000:d=2", "-ac", "1", str(source),
+        )
+
+        (result,) = run_trim(probe(source), ctx, 0.0, 1.0)
+
+        samples, _ = soundfile.read(result.path)
+        assert abs(samples[: len(samples) // 2]).mean() > 0.4
+        assert abs(samples[-800:]).mean() > 0.4
+
+
+class QuietRunner:
+    def __init__(self):
+        self.commands = []
+
+    def run(self, args, *, duration=None, on_progress=None, is_cancelled=None):
+        self.commands.append(list(args))
+
+
+def test_an_encode_that_leaves_no_file_fails_instead_of_returning_a_missing_clip(video, tmp_path):
+    ctx = ToolContext(tmp_path / "scratch", runner=QuietRunner())
+
+    with pytest.raises(ToolFailed, match="empty file"):
+        run_trim(video, ctx, 0.0, 1.0)

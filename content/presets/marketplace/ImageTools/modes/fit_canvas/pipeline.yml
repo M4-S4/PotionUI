@@ -38,17 +38,20 @@ pipeline:
   #############
   ## Canvas fit - scale and place onto a fixed canvas
   #############
-  - name: "canvas_fit"
+  - name: "media_tool"
     id: "canvas_fit"
     enabled: true
     input:
       - ["image", "media_loader", "image"]
     configuration:
-      width: "{{ (form.canvas_resolution).split('x')[0] | int }}"
-      height: "{{ (form.canvas_resolution).split('x')[1] | int }}"
-      scale_percent: "{{ form.scale_percent }}"
-      anchor: "{{ form.anchor }}"
-      fill: "{{ form.fill }}"
+      display_title: "Fitting canvas"
+      tool: "fit_canvas"
+      params:
+        width: "{{ (form.canvas_resolution).split('x')[0] | int }}"
+        height: "{{ (form.canvas_resolution).split('x')[1] | int }}"
+        scale_percent: "{{ form.scale_percent }}"
+        anchor: "{{ form.anchor }}"
+        fill: "{{ form.fill }}"
 
   #############
   ## Gallery - save the placed image

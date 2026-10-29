@@ -138,7 +138,7 @@ from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.ltx_tiled_decode import decode_fits_beside
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
 from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
-from src.pipelines.pipes._shared.media.video_concat import as_flag
+from src.pipelines.pipes._shared.media.inputs import as_flag
 from src.pipelines.pipes._shared.video.frames import load_video_frames, probe_video_stream, to_frames_tensor
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (

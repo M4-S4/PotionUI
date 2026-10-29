@@ -125,13 +125,25 @@
     },
     {
       "config": {
-        "alpha_threshold": {
+        "display_title": {
+          "type": "str",
+          "value": "Cropping subject"
+        },
+        "params.alpha_threshold": {
           "type": "int",
           "value": 16
         },
-        "margin": {
+        "params.margin": {
           "type": "int",
           "value": 0
+        },
+        "skip_unfit": {
+          "type": "bool",
+          "value": true
+        },
+        "tool": {
+          "type": "str",
+          "value": "crop_subject"
         }
       },
       "enabled": {
@@ -139,29 +151,37 @@
         "value": true
       },
       "id": "crop_subject",
-      "name": "crop_subject"
+      "name": "media_tool"
     },
     {
       "config": {
-        "anchor": {
+        "display_title": {
+          "type": "str",
+          "value": "Fitting canvas"
+        },
+        "params.anchor": {
           "type": "str",
           "value": "center"
         },
-        "fill": {
+        "params.fill": {
           "type": "str",
           "value": "#00B140"
         },
-        "height": {
+        "params.height": {
           "type": "int",
           "value": 480
         },
-        "scale_percent": {
+        "params.scale_percent": {
           "type": "int",
           "value": 70
         },
-        "width": {
+        "params.width": {
           "type": "int",
           "value": 832
+        },
+        "tool": {
+          "type": "str",
+          "value": "fit_canvas"
         }
       },
       "enabled": {
@@ -169,7 +189,7 @@
         "value": true
       },
       "id": "canvas_fit",
-      "name": "canvas_fit"
+      "name": "media_tool"
     },
     {
       "config": {},
