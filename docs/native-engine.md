@@ -173,6 +173,29 @@ below is only the *fallback* when component sizes are unknown; when they're know
 cards get different plans for a 9B Klein vs a 14B Wan. Residency priority is DiT > TE > VAE (the
 VAE is dropped to tiled/offloaded first, the TE next).
 
+The causal-3D decode spike is priced per latent pixel from a constant calibrated on the 8x Wan 2.1
+VAE (1.2 MB per latent pixel, fp32). A 16x VAE (Wan 2.2 5B, Qwen-Image 2.1) turns one latent pixel
+into four times the pixels, so the Wan decode path (`wan_experts.py`) scales the constant by
+`(spatial_downscale / 8)²` through `vae/tiling.causal3d_decode_mb_per_latent_px`, 4.8 MB per latent
+pixel, unless the model's `latent_format` declares a measured `decode_mb_per_latent_px`. The square
+is an upper bound, not a measurement: the 2.2 decoder runs its convolutions on a 2x2-patchified
+grid, so its real spike per latent pixel lies between 1.2 and 4.8 MB. The bound errs towards more
+tiles (a 5B frame at 1280x704 is priced at about 25 GB and decodes in spatial tiles on every card,
+24 latent pixels wide with 6 GB free instead of 40), never towards an OOM, which under WSL2 is
+fatal. Measuring the 5B decode at 1280x704 on an 8 GB and a 12 GB card with the tiles would turn
+the bound into a declared value. The image engine's own causal-3D decode (`engine.py`) still prices
+every causal VAE at 1.2 MB per latent pixel.
+
+The tiles of a Wan decode are assembled on the host. The accumulator is float16 and the blend
+weight a single `(H, W)` plane, normalised in place, so the assembly holds one half-precision copy
+of the video plus the result in the VAE's dtype, instead of three float32 copies of the whole clip:
+about 3.8 GB for 161 frames at 1080p with a bf16 VAE, 5.6 GB for the 5B's 81 frames at 1280x704
+decoded in float32. Half precision keeps every pixel within one 8-bit step of the float32 blend. The
+decode log prices that assembly against the host RAM available and warns, never refuses, when it
+does not fit. A decode assembled on its own device keeps the float32 accumulator, and the
+temporal-chunk path that assembles on the host still concatenates its chunks, two copies at its
+peak.
+
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
 `torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
 `RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
@@ -225,6 +248,12 @@ reason); the remote native backend's health reports `degraded` with the same rea
 worker, and refuses to dispatch until the worker restarts. The hint names the worker process or
 container rather than Restart Backend, which only re-executes the host's own process. A CPU worker
 never records damage, and a worker under native Linux keeps retrying driver-error OOMs as before.
+A code the host does not classify (`expired`, `model_digest_mismatch`, `pipe_failed`, `worker_error`,
+...) is kept at the head of the failure's stored detail as `Worker error code: ...`, where the
+administrator's failure view shows it, and the category then comes from the message text. A
+failure that reaches the host as text alone (such a worker code, a worker predating the codes, or a
+stored error) follows the same policy as the exception would: a CUDA driver error reads as
+`gpu_restart_required` where driver-error OOMs are fatal, and as `cuda_oom` where they retry.
 
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:

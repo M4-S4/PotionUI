@@ -13,10 +13,13 @@ from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
 from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import (
+    HOST_ACCUMULATE_DTYPE,
     VAE_SPATIAL_DOWNSCALE,
     auto_tile_size,
+    causal3d_decode_mb_per_latent_px,
     causal3d_decode_overlap,
     causal3d_decode_tile,
+    causal3d_frame_need_gb,
     smaller_decode_tile,
     tiled_decode,
     tiled_decode_causal3d,
@@ -266,6 +269,93 @@ def test_tiled_decode_causal3d_can_accumulate_on_another_device(tile_size, overl
     with torch.no_grad():
         here = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap)
         there = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap, accumulate_device="cpu")
+        exact = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap, accumulate_device="cpu",
+                                      accumulate_dtype=torch.float32)
 
     assert there.device.type == "cpu"
-    assert torch.equal(here, there)
+    assert there.dtype == here.dtype == latent.dtype
+    assert torch.allclose(here, there, atol=2e-3)
+    assert torch.equal(here, exact)
+
+
+class _Upscale8VAE:
+    def new_feat_cache(self):
+        return {}
+
+    def decode(self, latent, feat_cache=None):
+        b, _c, t, h, w = latent.shape
+        rgb = latent[:, :3].permute(0, 2, 1, 3, 4).reshape(b * t, 3, h, w)
+        up = torch.nn.functional.interpolate(rgb, scale_factor=8, mode="bilinear", align_corners=False)
+        return up.reshape(b, t, 3, h * 8, w * 8).permute(0, 2, 1, 3, 4)
+
+
+def _accumulators_allocated_by(monkeypatch):
+    allocated = []
+    real_zeros = torch.zeros
+
+    def zeros(*args, **kwargs):
+        tensor = real_zeros(*args, **kwargs)
+        if tensor.ndim == 5:
+            allocated.append((tuple(tensor.shape), tensor.dtype, tensor.device.type))
+        return tensor
+
+    monkeypatch.setattr(torch, "zeros", zeros)
+    return allocated
+
+
+def test_a_decode_assembled_on_the_host_keeps_one_half_precision_copy_of_the_video_and_a_single_weight_plane(monkeypatch):
+    allocated = _accumulators_allocated_by(monkeypatch)
+    latent = torch.randn(1, 16, 2, 4, 12)
+
+    with torch.no_grad():
+        pixels = tiled_decode_causal3d(_Upscale8VAE(), latent, tile_size=8, overlap=4, accumulate_device="cpu", chunk_latent_frames=1)
+
+    assert pixels.shape == (1, 3, 2, 32, 96)
+    assert pixels.dtype == torch.float32
+    assert torch.isfinite(pixels).all()
+    assert allocated == [((1, 3, 2, 32, 96), HOST_ACCUMULATE_DTYPE, "cpu"), ((1, 1, 1, 32, 96), torch.float32, "cpu")]
+
+
+def test_a_decode_assembled_on_its_own_device_still_accumulates_in_full_precision(monkeypatch):
+    allocated = _accumulators_allocated_by(monkeypatch)
+    latent = torch.randn(1, 16, 1, 4, 12)
+
+    with torch.no_grad():
+        tiled_decode_causal3d(_Upscale8VAE(), latent, tile_size=8, overlap=4)
+
+    assert allocated == [((1, 3, 1, 32, 96), torch.float32, "cpu"), ((1, 1, 1, 32, 96), torch.float32, "cpu")]
+
+
+def test_a_half_precision_assembly_stays_within_a_pixel_step_of_the_whole_decode():
+    torch.manual_seed(0)
+    vae = _tiny_causal3d_vae()
+    latent = torch.randn(1, 16, 1, 16, 16)
+
+    with torch.no_grad():
+        whole = vae.decode(latent)
+        tiled = tiled_decode_causal3d(vae, latent, tile_size=8, overlap=2, accumulate_device="cpu")
+
+    interior = (slice(None), slice(None), slice(None), slice(8, -8), slice(8, -8))
+    assert torch.allclose(tiled[interior], whole[interior], atol=8e-3)
+    assert torch.allclose(tiled, whole, atol=5e-2)
+
+
+def test_the_decode_cost_per_latent_px_follows_the_square_of_the_spatial_factor():
+    assert causal3d_decode_mb_per_latent_px(8) == 1.2
+    assert causal3d_decode_mb_per_latent_px(16) == pytest.approx(4.8)
+    assert causal3d_decode_mb_per_latent_px(16, {"spatial_downscale": 16, "latent_channels": 48}) == pytest.approx(4.8)
+
+
+def test_a_latent_format_that_declares_a_measured_decode_cost_is_believed():
+    assert causal3d_decode_mb_per_latent_px(16, {"decode_mb_per_latent_px": 2.0}) == 2.0
+    assert causal3d_decode_mb_per_latent_px(16, {"decode_mb_per_latent_px": 0}) == pytest.approx(4.8)
+    assert causal3d_decode_mb_per_latent_px(8, {"decode_mb_per_latent_px": None}) == 1.2
+
+
+def test_one_5b_frame_at_1280x704_is_priced_beyond_a_12gb_card_and_its_tiles_shrink_with_the_cost():
+    dear = causal3d_decode_mb_per_latent_px(16)
+
+    assert causal3d_frame_need_gb((44, 80)) < 12.0
+    assert causal3d_frame_need_gb((44, 80), decode_mb_per_latent_px=dear) > 24.0
+    assert causal3d_decode_tile((44, 80), 6.0) == 40
+    assert causal3d_decode_tile((44, 80), 6.0, decode_mb_per_latent_px=dear) == 24

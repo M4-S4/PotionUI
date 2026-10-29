@@ -67,6 +67,7 @@ from src.platform.settings.runtime_flags import engine_flag_values
 from src.platform.util.ids import generate_ulid
 from src.platform.worker_protocol import (
     FingerprintMismatchV1,
+    JobErrorV1,
     JobEventV1,
     WorkerInfoV1,
 )
@@ -612,8 +613,12 @@ class RemoteNativeBackend(BaseBackend):
             return
 
         if event.kind in ("failed", "rejected") and event.error is not None:
-            code = event.error.code
-            emit(ErrorGenerationOutput(
-                error=event.error.message, detail=event.error.detail,
-                error_code=code if code in ERROR_CATEGORIES else None,
-            ))
+            emit(worker_failure_output(event.error))
+
+
+def worker_failure_output(error: JobErrorV1) -> ErrorGenerationOutput:
+    if error.code in ERROR_CATEGORIES:
+        return ErrorGenerationOutput(error=error.message, detail=error.detail, error_code=error.code)
+    code_line = f"Worker error code: {error.code}"
+    detail = code_line if not error.detail else f"{code_line}\n\n{error.detail}"
+    return ErrorGenerationOutput(error=error.message, detail=detail)

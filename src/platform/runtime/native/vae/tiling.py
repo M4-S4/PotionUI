@@ -21,6 +21,8 @@ cross-tile attention.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 import torch
 
@@ -36,6 +38,8 @@ logger = logging.getLogger(__name__)
 # downsample stages -- verified against both ae.sft and flux2-vae header
 # dumps: 3 downsample convs before the bottleneck).
 VAE_SPATIAL_DOWNSCALE = 8
+
+HOST_ACCUMULATE_DTYPE = torch.float16
 
 
 def _feather_mask(tile: torch.Tensor, feather: int, spatial_dims: tuple[int, int] = (2, 3)) -> torch.Tensor:
@@ -204,6 +208,7 @@ def tiled_decode_causal3d(
     *,
     accumulate_device: "str | torch.device | None" = None,
     chunk_latent_frames: int | None = None,
+    accumulate_dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
     """Spatial tiled ``vae.decode`` for the causal-3D (Wan-shaped) VAE, with
     linear-blended seams -- the decode twin of :func:`tiled_encode_causal3d`.
@@ -236,6 +241,8 @@ def tiled_decode_causal3d(
     ys = list(range(0, max(h - overlap, 1), step)) if h > tile_size else [0]
     xs = list(range(0, max(w - overlap, 1), step)) if w > tile_size else [0]
 
+    if accumulate_dtype is None:
+        accumulate_dtype = torch.float32 if accumulate_device is None else HOST_ACCUMULATE_DTYPE
     out: torch.Tensor | None = None
     out_weight: torch.Tensor | None = None
     tile_index = 0
@@ -250,24 +257,27 @@ def tiled_decode_causal3d(
             tile_index += 1
             tile_in = latent[:, :, :, y:y + ty, xx:xx + tx]
             tile_out = _decode_causal3d(vae, tile_in, chunk_latent_frames, accumulate_device)
-            tile_out = tile_out.to(device=accumulate_device or tile_out.device, dtype=torch.float32)
+            mask = _feather_mask(tile_out[:1, :1, :1].float(), feather, spatial_dims=(3, 4))
+            weighted = (tile_out.float() * mask).to(device=accumulate_device or tile_out.device, dtype=accumulate_dtype)
 
             if out is None:
                 # T'/out_channels are only known after the first decode (T'
                 # depends on the temporal-upsample chunking, 3 channels for RGB).
                 out = torch.zeros(
                     (b, tile_out.shape[1], tile_out.shape[2], round(h * scale), round(w * scale)),
-                    device=tile_out.device, dtype=torch.float32,
+                    device=weighted.device, dtype=accumulate_dtype,
                 )
-                out_weight = torch.zeros_like(out)
+                out_weight = torch.zeros((1, 1, 1, out.shape[3], out.shape[4]), device=weighted.device, dtype=torch.float32)
 
-            mask = _feather_mask(tile_out, feather, spatial_dims=(3, 4))
             oy, ox = round(y * scale), round(xx * scale)
             oh, ow = tile_out.shape[3], tile_out.shape[4]
-            out[:, :, :, oy:oy + oh, ox:ox + ow] += tile_out * mask
-            out_weight[:, :, :, oy:oy + oh, ox:ox + ow] += mask
+            out[:, :, :, oy:oy + oh, ox:ox + ow] += weighted
+            out_weight[:, :, :, oy:oy + oh, ox:ox + ow] += mask.to(out_weight.device)
+            del tile_out, weighted, mask
 
-    return (out / out_weight.clamp_min(1e-8)).to(dtype=latent.dtype)
+    out.div_(out_weight.to(out.dtype).clamp_min_(torch.finfo(out.dtype).tiny))
+    del out_weight
+    return out.to(dtype=latent.dtype)
 
 
 def _decode_causal3d(vae, latent: torch.Tensor, chunk_latent_frames: int | None, accumulate_device) -> torch.Tensor:
@@ -410,6 +420,22 @@ def causal3d_frame_need_gb(
 ) -> float:
     one = activation_headroom_gb(latent_hw, decode_mb_per_latent_px=decode_mb_per_latent_px, latent_frames=1)
     return (vae_resident_gb + one) / vram_fraction
+
+
+CAUSAL3D_DECODE_MB_PER_LATENT_PX = 1.2
+
+
+def causal3d_decode_mb_per_latent_px(
+    spatial_downscale: int,
+    latent_format: "Mapping[str, Any] | None" = None,
+    *,
+    calibrated_mb: float = CAUSAL3D_DECODE_MB_PER_LATENT_PX,
+    calibrated_downscale: int = VAE_SPATIAL_DOWNSCALE,
+) -> float:
+    declared = (latent_format or {}).get("decode_mb_per_latent_px")
+    if declared:
+        return float(declared)
+    return calibrated_mb * (spatial_downscale / calibrated_downscale) ** 2
 
 
 def causal3d_decode_tile(

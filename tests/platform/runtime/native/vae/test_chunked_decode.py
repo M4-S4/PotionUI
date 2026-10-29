@@ -269,7 +269,8 @@ def test_v1_tiles_decoded_in_temporal_chunks_match_whole_tiles():
 
     with torch.no_grad():
         whole = tiled_decode_causal3d(vae, z, tile_size=4, overlap=2)
-        chunked = tiled_decode_causal3d(vae, z, tile_size=4, overlap=2, chunk_latent_frames=1, accumulate_device="cpu")
+        chunked = tiled_decode_causal3d(vae, z, tile_size=4, overlap=2, chunk_latent_frames=1, accumulate_device="cpu",
+                                        accumulate_dtype=torch.float32)
 
     assert chunked.device.type == "cpu"
     torch.testing.assert_close(chunked, whole, rtol=0, atol=0)
