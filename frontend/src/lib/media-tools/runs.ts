@@ -1,5 +1,6 @@
 import { writable, type Readable } from 'svelte/store';
 import { logger, getErrorMessage } from '$lib/utils/logger';
+import { toasts } from '$lib/stores/toast';
 import {
 	cancelMediaToolRun,
 	getMediaToolRun,
@@ -18,6 +19,7 @@ export const POLL_SLOW_MS = 1000;
 export const POLL_SLOW_AFTER_MS = 10_000;
 export const POLL_ERROR_CAP_MS = 5000;
 export const MAX_POLL_ERRORS = 5;
+export const CANCEL_FAILED_MESSAGE = "Couldn't cancel. It may already be finished.";
 
 export interface MediaToolRunState {
 	key: string;
@@ -261,8 +263,14 @@ export function createMediaToolRuns(api: RunsApi = defaultApi): MediaToolRunsSto
 		} catch (error) {
 			if (!records.has(runId)) return;
 			logger.error('Could not cancel the media tool run:', getErrorMessage(error));
+			toasts.warning(CANCEL_FAILED_MESSAGE);
 			record.cancelling = false;
 			publish(record);
+			if (record.timer !== null) {
+				clearTimeout(record.timer);
+				record.timer = null;
+				void poll(record);
+			}
 		}
 	}
 

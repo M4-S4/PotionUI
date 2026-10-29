@@ -39,6 +39,7 @@ function tool(overrides: Partial<ToolDTO> & { id: string }): ToolDTO {
 		editor: null,
 		preview: false,
 		component: null,
+		runnable: true,
 		source: 'core',
 		last_params: null,
 		...overrides
@@ -152,19 +153,37 @@ describe('rememberToolParams', () => {
 });
 
 describe('isRunnable', () => {
-	it('treats a component with no params as a surface of its own', () => {
-		expect(isRunnable(tool({ id: 'a', component: 'plugin:p:view' }))).toBe(false);
-	});
-
-	it('runs anything with params, an editor or no component', () => {
-		expect(isRunnable(tool({ id: 'a', component: 'plugin:p:view', params: [{ name: 'x', type: 'integer' }] }))).toBe(true);
-		expect(isRunnable(tool({ id: 'a', component: 'plugin:p:view', editor: 'trim' }))).toBe(true);
-		expect(isRunnable(tool({ id: 'a' }))).toBe(true);
-	});
-
-	it('trusts an explicit flag over the guess', () => {
-		expect(isRunnable(tool({ id: 'a', component: 'plugin:p:view', runnable: true }))).toBe(true);
+	it('reads the flag the server sets', () => {
+		expect(isRunnable(tool({ id: 'a', runnable: true }))).toBe(true);
 		expect(isRunnable(tool({ id: 'a', runnable: false }))).toBe(false);
+	});
+
+	it('does not guess from the component or the params', () => {
+		expect(isRunnable(tool({ id: 'a', component: 'plugin:p:view', params: [], runnable: true }))).toBe(true);
+		expect(isRunnable(tool({ id: 'a', component: null, params: [{ name: 'x', type: 'integer' }], runnable: false }))).toBe(false);
+		expect(isRunnable(tool({ id: 'a', editor: 'trim', runnable: false }))).toBe(false);
+	});
+
+	it('treats a tool without the flag as not runnable and says so once', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		const missing = { ...tool({ id: 'old.tool' }), runnable: undefined } as unknown as ToolDTO;
+
+		expect(isRunnable(missing)).toBe(false);
+		expect(isRunnable(missing)).toBe(false);
+		expect(isRunnable({ ...missing, id: 'other.tool' })).toBe(false);
+
+		expect(warn).toHaveBeenCalledTimes(1);
+		warn.mockRestore();
+	});
+
+	it('says it again after the catalog is reset', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+		const missing = { ...tool({ id: 'old.tool' }), runnable: undefined } as unknown as ToolDTO;
+		isRunnable(missing);
+		resetMediaToolCatalog();
+		isRunnable(missing);
+		expect(warn).toHaveBeenCalledTimes(2);
+		warn.mockRestore();
 	});
 });
 

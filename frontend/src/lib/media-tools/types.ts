@@ -64,12 +64,16 @@ export interface ToolDTO {
 	editor: string | null;
 	preview: boolean;
 	component: string | null;
+	runnable: boolean;
 	source: string;
 	last_params: Record<string, unknown> | null;
-	runnable?: boolean;
 }
 
-export type MediaToolItem = EditedMediaItem;
+export interface MediaToolItem extends EditedMediaItem {
+	thumbnail_small?: string;
+	thumbnail_medium?: string;
+	thumbnail_large?: string;
+}
 
 export interface MediaToolStep {
 	tool: string;

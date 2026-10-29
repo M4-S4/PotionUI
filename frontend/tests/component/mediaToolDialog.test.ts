@@ -321,6 +321,20 @@ describe('applying', () => {
 		expect(onResult).not.toHaveBeenCalled();
 	});
 
+	it('hands the items over with their thumbnails and whether the original was replaced', async () => {
+		const item = { ...RESULT_ITEM, thumbnail_small: '/t/s.webp', thumbnail_medium: '/t/m.webp', thumbnail_large: '/t/l.webp' };
+		getMediaToolRun.mockResolvedValue(run({ items: [item], replaced: true }));
+		const { onResult } = open({ tool: SPEED, detach: true });
+
+		await settle();
+		buttonByText('Replace original')!.click();
+		await settle();
+		buttonByText('Apply')!.click();
+		await settle();
+
+		expect(onResult).toHaveBeenCalledWith({ items: [item], replaced: true });
+	});
+
 	it('hands the items to the host when a detached run completes', async () => {
 		const { onResult } = open({ tool: SPEED, detach: true });
 		await applyNow();

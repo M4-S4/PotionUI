@@ -150,7 +150,7 @@ describe('crop editor', () => {
 		buttonByText(target, '1:1')!.click();
 		await settle();
 
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(startMediaToolRun).toHaveBeenCalledWith({
@@ -172,6 +172,9 @@ describe('crop editor', () => {
 		await settle();
 		buttonByText(target, 'Replace original')!.click();
 		await settle();
+		expect(startMediaToolRun).not.toHaveBeenCalled();
+		buttonByText(target, 'Apply')!.click();
+		await settle();
 
 		expect(startMediaToolRun.mock.calls[0][0].output).toEqual({ mode: 'replace' });
 	});
@@ -192,7 +195,7 @@ describe('crop editor', () => {
 		await settle();
 		buttonByText(target, '1:1')!.click();
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(startMediaToolRun).toHaveBeenCalledTimes(1);
@@ -214,7 +217,7 @@ describe('crop editor', () => {
 		buttonByText(target, '1024')?.click();
 		buttonByText(target, '768')!.click();
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		const { steps } = startMediaToolRun.mock.calls[0][0];
@@ -230,7 +233,7 @@ describe('crop editor', () => {
 		await settle();
 
 		expect(target.textContent).toContain('Nothing to apply yet.');
-		expect(buttonByText(target, 'Save as new')!.disabled).toBe(true);
+		expect(buttonByText(target, 'Apply')!.disabled).toBe(true);
 		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});
 
@@ -246,7 +249,7 @@ describe('crop editor', () => {
 
 		buttonByText(target, '1:1')!.click();
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(onResult).toHaveBeenCalledWith(
@@ -273,7 +276,7 @@ describe('crop editor', () => {
 
 		buttonByText(target, '1:1')!.click();
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(target.textContent).toContain('The crop rectangle does not fit inside 1024x1536');
@@ -300,7 +303,7 @@ describe('trim editor', () => {
 
 		nudgeOut(target);
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(startMediaToolRun).toHaveBeenCalledTimes(1);
@@ -320,7 +323,7 @@ describe('trim editor', () => {
 		await settle();
 
 		expect(target.textContent).toContain('Move a handle to choose what to keep.');
-		expect(buttonByText(target, 'Save as new')!.disabled).toBe(true);
+		expect(buttonByText(target, 'Apply')!.disabled).toBe(true);
 	});
 
 	it('explains itself rather than offering a save when nothing can be prepared', async () => {
@@ -342,7 +345,7 @@ describe('trim editor', () => {
 		await settle();
 
 		expect(target.textContent).toContain('not in your library');
-		expect(buttonByText(target, 'Save as new')!.disabled).toBe(true);
+		expect(buttonByText(target, 'Apply')!.disabled).toBe(true);
 		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});
 
@@ -368,7 +371,7 @@ describe('trim editor', () => {
 
 		nudgeOut(target);
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(listUploads).toHaveBeenCalledWith(expect.objectContaining({ mediaType: 'video' }));
@@ -387,7 +390,7 @@ describe('generated media', () => {
 				buttonByText(target, '1:1')!.click();
 				await settle();
 			},
-			save: 'Save as new'
+			save: 'Apply'
 		},
 		{
 			kind: 'trim' as const,
@@ -400,7 +403,7 @@ describe('generated media', () => {
 				handle!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
 				await settle();
 			},
-			save: 'Save as new'
+			save: 'Apply'
 		},
 		{
 			kind: 'frame' as const,
@@ -425,7 +428,7 @@ describe('generated media', () => {
 			const target = open(onClose);
 			await settle();
 
-			expect(target.textContent).toContain('Saves the edited copy to your Library');
+			expect(target.textContent).toContain('Saved as a new Library item. The generation stays as it is.');
 			buttonByText(target, 'Cancel')!.click();
 			await settle();
 
@@ -487,7 +490,7 @@ describe('generated media', () => {
 
 			expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
 			expect(deleteLibraryItem).not.toHaveBeenCalled();
-			expect(target.textContent).not.toContain('Saves the edited copy');
+			expect(target.textContent).not.toContain('Saved as a new Library item');
 		});
 	});
 });
@@ -684,7 +687,7 @@ describe('a run in flight', () => {
 		await settle();
 		buttonByText(target, '1:1')!.click();
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 	}
 
@@ -694,8 +697,7 @@ describe('a run in flight', () => {
 
 		await pressSave(target);
 
-		expect(target.textContent).toContain('Working');
-		expect(target.querySelector('[data-editor-progress]')?.textContent).toBe('40%');
+		expect(target.querySelector('[data-tool-progress]')?.textContent).toContain('40%');
 		expect(onClose).not.toHaveBeenCalled();
 	});
 
@@ -711,8 +713,8 @@ describe('a run in flight', () => {
 		expect(cancelMediaToolRun).toHaveBeenCalledWith('run-1');
 		expect(onResult).not.toHaveBeenCalled();
 		expect(onClose).not.toHaveBeenCalled();
-		expect(target.textContent).not.toContain('Working');
-		expect(buttonByText(target, 'Save as new')!.disabled).toBe(false);
+		expect(target.querySelector('[data-tool-progress]')).toBeNull();
+		expect(buttonByText(target, 'Apply')!.disabled).toBe(false);
 	});
 
 	it('shows the reason a run failed on the server and stays open', async () => {
@@ -752,6 +754,23 @@ describe('a run in flight', () => {
 		);
 	});
 
+	it('keeps the thumbnails the server sent on the item it hands back', async () => {
+		const item = {
+			id: 'row-1',
+			filename: 'a.png',
+			media_type: 'image',
+			url: '/a.png',
+			thumbnail_small: '/t/s.webp',
+			thumbnail_medium: '/t/m.webp',
+			thumbnail_large: '/t/l.webp'
+		};
+		getMediaToolRun.mockResolvedValue(completedRun([item], false));
+		const { target, onResult } = openCrop();
+		await pressSave(target);
+
+		expect(onResult).toHaveBeenCalledWith({ type: 'item', item, replaced: false }, expect.anything());
+	});
+
 	it('reports a replaced original as replaced', async () => {
 		getMediaToolRun.mockResolvedValue(
 			completedRun([{ id: 'row-1', filename: 'a.png', media_type: 'image', url: '/a.png' }], true)
@@ -762,7 +781,180 @@ describe('a run in flight', () => {
 		await settle();
 		buttonByText(target, 'Replace original')!.click();
 		await settle();
+		buttonByText(target, 'Apply')!.click();
+		await settle();
 
 		expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ replaced: true }), expect.anything());
+	});
+});
+
+describe('the footer every editor shares with the media tool dialog', () => {
+	const sources = {
+		crop: { kind: 'crop', source: imageSource, apply: 'Apply', prepare: async (target: HTMLElement) => { buttonByText(target, '1:1')!.click(); await settle(); } },
+		trim: {
+			kind: 'trim',
+			source: clipSource,
+			apply: 'Apply',
+			prepare: async (target: HTMLElement) => {
+				const handle = Array.from(target.querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === 'Trim out point');
+				handle!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+				await settle();
+			}
+		},
+		resize: { kind: 'resize', source: clipSource, apply: 'Apply', prepare: async () => undefined },
+		frame: { kind: 'frame', source: clipSource, apply: 'Save frame', prepare: async () => undefined },
+		split: { kind: 'split', source: audioSource, apply: 'Split', prepare: async () => undefined }
+	} as const;
+
+	function pickChip(target: HTMLElement, label: string) {
+		const chip = Array.from(target.querySelectorAll('button')).find((b) => (b.textContent || '').trim().startsWith(label));
+		chip!.click();
+	}
+
+	function footer(target: HTMLElement) {
+		return target.querySelector('[data-tool-footer]') as HTMLElement;
+	}
+
+	function seg(target: HTMLElement) {
+		return footer(target).querySelector('[role="group"][aria-label="Save as"]');
+	}
+
+	function open(kind: keyof typeof sources) {
+		const { source } = sources[kind];
+		return mount({ request: { kind, source, itemIndex: null }, onClose: vi.fn(), onResult: vi.fn() });
+	}
+
+	it.each(['crop', 'trim', 'resize'] as const)('puts the Save as new and Replace original choice on the left of %s, with Cancel and Apply on the right', async (kind) => {
+		const target = open(kind);
+		await settle();
+
+		const group = seg(target)!;
+		expect(group).not.toBeNull();
+		expect(Array.from(group.querySelectorAll('button')).map((b) => [b.textContent?.trim(), b.getAttribute('aria-pressed')])).toEqual([
+			['Save as new', 'true'],
+			['Replace original', 'false']
+		]);
+		const right = Array.from(footer(target).querySelectorAll('.ml-auto button')).map((b) => b.textContent?.trim());
+		expect(right).toEqual(['Cancel', 'Apply']);
+		expect(group.compareDocumentPosition(footer(target).querySelector('.ml-auto')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it.each(['crop', 'trim', 'resize'] as const)('sends the mode picked on the %s footer when Apply is pressed', async (kind) => {
+		const target = open(kind);
+		await settle();
+		await sources[kind].prepare(target);
+		if (kind === 'resize') {
+			pickChip(target, '540p');
+			await settle();
+		}
+
+		buttonByText(target, 'Replace original')!.click();
+		await settle();
+		buttonByText(target, 'Apply')!.click();
+		await settle();
+
+		expect(startMediaToolRun.mock.calls[0][0].output).toEqual({ mode: 'replace' });
+	});
+
+	it.each(['crop', 'trim', 'resize'] as const)('starts %s on Save as new', async (kind) => {
+		const target = open(kind);
+		await settle();
+		await sources[kind].prepare(target);
+		if (kind === 'resize') {
+			pickChip(target, '540p');
+			await settle();
+		}
+		buttonByText(target, 'Apply')!.click();
+		await settle();
+		expect(startMediaToolRun.mock.calls[0][0].output).toEqual({ mode: 'new' });
+	});
+
+	it.each(['frame', 'split'] as const)('keeps the choice out of %s, which can only make new items, and names its own action', async (kind) => {
+		const target = open(kind);
+		await settle();
+
+		expect(seg(target)).toBeNull();
+		expect(buttonByText(target, 'Replace original')).toBeUndefined();
+		expect(buttonByText(target, sources[kind].apply)).toBeDefined();
+		expect(buttonByText(target, 'Apply')).toBeUndefined();
+		expect(Array.from(footer(target).querySelectorAll('.ml-auto button')).map((b) => b.textContent?.trim())).toEqual(['Cancel', sources[kind].apply]);
+	});
+
+	it.each(['crop', 'trim', 'resize', 'frame', 'split'] as const)('swaps the choice for the Library note on %s when the file is a generation', async (kind) => {
+		const { source } = sources[kind];
+		const generated = { ...source, itemId: null, storedPath: `outputs/2026-08-13/01KABC/0.${source.kind === 'image' ? 'png' : source.kind === 'video' ? 'mp4' : 'mp3'}` };
+		listGenerationMedia.mockResolvedValue({
+			success: true,
+			data: { media: [{ id: 'file-7', filename: `0.${source.kind === 'image' ? 'png' : source.kind === 'video' ? 'mp4' : 'mp3'}` }] }
+		});
+		const target = mount({ request: { kind, source: generated, itemIndex: null }, onClose: vi.fn(), onResult: vi.fn() });
+		await settle();
+
+		expect(seg(target)).toBeNull();
+		expect(footer(target).querySelector('[data-tool-note]')?.textContent).toBe('Saved as a new Library item. The generation stays as it is.');
+		expect(target.textContent!.split('Saved as a new Library item. The generation stays as it is.')).toHaveLength(2);
+	});
+
+	it.each(['crop', 'trim', 'resize', 'frame', 'split'] as const)('shows the field note and no choice on %s when the editor is opened for a field', async (kind) => {
+		const { source } = sources[kind];
+		const target = mount({ request: { kind, source, itemIndex: null }, scope: 'field', onClose: vi.fn(), onResult: vi.fn() });
+		await settle();
+
+		const word = source.kind === 'audio' ? 'clip' : source.kind;
+		expect(seg(target)).toBeNull();
+		expect(footer(target).querySelector('[data-tool-note]')?.textContent).toBe(
+			`The result replaces this ${word} in the field. The library copy stays as it is.`
+		);
+		expect(buttonByText(target, 'Replace original')).toBeUndefined();
+	});
+
+	it('names the field note after a generated file too, since the field is where the result goes', async () => {
+		listGenerationMedia.mockResolvedValue({ success: true, data: { media: [{ id: 'file-7', filename: '0.png' }] } });
+		const generated = { ...imageSource, itemId: null, storedPath: 'outputs/2026-08-13/01KABC/0.png' };
+		const target = mount({ request: { kind: 'crop', source: generated, itemIndex: null }, scope: 'field', onClose: vi.fn(), onResult: vi.fn() });
+		await settle();
+		expect(footer(target).querySelector('[data-tool-note]')?.textContent).toBe(
+			'The result replaces this image in the field. The library copy stays as it is.'
+		);
+	});
+
+	it.each(['crop', 'trim', 'resize', 'frame', 'split'] as const)('shows the footer text of a refusal or a blocked save in the %s footer', async (kind) => {
+		startMediaToolRun.mockRejectedValue(new Error('The edit failed'));
+		const target = open(kind);
+		await settle();
+		await sources[kind].prepare(target);
+		if (kind === 'resize') {
+			pickChip(target, '540p');
+			await settle();
+		}
+
+		buttonByText(target, sources[kind].apply)!.click();
+		await settle();
+
+		expect(footer(target).querySelector('[data-tool-failure]')?.textContent).toBe('The edit failed');
+	});
+
+	it.each(['crop', 'trim', 'resize', 'frame', 'split'] as const)('shows progress and a Cancel edit button in the %s footer while its run goes', async (kind) => {
+		getMediaToolRun.mockResolvedValue({ run_id: 'run-1', status: 'running', progress: 0.25, label: 'Encoding', items: [], replaced: false, error: null });
+		const target = open(kind);
+		await settle();
+		await sources[kind].prepare(target);
+		if (kind === 'resize') {
+			pickChip(target, '540p');
+			await settle();
+		}
+		if (kind === 'split') {
+			const input = target.querySelector('#split-part-seconds') as HTMLInputElement;
+			input.value = '10';
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+			await settle();
+		}
+
+		buttonByText(target, sources[kind].apply)!.click();
+		await settle();
+
+		expect(footer(target).querySelector('[data-tool-progress]')?.textContent).toContain('25%');
+		expect(buttonByText(target, 'Cancel edit')).toBeDefined();
+		expect(seg(target)).toBeNull();
 	});
 });

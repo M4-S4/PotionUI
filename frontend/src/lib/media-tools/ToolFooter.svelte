@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/ui/Button.svelte';
+	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import SegmentedControl from '$lib/components/ui/SegmentedControl.svelte';
 	import type { MediaToolOutputMode } from './types';
 
@@ -9,6 +10,8 @@
 		note,
 		applyLabel,
 		applyIcon = true,
+		flush = false,
+		cancellable = true,
 		disabled,
 		working,
 		progress,
@@ -26,6 +29,8 @@
 		note: string | null;
 		applyLabel: string;
 		applyIcon?: boolean;
+		flush?: boolean;
+		cancellable?: boolean;
 		disabled: boolean;
 		working: boolean;
 		progress: number;
@@ -47,7 +52,7 @@
 	let percent = $derived(Math.round(Math.min(1, Math.max(0, progress)) * 100));
 </script>
 
-<div class="flex flex-col gap-2 bg-surface-1 px-4 py-3" data-tool-footer>
+<div class="flex flex-col gap-2 {flush ? 'w-full' : 'bg-surface-1 px-4 py-3'}" data-tool-footer>
 	{#if failure}
 		<p class="text-sm text-danger" role="alert" data-tool-failure>{failure}</p>
 	{:else if blocked && !working}
@@ -55,7 +60,15 @@
 	{/if}
 
 	<div class="flex flex-wrap items-center gap-2">
-		{#if working}
+		{#if working && !cancellable}
+			<span class="inline-flex items-center gap-2 text-sm text-fg-muted" data-tool-working>
+				<Spinner size="sm" />
+				Working…
+			</span>
+			<div class="ml-auto flex items-center gap-2">
+				<Button variant="ghost" size="sm" disabled onclick={onCancel}>Cancel</Button>
+			</div>
+		{:else if working}
 			<div class="flex min-w-0 flex-1 items-center gap-3" data-tool-progress>
 				<span
 					class="relative h-1.5 min-w-24 flex-1 overflow-hidden rounded bg-surface-3"

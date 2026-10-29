@@ -11,7 +11,15 @@
 		[key: string]: unknown;
 	} = $props();
 
-	const item = { id: 'out-1', filename: 'out.png', media_type: 'image', url: '/out.png' };
+	const item = {
+		id: 'out-1',
+		filename: 'out.png',
+		media_type: 'image',
+		url: '/out.png',
+		thumbnail_small: '/t/s.webp',
+		thumbnail_medium: '/t/m.webp',
+		thumbnail_large: '/t/l.webp'
+	};
 	let summary = $derived(
 		JSON.stringify(rest, (_key, value) => (value instanceof Set ? [...value] : typeof value === 'function' ? 'fn' : value))
 	);

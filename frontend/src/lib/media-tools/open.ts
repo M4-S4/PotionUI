@@ -28,8 +28,8 @@ export interface OpenMediaToolOptions {
 }
 
 export function routeFor(tool: ToolDTO): MediaToolRoute {
-	if (isSurfaceEditorKind(tool.editor)) return 'editor';
-	return isRunnable(tool) ? 'dialog' : 'component';
+	if (!isRunnable(tool)) return 'component';
+	return isSurfaceEditorKind(tool.editor) ? 'editor' : 'dialog';
 }
 
 function mountHost(component: Component<any>, props: Record<string, unknown>): () => void {
@@ -121,6 +121,11 @@ export async function openMediaTool(options: OpenMediaToolOptions): Promise<bool
 		scope
 	);
 
+	if (route === 'component' && !tool.component) {
+		toasts.error('This tool has no surface to open.');
+		return false;
+	}
+
 	if (route === 'component') {
 		const context = options.context ?? contextFor(scope, sources);
 		let close: () => void = () => undefined;
@@ -168,6 +173,7 @@ export async function openMediaTool(options: OpenMediaToolOptions): Promise<bool
 			request: { kind: tool.editor as MediaEditorKind, source: toEditorSource(source), itemIndex: null },
 			detach: scope !== 'field',
 			announce,
+			scope,
 			onClose: () => {
 				close();
 				onClose?.();

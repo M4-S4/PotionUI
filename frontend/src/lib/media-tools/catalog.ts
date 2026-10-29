@@ -11,6 +11,7 @@ export const mediaToolCatalogRevision = writable(0);
 let loaded = false;
 let loading: Promise<ToolDTO[]> | null = null;
 let unwatch: (() => void) | null = null;
+let warnedMissingRunnable = false;
 
 function publish(tools: ToolDTO[]) {
 	catalog.set(tools);
@@ -73,6 +74,7 @@ export function resetMediaToolCatalog(tools: ToolDTO[] = []) {
 	unwatch = null;
 	loading = null;
 	loaded = false;
+	warnedMissingRunnable = false;
 	catalog.set(tools);
 	mediaToolCatalogRevision.set(0);
 }
@@ -102,8 +104,14 @@ export function rememberToolParams(toolId: string, params: Record<string, unknow
 }
 
 export function isRunnable(tool: ToolDTO): boolean {
-	if (typeof tool.runnable === 'boolean') return tool.runnable;
-	return !(tool.component && tool.params.length === 0 && !tool.editor);
+	if (typeof tool.runnable !== 'boolean') {
+		if (!warnedMissingRunnable) {
+			warnedMissingRunnable = true;
+			logger.warn('The media tool catalog has no runnable flag, so no tool can be run:', tool.id);
+		}
+		return false;
+	}
+	return tool.runnable;
 }
 
 export const MAX_RUN_INPUTS = 50;

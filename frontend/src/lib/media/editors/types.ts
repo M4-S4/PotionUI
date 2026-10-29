@@ -21,7 +21,7 @@
  * the replace-in-place the API deliberately supports.
  */
 
-import type { EditedMediaItem } from '$lib/services/api/media';
+import type { MediaToolItem } from '$lib/media-tools/types';
 import type { DrawConfig } from '$lib/components/imageEditor/drawConfig';
 
 export const MEDIA_EDITOR_KINDS = [
@@ -113,8 +113,8 @@ export interface MediaEditorRequest {
  * `${name}_inpaint_mask` sibling channel, which is not a value at all.
  */
 export type MediaEditorResult =
-	| { type: 'item'; item: EditedMediaItem; replaced: boolean; keepMask?: boolean }
-	| { type: 'items'; items: EditedMediaItem[] }
+	| { type: 'item'; item: MediaToolItem; replaced: boolean; keepMask?: boolean }
+	| { type: 'items'; items: MediaToolItem[] }
 	| { type: 'mask'; maskPath: string };
 
 /** Whether the edit takes the resource's place or sits beside it. */

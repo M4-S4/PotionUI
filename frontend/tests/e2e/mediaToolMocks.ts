@@ -19,6 +19,7 @@ function tool(id: string, label: string, icon: string, overrides: Json = {}): Js
 		editor: null,
 		preview: false,
 		component: null,
+		runnable: true,
 		source: 'core',
 		last_params: null,
 		...overrides

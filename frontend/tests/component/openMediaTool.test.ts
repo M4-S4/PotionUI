@@ -84,8 +84,19 @@ describe('routeFor', () => {
 		expect(routeFor(A1111_TOOL)).toBe('component');
 	});
 
-	it('takes the editor first when a tool has both', () => {
+	it('takes the editor first when a runnable tool has both', () => {
 		expect(routeFor(toolDto({ id: 'x', editor: 'trim', component: 'plugin:p:v' }))).toBe('editor');
+	});
+
+	it('goes by the runnable flag alone, whatever else the tool declares', () => {
+		expect(routeFor(toolDto({ id: 'x', editor: 'trim', runnable: false, component: 'plugin:p:v' }))).toBe('component');
+		expect(routeFor(toolDto({ id: 'x', params: [{ name: 'n', type: 'integer' }], runnable: false }))).toBe('component');
+		expect(routeFor(toolDto({ id: 'x', component: 'plugin:p:v', runnable: true }))).toBe('dialog');
+	});
+
+	it('treats a tool from a server that sends no flag as not runnable', () => {
+		const missing = { ...toolDto({ id: 'x' }), runnable: undefined } as never;
+		expect(routeFor(missing)).toBe('component');
 	});
 });
 
@@ -113,6 +124,16 @@ describe('opening a tool', () => {
 		expect(await openMediaTool({ toolId: 'concat', items: [clip], scope: 'library' })).toBe(false);
 		expect(toastTexts()).toEqual(['Select 2 to 8 items']);
 		expect(await openMediaTool({ toolId: 'concat', items: [clip, { ...clip, id: 'r9' }], scope: 'library' })).toBe(true);
+	});
+});
+
+describe('a tool with nothing to open', () => {
+	it('says so instead of mounting an empty host', async () => {
+		listMediaTools.mockResolvedValue([toolDto({ id: 'ghost', runnable: false, component: null })]);
+		const opened = await openMediaTool({ toolId: 'ghost', items: [image], scope: 'library' });
+		expect(opened).toBe(false);
+		expect(toastTexts()).toEqual(['This tool has no surface to open.']);
+		expect(hosts()).toEqual([]);
 	});
 });
 
@@ -188,6 +209,7 @@ describe('the editor route', () => {
 
 		const [props] = hosts();
 		expect(props.detach).toBe(true);
+		expect(props.scope).toBe('library');
 		expect(props.request).toEqual({
 			kind: 'trim',
 			itemIndex: null,
@@ -250,6 +272,26 @@ describe('the editor route', () => {
 		press('[data-stub-result-editor-items]');
 		expect(onResult.mock.calls.at(-1)![0]).toHaveLength(2);
 		expect(onResult.mock.calls.at(-1)![1]).toEqual({ toolId: 'trim', replaced: false });
+	});
+
+	it('keeps the thumbnails the result carries and the replaced flag, for the editor and the dialog alike', async () => {
+		const onResult = vi.fn();
+		await openMediaTool({ toolId: 'trim', items: [clip], scope: 'library', onResult });
+		await settle();
+		press('[data-stub-result-editor]');
+		expect(onResult.mock.calls.at(-1)![0][0]).toMatchObject({
+			thumbnail_small: '/t/s.webp',
+			thumbnail_medium: '/t/m.webp',
+			thumbnail_large: '/t/l.webp'
+		});
+		expect(onResult.mock.calls.at(-1)![1].replaced).toBe(true);
+
+		document.body.innerHTML = '';
+		await openMediaTool({ toolId: 'speed', items: [clip], scope: 'library', onResult });
+		await settle();
+		press('[data-stub-result-dialog]');
+		expect(onResult.mock.calls.at(-1)![0][0].thumbnail_medium).toBe('/t/m.webp');
+		expect(onResult.mock.calls.at(-1)![1]).toEqual({ toolId: 'speed', replaced: false });
 	});
 
 	it('does not pass a mask on as an edited item', async () => {

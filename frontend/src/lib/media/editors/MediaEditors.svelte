@@ -35,6 +35,7 @@
 	export let existingMaskUrl: string | null = null;
 	export let detach: boolean = false;
 	export let announce: AnnounceSetting | undefined = undefined;
+	export let scope: 'library' | 'history' | 'field' = 'library';
 	export let onClose: () => void;
 	export let onResult: (
 		result: MediaEditorResult,
@@ -72,6 +73,9 @@
 	const runContext: EditorRunContext = {
 		progress: derived([mediaToolRuns, runKey], ([$runs, $key]) =>
 			$key ? ($runs[$key]?.progress ?? null) : null
+		),
+		cancelling: derived([mediaToolRuns, runKey], ([$runs, $key]) =>
+			$key ? ($runs[$key]?.cancelling ?? false) : false
 		),
 		cancel: () => {
 			if (activeRun) void mediaToolRuns.cancelRun(activeRun.runId);
@@ -127,12 +131,16 @@
 				? 'Preparing this media…'
 				: resourceReason;
 
-	$: resourceNote =
-		resourceOrigin === 'pending'
-			? 'Saves the edited copy to your Library'
+	$: inField = scope === 'field';
+	$: kindWord = request?.source.kind === 'audio' ? 'clip' : (request?.source.kind ?? 'item');
+
+	$: resourceNote = inField
+		? `The result replaces this ${kindWord} in the field. The library copy stays as it is.`
+		: resourceOrigin === 'pending'
+			? 'Saved as a new Library item. The generation stays as it is.'
 			: null;
 
-	$: allowReplace = resourceOrigin !== 'pending';
+	$: allowReplace = !inField && resourceOrigin !== 'pending';
 
 	function closeFrameEditor() {
 		if (frameHandoff) {

@@ -222,7 +222,6 @@
 
 			<p class="min-w-0 flex-1 text-2xs text-fg-subtle">
 				Saved as a new image — the clip is left alone.
-				{#if resourceNote}<br />{resourceNote}{/if}
 			</p>
 		</div>
 	</div>
@@ -231,6 +230,7 @@
 		<EditorSaveControls
 			applyLabel="Save frame"
 			allowReplace={false}
+			note={resourceNote}
 			{busy}
 			blockedReason={rejection}
 			{failureMessage}

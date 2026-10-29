@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
+import { toasts } from '$lib/stores/toast';
 import {
+	CANCEL_FAILED_MESSAGE,
 	MAX_POLL_ERRORS,
 	POLL_FAST_MS,
 	POLL_SLOW_AFTER_MS,
@@ -291,6 +293,95 @@ describe('cancelling', () => {
 		await vi.advanceTimersByTimeAsync(400);
 		expect(getRun).toHaveBeenCalledTimes(1);
 		runs.destroy();
+	});
+
+	it('says so when the server refuses, and checks the real status at once instead of waiting for the next tick', async () => {
+		for (const entry of get(toasts)) toasts.remove(entry.id);
+		const { api, get: getRun, cancel } = fakeApi();
+		cancel.mockRejectedValue(new Error('too late'));
+		const runs = createMediaToolRuns(api);
+		await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+		getRun.mockClear();
+
+		await runs.cancel('row-1');
+
+		expect(get(toasts).map((entry) => [entry.type, entry.message])).toEqual([['warning', CANCEL_FAILED_MESSAGE]]);
+		expect(CANCEL_FAILED_MESSAGE).toBe("Couldn't cancel. It may already be finished.");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(getRun).toHaveBeenCalledTimes(1);
+		runs.destroy();
+	});
+
+	it('lets the band show the run as finished when the refused cancel was too late', async () => {
+		const { api, get: getRun, cancel } = fakeApi();
+		cancel.mockRejectedValue(new Error('already finished'));
+		const item = { id: 'r2', filename: 'a.mp4', media_type: 'video', url: '/a.mp4' };
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+		getRun.mockResolvedValue(run({ status: 'completed', progress: 1, items: [item] }));
+
+		await runs.cancel('row-1');
+		await vi.advanceTimersByTimeAsync(0);
+
+		await expect(handle.done).resolves.toMatchObject({ status: 'completed', items: [item] });
+		expect(get(runs)).toEqual({});
+	});
+
+	it('does not poll twice at once after a refused cancel', async () => {
+		const { api, get: getRun, cancel } = fakeApi();
+		cancel.mockRejectedValue(new Error('no'));
+		const runs = createMediaToolRuns(api);
+		await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+		getRun.mockClear();
+
+		await runs.cancel('row-1');
+		await vi.advanceTimersByTimeAsync(0);
+
+		expect(getRun).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(399);
+		expect(getRun).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(getRun).toHaveBeenCalledTimes(2);
+		runs.destroy();
+	});
+
+	it('stays quiet when the run finished while the cancel request was in flight', async () => {
+		for (const entry of get(toasts)) toasts.remove(entry.id);
+		const { api, get: getRun, cancel } = fakeApi();
+		let refuse: (reason: unknown) => void = () => undefined;
+		cancel.mockReturnValue(new Promise((_resolve, reject) => (refuse = reject)));
+		const runs = createMediaToolRuns(api);
+		const handle = await runs.start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+
+		const pending = runs.cancel('row-1');
+		getRun.mockResolvedValue(run({ status: 'completed', progress: 1, items: [] }));
+		await vi.advanceTimersByTimeAsync(400);
+		await expect(handle.done).resolves.toMatchObject({ status: 'completed' });
+		refuse(new Error('too late'));
+		await pending;
+
+		expect(get(toasts)).toEqual([]);
+	});
+
+	it('hands back the items exactly as the server sent them, thumbnails included', async () => {
+		const { api, get: getRun } = fakeApi();
+		const item = {
+			id: 'r2',
+			filename: 'a.png',
+			media_type: 'image',
+			url: '/a.png',
+			thumbnail_small: '/t/s.webp',
+			thumbnail_medium: '/t/m.webp',
+			thumbnail_large: '/t/l.webp'
+		};
+		getRun.mockResolvedValue(run({ status: 'completed', progress: 1, items: [item], replaced: true }));
+		const handle = await createMediaToolRuns(api).start(OPTIONS);
+		await vi.advanceTimersByTimeAsync(0);
+		await expect(handle.done).resolves.toEqual({ status: 'completed', items: [item], replaced: true });
 	});
 
 	it('ignores a key nothing is running for', async () => {

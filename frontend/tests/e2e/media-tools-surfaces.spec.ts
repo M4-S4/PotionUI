@@ -22,6 +22,7 @@ function tool(id: string, label: string, extra: Record<string, unknown> = {}) {
 		editor: null,
 		preview: false,
 		component: null,
+		runnable: true,
 		source: 'core',
 		last_params: null,
 		...extra
@@ -284,6 +285,112 @@ test.describe('Tools menu, Edit and Effects', () => {
 		);
 		await expect(dialog.getByRole('radiogroup', { name: 'Filters' })).toBeVisible();
 		await screenshot(page, JOURNEY, 'apply-look-1440');
+	});
+});
+
+test.describe('recent looks', () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await loginAsOwner(page);
+	});
+
+	test('lists the looks applied last under Apply a look, on Library and History', async ({ page }) => {
+		await page.addInitScript(() => {
+			localStorage.setItem(
+				'potionui-recent-looks',
+				JSON.stringify([
+					{ id: 'noir', name: 'Noir', group: 'Black and white' },
+					{ id: 'ember', name: 'Ember', group: 'Colour' },
+					{ id: 'honey', name: 'Honey', group: 'Colour' },
+					{ id: 'frost', name: 'Frost', group: 'Colour' }
+				])
+			);
+		});
+		await mockBackend(page);
+
+		await openLibraryMenu(page, 'harbour.png');
+		expect(await toolsOf(page, 'Effects')).toEqual(['apply-look', 'look:noir', 'look:ember', 'look:honey']);
+		await expect(menu(page).locator('[data-tool="look:noir"] [data-tool-sub]')).toHaveText('Black and white');
+		await screenshot(page, JOURNEY, 'recent-looks-menu-1440');
+		await page.keyboard.press('Escape');
+
+		await openHistoryMenu(page, 0);
+		expect(await toolsOf(page, 'Effects')).toEqual(['apply-look', 'look:noir', 'look:ember', 'look:honey']);
+	});
+
+	test('opens the image editor on the look that was clicked', async ({ page }) => {
+		test.setTimeout(120000);
+		await page.addInitScript(() => {
+			localStorage.setItem(
+				'potionui-recent-looks',
+				JSON.stringify([{ id: 'ember', name: 'Ember', group: 'Colour' }])
+			);
+		});
+		await mockBackend(page);
+		await openLibraryMenu(page, 'harbour.png');
+
+		await menu(page).locator('[data-tool="look:ember"]').click();
+
+		const dialog = page.getByRole('dialog', { name: 'Edit image' });
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByRole('button', { name: 'Filters', exact: true }).first()).toHaveAttribute(
+			'aria-pressed',
+			'true',
+			{ timeout: 20000 }
+		);
+		await expect(dialog.getByTestId('filter-name')).toHaveText('Ember', { timeout: 20000 });
+		await expect(dialog.getByRole('button', { name: 'Apply', exact: true })).toBeFocused();
+		await screenshot(page, JOURNEY, 'recent-look-editor-1440');
+	});
+
+	test('still renders the menu when the browser refuses storage', async ({ page }) => {
+		await page.addInitScript(() => {
+			Object.defineProperty(window, 'localStorage', {
+				get() {
+					throw new DOMException('blocked', 'SecurityError');
+				}
+			});
+		});
+		await mockBackend(page);
+		await openLibraryMenu(page, 'harbour.png');
+
+		expect(await toolsOf(page, 'Effects')).toEqual(['apply-look']);
+	});
+});
+
+test.describe('the tool catalog fails to load', () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await loginAsOwner(page);
+	});
+
+	test('shows one toast, and the next menu open brings the Edit group back', async ({ page }) => {
+		let healthy = false;
+		let requests = 0;
+		await mockBackend(page);
+		await page.route(/\/api\/media-tools(\?.*)?$/, async (route) => {
+			requests += 1;
+			if (!healthy) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"success":false}' });
+			return json(route, { tools: CATALOG });
+		});
+
+		await page.goto('/library');
+		await expect(page.locator('[data-library-card]')).toHaveCount(3);
+		const toast = page.getByText("Editing tools couldn't load");
+		await expect(toast).toHaveCount(1);
+
+		await page.locator('[data-library-card]').filter({ hasText: 'harbour.png' }).getByRole('button', { name: 'Select item' }).click();
+		await page.locator('[data-tools-trigger]').first().click();
+		await expect(menu(page)).toBeVisible();
+		expect(await groupLabels(page)).not.toContain('Edit');
+		await page.keyboard.press('Escape');
+		await expect(toast).toHaveCount(1);
+
+		healthy = true;
+		await page.locator('[data-tools-trigger]').first().click();
+		await expect.poll(() => groupLabels(page)).toContain('Edit');
+		expect(requests).toBeGreaterThanOrEqual(3);
+		await expect(page.getByText("Editing tools couldn't load")).toHaveCount(1);
 	});
 });
 

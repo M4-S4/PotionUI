@@ -265,10 +265,6 @@
 					<p class="text-xs text-fg-subtle">{pixelShare(sourceSize, target)}% of the original pixels</p>
 				{/if}
 			</div>
-
-			{#if resourceNote}
-				<p class="text-xs text-fg-muted">{resourceNote}</p>
-			{/if}
 		</div>
 	</div>
 
@@ -276,6 +272,7 @@
 		<EditorSaveControls
 			{busy}
 			{allowReplace}
+			note={resourceNote}
 			blockedReason={rejection}
 			{failureMessage}
 			onCancel={onClose}

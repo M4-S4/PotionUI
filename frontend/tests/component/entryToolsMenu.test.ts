@@ -66,6 +66,7 @@ beforeAll(() => {
 			editor: null,
 			preview: false,
 			component: 'plugin:upscaler:Upscale.js',
+			runnable: false,
 			source: 'upscaler',
 			last_params: null
 		})

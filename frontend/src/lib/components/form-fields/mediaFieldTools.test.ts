@@ -27,6 +27,7 @@ function dto(overrides: Partial<ToolDTO> & { id: string }): ToolDTO {
 		editor: null,
 		preview: false,
 		component: null,
+		runnable: true,
 		source: 'core',
 		last_params: null,
 		...overrides
@@ -51,6 +52,7 @@ const CATALOG: ToolDTO[] = [
 		label: 'Viewer',
 		accepts: ['image'],
 		component: 'plugin:acme:viewer',
+		runnable: false,
 		source: 'acme'
 	})
 ];

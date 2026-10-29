@@ -83,4 +83,4 @@
 	onClose={() => (drawing = false)}
 />
 
-<MediaEditors {request} {existingMaskUrl} onClose={() => (request = null)} {onResult} />
+<MediaEditors {request} {existingMaskUrl} scope="field" onClose={() => (request = null)} {onResult} />

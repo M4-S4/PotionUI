@@ -103,6 +103,7 @@ describe('executeMediaTool', () => {
 			editor: null,
 			preview: false,
 			component: null,
+			runnable: true,
 			source: 'core',
 			last_params: null
 		} as unknown as ToolDTO;

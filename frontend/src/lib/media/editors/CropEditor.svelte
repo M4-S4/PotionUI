@@ -418,9 +418,6 @@
 				Reset
 			</button>
 			<p class="text-2xs text-fg-subtle">Drag inside the frame to move it, corners to resize.</p>
-			{#if resourceNote}
-				<p class="text-2xs text-fg-muted">{resourceNote}</p>
-			{/if}
 		</div>
 	</div>
 
@@ -428,6 +425,7 @@
 		<EditorSaveControls
 			{busy}
 			{allowReplace}
+			note={resourceNote}
 			blockedReason={rejection}
 			{failureMessage}
 			onCancel={onClose}

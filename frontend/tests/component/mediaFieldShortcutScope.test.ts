@@ -72,7 +72,7 @@ function pressC(target: EventTarget = document.body): KeyboardEvent {
 
 function cropOpen(): boolean {
 	return Array.from(document.body.querySelectorAll('button')).some(
-		(button) => (button.textContent || '').trim() === 'Replace original'
+		(button) => (button.textContent || '').trim() === 'Apply'
 	);
 }
 

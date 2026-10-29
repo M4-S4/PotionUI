@@ -448,11 +448,7 @@
 				</button>
 			</div>
 
-			{#if resourceNote}
-				<p class="min-w-0 flex-1 text-2xs text-fg-muted">{resourceNote}</p>
-			{:else}
-				<div class="flex-1"></div>
-			{/if}
+			<div class="flex-1"></div>
 
 			{#if !isAudio && onExtractFrame}
 				<button
@@ -478,6 +474,7 @@
 		<EditorSaveControls
 			{busy}
 			{allowReplace}
+			note={resourceNote}
 			blockedReason={rejection}
 			{failureMessage}
 			onCancel={onClose}

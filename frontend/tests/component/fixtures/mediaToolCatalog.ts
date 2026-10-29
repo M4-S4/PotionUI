@@ -14,6 +14,7 @@ export function toolDto(overrides: Partial<ToolDTO> & { id: string }): ToolDTO {
 		editor: null,
 		preview: false,
 		component: null,
+		runnable: true,
 		source: 'core',
 		last_params: null,
 		...overrides
@@ -63,6 +64,7 @@ export const A1111_TOOL: ToolDTO = toolDto({
 	selection: { min: 1 },
 	scopes: ['history'],
 	component: 'plugin:a1111-metadata-export:A1111ExportTool.js',
+	runnable: false,
 	source: 'a1111-metadata-export'
 });
 

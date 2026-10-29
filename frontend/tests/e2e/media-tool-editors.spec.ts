@@ -35,7 +35,7 @@ test.describe('crop and frame', () => {
 
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
 		await screenshot(page, JOURNEY, 'crop-square');
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
 		expect(lastRun(log)).toEqual({
@@ -56,7 +56,7 @@ test.describe('crop and frame', () => {
 		await editor.getByRole('button', { name: 'Rotate right' }).click();
 		await editor.getByRole('button', { name: 'Flip horizontal' }).click();
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
 		const run = lastRun(log);
@@ -66,18 +66,24 @@ test.describe('crop and frame', () => {
 		expect(run.steps[2].params.width).toBe(run.steps[2].params.height);
 	});
 
-	test('wires Replace original to the replace mode and reports a replaced original', async ({ page }) => {
-		const log = await prepareFieldPage(page, size, { replaced: true });
+	test('offers no Replace choice in a field and says the field takes the result', async ({ page }) => {
+		const log = await prepareFieldPage(page, size);
 		const host = await mountField(page, size, { config: { title: 'Image', accept: 'image/*' }, value: imageItem(1) });
 		await pickTool(page, host, 'crop');
 		const editor = editorOf(page, 'Crop & frame');
 
+		await expect(editor.getByRole('button', { name: 'Replace original' })).toHaveCount(0);
+		await expect(editor.getByRole('group', { name: 'Save as' })).toHaveCount(0);
+		await expect(editor.locator('[data-tool-note]')).toHaveText(
+			'The result replaces this image in the field. The library copy stays as it is.'
+		);
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Replace original', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
-		expect(lastRun(log).output).toEqual({ mode: 'replace' });
+		expect(lastRun(log).output).toEqual({ mode: 'new' });
 		await expect(editor).toHaveCount(0);
+		expect((await published(page)).at(-1)).toMatchObject({ url: '/api/e2e-media/image-9.png' });
 	});
 
 	test('edits a generated image straight from storage, with no copy into the library and no replace', async ({ page }) => {
@@ -86,10 +92,10 @@ test.describe('crop and frame', () => {
 		await pickTool(page, host, 'crop');
 		const editor = editorOf(page, 'Crop & frame');
 
-		await expect(editor.getByText('Saves the edited copy to your Library')).toBeVisible();
+		await expect(editor.locator('[data-tool-note]')).toHaveText('The result replaces this image in the field. The library copy stays as it is.');
 		await expect(editor.getByRole('button', { name: 'Replace original' })).toHaveCount(0);
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
 		expect(lastRun(log).inputs).toEqual([{ generation_file_id: 'file-1' }]);
@@ -104,7 +110,7 @@ test.describe('crop and frame', () => {
 		const editor = editorOf(page, 'Crop & frame');
 
 		await expect(editor.getByText('Nothing to apply yet.')).toBeVisible();
-		await expect(editor.getByRole('button', { name: 'Save as new', exact: true })).toBeDisabled();
+		await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
 		expect(log.runs).toEqual([]);
 	});
 
@@ -117,7 +123,7 @@ test.describe('crop and frame', () => {
 
 		await expect(editor.locator('video')).toHaveCount(1);
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
 		const [step] = lastRun(log).steps;
@@ -135,7 +141,7 @@ test.describe('trim', () => {
 		const editor = editorOf(page, 'Trim in / out');
 
 		await editor.getByRole('button', { name: 'Trim out point' }).press('ArrowLeft');
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
 		expect(lastRun(log)).toEqual({
@@ -152,7 +158,7 @@ test.describe('trim', () => {
 		const editor = editorOf(page, 'Trim on waveform');
 
 		await editor.getByRole('button', { name: 'Trim in point' }).press('ArrowRight');
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
 		expect(lastRun(log).steps).toEqual([{ tool: 'trim', params: { start: 0.1, end: 5 } }]);
@@ -165,7 +171,7 @@ test.describe('trim', () => {
 		const editor = editorOf(page, 'Trim on waveform');
 
 		await expect(editor.getByText('Move a handle to choose what to keep.')).toBeVisible();
-		await expect(editor.getByRole('button', { name: 'Save as new', exact: true })).toBeDisabled();
+		await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
 		expect(log.runs).toEqual([]);
 	});
 });
@@ -180,7 +186,7 @@ test.describe('resize', () => {
 		await editor.getByRole('button', { name: /^50%/ }).click();
 		await expect(editor.locator('[data-testid="resize-result"]')).toHaveText('384×256');
 		await screenshot(page, JOURNEY, 'resize-half');
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect.poll(() => log.runs.length).toBe(1);
 		expect(lastRun(log).steps).toEqual([{ tool: 'resize', params: { width: 384, height: 256 } }]);
@@ -247,14 +253,14 @@ test.describe('a run in flight', () => {
 		await pickTool(page, host, 'crop');
 		const editor = editorOf(page, 'Crop & frame');
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
-		await expect(editor.locator('[data-editor-progress]')).toHaveText('40%');
+		await expect(editor.locator('[data-tool-progress]')).toContainText('40%');
 		await screenshot(page, JOURNEY, 'crop-running');
 		await editor.getByRole('button', { name: 'Cancel edit' }).click();
 
 		await expect.poll(() => log.cancels).toEqual(['run-1']);
-		await expect(editor.getByRole('button', { name: 'Save as new', exact: true })).toBeEnabled();
+		await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled();
 		expect(await published(page)).toEqual([]);
 	});
 
@@ -264,8 +270,8 @@ test.describe('a run in flight', () => {
 		await pickTool(page, host, 'crop');
 		const editor = editorOf(page, 'Crop & frame');
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
-		await expect(editor.locator('[data-editor-progress]')).toBeVisible();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
+		await expect(editor.locator('[data-tool-progress]')).toBeVisible();
 
 		log.release();
 
@@ -293,11 +299,11 @@ test.describe('refusals', () => {
 		await pickTool(page, host, 'crop');
 		const editor = editorOf(page, 'Crop & frame');
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect(editor.getByText('Storage is full. Free up space in History or Library, then try again.')).toBeVisible();
 		await expect(editor.getByText(/status code/)).toHaveCount(0);
-		await expect(editor.getByRole('button', { name: 'Save as new', exact: true })).toBeEnabled();
+		await expect(editor.getByRole('button', { name: 'Apply', exact: true })).toBeEnabled();
 	});
 
 	test('shows the server reason for a rejected crop', async ({ page }) => {
@@ -308,7 +314,7 @@ test.describe('refusals', () => {
 		await pickTool(page, host, 'crop');
 		const editor = editorOf(page, 'Crop & frame');
 		await editor.getByRole('button', { name: '1:1', exact: true }).click();
-		await editor.getByRole('button', { name: 'Save as new', exact: true }).click();
+		await editor.getByRole('button', { name: 'Apply', exact: true }).click();
 
 		await expect(editor.getByText('The crop rectangle does not fit inside 768x512')).toBeVisible();
 	});

@@ -126,7 +126,7 @@ describe('resize editor', () => {
 		button('540p').click();
 		button('Small file').click();
 		await settle();
-		button('Save as new').click();
+		button('Apply').click();
 		await settle();
 
 		expect(startMediaToolRun).toHaveBeenCalledWith({
@@ -155,6 +155,8 @@ describe('resize editor', () => {
 
 		button('Replace original').click();
 		await settle();
+		button('Apply').click();
+		await settle();
 		expect(startMediaToolRun).toHaveBeenCalledWith({
 			steps: [{ tool: 'resize', params: { width: 712, height: 400, quality: 'balanced' } }],
 			inputs: [{ item_id: 'row-2' }],
@@ -171,7 +173,7 @@ describe('resize editor', () => {
 		await settle();
 
 		expect(body.textContent).toContain('Larger than the original 1920×1080.');
-		button('Save as new').click();
+		button('Apply').click();
 		await settle();
 		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});
@@ -189,7 +191,7 @@ describe('resize editor', () => {
 		const body = await open(imageSource);
 
 		expect(body.textContent).not.toContain('Small file');
-		button('Save as new').click();
+		button('Apply').click();
 		await settle();
 
 		expect(startMediaToolRun).toHaveBeenCalledWith({
