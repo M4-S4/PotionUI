@@ -93,7 +93,13 @@ import torch
 
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
-from src.platform.runtime.native.kernels import FastPathKind, QuantFormat, fast_path, partition_output_branch_deltas
+from src.platform.runtime.native.kernels import (
+    FastPathKind,
+    QuantFormat,
+    fast_path,
+    nvfp4_path_summary,
+    partition_output_branch_deltas,
+)
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -435,7 +441,7 @@ def _dit_lora_delta_gb(dit: Any) -> float:
     return _dit_lora_profile(dit).delta_gb
 
 
-def _dit_is_fully_resident(dit: Any, device: str) -> bool:
+def dit_is_fully_resident(dit: Any, device: str) -> bool:
     """True iff ``dit`` is ALREADY placed with FULL residency on ``device`` --
     typically a warm-start restore from a prior generation
     (``dit_restore.restore_dit_best_effort``), not this call's own doing.
@@ -457,6 +463,36 @@ def _dit_is_fully_resident(dit: Any, device: str) -> bool:
     streaming = bool(streamer is not None and getattr(streamer, "active", False))
     return same_type and not streaming
 
+
+@dataclass(frozen=True)
+class SequenceFit:
+    weight_gb: float
+    free_gb: float
+    lora: DitLoraProfile
+    quant_activation_bytes_per_token: int
+
+    def reserve_gb(self, video_tokens: int, audio_tokens: int = 0) -> float:
+        return estimate_activation_reserve_gb(
+            video_tokens, audio_tokens, lora=self.lora,
+            quant_activation_bytes_per_token=self.quant_activation_bytes_per_token,
+        )
+
+    def resident(self, video_tokens: int, audio_tokens: int = 0) -> bool:
+        return self.weight_gb <= 0.0 or self.weight_gb <= self.free_gb - self.reserve_gb(video_tokens, audio_tokens)
+
+    def activations_fit(self, video_tokens: int, audio_tokens: int = 0) -> bool:
+        return self.reserve_gb(video_tokens, audio_tokens) <= self.free_gb
+
+
+def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
+    free = effective_free_vram_gb(device)
+    if free is None:
+        return None
+    lora = _dit_lora_profile(dit)
+    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb
+    if dit_is_fully_resident(dit, device):
+        free += weight_gb
+    return SequenceFit(weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit))
 
 @dataclass(frozen=True)
 class DitPlacementDecision:
@@ -529,7 +565,7 @@ def place_dit_for_sequence(
     sampling step of a run that could have started instantly (observed: a
     ~5s warm generation whose sampling alone took 147s of a 196s total,
     ``weight_budget_gb=0.0`` logged on a card with ~31GB genuinely free).
-    :func:`_dit_is_fully_resident` checks for exactly this state and, when
+    :func:`dit_is_fully_resident` checks for exactly this state and, when
     the DiT's OWN footprint is credited back before judging whether it still
     fits, the fast path below returns WITHOUT calling ``move_to`` or
     ``stream_to`` at all -- the warm path is the fast path. When it does NOT
@@ -551,6 +587,10 @@ def place_dit_for_sequence(
         )
         _log_decision(decision, device)
         return decision
+
+    linear_summary = nvfp4_path_summary(getattr(dit, "module", None))
+    if linear_summary:
+        logger.info("[LTX PLACEMENT] %s", linear_summary)
 
     activation_reserve = estimate_activation_reserve_gb(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
@@ -579,7 +619,7 @@ def place_dit_for_sequence(
     # report both in the over-commit warning.
     free_raw = free_vram_gb(device) or 0.0
     free_if_dit_unloaded = effective_free_vram_gb(device) or 0.0
-    if _dit_is_fully_resident(dit, device):
+    if dit_is_fully_resident(dit, device):
         free_raw += weight_gb
         free_if_dit_unloaded += weight_gb
     if total_reserve > free_if_dit_unloaded:
@@ -592,7 +632,7 @@ def place_dit_for_sequence(
             ),
         )
 
-    if _dit_is_fully_resident(dit, device):
+    if dit_is_fully_resident(dit, device):
         free_crediting_self = (effective_free_vram_gb(device) or 0.0) + weight_gb
         credited_budget = max(0.0, free_crediting_self - total_reserve)
         if weight_gb <= 0.0 or weight_gb <= credited_budget:

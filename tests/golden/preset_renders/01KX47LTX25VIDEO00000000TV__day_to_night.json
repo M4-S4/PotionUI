@@ -262,10 +262,6 @@
           "type": "float",
           "value": 24.0
         },
-        "frames": {
-          "type": "int",
-          "value": 121
-        },
         "manual_sigmas": {
           "type": "str",
           "value": ""

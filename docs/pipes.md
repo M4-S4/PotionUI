@@ -1575,10 +1575,10 @@ Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA reference
 | `resolution` | `str` | `"768x512"` | no | — | — | — | Resolution (WxH) |
 | `frames` | `int` | `49` | no | — | 1 | 1001 | Number of video frames (must be 1 + 8*k; up to ~40s at 25fps) |
 | `fps` | `float` | `25.0` | no | — | 1.0 | 60.0 | Output frame rate |
-| `match_video` | `bool` | `false` | no | — | — | — | Take the resolution and frame rate from the first video clip in 'media_placements' (a keyframe clip, else an IC-LoRA reference). With no 'extend_seconds', the frame count is the clip's own, up to 'frames'. On a refine call ('initial_latent' connected) the size comes from the latent and only the frame rate from the clip |
+| `match_video` | `bool` | `false` | no | — | — | — | Take the resolution and frame rate from the first video clip in 'media_placements' (a keyframe clip, else an IC-LoRA reference). With no 'extend_seconds', the frame count is the clip's own, up to the frame limit and what one pass fits in free VRAM ('frames' is ignored). On a refine call ('initial_latent' connected) the size comes from the latent and only the frame rate from the clip |
 | `match_scale` | `float` | `1.0` | no | — | 0.25 | 4.0 | With match_video, multiply the clip's size by this before the pixel budget (2.0 for a 2x upscaler) |
 | `max_pixels` | `int` | `0` | no | — | 0 | — | With match_video, scale the clip's size down to at most this many pixels; 0 = no cap |
-| `windows` | `bool` | `false` | no | — | — | — | With match_video and only IC-LoRA reference clips, a clip longer than 'frames' is processed in overlapping windows of 'frames' and crossfaded, up to the frame limit, instead of being cut at 'frames' |
+| `windows` | `bool` | `false` | no | — | — | — | With match_video and only IC-LoRA reference clips, a clip that one pass cannot fit in free VRAM is processed in the fewest equal overlapping windows that do and crossfaded, up to the frame limit, instead of being cut |
 | `window_overlap` | `int` | `16` | no | — | 0 | 200 | With windows, frames shared by neighbouring windows and crossfaded |
 | `extend_seconds` | `float` | `0.0` | no | — | 0.0 | — | When above 0, frames = the first video keyframe clip's frames plus this many seconds |
 | `quantity` | `int` | `1` | no | — | 1 | 4 | Number of videos |

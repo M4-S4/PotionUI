@@ -107,7 +107,6 @@ pipeline:
       max_pixels: "{{ 2088960 if form.output_size == '1080p' else 921600 }}"
       windows: true
       window_overlap: "{{ preset.vars.edit_window_overlap }}"
-      frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       cfg: "{{ form.cfg | default(generation.profile.guidance) }}"

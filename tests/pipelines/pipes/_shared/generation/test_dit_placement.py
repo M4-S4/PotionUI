@@ -54,6 +54,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     estimate_activation_reserve_gb,
     guard_sampling_oom,
     place_dit_for_sequence,
+    sequence_fit,
 )
 
 from tests.fixtures.kernel_capabilities import ada, ampere, blackwell, fake_capabilities
@@ -1406,29 +1407,29 @@ def test_the_real_traces_reserve_still_covers_its_observed_activation_need():
 # alone took 147s of a 196s total because the warm DiT was streamed from host
 # every step instead of staying put. ------------------------------------
 
-from src.pipelines.pipes._shared.generation.dit_placement import _dit_is_fully_resident  # noqa: E402
+from src.pipelines.pipes._shared.generation.dit_placement import dit_is_fully_resident
 
 
 def test_dit_is_fully_resident_true_when_device_matches_and_not_streaming():
     dit = SimpleNamespace(device="cuda")
-    assert _dit_is_fully_resident(dit, "cuda") is True
+    assert dit_is_fully_resident(dit, "cuda") is True
 
 
 def test_dit_is_fully_resident_false_with_no_device_set():
     dit = SimpleNamespace()
-    assert _dit_is_fully_resident(dit, "cuda") is False
+    assert dit_is_fully_resident(dit, "cuda") is False
 
 
 def test_dit_is_fully_resident_false_on_a_different_device_type():
     dit = SimpleNamespace(device="cpu")
-    assert _dit_is_fully_resident(dit, "cuda") is False
+    assert dit_is_fully_resident(dit, "cuda") is False
 
 
 def test_dit_is_fully_resident_true_across_cuda_ordinal_spelling():
     # "cuda" and "cuda:0" are the same device TYPE -- a warm restore that
     # landed on "cuda:0" must still be recognised against a bare "cuda" ask.
     dit = SimpleNamespace(device="cuda:0")
-    assert _dit_is_fully_resident(dit, "cuda") is True
+    assert dit_is_fully_resident(dit, "cuda") is True
 
 
 def test_dit_is_fully_resident_false_while_actively_streaming():
@@ -1437,7 +1438,7 @@ def test_dit_is_fully_resident_false_while_actively_streaming():
     # recomputing; see the function's own docstring.
     streamer = SimpleNamespace(active=True)
     dit = SimpleNamespace(device="cuda", _streamer=streamer)
-    assert _dit_is_fully_resident(dit, "cuda") is False
+    assert dit_is_fully_resident(dit, "cuda") is False
 
 
 def test_dit_is_fully_resident_true_with_an_inactive_streamer():
@@ -1447,7 +1448,7 @@ def test_dit_is_fully_resident_true_with_an_inactive_streamer():
     # just because a streamer object was ever constructed once.
     streamer = SimpleNamespace(active=False)
     dit = SimpleNamespace(device="cuda", _streamer=streamer)
-    assert _dit_is_fully_resident(dit, "cuda") is True
+    assert dit_is_fully_resident(dit, "cuda") is True
 
 
 def test_warm_resident_dit_that_still_fits_is_kept_without_move_or_stream():
@@ -1982,3 +1983,60 @@ def test_an_fp8_layer_that_cannot_reach_the_gemm_does_not_raise_the_placement_re
     gemm_layer = _cuda_placement_reserve(monkeypatch, _fp8_layer(16384, 4096))
     assert on.activation_reserve_gb == off.activation_reserve_gb
     assert gemm_layer.activation_reserve_gb > off.activation_reserve_gb
+
+
+def test_sequence_fit_needs_a_cuda_device_and_a_vram_reading():
+    dit, _ = _dit()
+    assert sequence_fit(dit, "cpu") is None
+    with patch(f"{_MOD}.effective_free_vram_gb", return_value=None):
+        assert sequence_fit(dit, "cuda") is None
+
+
+@pytest.mark.parametrize("resident", [False, True])
+@pytest.mark.parametrize("seconds", [1, 5, 10, 15, 20, 30, 40])
+def test_sequence_fit_predicts_exactly_the_placement_mode(resident, seconds):
+    tokens = _video_tokens_for(seconds)
+    free = 32.0 - (23.3 if resident else 0.0)
+    probe, _ = _dit(estimated_vram_gb=23.3)
+    placed, _ = _dit(estimated_vram_gb=23.3)
+    if resident:
+        probe.device = placed.device = "cuda"
+    patches, _ = _patched(free_gb=free)
+    with patches[0], patches[1], patches[2]:
+        fit = sequence_fit(probe, "cuda")
+        decision = place_dit_for_sequence(placed, "cuda", video_tokens=tokens)
+    assert fit.resident(tokens) == (decision.mode == "resident")
+    assert fit.reserve_gb(tokens) == pytest.approx(decision.activation_reserve_gb)
+
+
+def test_sequence_fit_activations_fit_is_the_over_commit_boundary(caplog):
+    dit, _ = _dit(estimated_vram_gb=15.65)
+    patches, _ = _patched(free_gb=31.0)
+    with patches[0], patches[1], patches[2]:
+        fit = sequence_fit(dit, "cuda")
+        fitting = max(t for t in range(0, 600_000, 1000) if fit.activations_fit(t))
+        with caplog.at_level(logging.WARNING, logger=_MOD):
+            place_dit_for_sequence(_dit(estimated_vram_gb=15.65)[0], "cuda", video_tokens=fitting)
+            assert not caplog.records
+            place_dit_for_sequence(_dit(estimated_vram_gb=15.65)[0], "cuda", video_tokens=fitting + 1000)
+    assert caplog.records
+
+
+def test_placement_logs_how_an_nvfp4_dits_linears_will_run(machine, caplog):
+    machine(nvfp4=False)
+    dit, _ = _dit(estimated_vram_gb=1.0)
+    dit.module = nn.Sequential(_loaded_nvfp4_layer(), _loaded_nvfp4_layer(), nn.Linear(4, 4))
+    patches, _ = _patched(free_gb=32.0)
+    with patches[0], patches[1], patches[2], caplog.at_level(logging.INFO, logger=_MOD):
+        place_dit_for_sequence(dit, "cuda", video_tokens=1000)
+    lines = [r.getMessage() for r in caplog.records if "nvfp4 linears" in r.getMessage()]
+    assert lines == ["[LTX PLACEMENT] nvfp4 linears: 0 fast-path eligible, 2 dequant "
+                     "(native_nvfp4_matmul is off: 2), 1 non-nvfp4"]
+
+
+def test_placement_of_a_dit_without_nvfp4_linears_logs_no_linear_summary(caplog):
+    dit, _ = _dit_with_lora(active=False)
+    patches, _ = _patched(free_gb=32.0)
+    with patches[0], patches[1], patches[2], caplog.at_level(logging.INFO, logger=_MOD):
+        place_dit_for_sequence(dit, "cuda", video_tokens=1000)
+    assert not [r for r in caplog.records if "nvfp4 linears" in r.getMessage()]

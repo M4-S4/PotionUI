@@ -27,6 +27,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
@@ -256,3 +257,20 @@ def test_no_pipe_receives_a_sampler_v25_key(ltx25_template, mode):
     pipes = _process_video(ltx25_template) if mode == "video" else _process_upscale(ltx25_template)
     for pipe in pipes:
         assert "sampler_v25" not in pipe["config"], pipe.get("id") or pipe["name"]
+
+
+def test_no_mode_caps_clip_frames_with_a_preset_number():
+    root = Path("content/presets/marketplace/LTX-2.5")
+    files = [root / "preset.yml", *sorted(root.glob("modes/*/*.yml"))]
+    assert [f for f in files if "edit_max_frames" in f.read_text(encoding="utf-8")] == []
+
+
+def test_every_windowed_edit_mode_takes_its_frames_from_the_clip():
+    windowed = 0
+    for path in sorted(Path("content/presets/marketplace/LTX-2.5/modes").glob("*/pipeline.yml")):
+        for pipe in yaml.safe_load(path.read_text(encoding="utf-8"))["pipeline"]:
+            config = pipe.get("configuration") or {}
+            if pipe.get("name") == "generator/video_ltx" and config.get("match_video"):
+                assert "frames" not in config, path
+                windowed += bool(config.get("windows"))
+    assert windowed >= 6

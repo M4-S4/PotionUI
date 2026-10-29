@@ -618,7 +618,7 @@ def test_decode_video_seeds_the_decode_noise_generator_from_the_request_seed():
 
     seen = {}
 
-    def fake_ladder(vae, z, device, *, generator, profiler_mark, log_prefix):
+    def fake_ladder(vae, z, device, *, generator, profiler_mark, log_prefix, keep_resident=()):
         seen["generator"] = generator
         return torch.zeros(1, 3, z.shape[2], z.shape[3] * 32, z.shape[4] * 32)
 

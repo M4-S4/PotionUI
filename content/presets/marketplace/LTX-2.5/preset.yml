@@ -124,7 +124,6 @@ vars:
   distilled_sigma_recipe: "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
   default_frames: 49
   default_fps: 25
-  edit_max_frames: 121
   edit_window_overlap: 24
   # Quality recipe MultiModalGuider-only knobs: Lightricks' first-party
   # LTX_2_3_PARAMS (packages/ltx-pipelines/src/ltx_pipelines/utils/

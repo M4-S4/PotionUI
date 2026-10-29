@@ -116,7 +116,6 @@ pipeline:
       audio: false
       match_video: true
       max_pixels: 522240
-      frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
       steps: "{{ form.steps | default(generation.profile.steps) }}"
       cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
@@ -164,7 +163,6 @@ pipeline:
       audio: true
       audio_source: "file"
       match_video: true
-      frames: "{{ preset.vars.edit_max_frames }}"
       fps: 24.0
       # The Speed profile drives generator_stage1 only. This refine reads the
       # Advanced tab's 2x refine knobs, which default to the two-stage recipe

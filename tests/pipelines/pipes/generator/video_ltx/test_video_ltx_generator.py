@@ -19,9 +19,11 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     LTXMediaCondition,
     mix_initial_noise,
     prepare_ltx_conditions,
+    reference_token_count,
 )
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes.generator.video_ltx.main import (
+    MAX_FRAMES,
     GeneratorLtxVideoPipe,
     _VideoLtxCtx,
     _resolve_latent_index,
@@ -649,22 +651,68 @@ def test_match_video_off_keeps_the_configured_geometry(tmp_path):
     assert (ctx.extra.width, ctx.extra.height, ctx.extra.frames, ctx.extra.fps) == (128, 128, 17, 25.0)
 
 
-def test_windows_cover_a_long_reference_clip_with_overlap(tmp_path):
+_MAIN = "src.pipelines.pipes.generator.video_ltx.main"
+_PLACEMENT = "src.pipelines.pipes._shared.generation.dit_placement"
+_CLIP_REFERENCE = [{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}]
+
+
+class _FakeFit:
+    def __init__(self, resident_tokens, activation_tokens=None):
+        self.resident_tokens = resident_tokens
+        self.activation_tokens = resident_tokens if activation_tokens is None else activation_tokens
+
+    def resident(self, video_tokens, audio_tokens=0):
+        return video_tokens + audio_tokens <= self.resident_tokens
+
+    def activations_fit(self, video_tokens, audio_tokens=0):
+        return video_tokens + audio_tokens <= self.activation_tokens
+
+
+def _fit_tokens(monkeypatch, resident_tokens, activation_tokens=None):
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", lambda dit, device: _FakeFit(resident_tokens, activation_tokens))
+
+
+def _tokens_64(frames):
+    return 2 * ((frames - 1) // 8 + 1) * 4
+
+
+def test_a_clip_whose_one_pass_fits_runs_in_one_pass_without_windows(tmp_path, monkeypatch):
     clip = _reference_clip(tmp_path, n_frames=40, size=64)
-    cfg = _pipe(frames=17, match_video=True, windows=True, window_overlap=8, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    _fit_tokens(monkeypatch, 10_000)
+    cfg = _pipe(frames=17, match_video=True, windows=True, window_overlap=8, media_placements=_CLIP_REFERENCE)
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert ctx.extra.windows == [] and ctx.extra.frames == 33 and ctx.extra.total_frames == 33
+    assert ctx.extra.prepared.base_tokens + ctx.extra.prepared.n_extra == _tokens_64(33)
+
+
+def test_a_clip_whose_one_pass_does_not_fit_splits_into_the_fewest_balanced_windows(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    _fit_tokens(monkeypatch, _tokens_64(17))
+    cfg = _pipe(frames=121, match_video=True, windows=True, window_overlap=8, media_placements=_CLIP_REFERENCE)
     ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
 
     assert ctx.extra.frames == 17 and ctx.extra.total_frames == 40
-    assert [start for start, _ in ctx.extra.windows] == [0, 9, 18, 23]
+    assert [start for start, _ in ctx.extra.windows] == [0, 8, 15, 23]
+    assert all(p.base_tokens + p.n_extra == _tokens_64(17) for _, p in ctx.extra.windows)
     emitted = []
     cfg.emit_results(emitted.append, [], [])
     assert not [o for o in emitted if getattr(o, "state", None)]
-    assert all(p.base_tokens == ctx.extra.prepared.base_tokens for _, p in ctx.extra.windows)
 
 
-def test_windows_off_cuts_the_clip_at_frames(tmp_path):
+def test_when_even_the_smallest_window_cannot_stay_resident_the_clip_streams_in_one_pass(tmp_path, monkeypatch):
     clip = _reference_clip(tmp_path, n_frames=40, size=64)
-    cfg = _pipe(frames=17, match_video=True, media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    _fit_tokens(monkeypatch, 0, activation_tokens=10_000)
+    cfg = _pipe(match_video=True, windows=True, window_overlap=8, media_placements=_CLIP_REFERENCE)
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert ctx.extra.windows == [] and ctx.extra.frames == 33
+
+
+def test_windows_off_trims_the_clip_to_what_one_pass_fits(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    _fit_tokens(monkeypatch, _tokens_64(17))
+    cfg = _pipe(frames=121, match_video=True, media_placements=_CLIP_REFERENCE)
     ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
 
     assert ctx.extra.windows == [] and ctx.extra.frames == 17
@@ -674,29 +722,191 @@ def test_windows_off_cuts_the_clip_at_frames(tmp_path):
         "Only the first 2.1 seconds of the input clip were used."]
 
 
+def test_match_video_ignores_the_configured_frame_count(tmp_path):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    ctx = _pipe(frames=17, match_video=True, media_placements=_CLIP_REFERENCE).build_context(
+        _pipe_input(videos=[str(clip)]))
+
+    assert ctx.extra.frames == 33
+
+
+def test_a_clip_longer_than_the_frame_limit_is_cut_there_with_the_trim_notice(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    monkeypatch.setattr(f"{_MAIN}.probe_video_stream", lambda path: (64, 64, 8.0, 5000))
+    _fit_tokens(monkeypatch, 10 ** 9)
+    cfg = _pipe(match_video=True, windows=True, window_overlap=8, media_placements=_CLIP_REFERENCE)
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+
+    assert ctx.extra.frames == MAX_FRAMES and ctx.extra.total_frames == MAX_FRAMES
+    emitted = []
+    cfg.emit_results(emitted.append, [], [])
+    assert [o.state for o in emitted if getattr(o, "state", None)] == [
+        "Only the first 125.1 seconds of the input clip were used."]
+
+
+def _real_fit_plan(free_gb, clip_frames=136, *, overlap=24, resident=False):
+    dit = SimpleNamespace(estimated_vram_gb=17.4, device="cuda:0" if resident else "cpu")
+    with patch(f"{_PLACEMENT}.effective_free_vram_gb", return_value=free_gb):
+        return _pipe()._plan_clip(dit, "cuda:0", clip_frames, 1280, 704, 24.0, _CLIP_REFERENCE, (1, 1),
+                                  "file", overlap)
+
+
+def test_the_real_memory_model_runs_the_whole_clip_in_one_pass_on_a_roomy_card():
+    assert _real_fit_plan(30.0) == (129, [0])
+
+
+def test_the_real_memory_model_splits_into_two_balanced_windows_when_one_pass_does_not_fit():
+    assert _real_fit_plan(19.5) == (81, [0, 55])
+
+
+def test_the_real_memory_model_credits_a_resident_dit_its_own_weight():
+    assert _real_fit_plan(0.5, resident=True) == (129, [0])
+    assert _real_fit_plan(0.5) == (49, [0, 22, 44, 65, 87])
+
+
+def test_the_real_memory_model_streams_one_pass_when_no_window_keeps_the_dit_resident():
+    assert _real_fit_plan(10.0) == (129, [0])
+
+
+def test_the_real_memory_model_never_plans_past_the_frame_limit():
+    length, starts = _real_fit_plan(30.0, clip_frames=5000)
+    assert starts[-1] + length == MAX_FRAMES and length < MAX_FRAMES
+    assert _real_fit_plan(1000.0, clip_frames=5000) == (MAX_FRAMES, [0])
+
+
+def test_reference_token_count_matches_what_the_conditioning_builder_appends():
+    for frames, scales in ((17, (1, 1)), (33, (2, 1)), (41, (1, 2)), (49, (2, 2))):
+        clip = torch.zeros(frames, 128, 192, 3)
+        prepared = prepare_ltx_conditions(
+            [LTXMediaCondition(frames=clip, latent_index=0, strength=1.0, role="reference",
+                               downscale_factor=scales[0], temporal_scale_factor=scales[1])],
+            lambda px: torch.zeros(1, 128, (px.shape[2] - 1) // 8 + 1, px.shape[3] // 32, px.shape[4] // 32),
+            frames=frames, height=128, width=192, device="cpu", dtype=torch.float32)
+        assert prepared.n_extra == reference_token_count(frames, 128, 192, *scales)
+
+
 def test_windowed_generation_crossfades_every_window_and_muxes_the_source_audio(tmp_path, monkeypatch):
     clip = _reference_clip(tmp_path, n_frames=40, size=64)
-    cfg = _pipe(frames=17, match_video=True, windows=True, window_overlap=8, audio=True, audio_source="file",
-                media_placements=[{"source": "video", "index": 0, "frame": "first", "strength": 1.0, "role": "reference"}])
+    _fit_tokens(monkeypatch, _tokens_64(17))
+    cfg = _pipe(match_video=True, windows=True, window_overlap=8, audio=True, audio_source="file",
+                media_placements=_CLIP_REFERENCE)
     pipe_input = _pipe_input(videos=[str(clip)])
     pipe_input.input["audio"] = [str(clip)]
     ctx = cfg.build_context(pipe_input)
     calls = []
 
-    def fake_generate(_ctx, c, index, seed, progress, frames_only=False):
-        calls.append((c.prepared, frames_only))
+    def fake_generate(_ctx, c, index, seed, progress, frames_only=False, window=(0, 1)):
+        calls.append((c.prepared, frames_only, window))
         return np.full((17, 2, 2, 3), len(calls) * 10, dtype=np.uint8)
 
     encoded = {}
     monkeypatch.setattr(cfg, "_generate", fake_generate)
-    monkeypatch.setattr("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4",
+    monkeypatch.setattr(f"{_MAIN}.encode_frames_to_mp4",
                         lambda frames, path, fps, audio=None: encoded.update(frames=frames, audio=audio))
-    monkeypatch.setattr("src.pipelines.pipes.generator.video_ltx.main.restore_dit_best_effort", lambda *a: None)
+    monkeypatch.setattr(f"{_MAIN}.restore_dit_best_effort", lambda *a: None)
     cfg.generate_one(ctx, 0, 7, None)
 
-    assert [p for p, _ in calls] == [p for _, p in ctx.extra.windows] and all(f for _, f in calls)
+    assert [p for p, _, _ in calls] == [p for _, p in ctx.extra.windows] and all(f for _, f, _ in calls)
+    assert [w for _, _, w in calls] == [(0, 4), (1, 4), (2, 4), (3, 4)]
     assert encoded["frames"].shape[0] == 40 and encoded["audio"] == str(clip)
     assert encoded["frames"][0, 0, 0, 0] == 10 and encoded["frames"][-1, 0, 0, 0] == 40
+
+
+class _RecordingProgress:
+    def __init__(self):
+        self.steps = []
+
+    def step(self, current, total, **kwargs):
+        self.steps.append((current, total, kwargs.get("state"), kwargs.get("icon")))
+
+    def preview(self, *args, **kwargs):
+        pass
+
+
+def _denoise_reporting_every_step(fwd, x, cond, uncond, **kw):
+    from src.platform.runtime.native.sampling import ProgressHook
+
+    steps = len(kw["sigmas"]) - 1
+    for hook in kw["hooks"]:
+        if isinstance(hook, ProgressHook):
+            hook.on_start(steps)
+            for i in range(steps):
+                hook.on_step(i, steps, x, None, None)
+    return x
+
+
+def test_window_progress_climbs_across_every_window_and_reaches_full_once(tmp_path, monkeypatch):
+    clip = _reference_clip(tmp_path, n_frames=40, size=64)
+    _fit_tokens(monkeypatch, _tokens_64(17))
+    cfg = _pipe(match_video=True, windows=True, window_overlap=8, steps=4, preview=False,
+                media_placements=_CLIP_REFERENCE)
+    ctx = cfg.build_context(_pipe_input(videos=[str(clip)]))
+    monkeypatch.setattr(f"{_MAIN}.denoise_prenoised", _denoise_reporting_every_step)
+    monkeypatch.setattr(f"{_MAIN}.decode_ltx_video",
+                        lambda vae, device, latent, seed, keep_resident=(): np.zeros((17, 2, 2, 3), np.uint8))
+    monkeypatch.setattr(f"{_MAIN}.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+    monkeypatch.setattr(f"{_MAIN}.restore_dit_best_effort", lambda *a: None)
+    progress = _RecordingProgress()
+    cfg.generate_one(ctx, 0, 7, progress)
+
+    steps_per_window = len(conditioned_sigmas(4, ctx.extra.sampling_settings)) - 1
+    total = 4 * steps_per_window
+    assert [(cur, tot) for cur, tot, _, _ in progress.steps] == [(i, total) for i in range(1, total + 1)]
+    assert sum(1 for cur, tot, _, _ in progress.steps if cur == tot) == 1
+    assert {state for _, _, state, _ in progress.steps} == {"VIDEO"}
+    assert {(icon.name, icon.effect) for _, _, _, icon in progress.steps} == {("film", "pulse")}
+
+
+def _run_one_decode(monkeypatch, *, fits, resident=True, audio_source=None):
+    bundle = _bundle(audio=audio_source == "generate")
+    offloads = []
+    bundle.dit.offload = lambda: offloads.append("dit")
+    decodes = []
+    checked = []
+
+    def fake_fits(vae, latent, free_gb):
+        checked.append(free_gb)
+        return fits
+
+    monkeypatch.setattr(f"{_MAIN}.denoise_prenoised", lambda fwd, x, c, u, **k: x)
+    monkeypatch.setattr(f"{_MAIN}.dit_is_fully_resident", lambda dit, device: resident)
+    monkeypatch.setattr(f"{_MAIN}.effective_free_vram_gb", lambda device: 9.75)
+    monkeypatch.setattr(f"{_MAIN}.decode_fits_beside", fake_fits)
+    monkeypatch.setattr(f"{_MAIN}.decode_ltx_video",
+                        lambda vae, device, latent, seed, keep_resident=(): decodes.append(keep_resident)
+                        or np.zeros((9, 64, 64, 3), np.uint8))
+    monkeypatch.setattr(f"{_MAIN}.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+    monkeypatch.setattr(f"{_MAIN}.restore_dit_best_effort", lambda *a: None)
+    if audio_source == "generate":
+        monkeypatch.setattr(f"{_MAIN}.decode_generated_audio", lambda *a: None)
+        cfg = _pipe(resolution="64x64", frames=9, audio=True, audio_source="generate")
+    else:
+        cfg = _pipe(resolution="64x64", frames=9)
+    cfg.process(_pipe_input(bundle=bundle), lambda o: None)
+    return bundle, offloads, decodes, checked
+
+
+def test_the_dit_stays_resident_through_the_decode_when_the_decode_fits_beside_it(monkeypatch):
+    bundle, offloads, decodes, checked = _run_one_decode(monkeypatch, fits=True)
+    assert offloads == []
+    assert decodes == [(bundle.dit,)]
+    assert checked == [9.75]
+
+
+def test_the_dit_is_offloaded_before_the_decode_when_the_decode_does_not_fit_beside_it(monkeypatch):
+    _, offloads, decodes, _ = _run_one_decode(monkeypatch, fits=False)
+    assert offloads == ["dit"]
+    assert decodes == [()]
+
+
+def test_a_streamed_dit_is_offloaded_before_the_decode_as_before(monkeypatch):
+    _, offloads, decodes, checked = _run_one_decode(monkeypatch, fits=True, resident=False)
+    assert offloads == ["dit"] and decodes == [()] and checked == []
+
+
+def test_generated_audio_still_offloads_the_dit_before_its_decode(monkeypatch):
+    _, offloads, decodes, checked = _run_one_decode(monkeypatch, fits=True, audio_source="generate")
+    assert offloads == ["dit"] and decodes == [()] and checked == []
 
 
 def test_video_sourced_placement_index_out_of_range_raises():
@@ -2183,7 +2393,7 @@ def test_reference_tokens_start_clean_target_starts_from_noise_and_only_base_is_
         out[:, : fwd.s_base] = 0.25
         return out
 
-    def fake_decode(vae, device, latent, seed):
+    def fake_decode(vae, device, latent, seed, keep_resident=()):
         captured["decoded"] = latent.clone()
         return np.zeros((1, 64, 64, 3), dtype=np.uint8)
 

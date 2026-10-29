@@ -158,6 +158,16 @@ def _temporal_subsample(frames: Tensor, factor: int) -> Tensor:
     return kept[:n]
 
 
+def reference_token_count(frames: int, height: int, width: int, downscale_factor: int = 1,
+                          temporal_scale_factor: int = 1) -> int:
+    n = (int(frames) - 1) // LTX_TEMPORAL * LTX_TEMPORAL + 1
+    if temporal_scale_factor != 1:
+        kept = 1 + len(range(1, n, int(temporal_scale_factor)))
+        n = (kept - 1) // LTX_TEMPORAL * LTX_TEMPORAL + 1
+    scale = int(downscale_factor)
+    return ((n - 1) // LTX_TEMPORAL + 1) * (height // scale // LTX_SPATIAL) * (width // scale // LTX_SPATIAL)
+
+
 def reference_coords(f: int, h: int, w: int, device, *, causal_fix: bool,
                      downscale_factor: int = 1, temporal_scale_factor: int = 1) -> Tensor:
     coords = latent_to_pixel_coords(_grid_coords(f, h, w, device), _SCALE_FACTORS, causal_fix)

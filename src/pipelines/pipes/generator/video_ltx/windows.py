@@ -1,17 +1,47 @@
 from __future__ import annotations
 
-from typing import List, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_TEMPORAL_DOWNSCALE
 
-def plan_windows(total: int, window: int, overlap: int) -> List[int]:
-    if total <= window:
-        return [0]
-    step = max(1, window - max(0, overlap))
-    starts = list(range(0, total - window, step))
-    starts.append(total - window)
-    return starts
+
+def snap_frames_down(frames: int) -> int:
+    return max(1, (int(frames) - 1) // LTX_TEMPORAL_DOWNSCALE * LTX_TEMPORAL_DOWNSCALE + 1)
+
+
+def snap_frames_up(frames: int) -> int:
+    return -(-(max(1, int(frames)) - 1) // LTX_TEMPORAL_DOWNSCALE) * LTX_TEMPORAL_DOWNSCALE + 1
+
+
+def min_window_frames(overlap: int) -> int:
+    return max(LTX_TEMPORAL_DOWNSCALE + 1, snap_frames_up(2 * max(0, int(overlap)) + 1))
+
+
+def plan_windows(total: int, cap: int, overlap: int) -> Tuple[int, List[int]]:
+    cap = snap_frames_down(cap)
+    if total <= cap:
+        return snap_frames_down(total), [0]
+    overlap = max(0, min(int(overlap), cap - 1))
+    count = 2
+    while True:
+        length = snap_frames_up(-(-(total + (count - 1) * overlap) // count))
+        if length <= cap:
+            break
+        count += 1
+    span = total - length
+    return length, [round(i * span / (count - 1)) for i in range(count)]
+
+
+def largest_fitting_frames(total: int, fits: Callable[[int], bool], floor: int = 1) -> Optional[int]:
+    frames = snap_frames_down(total)
+    floor = max(1, int(floor))
+    while frames >= floor:
+        if fits(frames):
+            return frames
+        frames -= LTX_TEMPORAL_DOWNSCALE
+    return None
 
 
 def crossfade_windows(chunks: Sequence[Tuple[int, np.ndarray]], total: int) -> np.ndarray:

@@ -289,10 +289,6 @@
           "type": "float",
           "value": 24.0
         },
-        "frames": {
-          "type": "int",
-          "value": 121
-        },
         "manual_sigmas": {
           "type": "str",
           "value": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
@@ -423,10 +419,6 @@
         "fps": {
           "type": "float",
           "value": 24.0
-        },
-        "frames": {
-          "type": "int",
-          "value": 121
         },
         "match_video": {
           "type": "bool",
