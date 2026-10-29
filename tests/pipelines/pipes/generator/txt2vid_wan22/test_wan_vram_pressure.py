@@ -478,3 +478,37 @@ def test_making_room_before_a_16x_decode_asks_for_the_dearer_frame(monkeypatch):
     assert seen["need"]["decode_mb_per_latent_px"] == pytest.approx(4.8)
     assert seen["need"]["vae_resident_gb"] == 0.24
     assert asked == [3.0]
+
+
+def test_the_host_assembly_of_a_long_1080p_clip_is_priced_as_the_half_precision_accumulator_plus_the_result():
+    pixels = 3 * (1 + 4 * 40) * 1088 * 1920
+
+    assert wan_experts.host_assembly_gb((1, 16, 41, 136, 240), 8, 2) == pytest.approx(pixels * 4 / 1024 ** 3)
+    assert wan_experts.host_assembly_gb((1, 48, 21, 44, 80), 16, 4) == pytest.approx(3 * 81 * 704 * 1280 * 6 / 1024 ** 3)
+    assert 3.5 < wan_experts.host_assembly_gb((1, 16, 41, 136, 240), 8, 2) < 4.0
+
+
+def _tiled_decode_of_a_long_1080p_clip(monkeypatch, available_gb):
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 0.001)
+    monkeypatch.setattr(wan_experts, "causal3d_decode_tile", lambda latent_hw, free, **kw: 8)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d", lambda vae, z, **kw: torch.zeros(1, 3, 1, 64, 64))
+    monkeypatch.setattr(wan_experts, "get_system_memory", lambda: SimpleNamespace(available_gb=available_gb, total_gb=32.0))
+    decode_wan_video(SimpleNamespace(vae=_Vae(None), device="cpu", latent_channels=16), torch.zeros(1, 16, 41, 136, 240))
+
+
+def test_a_tiled_decode_warns_when_the_assembled_video_outgrows_the_free_host_ram_and_goes_on(monkeypatch, caplog):
+    with caplog.at_level("INFO", logger=wan_experts.logger.name):
+        _tiled_decode_of_a_long_1080p_clip(monkeypatch, available_gb=0.5)
+
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "assembling the 161-frame video on the host needs about 5.6GB of RAM and 0.5GB are available" in warnings[0]
+    assert "the decode goes on" in warnings[0]
+
+
+def test_a_tiled_decode_that_fits_the_host_ram_only_notes_the_estimate(monkeypatch, caplog):
+    with caplog.at_level("INFO", logger=wan_experts.logger.name):
+        _tiled_decode_of_a_long_1080p_clip(monkeypatch, available_gb=20.0)
+
+    assert not [record for record in caplog.records if record.levelname == "WARNING"]
+    assert any("needs about 5.6GB of RAM (20.0GB available)" in record.getMessage() for record in caplog.records)

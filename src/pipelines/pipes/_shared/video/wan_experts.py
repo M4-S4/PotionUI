@@ -14,6 +14,7 @@ from src.platform.runtime.native.resolution import snap_frame_count, snap_resolu
 from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.tiling import (
+    HOST_ACCUMULATE_DTYPE,
     causal3d_chunk_frames,
     causal3d_decode_mb_per_latent_px,
     causal3d_decode_overlap,
@@ -273,12 +274,32 @@ def _retries_after(exc: BaseException) -> bool:
     return (retry_after_cuda_oom(exc) or is_cuda_driver_error(exc)) and not needs_gpu_restart(exc)
 
 
+def host_assembly_gb(latent_shape: tuple, scale: int, result_itemsize: int) -> float:
+    b, _c, t, h, w = latent_shape
+    frames = 1 + WAN_TEMPORAL_DOWNSCALE * (int(t) - 1)
+    pixels = int(b) * 3 * frames * round(int(h) * scale) * round(int(w) * scale)
+    return pixels * (HOST_ACCUMULATE_DTYPE.itemsize + result_itemsize) / 1024 ** 3
+
+
+def _warn_about_host_assembly(z: torch.Tensor, scale: int) -> None:
+    need = host_assembly_gb(tuple(z.shape), scale, z.element_size())
+    frames = 1 + WAN_TEMPORAL_DOWNSCALE * (int(z.shape[2]) - 1)
+    available = get_system_memory().available_gb
+    if need > available:
+        logger.warning("[WAN DECODE] assembling the %d-frame video on the host needs about %.1fGB of RAM and %.1fGB "
+                       "are available: the decode goes on, the system may have to swap", frames, need, available)
+    else:
+        logger.info("[WAN DECODE] assembling the %d-frame video on the host needs about %.1fGB of RAM (%.1fGB available)",
+                    frames, need, available)
+
+
 def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
     mb_per_latent_px = _decode_mb_per_latent_px(c)
     tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free, decode_mb_per_latent_px=mb_per_latent_px)
     scale = int(getattr(c, "spatial_downscale", 8))
     logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free (%.1f MB per latent px at %dx): decoding in "
                 "spatial tiles of %d latent px, one latent frame at a time", free, mb_per_latent_px, scale, tile)
+    _warn_about_host_assembly(z, scale)
     while True:
         try:
             return tiled_decode_causal3d(

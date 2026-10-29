@@ -186,6 +186,16 @@ fatal. Measuring the 5B decode at 1280x704 on an 8 GB and a 12 GB card with the 
 the bound into a declared value. The image engine's own causal-3D decode (`engine.py`) still prices
 every causal VAE at 1.2 MB per latent pixel.
 
+The tiles of a Wan decode are assembled on the host. The accumulator is float16 and the blend
+weight a single `(H, W)` plane, normalised in place, so the assembly holds one half-precision copy
+of the video plus the result in the VAE's dtype, instead of three float32 copies of the whole clip:
+about 3.8 GB for 161 frames at 1080p with a bf16 VAE, 5.6 GB for the 5B's 81 frames at 1280x704
+decoded in float32. Half precision keeps every pixel within one 8-bit step of the float32 blend. The
+decode log prices that assembly against the host RAM available and warns, never refuses, when it
+does not fit. A decode assembled on its own device keeps the float32 accumulator, and the
+temporal-chunk path that assembles on the host still concatenates its chunks, two copies at its
+peak.
+
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
 `torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
 `RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
