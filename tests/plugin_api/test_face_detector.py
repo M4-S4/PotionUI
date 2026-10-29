@@ -15,8 +15,11 @@ def _world(*folders):
     return SimpleNamespace(model_roots=SimpleNamespace(type_dirs=lambda model_type: entries if model_type == "detection_bbox" else []))
 
 
-def _row(x, y, width, height, score):
-    return [x, y, width, height, *([0.0] * 10), score]
+def _row(x, y, width, height, score, points=None):
+    return [x, y, width, height, *(points or [0.0] * 10), score]
+
+
+NO_POINTS = [[0.0, 0.0]] * 5
 
 
 def test_the_face_detector_says_which_file_it_reads_and_whether_it_is_here(tmp_path):
@@ -57,8 +60,19 @@ def test_the_rows_yunet_answers_become_boxes_best_first_without_the_weak_and_emp
 
     found = face_boxes.boxes(rows, 0.5)
 
-    assert found == [{"x": 100.0, "y": 20.0, "width": 50.0, "height": 50.0, "score": 0.95}, {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0, "score": 0.7}]
+    assert found == [
+        {"x": 100.0, "y": 20.0, "width": 50.0, "height": 50.0, "score": 0.95, "landmarks": NO_POINTS},
+        {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0, "score": 0.7, "landmarks": NO_POINTS},
+    ]
     assert face_boxes.boxes(None, 0.5) == []
+
+
+def test_a_box_keeps_the_five_landmarks_yunet_answers_in_their_order():
+    points = [11.0, 12.0, 21.0, 12.5, 16.0, 18.0, 12.0, 24.0, 20.0, 24.5]
+
+    (found,) = face_boxes.boxes([_row(5, 5, 20, 24, 0.9, points)], 0.5)
+
+    assert found["landmarks"] == [[11.0, 12.0], [21.0, 12.5], [16.0, 18.0], [12.0, 24.0], [20.0, 24.5]]
 
 
 class Detector:
@@ -79,7 +93,7 @@ def test_each_image_is_read_at_its_own_size_by_one_detector():
     with patch.object(cv2.FaceDetectorYN, "create", return_value=detector) as create:
         found = face_boxes.detect(Path("m.onnx"), [Image.new("RGB", (832, 480)), Image.new("RGB", (64, 64))], 0.5)
 
-    assert found == [[{"x": 4.0, "y": 6.0, "width": 20.0, "height": 20.0, "score": 0.88}], []]
+    assert found == [[{"x": 4.0, "y": 6.0, "width": 20.0, "height": 20.0, "score": 0.88, "landmarks": NO_POINTS}], []]
     assert detector.sizes == [(832, 480), (64, 64)]
     create.assert_called_once_with("m.onnx", "", (832, 480), 0.5, face_boxes.NMS, face_boxes.TOP_K)
 
@@ -97,4 +111,4 @@ def test_the_real_detector_finds_no_face_in_a_plain_image():
 
 
 def test_the_names_are_listed_by_the_media_module():
-    assert {"detect_faces", "face_detector"} <= set(media.__all__)
+    assert {"detect_faces", "face_detector", "face_identifier", "identify_faces"} <= set(media.__all__)
