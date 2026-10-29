@@ -205,10 +205,55 @@ in the [Preset Context Cheat Sheet](../preset-context.md#built-in-field-types)):
 | Text | `string`, `textbox` |
 | Numeric | `number`, `integer`, `slider`, `stepper`, `seed`, `resolution` |
 | Boolean | `boolean`, `checkbox` |
+| Choice and value controls | `segmented`, `anchor`, `color` |
 | Options-backed | `select`, `checkbox_group`, `tags`, `model` (alias `models`), `lora_picker`, `sampler`, `schedule`, `cloud_options` |
 | Media | `image`, `video`, `audio`, `media`, `file` |
 | Widgets | `carousel`, `llm`, `alert`, `markdown`, `header`, `section`, `gate`, `prompt_timeline`, `camera_shot` |
 | Layout containers | `tabs`, `tab`, `row`, `group`, `accordion` |
+
+### Segmented, anchor and color fields
+
+The three controls the media tool dialog draws are ordinary field types, so a preset form can use them too.
+
+```yaml
+- name: "fit"
+  type: "segmented"
+  label: "Fit"
+  default: "pad"
+  configuration:
+    options:
+      - { label: "Pad", value: "pad" }
+      - { label: "Cover", value: "cover" }
+    fit: true                    # size the control to its content instead of the full row
+
+- name: "anchor"
+  type: "anchor"
+  label: "Anchor"
+  default: "center"
+
+- name: "fill"
+  type: "color"
+  label: "Fill"
+  default: "transparent"
+  configuration:
+    allow_transparent: true      # adds a Transparent choice; the value is then the string "transparent"
+```
+
+- `segmented` shows its `options` side by side and sends the chosen option's `value`. `options` is required and
+  must not be empty; an entry is a plain string or number, or a mapping with `value`, an optional `label` and an
+  optional `disabled`. Values must be unique, and a `default:` must be one of them. A submitted value must match
+  an option (a number sent as text is turned back into the option's own value).
+- `anchor` is a three by three picker. Its value is one of `top_left`, `top`, `top_right`, `left`, `center`,
+  `right`, `bottom_left`, `bottom`, `bottom_right`, and it starts on `center` when the field has no `default:`.
+  A `default:` outside those nine is an error, and so is a submitted value outside them (`top-left` is read as
+  `top_left` on submission only).
+- `color` is a swatch plus a hex box. Its value is `#RRGGBB` (three-digit hex is expanded and the result is
+  lowercased on submission), or `transparent` when `allow_transparent: true`. A `default:` that is neither is an
+  error; `allow_transparent` must be a boolean.
+
+All three accept a `tooltip` in `configuration:` and the usual field keys, and all three are shareable on an
+inspiration because their values are plain text. The preset linter reports a bad `options` list, an anchor or
+color `default:` that does not fit, and `allow_transparent` that is not a boolean as an error.
 
 Common field shapes (all from real presets under `content/presets/marketplace/`):
 
@@ -668,6 +713,8 @@ YAML value of the field's type** — validated at preset load by `FieldSpec`
 - `integer` → a real int;
 - `checkbox` / `boolean` → a real bool (`default: false`; `"false"` is an error);
 - `select` → a scalar; `string` / `textbox` → a string;
+- `segmented` → one of its `options` values; `anchor` → one of the nine anchor names; `color` → `#RRGGBB`, or
+  `transparent` with `allow_transparent: true`;
 - **A field's `default:` is never Jinja-rendered** — a `default:` containing `{{` is a schema
   error. Make form fields dynamic with `reactions:`, not templates.
 

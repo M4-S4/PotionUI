@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError, model_validator
 
 from src.features.presets.css_named_colors import CSS_NAMED_COLORS
+from src.features.presets.field_rules import configuration_error
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -263,6 +264,13 @@ class FieldSpec(BaseModel):
     @model_validator(mode="after")
     def _validate_default(self) -> "FieldSpec":
         error = _validate_typed_default(self.type, self.default)
+        if error:
+            raise ValueError(f"field '{self.name}' ({self.type}): {error}")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_configuration_rules(self) -> "FieldSpec":
+        error = configuration_error(self.type, self.configuration, self.default)
         if error:
             raise ValueError(f"field '{self.name}' ({self.type}): {error}")
         return self
