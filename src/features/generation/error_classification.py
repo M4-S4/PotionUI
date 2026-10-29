@@ -5,7 +5,12 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.cloud import CloudRunError
-from src.platform.runtime.cuda_allocator import RESTART_ACTION, needs_gpu_restart, record_driver_oom
+from src.platform.runtime.cuda_allocator import (
+    RESTART_ACTION,
+    WORKER_RESTART_ACTION,
+    needs_gpu_restart,
+    record_driver_oom,
+)
 
 _CUDA_OOM_MARKERS = (
     "cuda out of memory",
@@ -56,6 +61,11 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
         "This process can no longer use the GPU: a CUDA out-of-memory left its memory allocator unusable. "
         "Restart Backend (Administration > Backends) before the next generation.",
         (RESTART_ACTION,),
+    ),
+    "worker_gpu_restart_required": (
+        "The remote worker can no longer use the GPU: a CUDA out-of-memory left its memory allocator unusable. "
+        "Restart the worker process (or its container) before the next generation.",
+        (WORKER_RESTART_ACTION,),
     ),
     "host_ram_oom": (
         "Ran out of host RAM while streaming model weights.",
@@ -174,6 +184,10 @@ _USER_CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "gpu_restart_required": (
         "The server's GPU needs a restart before it can generate again.",
         ("Ask your administrator to restart the backend",),
+    ),
+    "worker_gpu_restart_required": (
+        "The server's GPU needs a restart before it can generate again.",
+        ("Ask your administrator to restart the worker",),
     ),
     "host_ram_oom": (
         "This was too much for the server's memory right now.",
@@ -313,6 +327,7 @@ def _text_is_missing_model_file(message: str) -> bool:
 
 
 _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
+    ("worker_gpu_restart_required", lambda m: "this worker can no longer use the gpu" in m),
     ("gpu_restart_required", lambda m: "can no longer use the gpu" in m),
     ("cuda_oom", lambda m: _has_any(m, _CUDA_OOM_MARKERS)),
     ("missing_model_file", _text_is_missing_model_file),

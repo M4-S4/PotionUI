@@ -374,9 +374,65 @@ class FlagProbePipe:
         return PipeOutput(output={})
 
 
+class OutOfMemoryPipe:
+    name = "oom/fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        import torch
+
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB")
+
+
+class BoomPipe:
+    name = "boom/fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        raise RuntimeError("boom")
+
+
 _CLASSES = {
     "flag_probe/fake": FlagProbePipe,
     "image/fake": ImagePipe,
+    "oom/fake": OutOfMemoryPipe,
+    "boom/fake": BoomPipe,
     "image/gated": GatedImagePipe,
     "asset/fake": AssetAwarePipe,
     "model_aware/fake": ModelAwarePipe,
@@ -1335,3 +1391,119 @@ class TestEngineFlagsTravelWithTheJob(NativeRemoteBackendTestCase):
         self.assertIs(package.engine_flags["native_fp8_matmul"], False)
         round_trip = type(package).model_validate(package.model_dump(mode="json"))
         self.assertEqual(round_trip.engine_flags, package.engine_flags)
+
+
+# -- allocator damage on the worker --------------------------------------------
+
+class TestWorkerAllocatorDamage(NativeRemoteBackendTestCase):
+    DAMAGE = "CUDA driver error: device not ready"
+
+    def _submit_and_consume(self, backend, worker_app, generation_id, pipe_type):
+        from src.features.generation.package_assembly import (
+            assemble_execution_package,
+            build_processed_pipeline,
+        )
+        from src.features.generation.pipeline_builder import BuiltPipeline
+        from src.features.remote_execution.model_bundle_builder import build_model_bundle
+        from src.features.remote_execution.records import RemoteExecution
+        from src.features.remote_execution.transport import WorkerTransport
+
+        pipes = [{"name": pipe_type, "id": "p1", "enabled": True, "config": {}, "input": []}]
+        built = BuiltPipeline(
+            generation_id=generation_id, preset_id="preset-1", preset_template=None, pipes=pipes,
+        )
+        processed = build_processed_pipeline(pipes, backend._pipe_catalog)
+        package = assemble_execution_package(
+            built, pipe_catalog=backend._pipe_catalog,
+            model_bundle=build_model_bundle(processed.pipes, model_locator=self.model_locator),
+            engine="native",
+            storage_dir=self.storage_dir,
+        )
+        row = self.repo.create(RemoteExecution(
+            id=generation_id, provider="native.remote", state=S.PENDING,
+            idempotency_key=generation_id, request_digest=str(package.request_digest),
+        ))
+        self.repo.claim_specific(row.id, "test-owner", 60)
+
+        transport = WorkerTransport(
+            "http://fake-worker", TOKEN, transport=httpx.ASGITransport(app=worker_app),
+        )
+        self._run(transport.submit(package))
+
+        outputs = []
+        self._run(backend._consume_events(
+            generation_id, package, transport, self.storage_dir, outputs.append,
+        ))
+        return self.repo.get_by_id(generation_id), [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+
+    def test_a_damaged_worker_is_refused_before_any_submit_under_the_worker_restart_code(self):
+        from src.platform.runtime import cuda_allocator
+        from src.platform.runtime.cuda_allocator import WORKER_RESTART_HINT
+
+        cuda_container, cuda_app = self._build_worker(
+            build_id=None, device="cuda", cuda_probe=lambda: (True, None),
+        )
+        backend = self._backend(cuda_app)
+        pipeline_data = {
+            "generation_id": "gen-damaged", "preset_id": "preset-1",
+            "pipes": [{"name": "image/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertIsNone(cuda_container.coordinator.record_for(generation_id))
+
+        row = self.repo.get_by_id(generation_id)
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "worker_gpu_restart_required")
+        self.assertTrue(row.error_message.startswith("Worker 'worker-1'"))
+        self.assertIn(self.DAMAGE, row.error_message)
+        self.assertTrue(row.error_message.endswith(WORKER_RESTART_HINT))
+
+        errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].error_code, "worker_gpu_restart_required")
+        self.assertEqual(errors[0].error, row.error_message)
+
+    def test_the_workers_own_refusal_reaches_core_under_its_code(self):
+        from src.platform.runtime import cuda_allocator
+        from src.platform.runtime.cuda_allocator import WORKER_RESTART_HINT
+
+        _container, cuda_app = self._build_worker(build_id=None, device="cuda")
+        backend = self._backend(cuda_app)
+
+        with patch.object(cuda_allocator, "_damage", self.DAMAGE):
+            row, errors = self._submit_and_consume(backend, cuda_app, "gen-worker-refusal", "image/fake")
+
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "worker_gpu_restart_required")
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].error_code, "worker_gpu_restart_required")
+        self.assertIn(self.DAMAGE, errors[0].error)
+        self.assertTrue(errors[0].error.endswith(WORKER_RESTART_HINT))
+
+    def test_a_cuda_oom_on_the_worker_reaches_core_as_cuda_oom(self):
+        from src.platform.runtime import cuda_allocator
+
+        with patch.object(cuda_allocator, "_damage", None):
+            row, errors = self._submit_and_consume(
+                self._backend(self.worker_app), self.worker_app, "gen-worker-oom", "oom/fake",
+            )
+
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "cuda_oom")
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].error_code, "cuda_oom")
+        self.assertIn("Tried to allocate 2.00 GiB", errors[0].error)
+
+    def test_an_unclassified_worker_failure_leaves_the_code_to_the_message(self):
+        row, errors = self._submit_and_consume(
+            self._backend(self.worker_app), self.worker_app, "gen-worker-boom", "boom/fake",
+        )
+
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "pipe_failed")
+        self.assertEqual(len(errors), 1)
+        self.assertIsNone(errors[0].error_code)
+        self.assertEqual(errors[0].error, "boom")

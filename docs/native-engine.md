@@ -212,6 +212,20 @@ the old process's driver handles survive the exec. `POTIONUI_CUDA_DRIVER_OOM=ret
 retry in the same process, `POTIONUI_CUDA_DRIVER_OOM=fatal` applies the fatal path outside WSL2
 too; with expandable segments off, driver-error OOMs are always retried.
 
+A `native.remote` worker (`./potionui worker start` under WSL2, or the worker image under Docker
+Desktop on Windows, whose container sees the WSL2 kernel and so counts as WSL2 for `is_wsl()`) runs
+the same allocator code but never `GenerationEngine`, so the worker carries the fatal path itself
+(`src/features/remote_execution/worker/executor.py`): once the allocator is damaged, every pipe whose
+`device` is `cuda` is refused before it is built, under the worker's own code
+`worker_gpu_restart_required`, and the exception a pipe raises is classified on the worker
+(`classify_generation_error`, the host's own classifier) so the host receives a code (`cuda_oom`,
+`worker_gpu_restart_required`, ...) instead of guessing from the message text. The damage travels in
+the handshake (`capabilities.allocator_damage`) and in the worker's `GET /health` (`degraded`, with the
+reason); the remote native backend's health reports `degraded` with the same reason, naming the
+worker, and refuses to dispatch until the worker restarts. The hint names the worker process or
+container rather than Restart Backend, which only re-executes the host's own process. A CPU worker
+never records damage, and a worker under native Linux keeps retrying driver-error OOMs as before.
+
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
 

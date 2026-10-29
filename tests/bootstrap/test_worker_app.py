@@ -29,6 +29,7 @@ from src.platform.worker_protocol import (
     ProcessedPipelineV1,
     ProcessedPipeV1,
 )
+from src.platform.runtime import cuda_allocator
 from src.platform.worker_protocol.envelope import envelope, read_envelope
 
 TOKEN = "secret-worker-token"
@@ -261,6 +262,39 @@ def test_worker_info_validates_and_carries_all_three_fingerprint_domains(client)
     assert info.worker_id == "worker-test"
     assert info.provider == "manual"
     assert set(info.fingerprints.keys()) == {"pipe_catalog", "plugin_bundle", "build"}
+
+
+def test_worker_info_carries_no_allocator_damage_on_a_healthy_worker(client, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    info = read_envelope(client.get("/v1/worker", headers=_auth()).json())
+    assert info.capabilities.allocator_damage is None
+
+
+def test_worker_info_carries_the_allocator_damage(client, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    info = read_envelope(client.get("/v1/worker", headers=_auth()).json())
+    assert info.capabilities.allocator_damage == "CUDA driver error: device not ready"
+
+
+# -- health -------------------------------------------------------------------
+
+def test_health_reports_ok_while_the_allocator_is_intact(client, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "worker_id": "worker-test"}
+
+
+def test_health_reports_degraded_with_the_worker_restart_once_the_allocator_is_damaged(client, monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "degraded"
+    assert payload["worker_id"] == "worker-test"
+    assert "CUDA driver error: device not ready" in payload["reason"]
+    assert payload["reason"].endswith(cuda_allocator.WORKER_RESTART_HINT)
+    assert "Restart Backend" not in payload["reason"]
 
 
 # -- submit happy path --------------------------------------------------------

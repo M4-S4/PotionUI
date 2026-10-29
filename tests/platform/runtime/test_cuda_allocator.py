@@ -8,6 +8,7 @@ from src.platform.runtime import cuda_allocator
 from src.platform.runtime.cuda_allocator import (
     DRIVER_OOM_POLICY_ENV,
     RESTART_HINT,
+    WORKER_RESTART_HINT,
     CudaAllocatorDamaged,
     allocator_damage,
     driver_oom_is_fatal,
@@ -185,3 +186,17 @@ def test_raise_if_allocator_damaged(monkeypatch):
     assert "CUDA driver error: device not ready" in str(caught.value)
     assert str(caught.value).endswith(RESTART_HINT)
     assert isinstance(caught.value, RuntimeError)
+
+
+def test_a_worker_refusal_names_the_worker_and_its_own_restart(monkeypatch):
+    raise_if_allocator_damaged(worker=True)
+
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+    with pytest.raises(CudaAllocatorDamaged) as caught:
+        raise_if_allocator_damaged(worker=True)
+
+    message = str(caught.value)
+    assert "this worker's GPU allocator" in message
+    assert "CUDA driver error: device not ready" in message
+    assert message.endswith(WORKER_RESTART_HINT)
+    assert "Restart Backend" not in message
