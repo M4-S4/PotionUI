@@ -1,5 +1,4 @@
 <script lang="ts">
-	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { debounce } from '$lib/utils/time';
 	import { onDestroy } from 'svelte';
@@ -7,9 +6,10 @@
 	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import Icon from '$lib/components/Icon.svelte';
+	import JustifiedLibraryGallery from '$lib/components/JustifiedLibraryGallery.svelte';
+	import LibraryCard from '../../../routes/library/components/LibraryCard.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
 	import MediaPickerSelectionBar from './MediaPickerSelectionBar.svelte';
-	import MediaPickTile from './MediaPickTile.svelte';
 	import MediaPickPreviewPanel from './MediaPickPreviewPanel.svelte';
 	import MediaPickConstraintNote from './MediaPickConstraintNote.svelte';
 	import {
@@ -21,15 +21,12 @@
 		type PickerMediaType
 	} from './mediaPickerSelection';
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
-	import { Badge, Button, Spinner, EmptyState } from '$lib/components/ui';
+	import { Badge, Button, IconButton, Spinner, EmptyState } from '$lib/components/ui';
 	import { buildLibraryQuery, DEFAULT_LIBRARY_FILTERS } from '$lib/library/libraryQuery';
-	import { libraryItemDisplayName, libraryItemMetaParts } from '$lib/library/libraryItemMeta';
+	import { libraryItemDisplayName } from '$lib/library/libraryItemMeta';
 	import { LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import type { Tag } from '$lib/types/history';
 
-	// The media loader's "Library" picker. Reads the user's real Library
-	// (/api/library/items) - the same items, tags and folders the Library page
-	// shows - so anything curated there is pickable here.
 	export let isOpen: boolean = false;
 	export let onClose: () => void;
 	export let onSelect: (item: LibraryItem) => void = () => {};
@@ -70,9 +67,6 @@
 	let currentPage = 1;
 	let pageSize = 20;
 
-	// Per-item inline delete confirmation - a second modal on top of this one
-	// would be heavier than the action warrants, so the delete button becomes
-	// a "Confirm / Cancel" pair in place for the item being removed.
 	let confirmingId: string | null = null;
 	let deletingId: string | null = null;
 
@@ -173,14 +167,6 @@
 			confirmingId = null;
 		}
 	}
-
-	function metadataLine(item: LibraryItem): string | null {
-		const parts = [
-			item.width && item.height ? `${item.width}×${item.height}` : null,
-			...libraryItemMetaParts(item)
-		].filter(Boolean) as string[];
-		return parts.length > 0 ? parts.join(' · ') : null;
-	}
 </script>
 
 <MediaPickerFrame
@@ -197,7 +183,6 @@
 		{/if}
 	</svelte:fragment>
 
-	<!-- Modal Body -->
 	<div class="p-3 md:p-6">
 		<div class="relative mb-3 max-w-sm">
 			<Icon
@@ -252,119 +237,124 @@
 						{/if}
 					</MediaPickPreviewPanel>
 				{/if}
-				<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-					{#each items as item (item.id)}
-						{@const allowed = isMediaTypeSelectable(item.media_type, selectableMediaTypes)}
-						<MediaPickTile
-							label={libraryItemDisplayName(item)}
-							sublabel={metadataLine(item) ?? ''}
-							checked={$selection.includes(item.id)}
-							disabled={!allowed}
-							disabledReason={constraintMessage}
-							onToggle={() => picker.toggle(item.id, onSelectionChange)}
-							onPreview={() => (previewId = item.id)}
+			{/if}
+			<JustifiedLibraryGallery {items}>
+				<svelte:fragment slot="card" let:item let:tile>
+					{@const name = libraryItemDisplayName(item)}
+					{@const allowed = !multiple || isMediaTypeSelectable(item.media_type, selectableMediaTypes)}
+					{@const checked = $selection.includes(item.id)}
+					<div
+						class="flex flex-col min-w-0"
+						style="width: {tile.width}px"
+						data-testid="library-file-tile"
+						data-item-id={item.id}
+						data-selected={multiple ? checked : undefined}
+					>
+						<div
+							class="group relative {allowed
+								? '[&:hover_[data-library-card-body]>div]:border-line-hover'
+								: 'opacity-50'}"
 						>
-							{#if item.media_type === 'image'}
-								<img
-									src={item.thumbnail_medium || item.url}
-									alt={libraryItemDisplayName(item)}
-									class="max-w-full max-h-full object-contain"
+							{#if multiple}
+								<button
+									type="button"
+									class="block w-full rounded-lg text-left focus-visible:outline-none {allowed
+										? 'cursor-pointer'
+										: 'cursor-not-allowed'}"
+									tabindex="-1"
+									aria-hidden="true"
+									disabled={!allowed}
+									data-file={name}
+									on:click={() => picker.toggle(item.id, onSelectionChange)}
+								>
+									<span class="pointer-events-none block" inert>
+										<LibraryCard {item} {tile} showCheckbox={false} showActions={false} selected={checked} />
+									</span>
+								</button>
+								<IconButton
+									icon="search"
+									label={`Preview ${name}`}
+									size="sm"
+									variant="overlay"
+									class="absolute top-2 right-2 z-40 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+									onclick={(e) => {
+										e.stopPropagation();
+										previewId = item.id;
+									}}
 								/>
-							{:else if item.media_type === 'video'}
-								<video src={item.url} class="max-w-full max-h-full object-contain" muted>
-									<track kind="captions" />
-								</video>
-							{:else}
-								<Icon name="audio" className="w-8 h-8 text-fg-muted" />
-							{/if}
-						</MediaPickTile>
-					{/each}
-				</div>
-			{:else}
-			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-				{#each items as item (item.id)}
-					<div class="flex flex-col">
-						<div class="relative border-2 border-line-strong rounded-lg overflow-hidden bg-surface-2 group">
-							<button
-								type="button"
-								class="w-full aspect-video flex items-center justify-center cursor-pointer"
-								on:click={() => onSelect(item)}
-								aria-label={`Use ${libraryItemDisplayName(item)}`}
-							>
-								{#if item.media_type === 'image'}
-									<img
-										src={item.url}
-										alt={libraryItemDisplayName(item)}
-										class="max-w-full max-h-full object-contain"
+								<label
+									class="absolute top-2 left-2 z-40 flex h-7 w-7 items-center justify-center rounded border border-line-strong bg-surface-1/90 {allowed
+										? 'cursor-pointer'
+										: 'cursor-not-allowed'}"
+								>
+									<input
+										type="checkbox"
+										class="h-4 w-4 accent-signal"
+										{checked}
+										disabled={!allowed}
+										aria-label={`Select ${name}`}
+										data-file={name}
+										aria-describedby={!allowed && constraintMessage ? `library-pick-reason-${item.id}` : undefined}
+										on:change={() => picker.toggle(item.id, onSelectionChange)}
 									/>
-								{:else if item.media_type === 'video'}
-									<video src={item.url} class="max-w-full max-h-full object-contain" muted>
-										<track kind="captions" />
-									</video>
-									<div class="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
-										<Icon name="video" className="w-8 h-8 text-white/90" />
-									</div>
-								{:else}
-									<div class="flex flex-col items-center gap-2 text-fg-muted">
-										<Icon name="audio" className="w-8 h-8" />
-										<span class="text-xs">Audio</span>
-									</div>
-								{/if}
-							</button>
-
-							<!-- Delete affordance (top-right) -->
-							<div class="absolute top-0 right-0 p-2 z-10">
-								{#if confirmingId === item.id}
-									<div class="flex items-center gap-1 bg-surface-1 rounded-md p-1 shadow-floating">
-										<button
-											type="button"
-											class="px-2 py-1 text-xs font-medium text-danger hover:bg-danger/10 rounded"
-											on:click={() => confirmDelete(item)}
-											disabled={deletingId === item.id}
-										>
-											{deletingId === item.id ? '...' : 'Delete'}
-										</button>
-										<button
-											type="button"
-											class="px-2 py-1 text-xs font-medium text-fg-muted hover:bg-surface-3/50 rounded"
-											on:click={cancelDelete}
-											disabled={deletingId === item.id}
-										>
-											Cancel
-										</button>
-									</div>
-								{:else}
-									<button
-										type="button"
-										class="p-1.5 text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-										use:tooltip={'Delete this item'}
-										aria-label={`Delete ${libraryItemDisplayName(item)}`}
-										on:click={() => requestDelete(item.id)}
-									>
-										<Icon name="trash" className="w-4 h-4" />
-									</button>
-								{/if}
-							</div>
-
-							<!-- File name overlay -->
-							<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 pt-4 pointer-events-none">
-								<p class="text-sm font-medium text-white truncate" use:tooltip={{ text: libraryItemDisplayName(item), truncateOnly: true }}>
-									{libraryItemDisplayName(item)}
-								</p>
-							</div>
+								</label>
+							{:else}
+								<button
+									type="button"
+									class="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+									aria-label={`Use ${name}`}
+									data-file={name}
+									on:click={() => onSelect(item)}
+								>
+									<span class="pointer-events-none block" inert>
+										<LibraryCard {item} {tile} showCheckbox={false} showActions={false} />
+									</span>
+								</button>
+								<div class="absolute top-2 right-2 z-40">
+									{#if confirmingId === item.id}
+										<div class="flex items-center gap-1 rounded-lg bg-surface-1 p-1 shadow-floating">
+											<Button
+												variant="danger"
+												size="xs"
+												disabled={deletingId === item.id}
+												onclick={() => confirmDelete(item)}
+											>
+												{deletingId === item.id ? '...' : 'Delete'}
+											</Button>
+											<Button
+												variant="secondary"
+												size="xs"
+												disabled={deletingId === item.id}
+												onclick={cancelDelete}
+											>
+												Cancel
+											</Button>
+										</div>
+									{:else}
+										<IconButton
+											icon="trash"
+											label={`Delete ${name}`}
+											size="sm"
+											variant="overlay"
+											class="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+											onclick={() => requestDelete(item.id)}
+										/>
+									{/if}
+								</div>
+							{/if}
 						</div>
-						{#if metadataLine(item)}
+						{#if multiple && !allowed && constraintMessage}
 							<p
-								class="mt-1 font-mono tabular-nums text-xs text-fg-subtle truncate"
-								use:tooltip={{ text: metadataLine(item) ?? '', truncateOnly: true }}
+								id={`library-pick-reason-${item.id}`}
+								class="mt-1 flex min-w-0 items-center gap-1 text-sm text-fg-subtle"
 							>
-								{metadataLine(item)}
+								<Icon name="info" className="w-3 h-3 flex-shrink-0" />
+								<span class="block truncate">{constraintMessage}</span>
 							</p>
 						{/if}
 					</div>
-				{/each}
-			</div>
-			{/if}
+				</svelte:fragment>
+			</JustifiedLibraryGallery>
 		{/if}
 	</div>
 

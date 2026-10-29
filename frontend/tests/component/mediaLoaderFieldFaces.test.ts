@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -28,6 +28,7 @@ const { default: MediaLoaderField } = await import(
 	'$lib/components/form-fields/MediaLoaderField.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
+const { stubClientWidth } = await import('./helpers/stubClientWidth');
 const { tick } = await import('svelte');
 
 function mount(props: Record<string, unknown>) {
@@ -823,6 +824,14 @@ describe('compact face', () => {
 });
 
 describe('library pick', () => {
+	let restoreWidth: () => void = () => {};
+
+	beforeEach(() => {
+		restoreWidth = stubClientWidth(1000);
+	});
+
+	afterEach(() => restoreWidth());
+
 	it('carries the library display name into a fresh item as its label, but never a placeholder', async () => {
 		const { api } = await import('$lib/services/api/index');
 		(api.listLibraryItems as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
