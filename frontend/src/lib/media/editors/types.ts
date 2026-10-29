@@ -45,7 +45,29 @@ export const MEDIA_EDITOR_KINDS = [
 	'paint'
 ] as const;
 
-export type MediaEditorKind = (typeof MEDIA_EDITOR_KINDS)[number];
+export const SURFACE_EDITOR_KINDS: readonly string[] = MEDIA_EDITOR_KINDS.filter(
+	(kind) => kind !== 'mask' && kind !== 'paint'
+);
+
+export function isSurfaceEditorKind(name: string | null | undefined): boolean {
+	return !!name && SURFACE_EDITOR_KINDS.includes(name);
+}
+
+export type ToolDialogKind = `tool:${string}`;
+
+export type MediaEditorKind = (typeof MEDIA_EDITOR_KINDS)[number] | ToolDialogKind;
+
+export function toolDialogKind(toolId: string): ToolDialogKind {
+	return `tool:${toolId}`;
+}
+
+export function isToolDialogKind(kind: MediaEditorKind): kind is ToolDialogKind {
+	return kind.startsWith('tool:');
+}
+
+export function toolIdOfKind(kind: ToolDialogKind): string {
+	return kind.slice('tool:'.length);
+}
 
 export type EditorMediaKind = 'image' | 'video' | 'audio';
 
@@ -59,10 +81,11 @@ export interface MediaEditorSource {
 	/**
 	 * The `uploads` row id, when the caller already knows it. Absent for a
 	 * MediaLoader value, which carries a path rather than a row id; the editors
-	 * resolve it themselves, copying a generated file into the library first
-	 * when that is the only way to give the edit something to work on.
+	 * resolve it themselves.
 	 */
 	itemId?: string | null;
+	generationFileId?: string | null;
+	key?: string | null;
 	/** The stored path, e.g. `uploads/<uuid>.png` - how the row is resolved. */
 	storedPath?: string | null;
 	width?: number | null;
@@ -124,6 +147,7 @@ export type EditorCommitFn = (request: EditorCommitRequest) => void | Promise<vo
 /** True when this kind of item has an editor to open at all. */
 export function hasEditor(kind: MediaEditorKind, mediaKind: EditorMediaKind | null): boolean {
 	if (!mediaKind) return false;
+	if (isToolDialogKind(kind)) return true;
 	if (kind === 'crop' || kind === 'mask' || kind === 'paint') return mediaKind === 'image';
 	if (kind === 'frame') return mediaKind === 'video';
 	if (kind === 'split') return mediaKind === 'audio';
@@ -151,6 +175,7 @@ export const RESOURCE_EDIT_TOOLS: { key: MediaEditorKind; label: string; icon: s
 
 /** Title bar copy, and the label the button carries. */
 export function editorTitle(kind: MediaEditorKind, mediaKind: EditorMediaKind | null): string {
+	if (isToolDialogKind(kind)) return 'Edit';
 	switch (kind) {
 		case 'crop':
 			return 'Crop & frame';

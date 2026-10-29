@@ -4,7 +4,7 @@
 // operations the geometry produced, to the right endpoint, in the mode the
 // button the user pressed means. `toCropOperation` staying green proves nothing
 // if the footer wires "Replace original" to the same call as "Save as new".
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // The crop stage measures itself with `bind:clientWidth`, which Svelte 5
 // implements with a ResizeObserver jsdom does not provide.
@@ -15,20 +15,25 @@ class StubResizeObserver {
 }
 vi.stubGlobal('ResizeObserver', StubResizeObserver);
 
-const editMediaItem = vi.fn();
-const extractMediaFrame = vi.fn();
-const splitMediaItem = vi.fn();
+const startMediaToolRun = vi.fn();
+const getMediaToolRun = vi.fn();
+const cancelMediaToolRun = vi.fn();
 const listUploads = vi.fn();
 const listGenerationMedia = vi.fn();
 const copyGenerationFileToLibrary = vi.fn();
 const uploadMedia = vi.fn();
 const deleteLibraryItem = vi.fn();
 
+vi.mock('$lib/services/api/mediaTools', () => ({
+	startMediaToolRun: (...args: unknown[]) => startMediaToolRun(...args),
+	getMediaToolRun: (...args: unknown[]) => getMediaToolRun(...args),
+	cancelMediaToolRun: (...args: unknown[]) => cancelMediaToolRun(...args),
+	listMediaTools: vi.fn(),
+	previewMediaTool: vi.fn()
+}));
+
 vi.mock('$lib/services/api/index', () => ({
 	api: {
-		editMediaItem: (...args: unknown[]) => editMediaItem(...args),
-		extractMediaFrame: (...args: unknown[]) => extractMediaFrame(...args),
-		splitMediaItem: (...args: unknown[]) => splitMediaItem(...args),
 		listUploads: (...args: unknown[]) => listUploads(...args),
 		listGenerationMedia: (...args: unknown[]) => listGenerationMedia(...args),
 		copyGenerationFileToLibrary: (...args: unknown[]) => copyGenerationFileToLibrary(...args),
@@ -38,6 +43,7 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 
 const { default: MediaEditors } = await import('$lib/media/editors/MediaEditors.svelte');
+const { mediaToolRuns } = await import('$lib/media-tools/runs');
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
 
@@ -62,8 +68,12 @@ function buttonByText(target: HTMLElement, text: string): HTMLButtonElement | un
 async function settle() {
 	for (let i = 0; i < 5; i += 1) {
 		await tick();
-		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
 	}
+}
+
+function completedRun(items: unknown[], replaced = false) {
+	return { run_id: 'run-1', status: 'completed', progress: 1, label: '', items, replaced, error: null };
 }
 
 const imageSource = {
@@ -97,11 +107,15 @@ const audioSource = {
 	durationSeconds: 65
 };
 
+afterEach(() => {
+	mediaToolRuns.destroy();
+});
+
 beforeEach(() => {
 	document.body.innerHTML = '';
-	editMediaItem.mockReset();
-	extractMediaFrame.mockReset();
-	splitMediaItem.mockReset();
+	startMediaToolRun.mockReset();
+	getMediaToolRun.mockReset();
+	cancelMediaToolRun.mockReset();
 	listUploads.mockReset();
 	listGenerationMedia.mockReset();
 	copyGenerationFileToLibrary.mockReset();
@@ -114,39 +128,12 @@ beforeEach(() => {
 		success: true,
 		data: { path: 'uploads/mask-1.png', relative_path: 'uploads/mask-1.png', filename: 'mask-1.png', size: 2, url: '/api/media/uploads/mask-1.png' }
 	});
-	editMediaItem.mockResolvedValue({
-		success: true,
-		data: {
-			item: {
-				id: 'row-1',
-				filename: 'edited.png',
-				media_type: 'image',
-				url: '/api/media/uploads/edited.png'
-			},
-			replaced: false
-		}
-	});
-	extractMediaFrame.mockResolvedValue({
-		success: true,
-		data: {
-			item: {
-				id: 'row-9',
-				filename: 'still.png',
-				media_type: 'image',
-				url: '/api/media/uploads/still.png'
-			},
-			replaced: false
-		}
-	});
-	splitMediaItem.mockResolvedValue({
-		success: true,
-		data: {
-			items: [
-				{ id: 'row-10', filename: 'track-part-1.mp3', media_type: 'audio', url: '/api/media/uploads/track-part-1.mp3' },
-				{ id: 'row-11', filename: 'track-part-2.mp3', media_type: 'audio', url: '/api/media/uploads/track-part-2.mp3' }
-			]
-		}
-	});
+	startMediaToolRun.mockResolvedValue({ run_id: 'run-1' });
+	getMediaToolRun.mockResolvedValue(
+		completedRun([
+			{ id: 'row-1', filename: 'edited.png', media_type: 'image', url: '/api/media/uploads/edited.png' }
+		])
+	);
 	listUploads.mockResolvedValue({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } });
 });
 
@@ -166,11 +153,11 @@ describe('crop editor', () => {
 		buttonByText(target, 'Save as new')!.click();
 		await settle();
 
-		expect(editMediaItem).toHaveBeenCalledWith(
-			'row-1',
-			[{ type: 'crop', x: 0, y: 256, width: 1024, height: 1024 }],
-			'new'
-		);
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'crop', params: { x: 0, y: 256, width: 1024, height: 1024 } }],
+			inputs: [{ item_id: 'row-1' }],
+			output: { mode: 'new' }
+		});
 	});
 
 	it('wires Replace original to the replace mode, not to the same call', async () => {
@@ -186,7 +173,52 @@ describe('crop editor', () => {
 		buttonByText(target, 'Replace original')!.click();
 		await settle();
 
-		expect(editMediaItem.mock.calls[0][2]).toBe('replace');
+		expect(startMediaToolRun.mock.calls[0][0].output).toEqual({ mode: 'replace' });
+	});
+
+	it('turns rotate, flip and crop into one run of ordered steps', async () => {
+		const target = mount({
+			request: { kind: 'crop', source: imageSource, itemIndex: null },
+			onClose: vi.fn(),
+			onResult: vi.fn()
+		});
+		await settle();
+
+		const orientation = (label: string) =>
+			Array.from(target.querySelectorAll('button')).find((b) => b.getAttribute('aria-label') === label)!;
+		orientation('Rotate right').click();
+		await settle();
+		orientation('Flip horizontal').click();
+		await settle();
+		buttonByText(target, '1:1')!.click();
+		await settle();
+		buttonByText(target, 'Save as new')!.click();
+		await settle();
+
+		expect(startMediaToolRun).toHaveBeenCalledTimes(1);
+		const { steps } = startMediaToolRun.mock.calls[0][0];
+		expect(steps.map((step: { tool: string }) => step.tool)).toEqual(['rotate', 'flip', 'crop']);
+		expect(steps[0].params).toEqual({ degrees: 90 });
+		expect(steps[1].params).toEqual({ axis: 'horizontal' });
+		expect(Object.keys(steps[2].params)).toEqual(['x', 'y', 'width', 'height']);
+	});
+
+	it('adds a resize step when a longest side is chosen', async () => {
+		const target = mount({
+			request: { kind: 'crop', source: imageSource, itemIndex: null },
+			onClose: vi.fn(),
+			onResult: vi.fn()
+		});
+		await settle();
+
+		buttonByText(target, '1024')?.click();
+		buttonByText(target, '768')!.click();
+		await settle();
+		buttonByText(target, 'Save as new')!.click();
+		await settle();
+
+		const { steps } = startMediaToolRun.mock.calls[0][0];
+		expect(steps).toEqual([{ tool: 'resize', params: { height: 768 } }]);
 	});
 
 	it('refuses to send an untouched plan, which the server rejects as empty', async () => {
@@ -199,7 +231,7 @@ describe('crop editor', () => {
 
 		expect(target.textContent).toContain('Nothing to apply yet.');
 		expect(buttonByText(target, 'Save as new')!.disabled).toBe(true);
-		expect(editMediaItem).not.toHaveBeenCalled();
+		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});
 
 	it('hands the result back and closes', async () => {
@@ -225,9 +257,11 @@ describe('crop editor', () => {
 	});
 
 	it('surfaces the server refusal instead of "status code 400"', async () => {
-		editMediaItem.mockRejectedValue({
+		startMediaToolRun.mockRejectedValue({
 			message: 'Request failed with status code 400',
-			response: { data: { detail: { message: 'The crop rectangle does not fit inside 1024x1536' } } }
+			response: {
+				data: { detail: { error: 'invalid_params', message: 'The crop rectangle does not fit inside 1024x1536' } }
+			}
 		});
 		const onClose = vi.fn();
 		const target = mount({
@@ -269,11 +303,12 @@ describe('trim editor', () => {
 		buttonByText(target, 'Save as new')!.click();
 		await settle();
 
-		expect(editMediaItem).toHaveBeenCalledTimes(1);
-		const [itemId, operations, mode] = editMediaItem.mock.calls[0];
-		expect(itemId).toBe('row-2');
-		expect(mode).toBe('new');
-		expect(operations).toEqual([{ type: 'trim', start_seconds: 0, end_seconds: 8.3 }]);
+		expect(startMediaToolRun).toHaveBeenCalledTimes(1);
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'trim', params: { start: 0, end: 8.3 } }],
+			inputs: [{ item_id: 'row-2' }],
+			output: { mode: 'new' }
+		});
 	});
 
 	it('refuses a selection that is still the whole clip', async () => {
@@ -308,7 +343,7 @@ describe('trim editor', () => {
 
 		expect(target.textContent).toContain('not in your library');
 		expect(buttonByText(target, 'Save as new')!.disabled).toBe(true);
-		expect(editMediaItem).not.toHaveBeenCalled();
+		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});
 
 	it('resolves the library row from the stored path when the host did not supply one', async () => {
@@ -337,7 +372,7 @@ describe('trim editor', () => {
 		await settle();
 
 		expect(listUploads).toHaveBeenCalledWith(expect.objectContaining({ mediaType: 'video' }));
-		expect(editMediaItem.mock.calls[0][0]).toBe('row-77');
+		expect(startMediaToolRun.mock.calls[0][0].inputs).toEqual([{ item_id: 'row-77' }]);
 	});
 });
 
@@ -376,13 +411,6 @@ describe('generated media', () => {
 		}
 	];
 
-	beforeEach(() => {
-		copyGenerationFileToLibrary.mockResolvedValue({
-			success: true,
-			data: { item: { id: 'draft-row', filename: 'copy' } }
-		});
-	});
-
 	describe.each(cases)('$kind', ({ kind, source, filename, prepare, save }) => {
 		function open(onClose = vi.fn(), onResult = vi.fn()) {
 			listGenerationMedia.mockResolvedValue({
@@ -402,11 +430,12 @@ describe('generated media', () => {
 			await settle();
 
 			expect(onClose).toHaveBeenCalled();
+			expect(startMediaToolRun).not.toHaveBeenCalled();
 			expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
 			expect(uploadMedia).not.toHaveBeenCalled();
 		});
 
-		it('makes one draft copy on save and edits it, leaving no unedited file behind', async () => {
+		it('runs the edit on the generation file directly, as a new item, with no draft copy', async () => {
 			const target = open();
 			await settle();
 			await prepare(target);
@@ -414,21 +443,23 @@ describe('generated media', () => {
 			buttonByText(target, save)!.click();
 			await settle();
 
-			expect(copyGenerationFileToLibrary).toHaveBeenCalledTimes(1);
-			expect(copyGenerationFileToLibrary).toHaveBeenCalledWith('file-7');
-			if (kind === 'frame') {
-				expect(extractMediaFrame).toHaveBeenCalledWith('draft-row', 0);
-				expect(deleteLibraryItem).toHaveBeenCalledWith('draft-row');
-			} else {
-				expect(editMediaItem.mock.calls[0][0]).toBe('draft-row');
-				expect(editMediaItem.mock.calls[0][2]).toBe('replace');
-				expect(deleteLibraryItem).not.toHaveBeenCalled();
-			}
+			expect(startMediaToolRun).toHaveBeenCalledTimes(1);
+			const body = startMediaToolRun.mock.calls[0][0];
+			expect(body.inputs).toEqual([{ generation_file_id: 'file-7' }]);
+			expect(body.output).toEqual({ mode: 'new' });
+			expect(body.steps[0].tool).toBe(kind === 'crop' ? 'crop' : kind === 'trim' ? 'trim' : 'frame');
+			expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
+			expect(deleteLibraryItem).not.toHaveBeenCalled();
 		});
 
-		it('keeps the editor open and removes the draft when the edit fails', async () => {
-			editMediaItem.mockRejectedValue(new Error('The edit failed'));
-			extractMediaFrame.mockRejectedValue(new Error('The edit failed'));
+		it('offers no replace for a generated file', async () => {
+			const target = open();
+			await settle();
+			expect(buttonByText(target, 'Replace original')).toBeUndefined();
+		});
+
+		it('keeps the editor open and shows why when the edit fails', async () => {
+			startMediaToolRun.mockRejectedValue(new Error('The edit failed'));
 			const onClose = vi.fn();
 			const target = open(onClose);
 			await settle();
@@ -439,23 +470,7 @@ describe('generated media', () => {
 
 			expect(target.textContent).toContain('The edit failed');
 			expect(onClose).not.toHaveBeenCalled();
-			expect(deleteLibraryItem).toHaveBeenCalledWith('draft-row');
-		});
-
-		it('keeps the editor open when the copy fails', async () => {
-			copyGenerationFileToLibrary.mockResolvedValue({ success: false, message: 'Disk is full' });
-			const onClose = vi.fn();
-			const target = open(onClose);
-			await settle();
-			await prepare(target);
-
-			buttonByText(target, save)!.click();
-			await settle();
-
-			expect(target.textContent).toContain('Disk is full');
-			expect(onClose).not.toHaveBeenCalled();
-			expect(editMediaItem).not.toHaveBeenCalled();
-			expect(extractMediaFrame).not.toHaveBeenCalled();
+			expect(deleteLibraryItem).not.toHaveBeenCalled();
 		});
 
 		it('never copies a library item', async () => {
@@ -478,6 +493,15 @@ describe('generated media', () => {
 });
 
 describe('split editor', () => {
+	beforeEach(() => {
+		getMediaToolRun.mockResolvedValue(
+			completedRun([
+				{ id: 'row-10', filename: 'track-part-1.mp3', media_type: 'audio', url: '/api/media/uploads/track-part-1.mp3' },
+				{ id: 'row-11', filename: 'track-part-2.mp3', media_type: 'audio', url: '/api/media/uploads/track-part-2.mp3' }
+			])
+		);
+	});
+
 	function partLengthInput(target: HTMLElement): HTMLInputElement {
 		return target.querySelector('#split-part-seconds') as HTMLInputElement;
 	}
@@ -500,8 +524,11 @@ describe('split editor', () => {
 		buttonByText(target, 'Split')!.click();
 		await settle();
 
-		expect(splitMediaItem).toHaveBeenCalledWith('row-3', 10);
-		expect(editMediaItem).not.toHaveBeenCalled();
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'split', params: { part_seconds: 10 } }],
+			inputs: [{ item_id: 'row-3' }],
+			output: { mode: 'new' }
+		});
 	});
 
 	it('previews the part count, remainder clip included, recomputed as the user types', async () => {
@@ -539,7 +566,7 @@ describe('split editor', () => {
 
 		buttonByText(target, 'Split')!.click();
 		await settle();
-		expect(splitMediaItem).not.toHaveBeenCalled();
+		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});
 
 	it('hands back every part the split produced, not just one', async () => {
@@ -587,7 +614,13 @@ describe('mask editor', () => {
 });
 
 describe('frame editor', () => {
-	it('posts to the frame endpoint and never offers a replace', async () => {
+	beforeEach(() => {
+		getMediaToolRun.mockResolvedValue(
+			completedRun([{ id: 'row-9', filename: 'still.png', media_type: 'image', url: '/api/media/uploads/still.png' }])
+		);
+	});
+
+	it('runs the frame tool and never offers a replace', async () => {
 		const target = mount({
 			request: { kind: 'frame', source: clipSource, itemIndex: null },
 			onClose: vi.fn(),
@@ -602,8 +635,11 @@ describe('frame editor', () => {
 		buttonByText(target, 'Save frame')!.click();
 		await settle();
 
-		expect(extractMediaFrame).toHaveBeenCalledWith('row-2', 0);
-		expect(editMediaItem).not.toHaveBeenCalled();
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'frame', params: { time: 0 } }],
+			inputs: [{ item_id: 'row-2' }],
+			output: { mode: 'new' }
+		});
 	});
 
 	it('never asks for the duration itself, which the server treats as past the end', async () => {
@@ -622,7 +658,111 @@ describe('frame editor', () => {
 		buttonByText(target, 'Save frame')!.click();
 		await settle();
 
-		const [, requestedTime] = extractMediaFrame.mock.calls[0];
+		const requestedTime = startMediaToolRun.mock.calls[0][0].steps[0].params.time;
 		expect(requestedTime).toBeLessThan(8.4);
+	});
+});
+
+describe('a run in flight', () => {
+	function running(progress: number) {
+		return { run_id: 'run-1', status: 'running', progress, label: 'Encoding', items: [], replaced: false, error: null };
+	}
+
+	function openCrop(overrides: Record<string, unknown> = {}) {
+		const onClose = vi.fn();
+		const onResult = vi.fn();
+		const target = mount({
+			request: { kind: 'crop', source: imageSource, itemIndex: null },
+			onClose,
+			onResult,
+			...overrides
+		});
+		return { target, onClose, onResult };
+	}
+
+	async function pressSave(target: HTMLElement) {
+		await settle();
+		buttonByText(target, '1:1')!.click();
+		await settle();
+		buttonByText(target, 'Save as new')!.click();
+		await settle();
+	}
+
+	it('shows the progress the server reports and keeps the editor open', async () => {
+		getMediaToolRun.mockResolvedValue(running(0.4));
+		const { target, onClose } = openCrop();
+
+		await pressSave(target);
+
+		expect(target.textContent).toContain('Working');
+		expect(target.querySelector('[data-editor-progress]')?.textContent).toBe('40%');
+		expect(onClose).not.toHaveBeenCalled();
+	});
+
+	it('cancels the run from the footer and goes back to the form without a result', async () => {
+		getMediaToolRun.mockResolvedValue(running(0.4));
+		cancelMediaToolRun.mockResolvedValue(undefined);
+		const { target, onClose, onResult } = openCrop();
+		await pressSave(target);
+
+		buttonByText(target, 'Cancel edit')!.click();
+		await settle();
+
+		expect(cancelMediaToolRun).toHaveBeenCalledWith('run-1');
+		expect(onResult).not.toHaveBeenCalled();
+		expect(onClose).not.toHaveBeenCalled();
+		expect(target.textContent).not.toContain('Working');
+		expect(buttonByText(target, 'Save as new')!.disabled).toBe(false);
+	});
+
+	it('shows the reason a run failed on the server and stays open', async () => {
+		getMediaToolRun.mockResolvedValue({
+			...running(0.2),
+			status: 'failed',
+			error: { code: 'ffmpeg_failed', message: 'The encoder stopped' }
+		});
+		const { target, onClose, onResult } = openCrop();
+
+		await pressSave(target);
+
+		expect(target.textContent).toContain('The encoder stopped');
+		expect(onClose).not.toHaveBeenCalled();
+		expect(onResult).not.toHaveBeenCalled();
+	});
+
+	it('closes at once when detached and hands the result over when the run finishes', async () => {
+		let finish: (run: unknown) => void = () => undefined;
+		getMediaToolRun
+			.mockResolvedValueOnce(running(0.3))
+			.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+		const { target, onClose, onResult } = openCrop({ detach: true });
+
+		await pressSave(target);
+
+		expect(onClose).toHaveBeenCalledTimes(1);
+		expect(onResult).not.toHaveBeenCalled();
+
+		await new Promise((resolve) => setTimeout(resolve, 450));
+		finish(completedRun([{ id: 'row-5', filename: 'late.png', media_type: 'image', url: '/late.png' }]));
+		await settle();
+
+		expect(onResult).toHaveBeenCalledWith(
+			{ type: 'item', item: expect.objectContaining({ filename: 'late.png' }), replaced: false },
+			expect.objectContaining({ itemIndex: null })
+		);
+	});
+
+	it('reports a replaced original as replaced', async () => {
+		getMediaToolRun.mockResolvedValue(
+			completedRun([{ id: 'row-1', filename: 'a.png', media_type: 'image', url: '/a.png' }], true)
+		);
+		const { target, onResult } = openCrop();
+		await settle();
+		buttonByText(target, '1:1')!.click();
+		await settle();
+		buttonByText(target, 'Replace original')!.click();
+		await settle();
+
+		expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ replaced: true }), expect.anything());
 	});
 });

@@ -17,6 +17,7 @@
 
 	export let source: MediaEditorSource;
 	export let busy: boolean = false;
+	export let allowReplace: boolean = true;
 	export let blockedReason: string | null = null;
 	export let resourceNote: string | null = null;
 	export let failureMessage: string | null = null;
@@ -274,6 +275,7 @@
 	<svelte:fragment slot="footer">
 		<EditorSaveControls
 			{busy}
+			{allowReplace}
 			blockedReason={rejection}
 			{failureMessage}
 			onCancel={onClose}

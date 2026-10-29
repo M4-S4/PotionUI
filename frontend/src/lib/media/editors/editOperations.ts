@@ -1,12 +1,4 @@
-/**
- * The operation list an edit is, and what each medium will accept.
- *
- * Mirrors `validate_operations` in `src/features/media/editing/operations.py`.
- * The server checks all of this again - what this buys is a refusal the user
- * can act on (a disabled Apply with a reason) instead of a round trip that
- * comes back 400.
- */
-
+import type { MediaToolStep } from '$lib/media-tools/types';
 import type { CropOperationPayload } from './cropGeometry';
 import type { TrimOperationPayload } from './trimPoints';
 
@@ -98,4 +90,37 @@ export function describeRejection(
 	}
 
 	return null;
+}
+
+export function operationsToSteps(operations: readonly EditOperation[]): MediaToolStep[] {
+	return operations.map((operation): MediaToolStep => {
+		switch (operation.type) {
+			case 'trim':
+				return {
+					tool: 'trim',
+					params: { start: operation.start_seconds, end: operation.end_seconds }
+				};
+			case 'crop':
+				return {
+					tool: 'crop',
+					params: {
+						x: operation.x,
+						y: operation.y,
+						width: operation.width,
+						height: operation.height
+					}
+				};
+			case 'resize': {
+				const params: Record<string, unknown> = {};
+				if (operation.width !== undefined) params.width = operation.width;
+				if (operation.height !== undefined) params.height = operation.height;
+				if (operation.quality !== undefined) params.quality = operation.quality;
+				return { tool: 'resize', params };
+			}
+			case 'rotate':
+				return { tool: 'rotate', params: { degrees: operation.degrees } };
+			case 'flip':
+				return { tool: 'flip', params: { axis: operation.axis } };
+		}
+	});
 }

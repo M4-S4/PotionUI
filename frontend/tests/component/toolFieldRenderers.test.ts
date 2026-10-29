@@ -280,7 +280,7 @@ describe('NumberBoxField', () => {
 	});
 
 	it('tidies the text on blur', () => {
-		const view = mountComponent(NumberBoxField, {
+		const view = mountComponent<Record<string, unknown>>(NumberBoxField, {
 			name: 'w',
 			config: {},
 			value: 1,

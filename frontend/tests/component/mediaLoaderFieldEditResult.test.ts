@@ -5,7 +5,8 @@
 // pressing a tool in the toolbar reaches an editor, that the editor reaches the
 // API, and that what lands back in `onChange` is the SERVER's url rather than a
 // blob handle - which dies with the document and 404s after a refresh.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
 
 class StubResizeObserver {
 	observe() {}
@@ -14,20 +15,27 @@ class StubResizeObserver {
 }
 vi.stubGlobal('ResizeObserver', StubResizeObserver);
 
-const editMediaItem = vi.fn();
+const startMediaToolRun = vi.fn();
+const getMediaToolRun = vi.fn();
+const listMediaTools = vi.fn();
 const listUploads = vi.fn();
 const listGenerationMedia = vi.fn();
 const copyGenerationFileToLibrary = vi.fn();
+
+vi.mock('$lib/services/api/mediaTools', () => ({
+	listMediaTools: (...args: unknown[]) => listMediaTools(...args),
+	startMediaToolRun: (...args: unknown[]) => startMediaToolRun(...args),
+	getMediaToolRun: (...args: unknown[]) => getMediaToolRun(...args),
+	cancelMediaToolRun: vi.fn(),
+	previewMediaTool: vi.fn()
+}));
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		listGenerationMedia: (...args: unknown[]) => listGenerationMedia(...args),
 		copyGenerationFileToLibrary: (...args: unknown[]) => copyGenerationFileToLibrary(...args),
 		getUploadInfo: vi.fn().mockResolvedValue({ success: false }),
-		getHistoryTools: vi.fn().mockResolvedValue({ success: true, data: [] }),
 		listUploads: (...args: unknown[]) => listUploads(...args),
-		editMediaItem: (...args: unknown[]) => editMediaItem(...args),
-		extractMediaFrame: vi.fn(),
 		uploadMedia: vi.fn()
 	}
 }));
@@ -41,6 +49,8 @@ const { default: MediaLoaderField } = await import(
 );
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
+const { mediaToolRuns } = await import('$lib/media-tools/runs');
+const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 
 function mount(props: Record<string, unknown>) {
 	const target = document.createElement('div');
@@ -70,8 +80,12 @@ function buttonByText(target: HTMLElement, text: string): HTMLButtonElement | un
 async function settle() {
 	for (let i = 0; i < 6; i += 1) {
 		await tick();
-		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
 	}
+}
+
+function completedRun(item: Record<string, unknown>, replaced: boolean) {
+	return { run_id: 'run-1', status: 'completed', progress: 1, label: '', items: [item], replaced, error: null };
 }
 
 const clip = {
@@ -83,9 +97,18 @@ const clip = {
 	metadata: { width: 1280, height: 720, duration_seconds: 5.2, fps: 24, size: 18874368 }
 };
 
+afterEach(() => {
+	mediaToolRuns.destroy();
+});
+
 beforeEach(() => {
 	document.body.innerHTML = '';
-	editMediaItem.mockReset();
+	resetMediaToolCatalog();
+	listMediaTools.mockReset();
+	listMediaTools.mockResolvedValue(CORE_TOOLS);
+	startMediaToolRun.mockReset();
+	getMediaToolRun.mockReset();
+	startMediaToolRun.mockResolvedValue({ run_id: 'run-1' });
 	listUploads.mockReset();
 	listGenerationMedia.mockReset();
 	copyGenerationFileToLibrary.mockReset();
@@ -100,10 +123,9 @@ beforeEach(() => {
 			offset: 0
 		}
 	});
-	editMediaItem.mockResolvedValue({
-		success: true,
-		data: {
-			item: {
+	getMediaToolRun.mockResolvedValue(
+		completedRun(
+			{
 				id: 'row-42',
 				filename: 'trimmed-9c.mp4',
 				original_filename: 'wan22_i2v_00042.mp4',
@@ -116,9 +138,9 @@ beforeEach(() => {
 				fps: 24,
 				size: 18000000
 			},
-			replaced: true
-		}
-	});
+			true
+		)
+	);
 });
 
 describe('MediaLoaderField × the shared editors', () => {
@@ -144,11 +166,11 @@ describe('MediaLoaderField × the shared editors', () => {
 		buttonByText(target, 'Replace original')!.click();
 		await settle();
 
-		expect(editMediaItem).toHaveBeenCalledWith(
-			'row-42',
-			[{ type: 'trim', start_seconds: 0, end_seconds: 5.1 }],
-			'replace'
-		);
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'trim', params: { start: 0, end: 5.1 } }],
+			inputs: [{ item_id: 'row-42' }],
+			output: { mode: 'replace' }
+		});
 
 		const written = onChange.mock.calls.at(-1)?.[1];
 		expect(written).toMatchObject({
@@ -225,36 +247,29 @@ describe('MediaLoaderField × the shared editors', () => {
 		buttonByText(target, 'Replace original')!.click();
 		await settle();
 
-		expect(editMediaItem).toHaveBeenCalledWith(
-			'row-8',
-			[{ type: 'crop', x: 0, y: 256, width: 1024, height: 1024 }],
-			'replace'
-		);
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'crop', params: { x: 0, y: 256, width: 1024, height: 1024 } }],
+			inputs: [{ item_id: 'row-8' }],
+			output: { mode: 'replace' }
+		});
 	});
 
-	it('adds a generated image to the library only as its edited result', async () => {
-		// The field's value may point at generated media, which is not a
-		// resource at all - and every edit is server-side.
+	it('edits a generated image straight from storage and adds only the edited result to the library', async () => {
 		listGenerationMedia.mockResolvedValue({
 			success: true,
 			data: { media: [{ id: 'file-3', filename: '0.png' }] }
 		});
-		copyGenerationFileToLibrary.mockResolvedValue({
-			success: true,
-			data: { item: { id: 'copied-1', filename: 'copy.png' } }
-		});
-		editMediaItem.mockResolvedValue({
-			success: true,
-			data: {
-				item: {
-					id: 'copied-1',
+		getMediaToolRun.mockResolvedValue(
+			completedRun(
+				{
+					id: 'new-1',
 					filename: 'cropped.png',
 					media_type: 'image',
 					url: '/api/media/uploads/cropped.png'
 				},
-				replaced: false
-			}
-		});
+				false
+			)
+		);
 
 		const onChange = vi.fn();
 		const target = mount({
@@ -277,17 +292,68 @@ describe('MediaLoaderField × the shared editors', () => {
 
 		expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
 		expect(target.textContent).toContain('Saves the edited copy to your Library');
+		expect(buttonByText(target, 'Replace original')).toBeUndefined();
 
 		buttonByText(target, '1:1')!.click();
 		await settle();
 		buttonByText(target, 'Save as new')!.click();
 		await settle();
 
-		expect(copyGenerationFileToLibrary).toHaveBeenCalledWith('file-3');
-		expect(editMediaItem.mock.calls[0][0]).toBe('copied-1');
+		expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'crop', params: { x: 0, y: 256, width: 1024, height: 1024 } }],
+			inputs: [{ generation_file_id: 'file-3' }],
+			output: { mode: 'new' }
+		});
 		expect(onChange.mock.calls.at(-1)?.[1]).toMatchObject({
 			relative_path: 'uploads/cropped.png',
 			url: '/api/media/uploads/cropped.png'
 		});
+	});
+
+	it('runs a catalog tool without an editor through the dialog and writes its result into the field', async () => {
+		listUploads.mockResolvedValue({
+			success: true,
+			data: { uploads: [{ id: 'row-8', filename: 'portrait.png' }], total: 1, limit: 100, offset: 0 }
+		});
+		getMediaToolRun.mockResolvedValue(
+			completedRun(
+				{ id: 'row-8b', filename: 'turned.png', media_type: 'image', url: '/api/media/uploads/turned.png' },
+				false
+			)
+		);
+		const onChange = vi.fn();
+		const target = mount({
+			name: 'reference_image',
+			config: { title: 'Reference', accept: 'image/*' },
+			value: {
+				path: 'uploads/portrait.png',
+				relative_path: 'uploads/portrait.png',
+				url: '/api/media/uploads/portrait.png',
+				name: 'portrait.png',
+				type: 'image',
+				metadata: { width: 1024, height: 1536 }
+			},
+			onChange
+		});
+		await settle();
+
+		await pickTool(target, 'rotate');
+		await settle();
+
+		expect(target.querySelector('[data-tool-dialog="rotate"]')).not.toBeNull();
+		expect(target.textContent).toContain('The result replaces this image in the field. The library copy stays as it is.');
+		expect(buttonByText(target, 'Replace original')).toBeUndefined();
+
+		buttonByText(target, 'Apply')!.click();
+		await settle();
+
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'rotate', params: {} }],
+			inputs: [{ item_id: 'row-8' }],
+			output: { mode: 'new' }
+		});
+		expect(onChange.mock.calls.at(-1)?.[1]).toMatchObject({ url: '/api/media/uploads/turned.png' });
+		expect(target.querySelector('[data-tool-dialog="rotate"]')).toBeNull();
 	});
 });

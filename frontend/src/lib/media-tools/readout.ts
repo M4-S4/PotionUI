@@ -115,3 +115,10 @@ export function computeReadout(
 			return null;
 	}
 }
+
+export function describeSource(source: MediaToolSource): string {
+	const dimensions = size(source.width, source.height);
+	const length = source.durationSeconds ? formatReadoutTime(source.durationSeconds) : null;
+	const rate = source.fps ? `${Math.round(source.fps)} fps` : null;
+	return join([dimensions, length, rate]) ?? '';
+}

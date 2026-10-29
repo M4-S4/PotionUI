@@ -58,9 +58,11 @@ const NOT_RESOLVED =
 export async function resolveEditableResource(
 	itemId: string | null | undefined,
 	storedPath: string | null | undefined,
-	mediaKind: EditorMediaKind
+	mediaKind: EditorMediaKind,
+	generationFileId?: string | null
 ): Promise<ResolvedResource> {
 	if (itemId) return { itemId, generationFileId: null, origin: 'given', reason: null };
+	if (generationFileId) return { itemId: null, generationFileId, origin: 'pending', reason: null };
 
 	const uploadFilename = uploadFilenameFromPath(storedPath);
 	if (uploadFilename) {
@@ -119,12 +121,4 @@ async function findGeneratedFileId(
 		logger.error('Failed to look up a generated file for editing:', error);
 		return null;
 	}
-}
-
-export async function materializeGeneratedFile(fileId: string): Promise<string> {
-	const copied = await api.copyGenerationFileToLibrary(fileId);
-	if (!copied.success || !copied.data) {
-		throw new Error(copied.message || 'This media could not be added to your library');
-	}
-	return copied.data.item.id;
 }

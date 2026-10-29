@@ -13,7 +13,10 @@
 	 * Library page does, and hiding the choice in one of them would mean the same
 	 * media behaves differently depending on which screen it was opened from.
 	 */
+	import { getContext } from 'svelte';
+	import { readable } from 'svelte/store';
 	import { Button, Spinner } from '$lib/components/ui';
+	import { EDITOR_RUN_CONTEXT_KEY, type EditorRunContext } from './editorRunContext';
 	import type { MediaEditorSaveMode } from './types';
 
 	export let busy: boolean = false;
@@ -32,7 +35,11 @@
 	export let onCancel: () => void;
 	export let onSave: (mode: MediaEditorSaveMode) => void;
 
+	const run = getContext<EditorRunContext | undefined>(EDITOR_RUN_CONTEXT_KEY);
+	const progress = run?.progress ?? readable<number | null>(null);
+
 	$: disabled = busy || blockedReason !== null;
+	$: percent = $progress === null ? null : Math.round(Math.min(1, Math.max(0, $progress)) * 100);
 </script>
 
 {#if failureMessage}
@@ -43,11 +50,18 @@
 	<span class="inline-flex items-center gap-2 text-xs text-fg-muted">
 		<Spinner size="sm" />
 		Working…
+		{#if percent !== null}
+			<span class="font-mono tabular-nums" data-editor-progress>{percent}%</span>
+		{/if}
 	</span>
 {/if}
 
 <div class="ml-auto flex items-center gap-2">
-	<Button variant="ghost" size="sm" onclick={onCancel} disabled={busy}>Cancel</Button>
+	{#if busy && run}
+		<Button variant="secondary" size="sm" onclick={() => run.cancel()}>Cancel edit</Button>
+	{:else}
+		<Button variant="ghost" size="sm" onclick={onCancel} disabled={busy}>Cancel</Button>
+	{/if}
 
 	{#if allowReplace}
 		<Tooltip text="Swap the file behind this item, keeping its tags and collections">

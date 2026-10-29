@@ -1,16 +1,22 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
+
+vi.mock('$lib/services/api/mediaTools', () => ({
+	listMediaTools: vi.fn().mockResolvedValue(CORE_TOOLS),
+	startMediaToolRun: vi.fn(),
+	getMediaToolRun: vi.fn(),
+	cancelMediaToolRun: vi.fn(),
+	previewMediaTool: vi.fn()
+}));
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		listGenerationMedia: vi.fn().mockResolvedValue({ success: false }),
 		getUploadInfo: vi.fn().mockResolvedValue({ success: false }),
-		getHistoryTools: vi.fn().mockResolvedValue({ success: true, data: [] }),
 		listUploads: vi
 			.fn()
 			.mockResolvedValue({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } }),
-		editMediaItem: vi.fn(),
-		extractMediaFrame: vi.fn(),
 		listLibraryItems: vi.fn().mockResolvedValue({ success: true, data: { items: [], total: 0 } }),
 		getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } })
 	}
@@ -213,7 +219,17 @@ describe('loaded face', () => {
 			onChange: vi.fn()
 		});
 		await tick();
-		expect(toolIds(await openTools(plain.target))).toEqual(['edit', 'crop', 'resize', 'full']);
+		expect(toolIds(await openTools(plain.target))).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject',
+			'full'
+		]);
 
 		document.body.innerHTML = '';
 		const masked = mount({
@@ -224,7 +240,19 @@ describe('loaded face', () => {
 			onMaskChange: vi.fn()
 		});
 		await tick();
-		expect(toolIds(await openTools(masked.target))).toEqual(['edit', 'crop', 'mask', 'clear-mask', 'resize', 'full']);
+		expect(toolIds(await openTools(masked.target))).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject',
+			'mask',
+			'clear-mask',
+			'full'
+		]);
 	});
 
 	it('offers trim on a video, and opens the built-in editor when no host intercepts', async () => {
@@ -788,7 +816,19 @@ describe('compact face', () => {
 
 		expect(target.querySelector('[data-media-row-face]')).toBeTruthy();
 		expect(target.querySelector('[data-media-inspector]')).toBeNull();
-		expect(toolIds(await openTools(target))).toEqual(['edit', 'crop', 'resize', 'full', 'replace', 'remove']);
+		expect(toolIds(await openTools(target))).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject',
+			'full',
+			'replace',
+			'remove'
+		]);
 	});
 
 	it('shows an empty compact field as a split add button', async () => {

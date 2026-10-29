@@ -1,13 +1,59 @@
 import { describe, it, expect } from 'vitest';
 import { registerMediaTool, unregisterMediaTools, type MediaTool } from '$lib/tools/tools';
+import type { MediaToolSource, ToolDTO } from '$lib/media-tools/types';
 import { buildMediaGroups } from './mediaFieldGroups';
 import {
 	buildFieldToolGroups,
+	fieldCatalogTools,
+	fieldToolEditorKind,
 	fieldToolGroupsFor,
+	FIELD_TOOL_EDITORS,
 	matchToolShortcut,
 	type FieldToolEnv,
 	type FieldToolOptions
 } from './mediaFieldTools';
+
+function dto(overrides: Partial<ToolDTO> & { id: string }): ToolDTO {
+	return {
+		label: overrides.id,
+		icon: 'sliders',
+		accepts: ['image'],
+		produces: 'same',
+		cardinality: 'one_to_one',
+		params: [],
+		requires: {},
+		selection: null,
+		scopes: ['library', 'history', 'field'],
+		editor: null,
+		preview: false,
+		component: null,
+		source: 'core',
+		last_params: null,
+		...overrides
+	};
+}
+
+const CATALOG: ToolDTO[] = [
+	dto({ id: 'trim', label: 'Trim', accepts: ['video', 'audio'], editor: 'trim' }),
+	dto({ id: 'crop', label: 'Crop', accepts: ['image', 'video'], editor: 'crop' }),
+	dto({ id: 'resize', label: 'Resize', accepts: ['image', 'video'], editor: 'resize' }),
+	dto({ id: 'rotate', label: 'Rotate', accepts: ['image', 'video'], preview: true }),
+	dto({ id: 'flip', label: 'Flip', accepts: ['image', 'video'], preview: true }),
+	dto({ id: 'speed', label: 'Speed', accepts: ['video', 'audio'] }),
+	dto({ id: 'fit_canvas', label: 'Fit canvas', accepts: ['image'], preview: true }),
+	dto({ id: 'crop_subject', label: 'Crop to subject', accepts: ['image'], requires: { has_alpha: true } }),
+	dto({ id: 'frame', label: 'Frame', accepts: ['video'], produces: 'image', editor: 'frame' }),
+	dto({ id: 'split', label: 'Split', accepts: ['audio'], cardinality: 'one_to_many', editor: 'split' }),
+	dto({ id: 'concat', label: 'Concat', accepts: ['video'], cardinality: 'many_to_one', selection: { min: 2, max: 8 } }),
+	dto({ id: 'history-only', label: 'History only', accepts: ['image'], scopes: ['history'] }),
+	dto({
+		id: 'acme.viewer',
+		label: 'Viewer',
+		accepts: ['image'],
+		component: 'plugin:acme:viewer',
+		source: 'acme'
+	})
+];
 
 function options(overrides: Partial<FieldToolOptions> = {}): FieldToolOptions {
 	return {
@@ -20,6 +66,7 @@ function options(overrides: Partial<FieldToolOptions> = {}): FieldToolOptions {
 		groupSize: 1,
 		kindIndex: 0,
 		totalItems: 1,
+		catalogTools: fieldCatalogTools(CATALOG, overrides.kind ?? 'image'),
 		...overrides
 	};
 }
@@ -36,20 +83,108 @@ function availability(opts: FieldToolOptions, id: string) {
 }
 
 describe('tools per kind', () => {
-	it('offers edit and crop for an image, and no mask without allow_inpaint', () => {
-		expect(fieldToolIds(options())).toEqual(['edit', 'crop', 'resize', 'full']);
+	it('offers the edit image tool and every catalog tool for an image, and no mask without allow_inpaint', () => {
+		expect(fieldToolIds(options())).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'crop_subject',
+			'acme.viewer',
+			'full'
+		]);
 	});
 
-	it('adds the mask tools for an image when the field allows inpainting', () => {
-		expect(fieldToolIds(options({ allowInpaint: true }))).toEqual(['edit', 'crop', 'mask', 'clear-mask', 'resize', 'full']);
+	it('puts the mask tools after the catalog tools when the field allows inpainting', () => {
+		expect(fieldToolIds(options({ allowInpaint: true }))).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'crop_subject',
+			'acme.viewer',
+			'mask',
+			'clear-mask',
+			'full'
+		]);
 	});
 
-	it('offers trim and frame for a video and never the image tools', () => {
-		expect(fieldToolIds(options({ kind: 'video', allowInpaint: true }))).toEqual(['trim', 'frame', 'resize', 'full']);
+	it('offers the video tools of the catalog for a video and never the image-only ones', () => {
+		expect(fieldToolIds(options({ kind: 'video', allowInpaint: true }))).toEqual([
+			'trim',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'speed',
+			'frame',
+			'full'
+		]);
 	});
 
-	it('offers trim and split for audio', () => {
-		expect(fieldToolIds(options({ kind: 'audio' }))).toEqual(['trim', 'split', 'full']);
+	it('offers trim, speed and split for audio', () => {
+		expect(fieldToolIds(options({ kind: 'audio' }))).toEqual(['trim', 'speed', 'split', 'full']);
+	});
+
+	it('leaves out tools that are not offered in a field, and a join, which needs several items', () => {
+		const ids = fieldCatalogTools(CATALOG, 'video').map((tool) => tool.id);
+		expect(ids).not.toContain('concat');
+		expect(fieldCatalogTools(CATALOG, 'image').map((tool) => tool.id)).not.toContain('history-only');
+	});
+
+	it('offers only the edit image tool when the catalog has not loaded', () => {
+		expect(fieldToolIds(options({ catalogTools: [] }))).toEqual(['edit', 'full']);
+	});
+
+	it('takes the label and icon from the catalog', () => {
+		const rotate = buildFieldToolGroups(options())[0].tools.find((entry) => entry.tool.id === 'rotate');
+		expect(rotate?.tool.label).toBe('Rotate');
+		expect(rotate?.tool.scopes).toEqual(['field']);
+	});
+
+	it('hands a component-only tool to its component rather than a dialog', () => {
+		const viewer = buildFieldToolGroups(options())[0].tools.find((entry) => entry.tool.id === 'acme.viewer');
+		expect(viewer?.tool.componentRef).toBe('plugin:acme:viewer');
+		expect(viewer?.tool.source).toBe('plugin');
+		const rotate = buildFieldToolGroups(options())[0].tools.find((entry) => entry.tool.id === 'rotate');
+		expect(rotate?.tool.componentRef).toBeUndefined();
+	});
+});
+
+describe('which surface a field tool opens', () => {
+	it('opens the built-in editor a tool names', () => {
+		expect(fieldToolEditorKind('crop', CATALOG)).toBe('crop');
+		expect(fieldToolEditorKind('trim', CATALOG)).toBe('trim');
+		expect(fieldToolEditorKind('frame', CATALOG)).toBe('frame');
+		expect(fieldToolEditorKind('split', CATALOG)).toBe('split');
+		expect(fieldToolEditorKind('resize', CATALOG)).toBe('resize');
+	});
+
+	it('opens the painter and the mask editor for the two tools that are not in the catalog', () => {
+		expect(fieldToolEditorKind('edit', CATALOG)).toBe('paint');
+		expect(fieldToolEditorKind('mask', CATALOG)).toBe('mask');
+	});
+
+	it('opens the dialog for a tool that has no editor', () => {
+		expect(fieldToolEditorKind('rotate', CATALOG)).toBe('tool:rotate');
+		expect(fieldToolEditorKind('speed', CATALOG)).toBe('tool:speed');
+	});
+
+	it('opens nothing for a component-only tool, an unknown tool or a menu action', () => {
+		expect(fieldToolEditorKind('acme.viewer', CATALOG)).toBeNull();
+		expect(fieldToolEditorKind('nope', CATALOG)).toBeNull();
+		expect(fieldToolEditorKind('full', CATALOG)).toBeNull();
+		expect(fieldToolEditorKind('remove', CATALOG)).toBeNull();
+	});
+
+	it('answers the lookup the field makes by tool id from the loaded catalog', () => {
+		expect(FIELD_TOOL_EDITORS.edit).toBe('paint');
+		expect(FIELD_TOOL_EDITORS.mask).toBe('mask');
+		expect(FIELD_TOOL_EDITORS.full).toBeUndefined();
 	});
 
 	it('offers nothing for an item of unknown kind', () => {
@@ -81,9 +216,19 @@ describe('tool availability', () => {
 
 	it('greys every tool that needs the file when it is missing', () => {
 		const opts = options({ allowInpaint: true, missing: true });
-		for (const id of ['edit', 'crop', 'mask', 'full']) {
+		for (const id of ['edit', 'crop', 'rotate', 'mask', 'full']) {
 			expect(availability(opts, id)).toEqual({ enabled: false, reason: 'File not found' });
 		}
+	});
+
+	it('greys Crop to subject with a reason for a file that cannot be transparent', () => {
+		const jpeg: MediaToolSource = { id: 'field', kind: 'image', url: '/a.jpg', filename: 'a.jpg' };
+		expect(availability(options({ source: jpeg }), 'crop_subject')).toEqual({
+			enabled: false,
+			reason: 'Needs a transparent image'
+		});
+		const png: MediaToolSource = { id: 'field', kind: 'image', url: '/a.png', filename: 'a.png' };
+		expect(availability(options({ source: png }), 'crop_subject')).toEqual({ enabled: true });
 	});
 });
 
@@ -93,7 +238,7 @@ describe('multi field tools', () => {
 
 	it('adds order and source groups only to a multi field', () => {
 		expect(fieldToolIds(options())).not.toContain('replace');
-		expect(fieldToolIds(multi())).toEqual(['edit', 'crop', 'resize', 'full', 'earlier', 'later', 'replace', 'remove-all']);
+		expect(fieldToolIds(multi()).slice(-5)).toEqual(['full', 'earlier', 'later', 'replace', 'remove-all']);
 	});
 
 	it('greys Move earlier on the first item of its group and Move later on the last', () => {
@@ -104,14 +249,15 @@ describe('multi field tools', () => {
 	});
 
 	it('counts every item in the Remove all label', () => {
-		const label = buildFieldToolGroups(multi())[3].tools[1].tool.label;
+		const groups = buildFieldToolGroups(multi());
+		const label = groups[groups.length - 1].tools[1].tool.label;
 		expect(label).toBe('Remove all 5');
 	});
 });
 
 describe('compact row tools', () => {
 	it('puts replace and remove in the menu because the row has no room for buttons', () => {
-		expect(fieldToolIds(options({ inRow: true }))).toEqual(['edit', 'crop', 'resize', 'full', 'replace', 'remove']);
+		expect(fieldToolIds(options({ inRow: true })).slice(-3)).toEqual(['full', 'replace', 'remove']);
 	});
 
 	it('keeps remove-all after remove in a multi row', () => {
@@ -126,11 +272,14 @@ describe('tool shortcuts', () => {
 		expect(matchToolShortcut(groups, 'e')?.id).toBe('edit');
 		expect(matchToolShortcut(groups, 'C')?.id).toBe('crop');
 		expect(matchToolShortcut(groups, 'm')?.id).toBe('mask');
+		expect(matchToolShortcut(buildFieldToolGroups(options({ kind: 'video' })), 't')?.id).toBe('trim');
+		expect(matchToolShortcut(buildFieldToolGroups(options({ kind: 'video' })), 'f')?.id).toBe('frame');
 	});
 
 	it('ignores a key bound to a tool that is greyed out or absent', () => {
 		expect(matchToolShortcut(buildFieldToolGroups(options({ missing: true })), 'e')).toBeNull();
 		expect(matchToolShortcut(buildFieldToolGroups(options()), 't')).toBeNull();
+		expect(matchToolShortcut(buildFieldToolGroups(options({ source: { id: 'field', kind: 'image', url: '/a.png', filename: 'a.png' }, missing: true })), 'c')).toBeNull();
 	});
 
 	it('ignores multi-character keys', () => {
@@ -154,6 +303,7 @@ describe('fieldToolGroupsFor', () => {
 			hasMask: false,
 			totalItems: 2,
 			registrations: 0,
+			catalog: CATALOG,
 			...overrides
 		};
 	}

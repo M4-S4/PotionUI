@@ -1,14 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-const editMediaItem = vi.fn();
+const startMediaToolRun = vi.fn();
+const getMediaToolRun = vi.fn();
 const listUploads = vi.fn();
+
+vi.mock('$lib/services/api/mediaTools', () => ({
+	startMediaToolRun: (...args: unknown[]) => startMediaToolRun(...args),
+	getMediaToolRun: (...args: unknown[]) => getMediaToolRun(...args),
+	cancelMediaToolRun: vi.fn(),
+	listMediaTools: vi.fn(),
+	previewMediaTool: vi.fn()
+}));
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
-		editMediaItem: (...args: unknown[]) => editMediaItem(...args),
 		listUploads: (...args: unknown[]) => listUploads(...args),
-		extractMediaFrame: vi.fn(),
-		splitMediaItem: vi.fn(),
 		listGenerationMedia: vi.fn(async () => ({ success: false })),
 		copyGenerationFileToLibrary: vi.fn(async () => ({ success: false })),
 		uploadMedia: vi.fn(),
@@ -19,6 +25,7 @@ vi.mock('$lib/services/api/index', () => ({
 const { default: MediaEditors } = await import('$lib/media/editors/MediaEditors.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
+const { mediaToolRuns } = await import('$lib/media-tools/runs');
 
 const clipSource = {
 	url: '/api/media/uploads/clip.mp4',
@@ -45,7 +52,7 @@ const imageSource = {
 async function settle() {
 	for (let i = 0; i < 5; i += 1) {
 		await tick();
-		await Promise.resolve();
+		await new Promise((resolve) => setTimeout(resolve, 0));
 	}
 }
 
@@ -79,15 +86,23 @@ function type(label: string, value: string) {
 	input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+afterEach(() => {
+	mediaToolRuns.destroy();
+});
+
 beforeEach(() => {
 	document.body.innerHTML = '';
-	editMediaItem.mockReset();
-	editMediaItem.mockResolvedValue({
-		success: true,
-		data: {
-			item: { id: 'row-2', filename: 'small.mp4', media_type: 'video', url: '/api/media/uploads/small.mp4' },
-			replaced: false
-		}
+	startMediaToolRun.mockReset();
+	getMediaToolRun.mockReset();
+	startMediaToolRun.mockResolvedValue({ run_id: 'run-1' });
+	getMediaToolRun.mockResolvedValue({
+		run_id: 'run-1',
+		status: 'completed',
+		progress: 1,
+		label: '',
+		items: [{ id: 'row-2', filename: 'small.mp4', media_type: 'video', url: '/api/media/uploads/small.mp4' }],
+		replaced: false,
+		error: null
 	});
 	listUploads.mockResolvedValue({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } });
 });
@@ -114,11 +129,11 @@ describe('resize editor', () => {
 		button('Save as new').click();
 		await settle();
 
-		expect(editMediaItem).toHaveBeenCalledWith(
-			'row-2',
-			[{ type: 'resize', width: 960, height: 540, quality: 'small' }],
-			'new'
-		);
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'resize', params: { width: 960, height: 540, quality: 'small' } }],
+			inputs: [{ item_id: 'row-2' }],
+			output: { mode: 'new' }
+		});
 	});
 
 	it('fills the other side of a custom size from the source shape', async () => {
@@ -140,11 +155,11 @@ describe('resize editor', () => {
 
 		button('Replace original').click();
 		await settle();
-		expect(editMediaItem).toHaveBeenCalledWith(
-			'row-2',
-			[{ type: 'resize', width: 712, height: 400, quality: 'balanced' }],
-			'replace'
-		);
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'resize', params: { width: 712, height: 400, quality: 'balanced' } }],
+			inputs: [{ item_id: 'row-2' }],
+			output: { mode: 'replace' }
+		});
 	});
 
 	it('refuses a custom size larger than the original', async () => {
@@ -158,7 +173,7 @@ describe('resize editor', () => {
 		expect(body.textContent).toContain('Larger than the original 1920×1080.');
 		button('Save as new').click();
 		await settle();
-		expect(editMediaItem).not.toHaveBeenCalled();
+		expect(startMediaToolRun).not.toHaveBeenCalled();
 	});
 
 	it('refuses to save the original size', async () => {
@@ -177,6 +192,10 @@ describe('resize editor', () => {
 		button('Save as new').click();
 		await settle();
 
-		expect(editMediaItem).toHaveBeenCalledWith('row-1', [{ type: 'resize', width: 720, height: 1080 }], 'new');
+		expect(startMediaToolRun).toHaveBeenCalledWith({
+			steps: [{ tool: 'resize', params: { width: 720, height: 1080 } }],
+			inputs: [{ item_id: 'row-1' }],
+			output: { mode: 'new' }
+		});
 	});
 });

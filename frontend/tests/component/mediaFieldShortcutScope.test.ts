@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
 
 class StubResizeObserver {
 	observe() {}
@@ -7,6 +8,14 @@ class StubResizeObserver {
 	disconnect() {}
 }
 vi.stubGlobal('ResizeObserver', StubResizeObserver);
+
+vi.mock('$lib/services/api/mediaTools', () => ({
+	listMediaTools: vi.fn().mockResolvedValue(CORE_TOOLS),
+	startMediaToolRun: vi.fn(),
+	getMediaToolRun: vi.fn(),
+	cancelMediaToolRun: vi.fn(),
+	previewMediaTool: vi.fn()
+}));
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -29,12 +38,9 @@ vi.mock('$lib/services/api/index', () => ({
 		}),
 		listGenerationMedia: vi.fn().mockResolvedValue({ success: false }),
 		getUploadInfo: vi.fn().mockResolvedValue({ success: false }),
-		getHistoryTools: vi.fn().mockResolvedValue({ success: true, data: [] }),
 		listUploads: vi
 			.fn()
 			.mockResolvedValue({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } }),
-		editMediaItem: vi.fn(),
-		extractMediaFrame: vi.fn(),
 		uploadMedia: vi.fn()
 	}
 }));
