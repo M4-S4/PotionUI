@@ -24,12 +24,6 @@
 import type { EditedMediaItem } from '$lib/services/api/media';
 import type { DrawConfig } from '$lib/components/imageEditor/drawConfig';
 
-/**
- * Every editor there is.
- *
- * A runtime list rather than a bare union so the surfaces that offer editors
- * can be checked for completeness against it — see `RESOURCE_EDIT_TOOLS`.
- */
 export const MEDIA_EDITOR_KINDS = [
 	/** Crop & frame — images. */
 	'crop',
@@ -154,45 +148,6 @@ export function hasEditor(kind: MediaEditorKind, mediaKind: EditorMediaKind | nu
 	if (kind === 'split') return mediaKind === 'audio';
 	if (kind === 'resize') return mediaKind === 'image' || mediaKind === 'video';
 	return mediaKind === 'video' || mediaKind === 'audio';
-}
-
-/**
- * The editors a stored library resource offers, in the order they are shown.
- *
- * `mask` is deliberately absent: a mask is a generation input bound to a form
- * field, not a property of a stored resource. Every OTHER editor kind must
- * appear here, and `types.test.ts` pins that — this list was once written out
- * by hand at its call site, and a new editor reached the media-loader field
- * while staying invisible in the library for exactly as long as nobody looked.
- */
-export const RESOURCE_EDIT_TOOLS: { key: MediaEditorKind; label: string; icon: string }[] = [
-	{ key: 'crop', label: 'Crop', icon: 'pencil-square' },
-	{ key: 'trim', label: 'Trim', icon: 'sliders' },
-	{ key: 'split', label: 'Split', icon: 'split' },
-	{ key: 'resize', label: 'Resize', icon: 'shrink' },
-	{ key: 'frame', label: 'Frame', icon: 'photo' },
-	{ key: 'paint', label: 'Edit', icon: 'paint-brush' }
-];
-
-/** Title bar copy, and the label the button carries. */
-export function editorTitle(kind: MediaEditorKind, mediaKind: EditorMediaKind | null): string {
-	if (isToolDialogKind(kind)) return 'Edit';
-	switch (kind) {
-		case 'crop':
-			return 'Crop & frame';
-		case 'frame':
-			return 'Extract a frame';
-		case 'mask':
-			return 'Create inpainting mask';
-		case 'split':
-			return 'Split into parts';
-		case 'paint':
-			return 'Edit image';
-		case 'resize':
-			return 'Resize';
-		case 'trim':
-			return mediaKind === 'audio' ? 'Trim on waveform' : 'Trim in / out';
-	}
 }
 
 /**
