@@ -14,7 +14,7 @@ function tool(id: string, extra: Partial<MediaTool> = {}): MediaTool {
 		id,
 		label: id.toUpperCase(),
 		icon: 'extension',
-		category: 'edit',
+		category: 'compose',
 		source: 'core',
 		scopes: ['history', 'field'],
 		applies: () => ({ enabled: true }),
@@ -25,7 +25,7 @@ function tool(id: string, extra: Partial<MediaTool> = {}): MediaTool {
 function groups(): MediaToolGroup[] {
 	return [
 		{
-			category: { id: 'edit', label: 'Edit', order: 10 },
+			category: { id: 'compose', label: 'Compose', order: 10 },
 			tools: [
 				{ tool: tool('crop', { shortcut: 'C', description: 'Crop it' }), availability: { enabled: true } },
 				{ tool: tool('clear'), availability: { enabled: false, reason: 'No mask' } }
@@ -98,7 +98,7 @@ describe('ToolsMenu', () => {
 	it('lists each group under its category with the tools in it', () => {
 		render({});
 		const group = menu().querySelector('[role="group"]')!;
-		expect(group.getAttribute('aria-label')).toBe('Edit');
+		expect(group.getAttribute('aria-label')).toBe('Compose');
 		expect(Array.from(menu().querySelectorAll('[data-tool]')).map((el) => el.getAttribute('data-tool'))).toEqual([
 			'crop',
 			'clear'
@@ -206,7 +206,7 @@ describe('ToolsMenu second line', () => {
 	function noted(): MediaToolGroup[] {
 		return [
 			{
-				category: { id: 'edit', label: 'Edit', order: -20 },
+				category: { id: 'compose', label: 'Compose', order: 20 },
 				tools: [
 					{ tool: tool('frame', { note: 'Saves one image' }), availability: { enabled: true } },
 					{ tool: tool('plain'), availability: { enabled: true } },

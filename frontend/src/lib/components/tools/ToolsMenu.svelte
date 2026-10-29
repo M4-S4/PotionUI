@@ -73,7 +73,36 @@
 	let trigger: HTMLDivElement | undefined = $state();
 	let menuEl: HTMLDivElement | undefined = $state();
 	let position = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: 320 });
-	let submenu = $state<'collection' | null>(null);
+	type SubmenuId = 'collection' | 'edit' | 'effects';
+	type ToolEntry = MediaToolGroup['tools'][number];
+
+	const SUBMENUS = [
+		{ id: 'edit', label: 'Edit', icon: 'sliders' },
+		{ id: 'effects', label: 'Effects', icon: 'palette' }
+	] as const;
+
+	let submenu = $state<SubmenuId | null>(null);
+
+	let submenuTools = $derived.by(() => {
+		const tools: Record<'edit' | 'effects', ToolEntry[]> = { edit: [], effects: [] };
+		if (scope === 'field') return tools;
+		for (const group of groups) {
+			if (group.category.id === 'effects') tools.effects = [...group.tools];
+			if (group.category.id === 'edit') {
+				tools.edit = [
+					...group.tools.filter((entry) => entry.tool.source !== 'plugin'),
+					...group.tools.filter((entry) => entry.tool.source === 'plugin')
+				];
+			}
+		}
+		return tools;
+	});
+
+	let topGroups = $derived(
+		scope === 'field'
+			? groups
+			: groups.filter((group) => group.category.id !== 'edit' && group.category.id !== 'effects')
+	);
 
 	let positionStyle = $derived(
 		sheet
@@ -129,6 +158,11 @@
 		});
 	});
 
+	$effect(() => {
+		void submenu;
+		if (open) requestAnimationFrame(reposition);
+	});
+
 	function items(): HTMLButtonElement[] {
 		return menuEl ? Array.from(menuEl.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')) : [];
 	}
@@ -152,6 +186,11 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (!open) return;
+		if (submenu && event.key === 'ArrowLeft' && !isTypingInField(event)) {
+			event.preventDefault();
+			closeSubmenu();
+			return;
+		}
 		if (
 			(variant === 'entry' || variant === 'bar') &&
 			!event.ctrlKey &&
@@ -172,7 +211,7 @@
 	function dismissMenu(reason: DismissReason) {
 		if (reason === 'escape') {
 			if (submenu) {
-				submenu = null;
+				closeSubmenu();
 				return;
 			}
 			onClose();
@@ -195,11 +234,43 @@
 		else onPick(tool, extra);
 	}
 
+	function focusFirstEntry() {
+		const all = items();
+		const entry = all.find(
+			(element) => !element.hasAttribute('data-submenu-back') && element.getAttribute('aria-disabled') !== 'true'
+		);
+		(entry ?? all[0])?.focus();
+	}
+
+	function openSubmenu(id: SubmenuId) {
+		submenu = id;
+		requestAnimationFrame(() => (id === 'collection' ? focusItem(0) : focusFirstEntry()));
+	}
+
+	function openerOf(id: SubmenuId): HTMLElement | null | undefined {
+		return menuEl?.querySelector<HTMLElement>(
+			id === 'collection' ? '[data-tool="add-to-collection"]' : `[data-submenu-row="${id}"]`
+		);
+	}
+
+	function closeSubmenu() {
+		const was = submenu;
+		if (!was) return;
+		submenu = null;
+		requestAnimationFrame(() => openerOf(was)?.focus());
+	}
+
+	function openOnArrowRight(event: KeyboardEvent, id: SubmenuId) {
+		if (event.key !== 'ArrowRight') return;
+		event.preventDefault();
+		event.stopPropagation();
+		openSubmenu(id);
+	}
+
 	function activate(tool: MediaTool, enabled: boolean) {
 		if (!enabled) return;
 		if (tool.control === 'collection') {
-			submenu = 'collection';
-			requestAnimationFrame(() => focusItem(0));
+			openSubmenu('collection');
 			return;
 		}
 		pick(tool, enabled);
@@ -283,18 +354,64 @@
 	{/if}
 </div>
 
-{#snippet rows()}
-	{#if submenu === 'collection'}
+{#snippet backRow(label: string)}
+	<button
+		type="button"
+		role="menuitem"
+		class="w-full px-3 {rowPad} text-left rounded flex items-center gap-2 text-fg-muted hover:text-fg hover:bg-surface-2 focus-visible:bg-surface-2"
+		data-submenu-back
+		onclick={closeSubmenu}
+	>
+		<Icon name="chevron-left" className="w-4 h-4 flex-shrink-0" />
+		<span class="flex-1 min-w-0 truncate">{label}</span>
+	</button>
+{/snippet}
+
+{#snippet toolButton(entry: ToolEntry)}
+	{@const tool = entry.tool}
+	{@const availability = entry.availability}
+	{@const inlineReason = scope === 'field' && !availability.enabled}
+	{@const subline = availability.enabled ? (tool.note ?? '') : inlineReason ? '' : (availability.reason ?? '')}
+	{@const hint = subline ? '' : hintFor(tool, availability.enabled, availability.reason)}
+	<Tooltip text={inlineReason ? '' : hint} position="right" wrapperClass="flex w-full">
 		<button
 			type="button"
 			role="menuitem"
-			class="w-full px-3 {rowPad} text-left rounded flex items-center gap-2 text-fg-muted hover:text-fg hover:bg-surface-2 focus-visible:bg-surface-2"
-			data-submenu-back
-			onclick={() => (submenu = null)}
+			class="w-full px-3 {rowPad} text-left rounded transition-colors flex items-center gap-2 {availability.enabled
+				? tool.tone === 'danger'
+					? 'text-danger hover:bg-danger/10 focus-visible:bg-danger/10'
+					: 'text-fg-muted hover:text-fg hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:text-fg'
+				: 'text-fg-muted opacity-40 cursor-not-allowed'}"
+			aria-disabled={!availability.enabled}
+			aria-haspopup={tool.control === 'collection' ? 'menu' : undefined}
+			aria-expanded={tool.control === 'collection' ? submenu === 'collection' : undefined}
+			data-tool={tool.id}
+			onclick={() => activate(tool, availability.enabled)}
+			onkeydown={tool.control === 'collection' && availability.enabled
+				? (event) => openOnArrowRight(event, 'collection')
+				: undefined}
 		>
-			<Icon name="chevron-left" className="w-4 h-4 flex-shrink-0" />
-			<span class="flex-1 min-w-0 truncate">Add to collection</span>
+			<Icon name={tool.icon} className="w-4 h-4 flex-shrink-0" />
+			<span class="flex-1 min-w-0 flex flex-col">
+				<span class="truncate">{labelOf(tool)}</span>
+				{#if subline}
+					<span class="truncate text-[12px] leading-4 text-fg-subtle" data-tool-sub>{subline}</span>
+				{/if}
+			</span>
+			{#if inlineReason && availability.reason}
+				<span class="shrink-0 font-mono text-xs text-fg-subtle">{availability.reason}</span>
+			{:else if tool.control === 'collection'}
+				<Icon name="chevron-right" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
+			{:else if availability.enabled && tool.shortcut && !sheet}
+				<Kbd keys={shortcutKeys(tool.shortcut)} />
+			{/if}
 		</button>
+	</Tooltip>
+{/snippet}
+
+{#snippet rows()}
+	{#if submenu === 'collection'}
+		{@render backRow('Add to collection')}
 		{#each collections as collection (collection.id)}
 			<button
 				type="button"
@@ -313,6 +430,19 @@
 		{#if collections.length === 0}
 			<p class="px-3 py-2 text-sm text-fg-subtle">No collections yet.</p>
 		{/if}
+	{:else if submenu === 'edit' || submenu === 'effects'}
+		{@const meta = SUBMENUS.find((entry) => entry.id === submenu)!}
+		{@const entries = submenuTools[submenu]}
+		{@const firstPlugin = entries.findIndex((entry) => entry.tool.source === 'plugin')}
+		{@render backRow(meta.label)}
+		<div role="group" aria-label={meta.label} class="flex flex-col" data-submenu-group={submenu}>
+			{#each entries as entry, index (entry.tool.id)}
+				{#if index > 0 && index === firstPlugin}
+					<div class="my-1 h-px bg-line" role="separator" data-submenu-divider></div>
+				{/if}
+				{@render toolButton(entry)}
+			{/each}
+		</div>
 	{:else}
 		{#if header}
 			<span
@@ -322,7 +452,27 @@
 				{header}
 			</span>
 		{/if}
-		{#each groups as group (group.category.id)}
+		{#each SUBMENUS as meta (meta.id)}
+			{@const count = submenuTools[meta.id].length}
+			{#if count > 0}
+				<button
+					type="button"
+					role="menuitem"
+					class="w-full px-3 {rowPad} text-left rounded transition-colors flex items-center gap-2 text-fg-muted hover:text-fg hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:text-fg"
+					aria-haspopup="menu"
+					aria-expanded="false"
+					data-submenu-row={meta.id}
+					onclick={() => openSubmenu(meta.id)}
+					onkeydown={(event) => openOnArrowRight(event, meta.id)}
+				>
+					<Icon name={meta.icon} className="w-4 h-4 flex-shrink-0" />
+					<span class="flex-1 min-w-0 truncate">{meta.label}</span>
+					<span class="shrink-0 font-mono tabular-nums text-[12px] leading-4 text-fg-subtle" data-submenu-count>{count}</span>
+					<Icon name="chevron-right" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
+				</button>
+			{/if}
+		{/each}
+		{#each topGroups as group (group.category.id)}
 			{@const isDanger = group.category.id === 'danger'}
 			<div
 				role="group"
@@ -334,14 +484,11 @@
 						{group.category.label}
 					</span>
 				{/if}
-				{#each group.tools as { tool, availability } (tool.id)}
-					{@const inlineReason = scope === 'field' && !availability.enabled}
-					{@const subline = availability.enabled ? (tool.note ?? '') : inlineReason ? '' : (availability.reason ?? '')}
-					{@const hint = subline ? '' : hintFor(tool, availability.enabled, availability.reason)}
-					{#if tool.control === 'rating'}
-						<div class="flex items-center gap-2 px-3 {rowPad} text-fg-muted" data-tool={tool.id}>
-							<Icon name={tool.icon} className="w-4 h-4 flex-shrink-0" />
-							<span class="flex-1 min-w-0 truncate">{labelOf(tool)}</span>
+				{#each group.tools as entry (entry.tool.id)}
+					{#if entry.tool.control === 'rating'}
+						<div class="flex items-center gap-2 px-3 {rowPad} text-fg-muted" data-tool={entry.tool.id}>
+							<Icon name={entry.tool.icon} className="w-4 h-4 flex-shrink-0" />
+							<span class="flex-1 min-w-0 truncate">{labelOf(entry.tool)}</span>
 							<div class="flex items-center">
 								{#each [1, 2, 3, 4, 5] as star (star)}
 									<button
@@ -350,7 +497,7 @@
 										class="p-0.5 rounded focus-visible:bg-surface-2 {star <= rating ? 'text-signal' : 'text-line-hover hover:text-fg-muted'}"
 										aria-label="Rate {star} of 5"
 										data-rating={star}
-										onclick={() => pick(tool, true, { rating: star === rating ? 0 : star })}
+										onclick={() => pick(entry.tool, true, { rating: star === rating ? 0 : star })}
 									>
 										<svg
 											class="w-3.5 h-3.5"
@@ -366,35 +513,7 @@
 							</div>
 						</div>
 					{:else}
-						<Tooltip text={inlineReason ? '' : hint} position="right" wrapperClass="flex w-full">
-							<button
-								type="button"
-								role="menuitem"
-								class="w-full px-3 {rowPad} text-left rounded transition-colors flex items-center gap-2 {availability.enabled
-									? tool.tone === 'danger'
-										? 'text-danger hover:bg-danger/10 focus-visible:bg-danger/10'
-										: 'text-fg-muted hover:text-fg hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:text-fg'
-									: 'text-fg-muted opacity-40 cursor-not-allowed'}"
-								aria-disabled={!availability.enabled}
-								data-tool={tool.id}
-								onclick={() => activate(tool, availability.enabled)}
-							>
-								<Icon name={tool.icon} className="w-4 h-4 flex-shrink-0" />
-								<span class="flex-1 min-w-0 flex flex-col">
-									<span class="truncate">{labelOf(tool)}</span>
-									{#if subline}
-										<span class="truncate text-[12px] leading-4 text-fg-subtle" data-tool-sub>{subline}</span>
-									{/if}
-								</span>
-								{#if inlineReason && availability.reason}
-									<span class="shrink-0 font-mono text-xs text-fg-subtle">{availability.reason}</span>
-								{:else if tool.control === 'collection'}
-									<Icon name="chevron-right" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
-								{:else if availability.enabled && tool.shortcut && !sheet}
-									<Kbd keys={shortcutKeys(tool.shortcut)} />
-								{/if}
-							</button>
-						</Tooltip>
+						{@render toolButton(entry)}
 					{/if}
 				{/each}
 			</div>

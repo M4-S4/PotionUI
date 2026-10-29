@@ -83,11 +83,26 @@ const cardIds = () =>
 
 const toolRow = (id: string) => document.body.querySelector<HTMLButtonElement>(`[data-tools-menu] [data-tool="${id}"]`);
 
-async function openBarMenu() {
+async function openBarMenu(submenu?: 'edit' | 'effects') {
 	Array.from(document.body.querySelectorAll('button'))
 		.find((button) => (button.textContent ?? '').trim().startsWith('Tools'))!
 		.click();
 	await settle(4);
+	if (submenu) await openSubmenu(submenu);
+}
+
+async function openSubmenu(submenu: 'edit' | 'effects') {
+	document.body.querySelector<HTMLButtonElement>(`[data-tools-menu] [data-submenu-row="${submenu}"]`)!.click();
+	await settle(4);
+}
+
+async function openCardMenu(id: string, submenu?: 'edit' | 'effects') {
+	document.body
+		.querySelector(`[data-library-card="${id}"]`)!
+		.querySelector<HTMLButtonElement>('[data-entry-menu-trigger]')!
+		.click();
+	await settle(4);
+	if (submenu) await openSubmenu(submenu);
 }
 
 beforeEach(() => {
@@ -136,7 +151,7 @@ describe('Library page media tools', () => {
 		await mountPage();
 		libraryStore.toggleSelect('b');
 		await settle(4);
-		await openBarMenu();
+		await openBarMenu('edit');
 
 		toolRow('trim')!.click();
 
@@ -151,7 +166,7 @@ describe('Library page media tools', () => {
 		await mountPage();
 		libraryStore.toggleSelect('b');
 		await settle(4);
-		await openBarMenu();
+		await openBarMenu('edit');
 		toolRow('trim')!.click();
 
 		await openMediaTool.mock.calls[0][0].onResult(
@@ -193,7 +208,7 @@ describe('Library page media tools', () => {
 		await mountPage();
 		libraryStore.toggleSelect('c');
 		await settle(4);
-		await openBarMenu();
+		await openBarMenu('edit');
 		toolRow('crop')!.click();
 
 		await openMediaTool.mock.calls[0][0].onResult(
@@ -220,7 +235,7 @@ describe('Library page media tools', () => {
 		await mountPage();
 		libraryStore.toggleSelect('a');
 		await settle(4);
-		await openBarMenu();
+		await openBarMenu('edit');
 		toolRow('crop')!.click();
 		vi.mocked(api.getLibraryFacets).mockClear();
 		vi.mocked(api.listCollections).mockClear();
@@ -240,9 +255,7 @@ describe('Library page media tools', () => {
 		libraryStore.toggleSelect('a');
 		await settle(4);
 
-		const card = document.body.querySelector('[data-library-card="b"]')!;
-		card.querySelector<HTMLButtonElement>('[data-entry-menu-trigger]')!.click();
-		await settle(4);
+		await openCardMenu('b', 'edit');
 		expect(toolRow('trim')).toBeTruthy();
 		expect(toolRow('concat')).toBeNull();
 		toolRow('trim')!.click();
@@ -276,7 +289,7 @@ describe('Library page media tools', () => {
 	async function pickFromBar(id: string, toolId: string) {
 		libraryStore.toggleSelect(id);
 		await settle(4);
-		await openBarMenu();
+		await openBarMenu('edit');
 		toolRow(toolId)!.click();
 	}
 
@@ -415,7 +428,7 @@ describe('Library page media tools', () => {
 		await mountPage();
 		libraryStore.toggleSelect('a');
 		await settle(4);
-		await openBarMenu();
+		await openBarMenu('effects');
 
 		expect(toolRow('look:noir')!.textContent).toContain('Noir');
 		toolRow('look:noir')!.click();
@@ -431,9 +444,7 @@ describe('Library page media tools', () => {
 		recentLooks.set([{ id: 'ember', name: 'Ember', group: 'Colour' }]);
 		await mountPage();
 
-		const card = document.body.querySelector('[data-library-card="c"]')!;
-		card.querySelector<HTMLButtonElement>('[data-entry-menu-trigger]')!.click();
-		await settle(4);
+		await openCardMenu('c', 'effects');
 		toolRow('look:ember')!.click();
 		await settle(4);
 
@@ -446,10 +457,9 @@ describe('Library page media tools', () => {
 		recentLooks.set([{ id: 'ember', name: 'Ember', group: 'Colour' }]);
 		await mountPage();
 
-		const card = document.body.querySelector('[data-library-card="b"]')!;
-		card.querySelector<HTMLButtonElement>('[data-entry-menu-trigger]')!.click();
-		await settle(4);
+		await openCardMenu('b');
 
+		expect(document.body.querySelector('[data-submenu-row="effects"]')).toBeNull();
 		expect(toolRow('look:ember')).toBeNull();
 		expect(toolRow('apply-look')).toBeNull();
 	});

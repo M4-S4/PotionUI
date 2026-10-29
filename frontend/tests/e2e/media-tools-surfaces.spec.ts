@@ -178,16 +178,50 @@ async function mockBackend(page: Page): Promise<Backend> {
 
 const menu = (page: Page) => page.locator('[data-tools-menu]');
 
+type Submenu = 'edit' | 'effects';
+
+const SUBMENU_LABEL: Record<Submenu, string> = { edit: 'Edit', effects: 'Effects' };
+
+async function topRows(page: Page): Promise<Array<{ id: string; count: number }>> {
+	return page.locator('[data-tools-menu] [data-submenu-row]').evaluateAll((rows) =>
+		rows.map((row) => ({
+			id: row.getAttribute('data-submenu-row') ?? '',
+			count: Number(row.querySelector('[data-submenu-count]')?.textContent ?? '0')
+		}))
+	);
+}
+
 async function groupLabels(page: Page): Promise<string[]> {
-	return page
+	const rows = (await topRows(page)).map((row) => SUBMENU_LABEL[row.id as Submenu]);
+	const groups = await page
 		.locator('[data-tools-menu] [role="group"]')
-		.evaluateAll((groups) => groups.map((group) => group.getAttribute('aria-label') ?? ''));
+		.evaluateAll((nodes) => nodes.map((group) => group.getAttribute('aria-label') ?? ''));
+	return [...rows, ...groups];
+}
+
+async function openSubmenu(page: Page, id: Submenu) {
+	await menu(page).locator(`[data-submenu-row="${id}"]`).click();
+	await expect(menu(page).locator('[data-submenu-back]')).toBeVisible();
+}
+
+async function closeSubmenu(page: Page, id: Submenu) {
+	await menu(page).locator('[data-submenu-back]').click();
+	await expect(menu(page).locator(`[data-submenu-row="${id}"]`)).toBeFocused();
 }
 
 async function toolsOf(page: Page, group: string): Promise<string[]> {
-	return page
-		.locator(`[data-tools-menu] [role="group"][aria-label="${group}"] [data-tool]`)
+	const id = (Object.keys(SUBMENU_LABEL) as Submenu[]).find((key) => SUBMENU_LABEL[key] === group);
+	if (!id) {
+		return page
+			.locator(`[data-tools-menu] [role="group"][aria-label="${group}"] [data-tool]`)
+			.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-tool') ?? ''));
+	}
+	await openSubmenu(page, id);
+	const tools = await menu(page)
+		.locator(`[data-submenu-group="${id}"] [data-tool]`)
 		.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-tool') ?? ''));
+	await closeSubmenu(page, id);
+	return tools;
 }
 
 async function openLibraryMenu(page: Page, name: string) {
@@ -220,6 +254,12 @@ test.describe('Tools menu, Edit and Effects', () => {
 		const labels = await groupLabels(page);
 		expect(labels.slice(0, 2)).toEqual(['Edit', 'Effects']);
 		expect(labels).toEqual(expect.arrayContaining(['Analyze', 'Compose', 'Export']));
+		expect(await topRows(page)).toEqual([
+			{ id: 'edit', count: 7 },
+			{ id: 'effects', count: 1 }
+		]);
+		await expect(menu(page).locator('[data-tool="crop"]')).toHaveCount(0);
+		await screenshot(page, JOURNEY, 'library-image-menu-1440');
 		expect(await toolsOf(page, 'Edit')).toEqual([
 			'crop',
 			'resize',
@@ -230,21 +270,25 @@ test.describe('Tools menu, Edit and Effects', () => {
 			'crop_subject'
 		]);
 		expect(await toolsOf(page, 'Effects')).toEqual(['apply-look']);
+		await openSubmenu(page, 'edit');
 		await expect(menu(page).locator('[data-tool="crop_subject"]')).toHaveAttribute('aria-disabled', 'true');
 		await expect(menu(page).locator('[data-tool="crop_subject"] [data-tool-sub]')).toHaveText(
 			'Needs a transparent image'
 		);
-		await screenshot(page, JOURNEY, 'library-image-menu-1440');
+		await screenshot(page, JOURNEY, 'library-image-edit-submenu-1440');
 	});
 
 	test('Library: a video gets the video tools and no Effects, with Concat waiting for a second clip', async ({ page }) => {
 		await openLibraryMenu(page, 'timelapse.mp4');
 
+		expect(await topRows(page)).toEqual([{ id: 'edit', count: 8 }]);
+		await screenshot(page, JOURNEY, 'library-video-menu-1440');
 		expect(await toolsOf(page, 'Edit')).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'concat']);
 		expect(await groupLabels(page)).not.toContain('Effects');
+		await openSubmenu(page, 'edit');
 		await expect(menu(page).locator('[data-tool="concat"] [data-tool-sub]')).toHaveText('Select 2 to 8 items');
 		await expect(menu(page).locator('[data-tool="frame"] [data-tool-sub]')).toHaveText('Saves one image');
-		await screenshot(page, JOURNEY, 'library-video-menu-1440');
+		await screenshot(page, JOURNEY, 'library-video-edit-submenu-1440');
 	});
 
 	test('Library: audio gets trim, speed and split and no Effects', async ({ page }) => {
@@ -274,6 +318,7 @@ test.describe('Tools menu, Edit and Effects', () => {
 		test.setTimeout(120000);
 		await openLibraryMenu(page, 'harbour.png');
 
+		await openSubmenu(page, 'effects');
 		await menu(page).locator('[data-tool="apply-look"]').click();
 
 		const dialog = page.getByRole('dialog', { name: 'Edit image' });
@@ -310,8 +355,9 @@ test.describe('recent looks', () => {
 
 		await openLibraryMenu(page, 'harbour.png');
 		expect(await toolsOf(page, 'Effects')).toEqual(['apply-look', 'look:noir', 'look:ember', 'look:honey']);
+		await openSubmenu(page, 'effects');
 		await expect(menu(page).locator('[data-tool="look:noir"] [data-tool-sub]')).toHaveText('Black and white');
-		await screenshot(page, JOURNEY, 'recent-looks-menu-1440');
+		await screenshot(page, JOURNEY, 'recent-looks-submenu-1440');
 		await page.keyboard.press('Escape');
 
 		await openHistoryMenu(page, 0);
@@ -329,6 +375,7 @@ test.describe('recent looks', () => {
 		await mockBackend(page);
 		await openLibraryMenu(page, 'harbour.png');
 
+		await openSubmenu(page, 'effects');
 		await menu(page).locator('[data-tool="look:ember"]').click();
 
 		const dialog = page.getByRole('dialog', { name: 'Edit image' });
@@ -414,6 +461,154 @@ test.describe('the tool catalog fails to load', () => {
 
 		expect(state.requests).toBe(2);
 		await expect(page.getByText("Editing tools couldn't load")).toHaveCount(1);
+	});
+});
+
+test.describe('Edit and Effects submenus', () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await loginAsOwner(page);
+		await mockBackend(page);
+	});
+
+	test('lists an Edit and an Effects row with counts above the other groups', async ({ page }) => {
+		await openLibraryMenu(page, 'harbour.png');
+
+		const first = menu(page).locator('[role="menuitem"]').first();
+		await expect(first).toHaveAttribute('data-submenu-row', 'edit');
+		await expect(first.locator('[data-submenu-count]')).toHaveText('7');
+		await expect(menu(page).locator('[data-submenu-row="effects"] [data-submenu-count]')).toHaveText('1');
+		await expect(first).toBeFocused();
+	});
+
+	test('opens a row with Enter and with Space, and focuses the first enabled entry', async ({ page }) => {
+		await openLibraryMenu(page, 'harbour.png');
+		const row = menu(page).locator('[data-submenu-row="edit"]');
+		await row.focus();
+
+		await page.keyboard.press('Enter');
+		await expect(menu(page).locator('[data-submenu-back]')).toBeVisible();
+		await expect(menu(page).locator('[data-tool="crop"]')).toBeFocused();
+
+		await page.keyboard.press('ArrowLeft');
+		await expect(row).toBeFocused();
+		await page.keyboard.press('Space');
+		await expect(menu(page).locator('[data-submenu-back]')).toBeVisible();
+		await expect(menu(page).locator('[data-tool="crop"]')).toBeFocused();
+	});
+
+	test('opens with ArrowRight and returns with ArrowLeft, Escape and the back row, refocusing the row', async ({ page }) => {
+		await openLibraryMenu(page, 'harbour.png');
+		const row = menu(page).locator('[data-submenu-row="effects"]');
+		await row.focus();
+
+		await page.keyboard.press('ArrowRight');
+		await expect(menu(page).locator('[data-tool="apply-look"]')).toBeFocused();
+		await page.keyboard.press('ArrowLeft');
+		await expect(row).toBeFocused();
+
+		await page.keyboard.press('ArrowRight');
+		await page.keyboard.press('Escape');
+		await expect(menu(page)).toBeVisible();
+		await expect(row).toBeFocused();
+
+		await row.press('ArrowRight');
+		await menu(page).locator('[data-submenu-back]').click();
+		await expect(row).toBeFocused();
+	});
+
+	test('closes the whole menu on Escape at the top level, after Escape left a submenu', async ({ page }) => {
+		await openLibraryMenu(page, 'harbour.png');
+		await menu(page).locator('[data-submenu-row="edit"]').focus();
+		await page.keyboard.press('ArrowRight');
+
+		await page.keyboard.press('Escape');
+		await expect(menu(page)).toBeVisible();
+		await page.keyboard.press('Escape');
+
+		await expect(menu(page)).toHaveCount(0);
+	});
+
+	test('walks a submenu with the arrow keys and runs the focused tool with Enter', async ({ page }) => {
+		await openLibraryMenu(page, 'harbour.png');
+		await menu(page).locator('[data-submenu-row="edit"]').focus();
+		await page.keyboard.press('ArrowRight');
+
+		await page.keyboard.press('ArrowDown');
+		await page.keyboard.press('ArrowDown');
+		await expect(menu(page).locator('[data-tool="rotate"]')).toBeFocused();
+		await page.keyboard.press('Enter');
+
+		await expect(page.getByRole('dialog', { name: /Rotate/ })).toBeVisible();
+	});
+
+	test('keeps Analyze, Compose and Export below the two rows, unchanged', async ({ page }) => {
+		await openLibraryMenu(page, 'harbour.png');
+
+		const order = await menu(page)
+			.locator('[data-submenu-row], [role="group"]')
+			.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-submenu-row') ?? node.getAttribute('aria-label')));
+		expect(order.slice(0, 2)).toEqual(['edit', 'effects']);
+		expect(order).toEqual(expect.arrayContaining(['Analyze', 'Compose', 'Export']));
+	});
+
+	test('shows the same rows and counts on a Library card and a History card', async ({ page }) => {
+		await page.goto('/library');
+		const libraryCard = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
+		await libraryCard.hover();
+		await libraryCard.getByRole('button', { name: 'Item actions' }).click();
+		const libraryRows = await topRows(page);
+		await page.keyboard.press('Escape');
+
+		await page.goto('/history');
+		const historyCard = page.locator('[data-generation-card]').first();
+		await historyCard.hover();
+		await historyCard.getByRole('button', { name: 'Item actions' }).click();
+
+		expect(libraryRows).toEqual([
+			{ id: 'edit', count: 7 },
+			{ id: 'effects', count: 1 }
+		]);
+		expect(await topRows(page)).toEqual(libraryRows);
+		await screenshot(page, JOURNEY, 'history-card-rows-1440');
+	});
+
+	test('hides the Effects row on a video card', async ({ page }) => {
+		await page.goto('/library');
+		const video = page.locator('[data-library-card]').filter({ hasText: 'timelapse.mp4' });
+		await video.hover();
+		await video.getByRole('button', { name: 'Item actions' }).click();
+
+		expect(await topRows(page)).toEqual([{ id: 'edit', count: 7 }]);
+	});
+});
+
+test.describe('Edit and Effects submenus on a phone', () => {
+	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+	test.beforeEach(async ({ page }) => {
+		await loginAsOwner(page);
+		await mockBackend(page);
+	});
+
+	test('drills into Edit in the bottom sheet and back', async ({ page }) => {
+		await page.goto('/library');
+		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
+		await expect(card).toBeVisible();
+
+		await card.getByRole('button', { name: 'Item actions' }).tap();
+		const sheet = page.locator('[data-tools-sheet]');
+		await expect(sheet).toBeVisible();
+		await expect(sheet.locator('[data-submenu-row="edit"] [data-submenu-count]')).toHaveText('7');
+		await screenshot(page, JOURNEY, 'sheet-rows-390');
+
+		await sheet.locator('[data-submenu-row="edit"]').tap();
+		await expect(sheet.locator('[data-submenu-back]')).toBeVisible();
+		await expect(sheet.locator('[data-tool="crop"]')).toBeVisible();
+		await screenshot(page, JOURNEY, 'sheet-edit-390');
+
+		await sheet.locator('[data-submenu-back]').tap();
+		await expect(sheet.locator('[data-submenu-row="effects"]')).toBeVisible();
 	});
 });
 
@@ -560,6 +755,7 @@ test.describe('running a tool', () => {
 		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
 		await card.hover();
 		await card.getByRole('button', { name: 'Item actions' }).click();
+		await openSubmenu(page, 'edit');
 		await menu(page).locator('[data-tool="rotate"]').click();
 
 		const dialog = page.getByRole('dialog', { name: /Rotate/ });
@@ -593,6 +789,7 @@ test.describe('running a tool', () => {
 		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
 		await card.hover();
 		await card.getByRole('button', { name: 'Item actions' }).click();
+		await openSubmenu(page, 'edit');
 		await menu(page).locator('[data-tool="rotate"]').click();
 		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Apply' }).click();
 
@@ -609,6 +806,7 @@ test.describe('running a tool', () => {
 		const card = page.locator('[data-generation-card]').first();
 		await card.hover();
 		await card.getByRole('button', { name: 'Item actions' }).click();
+		await openSubmenu(page, 'edit');
 		await menu(page).locator('[data-tool="rotate"]').click();
 		const dialog = page.getByRole('dialog', { name: /Rotate/ });
 		await expect(dialog).toContainText('Saved as a new Library item');

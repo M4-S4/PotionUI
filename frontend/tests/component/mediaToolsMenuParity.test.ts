@@ -22,7 +22,12 @@ vi.mock('$lib/services/api/index', () => ({
 		listCollections: vi.fn(),
 		listLibraryItems: vi.fn(),
 		getGenerationHistory: vi.fn(),
-		getLibraryFacets: vi.fn()
+		getLibraryFacets: vi.fn(),
+		getClient: vi.fn(() => ({
+			get: vi.fn().mockRejectedValue(new Error('not mocked')),
+			put: vi.fn().mockRejectedValue(new Error('not mocked'))
+		})),
+		getGenerationThumbnailURL: vi.fn(() => '/thumb.png')
 	}
 }));
 
@@ -36,6 +41,9 @@ const { recentLooks } = await import('$lib/filters/recentLooks');
 const { default: LibrarySelectionToolbar } = await import(
 	'../../src/routes/library/components/LibrarySelectionToolbar.svelte'
 );
+const { default: LibraryCard } = await import('../../src/routes/library/components/LibraryCard.svelte');
+const { default: GenerationCard } = await import('$lib/components/GenerationCard.svelte');
+const { createHistoryEntryMenu, createLibraryEntryMenu } = await import('$lib/tools/entryMenu');
 const { default: HistorySelectionToolbar } = await import(
 	'../../src/routes/history/components/HistorySelectionToolbar.svelte'
 );
@@ -49,6 +57,7 @@ interface MenuGroup {
 	label: string;
 	tools: string[];
 	subs: Record<string, string>;
+	count?: number;
 }
 
 const EXT: Record<Kind, string> = { image: 'png', video: 'mp4', audio: 'wav' };
@@ -104,22 +113,54 @@ function mountToolbar(component: unknown) {
 	};
 }
 
+function readGroup(group: Element, label?: string): MenuGroup {
+	const rows = Array.from(group.querySelectorAll('[data-tool]'));
+	return {
+		label: label ?? group.getAttribute('aria-label') ?? '',
+		tools: rows.map((row) => row.getAttribute('data-tool') ?? ''),
+		subs: Object.fromEntries(
+			rows.map((row) => [row.getAttribute('data-tool') ?? '', row.querySelector('[data-tool-sub]')?.textContent ?? ''])
+		)
+	};
+}
+
+interface TopRow {
+	id: string;
+	label: string;
+	count: number;
+}
+
+function topRows(): TopRow[] {
+	return Array.from(document.body.querySelectorAll('[data-tools-menu] [data-submenu-row]')).map((row) => ({
+		id: row.getAttribute('data-submenu-row') ?? '',
+		label: (row.querySelector('span.truncate')?.textContent ?? '').trim(),
+		count: Number(row.querySelector('[data-submenu-count]')?.textContent ?? '0')
+	}));
+}
+
+async function readMenu(): Promise<MenuGroup[]> {
+	const top = Array.from(document.body.querySelectorAll('[data-tools-menu] [role="group"]')).map((group) =>
+		readGroup(group)
+	);
+	const drilled: MenuGroup[] = [];
+	for (const entry of topRows()) {
+		document.body.querySelector<HTMLButtonElement>(`[data-tools-menu] [data-submenu-row="${entry.id}"]`)!.click();
+		await settle();
+		const group = document.body.querySelector(`[data-tools-menu] [data-submenu-group="${entry.id}"]`)!;
+		drilled.push({ ...readGroup(group, entry.label), count: entry.count });
+		document.body.querySelector<HTMLButtonElement>('[data-tools-menu] [data-submenu-back]')!.click();
+		await settle();
+	}
+	return [...drilled, ...top];
+}
+
 async function openMenu(): Promise<MenuGroup[]> {
 	const trigger = Array.from(document.body.querySelectorAll('button')).find((button) =>
 		button.textContent?.includes('Tools')
 	)!;
 	trigger.click();
 	await settle();
-	return Array.from(document.body.querySelectorAll('[data-tools-menu] [role="group"]')).map((group) => ({
-		label: group.getAttribute('aria-label') ?? '',
-		tools: Array.from(group.querySelectorAll('[data-tool]')).map((row) => row.getAttribute('data-tool') ?? ''),
-		subs: Object.fromEntries(
-			Array.from(group.querySelectorAll('[data-tool]')).map((row) => [
-				row.getAttribute('data-tool') ?? '',
-				row.querySelector('[data-tool-sub]')?.textContent ?? ''
-			])
-		)
-	}));
+	return readMenu();
 }
 
 let destroy: (() => void) | undefined;
@@ -149,6 +190,75 @@ async function historyMenu(kind: Kind): Promise<MenuGroup[]> {
 }
 
 const byLabel = (groups: MenuGroup[], label: string) => groups.find((group) => group.label === label);
+
+const HOST = {
+	open: vi.fn(),
+	remove: vi.fn(),
+	deselect: vi.fn(),
+	favorite: vi.fn(),
+	addToCollection: vi.fn(),
+	reuse: vi.fn(),
+	rate: vi.fn(),
+	copyToLibrary: vi.fn()
+};
+
+async function openCardTrigger(target: HTMLElement): Promise<MenuGroup[]> {
+	target.querySelector<HTMLButtonElement>('[data-entry-menu-trigger]')!.click();
+	await settle();
+	return readMenu();
+}
+
+async function libraryCardMenu(kind: Kind): Promise<MenuGroup[]> {
+	const item = libraryItem('u1', kind);
+	const entryMenu = createLibraryEntryMenu({
+		items: () => [item as never],
+		selectedIds: () => [],
+		host: HOST,
+		onTool: vi.fn()
+	});
+	const target = document.createElement('div');
+	document.body.appendChild(target);
+	const instance = createClassComponent({
+		component: LibraryCard as never,
+		target,
+		props: { item, entryMenu, tile: { width: 320, height: 160 } }
+	});
+	destroy = () => {
+		instance.$destroy();
+		target.remove();
+	};
+	return openCardTrigger(target);
+}
+
+async function historyCardMenu(kind: Kind): Promise<MenuGroup[]> {
+	const gen = generation('g1', kind) as never;
+	const entryMenu = createHistoryEntryMenu({
+		generations: () => [gen],
+		selectedIds: () => [],
+		host: HOST,
+		onTool: vi.fn()
+	});
+	const target = document.createElement('div');
+	document.body.appendChild(target);
+	const instance = createClassComponent({
+		component: GenerationCard as never,
+		target,
+		props: { generation: gen, entryMenu, tile: { width: 320, height: 160 } }
+	});
+	destroy = () => {
+		instance.$destroy();
+		target.remove();
+	};
+	return openCardTrigger(target);
+}
+
+async function reopened<T>(open: () => Promise<T>): Promise<T> {
+	destroy?.();
+	destroy = undefined;
+	document.body.innerHTML = '';
+	libraryStore.reset();
+	return open();
+}
 
 beforeEach(() => {
 	recentLooks.set([]);
@@ -293,3 +403,123 @@ describe('Tools menu: Edit and Effects on both pages', () => {
 		expect(byLabel(after, 'Effects')!.tools).toEqual(['apply-look', 'look:noir']);
 	});
 });
+
+describe('Tools menu: the Edit and Effects submenus at the top level', () => {
+	const rowsNow = () => topRows().map((entry) => [entry.id, entry.label, entry.count]);
+
+	it('Library, image: an Edit row of 7 and an Effects row of 1 stand in for the eight tools', async () => {
+		const groups = await libraryMenu('image');
+
+		expect(rowsNow()).toEqual([
+			['edit', 'Edit', 7],
+			['effects', 'Effects', 1]
+		]);
+		expect(byLabel(groups, 'Edit')!.count).toBe(byLabel(groups, 'Edit')!.tools.length);
+		expect(document.body.querySelector('[data-tools-menu] > [data-tool="crop"]')).toBeNull();
+		expect(document.body.querySelector('[data-tools-menu] [data-tool="crop"]')).toBeNull();
+	});
+
+	it('Library, video: an Edit row only, counting Concat that waits for a second clip', async () => {
+		await libraryMenu('video');
+
+		expect(rowsNow()).toEqual([['edit', 'Edit', 8]]);
+	});
+
+	it('Library, audio: an Edit row of three and no Effects row', async () => {
+		await libraryMenu('audio');
+
+		expect(rowsNow()).toEqual([['edit', 'Edit', 3]]);
+	});
+
+	it.each(['image', 'video', 'audio'] as const)('shows History the same rows and counts as Library for %s', async (kind) => {
+		await libraryMenu(kind);
+		const library = rowsNow();
+		await reopened(() => historyMenu(kind));
+
+		expect(rowsNow()).toEqual(library);
+	});
+
+	it('keeps the existing groups below the rows on the bar', async () => {
+		await libraryMenu('image');
+
+		const order = Array.from(
+			document.body.querySelectorAll('[data-tools-menu] [data-submenu-row], [data-tools-menu] [role="group"]')
+		).map((node) => node.getAttribute('data-submenu-row') ?? node.getAttribute('aria-label'));
+		expect(order.slice(0, 2)).toEqual(['edit', 'effects']);
+		expect(order).toEqual(expect.arrayContaining(['Analyze', 'Compose', 'Export']));
+	});
+});
+
+describe('card menu: the same submenus', () => {
+	const rowsNow = () => topRows().map((entry) => [entry.id, entry.label, entry.count]);
+
+	it('Library card, image: Edit and Effects rows lead the menu, before Open', async () => {
+		await libraryCardMenu('image');
+
+		expect(rowsNow()).toEqual([
+			['edit', 'Edit', 7],
+			['effects', 'Effects', 1]
+		]);
+		const order = Array.from(
+			document.body.querySelectorAll('[data-tools-menu] [data-submenu-row], [data-tools-menu] [role="group"]')
+		).map((node) => node.getAttribute('data-submenu-row') ?? node.getAttribute('aria-label'));
+		expect(order.slice(0, 3)).toEqual(['edit', 'effects', 'Open']);
+	});
+
+	it('hides what one card can never satisfy, so a video card counts one fewer than the bar', async () => {
+		await libraryCardMenu('video');
+
+		expect(rowsNow()).toEqual([['edit', 'Edit', 7]]);
+	});
+
+	it.each(['image', 'video', 'audio'] as const)(
+		'gives a Library card and a History card the same Edit and Effects submenus for %s',
+		async (kind) => {
+			const library = await libraryCardMenu(kind);
+			const libraryRows = rowsNow();
+			const history = await reopened(() => historyCardMenu(kind));
+
+			expect(rowsNow()).toEqual(libraryRows);
+			expect(byLabel(history, 'Edit')).toEqual(byLabel(library, 'Edit'));
+			expect(byLabel(history, 'Effects')).toEqual(byLabel(library, 'Effects'));
+		}
+	);
+
+	it.each(['image', 'audio'] as const)('gives the card menu and the bar menu one submenu content for %s', async (kind) => {
+		const bar = await libraryMenu(kind);
+		const card = await reopened(() => libraryCardMenu(kind));
+
+		expect(byLabel(card, 'Edit')).toEqual(byLabel(bar, 'Edit'));
+		expect(byLabel(card, 'Effects')).toEqual(byLabel(bar, 'Effects'));
+	});
+
+	it('gives a video card the bar menu submenu without Concat', async () => {
+		const bar = await libraryMenu('video');
+		const card = await reopened(() => libraryCardMenu('video'));
+
+		expect(byLabel(card, 'Edit')!.tools).toEqual(byLabel(bar, 'Edit')!.tools.filter((id) => id !== 'concat'));
+		expect(byLabel(card, 'Edit')!.subs.frame).toBe('Saves one image');
+	});
+
+	it('shows recent looks in the Effects submenu of a card, on both pages', async () => {
+		recentLooks.set([
+			{ id: 'noir', name: 'Noir', group: 'Black and white' },
+			{ id: 'ember', name: 'Ember', group: 'Colour' }
+		]);
+		const library = await libraryCardMenu('image');
+		const history = await reopened(() => historyCardMenu('image'));
+
+		for (const groups of [library, history]) {
+			expect(byLabel(groups, 'Effects')!.tools).toEqual(['apply-look', 'look:noir', 'look:ember']);
+			expect(byLabel(groups, 'Effects')!.count).toBe(3);
+		}
+	});
+
+	it('keeps the A1111 export in the Plugins group of a History card, outside the Edit submenu', async () => {
+		const groups = await historyCardMenu('image');
+
+		expect(byLabel(groups, 'Plugins')!.tools).toEqual([A1111_TOOL.id]);
+		expect(byLabel(groups, 'Edit')!.tools).not.toContain(A1111_TOOL.id);
+	});
+});
+
