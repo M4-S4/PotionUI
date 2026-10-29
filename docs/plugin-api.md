@@ -1502,6 +1502,33 @@ the same ownership checks, parameter validation and Library quota. `mode: replac
 for the user's approval in chat. See [Chat Modes](chat-modes.md#tool-approval) and
 [Automation Nodes](automation-nodes.md#media-tool).
 
+### From presets
+
+A preset step runs any registered tool, a plugin's included, through the `media_tool` pipe. `tool` is the catalog id,
+`params` are the tool's parameters (the same names and the same validation as the API), and `skip_unfit: true` passes
+media the tool cannot work on, such as an image without transparency for `crop_subject`, through unchanged instead of
+failing.
+
+```yaml
+- name: "media_tool"
+  id: "crop_subject"
+  input:
+    - ["image", "matting", "image"]
+  configuration:
+    display_title: "Cropping subject"
+    tool: "crop_subject"
+    skip_unfit: true
+    params:
+      margin: "{{ form.crop_margin }}"
+```
+
+Images, videos and audio files go in and come out as arrays on `image`, `video` and `audio`; a tool that makes a
+different kind (`frame` turns a video into an image) fills the output of that kind. A tool that joins (`concat`) takes
+every input of one kind and makes one output. Image tools run in memory without writing the picture to disk. The pipe
+reads the plugin catalog from the `MEDIA_TOOLS` service the generation engine injects, so a plugin's tool runs while the
+plugin is enabled; a Remote Native worker has no such service and runs the core tools only. See the
+[Pipes Reference](pipes.md#pipe-media-tool).
+
 ### Declaring a tool
 
 A plugin declares tools in `manifest.yml` under `media_tools`. Disabling the plugin removes them from

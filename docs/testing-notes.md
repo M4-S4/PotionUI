@@ -190,14 +190,14 @@ These are container/environment artefacts, not regressions caused by your change
 
 - `opencv-python`, `opencv-contrib-python` and `opencv-python-headless` (pulled in by `controlnet-aux`) all install `cv2`, so `constraints.txt` pins the three to one version; keep them pinned together.
 - The cv2-dependent tests (`tests/pipelines/pipes/test_detailer_sdxl.py`,
-  `video_frame_extractor/`, `video_frame_merger/`, `media_loader/`) guard their
+  `media_loader/`) guard their
   `cv2` import with
   `pytest.importorskip("cv2", reason=..., exc_type=ImportError)`, so a container
   missing `cv2`'s native deps gets clean skips instead of collection-aborting
   errors — no `--ignore` needed either way, and the tests run for real once the
-  lib is present. **They run here now** (102 tests): `libglib2.0-0` supplies the
+  lib is present. **They run here now**: `libglib2.0-0` supplies the
   `libgthread-2.0.so.0` that `import cv2` needs. It arrived as a side effect of
-  `npx playwright install-deps chromium` on 2026-07-27; before that these four
+  `npx playwright install-deps chromium` on 2026-07-27; before that these
   suites silently skipped. If you meet `ImportError: libgthread-2.0.so.0` on a
   fresh container, `sudo apt-get install -y libglib2.0-0` is the fix (run
   `sudo apt-get update` first — the container's package index goes stale after
