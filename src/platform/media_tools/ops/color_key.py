@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
-from src.platform.media_tools.ops._imaging import (
+from src.platform.imaging.pixels import (
     MAX_CHROMA_DISTANCE,
     border_ring_color,
     despill,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.platform.media_tools.ops._imaging import MAX_CHROMA_DISTANCE, soft_alpha
+from src.platform.imaging.pixels import MAX_CHROMA_DISTANCE, soft_alpha
 
 
 def test_zero_softness_is_a_hard_binary_cut():

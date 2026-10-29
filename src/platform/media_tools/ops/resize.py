@@ -6,7 +6,7 @@ from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
 from src.platform.media_tools.fastpath import CRF_BY_QUALITY, DEFAULT_CRF
-from src.platform.media_tools.ops._imaging import MAX_IMAGE_DIMENSION, MAX_VIDEO_DIMENSION, even, resample_ready
+from src.platform.imaging.pixels import MAX_IMAGE_DIMENSION, MAX_VIDEO_DIMENSION, even, resample_ready
 from src.platform.media_tools.types import FilterFragment, InvalidToolParams, ToolMedia, ToolSpec
 
 SPEC = dict(

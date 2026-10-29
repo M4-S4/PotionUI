@@ -5,7 +5,7 @@ from typing import Optional
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
-from src.platform.media_tools.ops._imaging import even
+from src.platform.imaging.pixels import even
 from src.platform.media_tools.types import FilterFragment, InvalidToolParams, ToolMedia, ToolSpec
 
 SPEC = dict(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
-from src.platform.media_tools.ops._imaging import alpha_bbox
+from src.platform.imaging.pixels import alpha_bbox
 from src.platform.media_tools.types import ToolSpec
 
 SPEC = dict(

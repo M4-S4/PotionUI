@@ -3,7 +3,7 @@ from __future__ import annotations
 from PIL import Image
 
 from src.platform.media_tools.base import MediaTool
-from src.platform.media_tools.ops._imaging import MAX_IMAGE_DIMENSION, parse_hex_color, resample_ready
+from src.platform.imaging.pixels import MAX_IMAGE_DIMENSION, parse_hex_color, resample_ready
 from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.media_tools.types import InvalidToolParams, ToolSpec
 

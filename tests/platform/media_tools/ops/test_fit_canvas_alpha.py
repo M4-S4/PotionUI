@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from src.platform.imaging.pixels import alpha_bbox
 from src.platform.media_tools import validate_params
 from src.platform.media_tools.ops import fit_canvas
-from src.platform.media_tools.ops._imaging import alpha_bbox
 from src.platform.media_tools.ops.fit_canvas import anchor_fractions, scaled_size
 
 
