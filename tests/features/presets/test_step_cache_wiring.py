@@ -255,7 +255,7 @@ TABS = {
     "ltx": "content/presets/marketplace/LTX-2/modes/video/tabs/advanced.yml",
     "flux1": "content/presets/marketplace/Flux1/modes/txt2img/tabs/advanced.yml",
     "flux2": "content/presets/marketplace/Flux2/modes/txt2img/tabs/advanced.yml",
-    "h3": "content/presets/marketplace/MiniMax-H3/modes/video/tabs/advanced.yml",
+    "h3": "content/presets/marketplace/MiniMax-H3/files/form/advanced_step_cache.yml",
 }
 
 

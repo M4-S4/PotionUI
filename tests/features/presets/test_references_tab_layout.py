@@ -3,15 +3,17 @@
 Modes whose uploaded media CONDITIONS a generation (img2img, img2vid, flf2v,
 ia2v, ref2va, edit, inpaint) carry their media loaders on a dedicated
 "References" tab, positioned immediately after the mode's first tab and before
-any LoRA tab. Modes whose media is the sole OPERAND of a transform (the
-ImageTools/AudioTools/VideoTools utilities, the SeedVR2 and LTX upscalers, the
+any LoRA tab. The video presets (LTX-2, LTX-2.5, MiniMax-H3 and its Fast
+variant) put every mode's input there, upscale and refine modes included.
+Modes whose media is the sole OPERAND of a transform (the
+ImageTools/AudioTools/VideoTools utilities, the SeedVR2 upscalers, the
 LTX-2-3 utility preset, WAN interpolation) deliberately do NOT get the tab --
 their input is the subject of the operation, not a reference, and moving it
 would leave the first tab holding one stray slider.
 
-TRELLIS2's img2mesh was such a mode until the maintainer ruled otherwise
-(2026-09-01): its source image CONDITIONS a reconstruction rather than being
-transformed in place, so the marketplace preset carries a References tab.
+TRELLIS2's img2mesh was such a mode until 2026-09-01: its source image
+CONDITIONS a reconstruction rather than being transformed in place, so the
+marketplace preset carries a References tab.
 
 The assertions run through the SAME path that serves `GET /api/presets/{id}/form`:
 PresetTemplateLoader -> PresetFormSerializer.process_form_fields. That matters
@@ -60,6 +62,14 @@ CASES = [
     ("presets/marketplace/Pixal3D", "img2mesh", {"source_image"}),
     ("presets/marketplace/Pixal3D", "views2mesh", {"front_image", "left_image", "back_image", "right_image"}),
     ("presets/marketplace/MiniMax-H3", "refs", {"references"}),
+    ("presets/marketplace/MiniMax-H3", "upscale", {"input_video"}),
+    ("presets/marketplace/MiniMax-H3", "refine_faces", {"input_video"}),
+    ("presets/marketplace/MiniMax-H3", "extend", {"source_video"}),
+    ("presets/marketplace/MiniMax-H3", "swap", {"source_video", "character"}),
+    ("presets/marketplace/MiniMax-H3", "remix", {"source_video", "pictures"}),
+    ("presets/marketplace/MiniMax-H3", "talk", {"portrait", "voice"}),
+    ("presets/marketplace/MiniMax-H3-Fast", "refine_faces", {"input_video"}),
+    ("presets/marketplace/MiniMax-H3-Fast", "extend", {"source_video"}),
     ("presets/marketplace/LTX-2", "upscale", {"input_video"}),
     ("presets/marketplace/LTX-2.5", "extend", {"input_video"}),
     ("presets/marketplace/LTX-2.5", "upscale", {"input_video"}),
@@ -78,13 +88,15 @@ CASES = [
 # Reference-related SETTINGS that moved onto the tab alongside the media they
 # modify: each only has meaning relative to the uploaded reference.
 SETTING_CASES = [
-    # Flux1/Flux2 img2img denoise deliberately moved off the tab (maintainer
-    # tab rework, 2026-08-21) -- not a convention violation for either preset.
-    # QwenImage img2img denoise deliberately moved off the tab (maintainer
-    # tab rework, 2026-08-21) -- not a convention violation for that preset.
-    # SDXL inpaint denoise/mask_blur deliberately moved off the tab (maintainer
-    # FE rework, 2026-08-24) -- not a convention violation for that preset.
     ("presets/marketplace/MiniMax-H3", "refs", "reference_pixel_budget"),
+    ("presets/marketplace/MiniMax-H3", "upscale", "refine_denoise"),
+    ("presets/marketplace/MiniMax-H3", "refine_faces", "enhancement_strength"),
+    ("presets/marketplace/MiniMax-H3", "extend", "direction"),
+    ("presets/marketplace/MiniMax-H3", "swap", "character_description"),
+    ("presets/marketplace/MiniMax-H3", "remix", "instruction"),
+    ("presets/marketplace/MiniMax-H3", "talk", "words"),
+    ("presets/marketplace/MiniMax-H3-Fast", "refine_faces", "enhancement_strength"),
+    ("presets/marketplace/MiniMax-H3-Fast", "extend", "direction"),
     ("presets/marketplace/Krea2", "edit", "ref_boost"),
 ]
 

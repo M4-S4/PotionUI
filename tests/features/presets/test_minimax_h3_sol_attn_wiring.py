@@ -127,13 +127,14 @@ def test_default_render_builds_no_sparse_attn_context(h3_template):
 
 
 def _sparse_attn_group(h3_template) -> dict:
-    tab = yaml.safe_load(
-        (Path(h3_template.path) / "modes" / "video" / "tabs" / "advanced.yml").read_text()
-    )
-    return next(
+    root = Path(h3_template.path)
+    tab = yaml.safe_load((root / "modes" / "video" / "tabs" / "advanced.yml").read_text())
+    group = next(
         g for g in tab["fields"]
         if g.get("type") == "section" and "Sparse attention" in str(g.get("label", ""))
     )
+    fragment = Path(group["children"].replace("{{ paths.preset }}", str(root)))
+    return {**group, "children": yaml.safe_load(fragment.read_text())["fields"]}
 
 
 def test_the_sparse_attn_fields_are_advanced_audience(h3_template):

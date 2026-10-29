@@ -1,0 +1,48 @@
+fields:
+  - name: "sparse_attn"
+    type: "select"
+    label: "Sparse attention"
+    default: "sla"
+    ai_hint: "FastH3's checkpoint is trained toward a sparse-attention pattern (VSA), which is not ported yet -- this SLA setup with a dense warm-up approximates it rather than replaying the real thing, and dense (Off) also works fine if the approximation ever looks soft. SLA keeps a fixed top-k fraction of key blocks; its VRAM cost is far smaller than Sol-Attn's. Neither does anything on machines without a recent CUDA GPU -- do not promise a speedup, and prefer Off for a final render where fidelity matters most."
+    configuration:
+      options:
+        - { label: "Off (dense)", value: "off" }
+        - { label: "Sol-Attn (threshold)", value: "sol" }
+        - { label: "SLA (top-k, approximates FastH3's trained sparsity)", value: "sla" }
+  - type: "row"
+    children:
+      - name: "sol_attn_tau"
+        type: "slider"
+        label: "Sol-Attn sparsity"
+        default: 1.0
+        ai_hint: "Only has an effect when Sparse attention is Sol-Attn. Higher skips more attention work: faster and less faithful. Stay in 0.8-1.5; leave at 1.0 unless the user asks for more speed (raise) or reports lost detail and wants to keep the feature on (lower)."
+        configuration: {min: 0.0, max: 3.0, step: 0.1}
+      - name: "sla_sparsity"
+        type: "slider"
+        label: "SLA sparsity"
+        default: 0.9
+        ai_hint: "Only has an effect when Sparse attention is SLA. Fraction of key blocks skipped -- higher is faster and less faithful. 0.9, paired with the Sparse attention warm-up below, approximates the ~10%-keep pattern FastH3 was trained toward; below roughly 0.6 SLA is slower than dense attention, not faster."
+        configuration: {min: 0.0, max: 0.95, step: 0.05}
+  - type: "row"
+    children:
+      - name: "sla_block_size"
+        type: "select"
+        label: "SLA block size"
+        default: "64"
+        ai_hint: "Only has an effect when Sparse attention is SLA. 64 is the audio-safe choice. 128 forces roughly 1.6s of audio through one attention pattern and made speech robotic in upstream testing -- use it only for runs where the audio track does not matter."
+        configuration:
+          options:
+            - { label: "64 (audio-safe)", value: "64" }
+            - { label: "128", value: "128" }
+      - name: "sparse_attn_dense_last_steps"
+        type: "slider"
+        label: "Exact final steps"
+        default: 2
+        ai_hint: "Only has an effect when Sparse attention is not Off. The last steps of a trajectory carry the least noise, so an approximation there is the most visible -- these run on the normal exact path. Raise to 3-4 if a sparse run looks soft or shimmery at the end; that gives back some of the speed. At or above the step count the feature is effectively off."
+        configuration: {min: 0, max: 10, step: 1}
+  - name: "sparse_attn_start_percent"
+    type: "slider"
+    label: "Sparse attention warm-up"
+    default: 0.2
+    ai_hint: "Only has an effect when Sparse attention is not Off. Fraction of the schedule that runs dense BEFORE sparse attention begins, mirroring ComfyUI's own start_percent warm-up on this checkpoint. 0.2 (warm up through the first ~20% of steps, then switch to SLA at the sparsity above) is FastVideo's own recommended pairing -- it approximates the checkpoint's trained sparse pattern more closely than starting sparse from step 0. Composes with Exact final steps above: a step counts as dense if it falls in EITHER window."
+    configuration: {min: 0.0, max: 1.0, step: 0.05}
