@@ -269,13 +269,13 @@ def _retries_after(exc: BaseException) -> bool:
 def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
     tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free)
     scale = int(getattr(c, "spatial_downscale", 8))
-    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free: decoding in spatial tiles of %d latent px",
-                free, tile)
+    logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free: decoding in spatial tiles of %d latent px, "
+                "one latent frame at a time", free, tile)
     while True:
         try:
             return tiled_decode_causal3d(
                 c.vae.module, z, tile_size=tile, overlap=causal3d_decode_overlap(tile), scale=scale,
-                accumulate_device="cpu",
+                accumulate_device="cpu", chunk_latent_frames=1,
             )
         except Exception as exc:
             smaller = smaller_decode_tile(tile)
