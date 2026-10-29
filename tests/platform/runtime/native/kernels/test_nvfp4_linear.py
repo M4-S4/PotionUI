@@ -61,15 +61,15 @@ def test_nvfp4_linear_forward_never_retains_dequantised_weight():
     lin._load_from_state_dict(sd, "", {}, True, missing, unexpected, [])
     assert lin._is_nvfp4 and lin.weight is None
 
-    baseline = _module_footprint_bytes(lin)
-    assert baseline > 0
+    loaded = _module_footprint_bytes(lin)
+    assert loaded > 0
 
     lin.eval()
     x = torch.randn(3, inn)
     with torch.inference_mode():
         for _ in range(5):
             lin(x)
-            assert _module_footprint_bytes(lin) == baseline
+            assert _module_footprint_bytes(lin) == loaded + lin.dequant_table_bytes()
     assert lin.weight is None
 
 
@@ -138,7 +138,7 @@ def test_class_forward_bit_exact_vs_old_reference():
     assert torch.equal(lin(x), ref)
 
 
-def test_forward_never_calls_inv_blocked_index_after_load(monkeypatch):
+def test_only_the_first_dequant_forward_builds_the_scale_table(monkeypatch):
     torch.manual_seed(17)
     out_features, in_features = 128, 256
     w = torch.randn(out_features, in_features) * 0.03
@@ -157,13 +157,17 @@ def test_forward_never_calls_inv_blocked_index_after_load(monkeypatch):
     def _boom(*args, **kwargs):
         raise AssertionError("_inv_blocked_index must not run from the forward hot path")
 
+    assert torch.equal(lin(x), expected)
+    table = lin.nvfp4_scale
+    assert table is not None and table.shape == (out_features, in_features // 16)
     monkeypatch.setattr(quant_formats, "_inv_blocked_index", _boom)
     y = lin(x)
 
     assert torch.equal(y, expected)
+    assert lin.nvfp4_scale is table
 
 
-def test_inv_blocked_index_is_reachable_at_load_time(monkeypatch):
+def test_load_leaves_the_scale_table_unbuilt(monkeypatch):
     torch.manual_seed(18)
     out_features, in_features = 32, 32
     w = torch.randn(out_features, in_features) * 0.03
@@ -176,5 +180,5 @@ def test_inv_blocked_index_is_reachable_at_load_time(monkeypatch):
     lin = fp8_ops.Linear(in_features, out_features, bias=False)
     sd = {"weight": packed, "weight_scale": block_sw, "weight_scale_2": pts.clone()}
     monkeypatch.setattr(quant_formats, "_inv_blocked_index", _boom)
-    with pytest.raises(AssertionError, match="boom"):
-        lin._load_from_state_dict(sd, "", {}, True, [], [], [])
+    lin._load_from_state_dict(sd, "", {}, True, [], [], [])
+    assert lin._is_nvfp4 and lin.nvfp4_scale is None

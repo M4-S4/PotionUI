@@ -70,6 +70,7 @@ from .kernels import (
     log_lora_path_summary,
     manual_cast,
     pick_operations,
+    sync_nvfp4_dequant_tables,
 )
 from .sampling.denoise_loop import denoise, ensure_sampler_generator
 from .text_encoders.base import NativeTextEncoder
@@ -608,6 +609,8 @@ class NativeModel:
             pinned_gb = self._streamer.pinned_gb
             self._streamer.teardown()
             self._reclaim_host_after_teardown(pinned_gb)
+        if str(device).startswith("cuda"):
+            sync_nvfp4_dequant_tables(self.module)
         self.module.to(device)
         self.device = str(device)
         get_profiler().mark(
@@ -686,6 +689,7 @@ class NativeModel:
         # the new pin. `stream_to` only runs when ENTERING partial residency
         # (never per forward step), so this is a rare, coarse-grained call.
         self._reclaim_with_marks("stream_to", "empty_pinned_host_cache", empty_pinned_host_cache)
+        sync_nvfp4_dequant_tables(self.module)
         plan = plan_residency_split(self.module, resident_budget_gb)
         # Refuse the placement outright if pinning this streamed set would leave
         # host RAM unable to survive it (and its teardown) — a clean generation

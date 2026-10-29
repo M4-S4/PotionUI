@@ -97,6 +97,7 @@ from src.platform.runtime.native.kernels import (
     FastPathKind,
     QuantFormat,
     fast_path,
+    nvfp4_dequant_table_bytes,
     nvfp4_path_summary,
     partition_output_branch_deltas,
 )
@@ -431,6 +432,10 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
     return DitLoraProfile(output_buffer_out_features, weight_side_bytes, delta_bytes, active)
 
 
+def _dit_dequant_table_gb(dit: Any) -> float:
+    return nvfp4_dequant_table_bytes(getattr(dit, "module", None)) / _BYTES_PER_GB
+
+
 def _dit_lora_delta_gb(dit: Any) -> float:
     """Resident VRAM (GB) of ``dit``'s runtime LoRA deltas -- the ``up``/
     ``down`` pairs themselves, which ``dit.estimated_vram_gb`` cannot see.
@@ -489,7 +494,7 @@ def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
     if free is None:
         return None
     lora = _dit_lora_profile(dit)
-    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb
+    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb + _dit_dequant_table_gb(dit)
     if dit_is_fully_resident(dit, device):
         free += weight_gb
     return SequenceFit(weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit))
@@ -578,7 +583,7 @@ def place_dit_for_sequence(
     lora = _dit_lora_profile(dit)
     lora_active = lora.active
     lora_weight_gb = lora.delta_gb
-    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora_weight_gb
+    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora_weight_gb + _dit_dequant_table_gb(dit)
 
     if not str(device).startswith("cuda"):
         dit.move_to(device)

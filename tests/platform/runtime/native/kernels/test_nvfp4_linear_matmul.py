@@ -111,9 +111,9 @@ def _nvfp4_layer(in_f=32, out_f=16, bias=False, seed=40):
     return lin
 
 
-def test_nvfp4_load_keeps_raw_scales_alongside_precomputed_dequant_scale():
+def test_nvfp4_load_keeps_raw_scales_and_defers_the_dequant_table():
     lin = _nvfp4_layer()
-    assert lin.nvfp4_scale is not None
+    assert lin.nvfp4_scale is None
     assert lin.nvfp4_weight_block_scale is not None
     assert lin.nvfp4_weight_block_scale.dtype == torch.float8_e4m3fn
     assert lin.nvfp4_weight_global_scale is not None
@@ -343,3 +343,62 @@ def test_missing_or_misplaced_weight_scales_warn_instead_of_bailing_silently(cap
     warnings = _warnings(caplog)
     assert len(warnings) == 2
     assert "weight scales missing" in warnings[0] and "weight scales not on the input device" in warnings[1]
+
+
+def _fast_path_on(fake_out=None):
+    from contextlib import ExitStack
+
+    stack = ExitStack()
+    stack.enter_context(patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True))
+    stack.enter_context(patch.object(nvfp4_linear, "_nvfp4_fast_path_reject_reason", return_value=None))
+    stack.enter_context(patch("torch.nn.functional.scaled_mm",
+                              return_value=torch.zeros(1, 16, dtype=torch.bfloat16) if fake_out is None else fake_out))
+    return stack
+
+
+def test_the_fast_path_never_builds_a_scale_table():
+    lin = _nvfp4_layer()
+    x = torch.randn(1, 32, dtype=torch.bfloat16)
+    assert lin.nvfp4_scale is None
+    with _fast_path_on(), patch.object(nvfp4_linear, "precompute_nvfp4_scale",
+                                       side_effect=AssertionError("built a table on the fast path")):
+        for _ in range(3):
+            lin.forward_comfy_cast_weights(x)
+    assert lin.nvfp4_scale is None
+
+
+def test_a_fast_path_success_frees_the_table_an_earlier_dequant_built():
+    lin = _nvfp4_layer()
+    x = torch.randn(1, 32, dtype=torch.bfloat16)
+    lin(x)
+    assert lin.nvfp4_scale is not None
+    with _fast_path_on():
+        lin.forward_comfy_cast_weights(x)
+    assert lin.nvfp4_scale is None
+
+
+def test_the_first_dequant_fallback_builds_the_table_and_keeps_dequant_numerics():
+    from .._nvfp4_ref import old_dequantize_nvfp4
+
+    torch.manual_seed(41)
+    w = torch.randn(16, 32) * 0.05
+    pts = (w.abs().amax() / (_F4_MAX_REF * _F8_MAX_REF)).clamp(min=1e-8).detach()
+    packed, block_sw, _, _ = _ref_quantize_nvfp4(w, pts)
+    lin = fp8_ops.Linear(32, 16, bias=False)
+    lin._load_from_state_dict({"weight": packed, "weight_scale": block_sw, "weight_scale_2": pts.clone()},
+                              "", {}, True, [], [], [])
+    x = torch.randn(2, 32, dtype=torch.bfloat16)
+    expected = F.linear(x, old_dequantize_nvfp4(packed, block_sw, pts, 16, 32).to(torch.bfloat16))
+
+    with patch.object(nvfp4_linear, "_nvfp4_matmul_enabled", return_value=True), \
+         patch.object(nvfp4_linear, "_nvfp4_fast_path_reject_reason", return_value=None), \
+         patch.object(lin, "_forward_nvfp4_scaled_mm", return_value=None):
+        assert lin.nvfp4_scale is None
+        out = lin.forward_comfy_cast_weights(x)
+        table = lin.nvfp4_scale
+        again = lin.forward_comfy_cast_weights(x)
+
+    assert table is not None and table.dtype == torch.float32 and table.shape == (16, 2)
+    assert lin.dequant_table_bytes() == table.numel() * table.element_size()
+    assert lin.nvfp4_scale is table
+    assert torch.equal(out, expected) and torch.equal(again, expected)

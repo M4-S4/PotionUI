@@ -23,7 +23,16 @@ from .hardware import (
     capabilities,
     refresh_capabilities,
 )
-from .linear import FastPath, FastPathKind, QuantFormat, fast_path, nvfp4_path_summary, quant_format
+from .linear import (
+    FastPath,
+    FastPathKind,
+    QuantFormat,
+    fast_path,
+    nvfp4_dequant_table_bytes,
+    nvfp4_path_summary,
+    quant_format,
+    sync_nvfp4_dequant_tables,
+)
 from .lora_math import invalidate_lora_fused_cache, log_lora_path_summary, partition_output_branch_deltas
 from .operations import QUANT_FP8_SCALED, detect_quant_format, fp8_ops, pick_operations
 
@@ -56,6 +65,7 @@ __all__ = [
     "known_backends",
     "log_lora_path_summary",
     "manual_cast",
+    "nvfp4_dequant_table_bytes",
     "nvfp4_path_summary",
     "partition_output_branch_deltas",
     "pick_operations",
@@ -66,4 +76,5 @@ __all__ = [
     "QUANT_FP8_SCALED",
     "invalidate_lora_fused_cache",
     "quant_format",
+    "sync_nvfp4_dequant_tables",
 ]

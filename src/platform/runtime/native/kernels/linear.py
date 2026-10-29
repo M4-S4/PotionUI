@@ -60,6 +60,30 @@ def fast_path(layer: object) -> FastPath | None:
     )
 
 
+def _nvfp4_layers(module: object):
+    walk = getattr(module, "modules", None)
+    if not callable(walk):
+        return
+    for layer in walk():
+        if quant_format(layer) is QuantFormat.NVFP4:
+            yield layer
+
+
+def nvfp4_dequant_table_bytes(module: object) -> int:
+    return sum(
+        layer.dequant_table_bytes() for layer in _nvfp4_layers(module)
+        if fast_path(layer).kind is FastPathKind.DEQUANT
+    )
+
+
+def sync_nvfp4_dequant_tables(module: object) -> None:
+    for layer in _nvfp4_layers(module):
+        if fast_path(layer).kind is FastPathKind.DEQUANT:
+            layer.build_dequant_table()
+        else:
+            layer.drop_dequant_table()
+
+
 def nvfp4_path_summary(module: object) -> str | None:
     walk = getattr(module, "modules", None)
     if not callable(walk):

@@ -16,7 +16,9 @@ from src.platform.runtime.native.kernels import (
     disable_weight_init,
     fast_path,
     fp8_ops,
+    nvfp4_dequant_table_bytes,
     nvfp4_path_summary,
+    sync_nvfp4_dequant_tables,
     fp8_linear,
     gemm,
     linear,
@@ -558,3 +560,21 @@ def test_the_nvfp4_summary_counts_fast_path_dequant_reasons_and_other_linears(ma
 def test_a_model_without_nvfp4_linears_has_no_summary():
     assert nvfp4_path_summary(torch.nn.Sequential(_fp8(), torch.nn.Linear(4, 4))) is None
     assert nvfp4_path_summary(SimpleNamespace()) is None
+
+
+def test_syncing_tables_builds_them_only_for_layers_headed_for_dequant(machine):
+    fast, misaligned = _nvfp4(), _nvfp4(in_f=48)
+    model = torch.nn.Sequential(fast, misaligned, _fp8())
+    machine("blackwell", fp8=False, nvfp4=True)
+    assert nvfp4_dequant_table_bytes(model) == misaligned.dequant_table_bytes() > 0
+    sync_nvfp4_dequant_tables(model)
+    assert fast.nvfp4_scale is None and misaligned.nvfp4_scale is not None
+
+    machine("blackwell", fp8=False, nvfp4=False)
+    assert nvfp4_dequant_table_bytes(model) == fast.dequant_table_bytes() + misaligned.dequant_table_bytes()
+    sync_nvfp4_dequant_tables(model)
+    assert fast.nvfp4_scale is not None and misaligned.nvfp4_scale is not None
+
+    machine("blackwell", fp8=False, nvfp4=True)
+    sync_nvfp4_dequant_tables(model)
+    assert fast.nvfp4_scale is None and misaligned.nvfp4_scale is not None

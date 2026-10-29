@@ -2040,3 +2040,19 @@ def test_placement_of_a_dit_without_nvfp4_linears_logs_no_linear_summary(caplog)
     with patches[0], patches[1], patches[2], caplog.at_level(logging.INFO, logger=_MOD):
         place_dit_for_sequence(dit, "cuda", video_tokens=1000)
     assert not [r for r in caplog.records if "nvfp4 linears" in r.getMessage()]
+
+
+@pytest.mark.parametrize("nvfp4_matmul", [False, True])
+def test_placement_and_the_window_fit_count_the_scale_tables_dequant_layers_will_hold(machine, nvfp4_matmul):
+    machine(nvfp4=nvfp4_matmul)
+    layers = [_loaded_nvfp4_layer(), _loaded_nvfp4_layer()]
+    tables_gb = 0.0 if nvfp4_matmul else sum(layer.dequant_table_bytes() for layer in layers) / 1024 ** 3
+    dit, _ = _dit(estimated_vram_gb=0.0)
+    dit.module = nn.Sequential(*layers)
+    patches, _ = _patched(free_gb=32.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1000)
+        fit = sequence_fit(dit, "cuda")
+    assert decision.dit_weight_gb == pytest.approx(tables_gb, abs=1e-15)
+    assert fit.weight_gb == pytest.approx(tables_gb, abs=1e-15)
+    assert (tables_gb > 0) is not nvfp4_matmul

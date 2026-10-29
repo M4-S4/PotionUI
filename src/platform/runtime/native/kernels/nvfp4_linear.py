@@ -136,7 +136,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
         self._is_nvfp4 = True
         self.nvfp4_packed = packed if packed.dtype == torch.uint8 else packed.view(torch.uint8)
         global_scale = ws2.reshape(())
-        self.nvfp4_scale = precompute_nvfp4_scale(block, global_scale, self.out_features, self.in_features)
+        self.nvfp4_scale = None
         self.nvfp4_weight_block_scale = block if block.dtype == torch.float8_e4m3fn else block.to(torch.float8_e4m3fn)
         self.nvfp4_weight_global_scale = global_scale.to(torch.float32)
         self.weight = None
@@ -149,6 +149,23 @@ class Nvfp4Linear(Fp8ScaledLinear):
             key = prefix + name
             if key in missing_keys:
                 missing_keys.remove(key)
+
+    def dequant_table_bytes(self) -> int:
+        if not self._is_nvfp4:
+            return 0
+        return self.out_features * (self.in_features // NVFP4_BLOCK) * 4
+
+    def build_dequant_table(self) -> torch.Tensor:
+        if self.nvfp4_scale is None:
+            self.nvfp4_scale = precompute_nvfp4_scale(
+                self.nvfp4_weight_block_scale, self.nvfp4_weight_global_scale,
+                self.out_features, self.in_features,
+            )
+        return self.nvfp4_scale
+
+    def drop_dequant_table(self) -> None:
+        if self.nvfp4_scale is not None:
+            self.nvfp4_scale = None
 
     def forward_comfy_cast_weights(self, input: torch.Tensor) -> torch.Tensor:
         if not self._is_nvfp4:
@@ -170,6 +187,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
             if reject_reason is None:
                 fast = self._forward_nvfp4_scaled_mm(input)
                 if fast is not None:
+                    self.drop_dequant_table()
                     return fast
                 dequant_reason = "kernel rejected"
             else:
@@ -182,7 +200,7 @@ class Nvfp4Linear(Fp8ScaledLinear):
             _note_lora_path(self, _lora_dequant_path(weight_side, dequant_reason, output_side))
         values = dequant_values(self.nvfp4_packed, self.out_features, self.in_features)
         num_blocks = self.in_features // NVFP4_BLOCK
-        weight = scale_values(values, self.nvfp4_scale, self.out_features, self.in_features, num_blocks)
+        weight = scale_values(values, self.build_dequant_table(), self.out_features, self.in_features, num_blocks)
         weight = weight.to(device=input.device, dtype=input.dtype)
         bias = None if self.bias is None else self.bias.to(input.dtype)
         return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features, owner=self)
