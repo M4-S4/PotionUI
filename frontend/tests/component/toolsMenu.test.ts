@@ -195,3 +195,72 @@ describe('ToolsMenu', () => {
 		expect(trigger.textContent?.trim()).toBe('');
 	});
 });
+
+describe('ToolsMenu second line', () => {
+	function noted(): MediaToolGroup[] {
+		return [
+			{
+				category: { id: 'edit', label: 'Edit', order: -20 },
+				tools: [
+					{ tool: tool('frame', { note: 'Saves one image' }), availability: { enabled: true } },
+					{ tool: tool('plain'), availability: { enabled: true } },
+					{ tool: tool('concat'), availability: { enabled: false, reason: 'Select 2 to 8 items' } },
+					{ tool: tool('upscaler.upscale', { source: 'plugin', note: 'Upscaler' }), availability: { enabled: true } }
+				]
+			}
+		];
+	}
+
+	const sub = (id: string) => menu().querySelector(`[data-tool="${id}"] [data-tool-sub]`);
+
+	it('says what an enabled tool saves under its label', () => {
+		render({ groups: noted() });
+		expect(sub('frame')!.textContent).toBe('Saves one image');
+	});
+
+	it('gives a plain tool one line only', () => {
+		render({ groups: noted() });
+		expect(sub('plain')).toBeNull();
+	});
+
+	it('puts the reason a tool is unavailable under its label on a page menu', () => {
+		render({ groups: noted() });
+		expect(sub('concat')!.textContent).toBe('Select 2 to 8 items');
+		expect(menu().querySelector('[data-tool="concat"]')!.getAttribute('aria-disabled')).toBe('true');
+	});
+
+	it('does the same on the card menu, which used to show it at the end of the row', () => {
+		render({ groups: noted(), variant: 'entry', scope: 'library' });
+		expect(sub('concat')!.textContent).toBe('Select 2 to 8 items');
+	});
+
+	it('keeps the reason at the end of the row for a field menu', () => {
+		render({ groups: noted(), scope: 'field' });
+		expect(sub('concat')).toBeNull();
+		expect(menu().querySelector('[data-tool="concat"]')!.textContent).toContain('Select 2 to 8 items');
+	});
+
+	it('names the plugin on the second line instead of a Plugin tag', () => {
+		render({ groups: noted(), variant: 'entry', scope: 'history' });
+		expect(sub('upscaler.upscale')!.textContent).toBe('Upscaler');
+		expect(menu().querySelector('[data-tool="upscaler.upscale"]')!.textContent?.toLowerCase()).not.toContain('plugin');
+	});
+
+	it('draws the second line at 12px or larger in the subtle text colour', () => {
+		render({ groups: noted() });
+		const line = sub('frame')!;
+		expect(line.className).toContain('text-[12px]');
+		expect(line.className).toContain('text-fg-subtle');
+	});
+
+	it('truncates a long label and a long second line rather than wrapping the row', () => {
+		render({ groups: noted() });
+		expect(menu().querySelector('[data-tool="frame"] span.truncate')).toBeTruthy();
+		expect(sub('frame')!.className).toContain('truncate');
+	});
+
+	it('shows the second line in the phone sheet too', () => {
+		render({ groups: noted(), sheet: true, title: 'clip.mp4' });
+		expect(sub('frame')!.textContent).toBe('Saves one image');
+	});
+});

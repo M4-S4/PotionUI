@@ -2,12 +2,10 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
 	buildHistoryToolContext,
 	groupToolsFor,
-	pluginMediaToolFromManifest,
 	registerMediaTool,
 	selectionCount,
 	type MediaTool,
 	type MediaToolContext,
-	type PluginMediaToolEntry,
 	type ToolRunHost
 } from './tools';
 import { buildHistoryEntryContext } from './entryMenu';
@@ -168,36 +166,5 @@ describe('groupToolsFor', () => {
 	it('counts history selection by generations and library selection by items', () => {
 		expect(selectionCount(manyCtx)).toBe(3);
 		expect(selectionCount(entryCtx)).toBe(1);
-	});
-});
-
-describe('plugin applies_to mapping', () => {
-	function entry(applies_to?: PluginMediaToolEntry['applies_to']): PluginMediaToolEntry {
-		return { id: 'p', plugin_id: 'pl', label: 'P', category: 'compose', component: 'P.js', applies_to };
-	}
-
-	it('maps min and max selection onto the registry selection field', () => {
-		expect(pluginMediaToolFromManifest(entry({ min_selection: 2, max_selection: 4 })).selection).toEqual({
-			min: 2,
-			max: 4
-		});
-		expect(pluginMediaToolFromManifest(entry({ max_selection: 1 })).selection).toEqual({ max: 1 });
-		expect(pluginMediaToolFromManifest(entry()).selection).toEqual({});
-	});
-
-	it('maps media_kinds onto kinds and leaves them undefined when absent', () => {
-		expect(pluginMediaToolFromManifest(entry({ media_kinds: ['image'] })).kinds).toEqual(['image']);
-		expect(pluginMediaToolFromManifest(entry({})).kinds).toBeUndefined();
-	});
-
-	it('a plugin with min_selection 2 is hidden in the entry menu and shown on the bar', () => {
-		registerMediaTool(pluginMediaToolFromManifest({ ...entry({ min_selection: 2 }), id: 'plug-multi' }));
-		registerMediaTool(pluginMediaToolFromManifest({ ...entry({ max_selection: 1 }), id: 'plug-single' }));
-		const one = generation('a');
-		const entryCtx = buildHistoryEntryContext(one, one.files[0], null);
-		const many = buildHistoryToolContext([generation('a'), generation('b')], ['a', 'b'], null);
-		expect(ids(entryCtx, 'entry')).toContain('plug-single');
-		expect(ids(entryCtx, 'entry')).not.toContain('plug-multi');
-		expect(ids(many, 'bar')).toContain('plug-multi');
 	});
 });

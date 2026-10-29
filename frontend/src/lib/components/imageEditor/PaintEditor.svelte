@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { getContext, onDestroy, onMount } from 'svelte';
 	import EditorShell from '$lib/media/editors/EditorShell.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
@@ -10,6 +10,7 @@
 	import CanvasPanel from './CanvasPanel.svelte';
 	import type { DrawConfig } from './drawConfig';
 	import { defaultExportStem, exportFileName } from './exportName';
+	import { PAINT_INITIAL_TOOL, type PaintInitialTool } from './initialTool';
 	import { PAINT_ICONS } from './icons';
 	import FilterStrip from './FilterStrip.svelte';
 	import ImageSourceMenu from './ImageSourceMenu.svelte';
@@ -35,6 +36,7 @@
 
 	const session = new PaintSession();
 	const modifier = primaryModifier();
+	const initialToolOf = getContext<PaintInitialTool | undefined>(PAINT_INITIAL_TOOL);
 
 	let stageHost: HTMLDivElement;
 	let stageCanvas: HTMLCanvasElement;
@@ -121,6 +123,8 @@
 			} else if (source) {
 				await session.openSource(source.url, source.fileName);
 			}
+			const initialTool = initialToolOf?.();
+			if (initialTool) session.setTool(initialTool);
 		} catch {
 			loadError = 'This image could not be opened for editing.';
 		}

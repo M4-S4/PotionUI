@@ -23,6 +23,17 @@
 
 	let CoreModal = $derived(tool?.component ?? null);
 
+	let pluginItems = $derived(
+		(context?.items ?? []).map((item) => ({
+			id: item.id,
+			kind: item.kind,
+			url: item.url,
+			filename: item.filename,
+			width: item.width,
+			height: item.height
+		}))
+	);
+
 	let pluginModal = $derived.by(() => {
 		if (!tool || tool.component) return null;
 		const ref = parseComponentRef(tool.componentRef);
@@ -48,6 +59,7 @@
 						<PluginModal
 							generationIds={context.generationIds}
 							generations={context.generations}
+							items={pluginItems}
 							{onClose}
 							{onDone}
 						/>

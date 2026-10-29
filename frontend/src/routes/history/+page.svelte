@@ -46,6 +46,9 @@
 	import ToolHost from '$lib/components/tools/ToolHost.svelte';
 	import { registerCoreHistoryTools } from './tools/coreTools';
 	import { loadPluginMediaTools } from '$lib/tools/pluginTools';
+	import { pickTool } from '$lib/tools/toolPicker';
+	import { notifySavedToLibrary } from '$lib/tools/savedToLibrary';
+	import type { EditedMediaItem } from '$lib/services/api/media';
 	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 
@@ -175,8 +178,18 @@
 	}
 
 	function handleToolSelect(tool: MediaTool, context: MediaToolContext) {
-		activeTool = tool;
-		activeToolContext = context;
+		pickTool(tool, context, {
+			mount: (picked, pickedContext) => {
+				activeTool = picked;
+				activeToolContext = pickedContext;
+			},
+			onResult: handleToolResult
+		});
+	}
+
+	function handleToolResult(items: EditedMediaItem[], context: MediaToolContext) {
+		if (!context.entry) historyStore.clearSelection();
+		notifySavedToLibrary(items);
 	}
 
 	function closeTool() {

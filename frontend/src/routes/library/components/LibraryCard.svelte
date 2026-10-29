@@ -12,6 +12,8 @@
 		resolveCardResolution
 	} from '$lib/components/generationCardChrome';
 	import EntryActions from '$lib/components/tools/EntryActions.svelte';
+	import ToolRunBand from '$lib/components/tools/ToolRunBand.svelte';
+	import { mediaToolRuns } from '$lib/media-tools/runs';
 	import type { EntryMenuController } from '$lib/tools/entryMenu';
 	import type { MediaTool, MediaToolContext, ToolRunExtra } from '$lib/tools/tools';
 	import {
@@ -31,6 +33,7 @@
 	export let showCheckbox = true;
 	export let showActions = true;
 	export let entryMenu: EntryMenuController<LibraryItem, never> | null = null;
+	export let isNew = false;
 	/** The second argument is the originating pointer event (omitted for a
 	 *  keyboard activation), so a multi-select grid can read its modifier keys
 	 *  for shift-range / ctrl-toggle behavior. */
@@ -39,6 +42,7 @@
 	const dispatch = createEventDispatcher<{ open: LibraryItem; delete: LibraryItem }>();
 
 	$: bucket = bucketForCardWidth(tile.width);
+	$: run = $mediaToolRuns[item.id];
 	$: displayName = libraryItemDisplayName(item);
 	$: gridSrc = libraryItemGridSrc(item);
 	$: metaParts = libraryItemMetaParts(item);
@@ -228,6 +232,16 @@
 			{/if}
 		</div>
 
+		{#if run}
+			<ToolRunBand
+				label={run.label}
+				progress={run.progress}
+				cancelling={run.cancelling}
+				bottom={bucket.barHeight}
+				onCancel={() => mediaToolRuns.cancel(item.id)}
+			/>
+		{/if}
+
 		{#if entryMenu && bucket}
 			<EntryActions
 				bind:this={actions}
@@ -251,6 +265,12 @@
 			<div
 				class="flex items-center gap-1.5 ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em]"
 			>
+				{#if isNew}
+					<span
+						class="px-1 rounded-sm border border-signal/25 bg-signal/10 text-signal font-mono text-[12px] leading-4 uppercase tracking-[0.07em]"
+						data-new-tag>New</span
+					>
+				{/if}
 				{#if barResolutionText}
 					<span class="text-fg-muted whitespace-nowrap" use:tooltip={fullResolutionTitle}>
 						{barResolutionText}

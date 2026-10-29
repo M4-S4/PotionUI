@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Tooltip from '$lib/components/Tooltip.svelte';
 	import tooltip from '$lib/actions/tooltip';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -7,21 +6,14 @@
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import FavoriteButton from '$lib/components/FavoriteButton.svelte';
-	import { Badge, Button } from '$lib/components/ui';
+	import { Badge } from '$lib/components/ui';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
 	import { libraryItemDisplayName, libraryItemIcon } from '$lib/library/libraryItemMeta';
-	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
-	import {
-		hasEditor,
-		editorTitle,
-		RESOURCE_EDIT_TOOLS,
-		type MediaEditorKind,
-		type MediaEditorRequest,
-		type MediaEditorResult,
-		type EditorMediaKind
-	} from '$lib/media/editors';
+	import MediaToolRow, { type RowPageAction } from '$lib/media-tools/MediaToolRow.svelte';
+	import { buildLibraryToolContext } from '$lib/tools/tools';
 	import { toasts } from '$lib/stores/toast';
+	import type { EditedMediaItem } from '$lib/services/api/media';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
 	import { startRuleFrom } from '$lib/organize/handoff';
@@ -69,63 +61,34 @@
 		if (!ok) toasts.error('Could not update the favorite');
 	}
 
-	// --- Editing -----------------------------------------------------------
-	// The same surfaces the MediaLoader field opens, on the row this modal is
-	// already showing - so no lookup, and the replace-in-place that keeps the
-	// item's tags and collections is available immediately. The mask editor is
-	// not offered here: a mask is a generation input bound to a form field, not
-	// a property of a stored resource.
+	let toolEditing = false;
 
-	let editorRequest: MediaEditorRequest | null = null;
+	$: rowItems = buildLibraryToolContext([item], null).items;
 
-	$: editorKind = (kind === 'audio' || kind === 'video' || kind === 'image'
-		? kind
-		: null) as EditorMediaKind | null;
+	let libraryActions: RowPageAction[] = [];
+	$: libraryActions = [
+		{
+			id: 'auto-file',
+			label: 'Auto-file items like this…',
+			icon: 'sparkles',
+			onclick: () => startRuleFrom(uploadItemRule(item))
+		},
+		{
+			id: 'delete',
+			label: 'Delete',
+			icon: 'trash',
+			tone: 'danger',
+			onclick: () => onDeleteRequest(item)
+		},
+		{ id: 'download', label: 'Download', icon: 'download', onclick: handleDownload }
+	];
 
-	$: editTools = RESOURCE_EDIT_TOOLS.filter((tool) => hasEditor(tool.key, editorKind)).map((tool) => ({
-		...tool,
-		title: editorTitle(tool.key, editorKind as EditorMediaKind)
-	}));
-
-	function openEditor(tool: MediaEditorKind) {
-		if (!editorKind) return;
-		editorRequest = {
-			kind: tool,
-			source: {
-				url: item.url,
-				kind: editorKind,
-				fileName: displayName,
-				itemId: item.id,
-				storedPath: `uploads/${item.filename}`,
-				width: item.width ?? null,
-				height: item.height ?? null,
-				durationSeconds: item.duration_seconds ?? null,
-				fps: item.fps ?? null
-			},
-			itemIndex: null
-		};
-	}
-
-	async function handleEditorResult(result: MediaEditorResult) {
-		if (result.type === 'items') {
-			// A split leaves the source alone and adds its parts alongside it, so
-			// there is no row here to patch - only newer ones to bring into view.
-			await libraryStore.showNewRows();
-			toasts.success(
-				`Split into ${result.items.length} parts — the original is untouched`
-			);
-			onClose();
-			return;
-		}
-		if (result.type !== 'item') return;
-		await libraryStore.applyEditResult(result.item, result.replaced);
-		toasts.success(
-			result.replaced ? 'Replaced — tags and collections kept' : 'Saved as a new library item'
-		);
+	async function handleToolResult(results: EditedMediaItem[]) {
+		await libraryStore.applyToolResult(results, [item.id]);
 	}
 </script>
 
-<BaseModal isOpen={true} size="xl" title={displayName} closeable={editorRequest === null} on:close={onClose}>
+<BaseModal isOpen={true} size="xl" title={displayName} closeable={!toolEditing} on:close={onClose}>
 	<div class="p-4 md:p-6 flex flex-col gap-4">
 		<div class="relative rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[60vh]">
 			<div
@@ -151,6 +114,15 @@
 				<img src={item.url} alt={displayName} class="max-h-[60vh] max-w-full object-contain" />
 			{/if}
 		</div>
+
+		<MediaToolRow
+			items={rowItems}
+			scope="library"
+			pageLabel="Library"
+			pageActions={libraryActions}
+			onResult={handleToolResult}
+			onEditingChange={(editing) => (toolEditing = editing)}
+		/>
 
 		<div class="flex flex-wrap items-center gap-2">
 			<Badge variant="neutral" class="inline-flex items-center gap-1.5">
@@ -184,33 +156,5 @@
 		{/if}
 
 		<ProvenanceLine itemType="upload" itemId={item.id} />
-
-		<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-line">
-			{#each editTools as tool (tool.key)}
-				<Tooltip text={tool.title}>
-					<Button variant="secondary" size="sm" icon={tool.icon} onclick={() => openEditor(tool.key)}>
-						{tool.label}
-					</Button>
-				</Tooltip>
-			{/each}
-
-			<div class="flex-1"></div>
-
-			<Button variant="secondary" size="sm" icon="sparkles" onclick={() => startRuleFrom(uploadItemRule(item))}>
-				Auto-file items like this…
-			</Button>
-			<Button variant="danger" size="sm" icon="trash" onclick={() => onDeleteRequest(item)}>
-				Delete
-			</Button>
-			<Button variant="secondary" size="sm" icon="download" onclick={handleDownload}>
-				Download
-			</Button>
-		</div>
 	</div>
 </BaseModal>
-
-<MediaEditors
-	request={editorRequest}
-	onClose={() => (editorRequest = null)}
-	onResult={handleEditorResult}
-/>

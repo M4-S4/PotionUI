@@ -44,3 +44,22 @@ export function mergeEditedLibraryItem(
 export function isSameLibraryRow(item: LibraryItem, edited: EditedMediaItem): boolean {
 	return item.id === edited.id;
 }
+
+export function libraryItemFromEdit(edited: EditedMediaItem): LibraryItem {
+	return {
+		id: edited.id,
+		filename: edited.filename,
+		original_filename: edited.original_filename,
+		media_type: edited.media_type,
+		mime_type: edited.mime_type,
+		url: edited.url,
+		width: edited.width,
+		height: edited.height,
+		duration_seconds: edited.duration_seconds,
+		fps: edited.fps,
+		size: edited.size,
+		created_at: edited.created_at,
+		tags: [],
+		is_favorite: false
+	};
+}

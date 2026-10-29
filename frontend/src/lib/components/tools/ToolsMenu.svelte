@@ -330,8 +330,9 @@
 					</span>
 				{/if}
 				{#each group.tools as { tool, availability } (tool.id)}
-					{@const hint = hintFor(tool, availability.enabled, availability.reason)}
-					{@const inlineReason = (scope === 'field' || variant === 'entry') && !availability.enabled}
+					{@const inlineReason = scope === 'field' && !availability.enabled}
+					{@const subline = availability.enabled ? (tool.note ?? '') : inlineReason ? '' : (availability.reason ?? '')}
+					{@const hint = subline ? '' : hintFor(tool, availability.enabled, availability.reason)}
 					{#if tool.control === 'rating'}
 						<div class="flex items-center gap-2 px-3 {rowPad} text-fg-muted" data-tool={tool.id}>
 							<Icon name={tool.icon} className="w-4 h-4 flex-shrink-0" />
@@ -374,15 +375,16 @@
 								onclick={() => activate(tool, availability.enabled)}
 							>
 								<Icon name={tool.icon} className="w-4 h-4 flex-shrink-0" />
-								<span class="flex-1 min-w-0 truncate">{labelOf(tool)}</span>
+								<span class="flex-1 min-w-0 flex flex-col">
+									<span class="truncate">{labelOf(tool)}</span>
+									{#if subline}
+										<span class="truncate text-[12px] leading-4 text-fg-subtle" data-tool-sub>{subline}</span>
+									{/if}
+								</span>
 								{#if inlineReason && availability.reason}
 									<span class="shrink-0 font-mono text-xs text-fg-subtle">{availability.reason}</span>
 								{:else if tool.control === 'collection'}
 									<Icon name="chevron-right" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
-								{:else if tool.source === 'plugin' && variant === 'entry'}
-									<span class="shrink-0 px-1 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle border border-line rounded-sm">
-										Plugin
-									</span>
 								{:else if availability.enabled && tool.shortcut && !sheet}
 									<Kbd keys={shortcutKeys(tool.shortcut)} />
 								{/if}

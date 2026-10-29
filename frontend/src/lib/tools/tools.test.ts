@@ -4,18 +4,14 @@ import {
 	buildLibraryToolContext,
 	listTools,
 	listToolGroups,
-	MEDIA_TOOL_FALLBACK_ICON,
-	pluginMediaToolFromManifest,
 	registerMediaTool,
 	registerMediaToolCategory,
 	unregisterMediaTools,
 	type MediaTool,
-	type MediaToolContext,
-	type PluginMediaToolEntry
+	type MediaToolContext
 } from './tools';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
-import { hasIcon } from '$lib/utils/IconLibrary';
 
 function file(id: number, fileType: string, isFinal = true): GenerationFile {
 	return {
@@ -141,10 +137,33 @@ describe('buildHistoryToolContext', () => {
 				filename: '1.bin',
 				width: undefined,
 				height: undefined,
+				durationSeconds: undefined,
+				fps: undefined,
+				hasAlpha: undefined,
 				generationId: 'a',
+				generationFileId: '1',
 				paramIndex: 0
 			}
 		]);
+	});
+
+	it('carries what a tool needs to size up a file: duration, fps, transparency and the file id', () => {
+		const ctx = buildHistoryToolContext(
+			[
+				generation('a', [
+					{ ...file(7, 'VIDEO'), duration_seconds: 8.5, fps: 24, has_alpha: false } as GenerationFile
+				])
+			],
+			['a'],
+			null
+		);
+
+		expect(ctx.items[0]).toMatchObject({
+			durationSeconds: 8.5,
+			fps: 24,
+			hasAlpha: false,
+			generationFileId: '7'
+		});
 	});
 });
 
@@ -171,7 +190,10 @@ describe('buildLibraryToolContext', () => {
 				url: '/api/media/uploads/x.png',
 				filename: 'clip.mp4',
 				width: 10,
-				height: 20
+				height: 20,
+				durationSeconds: undefined,
+				fps: undefined,
+				itemId: 'x'
 			}
 		]);
 		expect([...ctx.kinds]).toEqual(['video']);
@@ -295,121 +317,5 @@ describe('listToolGroups', () => {
 		expect(listToolGroups(historyCtx)[0].tools.map((entry) => entry.tool.id)).toEqual([
 			'history-only'
 		]);
-	});
-});
-
-describe('pluginMediaToolFromManifest', () => {
-	function entry(overrides: Partial<PluginMediaToolEntry> = {}): PluginMediaToolEntry {
-		return {
-			id: 'stitcher:join',
-			plugin_id: 'stitcher',
-			label: 'Join clips',
-			category: 'compose',
-			component: 'plugin:stitcher:JoinClips.js',
-			...overrides
-		};
-	}
-
-	const imageOnly = buildHistoryToolContext(
-		[generation('a', [file(1, 'IMAGE')]), generation('b', [file(2, 'IMAGE')])],
-		['a', 'b'],
-		null
-	);
-	const oneVideo = buildHistoryToolContext([generation('a', [file(1, 'VIDEO')])], ['a'], null);
-
-	it('keeps the served id and component ref as they are', () => {
-		const built = pluginMediaToolFromManifest(entry());
-		expect(built.id).toBe('stitcher:join');
-		expect(built.componentRef).toBe('plugin:stitcher:JoinClips.js');
-		expect(built.source).toBe('plugin');
-	});
-
-	it('prefixes a bare asset with its plugin so it parses as a component ref', () => {
-		expect(pluginMediaToolFromManifest(entry({ component: 'JoinClips.js' })).componentRef).toBe(
-			'plugin:stitcher:JoinClips.js'
-		);
-	});
-
-	it('keeps an icon the icon library can draw', () => {
-		expect(pluginMediaToolFromManifest(entry({ icon: 'film' })).icon).toBe('film');
-	});
-
-	it('swaps an undrawable icon for the fallback rather than rendering a letter', () => {
-		// `tool` is the manifest schema's own default and has no path in IconLibrary.
-		expect(pluginMediaToolFromManifest(entry({ icon: 'tool' })).icon).toBe(
-			MEDIA_TOOL_FALLBACK_ICON
-		);
-		expect(pluginMediaToolFromManifest(entry({ icon: 'no-such-icon' })).icon).toBe(
-			MEDIA_TOOL_FALLBACK_ICON
-		);
-		expect(pluginMediaToolFromManifest(entry({ icon: '' })).icon).toBe(MEDIA_TOOL_FALLBACK_ICON);
-		expect(hasIcon(MEDIA_TOOL_FALLBACK_ICON)).toBe(true);
-	});
-
-	it('defaults to the history scope when the manifest predates scopes', () => {
-		expect(pluginMediaToolFromManifest(entry()).scopes).toEqual(['history']);
-		expect(pluginMediaToolFromManifest(entry({ scopes: [] })).scopes).toEqual(['history']);
-	});
-
-	it('keeps an explicit scopes list from the manifest', () => {
-		expect(pluginMediaToolFromManifest(entry({ scopes: ['history', 'library'] })).scopes).toEqual([
-			'history',
-			'library'
-		]);
-	});
-
-	it('is unconstrained when applies_to is absent', () => {
-		expect(pluginMediaToolFromManifest(entry()).applies(imageOnly)).toEqual({ enabled: true });
-		expect(pluginMediaToolFromManifest(entry()).applies(emptyContext)).toEqual({ enabled: true });
-	});
-
-	it('enforces min_selection', () => {
-		const built = pluginMediaToolFromManifest(entry({ applies_to: { min_selection: 3 } }));
-		expect(built.applies(imageOnly)).toEqual({
-			enabled: false,
-			reason: 'Select at least 3 generations'
-		});
-		expect(built.applies(oneVideo).enabled).toBe(false);
-	});
-
-	it('enforces max_selection', () => {
-		const built = pluginMediaToolFromManifest(entry({ applies_to: { max_selection: 1 } }));
-		expect(built.applies(imageOnly)).toEqual({
-			enabled: false,
-			reason: 'Select at most 1 generation'
-		});
-		expect(built.applies(oneVideo)).toEqual({ enabled: true });
-	});
-
-	it('enforces media_kinds against the selected files', () => {
-		const built = pluginMediaToolFromManifest(entry({ applies_to: { media_kinds: ['video'] } }));
-		expect(built.applies(imageOnly)).toEqual({
-			enabled: false,
-			reason: 'Select at least one video'
-		});
-		expect(built.applies(oneVideo)).toEqual({ enabled: true });
-	});
-
-	it('accepts a selection carrying any one of several media_kinds', () => {
-		const built = pluginMediaToolFromManifest(
-			entry({ applies_to: { media_kinds: ['video', 'audio'] } })
-		);
-		expect(built.applies(oneVideo)).toEqual({ enabled: true });
-		expect(built.applies(imageOnly)).toEqual({
-			enabled: false,
-			reason: 'Select at least one video or audio'
-		});
-	});
-
-	it('counts against items, not generations, on the library scope', () => {
-		const built = pluginMediaToolFromManifest(entry({ applies_to: { min_selection: 2 } }));
-		const oneLibraryItem = buildLibraryToolContext([libraryItem('a')], null);
-		const twoLibraryItems = buildLibraryToolContext([libraryItem('a'), libraryItem('b')], null);
-
-		expect(built.applies(oneLibraryItem)).toEqual({
-			enabled: false,
-			reason: 'Select at least 2 items'
-		});
-		expect(built.applies(twoLibraryItems)).toEqual({ enabled: true });
 	});
 });

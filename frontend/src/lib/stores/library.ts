@@ -14,7 +14,7 @@ import {
 	type LibraryFilters
 } from '$lib/library/libraryQuery';
 import { collectCopyableFileIds, type CopyableGeneration } from '$lib/library/copyToLibrary';
-import { isSameLibraryRow, mergeEditedLibraryItem } from '$lib/library/libraryItemEdit';
+import { isSameLibraryRow, libraryItemFromEdit, mergeEditedLibraryItem } from '$lib/library/libraryItemEdit';
 import type { EditedMediaItem } from '$lib/services/api/media';
 import { isPerItemError, refusalMessage } from '$lib/plans/refusal';
 import { blockedUploadMessage } from '$lib/plans/uploadLimit';
@@ -40,6 +40,7 @@ export interface LibraryPageState {
 	selectedIds: string[];
 	availableTags: Tag[];
 	mediaTypeCounts: Record<string, number>;
+	freshIds: string[];
 }
 
 const initialState: LibraryPageState = {
@@ -54,7 +55,8 @@ const initialState: LibraryPageState = {
 	selectionMode: false,
 	selectedIds: [],
 	availableTags: [],
-	mediaTypeCounts: {}
+	mediaTypeCounts: {},
+	freshIds: []
 };
 
 function isItemsPerPageOption(value: number): boolean {
@@ -157,7 +159,7 @@ function createLibraryStore() {
 		},
 
 		setPage(page: number) {
-			update((state) => ({ ...state, currentPage: page }));
+			update((state) => ({ ...state, currentPage: page, freshIds: [] }));
 		},
 
 		setItemsPerPage(itemsPerPage: number) {
@@ -169,7 +171,7 @@ function createLibraryStore() {
 					// Keep the in-memory selection when localStorage is unavailable.
 				}
 			}
-			update((state) => ({ ...state, itemsPerPage, currentPage: 1 }));
+			update((state) => ({ ...state, itemsPerPage, currentPage: 1, freshIds: [] }));
 		},
 
 		// Restores the viewer's display preference after hydration, before the
@@ -184,7 +186,8 @@ function createLibraryStore() {
 			update((state) => ({
 				...state,
 				filters: { ...state.filters, [key]: value },
-				currentPage: 1
+				currentPage: 1,
+				freshIds: []
 			}));
 		},
 
@@ -199,7 +202,8 @@ function createLibraryStore() {
 							? state.filters.selectedTagIds.filter((id) => id !== tagId)
 							: [...state.filters.selectedTagIds, tagId]
 					},
-					currentPage: 1
+					currentPage: 1,
+					freshIds: []
 				};
 			});
 		},
@@ -208,7 +212,8 @@ function createLibraryStore() {
 			update((state) => ({
 				...state,
 				filters: { ...state.filters, selectedTagIds: [] },
-				currentPage: 1
+				currentPage: 1,
+				freshIds: []
 			}));
 		},
 
@@ -216,7 +221,8 @@ function createLibraryStore() {
 			update((state) => ({
 				...state,
 				filters: { ...DEFAULT_LIBRARY_FILTERS },
-				currentPage: 1
+				currentPage: 1,
+				freshIds: []
 			}));
 		},
 
@@ -385,6 +391,62 @@ function createLibraryStore() {
 			}
 
 			await this.showNewRows();
+		},
+
+		async applyToolResult(
+			results: EditedMediaItem[],
+			sourceIds: string[]
+		): Promise<{ added: number; replaced: number }> {
+			const before = snapshot();
+			const known = new Set(before.items.map((item) => item.id));
+			if (before.selectedItem) known.add(before.selectedItem.id);
+			const replacedItems = results.filter((result) => known.has(result.id));
+			const addedItems = results.filter((result) => !known.has(result.id));
+
+			if (replacedItems.length > 0) {
+				const byId = new Map(replacedItems.map((result) => [result.id, result]));
+				update((state) => ({
+					...state,
+					items: state.items.map((item) => {
+						const edited = byId.get(item.id);
+						return edited ? mergeEditedLibraryItem(item, edited) : item;
+					}),
+					selectedItem:
+						state.selectedItem && byId.has(state.selectedItem.id)
+							? mergeEditedLibraryItem(state.selectedItem, byId.get(state.selectedItem.id)!)
+							: state.selectedItem
+				}));
+			}
+
+			if (addedItems.length > 0) {
+				const sourceIndex = before.items.findIndex((item) => sourceIds.includes(item.id));
+				const fresh = addedItems.map((result) => result.id);
+				if (sourceIndex >= 0) {
+					const rows = addedItems.map(libraryItemFromEdit);
+					update((state) => {
+						const at = state.items.findIndex((item) => sourceIds.includes(item.id));
+						const index = at >= 0 ? at : 0;
+						return {
+							...state,
+							items: [...state.items.slice(0, index), ...rows, ...state.items.slice(index)],
+							totalCount: state.totalCount + rows.length,
+							freshIds: [...state.freshIds, ...fresh]
+						};
+					});
+				} else {
+					await this.showNewRows();
+					update((state) => ({ ...state, freshIds: [...state.freshIds, ...fresh] }));
+				}
+				await Promise.all([this.loadFacets(), libraryCollectionsStore.load()]);
+			} else {
+				await this.loadFacets();
+			}
+
+			return { added: addedItems.length, replaced: replacedItems.length };
+		},
+
+		clearFresh() {
+			update((state) => (state.freshIds.length > 0 ? { ...state, freshIds: [] } : state));
 		},
 
 		/**

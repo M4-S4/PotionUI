@@ -36,9 +36,10 @@
 	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
 	import { startRuleFrom } from '$lib/organize/handoff';
 	import { generationItemRule } from '$lib/organize/itemPrefill';
-	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
-	import type { MediaEditorRequest } from '$lib/media/editors/types';
-	import { PAINT_ICONS } from '$lib/components/imageEditor/icons';
+	import MediaToolRow, { type RowPageAction } from '$lib/media-tools/MediaToolRow.svelte';
+	import { buildHistoryEntryContext } from '$lib/tools/entryMenu';
+	import { notifySavedToLibrary } from '$lib/tools/savedToLibrary';
+	import type { EditedMediaItem } from '$lib/services/api/media';
 	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
@@ -520,27 +521,15 @@
 
 	let showPublishModal = false;
 
-	let editorRequest: MediaEditorRequest | null = null;
-	$: canEditImage = !!currentFile && currentFile.file_type?.toLowerCase?.() === 'image';
+	let toolEditing = false;
 
-	function openImageEditor() {
-		if (!currentFile) return;
-		editorRequest = {
-			kind: 'paint',
-			source: {
-				url: getImageUrl(currentFile),
-				kind: 'image',
-				fileName: currentFile.file_path.split('/').pop() || 'image.png',
-				width: currentFile.width ?? null,
-				height: currentFile.height ?? null
-			},
-			itemIndex: null
-		};
-	}
+	$: rowItems =
+		activeGeneration && currentFile
+			? buildHistoryEntryContext(activeGeneration, currentFile, null).items
+			: [];
 
-	async function handleEditorResult() {
-		await libraryStore.showNewRows();
-		toasts.success('Saved to your library as a new image');
+	function handleToolResult(results: EditedMediaItem[]) {
+		notifySavedToLibrary(results);
 	}
 
 	let exportingBundle = false;
@@ -573,6 +562,37 @@
 		link.click();
 	}
 
+	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean): RowPageAction[] {
+		const actions: RowPageAction[] = [];
+		if (withReuse) {
+			actions.push({
+				id: 'reuse',
+				label: 'Reuse settings',
+				icon: 'refresh',
+				tooltip: "Reuse this generation's settings",
+				onclick: () => dispatch('reuse', activeGeneration)
+			});
+		}
+		if (withCopy) {
+			actions.push({
+				id: 'copy-to-library',
+				label: 'Copy to Library',
+				icon: 'photo',
+				tooltip: 'Copy this file to your library (the generation stays in history)',
+				loading: copying,
+				onclick: handleCopyToLibrary
+			});
+		}
+		actions.push({ id: 'download', label: 'Download', icon: 'download', onclick: downloadCurrentFile });
+		return actions;
+	}
+
+	$: generationActions = buildGenerationActions(
+		!!activeGeneration?.preset_id,
+		canCopyToLibrary,
+		copyingToLibrary
+	);
+
 	function openCurrentFileInTab() {
 		if (!currentFile) return;
 		window.open(getImageUrl(currentFile), '_blank');
@@ -604,7 +624,7 @@
 	{isOpen}
 	{title}
 	sizeClass="md:w-[85vw] md:h-[85vh]"
-	closeable={editorRequest === null}
+	closeable={!toolEditing}
 	on:close={handleClose}
 >
 	<svelte:fragment slot="headerIcon">
@@ -798,20 +818,6 @@
 							iconOnly={true}
 						/>
 
-						<!-- Reuse button -->
-						{#if activeGeneration.preset_id}
-							<button
-								on:click={() => dispatch('reuse', activeGeneration)}
-								class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-								use:tooltip={"Reuse this generation's settings"}
-								aria-label="Reuse this generation's settings"
-							>
-								<Icon name="refresh" className="h-6 w-6" />
-							</button>
-						{/if}
-
-						<!-- Export bundle: a portable zip carrying files + reusable settings,
-						     distinct from the plain media "Download" button above -->
 						<button
 							on:click={handleExportBundle}
 							aria-label="Export this generation as a portable bundle"
@@ -835,28 +841,6 @@
 							<Icon name="lightbulb" className="h-6 w-6" />
 						</button>
 
-						<!-- Download button -->
-						<IconButton icon="download" label="Download" variant="overlay" onclick={downloadCurrentFile} />
-
-						<!-- Copy this file into the private library (a copy - the generation stays) -->
-						{#if canCopyToLibrary}
-							<IconButton icon="photo" label="Copy this file to your library (the generation stays in history)" variant="overlay" onclick={handleCopyToLibrary} disabled={copyingToLibrary} />
-						{/if}
-
-						{#if canEditImage}
-							<Tooltip text="Edit this image" position="left">
-								<button
-									on:click={openImageEditor}
-									class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-									aria-label="Edit this image"
-								>
-									<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.brush} />
-									</svg>
-								</button>
-							</Tooltip>
-						{/if}
-
 						<!-- Open in new tab button -->
 						<IconButton icon="external-link" label="Display in new tab" variant="overlay" onclick={openCurrentFileInTab} />
 
@@ -871,6 +855,18 @@
 								fileUrl: getImageUrl(currentFile),
 								fileType: currentFile.file_type
 							}}
+						/>
+					</div>
+				{/if}
+				{#if currentFile}
+					<div class="max-h-[40vh] shrink-0 overflow-y-auto border-t border-line bg-surface-1 px-3 py-3" data-details-tool-row>
+						<MediaToolRow
+							items={rowItems}
+							scope="history"
+							pageLabel="Generation"
+							pageActions={generationActions}
+							onResult={handleToolResult}
+							onEditingChange={(editing) => (toolEditing = editing)}
 						/>
 					</div>
 				{/if}
@@ -1312,12 +1308,6 @@
 	{/if}
 </BaseModal>
 </div>
-
-<MediaEditors
-	request={editorRequest}
-	onClose={() => (editorRequest = null)}
-	onResult={handleEditorResult}
-/>
 
 {#if showPublishModal && activeGeneration}
 	<PublishToInspirationsModal

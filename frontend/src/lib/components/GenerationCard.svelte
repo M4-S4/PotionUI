@@ -22,6 +22,9 @@
 	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip, gridIdOf } from '$lib/generation/compare/view/historyGrid';
 	import { getIconPath } from '$lib/utils/IconLibrary';
 	import EntryActions from '$lib/components/tools/EntryActions.svelte';
+	import ToolRunBand from '$lib/components/tools/ToolRunBand.svelte';
+	import { mediaToolRuns } from '$lib/media-tools/runs';
+	import { runForGeneration } from '$lib/tools/toolRuns';
 	import type { EntryMenuController } from '$lib/tools/entryMenu';
 	import type { MediaTool, MediaToolContext, ToolRunExtra } from '$lib/tools/tools';
 	import {
@@ -154,6 +157,7 @@
 	// table above (which still governs the media-area overlays shared with the
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
+	$: toolRun = runForGeneration($mediaToolRuns, generation);
 	$: menuEnabled = !!(tile && chromeBucket && entryMenu);
 	$: barRunLabel = chromeBucket?.showBarDuration ? generationRunLabel(generation) : null;
 	$: durationReplacesResolution = !!(barRunLabel && chromeBucket?.durationReplacesResolution);
@@ -624,6 +628,16 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if toolRun}
+			<ToolRunBand
+				label={toolRun.label}
+				progress={toolRun.progress}
+				cancelling={toolRun.cancelling}
+				bottom={tile && chromeBucket ? chromeBucket.barHeight : 0}
+				onCancel={() => toolRun && mediaToolRuns.cancel(toolRun.key)}
+			/>
+		{/if}
 
 		{#if menuEnabled && chromeBucket}
 				<EntryActions

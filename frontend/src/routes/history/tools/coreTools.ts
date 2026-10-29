@@ -1,11 +1,12 @@
 import type { ComponentType } from 'svelte';
 import { registerMediaTool } from '$lib/tools/tools';
 import { registerEntryTools } from '$lib/tools/entryTools';
+import HistoryApplyLookModal from '../components/HistoryApplyLookModal.svelte';
 import HistoryCompareModal from '../components/HistoryCompareModal.svelte';
 import HistoryEditImageModal from '../components/HistoryEditImageModal.svelte';
 import HistoryExportZipModal from '../components/HistoryExportZipModal.svelte';
 import HistoryStitchModal from '../components/HistoryStitchModal.svelte';
-import { editImageAvailability } from './editImage';
+import { applyLookAvailability, editImageAvailability } from './editImage';
 
 let registered = false;
 
@@ -79,5 +80,19 @@ export function registerCoreHistoryTools(): void {
 		kinds: ['image'],
 		applies: editImageAvailability,
 		component: HistoryEditImageModal as unknown as ComponentType
+	});
+
+	registerMediaTool({
+		id: 'apply-look',
+		label: 'Apply a look…',
+		description: 'Pick a look for this image in the image editor',
+		icon: 'palette',
+		category: 'effects',
+		source: 'core',
+		scopes: ['history', 'library'],
+		selection: { min: 1 },
+		kinds: ['image'],
+		applies: applyLookAvailability,
+		component: HistoryApplyLookModal as unknown as ComponentType
 	});
 }

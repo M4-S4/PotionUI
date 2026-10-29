@@ -99,8 +99,8 @@ test('generation details modal opened from the Last Generations drawer escapes t
 	).toBeGreaterThan(viewport!.width * 0.6);
 
 	// --- Structural check: the reworked header carries a status pill next to
-	// the close button, and the media pane's hover action overlay (restored
-	// to its pre-rework form) still exposes the reuse affordance.
+	// the close button, and the generation actions row under the media still
+	// exposes the reuse affordance.
 	await expect(dialog.getByText('completed', { exact: false })).toBeVisible();
-	await expect(dialog.getByRole('button', { name: "Reuse this generation's settings" })).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'Reuse settings' })).toBeVisible();
 });
