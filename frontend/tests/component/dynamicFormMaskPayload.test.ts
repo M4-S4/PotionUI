@@ -7,7 +7,6 @@ vi.mock('$lib/services/api/index', () => ({
 		getPresetFormSchema: vi.fn(),
 		listGenerationMedia: vi.fn().mockResolvedValue({ success: false }),
 		getUploadInfo: vi.fn().mockResolvedValue({ success: false }),
-		getHistoryTools: vi.fn().mockResolvedValue({ success: true, data: [] }),
 		listUploads: vi.fn().mockResolvedValue({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } }),
 		listLibraryItems: vi.fn().mockResolvedValue({ success: true, data: { items: [], total: 0 } }),
 		getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } })

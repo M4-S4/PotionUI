@@ -481,7 +481,7 @@ test.describe('running a tool', () => {
 		await card.getByRole('button', { name: 'Item actions' }).click();
 		await menu(page).locator('[data-tool="rotate"]').click();
 		const dialog = page.getByRole('dialog', { name: /Rotate/ });
-		await expect(dialog).toContainText('saved to the Library');
+		await expect(dialog).toContainText('Saved as a new Library item');
 		await dialog.getByRole('button', { name: 'Apply' }).click();
 
 		await expect(card.locator('[data-tool-run]')).toBeVisible();
