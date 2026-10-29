@@ -173,6 +173,19 @@ below is only the *fallback* when component sizes are unknown; when they're know
 cards get different plans for a 9B Klein vs a 14B Wan. Residency priority is DiT > TE > VAE (the
 VAE is dropped to tiled/offloaded first, the TE next).
 
+The causal-3D decode spike is priced per latent pixel from a constant calibrated on the 8x Wan 2.1
+VAE (1.2 MB per latent pixel, fp32). A 16x VAE (Wan 2.2 5B, Qwen-Image 2.1) turns one latent pixel
+into four times the pixels, so the Wan decode path (`wan_experts.py`) scales the constant by
+`(spatial_downscale / 8)²` through `vae/tiling.causal3d_decode_mb_per_latent_px`, 4.8 MB per latent
+pixel, unless the model's `latent_format` declares a measured `decode_mb_per_latent_px`. The square
+is an upper bound, not a measurement: the 2.2 decoder runs its convolutions on a 2x2-patchified
+grid, so its real spike per latent pixel lies between 1.2 and 4.8 MB. The bound errs towards more
+tiles (a 5B frame at 1280x704 is priced at about 25 GB and decodes in spatial tiles on every card,
+24 latent pixels wide with 6 GB free instead of 40), never towards an OOM, which under WSL2 is
+fatal. Measuring the 5B decode at 1280x704 on an 8 GB and a 12 GB card with the tiles would turn
+the bound into a declared value. The image engine's own causal-3D decode (`engine.py`) still prices
+every causal VAE at 1.2 MB per latent pixel.
+
 What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
 `torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
 `RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the

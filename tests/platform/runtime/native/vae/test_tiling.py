@@ -15,8 +15,10 @@ from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import (
     VAE_SPATIAL_DOWNSCALE,
     auto_tile_size,
+    causal3d_decode_mb_per_latent_px,
     causal3d_decode_overlap,
     causal3d_decode_tile,
+    causal3d_frame_need_gb,
     smaller_decode_tile,
     tiled_decode,
     tiled_decode_causal3d,
@@ -269,3 +271,24 @@ def test_tiled_decode_causal3d_can_accumulate_on_another_device(tile_size, overl
 
     assert there.device.type == "cpu"
     assert torch.equal(here, there)
+
+
+def test_the_decode_cost_per_latent_px_follows_the_square_of_the_spatial_factor():
+    assert causal3d_decode_mb_per_latent_px(8) == 1.2
+    assert causal3d_decode_mb_per_latent_px(16) == pytest.approx(4.8)
+    assert causal3d_decode_mb_per_latent_px(16, {"spatial_downscale": 16, "latent_channels": 48}) == pytest.approx(4.8)
+
+
+def test_a_latent_format_that_declares_a_measured_decode_cost_is_believed():
+    assert causal3d_decode_mb_per_latent_px(16, {"decode_mb_per_latent_px": 2.0}) == 2.0
+    assert causal3d_decode_mb_per_latent_px(16, {"decode_mb_per_latent_px": 0}) == pytest.approx(4.8)
+    assert causal3d_decode_mb_per_latent_px(8, {"decode_mb_per_latent_px": None}) == 1.2
+
+
+def test_one_5b_frame_at_1280x704_is_priced_beyond_a_12gb_card_and_its_tiles_shrink_with_the_cost():
+    dear = causal3d_decode_mb_per_latent_px(16)
+
+    assert causal3d_frame_need_gb((44, 80)) < 12.0
+    assert causal3d_frame_need_gb((44, 80), decode_mb_per_latent_px=dear) > 24.0
+    assert causal3d_decode_tile((44, 80), 6.0) == 40
+    assert causal3d_decode_tile((44, 80), 6.0, decode_mb_per_latent_px=dear) == 24
