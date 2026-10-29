@@ -334,3 +334,123 @@ def test_the_canvas_clip_sets_the_size_and_rate_of_the_join(tmp_path):
     graph = graph_of(concat_command(FFMPEG, ["ext.mp4", "src.mp4"], infos, tmp_path / "out.mp4", canvas=1))
 
     assert "[0:v]scale=1280:720" in graph and "fps=30," in graph and "fps=25" not in graph
+
+
+def test_pad_is_the_default_fit_and_letterboxes_a_clip_of_another_shape(tmp_path):
+    infos = [ClipInfo(720, 1280, 24.0, 4.0, False), ClipInfo(704, 1280, 24.0, 2.0, False)]
+
+    default = graph_of(concat_command(FFMPEG, ["a.mp4", "b.mp4"], infos, tmp_path / "out.mp4"))
+    padded = graph_of(concat_command(FFMPEG, ["a.mp4", "b.mp4"], infos, tmp_path / "out.mp4", fit="pad"))
+
+    assert default == padded
+    assert (
+        "[1:v]scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+        in default
+    )
+    assert "crop" not in default
+
+
+def test_cover_fills_the_canvas_and_crops_the_overflow_instead_of_padding(tmp_path):
+    infos = [ClipInfo(720, 1280, 24.0, 4.0, False), ClipInfo(704, 1280, 24.0, 2.0, False)]
+
+    graph = graph_of(concat_command(FFMPEG, ["a.mp4", "b.mp4"], infos, tmp_path / "out.mp4", fit="cover"))
+
+    for index in (0, 1):
+        assert f"[{index}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1," in graph
+    assert "pad" not in graph and "decrease" not in graph
+
+
+def test_cover_crops_every_clip_to_the_canvas_clip_on_the_crossfade_path(tmp_path):
+    infos = [ClipInfo(704, 1280, 24.0, 2.0, False), ClipInfo(720, 1280, 24.0, 4.0, False)]
+
+    graph = graph_of(concat_command(
+        FFMPEG, ["ext.mp4", "src.mp4"], infos, tmp_path / "out.mp4", canvas=1, crossfades=[0.25], fit="cover",
+    ))
+
+    assert "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1," in graph
+    assert "xfade=transition=fade" in graph and "pad" not in graph
+
+
+def test_the_requested_fit_reaches_the_ffmpeg_command(tmp_path):
+    calls = []
+    out = tmp_path / "film.mp4"
+
+    def run(command, **kwargs):
+        calls.append(command)
+        out.write_bytes(b"film")
+        return finished()
+
+    infos = {"a.mp4": ClipInfo(720, 1280, 24.0, 2.0, False), "b.mp4": ClipInfo(704, 1280, 24.0, 2.0, False)}
+    concat_videos(["a.mp4", "b.mp4"], out, fit="cover", run=run, find=ffmpeg_found, probe=infos.get)
+
+    (command,) = calls
+    assert "crop=720:1280" in graph_of(command) and "pad=" not in graph_of(command)
+
+
+def test_an_unknown_fit_is_refused_before_anything_runs(tmp_path):
+    def run(command, **kwargs):
+        raise AssertionError("ffmpeg must not run")
+
+    with pytest.raises(VideoConcatError, match="fit"):
+        concat_videos(["a.mp4"], tmp_path / "film.mp4", fit="stretch", run=run, find=ffmpeg_found)
+
+
+def write_framed_clip(cv2, path, size, border):
+    import numpy as np
+
+    width, height = size
+    frame = np.zeros((height, width, 3), dtype=np.uint8)
+    frame[:, border:width - border] = 255
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 8.0, size)
+    for _ in range(8):
+        writer.write(frame)
+    writer.release()
+
+
+def last_frame(cv2, path):
+    capture = cv2.VideoCapture(str(path))
+    frame = None
+    while True:
+        ok, current = capture.read()
+        if not ok:
+            break
+        frame = current
+    capture.release()
+    return frame
+
+
+def test_the_frame_join_fallback_fills_the_frame_when_asked_to_cover(tmp_path):
+    cv2 = pytest.importorskip("cv2", reason="the fallback join reads clips with cv2", exc_type=ImportError)
+    from src.features.cloud.testing.fake import fake_video_bytes
+
+    first, second = tmp_path / "first.mp4", tmp_path / "second.mp4"
+    first.write_bytes(fake_video_bytes(1, start=(255, 255, 255), end=(255, 255, 255), size=(32, 24)))
+    write_framed_clip(cv2, second, (36, 24), 2)
+
+    out = concat_videos([first, second], tmp_path / "film.mp4", find=no_ffmpeg, fit="cover")
+
+    frame = last_frame(cv2, out)
+    assert frame.shape[:2] == (24, 32) and frame[:, 0].mean() > 200 and frame[:, -1].mean() > 200
+
+
+@pytest.mark.skipif(concat_module.find_ffmpeg() is None, reason="needs a real ffmpeg")
+@pytest.mark.parametrize("fit, edges_are_lit", [("pad", False), ("cover", True)])
+def test_a_real_ffmpeg_join_of_a_slightly_narrower_clip_has_black_bars_only_when_padding(
+    tmp_path, fit, edges_are_lit,
+):
+    cv2 = pytest.importorskip("cv2", reason="frames are read with cv2", exc_type=ImportError)
+    from src.features.cloud.testing.fake import fake_video_bytes
+
+    source, extension = tmp_path / "source.mp4", tmp_path / "extension.mp4"
+    source.write_bytes(fake_video_bytes(1, start=(255, 255, 255), end=(255, 255, 255), size=(720, 1280)))
+    extension.write_bytes(fake_video_bytes(1, start=(255, 255, 255), end=(255, 255, 255), size=(704, 1280)))
+    infos = {
+        str(source): ClipInfo(720, 1280, 8.0, 1.0, False),
+        str(extension): ClipInfo(704, 1280, 8.0, 1.0, False),
+    }
+
+    joined = concat_videos([source, extension], tmp_path / "film.mp4", probe=lambda clip: infos[str(clip)], fit=fit)
+
+    frame = last_frame(cv2, joined)
+    assert frame.shape[:2] == (1280, 720)
+    assert bool(frame[:, :8].mean() > 128 and frame[:, -8:].mean() > 128) is edges_are_lit

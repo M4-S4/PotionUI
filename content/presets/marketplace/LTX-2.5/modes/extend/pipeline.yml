@@ -157,6 +157,7 @@ pipeline:
     configuration:
       extension_position: "{{ 'after' if form.direction == 'forward' else 'before' }}"
       overlap: "crossfade"
+      fit: "cover"
       keep_audio: true
 
   - name: "gallery"

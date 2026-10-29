@@ -330,6 +330,10 @@
           "type": "str",
           "value": "after"
         },
+        "fit": {
+          "type": "str",
+          "value": "cover"
+        },
         "keep_audio": {
           "type": "bool",
           "value": true

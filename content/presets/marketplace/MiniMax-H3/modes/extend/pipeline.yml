@@ -127,6 +127,7 @@ pipeline:
     configuration:
       extension_position: "{{ form.direction }}"
       overlap_frames: 0
+      fit: "cover"
       keep_audio: true
 
   - name: "gallery"

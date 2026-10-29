@@ -1,5 +1,6 @@
 import pytest
 
+from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes._shared.media.video_concat import ClipTrim, VideoConcatCancelled
 from src.pipelines.pipes.video_concat import main as pipe_module
@@ -80,3 +81,18 @@ def test_the_overlap_clip_sets_the_seam_length(joins, monkeypatch):
     run(make(overlap_frames=99, fps=24), video=["src.mp4"], extension=["e.mp4"], overlap=["ctx.mp4"])
 
     assert joins[0]["crossfades"] == [pytest.approx(25 / 30)]
+
+
+def test_the_fit_defaults_to_padding_and_the_chosen_fit_reaches_the_join(joins):
+    run(make(), video=["a.mp4", "b.mp4"])
+    run(make(fit="cover"), video="src.mp4", extension="e.mp4")
+
+    assert [call["fit"] for call in joins] == ["pad", "cover"]
+
+
+def test_a_fit_other_than_pad_or_cover_is_rejected():
+    with pytest.raises(ValueError, match="fit"):
+        validate_pipe_configuration(VideoConcatPipe, {"fit": "stretch"})
+
+    assert validate_pipe_configuration(VideoConcatPipe, {"fit": "cover"})["fit"] == "cover"
+    assert validate_pipe_configuration(VideoConcatPipe, {})["fit"] == "pad"

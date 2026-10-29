@@ -18,6 +18,7 @@ DEFAULT_FPS = 24.0
 POLL_SECONDS = 0.2
 TERMINATE_GRACE_SECONDS = 5.0
 EDGE_NUDGE_SECONDS = 0.001
+FIT_MODES = ("pad", "cover")
 NO_SOUND_NOTICE = "ffmpeg could not join the clips, so the joined video has no sound"
 
 
@@ -150,6 +151,15 @@ def _trim_filter(name: str, info: ClipInfo, trim: ClipTrim) -> str:
     return f"{name}={':'.join(parts)},{reset}=PTS-STARTPTS,"
 
 
+def _fit_filter(width: int, height: int, fit: str) -> str:
+    if fit == "cover":
+        return f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
+    return (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2"
+    )
+
+
 def concat_command(
     ffmpeg: str,
     clips: Sequence[PathLike],
@@ -160,6 +170,7 @@ def concat_command(
     crossfades: Optional[Sequence[float]] = None,
     audio: bool = True,
     canvas: int = 0,
+    fit: str = "pad",
 ) -> List[str]:
     trims = list(trims) if trims is not None else [ClipTrim()] * len(clips)
     crossfades = list(crossfades) if crossfades is not None else [0.0] * (len(clips) - 1)
@@ -185,8 +196,7 @@ def concat_command(
     for index, (info, trim) in enumerate(zip(infos, trims)):
         filters.append(
             f"[{index}:v]{_trim_filter('trim', info, trim)}"
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={first.fps:g},format=yuv420p{timebase}[v{index}]"
+            f"{_fit_filter(width, height, fit)},setsar=1,fps={first.fps:g},format=yuv420p{timebase}[v{index}]"
         )
         joined += f"[v{index}]"
         if with_audio:
@@ -246,6 +256,7 @@ def _ffmpeg_concat(
     crossfades: Optional[Sequence[float]],
     audio: bool,
     canvas: int,
+    fit: str,
     run: Callable,
     find: Callable[[], Optional[str]],
     probe: Callable,
@@ -258,7 +269,7 @@ def _ffmpeg_concat(
     if any(info is None for info in infos):
         return False
     command = concat_command(
-        ffmpeg, clips, infos, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas,
+        ffmpeg, clips, infos, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas, fit=fit,
     )
     try:
         result = run(command, capture_output=True, timeout=FFMPEG_TIMEOUT_SECONDS, is_cancelled=is_cancelled)
@@ -272,8 +283,21 @@ def _ffmpeg_concat(
     return True
 
 
+def _cover_frame(cv2, frame, size):
+    width, height = size
+    scale = max(width / frame.shape[1], height / frame.shape[0])
+    scaled = cv2.resize(
+        frame,
+        (max(width, round(frame.shape[1] * scale)), max(height, round(frame.shape[0] * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+    left = (scaled.shape[1] - width) // 2
+    top = (scaled.shape[0] - height) // 2
+    return scaled[top:top + height, left:left + width].copy()
+
+
 def _opencv_concat(
-    clips: Sequence[PathLike], out_path: Path, trims: Sequence[ClipTrim], crossfades: Sequence[float],
+    clips: Sequence[PathLike], out_path: Path, trims: Sequence[ClipTrim], crossfades: Sequence[float], fit: str,
 ) -> None:
     import cv2
 
@@ -310,7 +334,10 @@ def _opencv_concat(
                         if not writer.isOpened():
                             raise VideoConcatError("could not write the joined video")
                     if (frame.shape[1], frame.shape[0]) != size:
-                        frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+                        if fit == "cover":
+                            frame = _cover_frame(cv2, frame, size)
+                        else:
+                            frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
                     writer.write(frame)
             finally:
                 capture.release()
@@ -329,6 +356,7 @@ def concat_videos(
     crossfades: Optional[Sequence[float]] = None,
     audio: bool = True,
     canvas: int = 0,
+    fit: str = "pad",
     run: Callable = run_cancellable,
     find: Callable[[], Optional[str]] = find_ffmpeg,
     probe: Optional[Callable[[PathLike], Optional[ClipInfo]]] = None,
@@ -337,10 +365,12 @@ def concat_videos(
 ) -> Path:
     if not clips:
         raise VideoConcatError("there are no clips to join")
+    if fit not in FIT_MODES:
+        raise VideoConcatError(f"fit must be one of {', '.join(FIT_MODES)}, got {fit!r}")
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if _ffmpeg_concat(
-        clips, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas,
+        clips, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas, fit=fit,
         run=run, find=find, probe=probe or probe_clip, is_cancelled=is_cancelled,
     ):
         logger.info(f"[VIDEO_CONCAT] joined {len(clips)} clip(s) with ffmpeg")
@@ -352,6 +382,7 @@ def concat_videos(
         clips, out_path,
         list(trims) if trims is not None else [ClipTrim()] * len(clips),
         list(crossfades) if crossfades is not None else [0.0] * (len(clips) - 1),
+        fit,
     )
     return out_path
 

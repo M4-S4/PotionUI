@@ -62,6 +62,14 @@ class VideoConcatPipe(BasePipe):
                 required=False,
             ),
             PipeConfigSpec(
+                name="fit",
+                param_type=str,
+                default="pad",
+                description="Pad a clip of another size with black bars, or fill the frame and crop the overflow",
+                required=False,
+                choices=["pad", "cover"],
+            ),
+            PipeConfigSpec(
                 name="keep_audio",
                 param_type=bool,
                 default=True,
@@ -130,7 +138,7 @@ class VideoConcatPipe(BasePipe):
             try:
                 concat_videos(
                     clips, out_path, trims=trims, crossfades=crossfades, audio=audio, canvas=canvas,
-                    is_cancelled=is_cancelled,
+                    fit=self.config.get("fit", "pad"), is_cancelled=is_cancelled,
                     notify=lambda text: generation_outputs(
                         ProgressGenerationOutput(state=text, icon=Icon("alert-triangle", "beat"))),
                 )

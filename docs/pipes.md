@@ -2867,6 +2867,7 @@ Join video clips end to end, keeping their sound
 | `overlap_frames` | `int` | `0` | no | — | 0 | — | Frames at the seam of each extension clip that repeat the video |
 | `overlap` | `str` | `"crossfade"` | no | `crossfade`, `cut` | — | — | Blend the repeated frames into the video, or cut them |
 | `fps` | `float` | `24.0` | no | — | — | — | Frame rate of the extension clips, to turn overlap frames into time |
+| `fit` | `str` | `"pad"` | no | `pad`, `cover` | — | — | Pad a clip of another size with black bars, or fill the frame and crop the overflow |
 | `keep_audio` | `bool` | `true` | no | — | — | — | Keep the clips' sound |
 
 ## video_frame_extractor
