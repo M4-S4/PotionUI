@@ -27,6 +27,7 @@ REEXPORTS = {
     "src.plugin_api.cloud": ["DirectorEstimateError", "estimate_cloud_cost"],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],
     "src.plugin_api.chat": ["ToolApprovalPreview"],
+    "src.plugin_api.testing": ["scratch_database", "use_database"],
 }
 
 
