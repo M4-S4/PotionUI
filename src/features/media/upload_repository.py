@@ -27,8 +27,8 @@ class UploadRepository:
                     id, user_id, filename, original_filename, media_type, mime_type,
                     width, height, duration_seconds, fps, file_size, purpose,
                     thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile,
-                    content_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    content_hash, has_alpha
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 upload.id,
                 upload.user_id,
@@ -47,6 +47,7 @@ class UploadRepository:
                 upload.thumbnail_large,
                 upload.thumbnail_profile,
                 upload.content_hash,
+                None if upload.has_alpha is None else int(upload.has_alpha),
             ))
 
             cursor.execute("SELECT * FROM uploads WHERE id = ?", (upload.id,))
@@ -214,6 +215,7 @@ class UploadRepository:
         duration_seconds: Optional[float],
         fps: Optional[float],
         file_size: Optional[int],
+        has_alpha: Optional[bool] = None,
     ) -> Optional[Upload]:
         """Point an existing upload row at a different file, scoped to its owner.
 
@@ -235,7 +237,8 @@ class UploadRepository:
                        height = ?,
                        duration_seconds = ?,
                        fps = ?,
-                       file_size = ?
+                       file_size = ?,
+                       has_alpha = ?
                  WHERE id = ? AND user_id = ?
             """, (
                 filename,
@@ -245,6 +248,7 @@ class UploadRepository:
                 duration_seconds,
                 fps,
                 file_size,
+                None if has_alpha is None else int(has_alpha),
                 upload_id,
                 user_id,
             ))
@@ -272,6 +276,7 @@ class UploadRepository:
         thumbnail_medium: Optional[str],
         thumbnail_large: Optional[str],
         thumbnail_profile: Optional[str],
+        has_alpha: Optional[bool] = None,
     ) -> Optional[Upload]:
         with get_cursor() as cursor:
             cursor.execute("""
@@ -287,7 +292,8 @@ class UploadRepository:
                        thumbnail_small = ?,
                        thumbnail_medium = ?,
                        thumbnail_large = ?,
-                       thumbnail_profile = ?
+                       thumbnail_profile = ?,
+                       has_alpha = ?
                  WHERE id = ? AND user_id = ? AND filename = ?
             """, (
                 filename,
@@ -302,6 +308,7 @@ class UploadRepository:
                 thumbnail_medium,
                 thumbnail_large,
                 thumbnail_profile,
+                None if has_alpha is None else int(has_alpha),
                 upload_id,
                 user_id,
                 expected_filename,

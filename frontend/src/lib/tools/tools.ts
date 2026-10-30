@@ -133,6 +133,7 @@ export interface MediaTool {
 	tone?: 'danger';
 	labelFor?: (ctx: MediaToolContext) => string;
 	catalogToolId?: string;
+	pluginId?: string;
 	builtInEditor?: boolean;
 	lookId?: string;
 	componentProps?: Record<string, unknown>;
@@ -268,6 +269,7 @@ export function buildLibraryToolContext(
 				height: item.height,
 				durationSeconds: item.duration_seconds,
 				fps: item.fps,
+				hasAlpha: item.has_alpha,
 				itemId: item.id
 			};
 		})

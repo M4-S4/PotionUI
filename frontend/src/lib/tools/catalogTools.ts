@@ -87,6 +87,7 @@ export function mediaToolFromCatalog(tool: ToolDTO): MediaTool {
 		selection: { min, ...(Number.isFinite(max) ? { max } : {}) },
 		kinds: [...tool.accepts],
 		catalogToolId: tool.id,
+		pluginId: tool.source === 'core' ? undefined : tool.source,
 		builtInEditor: !!tool.editor,
 		note: toolNote(tool) || undefined,
 		applies: (ctx) => catalogAvailability(tool, ctx)

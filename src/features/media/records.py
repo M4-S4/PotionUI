@@ -15,6 +15,10 @@ from typing import Optional
 from src.platform.database.rows import dt_column, row_get
 
 
+def _alpha_from_row(value) -> Optional[bool]:
+    return None if value is None else bool(value)
+
+
 @dataclass
 class Upload:
     """One user-owned upload recorded in the `uploads` table (migration 087)."""
@@ -48,6 +52,7 @@ class Upload:
     # uploads.
     content_hash: Optional[str] = None
     is_favorite: bool = False
+    has_alpha: Optional[bool] = None
 
     @classmethod
     def from_row(cls, row) -> 'Upload':
@@ -72,4 +77,5 @@ class Upload:
             thumbnail_profile=row_get(row, 'thumbnail_profile'),
             content_hash=row_get(row, 'content_hash'),
             is_favorite=bool(row_get(row, 'is_favorite')),
+            has_alpha=_alpha_from_row(row_get(row, 'has_alpha')),
         )

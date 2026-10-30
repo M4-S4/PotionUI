@@ -28,6 +28,7 @@ export interface LibraryItem {
 	created_at?: string;
 	tags: LibraryItemTag[];
 	is_favorite?: boolean;
+	has_alpha?: boolean | null;
 }
 
 export interface LibraryItemTag {

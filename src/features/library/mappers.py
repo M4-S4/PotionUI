@@ -45,4 +45,5 @@ def upload_to_item(upload: Upload, tags: List[Any]) -> LibraryItem:
         created_at=dt_iso(upload.created_at),
         tags=[tag.model_dump() for tag in tags],
         is_favorite=upload.is_favorite,
+        has_alpha=upload.has_alpha,
     )

@@ -107,6 +107,7 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
         duration_seconds=file_record.duration_seconds,
         fps=file_record.fps,
         file_size=file_record.file_size or written,
+        has_alpha=file_record.has_alpha if media_type == 'image' else None,
         thumbnail_small=thumbnail_paths.get('small'),
         thumbnail_medium=thumbnail_paths.get('medium'),
         thumbnail_large=thumbnail_paths.get('large'),

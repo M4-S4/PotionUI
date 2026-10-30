@@ -150,6 +150,7 @@ class MediaToolPublisher:
                 thumbnail_medium=paths.get("medium"),
                 thumbnail_large=paths.get("large"),
                 thumbnail_profile=profile_hash(profile) if paths else None,
+                has_alpha=output.has_alpha,
             )
             if not updated:
                 self._require_unchanged(user_id, upload)
@@ -241,6 +242,7 @@ class MediaToolPublisher:
             thumbnail_large=thumbnail_paths.get("large"),
             thumbnail_profile=profile_hash(profile) if thumbnail_paths else None,
             content_hash=file_digest(media.path),
+            has_alpha=media.has_alpha,
         )
 
     def _forget_row(self, row: Upload, user_id: str) -> None:

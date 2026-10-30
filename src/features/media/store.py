@@ -25,6 +25,7 @@ from src.features.media.file_resolver import FilePathResolver
 from src.features.media.image_processor import ImageProcessor
 from src.features.media.media_types import MediaTypeResolver
 from src.platform.database.rows import dt_iso
+from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.plugins.limit_kinds import AdmissionRequest
@@ -420,6 +421,7 @@ class MediaStore:
 
         with self._local_copy(key, Path(filename).suffix) as local_path:
             width, height, duration_seconds, fps = self._probe_upload_metadata(local_path)
+            has_alpha = self._probe_upload_alpha(local_path)
 
         return UploadInfoResult(
             filename=filename,
@@ -427,7 +429,8 @@ class MediaStore:
             width=width,
             height=height,
             duration_seconds=duration_seconds,
-            fps=fps
+            fps=fps,
+            has_alpha=has_alpha,
         )
 
     @contextmanager
@@ -548,6 +551,7 @@ class MediaStore:
 
         with self._local_copy(key, file_ext) as local_path:
             width, height, duration_seconds, fps = self._probe_upload_metadata(local_path)
+            has_alpha = self._probe_upload_alpha(local_path)
 
         # A real Library resource gets the same thumbnail treatment a
         # generation output does - images synchronously (cheap, in-process),
@@ -572,6 +576,7 @@ class MediaStore:
             purpose=purpose,
             thumbnail_paths=thumbnail_paths,
             content_hash=content_hash,
+            has_alpha=has_alpha,
         )
 
         if purpose == UPLOAD_PURPOSE_USER and created_upload and self.media_types.is_video(file_ext):
@@ -665,6 +670,7 @@ class MediaStore:
         purpose: str = UPLOAD_PURPOSE_USER,
         thumbnail_paths: Optional[Dict[str, str]] = None,
         content_hash: Optional[str] = None,
+        has_alpha: Optional[bool] = None,
     ) -> Optional[Upload]:
         """Record ownership + metadata for a freshly-saved upload.
 
@@ -704,9 +710,21 @@ class MediaStore:
                 file_size=file_size,
                 purpose=purpose,
                 content_hash=content_hash,
+                has_alpha=has_alpha,
             ))
         except Exception as e:
             logger.warning(f"Failed to record upload ownership for {filename}: {e}")
+            return None
+
+    def _probe_upload_alpha(self, file_path: Path) -> Optional[bool]:
+        """Whether an uploaded image carries an alpha channel; None for non-images or unreadable files."""
+        if not self.media_types.is_image(file_path.suffix):
+            return None
+        try:
+            with Image.open(file_path) as image:
+                return has_alpha_mode(image)
+        except Exception as e:
+            logger.warning(f"Failed to probe alpha for upload {file_path.name}: {e}")
             return None
 
     def _probe_upload_metadata(
