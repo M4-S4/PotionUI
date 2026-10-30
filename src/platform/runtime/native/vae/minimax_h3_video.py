@@ -125,6 +125,17 @@ TEMPORAL_COMPRESSION_RATIO = math.prod(TEMPORAL_DOWNSAMPLE_FACTORS)  # 4
 CLIP_LENGTH = 17
 TOKEN_DROP = 3
 
+ENCODER_KEY_PREFIXES: tuple[str, ...] = ("encoder.", "quant_conv.")
+DECODE_ONLY_MESSAGE = (
+    "This MiniMax-H3 video VAE can only decode: its file carries no complete encoder. "
+    "Pick the standard MiniMax-H3 video VAE for anything that encodes video."
+)
+
+
+class VaeCannotEncodeError(ValueError):
+    pass
+
+
 TILE_SAMPLE_MIN_HEIGHT = 256
 TILE_SAMPLE_MIN_WIDTH = 256
 TILE_SAMPLE_MIN_OVERLAP_HEIGHT = 64
@@ -599,6 +610,7 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         # cannot see how much of the card the rest of the request is holding.
         self.decode_tile_batch_size = 1
         self.encode_tile_batch_size = 1
+        self.can_encode = True
         # Optional `observer(index=..., tiles=..., batches=...)` called after
         # each temporal chunk of a decode. Unset by default, so a decode that
         # nobody is profiling does no timing and no device sync.
@@ -633,6 +645,11 @@ class MiniMaxH3VideoVAE(NativeArchModule):
 
     def post_load(self) -> None:
         self.decoder.rope.post_load()
+
+    def drop_encoder(self) -> None:
+        self.encoder = None
+        self.quant_conv = None
+        self.can_encode = False
 
     # -- tiling --------------------------------------------------------
 
@@ -920,6 +937,8 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         before this parameter existed -- the mode branch never touches
         `logvar` at all.
         """
+        if not self.can_encode:
+            raise VaeCannotEncodeError(DECODE_ONLY_MESSAGE)
         moments = self._encode(x)
         mean, logvar = moments.chunk(2, dim=1)
         if not sample_posterior:

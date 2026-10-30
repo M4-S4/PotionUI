@@ -25,7 +25,7 @@ from src.platform.runtime.native.memory.residency import (
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import denormalize_h3_latent, normalize_h3_latent
-from src.platform.runtime.native.vae.minimax_h3_video import video_latent_frame_count
+from src.platform.runtime.native.vae.minimax_h3_video import VaeCannotEncodeError, video_latent_frame_count
 from src.pipelines.pipes._shared.video.frames import load_video_frames
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import resolve_canvas_size
@@ -49,6 +49,7 @@ logger = logging.getLogger(__name__)
 _PIXEL_MEAN = (0.485, 0.456, 0.406)
 _PIXEL_STD = (0.229, 0.224, 0.225)
 _UPSAMPLE_LIVE_TENSORS = 6
+UPSCALE_NEEDS_ENCODER_MESSAGE = "This VAE can only decode; pick the standard MiniMax-H3 video VAE for Upscale"
 
 
 def _resize_cover_center_crop_01(frames: torch.Tensor, height: int, width: int) -> torch.Tensor:
@@ -219,6 +220,8 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
             videos = pipe_input.input.get("video") or []
             if not videos:
                 raise ValueError("latent_upscaler/minimax_h3 requires either a 'latent' or a 'video' input")
+            if not getattr(bundle.video_vae.module, "can_encode", True):
+                raise VaeCannotEncodeError(UPSCALE_NEEDS_ENCODER_MESSAGE)
             pixels, source_frame_count = self._prepare_pixels(videos[0])
             source_height, source_width = int(pixels.shape[-2]), int(pixels.shape[-1])
             latent_frames = video_latent_frame_count(int(pixels.shape[2]))
