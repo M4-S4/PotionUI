@@ -215,7 +215,7 @@
 					<p class="text-sm font-semibold text-signal">Needs your go-ahead</p>
 				{/if}
 				<p class="text-sm text-fg-muted {guided ? '' : 'mt-0.5'}">
-					{consentGroup.title} wants to download the following before it can continue:
+					To continue, this step needs to download the following:
 				</p>
 			</div>
 

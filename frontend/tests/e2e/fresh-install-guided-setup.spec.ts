@@ -68,7 +68,7 @@ test('a fresh instance runs Guided setup from the real wizard', async ({ page })
 		await page.getByRole('button', { name: /^Review( .+)? download$/ }).click();
 		await expect(page.getByRole('heading', { name: 'Review the download' })).toBeVisible({ timeout: 60000 });
 		await expect(page.getByText("Couldn't finish")).toHaveCount(0);
-		await expect(page.getByText(/wants to download the following/)).toBeVisible({ timeout: 60000 });
+		await expect(page.getByText(/needs to download the following/)).toBeVisible({ timeout: 60000 });
 		await expect(page.getByText(/Downloads come from Hugging Face \(huggingface\.co\)/)).toBeVisible();
 		const tokenDisclosure = page.locator('details', { hasText: /Add a token \(optional\)/ });
 		await expect(tokenDisclosure).toBeVisible();

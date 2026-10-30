@@ -111,6 +111,8 @@ describe('RecipeRunProgress consent gate', () => {
 		expect(target.querySelector('h2')).toBeNull();
 		expect(target.textContent).toContain('waiting on you');
 		expect(target.textContent?.match(/Needs your go-ahead/g)?.length).toBe(1);
-		expect(target.textContent).toContain('wants to download the following');
+		expect(target.textContent).toContain('needs to download the following');
+		expect(target.textContent).not.toContain('Fetch models needs');
+		expect(target.textContent).not.toContain('Fetch models wants');
 	});
 });
