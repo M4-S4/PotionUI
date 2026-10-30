@@ -43,8 +43,9 @@ def latent_stats(latent: torch.Tensor) -> dict[str, float]:
 
 
 def preview_latent_frames(latent_frames: int, tokens_chunk_size: int, token_drop: int) -> int:
-    smallest = tokens_chunk_size + (tokens_chunk_size - token_drop)
-    return smallest if latent_frames >= smallest else 0
+    smallest = tokens_chunk_size - token_drop + 1
+    one_chunk = 2 * tokens_chunk_size - token_drop
+    return min(latent_frames, one_chunk) if latent_frames >= smallest else 0
 
 
 def to_preview_image(frame: torch.Tensor) -> Image.Image:

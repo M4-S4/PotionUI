@@ -138,11 +138,24 @@ def test_pipe_dumps_the_encoded_and_the_upscaled_latent_when_profiling(tmp_path)
     assert upscaled is upsampled
 
 
-def test_preview_needs_the_smallest_decodable_latent_head():
+def test_preview_decodes_at_most_one_decoder_chunk_and_skips_an_undecodable_head():
     assert preview_latent_frames(32, 5, 3) == 7
     assert preview_latent_frames(7, 5, 3) == 7
+    assert preview_latent_frames(4, 5, 3) == 4
+    assert preview_latent_frames(3, 5, 3) == 3
     assert preview_latent_frames(2, 5, 3) == 0
     assert preview_latent_frames(5, 3, 1) == 5
+    assert preview_latent_frames(2, 3, 1) == 0
+
+
+def test_every_previewed_head_really_decodes_to_one_chunk():
+    module = _tiny_vae()
+    for frames in range(1, 13):
+        head = preview_latent_frames(frames, module.tokens_chunk_size, module.token_drop)
+        if head:
+            assert module.decode_chunk_count(head) == 1
+        else:
+            assert module.decode_chunk_count(frames) == 0
 
 
 def test_latent_stats_report_the_normalized_space_the_upsampler_and_refine_work_in():
