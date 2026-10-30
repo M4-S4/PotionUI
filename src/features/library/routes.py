@@ -79,9 +79,19 @@ class LibraryController(BaseController):
         return self.success_response(data=result.model_dump())
 
     @guarded(fallback=Fail("facets_failed", "Failed to get library facets", 400))
-    async def get_facets(self, current_user) -> APIResponse:
-        """Per-media-type counts for the current user's library."""
-        facets = await asyncio.to_thread(operations.get_facets, self.collaborators, current_user.id)
+    async def get_facets(
+        self,
+        current_user,
+        collection_id: Optional[str] = None,
+        include_descendants: bool = True,
+        unsorted: bool = False,
+        favorites_only: bool = False,
+    ) -> APIResponse:
+        """Per-media-type counts for the current user's library view."""
+        facets = await asyncio.to_thread(
+            operations.get_facets, self.collaborators, current_user.id,
+            collection_id, include_descendants, unsorted, favorites_only,
+        )
         return self.success_response(data=facets.model_dump())
 
     @guarded({ValueError: Fail("not_found", status=404)}, Fail("get_failed", "Failed to get library item", 400))
@@ -216,10 +226,16 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.get("/facets", response_model=APIResponse, summary="Library Facets")
     async def get_facets(
+        collection_id: Optional[str] = Query(None, description="Count only items in this collection"),
+        include_descendants: bool = Query(True, description="With collection_id: include sub-collections' items"),
+        unsorted: bool = Query(False, description="Count only items in no collection"),
+        favorites_only: bool = Query(False, description="Count favorite items only"),
         current_user=Depends(get_current_active_user)
     ) -> APIResponse:
-        """Per-media-type counts for the current user's library."""
-        return await controller.get_facets(current_user)
+        """Per-media-type counts for the current user's library view."""
+        return await controller.get_facets(
+            current_user, collection_id, include_descendants, unsorted, favorites_only,
+        )
 
     @router.post("/items/from-generation", response_model=APIResponse, summary="Copy Generated File Into Library")
     async def copy_from_generation(

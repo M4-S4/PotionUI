@@ -1,11 +1,3 @@
-"""LLM response processing utilities.
-
-This module handles:
-- Thinking tag removal from LLM responses
-- Image loading and preparation for vision models
-"""
-
-import re
 import base64
 import logging
 from pathlib import Path
@@ -20,42 +12,6 @@ logger = logging.getLogger(__name__)
 
 class LLMResponseProcessor:
     """Processes LLM responses and prepares inputs."""
-
-    def remove_thinking_tags(self, content: str) -> str:
-        """Remove thinking tags and their content from LLM responses.
-
-        Handles various formats:
-        - <think>...</think>
-        - <thinking>...</thinking>
-        - <thought>...</thought>
-        - Case insensitive matching
-
-        Args:
-            content: Raw LLM response content
-
-        Returns:
-            Cleaned content with thinking tags removed
-        """
-        # Pattern to match various thinking tags and their content
-        # Using DOTALL flag to match across newlines
-        patterns = [
-            r'<think[^>]*>.*?</think>',
-            r'<thinking[^>]*>.*?</thinking>',
-            r'<thought[^>]*>.*?</thought>'
-        ]
-
-        cleaned_content = content
-        for pattern in patterns:
-            cleaned_content = re.sub(
-                pattern, '', cleaned_content,
-                flags=re.DOTALL | re.IGNORECASE
-            )
-
-        # Clean up any extra whitespace that may be left
-        cleaned_content = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned_content)
-        cleaned_content = cleaned_content.strip()
-
-        return cleaned_content
 
     async def load_and_prepare_image(
         self,

@@ -19,8 +19,8 @@ pays their import cost at process boot (mirrors ``LocalEmbeddingProvider``).
 
 The model weights (``AutoModel``) are never held on this instance - they go
 through ``ModelLifecycle.acquire()`` on every embed call under a
-per-call lease (mirrors ``NativeLLMClient._leased`` in
-``src/features/llm/clients/native.py``), so the embedder participates in the
+per-call lease (mirrors ``NativeRuntime._leased`` in
+``src/features/llm/native/runtime.py``), so the embedder participates in the
 same cache/eviction/RAM-admission machinery as every diffusion model. The
 processor (tokenizer + image preprocessor) IS kept on the instance - it's
 lightweight and has nothing worth evicting.
@@ -231,10 +231,6 @@ class SiglipVisionEmbedder:
 
     @contextmanager
     def _leased_model(self):
-        """Acquire the model through ModelLifecycle for the duration
-        of one forward pass: unevictable while leased, evictable under RAM
-        pressure the instant it's released. Mirrors ``WDTaggerProvider.
-        tag_image`` and ``NativeLLMClient._leased``."""
         models = self._models()
         lease_id = f"vision-embedder-{uuid.uuid4().hex}"
         models.begin_generation(None)

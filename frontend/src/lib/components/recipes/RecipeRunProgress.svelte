@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
-	import type { SetupConsentProvider, SetupRun } from '$lib/services/api/setup';
+	import type { SetupRun } from '$lib/services/api/setup';
 	import type { RecipeRunActions } from './runActions';
 	import {
 		runBadgeVariant,
@@ -11,6 +11,8 @@
 		manifestStepStatusLabel,
 		resolveStepGroups,
 		runManifestProgressSummary,
+		runProgressPercent,
+		consentKindLabel,
 		stepDuration,
 		smokeResultMedia,
 		stepProgressLabel,
@@ -23,9 +25,10 @@
 		type TransferStats
 	} from '$lib/utils/setupRunDisplay';
 	import { formatBytes, formatDuration } from '$lib/utils/format';
-	import { Alert, Badge, Button, Input } from '$lib/components/ui';
+	import { Alert, Badge, Button } from '$lib/components/ui';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import ConsentVariantPicker from './ConsentVariantPicker.svelte';
+	import ProviderKeyDisclosure from './ProviderKeyDisclosure.svelte';
 
 	/**
 	 * The live view of one recipe run: progress summary, consent gate, failure
@@ -46,7 +49,10 @@
 		actions,
 		onRunUpdated,
 		onStartOver,
-		completed
+		completed,
+		consentNote,
+		overallBar = false,
+		guided = false
 	}: {
 		run: SetupRun;
 		title?: string;
@@ -59,6 +65,9 @@
 		/** Rendered between the header and the consent gate — the wizard's
 		 * first-generation handoff, which no other surface has. */
 		completed?: Snippet;
+		consentNote?: Snippet;
+		overallBar?: boolean;
+		guided?: boolean;
 	} = $props();
 
 	const resolvedSteps = $derived(resolveStepGroups(run));
@@ -114,34 +123,8 @@
 		selections = { ...selections, [slotId]: variantId };
 	}
 
-	// Optional inline "add a provider API key" field the consent gate offers
-	// when `consentRequest.providers` names one that isn't configured yet —
-	// keyed by provider id so more than one can be prompted for at once.
-	let credentialDrafts = $state<Record<string, string>>({});
-	let credentialBusy = $state<Record<string, boolean>>({});
-	let credentialError = $state<Record<string, string>>({});
-	let credentialSaved = $state<Record<string, boolean>>({});
-
 	function errorText(err: any, fallback: string): string {
 		return getApiErrorMessage(err, fallback);
-	}
-
-	async function saveProviderCredential(provider: SetupConsentProvider) {
-		const value = (credentialDrafts[provider.id] || '').trim();
-		if (!value || credentialBusy[provider.id]) return;
-		credentialBusy = { ...credentialBusy, [provider.id]: true };
-		credentialError = { ...credentialError, [provider.id]: '' };
-		try {
-			await api.saveSetupProviderCredential(provider.id, provider.field_name, value);
-			credentialSaved = { ...credentialSaved, [provider.id]: true };
-		} catch (err: any) {
-			credentialError = {
-				...credentialError,
-				[provider.id]: errorText(err, "Couldn't save the API key.")
-			};
-		} finally {
-			credentialBusy = { ...credentialBusy, [provider.id]: false };
-		}
 	}
 
 	async function approveConsent() {
@@ -191,13 +174,33 @@
 </script>
 
 <div class="space-y-4">
-	<div class="flex items-start justify-between gap-3">
-		<div class="min-w-0">
-			<h2 class="text-sm font-semibold text-fg">{title}</h2>
-			<p class="text-sm text-fg-muted mt-0.5">{runManifestProgressSummary(resolvedSteps)}</p>
+	{#if guided}
+		<p class="text-sm text-fg-muted">{runManifestProgressSummary(resolvedSteps)}</p>
+	{:else}
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<h2 class="text-sm font-semibold text-fg">{title}</h2>
+				<p class="text-sm text-fg-muted mt-0.5">{runManifestProgressSummary(resolvedSteps)}</p>
+			</div>
+			<Badge variant={runBadgeVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
 		</div>
-		<Badge variant={runBadgeVariant(run.status)}>{runStatusLabel(run.status)}</Badge>
-	</div>
+	{/if}
+
+	{#if overallBar && resolvedSteps.groups.length > 0}
+		<div
+			class="h-1.5 overflow-hidden rounded-sm bg-surface-3"
+			role="progressbar"
+			aria-valuemin="0"
+			aria-valuemax="100"
+			aria-valuenow={runProgressPercent(resolvedSteps)}
+			aria-label="Setup progress"
+		>
+			<div
+				class="h-full bg-signal-solid transition-all duration-300"
+				style="width: {runProgressPercent(resolvedSteps)}%"
+			></div>
+		</div>
+	{/if}
 
 	{#if fetchError}
 		<p class="text-xs text-fg-subtle">{fetchError}</p>
@@ -208,9 +211,11 @@
 	{#if consentGroup && consentRequest}
 		<div class="rounded border border-signal/30 bg-signal/5 px-3 py-3 space-y-3">
 			<div>
-				<p class="text-sm font-semibold text-signal">Needs your go-ahead</p>
-				<p class="text-sm text-fg-muted mt-0.5">
-					{consentGroup.title} wants to download the following before it can continue:
+				{#if !guided}
+					<p class="text-sm font-semibold text-signal">Needs your go-ahead</p>
+				{/if}
+				<p class="text-sm text-fg-muted {guided ? '' : 'mt-0.5'}">
+					To continue, this step needs to download the following:
 				</p>
 			</div>
 
@@ -227,6 +232,9 @@
 						<li class="flex items-center justify-between gap-3 text-sm">
 							<span class="min-w-0 flex items-center gap-1.5">
 								<span class="text-fg truncate">{artifact.display_name}</span>
+								{#if consentKindLabel(artifact.kind)}
+									<span class="text-fg-subtle shrink-0">{consentKindLabel(artifact.kind)}</span>
+								{/if}
 								{#if artifact.gated}
 									<Badge variant="warning" size="sm">gated</Badge>
 									{#if artifact.license_url}
@@ -266,48 +274,10 @@
 				</Alert>
 			{/if}
 
+			{@render consentNote?.()}
+
 			{#each consentRequest.providers ?? [] as provider (provider.id)}
-				{#if provider.configured || credentialSaved[provider.id]}
-					<p class="text-xs text-success">{provider.name} API key saved.</p>
-				{:else}
-					<div class="rounded border border-line bg-surface-1 px-3 py-2 space-y-2">
-						<p class="text-xs text-fg-muted">
-							{provider.name} needs a free API key for some downloads —
-							{#if provider.website}
-								<a
-									href={provider.website}
-									target="_blank"
-									rel="noreferrer"
-									class="text-signal hover:underline"
-								>
-									get one
-								</a>,
-							{/if}
-							paste it here, or continue without.
-						</p>
-						<div class="flex items-center gap-2">
-							<Input
-								type="password"
-								autocomplete="off"
-								class="flex-1 text-sm"
-								placeholder="{provider.name} API key"
-								bind:value={() => credentialDrafts[provider.id] ?? '', (next) => (credentialDrafts[provider.id] = next)}
-							/>
-							<Button
-								size="sm"
-								variant="secondary"
-								loading={credentialBusy[provider.id]}
-								disabled={!credentialDrafts[provider.id]?.trim()}
-								onclick={() => saveProviderCredential(provider)}
-							>
-								Save
-							</Button>
-						</div>
-						{#if credentialError[provider.id]}
-							<p class="text-xs text-danger">{credentialError[provider.id]}</p>
-						{/if}
-					</div>
-				{/if}
+				<ProviderKeyDisclosure {provider} generic={guided} />
 			{/each}
 
 			<div class="flex items-center justify-between gap-3 pt-1">

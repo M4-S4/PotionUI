@@ -147,6 +147,24 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertEqual(result['current_step_num'], 3)
         self.assertEqual(result['total_steps'], 8)
 
+    def test_serialize_progress_output_carries_the_batch_position(self):
+        output = ProgressGenerationOutput(
+            state="TXT2IMG", item_index=3, item_count=6, item_progress=0.4, prompt_index=1, prompt_count=3
+        )
+
+        result = self.mapper.serialize_output(output)
+
+        self.assertEqual(
+            {key: result[key] for key in ('item_index', 'item_count', 'item_progress', 'prompt_index', 'prompt_count')},
+            {'item_index': 3, 'item_count': 6, 'item_progress': 0.4, 'prompt_index': 1, 'prompt_count': 3},
+        )
+
+    def test_serialize_progress_output_omits_the_batch_position_for_a_plain_run(self):
+        result = self.mapper.serialize_output(ProgressGenerationOutput(state="TXT2IMG"))
+
+        for key in ('item_index', 'item_count', 'item_progress', 'prompt_index', 'prompt_count'):
+            self.assertNotIn(key, result)
+
     def test_serialize_progress_output_omits_step_counts_when_unset(self):
         result = self.mapper.serialize_output(ProgressGenerationOutput(state="Loading model"))
 
@@ -311,6 +329,16 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertIs(result['image_urls_list'][0]['derived'], True)
         self.assertIs(result['videos'][0]['derived'], True)
         self.assertIs(result['video_urls_list'][0]['derived'], True)
+
+    def test_a_temporary_video_or_audio_update_carries_no_server_path(self):
+        video = VideoGenerationOutput(video_path="/srv/potion/tmp/tmpab12cd34.mp4", temporary=True)
+        audio = AudioGenerationOutput(audio_path="/srv/potion/tmp/tmpab12cd34.wav", temporary=True)
+
+        for output in (video, audio):
+            result = self.mapper.serialize_output(output)
+            self.assertNotIn('temp_path', result)
+            self.assertNotIn('/srv/', json.dumps(result, default=str))
+            self.assertTrue(result['path'].startswith('/api/media/tmp/'))
 
     def test_serialize_seed_output(self):
         """Test seed output serialization"""

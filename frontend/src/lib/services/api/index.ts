@@ -72,7 +72,6 @@ import { createAuthProvidersApi } from './authProviders';
 import { createRecipesApi } from './recipes';
 import { createMcpApi } from './mcp';
 import { createInspirationsApi } from './inspirations';
-import { createPluginsApi } from './plugins';
 import { createFormulasApi } from './formulas';
 import { createFiltersApi } from './filters';
 import { createOrganizeApi } from './organize';
@@ -128,7 +127,6 @@ export const api = {
 	...createRecipesApi(apiClient.getClient()),
 	...createMcpApi(apiClient.getClient()),
 	...createInspirationsApi(apiClient.getClient()),
-	...createPluginsApi(apiClient.getClient()),
 	...createFormulasApi(apiClient.getClient()),
 	...createFiltersApi(apiClient.getClient()),
 	...createOrganizeApi(apiClient.getClient()),
@@ -149,6 +147,9 @@ export type {
 	SetupRunStepView,
 	SetupRun,
 	SetupRecipe,
+	SetupMachine,
+	SetupMachineGpu,
+	SetupMachineDisk,
 	SetupConsentArtifact,
 	SetupConsentRequest
 } from './setup';

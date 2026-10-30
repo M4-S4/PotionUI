@@ -1,8 +1,3 @@
-# Krea-2 layout: Sampling section holds the knobs the Generation tab's Speed
-# profile bakes (steps/sampler/cfg reactions live here now, matching where
-# Krea-2 keeps them). NAG moved to the Enhance tab (Krea-2 keeps its NAG gate
-# there too); this tab keeps LTX's own sigma-schedule overrides and the
-# Step cache section, in that order.
 fields:
   - type: "section"
     label: "Sampling"
@@ -12,7 +7,7 @@ fields:
         type: "slider"
         label: "Steps"
         audience: "advanced"
-        default: 24
+        default: 8
         configuration: {min: 1, max: 100, step: 1}
         reactions:
           - when: { field: "speed_profile", equals: "balanced" }
@@ -24,17 +19,13 @@ fields:
           - when: { field: "speed_profile", equals: "custom" }
             then: { set_disabled: false }
 
-      # `include`, not the whole registry catalog: generator/video_ltx holds
-      # conditioned tokens clean by re-deriving the clamp and the x0 blend at
-      # every step, so a multistep integrator that mixes PAST velocities into
-      # its update is invalid here -- see that pipe's module docstring.
       - type: "row"
         children:
           - name: "sampler"
             type: "sampler"
             label: "Sampler"
             audience: "advanced"
-            default: "euler"
+            default: "euler_cfg_pp"
             configuration:
               family: "ltx"
               include: ["euler", "euler_ancestral", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
@@ -70,7 +61,7 @@ fields:
         type: "slider"
         label: "CFG Scale"
         audience: "advanced"
-        default: 4.0
+        default: 1.0
         configuration: {min: 1.0, max: 20.0, step: 0.5}
         reactions:
           - when: { field: "speed_profile", equals: "balanced" }
@@ -88,7 +79,7 @@ fields:
       - name: "manual_sigmas"
         type: "textbox"
         label: "Manual Sigmas"
-        ai_hint: "Manual override for the sigma schedule, only relevant when the Speed profile (Generation tab) is Balanced. Prefer the Distilled speed profile for the maintainer's validated ComfyUI LTX-2.3 distilled-refine recipe -- only suggest hand-typing this field for a CUSTOM schedule no profile covers."
+        ai_hint: "Manual override for the sigma schedule, only relevant when the Speed profile (Generation tab) is Balanced or Custom. Prefer the Distilled speed profile for the validated ComfyUI LTX-2.3 distilled-refine recipe -- only suggest hand-typing this field for a CUSTOM schedule no profile covers."
         configuration:
           placeholder: "Comma-separated sigma values, e.g. 1.0, 0.99375, ..., 0.0"
         default: ""
@@ -102,11 +93,41 @@ fields:
           - when: { field: "speed_profile", equals: "custom" }
             then: { set_visibility: true }
 
+  - type: "section"
+    label: "Upscale refine (stage 2)"
+    reactions:
+      - when: { field: "upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "upscale", not_equals: "off" }
+        then: { set_visibility: true }
+    children:
+      - type: "row"
+        children:
+          - name: "refine_sampler"
+            type: "sampler"
+            formula: "enhance"
+            label: "Refine Sampler"
+            audience: "advanced"
+            default: "euler"
+            ai_hint: "Sampler for the two-stage upscale refine pass only. Euler is Lightricks' recipe."
+            configuration:
+              family: "ltx"
+              include: ["euler", "euler_ancestral", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
+
+          - name: "refine_cfg"
+            type: "slider"
+            formula: "enhance"
+            label: "Refine CFG"
+            audience: "advanced"
+            default: 1.0
+            ai_hint: "Guidance for the two-stage upscale refine pass only. 1.0 is Lightricks' recipe (no negative pass); above 1.0 runs true CFG with the negative prompt on every refine step."
+            configuration: {min: 1.0, max: 20.0, step: 0.5}
+
       - name: "upscale_refine_sigmas"
         type: "textbox"
         label: "Upscale Refine Sigmas"
         audience: "advanced"
-        ai_hint: "Expert-only override for the two-stage upscale refine pass -- prefer suggesting the Refine Strength select (Enhance tab) instead. Only suggest hand-typing this for a deliberate custom schedule no Refine Strength option covers (lower first value = less noise re-injected = more faithful to the upsampled latent; higher = more freedom to fix upsampling artifacts, closer to a fresh generation)."
+        ai_hint: "Expert-only override for the two-stage upscale refine pass -- prefer suggesting the Refine Strength select (Enhance tab) instead. Its value count minus one is the step count. Only suggest hand-typing this for a deliberate custom schedule no Refine Strength option covers (lower first value = less noise re-injected = more faithful to the upsampled latent; higher = more freedom to fix upsampling artifacts, closer to a fresh generation)."
         configuration:
           placeholder: "Comma-separated sigma values, first value < 1.0, e.g. 0.909375, 0.725, 0.421875, 0.0"
         default: ""

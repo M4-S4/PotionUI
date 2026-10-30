@@ -1,3 +1,5 @@
+prompt_label: "Scene"
+prompt_placeholder: "a rainy street at night"
 name: "custom"
 short_description: "Increase the resolution of a video."
 fields:
@@ -7,6 +9,10 @@ fields:
         label: "Generation"
         configuration: {icon: "generation", icon_display: "icon_only"}
         children: "{{ paths.preset }}/modes/upscale/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration: {icon: "image", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/upscale/tabs/references.yml"
       - type: "tab"
         label: "LoRA"
         configuration: {icon: "lora", icon_display: "icon_only"}

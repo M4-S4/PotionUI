@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, causal3d_frame_need_gb
 

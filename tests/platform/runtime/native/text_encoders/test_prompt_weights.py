@@ -11,7 +11,7 @@ from __future__ import annotations
 import torch
 
 from src.platform.runtime.native.base import load_into_module
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 from src.platform.runtime.native.text_encoders.loader import _SPECS
 from src.platform.runtime.native.text_encoders.prompt_weights import (
     apply_token_weights,

@@ -47,7 +47,7 @@ from src.platform.runtime.native.arch.minimax_h3.config import MiniMaxH3Config
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _DIT_PATH = _REPO_ROOT / "models" / "diffusion_models" / "minimax_h3_fl2va_pruned_fp8_scaled.safetensors"
@@ -335,7 +335,7 @@ def test_fc2_fp8_dequant_matches_naive_reference(real_sd):
     matmul reference on the REAL fc2 tensor, and that the missing
     `input_scale` doesn't silently perturb it (the dequant path never reads
     `input_scale` at all -- see `Fp8ScaledLinear.forward_comfy_cast_weights`)."""
-    from vendor.gpl.comfyui.ops import fp8_ops
+    from src.platform.runtime.native.kernels import fp8_ops
 
     w = real_sd["blocks.0.mlp.fc2.weight"]
     scale = real_sd["blocks.0.mlp.fc2.weight_scale"]

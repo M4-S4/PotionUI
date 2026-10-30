@@ -2,18 +2,6 @@
 ## MiniMax-Music3: E2E test suite.
 ## Authoring reference: docs/presets.md "Testing presets"
 ##
-## KNOWN HARNESS GAP (same one AudioTools/tests.yml documents): `TestCase.kind`
-## (`src.features.presets.tests_schema`) is a strict `Literal["image", "video"]`
-## with no `"audio"` option, and the runner
-## (`src.features.preset_suite.runner.PresetSuiteRunner._run_generation`) only
-## ever collects `ImageGenerationOutput`/`GalleryGenerationOutput.images` into
-## `CaseOutcome.images` -- it has no code path for `AudioGenerationOutput`.
-## `min_outputs` MUST be 0 below for every case, or it fails unconditionally --
-## zero images will ever exist for this audio-only pipeline. These cases can
-## only assert "the generation completed without raising", not the actual
-## song length or audio content, until the harness grows an audio-shaped
-## outcome + check.
-##
 ## ONE MODE. Lyrics are the standard prompt (a `prompt` key inside `form:`
 ## maps to the top-level generation prompt, per docs/presets.md) -- no
 ## Director document. `caption`/`duration`/`instrumental` are plain form

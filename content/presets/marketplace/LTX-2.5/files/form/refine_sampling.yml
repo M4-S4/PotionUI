@@ -1,0 +1,26 @@
+# The refine-pass knobs, laid out in a row by each includer: the video mode's
+# Upscale stage 2, Layout to render's 2x refine and the Upscale mode's Standard
+# method. The defaults are Lightricks' two-stage recipe -- a deterministic
+# Euler loop at CFG 1 with no negative pass (see preset.yml's speed_profiles
+# comment for why the refine stays deterministic). Same field names and ranges
+# as presets/marketplace/LTX-2's refine fields.
+fields:
+  - name: "refine_sampler"
+    type: "sampler"
+    formula: "enhance"
+    label: "Refine Sampler"
+    audience: "advanced"
+    default: "euler"
+    ai_hint: "Sampler for the refine pass only. Euler is Lightricks' recipe."
+    configuration:
+      family: "ltx"
+      include: ["euler", "euler_ancestral", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
+
+  - name: "refine_cfg"
+    type: "slider"
+    formula: "enhance"
+    label: "Refine CFG"
+    audience: "advanced"
+    default: 1.0
+    ai_hint: "Guidance for the refine pass only. 1.0 is Lightricks' recipe (no negative pass); above 1.0 runs true CFG with the negative prompt on every refine step."
+    configuration: {min: 1.0, max: 20.0, step: 0.5}

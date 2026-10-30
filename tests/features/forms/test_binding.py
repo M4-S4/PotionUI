@@ -251,6 +251,17 @@ class TestFieldErrors:
         for message in excinfo.value.field_errors["prompt"]:
             assert not message.startswith("prompt:")
 
+    @pytest.mark.parametrize("field_type", ["string", "textbox"])
+    def test_whitespace_only_text_fails_a_required_text_field(self, field_type):
+        preset = _preset([_field("prompt", field_type, required=True)])
+        with pytest.raises(FormBindingError) as excinfo:
+            bind_form(preset, "txt2img", None, {"prompt": "  \t "}, "user_1")
+        assert "required field is missing" in excinfo.value.field_errors["prompt"]
+
+    def test_whitespace_only_text_is_fine_when_the_field_is_optional(self):
+        preset = _preset([_field("prompt", "string")])
+        bind_form(preset, "txt2img", None, {"prompt": "   "}, "user_1")
+
     def test_flat_errors_summary_still_readable(self):
         preset = _preset([_field("prompt", "string", required=True)])
         with pytest.raises(FormBindingError) as excinfo:

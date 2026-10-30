@@ -31,6 +31,8 @@ class LibraryItem(BaseModel):
     created_at: Optional[str] = None
     tags: List[Dict[str, Any]] = []
     is_favorite: bool = False
+    has_alpha: Optional[bool] = None
+    source_generation_id: Optional[str] = None
 
 
 class LibraryListResult(BaseModel):

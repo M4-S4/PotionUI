@@ -167,11 +167,12 @@ class ModelRequirementSchema(_RequirementEntryModel):
 
     tag: Optional[str] = None
     hash: Optional[str] = None
+    filename: Optional[str] = None
 
     @model_validator(mode="after")
     def _require_exactly_one(self) -> "ModelRequirementSchema":
-        if bool(self.tag) == bool(self.hash):
-            raise ValueError("model requirement needs exactly one of 'tag' or 'hash'")
+        if sum(bool(value) for value in (self.tag, self.hash, self.filename)) != 1:
+            raise ValueError("model requirement needs exactly one of 'tag', 'hash' or 'filename'")
         return self
 
 
@@ -201,6 +202,17 @@ class ModelRequirementChecker:
                 detail=f"no available model with hash '{parsed.hash}' found in the depot",
                 hint=parsed.hint,
                 action=RequirementAction(kind="open_downloader", payload={"hash": parsed.hash}),
+            )
+
+        if parsed.filename:
+            matches = ctx.models.model_repo.get_by_filename(parsed.filename)
+            if any(m.is_available for m in matches):
+                return RequirementResult(status="ok", detail=f"model '{parsed.filename}' present")
+            return RequirementResult(
+                status="missing",
+                detail=f"no available model named '{parsed.filename}' found in the depot",
+                hint=parsed.hint,
+                action=RequirementAction(kind="open_downloader", payload={"filename": parsed.filename}),
             )
 
         tag = ctx.models.tag_repo.get_tag_by_name(parsed.tag)
@@ -233,6 +245,9 @@ class ModelRequirementChecker:
         tag = spec.get("tag")
         if tag:
             return tag
+        filename = spec.get("filename")
+        if filename:
+            return filename
         model_hash = spec.get("hash")
         if model_hash:
             return model_hash[:12]

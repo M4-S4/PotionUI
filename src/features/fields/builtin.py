@@ -52,6 +52,9 @@ from src.features.fields.llm import LLMField
 from src.features.fields.carousel import CarouselField
 from src.features.fields.prompt_timeline import PromptTimeline
 from src.features.fields.camera_shot import CameraShot
+from src.features.fields.segmented import Segmented
+from src.features.fields.anchor import Anchor
+from src.features.fields.color import Color
 from src.features.fields.sampling_fields import SamplerField, ScheduleField
 
 
@@ -124,6 +127,10 @@ def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Opt
         FieldTypeDefinition("gate", Gate, frontend_component="core:GateField", shareable=True),
         FieldTypeDefinition("prompt_timeline", PromptTimeline, frontend_component="core:PromptTimelineField"),
         FieldTypeDefinition("camera_shot", CameraShot, frontend_component="core:CameraShotField"),
+
+        FieldTypeDefinition("segmented", Segmented, frontend_component="core:SegmentedField", shareable=True),
+        FieldTypeDefinition("anchor", Anchor, frontend_component="core:AnchorField", shareable=True),
+        FieldTypeDefinition("color", Color, frontend_component="core:ColorField", shareable=True),
 
         # Layout containers
         FieldTypeDefinition("tabs", Container, frontend_component="core:TabsField", container=True),

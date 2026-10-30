@@ -21,14 +21,14 @@ In **Admin → Plugins → DeepSeek → Settings**:
 
 | Setting | Values | What it does |
 |---|---|---|
-| Thinking | Auto (default), Off | Auto lets DeepSeek reason before answering a request that offers no tools, and turns reasoning off as soon as tools are involved. Off never reasons. |
+| Thinking | Auto (default), Off | Auto lets DeepSeek reason before answering. In a tool conversation it reasons only while every earlier assistant turn still has its reasoning to send back (see below). Off never reasons. |
 | Reasoning effort | Low, High (default), Max | How hard DeepSeek reasons when it does. |
 
 Turn on **Show thinking to users** in the configuration to show the reasoning above the reply.
 
 ## Limits worth knowing
 
-- **No reasoning in tool conversations.** When a request carries tools, DeepSeek wants the reasoning of every earlier turn sent back to it, and refuses the request otherwise. PotionUI's assistant does not keep that reasoning, so the plugin turns thinking off whenever tools are offered or the conversation already holds tool calls. Most assistant turns offer tools, so the assistant mostly answers without reasoning; tool-free features still reason.
+- **Reasoning in tool conversations lasts one question.** When a request carries tools, DeepSeek wants the reasoning of every earlier assistant turn sent back to it, and refuses the request otherwise. Within one question the assistant sends back the reasoning of each tool round, including after you approve a tool call, so DeepSeek reasons through the whole question. The assistant does not keep reasoning from earlier questions, so once a conversation holds an earlier answer, the plugin turns thinking off for requests that offer tools. In practice DeepSeek reasons on the first question of a conversation; later questions that offer tools answer without reasoning, and tool-free features still reason.
 - **No per-configuration option section.** The OpenAI-specific options (Top-P, penalties, seed, reasoning effort) do not show for this type; the plugin settings above cover thinking. DeepSeek ignores temperature while it thinks.
 - **Images.** Leave **Supports Vision** off unless the model you chose accepts images.
 - **Disabling the plugin** keeps your DeepSeek configurations, but they stop working ("Unsupported LLM type") until it is enabled again.

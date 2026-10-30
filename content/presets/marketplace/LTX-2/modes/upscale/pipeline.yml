@@ -75,11 +75,7 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
-      # Refine pass runs at CFG 1.0 (Lightricks' SimpleDenoiser, no negative
-      # pass) -- see generator_refine's `cfg` below; guidance_scale <= 1.0
-      # here means the negative branch is never encoded (do_cfg check in
-      # prompt_encoder), matching that recipe exactly.
-      guidance_scale: 1.0
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
       negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"
@@ -134,8 +130,8 @@ pipeline:
             template: ["model", "{{ item.model }}"]
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["negative_prompt", "{{ generation.prompts.negatives }}"]
-        - ["cfg", 1.0]
-        - ["sampler", "euler"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
         - ["refine_strength", "{{ form.refine_strength }}"]
 
   #############
@@ -178,11 +174,8 @@ pipeline:
     configuration:
       quantity: "{{ form.quantity }}"
       decode: true
-      # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
-      # pass) and a plain deterministic Euler loop for the refine stage --
-      # see docs/models/ltx.md's distilled-refine section for the citation.
-      cfg: 1.0
-      sampler: "euler"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
       # Step cache (FBCache, Advanced tab) is deliberately NOT bound here --
       # unlike video/pipeline.yml's two-stage mode, this pipeline has no
       # earlier generator_stage1 to point at: this node IS the whole

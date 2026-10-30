@@ -99,22 +99,22 @@
 # and `media_placements` are ALL precomputed together by
 # `derive_ltx_media_fields()` (src/features/video_director/normalize.py):
 # `media_images` walks `doc.media` in first -> last -> keyframes-sorted-by-`at`
-# order (image-typed entries only; see the v1 cut note) and THEN appends
-# image-typed `ic_lora[].reference` entries (document order); `media_videos`
-# holds ONLY video-typed `ic_lora[].reference` entries (document order). Each
+# order (image-typed entries only) and THEN appends image-typed
+# `ic_lora[].reference` entries (document order); `media_videos` holds
+# video-typed last/keyframe clips and THEN video-typed `ic_lora[].reference`
+# entries (document order). Each
 # `ic_lora` reference is routed to whichever list matches its OWN media type --
 # an image reference is a `source: "image"` placement into `media_images`, a
 # video reference is a `source: "video"` placement into `media_videos` --
 # because the video loader below is cv2-backed and cannot read a still image
 # file. The `@loop`s below just replay these three precomputed lists verbatim.
 #
-# -- v1 cut: image-only keyframe/first/last media --
-# Video-typed first/last/keyframe entries are dropped here (not loaded, not
-# placed) to keep the index math simple -- wiring one through would mean
-# interleaving TWO different media_loader outputs into ONE placement's index
-# space depending on its type. IC-LoRA `reference` entries are NOT subject to
-# this cut: both image- and video-typed references are routed (see the
-# index-alignment note above).
+# -- video keyframe/last media --
+# The director mode declares `video_keyframes`, so a video-typed 'last' or
+# 'keyframe' entry is a clip: it loads through media_videos (ahead of the
+# IC-LoRA reference clips) and is placed with `source: "video"` -- 'last'
+# anchored with `frame: "end"` so the clip ends on the final frame, a
+# keyframe starting at its `at`.
 #
 # -- audio routing --
 # doc.audio can only be non-empty in director mode (normalize.py rejects it for
@@ -198,13 +198,16 @@ pipeline:
             negative: "{{ form.video_director.segments[0].negative_prompt }}"
       quantity: 1
       # LTX uses true CFG -> encode the negative pass (guidance_scale > 1).
-      # form.cfg is the Generation tab's visible CFG slider, which the speed
+      # form.cfg is the Advanced tab's visible CFG slider, which the speed
       # profile's reactions bake to the ACTUAL recipe value (1.0 distilled, 3.0
       # quality, whatever the user set for balanced) -- so this is the SAME
-      # source the generator's own cfg/quality_cfg below read.
-      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      # source the generator's own cfg/quality_cfg below read. With Upscale on,
+      # stage 2 runs at Refine CFG (Advanced tab), so the larger of the two
+      # decides whether the negative pass is encoded at all.
+      guidance_scale: "{{ ([form.cfg | default(generation.profile.guidance), form.refine_cfg] | max) if (form.upscale) != 'off' else (form.cfg | default(generation.profile.guidance)) }}"
       # NAG needs the negative pass ENCODED even when true CFG is off, and both
-      # generator stages can request it (stage 2 runs at a hardcoded cfg 1.0).
+      # generator stages can request it (stage 2 runs at Refine CFG, 1.0 by
+      # default).
       # Without mirroring it here, prompt_encoder._do_cfg() returns False at cfg
       # 1.0, n_embeds comes back {}, and _attach_nag's `uncond is None` guard
       # silently drops NAG -- the exact distilled case NAG exists for.
@@ -504,17 +507,18 @@ pipeline:
             strength: "{{ item.strength }}"
             role: "{{ item.role }}"
       decode: "{{ (form.dfr_rounds | int) == 0 }}"
-      # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
-      # pass) and a plain DETERMINISTIC Euler loop for the refine stage --
-      # unchanged from 2.3 to 2.5, unlike stage 1's ancestral base pass. No
-      # `schedule:` either: `refine_sigmas` below is an explicit list, so there
-      # is no generated curve for ltx_dynamic to shape.
-      cfg: 1.0
-      sampler: "euler"
-      # NAG applies here too, and this is the stage that needs it most: the cfg
-      # 1.0 above means the negative prompt has NO effect on this pass through
-      # the guider, so NAG's attention-level injection is the only path by which
-      # it reaches stage 2 at all. Same three form values as stage 1 -- one
+      # Refine CFG / Refine Sampler (Advanced tab) default to Lightricks' own
+      # two-stage recipe: CFG 1 (SimpleDenoiser, no negative pass) and a plain
+      # DETERMINISTIC Euler loop for the refine stage -- unchanged from 2.3 to
+      # 2.5, unlike stage 1's ancestral base pass. No `schedule:` either:
+      # `refine_sigmas` below is an explicit list, so there is no generated
+      # curve for ltx_dynamic to shape.
+      cfg: "{{ form.refine_cfg }}"
+      sampler: "{{ form.refine_sampler }}"
+      # NAG applies here too, and this is the stage that needs it most: at the
+      # default cfg 1.0 above the negative prompt has NO effect on this pass
+      # through the guider, so NAG's attention-level injection is the only path
+      # by which it reaches stage 2 at all. Same three form values as stage 1 -- one
       # slider governs the whole render, rather than the control's reach
       # depending on the Upscale setting.
       nag_scale: "{{ form.nag_scale }}"

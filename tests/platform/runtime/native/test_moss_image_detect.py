@@ -9,7 +9,7 @@ from src.platform.runtime.model_headers.signatures import TRANSFORMER_EXTRACTABL
 from src.platform.runtime.native.arch.moss_image.model import MossImage, convert_moss_image_state_dict
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _FIXTURES = Path(__file__).parent / "arch" / "fixtures"
 _DTYPES = {"BF16": torch.bfloat16, "F32": torch.float32, "I8": torch.int8, "U8": torch.uint8}

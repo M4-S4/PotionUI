@@ -13,6 +13,8 @@ from src.features.llm.exceptions import (
     GenerationFailedException,
 )
 from src.features.llm.gateway import LLMGateway
+from src.features.llm.harness.build import user_message
+from src.features.llm.harness.events import Usage
 from src.features.llm.hooks import LLM_HOOKS
 from src.features.llm.repository import LLMRepository
 from src.features.llm.response_processor import LLMResponseProcessor
@@ -90,15 +92,11 @@ async def generate_response(
             request.image_data, storage_dir, max_size_mb=5
         )
 
-    system_message = config.system_message
-
-    # Generate response
     try:
-        response = await llm_service.generate_response(
-            prompt=prompt,
-            config=config,
-            system_message=system_message,
-            image_data=image_base64,
+        completion = await llm_service.complete(
+            config,
+            [user_message(prompt, images=(image_base64,) if image_base64 else ())],
+            system=config.system_message,
         )
     except ValueError as e:
         raise GenerationFailedException(str(e))
@@ -106,33 +104,23 @@ async def generate_response(
         logger.error(f"LLM generation error: {e}")
         raise GenerationFailedException(f"Failed to generate response: {str(e)}")
 
-    # Remove thinking tags from the response content
-    logger.debug(
-        f"LLM raw response content (first 500 chars): "
-        f"{response.content[:500] if response.content else 'EMPTY'}"
-    )
-    cleaned_content = response_processor.remove_thinking_tags(response.content)
-    logger.debug(
-        f"LLM cleaned content (first 500 chars): "
-        f"{cleaned_content[:500] if cleaned_content else 'EMPTY'}"
-    )
-
-    # Execute after_generate hook
+    content = completion.text
+    usage = completion.usage or Usage()
     execute_hook(
         plugins,
         LLM_HOOKS.after_generate,
         {
             "user_id": user_id,
             "config_id": config.id,
-            "content": cleaned_content,
-            "model": response.model,
-            "tokens_used": response.tokens_used,
+            "content": content,
+            "model": config.model,
+            "tokens_used": usage.total_tokens,
         },
     )
 
     return LLMGenerateResponse(
-        content=cleaned_content,
-        model=response.model,
-        provider_id=response.provider_id,
-        tokens_used=response.tokens_used,
+        content=content,
+        model=config.model,
+        provider_id=config.type,
+        tokens_used=usage.total_tokens,
     )

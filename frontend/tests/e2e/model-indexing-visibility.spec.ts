@@ -76,7 +76,9 @@ async function mockReadiness(page: Page, report: Record<string, unknown>) {
 
 async function gotoSetup(page: Page) {
 	await page.goto('/setup');
-	await expect(page.getByText('Models location')).toBeVisible({ timeout: 15000 });
+	await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 15000 });
+	await page.getByRole('button', { name: 'Continue' }).click();
+	await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
 }
 
 async function gotoAdminModelsFolders(page: Page) {
@@ -286,6 +288,7 @@ test.describe('model indexing visibility - wizard', () => {
 			})
 		);
 		await gotoSetup(page);
+		await page.getByText('Readiness checks', { exact: true }).click();
 		await expect(page.getByText('indexing', { exact: true })).toBeVisible({ timeout: 10000 });
 		await expect(page.getByText('Your models are still being set up (412/1637)')).toBeVisible();
 		await screenshot(page, JOURNEY, 'readiness-row-indexing');

@@ -18,7 +18,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import IconButton from './IconButton.svelte';
-	import { trackMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { trackMenuPosition, type FlippedMenuPosition, type MenuAnchor } from '$lib/utils/menuPosition';
 
 	let {
 		label,
@@ -34,6 +34,7 @@
 		preferred = 'down',
 		gap = 4,
 		menuAttrs = {},
+		anchor = null,
 		onopen,
 		onclose,
 		trigger,
@@ -52,6 +53,7 @@
 		preferred?: 'up' | 'down';
 		gap?: number;
 		menuAttrs?: Record<string, string | number | boolean | undefined>;
+		anchor?: MenuAnchor | null;
 		onopen?: () => void;
 		onclose?: () => void;
 		trigger?: Snippet<[{ open: boolean; toggle: () => void }]>;
@@ -99,7 +101,7 @@
 		if (!open || !triggerEl || !menuEl) return;
 		const menu = menuEl;
 		return trackMenuPosition(
-			triggerEl,
+			anchor ?? triggerEl,
 			() => ({ width, heightEstimate: menu.offsetHeight, gap, align, preferred }),
 			(next) => (position = next)
 		);

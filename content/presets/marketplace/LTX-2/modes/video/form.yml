@@ -6,6 +6,10 @@ negative_prompt:
     conditions:
       - { field: "cfg", greater_than: 1 }
       - { field: "nag_scale", greater_than: 1 }
+      - logic: "AND"
+        conditions:
+          - { field: "upscale", not_equals: "off" }
+          - { field: "refine_cfg", greater_than: 1 }
 fields:
   - type: "tabs"
     children:

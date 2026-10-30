@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getFilledIconPaths, getIconPath, hasIcon, iconSvgMarkup } from './IconLibrary';
+import { getAllIconNames, getFilledIconPaths, getIconPath, hasIcon, iconSvgMarkup } from './IconLibrary';
 import { spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
 import { segmentMenuActions } from './segmentActions';
 import { actionCardIcon } from '$lib/chat/actionCard';
@@ -90,5 +90,21 @@ describe('iconSvgMarkup', () => {
 	it('copies filled shapes as filled paths', () => {
 		const markup = iconSvgMarkup('composer-grip');
 		expect(markup.match(/fill="currentColor" stroke="none"/g)).toHaveLength(6);
+	});
+});
+
+describe('mode glyphs', () => {
+	const names = getAllIconNames().filter((name) => name.startsWith('mode-'));
+
+	it('registers the eighteen mode glyphs', () => {
+		expect(names).toHaveLength(18);
+	});
+
+	it('draws each one as stroke-only paths, with no two sharing art', () => {
+		for (const name of names) {
+			expect([getIconPath(name)].flat().length, name).toBeGreaterThan(0);
+			expect(getFilledIconPaths(name), name).toEqual([]);
+		}
+		expect(new Set(names.map(art)).size).toBe(names.length);
 	});
 });

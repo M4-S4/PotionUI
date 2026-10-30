@@ -252,6 +252,10 @@
 			</div>
 		{/if}
 
+		{#if cardState === 'expired' && !detailsOpen}
+			<div class="action-summary is-muted">This approval expired before it was decided.</div>
+		{/if}
+
 		{#if bodyOpen}
 			<div class="action-card-body" transition:slide={{ duration: 150 }}>
 				{#if pluginRenderer}

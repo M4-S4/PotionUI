@@ -8,7 +8,9 @@ import pytest
 from src.features.models.indexer import ModelScanner
 from src.features.models.repository import model_repo
 from src.features.models.type_repository import ModelTypeRepository
+from src.platform.database import get_cursor
 from src.platform.database.rows import now_iso
+from src.platform.runtime.model_headers import classify_header as real_classify_header
 from src.platform.runtime.model_headers import read_header as real_read_header
 from tests.fixtures.model_header_fixtures import tensor_specs, write_safetensors
 from tests.fixtures.model_index_fixtures import (
@@ -117,16 +119,19 @@ def test_new_files_are_classified_from_the_hash_stream_without_a_second_read(lib
     assert lib.model("flux-dev.safetensors").model_type == "diffusion_model"
 
 
-def test_verdict_is_stored_once_per_sha_and_reused_by_a_second_copy(lib):
+def test_verdict_is_classified_once_per_header_and_shared_by_a_second_copy(lib):
     lib.put(lib.checkpoints, "flux-a.safetensors", FLUX, tag="same")
     content = (lib.checkpoints / "flux-a.safetensors").read_bytes()
     (lib.checkpoints / "sub").mkdir()
     (lib.checkpoints / "sub" / "flux-b.safetensors").write_bytes(content)
 
-    with patch("src.features.models.indexer.read_header", side_effect=real_read_header) as spy:
+    with patch("src.features.models.indexer.classify_header", side_effect=real_classify_header) as spy:
         lib.index()
 
     assert spy.call_count == 1
+    with get_cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) AS n FROM model_header_verdicts")
+        assert cursor.fetchone()["n"] == 1
 
 
 def test_invalid_headers_are_cached_and_fall_back_to_the_folder_type(lib):
@@ -134,7 +139,7 @@ def test_invalid_headers_are_cached_and_fall_back_to_the_folder_type(lib):
     lib.index()
     model = lib.model("broken.safetensors")
     assert (model.model_type, model.type_source) == ("checkpoint", "folder")
-    verdict = ModelTypeRepository().get_verdicts([model.sha256])[model.sha256]
+    verdict = ModelTypeRepository().get_verdicts([model.id])[model.id]
     assert verdict["status"] == "invalid"
 
 
@@ -439,7 +444,7 @@ def test_a_file_that_changed_since_it_was_indexed_is_not_classified_under_its_ol
 
     lib.index()
 
-    assert ModelTypeRepository().get_verdicts([old_sha]) == {}
+    assert ModelTypeRepository().get_verdicts_by_sha([old_sha]) == {}
     assert lib.model("thing.safetensors").model_type == "diffusion_model"
 
 
@@ -492,7 +497,7 @@ def test_an_unreadable_header_is_reported_not_cached_and_retried_on_the_next_run
         first = lib.index()
     model = lib.model("flux-dev.safetensors")
     assert (model.model_type, model.type_source) == ("checkpoint", "folder")
-    assert ModelTypeRepository().get_verdicts([model.sha256]) == {}
+    assert ModelTypeRepository().get_verdicts([model.id]) == {}
     assert first["indexed"] == 1
     assert first["failed_files"] == [{"path": str(path), "error": "Could not read the file header: denied"}]
     assert first["failed_by_root"] == {"r1": 1}

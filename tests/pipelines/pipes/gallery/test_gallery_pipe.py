@@ -84,27 +84,6 @@ def test_derived_config_accepts_templated_string():
     assert gallery.images[0].derived is False
 
 
-# --- Audio ------------------------------------------------------------------
-#
-# Mirrors the image/video coverage above. Unlike image/video, `audio` items
-# arriving on `pipe_input.input["audio"]` are bare path strings too - every
-# audio-producing pipe (`audio_trim`, `generator/maya`, the Stable Audio 3
-# generator) builds its `PipeOutput` the same way the image/video generators
-# do: `{"audio": [r.audio_path for r in results]}`, metadata stripped. So
-# `AudioGenerationOutput` has no `derived` field (unlike Image/Video), and
-# per-item metadata (duration/sample_rate/channels/track_type/seed/segment)
-# is *not* carried through this pipe for audio, exactly as it already isn't
-# for image (resolution/sampler/cfg/...) or video (resolution/duration/fps/
-# ...) - those fields stay at their dataclass defaults after passing through
-# `GalleryPipe` today, for every media type. This is not a new gap: the
-# `duration` field specifically - the one that actually gets persisted and
-# drives the history card's duration badge - is safe regardless, because
-# `AudioGenerationOutputHandler._create_file_record` probes it from the
-# saved file whenever the pipe didn't already set it (see
-# `tests/features/generation/handlers/test_audio_handler.py::
-# test_duration_is_probed_and_persisted_when_not_set_by_the_pipe`, which
-# covers exactly this None-duration shape end to end).
-
 def test_audio_emitted_for_persistence(minimal_wav_file):
     emitted = _run(PipeInput(input={"audio": [str(minimal_wav_file)], "seed": [3]}))
 

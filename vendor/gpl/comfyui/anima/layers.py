@@ -36,13 +36,6 @@
 #   text-fusion head bolted onto the borrowed MiniTrainDIT backbone):
 #   _rotate_half, _apply_rope, _AdapterRotaryEmbedding, _AdapterAttention,
 #   _AdapterBlock, _LLMAdapter.
-#
-# Local modification (BE-97): the native engine's attention-kernel dispatcher
-# (src/platform/runtime/native/attention.py) can't be imported here — this
-# package must not depend on src. _Attention.forward and _AdapterAttention.
-# forward both call a module-level backend hook instead; src wires it via
-# set_attention_backend() (see arch/anima/model.py, the one importer that
-# constructs Anima).
 
 """Anima building blocks: MiniTrainDIT backbone layers + the in-model
 LLMAdapter text-fusion head. See the header above for per-class provenance.
@@ -76,7 +69,7 @@ def set_attention_backend(fn: "Callable[..., Tensor]") -> None:
     :class:`_AdapterAttention` call into.
 
     ``fn(q, k, v) -> Tensor`` — same contract as
-    ``src.platform.runtime.native.attention.attention``. Idempotent; safe to
+    ``src.platform.runtime.native.kernels.attention``. Idempotent; safe to
     call more than once (later calls replace the backend).
     """
     global _attention_backend

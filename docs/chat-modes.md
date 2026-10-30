@@ -72,12 +72,13 @@ which groups are sent up front:
 | Window | Sent up front |
 |---|---|
 | over 65,536 tokens | every group |
-| 24,576 to 65,536 tokens, or unknown | everything except `library` |
+| 24,576 to 65,536 tokens, or unknown | everything except `library` and `media` |
 | under 24,576 tokens | the mode's `core_groups` only |
 
 The builtin groups are `core`, `phrasebook_write` (phrasebook edits and value browsing by
 id), `memory_maintenance` (`read_memory`, `update_memory`, `delete_memory`), `director`
-(`set_prompt_relay_timeline`) and `library` (saved segments and prompts, uploads,
+(`set_prompt_relay_timeline`), `media` (`run_media_tool`, the largest schema, so it is held
+back on smaller windows) and `library` (saved segments and prompts, uploads,
 collections, the model and preset catalogs, `start_generation`). A mode's `core_groups`
 are always sent: the Phrasebook mode keeps `phrasebook_write`, and the History, Models and
 Prompts modes keep `library`. Tools a mode names in `tool_names` are always sent too.
@@ -92,7 +93,11 @@ per-turn reply-format reminder is left out on windows under 24,576 tokens.
 
 ## Tool approval
 
-A tool with `requires_approval = True` returns a preview from `execute()`. The turn
+A tool with `requires_approval = True` returns a preview from `execute()`. A tool that only
+needs approval for some calls overrides `approval_required(arguments)`: the turn pauses on a
+call only when it returns true, and every other call runs straight from `execute()`.
+`run_media_tool` does this, so a `mode: "new"` edit runs at once while `mode: "replace"`,
+which overwrites a Library original, waits for the user. The turn
 pauses on the first such call: its execution record gets `approval_status: "pending"`,
 and every later call in the same batch is recorded as `skipped` with a "Not run:
 waiting for approval" result, so each tool call the model made has an answer.
@@ -111,18 +116,28 @@ waiting for approval" result, so each tool call the model made has an answer.
    message is stored. It returns 409 while the call is still pending, or when that
    message has already been continued.
 
-Every assistant row stores `metadata.tool_transcript`: the call/result rounds the model
-saw. History replays it as native `assistant(tool_calls)` / `tool` messages and trims
-whole rounds only, so a continuation sees its own calls and the resolved result. The
-round budget (20) counts across the user turn and its continuations, and a call that
+A turn is stored as append-only steps (`chat_steps`) with its state in `chat_turns`; an
+assistant row records its `turn_id` and the `step_range` it covers, and the API builds its
+`reasoning`, `usage` and `notices` from those steps. History for a new turn is replayed from
+the steps, so a continuation sees its own calls and the resolved result. A paused turn keeps
+the model's reasoning, the results it already gathered and its failed-call memory in its
+state; continuing runs the decided calls, appends one tool step in call order and carries on
+in the same turn. Reasoning is stored whatever the configuration's Show thinking switch says,
+sent back only within the turn being continued, and served only while the switch is on.
+Admin LLM call traces (`chat_llm_call_traces`, in the admin session detail) are the one
+exception: they stay wire-exact, so they include replayed reasoning, which is meant for
+admin debugging.
+The round budget (20) counts across the user turn and its continuations, and a call that
 repeats an already-approved call (same tool, same arguments) in that chain answers
 "Already applied earlier in this turn." instead of pausing again.
 
 Sending a normal message while a call is pending rejects it, with the message as the
-reason. The `done` event then carries `resolved_message: {id, tool_executions}`.
+reason, and answers it inside the same turn. The `done` event then carries
+`resolved_message: {id, tool_executions}`.
 
-MCP clients (`src/features/mcp/protocol.py`) run `execute_confirmed()` directly; they
-have no approval step.
+MCP clients (`src/features/mcp/protocol.py`) run `execute_confirmed()` directly for every call
+the tool says needs approval; they have no approval step. A call that needs none runs
+`execute()`.
 
 ## Conversation titles
 

@@ -1,12 +1,6 @@
 ########
 ## Image Tools (native engine)
 ##
-## Utility toolbox for operating on EXISTING images -- no diffusion model, no
-## prompt, no seed. Four deterministic pipes (matting/birefnet, crop_subject,
-## canvas_fit, color_key) all take an `image` in and emit an `image` out, so
-## they chain: `prepare` runs the whole chain, the other four modes expose one
-## stage each on its own.
-##
 ## The headline mode is `prepare` ("Prepare for animation"): generate a
 ## character at 2048 so it fills the frame, matte it while it still does,
 ## normalise the framing to the subject, then place it small on a padded

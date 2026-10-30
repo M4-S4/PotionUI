@@ -27,21 +27,6 @@ pipe's own tests can check them without touching a real upsampler checkpoint:
    repeating the last frame, mirroring ``latent_upscaler/ltx``'s own
    ``_pad_frames_to_temporal_grid`` -- never truncates, so no source content
    is dropped.
-
-3. :func:`upsample_chunked` -- runs a ``MiniMaxH3LatentUpsampler`` over a
-   latent's full temporal extent in windows of ``chunk`` latent frames
-   instead of one whole-clip forward, so a long clip's activation memory
-   stays bounded by the window size rather than the clip length. Windows
-   step forward by ``chunk - overlap`` frames; every window but the first
-   trims ``overlap`` output frames off its head before concatenating, since
-   those frames are the ones the PREVIOUS window already contributed --
-   windows tile the sequence exactly once, without a gap or a duplicate,
-   as long as ``overlap`` is not itself changed between adjacent windows
-   (proof: window ``k``'s untrimmed span starts at ``k*(chunk-overlap)`` and
-   window ``k-1``'s trimmed-kept span ends at ``(k-1)*(chunk-overlap) +
-   chunk``, which is exactly ``k*(chunk-overlap) + overlap`` -- the point
-   window ``k``'s OWN trim resumes from). A single whole-clip call when
-   ``T <= chunk`` -- there is nothing to chunk.
 """
 
 from __future__ import annotations
@@ -54,6 +39,8 @@ import torch
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames
 
 _MEGAPIXEL_AREA = 1_000_000.0
+UPSAMPLE_CHUNK = 32
+UPSAMPLE_CONTEXT = 5
 
 
 def _round_to_multiple(value: float, multiple: int) -> int:
@@ -125,11 +112,8 @@ def pad_frames_to_h3_grid(frames: torch.Tensor) -> Tuple[torch.Tensor, int]:
 
 def upsample_chunked(
     module: Any, latent: torch.Tensor, scale: float, target_hw: Tuple[int, int],
-    *, chunk: int = 16, overlap: int = 2,
+    *, chunk: int = UPSAMPLE_CHUNK, overlap: int = UPSAMPLE_CONTEXT,
 ) -> torch.Tensor:
-    """Spatially upsample ``latent`` (``(1, C, T, H, W)``) to ``target_hw`` in
-    windows of ``chunk`` latent frames (module docstring). Frame count is
-    unchanged -- only ``(H, W)`` moves, to ``target_hw``."""
     if chunk <= overlap:
         raise ValueError(f"chunk ({chunk}) must be greater than overlap ({overlap})")
     target_h, target_w = target_hw
@@ -137,14 +121,10 @@ def upsample_chunked(
     if t <= chunk:
         return module(latent, scale=scale, target_size=(t, target_h, target_w))
 
-    stride = chunk - overlap
     outputs: List[torch.Tensor] = []
-    start = 0
-    while start < t:
+    for start in range(0, t, chunk):
         end = min(start + chunk, t)
-        window = latent[:, :, start:end]
-        out = module(window, scale=scale, target_size=(end - start, target_h, target_w))
-        keep_from = 0 if start == 0 else overlap
-        outputs.append(out[:, :, keep_from:])
-        start += stride
+        lo, hi = max(0, start - overlap), min(t, end + overlap)
+        out = module(latent[:, :, lo:hi], scale=scale, target_size=(hi - lo, target_h, target_w))
+        outputs.append(out[:, :, start - lo:end - lo])
     return torch.cat(outputs, dim=2)

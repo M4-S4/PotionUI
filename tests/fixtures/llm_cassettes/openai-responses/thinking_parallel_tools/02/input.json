@@ -1,0 +1,40 @@
+{
+  "messages": [
+    {
+      "id": "tool_02",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "call_paris_01",
+          "name": "get_weather",
+          "content": [
+            {
+              "type": "text",
+              "text": "18 C, clear",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        },
+        {
+          "type": "tool_result",
+          "call_id": "call_zurich_02",
+          "name": "get_weather",
+          "content": [
+            {
+              "type": "json",
+              "value": {
+                "temp_c": 14,
+                "sky": "overcast"
+              }
+            }
+          ],
+          "is_error": false
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

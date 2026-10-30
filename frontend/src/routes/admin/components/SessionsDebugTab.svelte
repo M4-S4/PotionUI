@@ -11,6 +11,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import { traceSummary, usageRows } from '$lib/utils/llmUsage';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, EmptyState, LoadErrorState, Spinner, IconButton } from '$lib/components/ui';
@@ -619,6 +620,7 @@
 
 {#snippet traceCard(trace: AdminChatCallTrace)}
 	{@const isOpen = !!expandedTraces[trace.id]}
+	{@const usage = usageRows(trace)}
 	<div class="border border-line-strong rounded bg-surface-2 overflow-hidden">
 		<button
 			type="button"
@@ -629,9 +631,11 @@
 				name={isOpen ? 'chevron-down' : 'chevron-right'}
 				className="w-3.5 h-3.5 text-fg-subtle flex-shrink-0"
 			/>
-			<span class="text-xs font-mono tabular-nums text-fg-muted truncate">
-				call {trace.iteration} · {trace.provider}/{trace.model} · {trace.purpose} · {trace.duration_ms}ms
-				· {trace.prompt_tokens ?? '?'}→{trace.completion_tokens ?? '?'} tok
+			<span class="min-w-0 flex-1" data-testid="trace-summary">
+				<span class="block truncate text-sm font-mono tabular-nums text-fg-muted">
+					call {trace.iteration} · {trace.provider}/{trace.model}{trace.adapter ? ` · ${trace.adapter}` : ''} · {trace.purpose} · {trace.duration_ms}ms
+				</span>
+				<span class="block break-words text-sm font-mono tabular-nums text-fg-subtle">{traceSummary(trace)}</span>
 			</span>
 		</button>
 
@@ -672,6 +676,20 @@
 						class="text-xs font-mono whitespace-pre-wrap overflow-x-auto overflow-y-auto max-h-32 bg-surface-1 border border-line rounded p-2 text-fg-muted">{pretty(trace.request_params)}</pre>
 				</div>
 
+				{#if usage.length > 0}
+					<div data-testid="trace-usage">
+						<p class="text-sm font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">Usage</p>
+						<dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-2 m-0">
+							{#each usage as row (row.key)}
+								<div class="min-w-0">
+									<dt class="font-mono text-sm uppercase tracking-[0.05em] text-fg-subtle">{row.label}</dt>
+									<dd class="m-0 font-mono text-sm tabular-nums text-fg">{row.value}</dd>
+								</div>
+							{/each}
+						</dl>
+					</div>
+				{/if}
+
 				{#if trace.request_tools && trace.request_tools.length > 0}
 					<div>
 						<p class="text-xs font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">
@@ -702,6 +720,22 @@
 						</p>
 						<pre
 							class="text-xs font-mono whitespace-pre-wrap overflow-x-auto overflow-y-auto max-h-48 bg-surface-1 border border-line rounded p-2 text-fg-muted">{pretty(trace.response_tool_calls)}</pre>
+					</div>
+				{/if}
+
+				{#if trace.request_body != null}
+					<div>
+						<p class="text-sm font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">Wire request</p>
+						<pre
+							class="text-sm font-mono whitespace-pre-wrap overflow-x-auto overflow-y-auto max-h-48 bg-surface-1 border border-line rounded p-2 text-fg-muted">{pretty(trace.request_body)}</pre>
+					</div>
+				{/if}
+
+				{#if trace.response_raw}
+					<div>
+						<p class="text-sm font-mono uppercase tracking-[0.05em] text-fg-subtle mb-1">Raw response</p>
+						<pre
+							class="text-sm font-mono whitespace-pre-wrap break-all overflow-y-auto max-h-48 bg-surface-1 border border-line rounded p-2 text-fg-muted">{trace.response_raw}</pre>
 					</div>
 				{/if}
 			</div>

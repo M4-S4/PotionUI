@@ -1,0 +1,42 @@
+prompt_label: "What should be left"
+prompt_placeholder: "an empty street with no people or cars"
+name: "custom"
+mode_label: "Remove object"
+short_description: "Remove people and moving objects from a shot."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+requirements:
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-clean-plate-1.0.safetensors"
+    hint: "Download the Remove object LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/remove_object/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/remove_object/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/remove_object/tabs/advanced.yml"

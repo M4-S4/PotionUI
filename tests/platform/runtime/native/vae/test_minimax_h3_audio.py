@@ -16,7 +16,7 @@ from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.vae.loader import _VaeSpec
 from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE, _SnakeBeta
-from vendor.gpl.comfyui.ops import disable_weight_init, manual_cast
+from src.platform.runtime.native.kernels import disable_weight_init, manual_cast
 
 _TINY_CONFIG = dict(
     encoder_dim=4,

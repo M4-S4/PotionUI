@@ -12,7 +12,7 @@ from src.platform.runtime.native.arch.flux3.model import Flux3
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator, NativeModel
 from src.platform.runtime.native.text_encoders.base import NativeTextEncoder
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 HIDDEN, HEADS, IN_CH, CTX, SEQ = 64, 2, 16, 32, 5
 

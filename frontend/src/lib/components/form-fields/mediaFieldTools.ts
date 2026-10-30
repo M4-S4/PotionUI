@@ -1,4 +1,12 @@
-import { hasEditor, type MediaEditorKind } from '$lib/media/editors/types';
+import {
+	hasEditor,
+	isSurfaceEditorKind,
+	toolDialogKind,
+	type MediaEditorKind
+} from '$lib/media/editors/types';
+import { currentCatalog, isRunnable, toolAvailability } from '$lib/media-tools/catalog';
+import type { MediaToolSource, ToolDTO } from '$lib/media-tools/types';
+import { hasIcon } from '$lib/utils/IconLibrary';
 import {
 	buildFieldToolContext,
 	listToolGroups,
@@ -12,27 +20,40 @@ import type { MediaKind } from './mediaLoaderConfig';
 
 export type FieldToolId =
 	| 'edit'
-	| 'crop'
 	| 'mask'
 	| 'clear-mask'
-	| 'trim'
-	| 'frame'
-	| 'split'
 	| 'full'
 	| 'earlier'
 	| 'later'
 	| 'replace'
 	| 'remove'
-	| 'remove-all';
+	| 'remove-all'
+	| (string & {});
 
-export const FIELD_TOOL_EDITORS: Partial<Record<FieldToolId, MediaEditorKind>> = {
+const BUILTIN_FIELD_EDITORS: Record<string, MediaEditorKind> = {
 	edit: 'paint',
-	crop: 'crop',
-	mask: 'mask',
-	trim: 'trim',
-	frame: 'frame',
-	split: 'split'
+	mask: 'mask'
 };
+
+const CATALOG_SHORTCUTS: Record<string, string> = { crop: 'C', trim: 'T', frame: 'F' };
+
+export function fieldToolEditorKind(
+	toolId: string,
+	tools: readonly ToolDTO[] = currentCatalog()
+): MediaEditorKind | null {
+	if (toolId in BUILTIN_FIELD_EDITORS) return BUILTIN_FIELD_EDITORS[toolId];
+	const tool = tools.find((candidate) => candidate.id === toolId);
+	if (!tool || !isRunnable(tool)) return null;
+	return isSurfaceEditorKind(tool.editor) ? (tool.editor as MediaEditorKind) : toolDialogKind(tool.id);
+}
+
+export const FIELD_TOOL_EDITORS: Partial<Record<FieldToolId, MediaEditorKind>> = new Proxy(
+	{} as Partial<Record<FieldToolId, MediaEditorKind>>,
+	{
+		get: (_target, key) =>
+			typeof key === 'string' ? (fieldToolEditorKind(key) ?? undefined) : undefined
+	}
+);
 
 export interface FieldToolOptions {
 	kind: MediaKind | null;
@@ -45,6 +66,8 @@ export interface FieldToolOptions {
 	kindIndex: number;
 	totalItems: number;
 	inRow?: boolean;
+	catalogTools?: ToolDTO[];
+	source?: MediaToolSource;
 }
 
 const CATEGORIES: Record<'edit' | 'view' | 'order' | 'source', MediaToolCategory> = {
@@ -85,6 +108,31 @@ function mediaAvailability(options: FieldToolOptions, editor: MediaEditorKind): 
 	return { enabled: true };
 }
 
+function catalogDefinition(
+	entry: ToolDTO,
+	options: FieldToolOptions
+): { tool: MediaTool; availability: MediaToolAvailability } {
+	const availability: MediaToolAvailability = options.missing
+		? { enabled: false, reason: MISSING_REASON }
+		: options.source
+			? toolAvailability(entry, [options.source])
+			: { enabled: true };
+	return {
+		tool: {
+			id: entry.id,
+			label: entry.label,
+			icon: entry.icon && hasIcon(entry.icon) ? entry.icon : 'extension',
+			shortcut: CATALOG_SHORTCUTS[entry.id],
+			category: 'edit',
+			source: entry.source === 'core' ? 'core' : 'plugin',
+			scopes: ['field'],
+			componentRef: isRunnable(entry) ? undefined : entry.component,
+			applies: () => availability
+		},
+		availability
+	};
+}
+
 export function buildFieldToolGroups(options: FieldToolOptions): MediaToolGroup[] {
 	const { kind } = options;
 	if (!kind) return [];
@@ -95,8 +143,8 @@ export function buildFieldToolGroups(options: FieldToolOptions): MediaToolGroup[
 	if (offers('paint')) {
 		edit.push(definition('edit', 'Edit image', 'paint-brush', 'edit', mediaAvailability(options, 'paint'), 'E'));
 	}
-	if (offers('crop')) {
-		edit.push(definition('crop', 'Crop & frame', 'crop', 'edit', mediaAvailability(options, 'crop'), 'C'));
+	for (const entry of options.catalogTools ?? []) {
+		edit.push(catalogDefinition(entry, options));
 	}
 	if (offers('mask') && options.allowInpaint) {
 		const label = options.hasMask ? 'Edit inpainting mask' : 'Create inpainting mask';
@@ -110,16 +158,6 @@ export function buildFieldToolGroups(options: FieldToolOptions): MediaToolGroup[
 				options.hasMask ? { enabled: true } : { enabled: false, reason: 'No mask' }
 			)
 		);
-	}
-	if (offers('trim')) {
-		const label = kind === 'audio' ? 'Trim on waveform' : 'Trim in / out';
-		edit.push(definition('trim', label, 'scissors', 'edit', mediaAvailability(options, 'trim'), 'T'));
-	}
-	if (offers('frame')) {
-		edit.push(definition('frame', 'Extract a frame', 'photo', 'edit', mediaAvailability(options, 'frame'), 'F'));
-	}
-	if (offers('split')) {
-		edit.push(definition('split', 'Split into parts', 'split', 'edit', mediaAvailability(options, 'split')));
 	}
 
 	const groups: MediaToolGroup[] = [];
@@ -197,6 +235,7 @@ export interface FieldToolEnv {
 	hasMask: boolean;
 	totalItems: number;
 	registrations: number;
+	catalog?: ToolDTO[];
 }
 
 export interface FieldToolTarget {
@@ -207,11 +246,24 @@ export interface FieldToolTarget {
 	missing: boolean;
 }
 
+export function fieldCatalogTools(tools: readonly ToolDTO[], kind: string): ToolDTO[] {
+	return tools.filter(
+		(tool) =>
+			(tool.scopes.length === 0 || tool.scopes.includes('field')) &&
+			tool.cardinality !== 'many_to_one' &&
+			(tool.accepts as string[]).includes(kind)
+	);
+}
+
 export function fieldToolGroupsFor(env: FieldToolEnv, target: FieldToolTarget): MediaToolGroup[] {
 	const { kind, item, flatIndex } = target;
 	if (!kind || !item) return [];
 	const group = env.multiple ? env.groups.find((candidate) => candidate.kind === kind) : undefined;
 	const entry = group?.items.find((candidate) => candidate.flatIndex === flatIndex);
+	const url = typeof item.url === 'string' ? item.url : '';
+	const filename = typeof item.name === 'string' ? item.name : '';
+	const metadata = (item.metadata && typeof item.metadata === 'object' ? item.metadata : {}) as Record<string, unknown>;
+	const durationSeconds = typeof metadata.duration_seconds === 'number' ? metadata.duration_seconds : null;
 	const core = buildFieldToolGroups({
 		kind,
 		multiple: env.multiple,
@@ -222,9 +274,9 @@ export function fieldToolGroupsFor(env: FieldToolEnv, target: FieldToolTarget): 
 		groupSize: group?.count ?? 1,
 		kindIndex: entry?.kindIndex ?? 0,
 		totalItems: env.totalItems,
-		inRow: target.inRow
+		inRow: target.inRow,
+		catalogTools: fieldCatalogTools(env.catalog ?? currentCatalog(), kind),
+		source: { id: 'field', kind, url, filename, durationSeconds }
 	});
-	const url = item && typeof item.url === 'string' ? item.url : '';
-	const filename = item && typeof item.name === 'string' ? item.name : '';
 	return [...core, ...listToolGroups(buildFieldToolContext({ id: 'field', kind, url, filename }))];
 }

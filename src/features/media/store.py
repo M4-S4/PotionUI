@@ -11,7 +11,6 @@ import io
 import logging
 import shutil
 import tempfile
-import threading
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -26,6 +25,7 @@ from src.features.media.file_resolver import FilePathResolver
 from src.features.media.image_processor import ImageProcessor
 from src.features.media.media_types import MediaTypeResolver
 from src.platform.database.rows import dt_iso
+from src.platform.media_tools.probe import has_alpha_mode
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.plugins.limit_kinds import AdmissionRequest
@@ -34,8 +34,7 @@ from src.platform.settings.settings import Settings
 from src.features.generation.file_repository import FileRepository
 from src.features.generation.repository import GenerationRepository
 from src.features.generation import media_probe
-from src.features.generation.handlers.image_handler import generate_thumbnails
-from src.features.generation.handlers.video_handler import generate_video_thumbnails, render_poster_frame
+from src.features.generation.handlers.video_handler import render_poster_frame
 from src.features.generation.thumbnail_profile import (
     SIZE_ORDER,
     fallback_sizes,
@@ -51,6 +50,11 @@ from src.platform.filesystem.storage_driver import (
 )
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
+from src.features.media.upload_thumbnails import (
+    render_image_thumbnails,
+    render_video_thumbnails,
+    run_in_background,
+)
 from src.features.media.validators import UPLOAD_PURPOSE_USER, validate_upload_purpose_policy
 from src.features.media.dto import (
     MediaResult,
@@ -417,6 +421,7 @@ class MediaStore:
 
         with self._local_copy(key, Path(filename).suffix) as local_path:
             width, height, duration_seconds, fps = self._probe_upload_metadata(local_path)
+            has_alpha = self._probe_upload_alpha(local_path)
 
         return UploadInfoResult(
             filename=filename,
@@ -424,7 +429,8 @@ class MediaStore:
             width=width,
             height=height,
             duration_seconds=duration_seconds,
-            fps=fps
+            fps=fps,
+            has_alpha=has_alpha,
         )
 
     @contextmanager
@@ -545,6 +551,7 @@ class MediaStore:
 
         with self._local_copy(key, file_ext) as local_path:
             width, height, duration_seconds, fps = self._probe_upload_metadata(local_path)
+            has_alpha = self._probe_upload_alpha(local_path)
 
         # A real Library resource gets the same thumbnail treatment a
         # generation output does - images synchronously (cheap, in-process),
@@ -569,6 +576,7 @@ class MediaStore:
             purpose=purpose,
             thumbnail_paths=thumbnail_paths,
             content_hash=content_hash,
+            has_alpha=has_alpha,
         )
 
         if purpose == UPLOAD_PURPOSE_USER and created_upload and self.media_types.is_video(file_ext):
@@ -624,8 +632,8 @@ class MediaStore:
         try:
             image = Image.open(io.BytesIO(file_data))
             image.load()
-            return generate_thumbnails(
-                image, self.storage_driver, "uploads", stem, load_thumbnail_profile(self.settings)
+            return render_image_thumbnails(
+                self.storage_driver, load_thumbnail_profile(self.settings), image, stem
             )
         except Exception as e:
             logger.warning(f"Failed to generate thumbnails for uploaded image: {e}")
@@ -644,26 +652,9 @@ class MediaStore:
         profile = load_thumbnail_profile(self.settings)
 
         def worker():
-            try:
-                with self._local_copy(key, file_ext) as local_path:
-                    thumbnail_paths = generate_video_thumbnails(
-                        str(local_path), storage_driver, "uploads", stem, profile
-                    )
+            render_video_thumbnails(storage_driver, upload_repo, profile, key, file_ext, upload_id, stem)
 
-                if thumbnail_paths:
-                    upload_repo.set_thumbnail_paths(
-                        upload_id,
-                        thumbnail_paths.get('small'),
-                        thumbnail_paths.get('medium'),
-                        thumbnail_paths.get('large'),
-                        profile_hash(profile),
-                    )
-                else:
-                    logger.warning(f"Failed to generate thumbnails for uploaded video: {key}")
-            except Exception as e:
-                logger.error(f"Error generating thumbnails for uploaded video {key}: {e}")
-
-        threading.Thread(target=worker, daemon=True).start()
+        run_in_background(worker)
 
     def _record_upload_ownership(
         self,
@@ -679,6 +670,7 @@ class MediaStore:
         purpose: str = UPLOAD_PURPOSE_USER,
         thumbnail_paths: Optional[Dict[str, str]] = None,
         content_hash: Optional[str] = None,
+        has_alpha: Optional[bool] = None,
     ) -> Optional[Upload]:
         """Record ownership + metadata for a freshly-saved upload.
 
@@ -718,9 +710,21 @@ class MediaStore:
                 file_size=file_size,
                 purpose=purpose,
                 content_hash=content_hash,
+                has_alpha=has_alpha,
             ))
         except Exception as e:
             logger.warning(f"Failed to record upload ownership for {filename}: {e}")
+            return None
+
+    def _probe_upload_alpha(self, file_path: Path) -> Optional[bool]:
+        """Whether an uploaded image carries an alpha channel; None for non-images or unreadable files."""
+        if not self.media_types.is_image(file_path.suffix):
+            return None
+        try:
+            with Image.open(file_path) as image:
+                return has_alpha_mode(image)
+        except Exception as e:
+            logger.warning(f"Failed to probe alpha for upload {file_path.name}: {e}")
             return None
 
     def _probe_upload_metadata(

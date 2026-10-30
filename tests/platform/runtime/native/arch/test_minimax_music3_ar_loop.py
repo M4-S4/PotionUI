@@ -17,7 +17,7 @@ from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3Audi
 from src.platform.runtime.native.arch.minimax_music3.prompt import AUDIO_CODE_OFFSET, AUDIO_END_TOKEN_ID
 from src.platform.runtime.native.text_encoders._functional import module_device
 from src.platform.runtime.native.errors import SamplingCancelled
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 import pytest
 
@@ -571,7 +571,7 @@ class TestSyncCountPerFrame:
 class TestBf16Compute:
     """A ``bfloat16`` checkpoint's ``nn.Linear``s do not self-cast to an
     activation's dtype the way ``int8_convrot``'s weight-quantized ``Linear``
-    does (``vendor/gpl/comfyui/ops.py``): every activation reaching a weight
+    does (``kernels/fp8_linear.py``): every activation reaching a weight
     matmul must already be in the module's own dtype. This class pins that
     contract end to end (prefill, AR step, depth decoder, feedback
     embedding) for both checkpoint layouts -- the crash this guards against

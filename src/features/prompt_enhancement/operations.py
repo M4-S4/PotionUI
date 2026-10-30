@@ -9,8 +9,11 @@ import asyncio
 import json
 import logging
 import re
+from dataclasses import replace
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.build import user_message
 from src.features.llm.tools.builtin.utils import extract_model_path, lookup_model, resolve_active_model_id
 from src.features.prompt_database import operations as prompt_database_operations
 from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
@@ -279,20 +282,17 @@ async def _decompose_concepts(
     if not brief:
         return []
     try:
-        response = await collaborators.llm_service.generate_with_history(
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Decompose this image description into 3-6 atomic visual concepts "
-                    "(subject, environment, style, lighting, composition, mood):\n\n"
-                    f"{brief}"
-                ),
-            }],
-            llm_id=llm_id,
-            custom_system_message=CONCEPT_SYSTEM_MESSAGE,
-            options_override={"temperature": 0.3, "max_tokens": 150, "think": False},
+        response = await collaborators.llm_service.complete(
+            llm_id,
+            [user_message(
+                "Decompose this image description into 3-6 atomic visual concepts "
+                "(subject, environment, style, lighting, composition, mood):\n\n"
+                f"{brief}"
+            )],
+            system=CONCEPT_SYSTEM_MESSAGE,
+            settings=Settings(temperature=0.3, max_tokens=150, reasoning=False),
         )
-        concepts = _parse_json_array(response.content)
+        concepts = _parse_json_array(response.text)
         if concepts:
             return concepts[:MAX_CONCEPTS]
     except Exception as e:
@@ -383,19 +383,17 @@ async def _ideate(
     )
 
     try:
-        response = await collaborators.llm_service.generate_with_history(
-            messages=[{"role": "user", "content": "\n\n".join(prompt_parts)}],
-            llm_id=llm_id,
-            custom_system_message=IDEATE_SYSTEM_MESSAGE,
-            options_override={
-                "temperature": 1.1, "top_p": 0.95, "max_tokens": 600, "think": False,
-            },
+        response = await collaborators.llm_service.complete(
+            llm_id,
+            [user_message("\n\n".join(prompt_parts))],
+            system=IDEATE_SYSTEM_MESSAGE,
+            settings=Settings(temperature=1.1, top_p=0.95, max_tokens=600, reasoning=False),
         )
-        directions = _parse_numbered_list(response.content)
+        directions = _parse_numbered_list(response.text)
         if directions:
             return directions
-        if response.content.strip():
-            return [response.content.strip()]
+        if response.text.strip():
+            return [response.text.strip()]
     except Exception as e:
         logger.warning(f"Ideation failed, writing directly from the brief: {e}")
     # Fallback: no explicit direction; the write stage expands the brief alone
@@ -411,28 +409,24 @@ async def _write(
     llm_id: str, brief: str, context: Dict[str, Any], direction: str
 ) -> str:
     user_prompt = _build_write_prompt(brief, context, direction)
-    options = {"temperature": 0.85, "max_tokens": 800, "think": False}
+    settings = Settings(temperature=0.85, max_tokens=800, reasoning=False)
 
-    text = await _call_write(collaborators, llm_id, user_prompt, options)
+    text = await _call_write(collaborators, llm_id, user_prompt, settings)
     if _is_flat(brief, text):
         logger.debug("Enhance write: candidate too close to the brief, retrying hotter")
-        retry_options = dict(options, temperature=1.0)
-        retry = await _call_write(collaborators, llm_id, user_prompt, retry_options)
+        retry = await _call_write(collaborators, llm_id, user_prompt, replace(settings, temperature=1.0))
         if not _is_flat(brief, retry) or len(retry) > len(text):
             return retry
     return text
 
 
 async def _call_write(
-    collaborators: PromptEnhancementCollaborators, llm_id: str, user_prompt: str, options: Dict[str, Any]
+    collaborators: PromptEnhancementCollaborators, llm_id: str, user_prompt: str, settings: Settings
 ) -> str:
-    response = await collaborators.llm_service.generate_with_history(
-        messages=[{"role": "user", "content": user_prompt}],
-        llm_id=llm_id,
-        custom_system_message=PROMPT_ENHANCEMENT_GUIDELINES,
-        options_override=options,
+    response = await collaborators.llm_service.complete(
+        llm_id, [user_message(user_prompt)], system=PROMPT_ENHANCEMENT_GUIDELINES, settings=settings,
     )
-    return _strip_thinking(response.content).strip()
+    return response.text.strip()
 
 
 def _build_write_prompt(brief: str, context: Dict[str, Any], direction: str) -> str:
@@ -506,11 +500,6 @@ def _format_exemplars(context: Dict[str, Any]) -> str:
 # Parsing / heuristics
 # ------------------------------------------------------------------
 
-def _strip_thinking(text: str) -> str:
-    """Remove <think>...</think> blocks some local models emit despite think=False."""
-    return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL)
-
-
 def _parse_json_array(text: str) -> List[str]:
     """Leniently extract a JSON array of strings from model output."""
     if not text:
@@ -529,7 +518,6 @@ def _parse_json_array(text: str) -> List[str]:
 
 def _parse_numbered_list(text: str) -> List[str]:
     """Split model output on numbered items (1. / 1) / 1:)."""
-    text = _strip_thinking(text)
     if not text:
         return []
     items = re.split(r"(?:^|\n)\s*\d+\s*[\.\)\:]\s*", text)

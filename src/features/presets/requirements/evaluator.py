@@ -51,6 +51,29 @@ def preset_requirements_fingerprint(preset: PresetTemplate) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def entry_mode(spec: Dict[str, Any]) -> Optional[str]:
+    return spec.get("mode") or None
+
+
+def entry_applies_to_mode(spec: Dict[str, Any], mode: Optional[str]) -> bool:
+    scoped_to = entry_mode(spec)
+    return scoped_to is None or scoped_to == mode
+
+
+def missing_by_mode(
+    registry: RequirementCheckerRegistry, specs: List[Dict[str, Any]], results: List[RequirementResult]
+) -> Dict[str, List[str]]:
+    by_mode: Dict[str, List[str]] = {}
+    for spec, result in zip(specs, results):
+        mode = entry_mode(spec)
+        if mode is None:
+            continue
+        missing = by_mode.setdefault(mode, [])
+        if result.status == "missing" and not spec.get("optional", False):
+            missing.append(describe_requirement_entry(registry, spec))
+    return by_mode
+
+
 def entry_scope(registry: RequirementCheckerRegistry, spec: Dict[str, Any]) -> str:
     """"host" or "backend" - which scope this `requirements:` entry's checker
     declares (see `contracts.RequirementChecker`'s `scope` attribute, default
@@ -83,7 +106,7 @@ def describe_requirement_entry(registry: RequirementCheckerRegistry, spec: Dict[
             if name:
                 return name
     for key, value in spec.items():
-        if key in ("type", "hint", "optional"):
+        if key in ("type", "hint", "optional", "mode"):
             continue
         if isinstance(value, str) and value:
             return value
@@ -108,6 +131,7 @@ async def _evaluate_one(
 ) -> RequirementResult:
     type_name = spec.get("type")
     registration = registry.get(type_name) if type_name else None
+    spec = {key: value for key, value in spec.items() if key != "mode"}
     if registration is None:
         return RequirementResult(
             status="unknown",
@@ -172,6 +196,8 @@ def summarize(specs: List[Dict[str, Any]], results: List[RequirementResult]) -> 
     `evaluate_preset_requirements` produced them (one spec per result)."""
     summary = {"ok": 0, "missing": 0, "unknown": 0, "optional_missing": 0}
     for spec, result in zip(specs, results):
+        if entry_mode(spec) is not None:
+            continue
         if result.status == "missing" and spec.get("optional", False):
             summary["optional_missing"] += 1
         else:
@@ -328,8 +354,31 @@ class RequirementsCache:
         host_specs = [spec for spec in (preset.requirements or []) if entry_scope(registry, spec) != "backend"]
         return {"summary": summarize(host_specs, entry.results), "checked_at": entry.checked_at}
 
+    def peek_mode_missing(
+        self, registry: RequirementCheckerRegistry, preset: PresetTemplate, backend_id: Optional[str] = None
+    ) -> Optional[Dict[str, List[str]]]:
+        with self._lock:
+            entry = self._by_key.get(self._key(preset, backend_id))
+        if entry is None:
+            return None
+        return missing_by_mode(registry, preset.requirements or [], entry.results)
+
+    def peek_host_mode_missing(
+        self, registry: RequirementCheckerRegistry, preset: PresetTemplate
+    ) -> Optional[Dict[str, List[str]]]:
+        with self._lock:
+            entry = self._host_by_key.get(self._host_key(preset))
+        if entry is None:
+            return None
+        host_specs = [spec for spec in (preset.requirements or []) if entry_scope(registry, spec) != "backend"]
+        return missing_by_mode(registry, host_specs, entry.results)
+
     def peek_backend_missing(
-        self, registry: RequirementCheckerRegistry, preset: PresetTemplate, backend_id: str
+        self,
+        registry: RequirementCheckerRegistry,
+        preset: PresetTemplate,
+        backend_id: str,
+        mode: Optional[str] = None,
     ) -> Optional[List[str]]:
         """The names of `backend_id`'s hard-missing (non-optional),
         BACKEND-scoped entries from its last cached evaluation, or `None` if
@@ -352,6 +401,7 @@ class RequirementsCache:
             if result.status == "missing"
             and not spec.get("optional", False)
             and entry_scope(registry, spec) == "backend"
+            and entry_applies_to_mode(spec, mode)
         ]
 
     async def get_or_evaluate(

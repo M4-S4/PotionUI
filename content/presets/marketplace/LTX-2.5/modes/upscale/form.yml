@@ -1,7 +1,27 @@
 name: "custom"
+mode_label: "Upscale"
 short_description: "Increase the resolution of a video."
 negative_prompt:
-  applies_when: false
+  applies_when:
+    logic: "OR"
+    conditions:
+      - logic: "AND"
+        conditions:
+          - { field: "upscale_method", equals: "latent" }
+          - { field: "refine_cfg", greater_than: 1 }
+      - logic: "AND"
+        conditions:
+          - { field: "upscale_method", not_equals: "latent" }
+          - { field: "cfg", greater_than: 1 }
+requirements:
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"
+    hint: "Download the Generative 2x LoRA in this mode."
+    optional: true
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-refine-details-1.0.safetensors"
+    hint: "Download the Refine details LoRA in this mode."
+    optional: true
 fields:
   - type: "tabs"
     children:
@@ -12,11 +32,11 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/upscale/tabs/generation.yml"
       - type: "tab"
-        label: "Models"
+        label: "References"
         configuration:
-          icon: "model"
+          icon: "image"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/upscale/tabs/models.yml"
+        children: "{{ paths.preset }}/modes/upscale/tabs/references.yml"
       - type: "tab"
         label: "LoRA"
         configuration:
@@ -24,9 +44,15 @@ fields:
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
       - type: "tab"
+        label: "Enhance"
+        configuration:
+          icon: "sparkles"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/upscale/tabs/enhance.yml"
+      - type: "tab"
         label: "Advanced"
         audience: "advanced"
         configuration:
           icon: "settings"
           icon_display: "icon_only"
-        children: "{{ paths._shared }}/tabs/ltx_upscale_advanced.yml"
+        children: "{{ paths.preset }}/modes/upscale/tabs/advanced.yml"

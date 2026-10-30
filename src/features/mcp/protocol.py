@@ -194,7 +194,7 @@ async def call_tool(
 
     context = _build_tool_context(collaborators, user_id, is_admin, llm_id, request_origin)
     try:
-        if tool.requires_approval:
+        if tool.approval_required(arguments):
             # The MCP client already gated this call behind its own
             # consent UI — run the confirmed action directly.
             result = await tool.execute_confirmed(context, **arguments)

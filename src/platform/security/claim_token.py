@@ -56,6 +56,15 @@ class ClaimTokenStore:
             )
             return None
 
+    def describe_location(self) -> str:
+        path = self._token_path()
+        if path is not None:
+            try:
+                return f"the file {Path(path).resolve().relative_to(Path.cwd().resolve()).as_posix()}"
+            except (ValueError, OSError):
+                pass
+        return "the setup-token file in PotionUI's storage folder"
+
     def exists(self) -> bool:
         """True when a setup token is currently on disk."""
         path = self._token_path()

@@ -53,9 +53,7 @@ def _generator(pipes):
 
 
 def _advanced_tab_fields():
-    # Sampler/scheduler live on the Advanced tab (shared by `video` and `refs`
-    # modes), like every other native preset's solver knobs -- not Generation.
-    with open("content/presets/marketplace/MiniMax-H3/modes/video/tabs/advanced.yml") as handle:
+    with open("content/presets/marketplace/MiniMax-H3/files/form/advanced_sampling.yml") as handle:
         tab = yaml.safe_load(handle)
 
     def walk(fields):

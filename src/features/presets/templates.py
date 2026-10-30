@@ -92,6 +92,7 @@ class FormTemplate:
     default: bool = False
     order: int = 0
     negative_prompt: Optional[Dict[str, Any]] = None
+    requirements: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class ModeTemplate:
@@ -104,6 +105,11 @@ class ModeTemplate:
     source_plugin: Optional[str] = None
     mode_label: Optional[str] = None
     mode_icon: Optional[str] = None
+    prompt: Optional[str] = None
+    prompt_label: Optional[str] = None
+    prompt_placeholder: Optional[str] = None
+    llm_guide: Optional[str] = None
+    segment_templates: Optional[List[Dict[str, Any]]] = None
 
 
 def sorted_forms(mode_data: 'ModeTemplate') -> List[FormTemplate]:

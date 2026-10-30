@@ -223,15 +223,15 @@ describe('detectModelRoot', () => {
 
 describe('serverPathPlaceholder', () => {
 	it('shows a drive-letter example on a Windows server', () => {
-		expect(serverPathPlaceholder('windows')).toBe('D:\\ComfyUI\\models');
+		expect(serverPathPlaceholder('windows')).toBe('D:\\models');
 	});
 
 	it('shows a posix example on a Linux/macOS server', () => {
-		expect(serverPathPlaceholder('posix')).toBe('/mnt/storage/ComfyUI/models');
+		expect(serverPathPlaceholder('posix')).toBe('/mnt/storage/models');
 	});
 
 	it('defaults to posix when the server has not reported yet', () => {
-		expect(serverPathPlaceholder(undefined)).toBe('/mnt/storage/ComfyUI/models');
+		expect(serverPathPlaceholder(undefined)).toBe('/mnt/storage/models');
 	});
 });
 

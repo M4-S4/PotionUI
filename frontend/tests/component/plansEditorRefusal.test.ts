@@ -8,15 +8,18 @@ class StubResizeObserver {
 }
 vi.stubGlobal('ResizeObserver', StubResizeObserver);
 
-const editMediaItem = vi.fn();
-const extractMediaFrame = vi.fn();
-const splitMediaItem = vi.fn();
+const startMediaToolRun = vi.fn();
+
+vi.mock('$lib/services/api/mediaTools', () => ({
+	startMediaToolRun: (...args: unknown[]) => startMediaToolRun(...args),
+	getMediaToolRun: vi.fn(),
+	cancelMediaToolRun: vi.fn(),
+	listMediaTools: vi.fn(),
+	previewMediaTool: vi.fn()
+}));
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
-		editMediaItem: (...args: unknown[]) => editMediaItem(...args),
-		extractMediaFrame: (...args: unknown[]) => extractMediaFrame(...args),
-		splitMediaItem: (...args: unknown[]) => splitMediaItem(...args),
 		listUploads: async () => ({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } }),
 		listGenerationMedia: async () => ({ success: false }),
 		copyGenerationFileToLibrary: async () => ({ success: false }),
@@ -72,9 +75,7 @@ const audio = { url: '/u/t.mp3', kind: 'audio' as const, fileName: 't.mp3', item
 
 beforeEach(() => {
 	document.body.innerHTML = '';
-	editMediaItem.mockReset().mockRejectedValue(storageRefusal);
-	extractMediaFrame.mockReset().mockRejectedValue(storageRefusal);
-	splitMediaItem.mockReset().mockRejectedValue(storageRefusal);
+	startMediaToolRun.mockReset().mockRejectedValue(storageRefusal);
 });
 
 describe('editor saves refused for storage', () => {
@@ -86,14 +87,14 @@ describe('editor saves refused for storage', () => {
 
 		buttonByText(target, '1:1')!.click();
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(target.textContent).toContain(FULL_MESSAGE);
 		expect(target.textContent).not.toContain('status code');
 		expect(onClose).not.toHaveBeenCalled();
 		expect(onResult).not.toHaveBeenCalled();
-		expect(buttonByText(target, 'Save as new')).toBeDefined();
+		expect(buttonByText(target, 'Apply')).toBeDefined();
 	});
 
 	it('shows it for a video frame grab', async () => {
@@ -121,7 +122,7 @@ describe('editor saves refused for storage', () => {
 	});
 
 	it('words a daily-style refusal with the countdown instead', async () => {
-		editMediaItem.mockRejectedValue({
+		startMediaToolRun.mockRejectedValue({
 			response: {
 				data: {
 					detail: {
@@ -139,7 +140,7 @@ describe('editor saves refused for storage', () => {
 
 		buttonByText(target, '1:1')!.click();
 		await settle();
-		buttonByText(target, 'Save as new')!.click();
+		buttonByText(target, 'Apply')!.click();
 		await settle();
 
 		expect(target.textContent).toContain('Daily limit reached, resets in 3 h');

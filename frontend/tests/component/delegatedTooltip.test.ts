@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 const { default: delegatedTooltip } = await import('$lib/actions/delegatedTooltip');
 
@@ -60,7 +61,7 @@ describe('delegatedTooltip', () => {
 
 	it('shows on focus, describes the chip, and hides on Escape', () => {
 		const { chip } = setup();
-		chip.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(chip);
 		const bubble = document.body.querySelector('[role="tooltip"]')!;
 		expect(bubble.textContent?.trim()).toBe('shuffles each time');
 		expect(chip.getAttribute('aria-describedby')).toBe(bubble.id);
@@ -71,7 +72,7 @@ describe('delegatedTooltip', () => {
 
 	it('hides when the anchor is replaced in the DOM', async () => {
 		const { root, chip } = setup();
-		chip.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(chip);
 		expect(bubbleText()).toBe('shuffles each time');
 		root.innerHTML = '<p>streamed</p>';
 		await new Promise((r) => setTimeout(r, 0));
@@ -80,21 +81,21 @@ describe('delegatedTooltip', () => {
 
 	it('leaves no bubble after destroy while open', () => {
 		const { chip, action } = setup();
-		chip.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(chip);
 		action.destroy();
 		expect(bubbleText()).toBeNull();
 	});
 
 	it('hides on focusout', () => {
 		const { chip } = setup();
-		chip.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-		chip.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+		keyboardFocus(chip);
+		chip.blur();
 		expect(bubbleText()).toBeNull();
 	});
 
 	it('keeps the bubble when the pointer moves to a child of the chip', () => {
 		const { chip, inner } = setup();
-		chip.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(chip);
 		chip.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: inner }));
 		expect(bubbleText()).toBe('shuffles each time');
 	});
@@ -102,9 +103,9 @@ describe('delegatedTooltip', () => {
 	it('restores a prior aria-describedby after hide', () => {
 		const { chip } = setup();
 		chip.setAttribute('aria-describedby', 'other');
-		chip.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(chip);
 		expect(chip.getAttribute('aria-describedby')).not.toBe('other');
-		chip.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+		chip.blur();
 		expect(chip.getAttribute('aria-describedby')).toBe('other');
 	});
 });

@@ -462,7 +462,7 @@ class ModelCatalog:
 
     def _type_info(self, model) -> Dict[str, Any]:
         types = self.scanner.types
-        verdict = types.get_verdicts([model.sha256]).get(model.sha256) if model.sha256 else None
+        verdict = types.get_verdicts([model.id]).get(model.id)
         return build_type_info(model, types.present_copies([model.id]), verdict)
 
     def _attach_provider_mirrors(self, data: Dict[str, Any], providers: List) -> None:

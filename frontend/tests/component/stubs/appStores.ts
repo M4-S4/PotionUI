@@ -7,7 +7,8 @@ export const page = writable({
 	status: 200,
 	error: null,
 	data: {},
-	form: undefined
+	form: undefined,
+	state: {} as Record<string, unknown>
 });
 export const navigating = writable(null);
 export const updated = writable(false);

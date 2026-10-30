@@ -1,0 +1,16 @@
+# The shared content/presets/_shared/native/seed_quantity.yml row, capped at 4:
+# generator/video_ltx and generator/txt2vid_ltx reject a quantity above 4.
+fields:
+  - name: "seed"
+    type: "seed"
+    label: "Seed"
+    default: -1
+    width: "3/5"
+
+  - name: "quantity"
+    type: "stepper"
+    label: "Quantity"
+    default: 1
+    width: "2/5"
+    full_width: true
+    configuration: {min: 1, max: 4, step: 1}

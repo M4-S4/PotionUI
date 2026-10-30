@@ -3,7 +3,7 @@
 import threading
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import AsyncMock, Mock, MagicMock, patch
 from fastapi import HTTPException
 
 from src.features.presets.routes import PresetController
@@ -152,6 +152,7 @@ class TestPresetController:
     @pytest.mark.asyncio
     async def test_get_available_modes_success(self, controller, mock_preset_collaborators):
         """Test successful mode retrieval."""
+        mock_preset_collaborators.refresh_mode_requirements = AsyncMock()
         mock_preset_collaborators.get_available_modes.return_value = {
             "preset_id": "test-preset",
             "modes": [
@@ -170,6 +171,7 @@ class TestPresetController:
     @pytest.mark.asyncio
     async def test_get_available_modes_not_found(self, controller, mock_preset_collaborators):
         """Test mode retrieval for non-existent preset."""
+        mock_preset_collaborators.refresh_mode_requirements = AsyncMock()
         mock_preset_collaborators.get_available_modes.side_effect = PresetNotFoundException("non-existent")
 
         result = await controller.get_available_modes("non-existent")

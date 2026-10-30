@@ -59,8 +59,9 @@ from src.pipelines.contracts import (
     PipeOutputSpec,
 )
 from src.pipelines.outputs import Icon, ImageGenerationOutput, ProgressGenerationOutput
-from src.pipelines.pipes._shared.imaging.alpha import apply_matte_strength, feather_alpha
+from src.pipelines.pipes._shared.imaging.alpha import apply_matte_strength
 from src.pipelines.pipes._shared.imaging.io import as_image_list
+from src.platform.imaging.pixels import feather_alpha
 from src.platform.runtime.native.matting import BackgroundMattingModel
 
 #: A few tens of MB of raw single-channel (uint8) alpha maps - enough to

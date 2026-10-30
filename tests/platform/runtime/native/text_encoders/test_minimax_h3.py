@@ -21,9 +21,10 @@ from safetensors.torch import save_file
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.te_detect import detect_te_config
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 from src.platform.runtime.native.text_encoders.loader import _SPECS, _build_config, load_text_encoder
 from src.platform.runtime.native.text_encoders.qwen3 import (
+    MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID,
     MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX,
     MINIMAX_H3_TEXT_TAG,
     MINIMAX_H3_VIDEO_TAG,
@@ -159,8 +160,8 @@ def test_tap_is_sensitive_to_the_index_neighbors_differ():
 
 def test_post_load_survives_an_int8_quantized_embed_tokens():
     """MiniMax-H3's real nvfp4_awq TE quantizes `model.embed_tokens` int8
-    (verified against ai/minimax_h3/te_nvfp4_awq_header.json). The vendored
-    int8 Embedding (vendor/gpl/comfyui/ops.py) clears `.weight` to `None`
+    (verified against ai/minimax_h3/te_nvfp4_awq_header.json). The int8
+    Embedding (``kernels/casting.py``) clears `.weight` to `None`
     after loading its dequant state into other buffers — the SAME pattern
     Nvfp4Linear already used — so `recompute_inv_freq`'s old
     `self.embed_tokens.weight.device` read would AttributeError on
@@ -311,7 +312,7 @@ def _build_h3_trimmed_nvfp4_awq_sd() -> dict[str, torch.Tensor]:
     unquantized throughout (never quantized in the real checkpoint either).
     Real widths (5120/50-layer/151936-vocab) would be multi-GB to build here
     — shrunk to tiny dims that preserve every divisibility constraint nvfp4's
-    16-wide blocks need (`_nvfp4_ref.py`'s `_NVFP4_BLOCK`), same convention
+    16-wide blocks need (`io/quant_formats.py`'s `NVFP4_BLOCK`), same convention
     tests/platform/runtime/native/text_encoders/test_loader_awq_sidecars.py
     already uses for the key-gate-only check this test goes further than.
     """
@@ -1197,3 +1198,43 @@ def test_vision_embed_cache_evicts_the_lru_entry_once_over_its_byte_limit():
     got_b = cache.get_on_device("b", "cpu")
     assert got_b is not None
     assert torch.equal(got_b[0], merged_b)
+
+
+def test_the_empty_presentation_token_is_qwens_end_of_text_pad():
+    pytest.importorskip("transformers")
+    tok = MiniMaxH3Tokenizer()
+    assert tok("") == []
+    assert tok.convert_tokens_to_ids("<|endoftext|>") == MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID
+
+
+@pytest.mark.parametrize("call", ["encode", "encode_request", "encode_reference_request"])
+def test_an_empty_prompt_presents_one_pad_token_never_a_zero_token_context(call):
+    pytest.importorskip("transformers")
+    m = _tiny_h3_module()
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+
+    if call == "encode":
+        out = enc.encode([""])
+    elif call == "encode_request":
+        out = enc.encode_request("")
+    else:
+        out = enc.encode_reference_request("", [])
+
+    expected = m(
+        torch.tensor([[MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID]]), attention_mask=None,
+        layers_to_extract=(MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX,), capture="output",
+    ).squeeze(1)
+    assert out["context"].shape == (1, 1, _H3_TINY_CFG["hidden_size"])
+    assert torch.allclose(out["context"], expected)
+    if call != "encode":
+        assert torch.equal(out["token_tags"], torch.tensor([MINIMAX_H3_TEXT_TAG]))
+
+
+def test_a_non_empty_prompt_is_still_presented_verbatim():
+    pytest.importorskip("transformers")
+    m = _tiny_h3_module()
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    token_ids = MiniMaxH3Tokenizer()("a cat")
+    out = enc.encode_request("a cat")
+    assert out["context"].shape[1] == len(token_ids)
+    assert MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID not in token_ids

@@ -47,7 +47,7 @@ describe('describePresetsEmptyState', () => {
 		// Admin phrasing carries the repair action (readiness role-resolves this
 		// server-side; simulate the admin row here).
 		readiness.checks.find((c) => c.area === 'content')!.action =
-			'Open Administration -> Presets, install a preset and assign it to this user.';
+			'Open Admin → Presets, install a preset and assign it to this user.';
 
 		const forUser = describePresetsEmptyState(readiness, false);
 		expect(forUser.kind).toBe('user-not-assigned');
@@ -58,7 +58,7 @@ describe('describePresetsEmptyState', () => {
 		const forAdmin = describePresetsEmptyState(readiness, true);
 		expect(forAdmin.kind).toBe('user-not-assigned');
 		expect(forAdmin.showSetupLink).toBe(true);
-		expect(forAdmin.action).toBe('Open Administration -> Presets, install a preset and assign it to this user.');
+		expect(forAdmin.action).toBe('Open Admin → Presets, install a preset and assign it to this user.');
 	});
 
 	it('prefers the content facet over execution when both are blocking', () => {

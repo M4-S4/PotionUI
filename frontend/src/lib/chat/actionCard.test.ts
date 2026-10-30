@@ -36,6 +36,8 @@ describe('actionCardState', () => {
 		expect(actionCardState(execution({ approval_status: 'approved' }), false)).toBe('applied');
 		expect(actionCardState(execution({ approval_status: 'rejected' }), false)).toBe('rejected');
 		expect(actionCardState(execution({ approval_status: 'failed' }), false)).toBe('failed');
+		expect(actionCardState(execution({ approval_status: 'expired' }), false)).toBe('expired');
+		expect(actionCardState(execution({ approval_status: 'expired' }), true)).toBe('expired');
 	});
 
 	it('returns null for a tool that never needed approval', () => {

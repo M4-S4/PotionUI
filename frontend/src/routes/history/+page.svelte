@@ -46,6 +46,14 @@
 	import ToolHost from '$lib/components/tools/ToolHost.svelte';
 	import { registerCoreHistoryTools } from './tools/coreTools';
 	import { loadPluginMediaTools } from '$lib/tools/pluginTools';
+	import { pickTool } from '$lib/tools/toolPicker';
+	import { registerDetailsReturn } from '$lib/tools/detailsReturn';
+	import { landOnHistoryResult } from '$lib/tools/historyResult';
+	import { plainLetter, pageOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { gridShortcutTarget } from '$lib/tools/gridShortcut';
+	import { buildHistoryToolContext, listTools } from '$lib/tools/tools';
+	import { editImageAvailability } from './tools/editImage';
+	import type { EditedMediaItem } from '$lib/services/api/media';
 	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 
@@ -88,16 +96,16 @@
 		href: (id) => hrefWithGeneration(currentUrl, id)
 	});
 
-	async function openLinkedGeneration(id: string) {
+	async function openLinkedGeneration(id: string, fileIndex = 0) {
 		const known = get(historyStore).generations.find((gen) => gen.id === id);
 		if (known) {
-			historyStore.setSelectedGeneration(known);
+			historyStore.setSelectedGeneration(known, fileIndex);
 			return;
 		}
 		try {
 			const response = await api.getGenerationById(id, true, true);
 			if (lastUrlId !== id) return;
-			if (response.success && response.data) historyStore.setSelectedGeneration(response.data);
+			if (response.success && response.data) historyStore.setSelectedGeneration(response.data, fileIndex);
 			else linkedMissingId = id;
 		} catch (error) {
 			logger.error('Failed to load the linked generation:', error);
@@ -175,8 +183,39 @@
 	}
 
 	function handleToolSelect(tool: MediaTool, context: MediaToolContext) {
-		activeTool = tool;
-		activeToolContext = context;
+		pickTool(tool, context, {
+			mount: (picked, pickedContext) => {
+				activeTool = picked;
+				activeToolContext = pickedContext;
+			},
+			onResult: handleToolResult
+		});
+	}
+
+	function handleToolResult(items: EditedMediaItem[], context: MediaToolContext) {
+		if (!context.entry) historyStore.clearSelection();
+		const first = context.items[0];
+		landOnHistoryResult(items, {
+			source: first?.generationId ? { generationId: first.generationId, fileIndex: first.paramIndex ?? 0 } : null,
+			startPath: window.location.pathname
+		});
+	}
+
+	function focusedGenerationId(): string | null {
+		const active = document.activeElement as HTMLElement | null;
+		return active?.closest?.('[data-generation-card]')?.getAttribute('data-generation-id') ?? null;
+	}
+
+	function handleGridShortcut(event: KeyboardEvent) {
+		if (plainLetter(event) !== 'e' || !pageOwnsKeys(event)) return;
+		const selected = currentState.selectedGenerationIds;
+		const id = gridShortcutTarget(selected, focusedGenerationId());
+		if (!id) return;
+		const context = buildHistoryToolContext(currentState.generations, [id], null);
+		const tool = listTools('history').find((candidate) => candidate.id === 'edit-image');
+		if (!tool || !editImageAvailability(context).enabled) return;
+		event.preventDefault();
+		handleToolSelect(tool, context);
 	}
 
 	function closeTool() {
@@ -271,6 +310,10 @@
 	}
 
 	onMount(() => {
+		const unregisterReturn = registerDetailsReturn((target) => {
+			lastUrlId = target.generationId;
+			void openLinkedGeneration(target.generationId, target.fileIndex);
+		});
 		historyStore.restoreItemsPerPage();
 		if (new URLSearchParams(location.search).get('sort') === 'largest') historyStore.setSort('file_size', 'desc');
 		historyStore.loadGenerations().then(() => historyStore.loadTags());
@@ -301,6 +344,7 @@
 
 		document.addEventListener('visibilitychange', handleVisibility);
 		window.addEventListener('focus', handleFocus);
+		return unregisterReturn;
 	});
 
 	onDestroy(() => {
@@ -373,6 +417,8 @@
 		goto('/generate');
 	}
 </script>
+
+<svelte:window on:keydown={handleGridShortcut} />
 
 <div class="flex h-[100dvh] bg-canvas">
 	{#if sidebarOpen}

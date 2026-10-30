@@ -9,7 +9,7 @@ import torch
 
 from src.platform.runtime.native.arch.yue2.config import YuE2Config
 from src.platform.runtime.native.arch.yue2.model import YuE2Model
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 
 def _tiny_config(latent_dim: int = 4, max_latent_frames: int = 32) -> YuE2Config:

@@ -1,14 +1,16 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import EditorShell from '$lib/media/editors/EditorShell.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
+	import { NEW_COPY_NOTE } from '$lib/media-tools/newCopyNote';
 	import { resumeKeyboard, suppressKeyboard } from '$lib/services/keyboard';
 	import { isTypingInField } from '$lib/utils/editableTarget';
 	import { primaryModifier } from '$lib/utils/platform';
 	import type { EditorCommitFn, MediaEditorSource } from '$lib/media/editors/types';
 	import CanvasPanel from './CanvasPanel.svelte';
 	import type { DrawConfig } from './drawConfig';
+	import { preselectLook } from '$lib/filters/preselect';
 	import { defaultExportStem, exportFileName } from './exportName';
 	import { PAINT_ICONS } from './icons';
 	import FilterStrip from './FilterStrip.svelte';
@@ -26,6 +28,8 @@
 	export let source: MediaEditorSource | null = null;
 	export let draw: DrawConfig | null = null;
 	export let hasMask: boolean = false;
+	export let initialTool: string | null = null;
+	export let initialFilter: string | null = null;
 	export let busy: boolean = false;
 	export let failureMessage: string | null = null;
 	export let onClose: () => void;
@@ -36,6 +40,7 @@
 	const session = new PaintSession();
 	const modifier = primaryModifier();
 
+	let focusApply = false;
 	let stageHost: HTMLDivElement;
 	let stageCanvas: HTMLCanvasElement;
 	let overlayCanvas: HTMLCanvasElement;
@@ -121,10 +126,20 @@
 			} else if (source) {
 				await session.openSource(source.url, source.fileName);
 			}
+			if (initialTool) session.setTool(initialTool);
+			if (initialTool === 'filters' && initialFilter) {
+				focusApply = await preselectLook(session, initialFilter);
+			}
 		} catch {
 			loadError = 'This image could not be opened for editing.';
 		}
 		state = session.snapshot();
+		if (focusApply) {
+			await tick();
+			requestAnimationFrame(() =>
+				document.querySelector<HTMLButtonElement>('[data-filter-apply] button:not([disabled])')?.focus()
+			);
+		}
 	});
 
 	onDestroy(() => {
@@ -549,7 +564,7 @@
 				<p class="min-w-0 flex-1 text-xs text-warning">{state.notice}</p>
 			{:else}
 				<p class="min-w-0 flex-1 text-xs text-fg-muted max-md:hidden">
-					Saves as a new Library upload. The original is untouched.
+					{NEW_COPY_NOTE}
 				</p>
 			{/if}
 

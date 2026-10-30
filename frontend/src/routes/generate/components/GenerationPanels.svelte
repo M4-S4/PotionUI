@@ -29,6 +29,7 @@
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
+	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetInfo, PresetStyle } from '$lib/services/api/index';
 
 	export let tab: Tab;
@@ -50,6 +51,7 @@
 	/** Resolved on the page from the preset's `vars.prompt`; passed straight
 	 *  through to every PromptSection instance below. */
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	export let promptCopy: PromptCopy = NO_PROMPT_COPY;
 	/** Resolved on the page from the preset detail's `styles`; passed straight
 	 *  through to every PromptSection instance below. */
 	export let presetStyles: PresetStyle[] = [];
@@ -323,6 +325,7 @@
 					{negativePromptSupported}
 					{negativeInert}
 					{presetSegmentTemplates}
+					{promptCopy}
 					{presetStyles}
 					spacingClass=""
 				/>
@@ -431,6 +434,7 @@
 							{negativePromptSupported}
 							{negativeInert}
 							{presetSegmentTemplates}
+							{promptCopy}
 							{presetStyles}
 							spacingClass=""
 						/>
@@ -488,6 +492,7 @@
 							{negativePromptSupported}
 							{negativeInert}
 							{presetSegmentTemplates}
+							{promptCopy}
 							{presetStyles}
 							spacingClass="mt-6"
 						/>

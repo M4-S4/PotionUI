@@ -8,7 +8,7 @@ import pytest
 import torch
 
 import vendor.seedvr2.attention as sv_att
-from src.platform.runtime.native.attention import attention as _dispatch_attention
+from src.platform.runtime.native.kernels import attention as _dispatch_attention
 
 
 @pytest.fixture(autouse=True)

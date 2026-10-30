@@ -73,6 +73,10 @@ async function mockMedia(page: Page) {
 	await page.route(/\/api\/generations\/history(\?.*)?$/, (route) =>
 		json(route, { generations: GENERATIONS, total: GENERATIONS.length })
 	);
+	await page.route(/\/api\/generations\/history\/gen-[12](\?.*)?$/, (route) => {
+		const id = route.request().url().match(/gen-[12]/)![0];
+		return json(route, GENERATIONS.find((entry) => entry.id === id));
+	});
 	await page.route(/\/api\/library\/items(\?.*)?$/, (route) =>
 		json(route, { items: LIBRARY, total: LIBRARY.length, limit: 20, offset: 0 })
 	);
@@ -82,7 +86,7 @@ async function mockMedia(page: Page) {
 	);
 }
 
-async function editAndSave(page: Page) {
+async function editAndSave(page: Page, lands = false) {
 	const dialog = page.getByRole('dialog', { name: 'Edit image' });
 	await expect(dialog).toBeVisible();
 	const canvas = dialog.getByLabel('Drawing canvas');
@@ -98,7 +102,11 @@ async function editAndSave(page: Page) {
 	]);
 	expect(saved.ok()).toBeTruthy();
 	await expect(dialog).toBeHidden({ timeout: 15000 });
-	await expect(page.getByText('Saved to your library as a new image')).toBeVisible();
+	if (lands) {
+		await expect(page.locator('[data-back-to-generation]')).toBeVisible({ timeout: 15000 });
+		await expect(page).toHaveURL(/\/history/);
+	}
+	else await expect(page.getByText('Saved to your library as a new image')).toBeVisible();
 }
 
 for (const viewport of VIEWPORTS) {
@@ -130,7 +138,7 @@ for (const viewport of VIEWPORTS) {
 			await screenshot(page, JOURNEY, `history-enabled-${viewport.name}`);
 			await item.click();
 
-			await editAndSave(page);
+			await editAndSave(page, true);
 		});
 
 		test('edits a single image from the Library Tools menu', async ({ page }) => {

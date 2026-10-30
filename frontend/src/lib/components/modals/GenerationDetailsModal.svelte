@@ -12,8 +12,10 @@
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import { isTypingInField } from '$lib/utils/editableTarget';
-	import TagSelector from '$lib/components/TagSelector.svelte';
 	import portal from '$lib/actions/portal';
+	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { canReturnToDetails, rememberDetailsScroll, takeDetailsScroll } from '$lib/tools/detailsReturn';
+	import { restoreScroll } from '$lib/utils/restoreScroll';
 	import BaseModal from './BaseModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -22,7 +24,6 @@
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import type { AudioTrack, AudioTrackType } from '$lib/types/audio';
 	import StarRating from '$lib/components/StarRating.svelte';
-	import FavoriteButton from '$lib/components/FavoriteButton.svelte';
 	import { historyStore } from '$lib/stores/history';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
@@ -36,10 +37,8 @@
 	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
 	import { startRuleFrom } from '$lib/organize/handoff';
 	import { generationItemRule } from '$lib/organize/itemPrefill';
-	import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
-	import type { MediaEditorRequest } from '$lib/media/editors/types';
-	import { PAINT_ICONS } from '$lib/components/imageEditor/icons';
-	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
+	import DetailsActionBar, { type BarAction } from '$lib/media-tools/DetailsActionBar.svelte';
+	import { buildHistoryEntryContext } from '$lib/tools/entryMenu';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 	import type { DetailsExtraSection, DetailsFileChange } from './generationDetailsExtras';
@@ -77,9 +76,25 @@
 			.then((map) => (presetNamesCache = map))
 			.catch((err) => logger.error('Failed to load preset names:', err));
 	});
-	function resolvePresetName(id: string): string | null {
-		return presetNamesCache[id] ?? null;
+	let detailImg: HTMLImageElement | undefined;
+	let trackedImg: HTMLImageElement | undefined;
+	let loadedStageSrc: string | undefined;
+	$: stageImageSrc =
+		currentFile && !isVideoFile(currentFile) && !isMeshFile(currentFile) && !isAudioFile(currentFile)
+			? getImageUrl(currentFile)
+			: null;
+	$: if (detailImg !== trackedImg) {
+		trackedImg = detailImg;
+		loadedStageSrc = undefined;
 	}
+	$: if (detailImg && stageImageSrc && loadedStageSrc !== stageImageSrc && detailImg.complete && detailImg.naturalWidth > 0) {
+		loadedStageSrc = stageImageSrc;
+	}
+	$: stageImageLoading = !!stageImageSrc && loadedStageSrc !== stageImageSrc;
+
+	$: presetLabel = activeGeneration
+		? resolveReusePresetLabel(activeGeneration, (id) => presetNamesCache[id] ?? null)
+		: '';
 
 	$: canNavigate = typeof onNavigate === 'function';
 	let navigating = false;
@@ -439,8 +454,26 @@
 	}
 
 	// Arrows walk files and roll over into the neighbouring generation; Shift jumps. Escape: BaseModal.
+	function handleLaunch() {
+		if (!canReturnToDetails()) return;
+		rememberDetailsScroll(activeGenerationId, infoPanel?.scrollTop ?? 0);
+		handleClose();
+	}
+
+	let infoPanel: HTMLElement | undefined;
+
+	let detailsRoot: HTMLElement | undefined;
+	let actionBar: DetailsActionBar | undefined;
+
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen) return;
+		const letter = plainLetter(event);
+		if (letter && windowOwnsKeys(event, detailsRoot) && actionBar?.triggerShortcut(letter)) {
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
+		if ((event.target as HTMLElement | null)?.closest?.('[data-details-action-bar], [data-bar-menu]')) return;
 		if (
 			onArrowKey &&
 			['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) &&
@@ -520,28 +553,11 @@
 
 	let showPublishModal = false;
 
-	let editorRequest: MediaEditorRequest | null = null;
-	$: canEditImage = !!currentFile && currentFile.file_type?.toLowerCase?.() === 'image';
+	let toolEditing = false;
 
-	function openImageEditor() {
-		if (!currentFile) return;
-		editorRequest = {
-			kind: 'paint',
-			source: {
-				url: getImageUrl(currentFile),
-				kind: 'image',
-				fileName: currentFile.file_path.split('/').pop() || 'image.png',
-				width: currentFile.width ?? null,
-				height: currentFile.height ?? null
-			},
-			itemIndex: null
-		};
-	}
-
-	async function handleEditorResult() {
-		await libraryStore.showNewRows();
-		toasts.success('Saved to your library as a new image');
-	}
+	$: rowContext =
+		activeGeneration && currentFile ? buildHistoryEntryContext(activeGeneration, currentFile, null) : null;
+	$: rowItems = rowContext?.items ?? [];
 
 	let exportingBundle = false;
 
@@ -571,6 +587,86 @@
 					: 'png';
 		link.download = `generation-${activeGenerationId}-${currentFileIndex + 1}.${ext}`;
 		link.click();
+	}
+
+	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean): BarAction[] {
+		const actions: BarAction[] = [];
+		if (withReuse) {
+			actions.push({
+				id: 'reuse',
+				label: 'Reuse settings',
+				icon: 'refresh',
+				tooltip: "Reuse this generation's settings",
+				onclick: () => dispatch('reuse', activeGeneration)
+			});
+		}
+		if (withCopy) {
+			actions.push({
+				id: 'copy-to-library',
+				label: 'Copy to Library',
+				icon: 'photo',
+				tooltip: 'Copy this file to your library (the generation stays in history)',
+				loading: copying,
+				onclick: handleCopyToLibrary
+			});
+		}
+		return actions;
+	}
+
+	$: generationActions = buildGenerationActions(
+		!!activeGeneration?.preset_id,
+		canCopyToLibrary,
+		copyingToLibrary
+	);
+
+	$: downloadActions = [
+		{
+			id: 'download-file',
+			label: 'Download file',
+			icon: 'download',
+			shortcut: 'D',
+			tooltip: 'Download this file',
+			description: currentFile
+				? [currentFile.file_path.split('/').pop(), currentFile.file_size ? formatBytes(currentFile.file_size) : '']
+						.filter(Boolean)
+						.join(' · ')
+				: undefined,
+			onclick: downloadCurrentFile
+		},
+		{
+			id: 'export-bundle',
+			label: 'Export bundle',
+			icon: 'box',
+			description: 'Files and settings in one bundle',
+			tooltip: 'Export this generation as a portable bundle',
+			loading: exportingBundle,
+			onclick: handleExportBundle
+		}
+	] satisfies BarAction[];
+
+	$: moreActions = [
+		{
+			id: 'publish',
+			label: 'Publish to Inspirations',
+			icon: 'lightbulb',
+			onclick: () => (showPublishModal = true)
+		},
+		{ id: 'open-new-tab', label: 'Open in new tab', icon: 'external-link', onclick: openCurrentFileInTab }
+	] satisfies BarAction[];
+
+	$: pluginActionContext =
+		activeGeneration && currentFile
+			? {
+					generationId: activeGenerationId,
+					fileIndex: currentFileIndex,
+					filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
+					fileUrl: getImageUrl(currentFile),
+					fileType: currentFile.file_type
+				}
+			: null;
+
+	function handleBarTagsChange(ids: string[]) {
+		void applyTagIds(ids);
 	}
 
 	function openCurrentFileInTab() {
@@ -604,7 +700,7 @@
 	{isOpen}
 	{title}
 	sizeClass="md:w-[85vw] md:h-[85vh]"
-	closeable={editorRequest === null}
+	closeable={!toolEditing}
 	on:close={handleClose}
 >
 	<svelte:fragment slot="headerIcon">
@@ -675,9 +771,25 @@
 			</div>
 		</div>
 	{:else if activeGeneration}
-		<div class="flex flex-col md:flex-row h-full min-h-0">
+		<div class="flex flex-col md:flex-row h-full min-h-0" bind:this={detailsRoot} data-details-window>
 			<!-- Left Side - Media -->
-			<div class="group relative flex min-h-0 flex-1 flex-col">
+			<div class="group relative flex min-h-0 min-w-0 flex-1 flex-col">
+				{#if currentFile}
+					<DetailsActionBar
+						bind:this={actionBar}
+						items={rowItems}
+						context={rowContext}
+						scope="history"
+						favorite={{ active: !!activeGeneration.is_favorite, onToggle: handleFavoriteToggle }}
+						tags={{ selectedIds: selectedTagIds, onChange: handleBarTagsChange }}
+						pageActions={generationActions}
+						{downloadActions}
+						{moreActions}
+						pluginContext={pluginActionContext}
+						onLaunch={handleLaunch}
+						onEditingChange={(editing) => (toolEditing = editing)}
+					/>
+				{/if}
 			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">
 				{#if currentFile}
 					<!-- Navigation Arrows -->
@@ -751,7 +863,13 @@
 							</div>
 						</div>
 					{:else}
+						{#if stageImageLoading}
+							<div class="absolute inset-0 z-[1] bg-surface-2 animate-pulse" data-stage-skeleton></div>
+						{/if}
 						<img
+							bind:this={detailImg}
+							on:load={() => (loadedStageSrc = stageImageSrc ?? undefined)}
+							on:error={() => (loadedStageSrc = stageImageSrc ?? undefined)}
 							src={getImageUrl(currentFile)}
 							alt={`Output ${currentFileIndex + 1}`}
 							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''} {currentFileAlphaCheckerboard ? 'alpha-checkerboard' : ''}"
@@ -773,111 +891,10 @@
 					<slot name="stageEmpty" />
 				{/if}
 			</div>
-				{#if currentFile}
-					<!-- Action buttons - top-right corner, shown on hover -->
-					<div data-stage-toolbar class="flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-line bg-surface-1 px-3 py-2 max-sm:[&_button]:!p-2 max-sm:[&_svg]:!h-5 max-sm:[&_svg]:!w-5 max-sm:[&>*]:shrink-0 sm:absolute sm:right-4 sm:top-4 sm:z-20 sm:max-w-[calc(100%-2rem)] sm:flex-wrap sm:justify-end sm:overflow-visible sm:border-t-0 sm:bg-transparent sm:p-0 sm:opacity-0 sm:transition-opacity sm:duration-200 sm:group-hover:opacity-100">
-						<!-- Favorite toggle -->
-						<div
-							class="bg-black/50 hover:bg-black/70 p-3 max-sm:p-0 rounded-lg shadow-lg backdrop-blur-sm transition-colors flex items-center"
-						>
-							<FavoriteButton
-								active={activeGeneration.is_favorite}
-								tone="onMedia"
-								size="lg"
-								onToggle={handleFavoriteToggle}
-							/>
-						</div>
-
-						<!-- Tag icon button with dropdown -->
-						<TagSelector
-							{selectedTagIds}
-							on:change={handleTagsChange}
-							placeholder="Add tags..."
-							allowCreate={true}
-							compact={true}
-							iconOnly={true}
-						/>
-
-						<!-- Reuse button -->
-						{#if activeGeneration.preset_id}
-							<button
-								on:click={() => dispatch('reuse', activeGeneration)}
-								class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-								use:tooltip={"Reuse this generation's settings"}
-								aria-label="Reuse this generation's settings"
-							>
-								<Icon name="refresh" className="h-6 w-6" />
-							</button>
-						{/if}
-
-						<!-- Export bundle: a portable zip carrying files + reusable settings,
-						     distinct from the plain media "Download" button above -->
-						<button
-							on:click={handleExportBundle}
-							aria-label="Export this generation as a portable bundle"
-							disabled={exportingBundle}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors disabled:opacity-50"
-							use:tooltip={'Export this generation as a portable bundle'}
-						>
-							{#if exportingBundle}
-								<Spinner size="sm" />
-							{:else}
-								<Icon name="box" className="h-6 w-6" />
-							{/if}
-						</button>
-
-						<button
-							on:click={() => (showPublishModal = true)}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							use:tooltip={'Publish to Inspirations'}
-							aria-label="Publish to Inspirations"
-						>
-							<Icon name="lightbulb" className="h-6 w-6" />
-						</button>
-
-						<!-- Download button -->
-						<IconButton icon="download" label="Download" variant="overlay" onclick={downloadCurrentFile} />
-
-						<!-- Copy this file into the private library (a copy - the generation stays) -->
-						{#if canCopyToLibrary}
-							<IconButton icon="photo" label="Copy this file to your library (the generation stays in history)" variant="overlay" onclick={handleCopyToLibrary} disabled={copyingToLibrary} />
-						{/if}
-
-						{#if canEditImage}
-							<Tooltip text="Edit this image" position="left">
-								<button
-									on:click={openImageEditor}
-									class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-									aria-label="Edit this image"
-								>
-									<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.brush} />
-									</svg>
-								</button>
-							</Tooltip>
-						{/if}
-
-						<!-- Open in new tab button -->
-						<IconButton icon="external-link" label="Display in new tab" variant="overlay" onclick={openCurrentFileInTab} />
-
-						<!-- Plugin actions slot -->
-						<PluginSlot
-							hookName="image.actions"
-							position="top-right"
-							context={{
-								generationId: activeGenerationId,
-								fileIndex: currentFileIndex,
-								filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
-								fileUrl: getImageUrl(currentFile),
-								fileType: currentFile.file_type
-							}}
-						/>
-					</div>
-				{/if}
 			</div>
 
 			<!-- Right Side - Information -->
-			<div class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
+			<div bind:this={infoPanel} use:restoreScroll={takeDetailsScroll(activeGenerationId)} data-details-info class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
 				<div class="p-4 space-y-3">
 					<!-- Information Section -->
 					<div class="bg-surface-2 rounded-lg overflow-hidden">
@@ -900,8 +917,8 @@
 								<div class="flex items-center justify-between px-3 py-2">
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Preset</span>
 									<div class="flex items-center gap-1">
-										<Tooltip text={resolveReusePresetLabel(activeGeneration, resolvePresetName)} wrapperClass="min-w-0">
-										<span class="font-mono text-xs text-fg truncate max-w-[220px] block">{resolveReusePresetLabel(activeGeneration, resolvePresetName)}</span>
+										<Tooltip text={presetLabel} wrapperClass="min-w-0">
+										<span class="font-mono text-xs text-fg truncate max-w-[220px] block">{presetLabel}</span>
 									</Tooltip>
 										<CopyButton
 											text={activeGeneration.preset_id ?? ''}
@@ -1188,9 +1205,6 @@
 						</div>
 					{/if}
 
-					<!-- Artifacts Section -->
-					<GenerationArtifacts generationId={activeGenerationId} />
-
 					<!-- Parameters Section -->
 					<div class="bg-surface-2 rounded-lg overflow-hidden">
 						<div class="flex items-center justify-between px-3 py-2.5 border-b border-line">
@@ -1312,12 +1326,6 @@
 	{/if}
 </BaseModal>
 </div>
-
-<MediaEditors
-	request={editorRequest}
-	onClose={() => (editorRequest = null)}
-	onResult={handleEditorResult}
-/>
 
 {#if showPublishModal && activeGeneration}
 	<PublishToInspirationsModal

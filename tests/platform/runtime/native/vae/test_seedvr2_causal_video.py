@@ -14,7 +14,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae.seedvr2_causal_video import (
     LATENT_CHANNELS,
     SCALING_FACTOR,

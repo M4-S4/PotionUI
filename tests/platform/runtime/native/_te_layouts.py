@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 
-from vendor.gpl.comfyui.ops import _NVFP4_BLOCK, fp8_ops, manual_cast
+from src.platform.runtime.native.io.quant_formats import NVFP4_BLOCK
+from src.platform.runtime.native.kernels import fp8_ops, manual_cast
 
 META = torch.device("meta")
 
@@ -57,7 +58,7 @@ def int8_linear(in_f: int, out_f: int) -> nn.Module:
 def nvfp4_linear(in_f: int, out_f: int) -> nn.Module:
     """``Nvfp4Linear`` exactly as ``_load_from_state_dict`` leaves it."""
     layer = fp8_ops.Linear(in_f, out_f, bias=False, device=META, dtype=torch.bfloat16)
-    blocks = in_f // _NVFP4_BLOCK
+    blocks = in_f // NVFP4_BLOCK
     padded_rows = (out_f + 127) // 128 * 128
     padded_cols = (blocks + 3) // 4 * 4
     layer._is_nvfp4 = True

@@ -9,7 +9,6 @@
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
 	import StarRating from './StarRating.svelte';
-	import FavoriteButton from './FavoriteButton.svelte';
 	import { Badge, CopyButton, IconButton } from '$lib/components/ui';
 	import { historyStore } from '$lib/stores/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
@@ -22,6 +21,9 @@
 	import { isStackEntry, isLooseCell, stackBadge, stackInfo, cellChip, gridIdOf } from '$lib/generation/compare/view/historyGrid';
 	import { getIconPath } from '$lib/utils/IconLibrary';
 	import EntryActions from '$lib/components/tools/EntryActions.svelte';
+	import ToolRunBand from '$lib/components/tools/ToolRunBand.svelte';
+	import { mediaToolRuns } from '$lib/media-tools/runs';
+	import { runForGeneration } from '$lib/tools/toolRuns';
 	import type { EntryMenuController } from '$lib/tools/entryMenu';
 	import type { MediaTool, MediaToolContext, ToolRunExtra } from '$lib/tools/tools';
 	import {
@@ -154,6 +156,7 @@
 	// table above (which still governs the media-area overlays shared with the
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
+	$: toolRun = runForGeneration($mediaToolRuns, generation);
 	$: menuEnabled = !!(tile && chromeBucket && entryMenu);
 	$: barRunLabel = chromeBucket?.showBarDuration ? generationRunLabel(generation) : null;
 	$: durationReplacesResolution = !!(barRunLabel && chromeBucket?.durationReplacesResolution);
@@ -213,18 +216,6 @@
 		} else if (mediaFiles.length > 0 || stackEntry) {
 			dispatch('imageClick', { files: generation.files, generationId: generation.id });
 		}
-	}
-
-	function handleViewClick(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		dispatch('viewClick', generation);
-	}
-
-	function handleDeleteClick(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		dispatch('deleteClick', generation);
 	}
 
 	let actions: EntryActions | undefined;
@@ -321,6 +312,7 @@
 	class:opacity-50={disabled}
 	style={tile ? `width: ${tile.width}px` : undefined}
 	data-generation-card
+	data-generation-id={generation.id}
 	role="presentation"
 	on:contextmenu={handleContextMenu}
 >
@@ -433,6 +425,7 @@
 							className="w-full h-full {tile ? 'object-contain' : 'object-cover'}"
 							{thumbnailSize}
 							loadFullOnClick={false}
+							skeleton={!!tile}
 						/>
 					{/key}
 				{/if}
@@ -476,27 +469,6 @@
 						{statusLabel}
 					</Badge>
 				</div>
-			{/if}
-
-			<!-- Actions - top right on hover -->
-			{#if !menuEnabled && showActions && !selectable}
-					{#if !tile && density.actionMode !== 'none'}
-					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
-						<div
-							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-						>
-							<FavoriteButton
-								active={generation.is_favorite}
-								tone="onMedia"
-								onToggle={handleFavoriteToggle}
-							/>
-						</div>
-						{#if density.actionMode === 'full'}
-							<IconButton icon="eyes" label="View generation details" size="xs" variant="overlay" onclick={handleViewClick} class="opacity-0 group-hover:opacity-100" />
-							<IconButton icon="trash" label="Delete generation" size="xs" variant="overlay" onclick={handleDeleteClick} class="opacity-0 group-hover:opacity-100 hover:!bg-danger-solid" />
-						{/if}
-					</div>
-				{/if}
 			{/if}
 
 			{#if stackEntry || looseCell}
@@ -625,16 +597,24 @@
 			{/if}
 		</div>
 
+		{#if toolRun}
+			<ToolRunBand
+				label={toolRun.label}
+				progress={toolRun.progress}
+				cancelling={toolRun.cancelling}
+				bottom={tile && chromeBucket ? chromeBucket.barHeight : 0}
+				onCancel={() => toolRun && mediaToolRuns.cancel(toolRun.key)}
+			/>
+		{/if}
+
 		{#if menuEnabled && chromeBucket}
 				<EntryActions
 					bind:this={actions}
 					scope="history"
 					getModel={menuModel}
 					onPick={handleMenuPick}
-					onDelete={() => dispatch('deleteClick', generation)}
-					deleteLabel="Delete generation"
-					showDelete={showActions && !selectable}
-					deleteInRow={chromeBucket.deleteInRow}
+					favorite={showActions && !selectable && !stackEntry ? !!generation.is_favorite : null}
+					onFavorite={handleFavoriteToggle}
 					chipSize={chromeBucket.menuChipSize}
 				/>
 		{/if}

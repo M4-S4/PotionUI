@@ -96,12 +96,12 @@ any spec default still missing. Both functions are imported directly from
 `src.features.generation.generation` rather than reimplemented.
 
 What the worker does **not** reconstruct: `GenerationEngine`'s SERVICE-input
-injection (GPU/SYSTEM/MEMORY/LLM/MODELS/ASSETS/SETTINGS) and its plugin
+injection (GPU/SYSTEM/MEMORY/LLM/MODELS/ASSETS/SETTINGS/MEDIA_TOOLS) and its plugin
 before/after-execute hooks. A worker has no PotionUI database, settings table,
 or model-lifecycle cache to back MEMORY/MODELS/LLM/ASSETS/SETTINGS with, so
 only `GPU` (a bare `GpuMonitor()`) and `SYSTEM` (a bare `SystemMonitor()`) -
 the two that need no such state - are wired; a pipe requesting anything else
-gets `None` injected, with a warning logged. This is a real gap for a pipe
+gets `None` injected, with a warning logged (`MEDIA_TOOLS` gets `None` without one: the `media_tool` pipe then runs the core tools only). This is a real gap for a pipe
 that needs a real model-lifecycle cache to run for real, tracked here rather
 than faked.
 

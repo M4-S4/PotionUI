@@ -124,6 +124,7 @@ class GetPromptTool(BaseTool):
     context_group = "library"
 
     name = "get_prompt"
+    read_only = True
     group = "Saved prompts"
     user_description = "Reads one prompt from your library in full."
     requires_approval = False
@@ -162,6 +163,7 @@ class ListPromptsTool(BaseTool):
     context_group = "library"
 
     name = "list_prompts"
+    read_only = True
     group = "Saved prompts"
     user_description = "Lists the prompts in your library."
     requires_approval = False

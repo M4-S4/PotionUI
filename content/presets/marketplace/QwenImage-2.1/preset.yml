@@ -6,8 +6,8 @@
 ## is TRUE CFG (the sampler runs a cond/uncond pass), so the negative prompt
 ## is encoded. The VAE's alpha channel is dropped on decode, in both modes
 ## (see docs/models/qwen_image_21.md). `edit` reuses the SAME checkpoint as
-## `txt2img`, run with the text encoder's vision tower loaded and up to 10
-## reference images spliced into the DiT's sequence as clean VAE latents.
+## `txt2img`, run with the text encoder's vision tower loaded and the source
+## image spliced into the DiT's sequence as a clean VAE latent.
 ## Authoring reference: docs/presets.md
 ########
 schema: 1
@@ -70,6 +70,10 @@ vars:
           - { field: "guide_only", equals: true }
           - { field: "guide_extract", equals: true }
           - { field: "guide", not_in: ["none", "grayscale"] }
+  optional_prompt_modes:
+    - "text"
+    - mode: "restyle"
+      when: { field: "restyle_task", in: ["colourise", "restore"] }
 
 llm:
   guide: |
@@ -80,16 +84,27 @@ llm:
     "Qwen Coffee"'). Bilingual English+Chinese prompts are supported. Negative prompts
     are supported; keep them short and targeted, or empty when nothing needs
     suppressing. This preset always outputs an opaque RGB image - do not suggest
-    transparency or an alpha channel. Edit mode takes 1-10 reference images: the
-    first sets the output's size and is the image being edited; describe the
-    change you want in the prompt (e.g. "change the sign text to ..."), not the
-    whole scene from scratch. Control mode follows the structure of a control
-    image (edges, depth, pose, lines or grayscale) and can repaint a masked part
+    transparency or an alpha channel. Edit image mode takes one image and edits
+    it; describe the change you want in the prompt (e.g. "change the sign text
+    to ...") and what must stay, not the whole scene from scratch. A region
+    painted on the image limits the change to that area, composited back
+    pixel-exact. Combine images mode takes 1 to 10 images: the first is the image being edited
+    and the others are references; refer to them in the prompt as <image1>, <image2>
+    and so on, by position (e.g. "put the jacket from <image2> onto the person in
+    <image1>"). Edit
+    text mode builds its own instruction from the Current text and New text fields;
+    the prompt is optional and holds only where the text goes and how it looks (e.g.
+    "in white capitals at the top"), never the text itself. Restyle mode builds its own
+    instruction from the task the user picks (style, background, lighting, colourise,
+    restore); the prompt is the result in a few words ("watercolour painting", "a white
+    studio", "golden hour"), required for style, background and lighting and optional
+    extra details for colourise and restore. Structure mode follows the structure of a guide
+    image (edges, depth, pose, lines or grayscale; use Pose to transfer a pose) and can repaint a masked part
     of an image; describe the whole finished image, not just the masked part.
 
 prompt_resources:
-  edit:
-    - field: "source_image"
+  combine:
+    - field: "images"
       kind: "image"
       label: "Images"
       token: "<image@>"
@@ -103,6 +118,13 @@ prompt_syntax:
       help: "Exact text to render in the image, verbatim"
       color: "coral"
   edit:
+    - token: '"…"'
+      kind: "wrap"
+      pattern: '"[^"\n]*"'
+      insert: '"{}"'
+      help: "Exact text to render in the image, verbatim"
+      color: "coral"
+  combine:
     - token: '"…"'
       kind: "wrap"
       pattern: '"[^"\n]*"'
@@ -132,6 +154,9 @@ negative_prompt:
 modes:
   - txt2img
   - edit
+  - combine
+  - text
+  - restyle
   - control
 
 media:

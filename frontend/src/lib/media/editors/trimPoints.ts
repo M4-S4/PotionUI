@@ -5,12 +5,6 @@
  * a viewport-sized element and the numbers the user is shown, the numbers the
  * API takes, and the numbers the media reports are all seconds. Fractions are
  * a rendering detail and are converted at the edge.
- *
- * The clamping mirrors `_validated_trim` in
- * `src/features/media/editing/operations.py` - start ≥ 0, end > start, start
- * inside the medium, end no further than its duration. The server checks all of
- * it again against the media's real duration; this exists so the UI cannot
- * offer a selection the server will refuse.
  */
 
 /**

@@ -82,7 +82,7 @@ test('FE tag-clear — opening the generation details modal drops previously-ass
 	await menuButton.click();
 	await page.getByRole('menuitem', { name: 'Open details' }).click();
 
-	const tagButton = page.getByRole('button', { name: 'Manage tags' });
+	const tagButton = page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: /^Tags/ });
 	await expect(tagButton).toBeVisible({ timeout: 20000 });
 
 	await screenshot(page, JOURNEY, '01-modal-open-after-detail-fetch');

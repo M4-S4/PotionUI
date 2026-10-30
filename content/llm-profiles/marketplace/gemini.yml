@@ -1,0 +1,261 @@
+version: 1
+sources:
+  gemini-interactions: https://ai.google.dev/gemini-api/docs/interactions
+  gemini-thought-signatures: https://ai.google.dev/gemini-api/docs/thought-signatures
+  gemini-function-calling: https://ai.google.dev/gemini-api/docs/function-calling
+  gemini-caching: https://ai.google.dev/gemini-api/docs/caching
+  gemini-3-guide: https://ai.google.dev/gemini-api/docs/gemini-3
+  models-dev: https://models.dev/api.json
+models_dev:
+  google: gemini-interactions
+rows:
+  - id: gemini-interactions
+    source: [gemini-interactions, gemini-function-calling, gemini-thought-signatures, gemini-caching]
+    adapters: [gemini-interactions]
+    fields:
+      parallel_tools: true
+      tool_choice: [auto, none, required, named]
+      tool_choice_with_reasoning: [auto, none, required, named]
+      structured_output: native
+      vision: true
+      interleaved_reasoning: true
+      cache: automatic
+  - id: gemini-3-and-4
+    source: [gemini-interactions, gemini-caching]
+    adapters: [gemini-interactions]
+    models: ['^gemini-(3|4)']
+    fields:
+      reasoning: effort
+      cache_min_tokens: 4096
+  - id: gemini-3-temperature
+    source: [gemini-3-guide]
+    adapters: [gemini-interactions]
+    models: ['^gemini-3']
+    fields:
+      recommended_sampling: {temperature: 1.0}
+catalog:
+  - adapter: gemini-interactions
+    model: deep-research-max-preview-04-2026
+    fields:
+      context_window: 131072
+      max_output_tokens: 65536
+      tools: true
+      vision: true
+      prices: {input: 2, output: 12, cached_input: 0.2}
+  - adapter: gemini-interactions
+    model: deep-research-preview-04-2026
+    fields:
+      context_window: 131072
+      max_output_tokens: 65536
+      tools: true
+      vision: true
+      prices: {input: 2, output: 12, cached_input: 0.2}
+  - adapter: gemini-interactions
+    model: gemini-2.5-computer-use-preview-10-2025
+    fields:
+      context_window: 128000
+      max_output_tokens: 64000
+      tools: true
+      vision: true
+      prices: {input: 1.25, output: 10}
+  - adapter: gemini-interactions
+    model: gemini-2.5-flash
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: budget
+      vision: true
+      prices: {input: 0.3, output: 2.5, cached_input: 0.03}
+  - adapter: gemini-interactions
+    model: gemini-2.5-flash-lite
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: budget
+      vision: true
+      prices: {input: 0.1, output: 0.4, cached_input: 0.01}
+  - adapter: gemini-interactions
+    model: gemini-2.5-pro
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: budget
+      vision: true
+      prices: {input: 1.25, output: 10, cached_input: 0.125}
+  - adapter: gemini-interactions
+    model: gemini-3-flash-preview
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [minimal, low, medium, high]
+      vision: true
+      prices: {input: 0.5, output: 3, cached_input: 0.05}
+  - adapter: gemini-interactions
+    model: gemini-3.1-flash-lite
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [minimal, low, medium, high]
+      vision: true
+      prices: {input: 0.25, output: 1.5, cached_input: 0.025}
+  - adapter: gemini-interactions
+    model: gemini-3.1-flash-lite-preview
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [minimal, low, medium, high]
+      vision: true
+      prices: {input: 0.25, output: 1.5, cached_input: 0.025}
+  - adapter: gemini-interactions
+    model: gemini-3.1-pro-preview
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, medium, high]
+      vision: true
+      prices: {input: 2, output: 12, cached_input: 0.2}
+  - adapter: gemini-interactions
+    model: gemini-3.1-pro-preview-customtools
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, medium, high]
+      vision: true
+      prices: {input: 2, output: 12, cached_input: 0.2}
+  - adapter: gemini-interactions
+    model: gemini-3.5-flash
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [minimal, low, medium, high]
+      vision: true
+      prices: {input: 1.5, output: 9, cached_input: 0.15}
+  - adapter: gemini-interactions
+    model: gemini-3.5-flash-lite
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [minimal, low, medium, high]
+      vision: true
+      prices: {input: 0.3, output: 2.5, cached_input: 0.03}
+  - adapter: gemini-interactions
+    model: gemini-3.6-flash
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [minimal, low, medium, high]
+      vision: true
+      prices: {input: 0.75, output: 3.75, cached_input: 0.075}
+  - adapter: gemini-interactions
+    model: gemini-3.7-flash
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, medium, high]
+      vision: true
+      prices: {input: 0.75, output: 3.75, cached_input: 0.075}
+  - adapter: gemini-interactions
+    model: gemini-3.8-flash
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, medium, high]
+      vision: true
+      prices: {input: 0.75, output: 3.75, cached_input: 0.075}
+  - adapter: gemini-interactions
+    model: gemini-4-argon
+    fields:
+      context_window: 1048576
+      max_output_tokens: 32768
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, medium, high]
+      vision: true
+      prices: {input: 2, output: 10, cached_input: 0.1}
+  - adapter: gemini-interactions
+    model: gemini-flash-latest
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, medium, high]
+      vision: true
+      prices: {input: 0.75, output: 3.75, cached_input: 0.075}
+  - adapter: gemini-interactions
+    model: gemini-flash-lite-latest
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [minimal, low, medium, high]
+      vision: true
+      prices: {input: 0.3, output: 2.5, cached_input: 0.03}
+  - adapter: gemini-interactions
+    model: gemini-pro-latest
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, medium, high]
+      vision: true
+      prices: {input: 2, output: 12, cached_input: 0.2}
+  - adapter: gemini-interactions
+    model: gemma-4-26b-a4b-it
+    fields:
+      context_window: 262144
+      max_output_tokens: 32768
+      tools: true
+      reasoning: toggle
+      vision: true
+  - adapter: gemini-interactions
+    model: gemma-4-31b-it
+    fields:
+      context_window: 262144
+      max_output_tokens: 32768
+      tools: true
+      reasoning: toggle
+      vision: true
+  - adapter: gemini-interactions
+    model: lyria-3-clip-preview
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: false
+      reasoning: none
+      vision: true
+      prices: {input: 0, output: 0}
+  - adapter: gemini-interactions
+    model: lyria-3-pro-preview
+    fields:
+      context_window: 1048576
+      max_output_tokens: 65536
+      tools: false
+      reasoning: none
+      vision: true
+      prices: {input: 0, output: 0}

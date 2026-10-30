@@ -23,6 +23,7 @@ export default defineConfig({
 		alias: {
 			$lib: path.join(root, 'src/lib'),
 			'$app/environment': path.join(root, 'tests/component/stubs/appEnvironment.ts'),
+			'$app/state': path.join(root, 'tests/component/stubs/appState.svelte.ts'),
 			'$app/stores': path.join(root, 'tests/component/stubs/appStores.ts'),
 			'$app/navigation': path.join(root, 'tests/component/stubs/appNavigation.ts')
 		}

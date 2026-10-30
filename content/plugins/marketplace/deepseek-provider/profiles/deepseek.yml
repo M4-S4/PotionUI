@@ -1,0 +1,80 @@
+version: 1
+sources:
+  deepseek-thinking-mode: https://api-docs.deepseek.com/guides/thinking_mode
+  deepseek-chat-completion: https://api-docs.deepseek.com/api/create-chat-completion
+  models-dev: https://models.dev/api.json
+models_dev:
+  deepseek: openai-chat
+rows:
+  - id: deepseek
+    source: [deepseek-thinking-mode, deepseek-chat-completion]
+    adapters: [openai-chat]
+    models: ['(^|/)deepseek-(flash|v4)']
+    fields:
+      tool_choice: [auto, none, required, named]
+      tool_choice_with_reasoning: [auto, none]
+      strict_tools: true
+      reasoning: effort
+      reasoning_levels: [low, high, max]
+      reasoning_toggle: thinking.type
+      reasoning_field: reasoning_content
+      replay: send_all
+      replay_required_with_tools: true
+      interleaved_reasoning: true
+      sampling_ignored_with_reasoning: [temperature]
+      cache: automatic
+  - id: deepseek-v4-pro-ignores-top-p-while-reasoning
+    source: [deepseek-thinking-mode]
+    adapters: [openai-chat]
+    models: ['(^|/)deepseek-v4-pro']
+    fields:
+      sampling_ignored_with_reasoning: [temperature, top_p]
+catalog:
+  - adapter: openai-chat
+    model: deepseek-flash
+    fields:
+      context_window: 1048576
+      max_output_tokens: 393216
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, high, max]
+      reasoning_field: reasoning_content
+      interleaved_reasoning: true
+      vision: true
+      prices: {input: 0.15, output: 0.6, cached_input: 0.003, reasoning: 0.6}
+  - adapter: openai-chat
+    model: deepseek-v4-flash
+    fields:
+      context_window: 1048576
+      max_output_tokens: 393216
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, high, max]
+      reasoning_field: reasoning_content
+      interleaved_reasoning: true
+      vision: true
+      prices: {input: 0.15, output: 0.6, cached_input: 0.003, reasoning: 0.6}
+  - adapter: openai-chat
+    model: deepseek-v4-flash-vision-exp
+    fields:
+      context_window: 1048576
+      max_output_tokens: 393216
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, high, max]
+      reasoning_field: reasoning_content
+      interleaved_reasoning: true
+      vision: true
+      prices: {input: 0.15, output: 0.6, cached_input: 0.003, reasoning: 0.6}
+  - adapter: openai-chat
+    model: deepseek-v4-pro
+    fields:
+      context_window: 1048576
+      max_output_tokens: 393216
+      tools: true
+      reasoning: effort
+      reasoning_levels: [low, high, max]
+      reasoning_field: reasoning_content
+      interleaved_reasoning: true
+      vision: false
+      prices: {input: 0.66, output: 1.98, cached_input: 0.022, reasoning: 1.98}

@@ -17,7 +17,7 @@ import torch
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from src.platform.runtime.native.io.state_dict_utils import detect_prefix
-from vendor.gpl.comfyui.ops import disable_weight_init as _ops
+from src.platform.runtime.native.kernels import disable_weight_init as _ops
 from src.platform.runtime.native.arch.wan.model import WanModel
 
 _MODELS = Path("models/diffusion_models")

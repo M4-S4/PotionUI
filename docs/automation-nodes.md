@@ -48,3 +48,26 @@ Secret header values are encrypted with the instance key when the automation is 
 ### Test request
 
 The editor's **Test request** button runs the node once against sample event and upstream data and shows the status, headers and body. It uses the same rules as a real run, including the private-address rule.
+
+## Media Tool
+
+`action.media_tool` runs one [media tool](plugin-api.md#media-tools) (trim, resize, rotate, speed, a plugin's own tool) on a Library item. A typical graph is a **Backend Event** trigger on `media.after_record` followed by a Media Tool node that resizes every new upload. Only administrators can create, edit, import, enable or run an automation that contains it, because the node runs as the item's owner and can overwrite an original.
+
+### Configuration
+
+| Field | Meaning |
+| --- | --- |
+| `tool` | Any tool in the media tool catalog that has a Python implementation, so a plugin's tools appear while the plugin is enabled. Component-only plugin tools cannot be run here. |
+| `params` | The tool's parameters as a JSON object, for example `{"width": 1920}`. Omitted parameters use the tool's defaults. Values are templated, so `{"width": "{{ event.width }}"}` and `{"width": {{ event.width }}}` both work. The tool's own validation applies when the node runs: an unknown parameter, a value out of range or a tool that does not take the item's kind fails the node. |
+| `mode` | `new` saves the result as a new Library item and leaves the original alone. `replace` overwrites the original, keeps its id and fails for a tool that changes the kind of media. |
+| `item_id` | Templated Library item id. Defaults to `{{ event.upload_id }}`, which is what `media.after_record` carries. |
+| `user_id` | Templated id of the user to run as. Defaults to `{{ event.user_id }}`. The tool only ever sees that user's own Library, so another user's item is "not found", and the result lands in that user's Library under their quota. |
+| `timeout_s` | Defaults to 300 seconds, at most 3600. Long videos need more than the usual 60 seconds. |
+
+A `media.after_record` event also fires for helper files such as masks, so put a Compare node on `{{ event.purpose }}` equal to `user_upload` in front of the node when only real uploads should be edited.
+
+### Outputs
+
+`item_id` (the first resulting item; the original's id after a replace), `item_ids`, `items` (id, filename, media_type, url, size, width, height, duration_seconds), `count`, `replaced` and `tool`. A later Media Tool node chains with `item_id` set to `{{ upstream.<node_id>.item_id }}`.
+
+The node fails, and the run is marked failed, when the tool name or a parameter is invalid, the item is missing or not the user's, the Library quota refuses the result, or the tool itself fails. The failure text starts with the error code, for example `action.media_tool: invalid_params (step 1, 'width'): Width must be at least 1 px`.

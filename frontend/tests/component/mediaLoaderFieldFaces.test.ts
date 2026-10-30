@@ -1,16 +1,22 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
+
+vi.mock('$lib/services/api/mediaTools', () => ({
+	listMediaTools: vi.fn().mockResolvedValue(CORE_TOOLS),
+	startMediaToolRun: vi.fn(),
+	getMediaToolRun: vi.fn(),
+	cancelMediaToolRun: vi.fn(),
+	previewMediaTool: vi.fn()
+}));
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		listGenerationMedia: vi.fn().mockResolvedValue({ success: false }),
 		getUploadInfo: vi.fn().mockResolvedValue({ success: false }),
-		getHistoryTools: vi.fn().mockResolvedValue({ success: true, data: [] }),
 		listUploads: vi
 			.fn()
 			.mockResolvedValue({ success: true, data: { uploads: [], total: 0, limit: 100, offset: 0 } }),
-		editMediaItem: vi.fn(),
-		extractMediaFrame: vi.fn(),
 		listLibraryItems: vi.fn().mockResolvedValue({ success: true, data: { items: [], total: 0 } }),
 		getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } })
 	}
@@ -28,6 +34,7 @@ const { default: MediaLoaderField } = await import(
 	'$lib/components/form-fields/MediaLoaderField.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
+const { stubClientWidth } = await import('./helpers/stubClientWidth');
 const { tick } = await import('svelte');
 
 function mount(props: Record<string, unknown>) {
@@ -212,7 +219,17 @@ describe('loaded face', () => {
 			onChange: vi.fn()
 		});
 		await tick();
-		expect(toolIds(await openTools(plain.target))).toEqual(['edit', 'crop', 'full']);
+		expect(toolIds(await openTools(plain.target))).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject',
+			'full'
+		]);
 
 		document.body.innerHTML = '';
 		const masked = mount({
@@ -223,7 +240,19 @@ describe('loaded face', () => {
 			onMaskChange: vi.fn()
 		});
 		await tick();
-		expect(toolIds(await openTools(masked.target))).toEqual(['edit', 'crop', 'mask', 'clear-mask', 'full']);
+		expect(toolIds(await openTools(masked.target))).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject',
+			'mask',
+			'clear-mask',
+			'full'
+		]);
 	});
 
 	it('offers trim on a video, and opens the built-in editor when no host intercepts', async () => {
@@ -274,6 +303,56 @@ describe('loaded face', () => {
 			.querySelector('[data-media-inspector]')!
 			.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true }));
 		expect(onOpenEditor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'crop' }));
+	});
+
+	it('opens the mask editor from the preview image when the field allows inpainting', async () => {
+		const onOpenEditor = vi.fn();
+		const { target } = mount({
+			name: 'source_image',
+			config: { title: 'Source image', accept: 'image/*', allow_inpaint: true },
+			value: imageItem('a'),
+			onChange: vi.fn(),
+			onMaskChange: vi.fn(),
+			onOpenEditor
+		});
+		await tick();
+
+		expect(buttonByLabel(target, 'View full size')).toBeUndefined();
+		buttonByLabel(target, 'Paint mask')!.click();
+		await tick();
+		expect(onOpenEditor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'mask' }));
+	});
+
+	it('runs the mask tool on M while the pointer is over the field, but not while typing', async () => {
+		const onOpenEditor = vi.fn();
+		const { target } = mount({
+			name: 'source_image',
+			config: { title: 'Source image', accept: 'image/*', allow_inpaint: true },
+			value: imageItem('a'),
+			onChange: vi.fn(),
+			onMaskChange: vi.fn(),
+			onOpenEditor
+		});
+		await tick();
+
+		const press = (el: EventTarget, key: string) =>
+			el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, composed: true }));
+
+		press(document.body, 'm');
+		expect(onOpenEditor).not.toHaveBeenCalled();
+
+		target.firstElementChild!.dispatchEvent(new MouseEvent('mouseenter'));
+		press(document.body, 'M');
+		expect(onOpenEditor).toHaveBeenCalledTimes(1);
+
+		const input = document.createElement('input');
+		document.body.appendChild(input);
+		press(input, 'm');
+		expect(onOpenEditor).toHaveBeenCalledTimes(1);
+
+		target.firstElementChild!.dispatchEvent(new MouseEvent('mouseleave'));
+		press(document.body, 'm');
+		expect(onOpenEditor).toHaveBeenCalledTimes(1);
 	});
 
 	it('peeks the single preview full size, as whichever kind it is', async () => {
@@ -413,31 +492,28 @@ describe('multi face', () => {
 		expect(target.querySelector('[data-media-handle]')!.textContent).toContain('Picture 3');
 	});
 
-	it('clears the selection when the selected tile is pressed again', async () => {
+	it('keeps the selected item previewed when its tile is pressed again', async () => {
 		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b')] });
 		await tick();
 
+		tiles(target)[1].click();
+		await tick();
 		tiles(target)[1].click();
 		await tick();
 		expect(tiles(target)[1].getAttribute('data-selected')).toBe('true');
-		tiles(target)[1].click();
-		await tick();
-		expect(tiles(target).some((tile) => tile.hasAttribute('data-selected'))).toBe(false);
-		expect(target.querySelector('[data-media-inspector]')).toBeNull();
+		expect(inspectorLabel(target).placeholder).toBe('b.png');
 	});
 
-	it('clears the selection when neutral space is pressed and keeps it for the inspector', async () => {
+	it('keeps the preview open when the user presses outside the field', async () => {
 		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b')] });
 		await tick();
 
-		const press = (el: Element) => el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		press(target.querySelector('[data-media-inspector]')!);
+		tiles(target)[1].click();
 		await tick();
-		expect(tiles(target)[0].getAttribute('data-selected')).toBe('true');
-
-		press(document.body);
+		document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 		await tick();
-		expect(tiles(target).some((tile) => tile.hasAttribute('data-selected'))).toBe(false);
+		expect(tiles(target)[1].getAttribute('data-selected')).toBe('true');
+		expect(target.querySelector('[data-media-inspector]')).not.toBeNull();
 	});
 
 	it('writes a typed label onto the selected item', async () => {
@@ -740,7 +816,19 @@ describe('compact face', () => {
 
 		expect(target.querySelector('[data-media-row-face]')).toBeTruthy();
 		expect(target.querySelector('[data-media-inspector]')).toBeNull();
-		expect(toolIds(await openTools(target))).toEqual(['edit', 'crop', 'full', 'replace', 'remove']);
+		expect(toolIds(await openTools(target))).toEqual([
+			'edit',
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject',
+			'full',
+			'replace',
+			'remove'
+		]);
 	});
 
 	it('shows an empty compact field as a split add button', async () => {
@@ -776,6 +864,14 @@ describe('compact face', () => {
 });
 
 describe('library pick', () => {
+	let restoreWidth: () => void = () => {};
+
+	beforeEach(() => {
+		restoreWidth = stubClientWidth(1000);
+	});
+
+	afterEach(() => restoreWidth());
+
 	it('carries the library display name into a fresh item as its label, but never a placeholder', async () => {
 		const { api } = await import('$lib/services/api/index');
 		(api.listLibraryItems as ReturnType<typeof vi.fn>).mockResolvedValueOnce({

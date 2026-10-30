@@ -74,7 +74,6 @@ OPEN = [
     "/api/plugins/pages",
     "/api/plugins/sidebar",
     "/api/plugins/quick-actions",
-    "/api/plugins/history-tools",
     "/api/plugins/frontend-extensions",
     "/api/plugins/sidebar-widgets",
     "/api/plugins/hooks/frontend",
@@ -116,22 +115,13 @@ def test_settings_routes_ignore_caller_supplied_user_id():
 
 
 
-def test_history_tools_route_returns_the_tool_list_as_data():
-    registry = Mock()
-    registry.get_plugin.return_value = SimpleNamespace(
-        id="p1",
-        history_tools=[{
-            "id": "export", "label": "Export", "category": "export", "component": "Export.js",
-            "applies_to": {"min_selection": 1, "media_kinds": ["image"]},
-        }],
-    )
-    client, repository = _make_client(_user(AccountType.USER), registry=registry)
-    repository.get_enabled_plugins.return_value = [SimpleNamespace(id="p1")]
+def test_history_tools_route_is_gone():
+    client, _ = _make_client(_user(AccountType.USER))
 
-    data = client.get("/api/plugins/history-tools").json()["data"]
+    paths = {getattr(route, "path", "") for route in client.app.routes}
 
-    assert isinstance(data, list)
-    assert [tool["id"] for tool in data] == ["p1:export"]
+    assert "/api/plugins/history-tools" not in paths
+    assert not hasattr(PluginController, "get_plugin_history_tools")
 
 
 def test_setup_route_returns_every_report_for_an_admin():

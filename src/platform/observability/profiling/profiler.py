@@ -276,6 +276,10 @@ class GenerationProfiler:
     def out_dir(self) -> Optional[Path]:
         return self._out_dir
 
+    @property
+    def active(self) -> bool:
+        return self._fh is not None
+
     def stop(self, generation_id: str) -> None:
         handoff = None
         sampler = None

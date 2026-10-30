@@ -28,7 +28,7 @@ from .lora_fixtures import (
 
 def _runtime_applied(sd, loras, dtype=torch.float32):
     from src.platform.runtime.native.arch.moss_image.model import convert_moss_image_state_dict
-    from vendor.gpl.comfyui.ops import pick_operations
+    from src.platform.runtime.native.kernels import pick_operations
 
     module = MossImage(CFG, operations=pick_operations(torch.float32, torch.float32))
     module = module.to(dtype)

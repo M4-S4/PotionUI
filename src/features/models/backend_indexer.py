@@ -241,7 +241,7 @@ class BackendModelIndexer:
         if not shas:
             return entries
         assertions = self.types.get_assertions(shas)
-        verdicts = self.types.get_verdicts(shas)
+        verdicts = self.types.get_verdicts_by_sha(shas)
         resolved = []
         for entry in entries:
             model_type = self._identity_type(entry, assertions, verdicts)

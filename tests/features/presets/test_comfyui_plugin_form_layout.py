@@ -44,7 +44,7 @@ NATIVE_SAMPLING_CASES = [c for c in NATIVE_CASES if c[0] != "presets/marketplace
 GATE_CASES = [
     ("presets/marketplace/Wan", "video", "Advanced", None, "riflex", {"riflex_trained_frames"}, False),
     ("presets/marketplace/LTX-2", "video", "Enhance", None, "enhance_faces_hands", DETAILER_FIELD_NAMES, False),
-    ("presets/marketplace/LTX-2", "upscale", "Generation", "Enhancement", "enhance_faces_hands", DETAILER_FIELD_NAMES, False),
+    ("presets/marketplace/LTX-2", "upscale", "Enhance", None, "enhance_faces_hands", DETAILER_FIELD_NAMES, False),
     *[
         ("presets/marketplace/SDXL", mode, "Advanced", None, gate, children, default)
         for mode in ("txt2img", "inpaint")

@@ -3,12 +3,6 @@
 # vendor/gpl/comfyui/flux/ from src/platform/runtime/native/arch/flux/ as part
 # of the license-relocation workstream, BE-97).
 # License: GPL-3.0 (see ../LICENSE). Copyright (c) comfyanonymous and contributors.
-# Local modification (BE-97): the native engine's attention-kernel dispatcher
-# (src/platform/runtime/native/attention.py) can't be imported here — this
-# package must not depend on src. attention() calls a module-level backend
-# hook instead; src wires it via set_attention_backend() (see arch/flux/
-# model.py, the one importer that constructs Flux and therefore must run
-# before any attention() call).
 
 """Rotary positional embedding + attention math for the Flux DiT.
 
@@ -19,7 +13,7 @@ Vendored from ComfyUI's ``comfy/ldm/flux/math.py`` and trimmed:
   * ``optimized_attention`` (a dispatch over xformers / sub-quad / split
     kernels) is replaced by an injected backend callable (see
     :func:`set_attention_backend`) — the native engine's attention dispatcher
-    (``src/platform/runtime/native/attention.py``), which defaults to
+    (``src/platform/runtime/native/kernels/dispatch.py``), which defaults to
     ``torch.nn.functional.scaled_dot_product_attention`` (ComfyUI's
     ``attention_pytorch`` path) and transparently uses flash/sage when available.
 
@@ -45,7 +39,7 @@ def set_attention_backend(fn: "Callable[..., Tensor]") -> None:
     """Wire the attention-kernel dispatcher :func:`attention` calls into.
 
     ``fn(q, k, v, heads=..., mask=...) -> Tensor`` — same contract as
-    ``src.platform.runtime.native.attention.attention``. Idempotent; safe to
+    ``src.platform.runtime.native.kernels.attention``. Idempotent; safe to
     call more than once (later calls replace the backend).
     """
     global _attention_backend

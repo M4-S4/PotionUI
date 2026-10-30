@@ -9,6 +9,8 @@ from src.features.chat.context_builder import ChatContextBuilder
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
 from src.features.llm import context_budget
+from src.features.llm.harness.build import attach_context
+from tests.fixtures.chat_engine import typed_history
 
 
 def _mode(structured_reply=True):
@@ -17,7 +19,7 @@ def _mode(structured_reply=True):
 
 def test_reminder_folded_into_the_user_message_when_structured_reply_on():
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_reply_contract_reminder_block(history, _mode(structured_reply=True))
+    typed_history(ChatContextBuilder.inject_reply_contract_reminder_block)(history, _mode(structured_reply=True))
 
     assert len(history) == 1
     assert history[-1]["role"] == "user"
@@ -26,14 +28,14 @@ def test_reminder_folded_into_the_user_message_when_structured_reply_on():
 
 def test_reminder_absent_when_structured_reply_off():
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_reply_contract_reminder_block(history, _mode(structured_reply=False))
+    typed_history(ChatContextBuilder.inject_reply_contract_reminder_block)(history, _mode(structured_reply=False))
 
     assert history == [{"role": "user", "content": "hi"}]
 
 
 def test_reminder_dropped_on_a_compact_window():
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_reply_contract_reminder_block(
+    typed_history(ChatContextBuilder.inject_reply_contract_reminder_block)(
         history, _mode(structured_reply=True), context_budget.TOOL_TIER_COMPACT,
     )
 
@@ -42,7 +44,7 @@ def test_reminder_dropped_on_a_compact_window():
 
 def test_reminder_kept_on_a_large_window():
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_reply_contract_reminder_block(
+    typed_history(ChatContextBuilder.inject_reply_contract_reminder_block)(
         history, _mode(structured_reply=True), context_budget.TOOL_TIER_LARGE,
     )
 
@@ -51,7 +53,7 @@ def test_reminder_kept_on_a_large_window():
 
 def test_reminder_absent_when_mode_is_none():
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_reply_contract_reminder_block(history, None)
+    typed_history(ChatContextBuilder.inject_reply_contract_reminder_block)(history, None)
 
     assert history == [{"role": "user", "content": "hi"}]
 
@@ -63,8 +65,8 @@ def test_reminder_composes_with_an_existing_contributor_block():
     history = [{"role": "user", "content": "hi"}]
     mode = _mode(structured_reply=True)
 
-    context_budget.attach_context_block(history, "WORKSPACE CONTEXT")
-    ChatContextBuilder.inject_reply_contract_reminder_block(history, mode)
+    typed_history(lambda messages: attach_context(messages, "workspace", "WORKSPACE CONTEXT"))(history)
+    typed_history(ChatContextBuilder.inject_reply_contract_reminder_block)(history, mode)
 
     assert len(history) == 1
     assert history[-1]["role"] == "user"

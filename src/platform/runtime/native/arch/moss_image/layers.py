@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from ...attention import attention as _attention
+from ...kernels import attention as _attention
 
 EPS = 1e-6
 

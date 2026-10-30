@@ -7,51 +7,83 @@ _CHUNK = 500
 ASSERTION_SOURCE_RANK = {"download": 1, "recipe": 2, "admin": 3}
 
 _VERDICT_COLUMNS = (
-    "sha256, format, status, model_type, family, variant, components, "
+    "format, status, model_type, family, variant, components, "
     "transformer_extractable, classifier, registry_fingerprint, reason, classified_at"
 )
-
+_PREFIXED_VERDICT_COLUMNS = ", ".join(f"v.{name.strip()}" for name in _VERDICT_COLUMNS.split(","))
 
 def _chunks(values: Sequence[Any]) -> Iterable[Sequence[Any]]:
     for start in range(0, len(values), _CHUNK):
         yield values[start:start + _CHUNK]
-
 
 def verdict_is_current(row: Dict[str, Any], fingerprint: str) -> bool:
     if row["registry_fingerprint"] == fingerprint:
         return True
     return row["status"] != "undecided" and not row["transformer_extractable"]
 
-
 class ModelTypeRepository:
 
-    def get_verdicts(self, shas: Iterable[str]) -> Dict[str, Dict[str, Any]]:
-        unique = sorted({sha for sha in shas if sha})
-        if not unique:
-            return {}
+    def get_header_verdicts(self, header_hashes: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        unique = sorted({value for value in header_hashes if value})
         found: Dict[str, Dict[str, Any]] = {}
+        if not unique:
+            return found
         with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" for _ in chunk)
                 cursor.execute(
-                    f"SELECT {_VERDICT_COLUMNS} FROM model_header_verdicts WHERE sha256 IN ({placeholders})",
+                    f"SELECT header_hash, {_VERDICT_COLUMNS} FROM model_header_verdicts "
+                    f"WHERE header_hash IN ({placeholders})",
+                    tuple(chunk),
+                )
+                for row in cursor.fetchall():
+                    found[row["header_hash"]] = dict(row)
+        return found
+
+    def get_verdicts(self, model_ids: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        unique = sorted({value for value in model_ids if value})
+        found: Dict[str, Dict[str, Any]] = {}
+        if not unique:
+            return found
+        with get_cursor() as cursor:
+            for chunk in _chunks(unique):
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT model_id, {_VERDICT_COLUMNS} FROM model_verdicts WHERE model_id IN ({placeholders})",
+                    tuple(chunk),
+                )
+                for row in cursor.fetchall():
+                    found[row["model_id"]] = dict(row)
+        return found
+
+    def get_verdicts_by_sha(self, shas: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+        unique = sorted({value for value in shas if value})
+        found: Dict[str, Dict[str, Any]] = {}
+        if not unique:
+            return found
+        with get_cursor() as cursor:
+            for chunk in _chunks(unique):
+                placeholders = ",".join("?" for _ in chunk)
+                cursor.execute(
+                    f"SELECT m.sha256 AS sha256, {_PREFIXED_VERDICT_COLUMNS} "
+                    f"FROM model_verdicts v JOIN models m ON m.id = v.model_id WHERE m.sha256 IN ({placeholders})",
                     tuple(chunk),
                 )
                 for row in cursor.fetchall():
                     found[row["sha256"]] = dict(row)
         return found
 
-    def settled_shas(self, shas: Iterable[str], fingerprint: str) -> Set[str]:
+    def settled_models(self, model_ids: Iterable[str], fingerprint: str) -> Set[str]:
         return {
-            sha
-            for sha, row in self.get_verdicts(shas).items()
+            model_id
+            for model_id, row in self.get_verdicts(model_ids).items()
             if verdict_is_current(row, fingerprint)
         }
 
     def upsert_verdict(
         self,
         *,
-        sha256: str,
+        header_hash: str,
         format: str,
         status: str,
         model_type: Optional[str],
@@ -67,11 +99,23 @@ class ModelTypeRepository:
         with get_cursor() as cursor:
             cursor.execute(
                 f"""
-                INSERT OR REPLACE INTO model_header_verdicts ({_VERDICT_COLUMNS})
+                INSERT INTO model_header_verdicts (header_hash, {_VERDICT_COLUMNS})
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(header_hash) DO UPDATE SET
+                    format = excluded.format,
+                    status = excluded.status,
+                    model_type = excluded.model_type,
+                    family = excluded.family,
+                    variant = excluded.variant,
+                    components = excluded.components,
+                    transformer_extractable = excluded.transformer_extractable,
+                    classifier = excluded.classifier,
+                    registry_fingerprint = excluded.registry_fingerprint,
+                    reason = excluded.reason,
+                    classified_at = excluded.classified_at
                 """,
                 (
-                    sha256, format, status, model_type, family, variant, json.dumps(list(components)),
+                    header_hash, format, status, model_type, family, variant, json.dumps(list(components)),
                     int(transformer_extractable), classifier, registry_fingerprint, reason, classified_at,
                 ),
             )

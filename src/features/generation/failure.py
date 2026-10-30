@@ -12,6 +12,7 @@ from src.features.generation.error_classification import (
 from src.features.plans.errors import LimitExceeded
 from src.pipelines.outputs import ErrorGenerationOutput
 from src.platform.database.rows import dt_iso
+from src.platform.security.failure_text import basename_paths
 
 DETAIL_LIMIT_CHARS = 64 * 1024
 _TRUNCATION_MARKER = "\n\n[... {omitted} characters truncated ...]\n\n"
@@ -139,19 +140,25 @@ def scope_generation_state(payload: Dict[str, Any], is_admin: bool) -> Dict[str,
     return scope_generation(scope_status(payload, is_admin), is_admin)
 
 
-def scope_run_report(report: Optional[Dict[str, Any]], is_admin: bool, error_code: Optional[str], video: bool = False) -> Optional[Dict[str, Any]]:
-    if is_admin or not report:
-        return report
-    message = user_failure_copy(error_code)[0]
-    history = [
-        {**entry, "message": message} if isinstance(entry, dict) and entry.get("step") == "failed" and entry.get("message") else entry
-        for entry in report.get("status_history") or []
-    ]
-    outputs = dict(report.get("plugin_outputs") or {})
-    error_entry = outputs.get("generation_error")
-    if isinstance(error_entry, dict) and isinstance(error_entry.get("message"), dict):
-        outputs["generation_error"] = {**error_entry, "message": scope_error_payload(error_entry["message"], False, video)}
-    return {**report, "status_history": history, "plugin_outputs": outputs}
+def scope_live_message(message: Dict[str, Any], is_admin: bool) -> Dict[str, Any]:
+    if is_admin:
+        return message
+    if message.get("type") == "generation_status":
+        return _basenamed(message, ("current_step", "message"))
+    data = message.get("artifact_data")
+    if message.get("type") == "pipe_artifact" and isinstance(data, dict):
+        scoped = _basenamed(data, ("index_warning",))
+        return message if scoped is data else {**message, "artifact_data": scoped}
+    return message
+
+
+def _basenamed(payload: Dict[str, Any], keys: Tuple[str, ...]) -> Dict[str, Any]:
+    changed = {}
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and (reduced := basename_paths(value)) != value:
+            changed[key] = reduced
+    return {**payload, **changed} if changed else payload
 
 
 def cap_detail(text: str, limit: int = DETAIL_LIMIT_CHARS) -> str:

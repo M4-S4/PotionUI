@@ -43,11 +43,18 @@ describe('prompt toolbar accessible names', () => {
 		const target = await mount({ compact: false });
 		expect(names(target)).toContain('Variables (1)');
 		expect(names(target)).toContain('Styles');
+		expect(names(target)).toContain('Library');
 	});
 
 	it('keeps the full name with the count in compact mode', async () => {
 		const target = await mount({ compact: true });
 		expect(names(target)).toContain('Variables (1)');
 		expect(names(target)).toContain('Styles');
+		expect(names(target)).toContain('Library');
+	});
+
+	it('names the style that is applied', async () => {
+		const target = await mount({ appliedStyleName: 'Cinematic' });
+		expect(names(target)).toContain('Style: Cinematic');
 	});
 });

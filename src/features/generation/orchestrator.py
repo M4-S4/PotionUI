@@ -831,6 +831,7 @@ class GenerationOrchestrator:
                 preset=preset_template,
                 form_data=bound.values,
                 user_id=user_id,
+                mode=mode,
             ))
             backend = decision.chosen
         else:
@@ -977,7 +978,7 @@ class GenerationOrchestrator:
             'queue_position': None,
         }
 
-    async def _route(self, engine: str, preset_template, form_data, user_id: str):
+    async def _route(self, engine: str, preset_template, form_data, user_id: str, mode: Optional[str] = None):
         if self.router is None:
             backend = self.backend_registry.select_backend_for_generation(engine=engine)
             return backend, None, None
@@ -986,6 +987,7 @@ class GenerationOrchestrator:
             preset=preset_template,
             form_data=form_data or {},
             user_id=user_id,
+            mode=mode,
         ))
         return decision.chosen, decision, decision.summary()
 
@@ -1171,7 +1173,7 @@ class GenerationOrchestrator:
                 _validate_generation_origins(generation_origins, user_id)
 
             backend, decision, routing_summary = await self._route(
-                engine, preset_template, request.form_data, user_id
+                engine, preset_template, request.form_data, user_id, mode
             )
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")

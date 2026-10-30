@@ -1,0 +1,36 @@
+{
+  "config": {
+    "id": "cfg_cassette",
+    "name": "OpenRouter",
+    "type": "openrouter",
+    "enabled": true,
+    "base_url": "https://openrouter.ai/api/v1",
+    "api_key": "cassette-key-b",
+    "model": "anthropic/claude-sonnet-5.5",
+    "system_message": "",
+    "show_thinking": true
+  },
+  "messages": [
+    {
+      "id": "tool_01",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "toolu_01A",
+          "name": "lookup_weather",
+          "content": [
+            {
+              "type": "text",
+              "text": "Paris: 21C, sunny",
+              "phase": null
+            }
+          ],
+          "is_error": false
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

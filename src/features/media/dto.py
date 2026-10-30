@@ -73,6 +73,7 @@ class UploadInfoResult(BaseModel):
     height: Optional[int] = None
     duration_seconds: Optional[float] = None
     fps: Optional[float] = None
+    has_alpha: Optional[bool] = None
 
 
 class MediaListResult(BaseModel):

@@ -31,7 +31,7 @@ summarises every 128-token KV block by its mean vector, scores those summaries a
 blocks, and computes exact attention only over the blocks whose score clears a per-query-block
 threshold — plus a local diagonal window and, optionally, a sequence prefix ("sink"), both of which
 always get exact attention. It is an **approximation**: the same inputs produce a genuinely
-different output than the dense backends in `src/platform/runtime/native/attention`, not merely a
+different output than the dense backends in `src/platform/runtime/native/kernels/dispatch`, not merely a
 differently-rounded one. That's why nothing runs through it unless a caller explicitly builds a
 `SolAttnContext`, and why every preset that exposes it defaults to off.
 

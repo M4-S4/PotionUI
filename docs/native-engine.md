@@ -17,7 +17,7 @@ a new model family must satisfy. Where a detail depends on a source file, that f
 can double-check.
 
 **Status** (updated 2026-10-22): the full stack is landed and GPU-validated end-to-end. The
-loading, detection, ops (incl. fp8-scaled + nvfp4), VAE (2D + causal-3D), sampling, LoRA, attention,
+loading, detection, kernels (hardware snapshot, attention dispatch, cast/fp8-scaled/nvfp4 layers), VAE (2D + causal-3D), sampling, LoRA,
 memory-tiering and `engine.py` (`NativeEngineLoader` / `NativeGenerator` / `NativeModel` /
 `Conditioning`) layers are implemented and tested, and the pipe/preset integration
 (`src/pipelines/pipes/model_loader/*` + `generator/*` + `content/presets/marketplace/*`) has landed for Flux, Krea-2,
@@ -68,11 +68,12 @@ Anima, Z-Image, MOSS-Image); text encoding and VAE encoding or decoding still ru
 
 ```
 src/platform/runtime/native/
-├── io/                 safetensors loading + state-dict introspection helpers
+├── io/                 safetensors loading + state-dict introspection + quant-format descriptors and dequantisers
 ├── detect/              structural checkpoint detection (DiT / text-encoder / VAE) + ModelSpec registry
-├── ops/                 layer namespaces (plain / cast-on-forward / fp8-scaled) + dtype selection
+├── ops/                 dtype selection + quantise-at-load + small tensor helpers + offline model tools
 ├── base.py               NativeArchModule contract + the load-integrity gate
-├── attention.py           attention backend dispatch (sdpa/flash/sage/sage2)
+├── kernels/               the one door to hardware: capability snapshot, GEMM support, fast-path predicate, attention dispatch,
+│                          cast/fp8-scaled/int8/nvfp4 layer classes, op selection, runtime LoRA math
 ├── arch/                 vendored per-family DiT modules (flux/, krea2/, ...)
 ├── text_encoders/        vendored text-encoder modules + bundled tokenizers + loader
 ├── vae/                   2D AE (Flux) + causal-3D VAEs (Wan2.1/Qwen, Wan2.2, LTX video/audio) + tiling
@@ -86,17 +87,50 @@ One line per package, in loading order:
 
 | Package | Role |
 |---|---|
-| `io/` | `load_torch_file` (safetensors-only entry point) + prefix/shape/dtype introspection over a raw state dict. No model knowledge. |
+| `io/` | `load_torch_file` (safetensors-only entry point) + prefix/shape/dtype introspection over a raw state dict, and `quant_formats.py`: `comfy_quant` descriptor parsing and gating, the ConvRot Hadamard and un-rotation, the nvfp4 dequantiser and activation quantiser, and the single definitions of the format constants (`FP8_DTYPES`, `E4M3_MAX`, `NVFP4_BLOCK`). No model knowledge. |
 | `detect/` | Structural sniffing: `detect_unet_config` / `detect_te_config` / `detect_vae_config` turn a state dict into a config dict; `detect/registry.py`'s `ModelSpec` list resolves a DiT config to a concrete arch class + sampling settings + TE/VAE pairing + key allowlists. |
-| `ops/` | `disable_weight_init` (plain), `manual_cast` (cast-on-forward), `fp8_ops` (scaled-fp8-aware `Linear`) — the layer-class namespace every arch module is built from, and `pick_operations`/`pick_dtypes` to choose one from a checkpoint's storage dtype. |
+| `ops/` | `pick_dtypes` (storage and compute dtype from a checkpoint's dtype and the device capability), `fp8_quant.py` (quantise-at-load), `embedding.py`/`padding.py` tensor helpers, and `model_tools/` (the offline quantise/bake/merge tools behind the model cards). The layer classes themselves live in `kernels/`. |
 | `base.py` | `NativeArchModule` (the `from_config`/`post_load` contract every arch subclasses) and `load_into_module`, the single load-integrity gate. |
-| `attention.py` | One `attention(q, k, v)` call every arch module shares, dispatching to sdpa/flash/sage/sage2 by availability with a uniform `(B, H, L, D)` contract. |
+| `kernels/` | Everything hardware-dependent, behind one public surface (`kernels/__init__.py`): see "The kernel layer" below. |
 | `arch/` | Vendored, empty-weight-constructible DiT modules, one subpackage per family (`arch/flux/`, `arch/krea2/`). |
 | `text_encoders/` | Vendored TE modules (Qwen3, T5-XXL, CLIP-L, Qwen2.5-VL, Qwen3-VL, UMT5-XXL, Gemma3) + bundled tokenizer assets + `load_text_encoder`, the detect→build→integrity-load→wrap entry point. |
 | `vae/` | `AutoEncoder2D` (Flux-family 2D VAE: `flux_ae`/`flux2_ae`) + `tiling.py` (its spatial tiled encode/decode, not yet 3D-aware); `AutoEncoderCausal3D` (Wan 2.1-shaped, 16ch — Qwen-Image's and Krea-2's VAE) and `AutoEncoderCausal3D_2_2` (Wan 2.2-shaped, 48ch, patchified) for the causal-3D family; `load_vae`/`load_causal3d_vae`/`load_causal3d_v2_vae` entry points. |
 | `sampling/` | `denoise()` — the one loop — plus `flow_schedule.build_sigmas`, `cfg.py`'s guidance strategies (`EmbeddedGuidance`/`TrueCFG`/`NoCFG`), the step algorithms (`euler`/`dpmpp_2m`/`unipc`), and `hooks.py`'s per-step `StepHook` protocol. The algorithms and the schedules are both registries (`registry.py`): core registers its own at import time, a plugin adds more through the `samplers:` / `schedules:` manifest roots, and `denoise()`/`build_sigmas()` dispatch through them — there is no other list of sampler or schedule names. |
 | `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on) and `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes). |
 | `lora/` | `key_mapping.map_lora_keys` (normalizes comfy/kohya/diffusers/PEFT LoRA key dialects onto native param names) and `apply.apply_loras`/`remove_loras` (in-place or cast-mode runtime patching). |
+
+### The kernel layer
+
+`kernels/` owns every decision that depends on the GPU in front of the process. Code in `src/` outside it
+asks a question and gets an answer; it never probes a device, never picks an attention backend and never
+reads a GEMM capability itself.
+
+| Module | Public names | Role |
+|---|---|---|
+| `hardware.py` | `capabilities()`, `refresh_capabilities()`, `Capabilities`, `DeviceCapabilities`, `GpuGeneration`, the backend names `SDPA`/`FLASH`/`SAGE`/`SAGE2`/`SAGE3`/`SPARGE` | A per-process snapshot of every visible GPU (compute capability, name, generation, which attention backends are importable and eligible), built lazily once, allocation-free, cached. `Capabilities.device(index)` returns the entry for one device; an unknown or CUDA-less device answers with a CPU entry of capability `(0, 0)`, and a probe that fails never raises. `refresh_capabilities()` rebuilds it after an in-process install of an attention package. The only place in `src/` that calls `torch.cuda.get_device_capability`; the vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`. |
+| `gemm.py` | `gemm_support(device)`, `GemmSupport` | Whether `torch._scaled_mm` (fp8) and `torch._scaled_mm_v2` (nvfp4) work on a device, with a reason string when not. Probed lazily per device and cached; the nvfp4 trial GEMM runs only on the first ask. The live flags `native_fp8_matmul` / `native_nvfp4_matmul` are not part of it. |
+| `linear.py` | `fast_path(layer)`, `quant_format(layer)`, `FastPath`, `FastPathKind`, `QuantFormat` | The static answer to "which path will this quantised linear take": the layer's format, `gemm_support` for its device and the live flags combined into a kind (`fp8_scaled_mm` / `nvfp4_gemm` / `dequant`), whether runtime LoRA output branches are fused, and the reason when the fast kind is not taken. `None` for layers that are not quantised linears. Value-dependent conditions (zero, NaN or negative scales) are outside the static answer. |
+| `dispatch.py` | `attention(q, k, v, ...)`, `available_backends`, `get_attention_backend`, `get_backend_override`, `known_backends`, `reset_backend_cache`, `BACKEND_PRIORITY` | The one attention call every arch module shares: a uniform `(B, H, L, D)` contract over sdpa/flash/sage/sage2/sage3 (sparge by pin only), picked by availability from the snapshot, with grouped-KV and mask handling. |
+| `casting.py` | `disable_weight_init`, `manual_cast`, `CastWeightBiasOp`, `cast_to` | The plain and cast-on-forward layer namespaces every arch module is built from. |
+| `fp8_linear.py`, `nvfp4_linear.py` | `Fp8ScaledLinear` (and `Nvfp4Linear`, reached as `fp8_ops.Linear`) | The scaled-fp8, int8 and ConvRot layer, and the nvfp4 layer, with their dequant-on-forward and GEMM forwards. |
+| `operations.py` | `pick_operations`, `detect_quant_format`, `fp8_ops`, `QUANT_FP8_SCALED` | Chooses the layer namespace from a checkpoint's storage dtype and quant format. |
+| `lora_math.py` | `partition_output_branch_deltas`, `invalidate_lora_fused_cache`, `log_lora_path_summary` | The runtime LoRA delta math the layers apply on forward. |
+
+Live runtime flags (`native_fp8_matmul`, `native_nvfp4_matmul`, `native_lora_fused`,
+`native_attention_backend`) are read at call time, never frozen into the snapshot. Tests fake the
+hardware with the `install_capabilities` fixture (`tests/fixtures/kernel_capabilities.py`) instead of a GPU.
+
+`tests/architecture/test_kernel_boundary.py` holds the boundary as plain rules:
+
+- Nothing in `src/` or `vendor/` references `vendor.gpl.comfyui.ops`; the file stays deleted. The
+  GPL-derived layer code now lives in `kernels/{casting,fp8_linear,nvfp4_linear,operations}.py` and
+  `io/quant_formats.py` (see `vendor/NOTICE.md`).
+- `get_device_capability` is referenced in `src/` only inside `kernels/`; everything else in `src/` reads the
+  snapshot. The vendored `sol_attn` keeps its own probe because `vendor/` cannot import `src`.
+- `scaled_dot_product_attention` is called directly outside `kernels/` only from the files in
+  `DIRECT_ATTENTION_ALLOWLIST`, each with a written reason (a once-per-prompt, once-per-image or
+  once-per-decode call where the dispatcher buys nothing). An entry whose file stops calling it
+  fails as stale.
 
 ## The loading pipeline
 
@@ -115,7 +149,7 @@ match_model_spec(config)                       detect/registry.py
   -> ModelSpec (arch class, sampling_settings, latent_format, clip_targets, vae_target,
                 key allowlists)                 [raises NativeEngineUnsupportedError if nothing matches]
 
-pick_dtypes(...) / pick_operations(...)        ops/dtype.py | vendor/gpl/comfyui/ops.py
+pick_dtypes(...) / pick_operations(...)        ops/dtype.py | kernels/operations.py
   -> (storage_dtype, compute_dtype, ops_namespace)   [ops namespace picked from quant format]
 
 arch_class.from_config(config, operations)     e.g. arch/flux/model.py:Flux.from_config
@@ -427,8 +461,8 @@ fp8-auto, in s/step) is measured on GPU via `tests/manual/native_smoke.py --tier
 
 This is the section that matters most. Everything above is infrastructure; this is how you use it.
 The invariant the whole design protects: **adding a new model family must never require editing
-`sampling/denoise_loop.py`, `vendor/gpl/comfyui/ops.py`, `io/safetensors_loader.py`, or `memory/tiering.py`.**
-Those four files are the shared core; a new model expresses itself entirely through data (a
+`sampling/denoise_loop.py`, anything under `kernels/`, `io/safetensors_loader.py`, or `memory/tiering.py`.**
+Those four are the shared core; a new model expresses itself entirely through data (a
 `ModelSpec`) and a small number of new, additive files. Flux2/Klein and Krea-2 both landed without
 touching any of the four.
 
@@ -459,7 +493,7 @@ Concretely, adding model family N+1 means:
 3. **Arch module + `post_load`** (`arch/<family>/`). Vendor (or write) the module as a
    `NativeArchModule` subclass: `from_config(config, operations)` builds empty weights under
    `torch.device("meta")`, wiring every parameterised layer through `operations.*` (never bare
-   `torch.nn.Linear`/`Conv2d`/etc. — that's the seam the ops layer's fp8/cast dispatch depends on).
+   `torch.nn.Linear`/`Conv2d`/etc. — that's the seam the fp8/cast layers in `kernels/` depend on).
    `post_load()` recomputes whatever the meta-device trick leaves stale — or, if the arch truly has
    none (both Flux and Krea-2 compute RoPE/timestep embeddings inline from `ids`/`t` every forward
    rather than caching them as buffers, so both currently have a documented no-op `post_load`),
@@ -492,6 +526,15 @@ Concretely, adding model family N+1 means:
    It stays outside `denoise_loop.py` itself; see the Wan dual-expert note in that file's docstring
    for the general pattern (wrap `model_forward`, don't branch inside the loop).
 
+7. **Hardware-dependent behaviour stays in `kernels/`.** A family's files call
+   `kernels.attention(...)`, read `kernels.capabilities().device(d)`, `kernels.gemm_support(d)` or
+   `kernels.fast_path(layer)`, and take their layers from `pick_operations`; they never probe the
+   device or call `torch.nn.functional.scaled_dot_product_attention` themselves (the boundary rules
+   above). A new attention backend or GEMM fast path is added inside `kernels/` (a backend function
+   in `dispatch.py` and its availability in `hardware.py`; a forward in `fp8_linear.py` or
+   `nvfp4_linear.py`), and a new on-disk quant format's descriptor parsing and dequantiser go in
+   `io/quant_formats.py` — never in a family's files.
+
 If a new family needs a genuinely new *guidance* shape (not covered by `EmbeddedGuidance`/
 `TrueCFG`/`NoCFG`), add a class satisfying `cfg.GuidanceStrategy`'s `Protocol` and pick it in
 `denoise_loop.make_guidance` by a new `sampling_settings["guidance"]` value — still data-driven,
@@ -501,10 +544,10 @@ still no branch on family name.
 
 | Format | Storage | Status | Notes |
 |---|---|---|---|
-| bf16 / fp16 | native dtype | **Supported** | `disable_weight_init` (storage == compute) or `manual_cast` (storage != compute) namespace, picked by `ops/dtype.py:pick_dtypes`. |
-| fp8-scaled (legacy `scale_weight`) | `float8_e4m3fn`/`e5m2` + one f32 scale per Linear | **Supported** | `fp8_ops.Linear` (`Fp8ScaledLinear`) dequantises on forward: `weight.to(compute) * weight_scale`. Detected via a `*.scale_weight` sidecar key or a top-level `scaled_fp8` marker tensor. |
-| fp8-scaled (modern `weight_scale`/`input_scale`) | as above, per-tensor `weight_scale` + `input_scale` | **Supported** | Same `Fp8ScaledLinear`; `input_scale` is captured for a future native-fp8 matmul path but unused by the current dequant-on-forward path. Detected via a `_quantization_metadata` header entry or `*.weight_scale`/`*.input_scale` sidecar keys — `vendor/gpl/comfyui/ops.py:detect_quant_format`. Verified against the real `flux-2-klein-9b-fp8.safetensors` checkpoint. |
-| nvfp4 | 4-bit packed U8 weight + fp8 block scale + f32 tensor scale (`*.weight_scale_2` sidecar) | **Supported** | `vendor/gpl/comfyui/ops.py:dequantize_nvfp4` + `Nvfp4Linear` (extends `Fp8ScaledLinear`): un-swizzles NVIDIA's `to_blocked` scale layout, dequantises `e2m1_LUT * unblock(scale) * weight_scale_2` per 16-element block. On the device a layer holds ≈ 0.81 B per weight element (the packed codes, the fp32 natural scale precomputed at load and the fp8 block scale), ~1.45× its on-disk size, plus a ~10 B/elem transient while it dequantises — see "Text encoder: partial residency for the encode". A checkpoint may be *mixed* fp8/nvfp4 across layers (the local `qwen_3_8b_fp8mixed` is one) — `pick_operations` routes the whole module to `fp8_ops` and each Linear independently detects its own format from which sidecar keys it has. Tested against a `Nvfp4Linear` load+forward-parity case and a mixed fp8/nvfp4/plain module (`tests/core/native/test_nvfp4.py`), and **verified end-to-end** via the real `qwen_3_8b_fp8mixed` TE in the GPU-validated Klein run (the 8B TE is exactly this mixed fp8/nvfp4 checkpoint). |
+| bf16 / fp16 | native dtype | **Supported** | `disable_weight_init` (storage == compute) or `manual_cast` (storage != compute) namespace from `kernels/casting.py`, picked by `kernels/operations.py:pick_operations` over the dtypes `ops/dtype.py:pick_dtypes` returns. |
+| fp8-scaled (legacy `scale_weight`) | `float8_e4m3fn`/`e5m2` + one f32 scale per Linear | **Supported** | `fp8_ops.Linear` (`kernels/fp8_linear.py:Fp8ScaledLinear`) dequantises on forward: `weight.to(compute) * weight_scale`. Detected via a `*.scale_weight` sidecar key or a top-level `scaled_fp8` marker tensor. |
+| fp8-scaled (modern `weight_scale`/`input_scale`) | as above, per-tensor `weight_scale` + `input_scale` | **Supported** | Same `Fp8ScaledLinear`; `input_scale` is captured for a future native-fp8 matmul path but unused by the current dequant-on-forward path. Detected via a `_quantization_metadata` header entry or `*.weight_scale`/`*.input_scale` sidecar keys — `kernels/operations.py:detect_quant_format`. Verified against the real `flux-2-klein-9b-fp8.safetensors` checkpoint. |
+| nvfp4 | 4-bit packed U8 weight + fp8 block scale + f32 tensor scale (`*.weight_scale_2` sidecar) | **Supported** | `io/quant_formats.py:dequantize_nvfp4` + `kernels/nvfp4_linear.py:Nvfp4Linear` (extends `Fp8ScaledLinear`): un-swizzles NVIDIA's `to_blocked` scale layout, dequantises `e2m1_LUT * unblock(scale) * weight_scale_2` per 16-element block. On the device a layer that dequantises holds ≈ 0.81 B per weight element (the packed codes, the fp32 natural scale table it builds only on the dequant path and the fp8 block scale), ~1.45× its on-disk size, plus a ~10 B/elem transient while it dequantises — see "Text encoder: partial residency for the encode". A checkpoint may be *mixed* fp8/nvfp4 across layers (the local `qwen_3_8b_fp8mixed` is one) — `pick_operations` routes the whole module to `fp8_ops` and each Linear independently detects its own format from which sidecar keys it has. Tested against a `Nvfp4Linear` load+forward-parity case and a mixed fp8/nvfp4/plain module (`tests/core/native/test_nvfp4.py`), and **verified end-to-end** via the real `qwen_3_8b_fp8mixed` TE in the GPU-validated Klein run (the 8B TE is exactly this mixed fp8/nvfp4 checkpoint). |
 | GGUF | k-quant blocks | **Unsupported, explicit error** | `io/safetensors_loader.py:load_torch_file` rejects any non-`.safetensors`/`.sft` suffix by name, `GGUF / pickle checkpoints are not supported.` Deferred by design, not a bug. |
 | Pickle (`.pt`/`.ckpt`) | — | **Unsupported, explicit error** | Same rejection path — the native engine never runs untrusted pickle. |
 

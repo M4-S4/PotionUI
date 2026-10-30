@@ -43,6 +43,14 @@ const LEGACY_PER_MODE_PREFIX = 'unified-ai-chat-session-id:';
 
 export function loadActiveSessionId(): string {
 	if (!browser) return '';
+	try {
+		return readActiveSessionId();
+	} catch {
+		return '';
+	}
+}
+
+function readActiveSessionId(): string {
 	const legacyKeys: string[] = [];
 	for (let i = 0; i < localStorage.length; i++) {
 		const key = localStorage.key(i);

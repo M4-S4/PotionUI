@@ -68,7 +68,8 @@ export function buildHistoryEntryContext(
 			status: entryStatus(generation),
 			stackCells: stack ? (generation.grid?.cell_count ?? 0) : null,
 			looseCell: isLooseCell(generation),
-			error
+			error,
+			favorite: !!generation.is_favorite
 		}
 	};
 }
@@ -77,7 +78,13 @@ export function buildLibraryEntryContext(item: LibraryItem, collectionId: string
 	const ctx = buildLibraryToolContext([item], collectionId);
 	return {
 		...ctx,
-		entry: { status: 'completed', stackCells: null, looseCell: false, error: null }
+		entry: {
+			status: 'completed',
+			stackCells: null,
+			looseCell: false,
+			error: null,
+			favorite: !!item.is_favorite
+		}
 	};
 }
 

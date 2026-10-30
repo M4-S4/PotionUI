@@ -339,7 +339,7 @@
 			<CollectionSidebarSheet label="Models" collapsed={!sidebarOpen} onExpand={() => (sidebarOpen = true)}>
 				{@render modelCollections('sidebar')}
 			</CollectionSidebarSheet>
-			<PageTitle title="Models" count={totalCount} countLabel="models" />
+			<PageTitle title="Models" count={totalCount} countLabel="models" countLabelOne="model" />
 
 			<!-- Divider -->
 			<div class="hidden md:block h-6 w-px bg-line-strong"></div>

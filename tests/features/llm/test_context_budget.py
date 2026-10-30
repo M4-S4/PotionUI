@@ -6,18 +6,19 @@ from types import SimpleNamespace
 import pytest
 
 from src.features.llm import context_budget
-from src.features.llm.clients import ollama_wire
+from src.features.llm.harness.adapter import RenderRequest, Settings, ToolSpec
+from src.features.llm.harness.profile import CapabilityProfile, ProfileLayer, ProfileSource, ReasoningKind
+from src.features.llm.harness.sampling import resolve_settings
+from src.features.llm.harness.adapters import ollama_chat
+from src.features.llm.harness.build import user_message
 from src.features.llm.context_budget import (
     CapacityInfo,
     ContextBudgetExceededError,
     MIN_RESERVE_TOKENS,
     THINKING_ALLOWANCE_CAP_TOKENS,
     THINKING_ALLOWANCE_FRACTION,
-    count_messages,
     count_text,
     count_tool_schemas,
-    enforce_budget,
-    fit_messages,
     multimodal_allowance,
     resolve_capacity,
     resolve_reserve,
@@ -26,98 +27,87 @@ from src.features.llm.context_budget import (
 )
 
 
+from dataclasses import replace
+
+from src.features.llm.harness.build import attach_context, context_message
+from src.features.llm.harness.legacy import messages_from_dicts
+from src.features.llm.harness.messages import Role
+from tests.fixtures.chat_engine import legacy_dicts
+
+
+def _as_messages(entries):
+    entries = list(entries)
+    if entries and isinstance(entries[0], dict):
+        return messages_from_dicts(entries)[0]
+    return entries
+
+
+def count_messages(entries, counter):
+    return context_budget.count_messages(_as_messages(entries), counter)
+
+
+def fit_messages(entries, **kwargs):
+    result = context_budget.fit_messages(_as_messages(entries), **kwargs)
+    return replace(result, messages=legacy_dicts(result.messages), kept_units=[legacy_dicts(unit) for unit in result.kept_units])
+
+
+def enforce_budget(*, messages, image_data=None, messages_counter=None, **kwargs):
+    counter = None
+    if messages_counter is not None:
+        def counter(system, kept, tools):
+            return messages_counter(system, legacy_dicts(kept), tools)
+    outcome = context_budget.enforce_budget(
+        messages=_as_messages(messages), image_attached=bool(image_data), messages_counter=counter, **kwargs,
+    )
+    return context_budget.BudgetOutcome(messages=legacy_dicts(outcome.messages), ledger=outcome.ledger)
+
+
 def _config(**overrides):
     defaults = dict(type="openai", provider_options=None, max_tokens=1000)
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
 
-# ---------------------------------------------------------------------------
-# resolve_capacity
-# ---------------------------------------------------------------------------
+def _profile(*layers, reasoning="none"):
+    base = CapabilityProfile(adapter="a", model="m", reasoning=ReasoningKind(reasoning))
+    return base.layered([ProfileLayer(source, fields) for source, fields in layers])
+
 
 class TestResolveCapacity:
-    def test_unconfigured_config_is_unknown_with_conservative_default(self):
-        capacity = resolve_capacity(_config())
-        assert capacity.source == "unknown"
-        assert capacity.capacity_tokens == context_budget.UNKNOWN_CAPACITY_TOKENS
+    def test_a_profile_without_a_window_is_unknown_with_the_conservative_default(self):
+        capacity = resolve_capacity(_profile())
+        assert capacity == CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
 
-    def test_generic_context_window_wins_for_any_provider_type(self):
-        capacity = resolve_capacity(_config(type="openai", provider_options={"context_window": 32000}))
-        assert capacity == CapacityInfo(32000, "config")
+    @pytest.mark.parametrize("source", [ProfileSource.SEED, ProfileSource.DISCOVERED, ProfileSource.OVERRIDE])
+    def test_the_window_comes_from_the_profile_and_names_the_layer_that_set_it(self, source):
+        capacity = resolve_capacity(_profile((source, {"context_window": 32000})))
+        assert capacity == CapacityInfo(32000, source.value)
 
-    def test_ollama_num_ctx_is_honoured_as_the_existing_operator_override(self):
-        capacity = resolve_capacity(_config(type="ollama", provider_options={"num_ctx": 4096}))
-        assert capacity == CapacityInfo(4096, "config")
+    def test_an_override_wins_over_a_discovered_window(self):
+        capacity = resolve_capacity(_profile(
+            (ProfileSource.DISCOVERED, {"context_window": 131072}), (ProfileSource.OVERRIDE, {"context_window": 4096}),
+        ))
+        assert capacity == CapacityInfo(4096, "override")
 
-    def test_generic_context_window_takes_priority_over_num_ctx(self):
-        capacity = resolve_capacity(
-            _config(type="ollama", provider_options={"num_ctx": 4096, "context_window": 16000})
-        )
-        assert capacity == CapacityInfo(16000, "config")
-
-    def test_num_ctx_is_ignored_for_non_ollama_types(self):
-        capacity = resolve_capacity(_config(type="openai", provider_options={"num_ctx": 4096}))
-        assert capacity.source == "unknown"
-
-    @pytest.mark.parametrize("bad_value", [0, -10, "4096", None, True, False])
-    def test_non_positive_or_non_numeric_context_window_falls_back_to_unknown(self, bad_value):
-        capacity = resolve_capacity(_config(provider_options={"context_window": bad_value}))
-        assert capacity.source == "unknown"
-
-    def test_never_infers_capacity_from_model_name(self):
-        # A model name that looks like it encodes a window size must never be
-        # parsed for capacity — only explicit configuration counts.
-        capacity = resolve_capacity(_config(model="llama-3-8k-instruct"))
-        assert capacity.source == "unknown"
+    def test_a_smaller_requested_context_size_is_the_window_the_budget_plans_with(self):
+        capacity = resolve_capacity(_profile(
+            (ProfileSource.DISCOVERED, {"context_window": 32768}), (ProfileSource.OVERRIDE, {"context_request": 8192}),
+        ))
+        assert capacity == CapacityInfo(8192, "override")
 
 
 class TestResolveThinkingEnabled:
-    def test_ollama_true_think_is_enabled(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": True})) is True
+    @pytest.mark.parametrize("value", [True, "low", "high", "medium"])
+    def test_a_requested_reasoning_value_is_enabled(self, value):
+        assert resolve_thinking_enabled(Settings(reasoning=value), _profile(reasoning="toggle")) is True
 
-    def test_ollama_false_think_is_disabled(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": False})) is False
+    @pytest.mark.parametrize("value", [False, "none", "off", "disabled"])
+    def test_reasoning_switched_off_is_disabled(self, value):
+        assert resolve_thinking_enabled(Settings(reasoning=value), _profile(reasoning="toggle")) is False
 
-    @pytest.mark.parametrize("provider_options", [None, {}, {"think": None}])
-    def test_ollama_unset_think_is_disabled(self, provider_options):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options=provider_options)) is False
-
-    @pytest.mark.parametrize("override", [{"temperature": 0.1}, {"think": None}])
-    def test_ollama_unset_think_stays_disabled_when_the_override_does_not_name_one(self, override):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={}), override) is False
-
-    def test_ollama_override_can_still_turn_thinking_on_for_one_call(self):
-        config = _config(type="ollama", provider_options={})
-        assert resolve_thinking_enabled(config, {"think": "low"}) is True
-
-    def test_ollama_effort_level_is_enabled(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": "high"})) is True
-
-    def test_ollama_options_override_wins_over_config(self):
-        config = _config(type="ollama", provider_options={"think": False})
-        assert resolve_thinking_enabled(config, {"think": True}) is True
-
-    def test_ollama_options_override_none_leaves_config_value(self):
-        config = _config(type="ollama", provider_options={"think": True})
-        assert resolve_thinking_enabled(config, {"think": None}) is True
-
-    def test_native_thinking_true_is_enabled(self):
-        assert resolve_thinking_enabled(_config(type="native", provider_options={"thinking": True})) is True
-
-    def test_native_thinking_unset_is_disabled(self):
-        assert resolve_thinking_enabled(_config(type="native", provider_options={})) is False
-
-    def test_openai_reasoning_effort_set_is_enabled(self):
-        config = _config(type="openai", provider_options={"reasoning_effort": "medium"})
-        assert resolve_thinking_enabled(config) is True
-
-    def test_openai_reasoning_effort_none_is_disabled(self):
-        config = _config(type="openai", provider_options={"reasoning_effort": "none"})
-        assert resolve_thinking_enabled(config) is False
-
-    def test_unknown_provider_type_is_disabled(self):
-        assert resolve_thinking_enabled(_config(type="anything-else")) is False
+    @pytest.mark.parametrize("reasoning, enabled", [("none", False), ("toggle", False), ("always_on", True)])
+    def test_unset_reasoning_follows_whether_the_model_always_reasons(self, reasoning, enabled):
+        assert resolve_thinking_enabled(Settings(), _profile(reasoning=reasoning)) is enabled
 
 
 def _ollama_tool():
@@ -128,27 +118,30 @@ def _ollama_tool():
 
 
 class TestResolveThinkingEnabledMatchesTheRealWirePayload:
-    def _compare(self, provider_options, tools, tool_mode):
+    def _compare(self, provider_options, tools):
         config = _config(type="ollama", model="test-model", temperature=0.7, provider_options=provider_options)
-        request = ollama_wire.build_ollama_chat_request(
-            config, [{"role": "user", "content": "hi"}], "sys", tools=tools, tool_mode=tool_mode,
+        profile = _profile(reasoning="toggle")
+        settings = resolve_settings(config, profile, Settings())
+        request = RenderRequest(
+            config=config, system="sys", messages=(user_message("hi"),), settings=settings,
+            tools=tuple(ToolSpec.from_schema(tool) for tool in tools or ()),
         )
-        return request.payload["think"], resolve_thinking_enabled(config)
+        return ollama_chat.render_think(request), resolve_thinking_enabled(settings, profile)
 
     def test_unset_think_agrees_off_without_tools(self):
-        wire_think, budget_think = self._compare(None, None, ollama_wire.TOOLS_NONE)
+        wire_think, budget_think = self._compare(None, None)
         assert wire_think is False
         assert budget_think is False
 
     def test_null_think_agrees_off_with_native_tools(self):
-        wire_think, budget_think = self._compare({"think": None}, [_ollama_tool()], ollama_wire.TOOLS_AUTO)
+        wire_think, budget_think = self._compare({"think": None}, [_ollama_tool()])
         assert wire_think is False
         assert budget_think is False
 
     @pytest.mark.parametrize("value", [True, "low", "high"])
-    @pytest.mark.parametrize("tools,mode", [(None, ollama_wire.TOOLS_NONE), ([_ollama_tool()], ollama_wire.TOOLS_AUTO)])
-    def test_an_explicit_value_goes_out_as_given_and_budgets_on(self, value, tools, mode):
-        wire_think, budget_think = self._compare({"think": value}, tools, mode)
+    @pytest.mark.parametrize("tools", [None, [_ollama_tool()]])
+    def test_an_explicit_value_goes_out_as_given_and_budgets_on(self, value, tools):
+        wire_think, budget_think = self._compare({"think": value}, tools)
         assert wire_think == value
         assert budget_think is True
 
@@ -279,6 +272,13 @@ class TestCountMessages:
         without_calls = count_messages([{"role": "assistant", "content": ""}], None).tokens
         assert with_calls > without_calls
 
+    def test_counts_the_reasoning_a_tool_call_turn_carries(self):
+        call = [{"function": {"name": "get_thing", "arguments": {"id": 1}}}]
+        bare = [{"role": "assistant", "content": "", "tool_calls": call}]
+        reasoned = [{"role": "assistant", "content": "", "tool_calls": call, "reasoning": "r" * 40}]
+
+        assert count_messages(reasoned, lambda t: len(t)).tokens - count_messages(bare, lambda t: len(t)).tokens == 40
+
     def test_never_measured_even_with_a_real_per_fragment_tokenizer(self):
         """The framing allowance is always an estimate layered on top, so a
         per-fragment sum can never claim `measured=True` on its own — only a
@@ -322,6 +322,17 @@ def _msg(role, content, **extra):
 
 
 class TestFitMessages:
+    def test_a_kept_history_never_starts_with_the_assistant_reply_to_a_dropped_question(self):
+        messages = [
+            _msg("user", "x" * 100), _msg("assistant", "y"), _msg("user", "z" * 100), _msg("assistant", "w"), _msg("user", "now"),
+        ]
+
+        result = fit_messages(messages, available_tokens=20, counter=len)
+
+        assert [m["content"] for m in result.messages] == ["now"]
+        assert (result.dropped_messages, result.dropped_groups) == (4, 4)
+        assert result.used_tokens == count_messages([_msg("user", "now")], len).tokens
+
     def test_everything_fits_when_under_budget(self):
         messages = [_msg("user", "a" * 10), _msg("assistant", "a" * 10), _msg("user", "a" * 10)]
         result = fit_messages(messages, available_tokens=10_000, counter=None)
@@ -534,24 +545,19 @@ class TestEnforceBudget:
         assert outcome.ledger["accounting"] == "chat_template"
         assert outcome.ledger["estimated_tokens"] == 1
 
-    def test_recount_drops_one_more_unit_when_the_exact_count_still_overflows(self):
-        """Fragment trimming decided to keep all three messages; the exact
-        recount disagrees, so the oldest eligible unit is dropped and
-        recounted again — bounded, one drop per failed recount."""
+    def test_recount_drops_units_until_the_history_starts_with_a_user_message(self):
         messages = [
             _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
         ]
-        # Exact cost scales with how many messages are in the candidate —
-        # 3 kept -> 300 (over), 2 kept -> 200 (fits at capacity 250).
         outcome = enforce_budget(
             capacity_tokens=250, capacity_source="config", reserve_tokens=0,
             system_message=None, messages=messages, counter=len,
             messages_counter=lambda s, m, t: len(m) * 100,
         )
-        assert [m["content"] for m in outcome.messages] == ["older", "current"]
+        assert [m["content"] for m in outcome.messages] == ["current"]
         assert outcome.ledger["accounting"] == "chat_template_shrunk"
-        assert outcome.ledger["chat_template_extra_dropped"] == 1
-        assert outcome.ledger["estimated_tokens"] == 200
+        assert outcome.ledger["chat_template_extra_dropped"] == 2
+        assert outcome.ledger["estimated_tokens"] == 100
         assert outcome.ledger["measured"] is True
 
     def test_recount_raises_when_even_the_protected_unit_alone_overflows_exactly(self):
@@ -572,20 +578,13 @@ class TestEnforceBudget:
         assert err.breakdown["chat_template_extra_dropped"] == 2
 
     def test_a_counter_that_raises_mid_shrink_never_resubmits_a_candidate_already_proved_over(self):
-        """The recount loop exactly proves the full 3-message candidate is
-        over capacity, drops the oldest unit, then the counter starts
-        failing on the reduced 2-message candidate — that candidate was
-        NEVER itself proved over, so it's fine to decide it with the
-        fragment/framing estimate (which fits here), but the original
-        3-message candidate the loop already proved over must never be
-        resurrected/returned just because the counter later broke."""
         messages = [
             _msg("user", "oldest"), _msg("assistant", "older"), _msg("user", "current"),
         ]
 
         def flaky(system_message, kept_messages, tools):
             if len(kept_messages) == 3:
-                return 300  # over budget at capacity 250 -> triggers one drop
+                return 300
             raise RuntimeError("template blew up on the shrunk candidate")
 
         outcome = enforce_budget(
@@ -593,13 +592,8 @@ class TestEnforceBudget:
             system_message=None, messages=messages, counter=len,
             messages_counter=flaky,
         )
-        # The proved-over 3-message set must never come back...
-        assert not any(m["content"] == "oldest" for m in outcome.messages)
-        # ...the reduced 2-message set the loop had already shrunk to is
-        # what gets decided (by the fragment estimate, which fits it).
-        assert [m["content"] for m in outcome.messages] == ["older", "current"]
+        assert [m["content"] for m in outcome.messages] == ["current"]
         assert outcome.ledger["accounting"] == "chat_template_fallback"
-        assert outcome.ledger["chat_template_extra_dropped"] == 0
         assert outcome.ledger["measured"] is False
 
     def test_a_counter_that_always_raises_on_an_irreducible_protected_floor_still_raises(self):
@@ -696,34 +690,7 @@ class TestResolveImageTokenOverride:
         assert outcome.ledger["image_tokens"] == 77
 
 
-# ---------------------------------------------------------------------------
-# Current-turn protection against realistic ToolWorkflow-built message lists
-# ---------------------------------------------------------------------------
-
-def _workflow(messages, iteration_nudge=None, wrap_up_on_limit=True):
-    from unittest.mock import Mock
-
-    from src.features.llm.tools.workflow import ToolWorkflow
-
-    return ToolWorkflow(
-        executor=Mock(),
-        messages=messages,
-        tool_context=Mock(),
-        allowed_tools=None,
-        max_iterations=5,
-        iteration_nudge=iteration_nudge,
-        wrap_up_on_limit=wrap_up_on_limit,
-    )
-
-
-class TestCurrentTurnProtectionAcrossWorkflowCalls:
-    """The current turn — its injected context blocks, its tool rounds, and
-    any trailing nudge the workflow appends — must survive trimming at every
-    stage of a tool loop, built through the SAME `ToolWorkflow` helpers the
-    real send paths use so the message shape can't drift from what this
-    test exercises.
-    """
-
+class TestCurrentTurnProtectionAcrossEngineSteps:
     OLD_HISTORY = [
         {"role": "user", "content": "an old unrelated question " + "x" * 300},
         {"role": "assistant", "content": "an old unrelated answer " + "x" * 300},
@@ -735,104 +702,53 @@ class TestCurrentTurnProtectionAcrossWorkflowCalls:
     QUESTION = {"role": "user", "content": "What resolution does the Anime preset render at?"}
     TOOL_CALL = {
         "role": "assistant", "content": "",
-        "tool_calls": [{"function": {"name": "get_model_info", "arguments": {}}}],
+        "tool_calls": [{"id": "1", "function": {"name": "get_model_info", "arguments": {}}}],
     }
     TOOL_RESULT = {"role": "tool", "content": "resolution: 896x1152", "tool_call_id": "1"}
-
-    # Small enough that the old history is clearly dropped, large enough
-    # that the current turn's own stack (question + context + one tool
-    # round + a nudge) fits.
     BUDGET_TOKENS = 400
 
     def _base_messages(self):
-        messages = list(self.OLD_HISTORY) + [dict(self.QUESTION)]
+        messages = messages_from_dicts(list(self.OLD_HISTORY) + [dict(self.QUESTION)])[0]
         for block in self.CONTEXT_BLOCKS:
-            context_budget.attach_context_block(messages, block)
+            attach_context(messages, "context", block)
         return messages
 
-    def _folded_question(self):
-        """The QUESTION message as it looks once every CONTEXT_BLOCKS entry
-        has folded into it, matching what `_base_messages` builds."""
-        messages = [dict(self.QUESTION)]
-        for block in self.CONTEXT_BLOCKS:
-            context_budget.attach_context_block(messages, block)
-        return messages[0]
+    def _with_round(self, note_kind, note_text):
+        return [*self._base_messages(), *messages_from_dicts([self.TOOL_CALL, self.TOOL_RESULT])[0], context_message(note_kind, note_text)]
 
     def _assert_current_turn_survived(self, sent):
-        contents = [m.get("content") or "" for m in sent]
-        assert not any("old unrelated" in c for c in contents)
-        assert any("resolution does the Anime preset" in c for c in contents)
-        assert any("dark mode" in c for c in contents)
-        assert any("SDXL-Anime" in c for c in contents)
+        contents = [entry.get("content") or "" for entry in sent]
+        assert not any("old unrelated" in content for content in contents)
+        assert any("resolution does the Anime preset" in content for content in contents)
+        assert any("dark mode" in content for content in contents)
+        assert any("SDXL-Anime" in content for content in contents)
 
     def test_first_call(self):
-        """The turn's very first request — no tool round has happened yet."""
-        messages = self._base_messages()
         outcome = enforce_budget(
             capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
-            system_message=None, messages=messages, counter=len,
+            system_message=None, messages=self._base_messages(), counter=len,
         )
         self._assert_current_turn_survived(outcome.messages)
-        assert outcome.messages[-1] == self._folded_question()
+        assert outcome.messages[-1]["content"].startswith(self.QUESTION["content"] + "\n\n<context>\nrecalled memory")
 
-    def test_next_call_with_the_iteration_nudge(self):
-        """A tool round has completed; the workflow's own `_next_request`
-        appends the iteration nudge exactly as it would for a live turn —
-        built through the real method, not a hand-rolled equivalent."""
-        nudge = "Reminder: call a tool or answer now."
-        workflow = _workflow(self._base_messages(), iteration_nudge=nudge)
-        workflow.working_messages.append(dict(self.TOOL_CALL))
-        workflow.working_messages.append(dict(self.TOOL_RESULT))
-        workflow._any_tool_round_completed = True
-
-        request = workflow._next_request()
-
+    @pytest.mark.parametrize("kind, note", [("nudge", "Reminder: call a tool or answer now."), ("budget", "Answer now.")])
+    def test_a_later_step_keeps_the_round_and_the_trailing_note(self, kind, note):
         outcome = enforce_budget(
             capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
-            system_message=None, messages=request.messages, counter=len,
+            system_message=None, messages=self._with_round(kind, note), counter=len,
         )
         self._assert_current_turn_survived(outcome.messages)
-        sent_roles = [m["role"] for m in outcome.messages]
-        assert "tool" in sent_roles  # the completed round's result must survive
-        assert not any(m["role"] == "system" for m in outcome.messages)
-        question = next(m for m in outcome.messages if m["content"].startswith(self.QUESTION["content"]))
-        expected = [self._folded_question()]
-        context_budget.attach_context_block(expected, nudge)
-        assert question["content"] == expected[0]["content"]
+        assert [entry["role"] for entry in outcome.messages] == ["user", "assistant", "tool", "user"]
+        assert outcome.messages[-1]["content"] == f"<context>\n{note}\n</context>"
 
-    def test_final_call_with_the_budget_exhausted_message(self):
-        """The tool-iteration budget ran out; `_final_request` appends the
-        real `TOOL_BUDGET_EXHAUSTED_MESSAGE`, built the same way the live
-        wrap-up call does."""
-        workflow = _workflow(self._base_messages(), wrap_up_on_limit=True)
-        workflow.working_messages.append(dict(self.TOOL_CALL))
-        workflow.working_messages.append(dict(self.TOOL_RESULT))
-
-        request = workflow._final_request()
-
-        outcome = enforce_budget(
-            capacity_tokens=self.BUDGET_TOKENS, capacity_source="config", reserve_tokens=0,
-            system_message=None, messages=request.messages, counter=len,
-        )
-        self._assert_current_turn_survived(outcome.messages)
-        assert not any(m["role"] == "system" for m in outcome.messages)
-        question = next(m for m in outcome.messages if m["content"].startswith(self.QUESTION["content"]))
-        expected = [self._folded_question()]
-        context_budget.attach_context_block(expected, workflow.TOOL_BUDGET_EXHAUSTED_MESSAGE)
-        assert question["content"] == expected[0]["content"]
+    def test_a_trailing_note_is_never_mistaken_for_the_turn_anchor(self):
+        units = context_budget.atomic_units(self._with_round("nudge", "go on"))
+        assert context_budget.current_turn_anchor(units) == 2
+        assert units[-1][0].role is Role.USER
 
     def test_irreducible_current_turn_raises_rather_than_trimming_into_it(self):
-        """When the current turn's own stack alone doesn't fit, the request
-        must be refused, never silently trimmed into the question, its
-        context blocks, or its tool round."""
-        workflow = _workflow(self._base_messages(), iteration_nudge="go on")
-        workflow.working_messages.append(dict(self.TOOL_CALL))
-        workflow.working_messages.append(dict(self.TOOL_RESULT))
-        workflow._any_tool_round_completed = True
-        request = workflow._next_request()
-
         with pytest.raises(ContextBudgetExceededError):
             enforce_budget(
                 capacity_tokens=20, capacity_source="config", reserve_tokens=5,
-                system_message=None, messages=request.messages, counter=len,
+                system_message=None, messages=self._with_round("nudge", "go on"), counter=len,
             )

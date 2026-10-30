@@ -113,6 +113,10 @@ def serialize_progress_output(output: ProgressGenerationOutput, ctx: SerializeCo
     # non-Director progress output.
     if getattr(output, 'segment_id', None):
         result['segment_id'] = output.segment_id
+    for key in ('item_index', 'item_count', 'item_progress', 'prompt_index', 'prompt_count'):
+        value = getattr(output, key, None)
+        if value is not None:
+            result[key] = value
     if hasattr(output, 'created_at'):
         result['created_at'] = output.created_at
     if hasattr(output, 'completed_at'):
@@ -338,6 +342,7 @@ output_type_registry.register(OutputTypeSpec(
     key='text',
     message_type='pipe_artifact',
     serializer=serialize_text_output,
+    live_artifact=True,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -346,4 +351,5 @@ output_type_registry.register(OutputTypeSpec(
     message_type='pipe_artifact',
     serializer=serialize_model_file_output,
     handler_cls=ModelFileGenerationOutputHandler,
+    live_artifact=True,
 ))

@@ -37,14 +37,18 @@ pipeline:
   #############
   ## Crop to subject - trim to the alpha bounding box
   #############
-  - name: "crop_subject"
+  - name: "media_tool"
     id: "crop_subject"
     enabled: true
     input:
       - ["image", "media_loader", "image"]
     configuration:
-      margin: "{{ form.crop_margin }}"
-      alpha_threshold: "{{ form.crop_alpha_threshold }}"
+      display_title: "Cropping subject"
+      tool: "crop_subject"
+      skip_unfit: true
+      params:
+        margin: "{{ form.crop_margin }}"
+        alpha_threshold: "{{ form.crop_alpha_threshold }}"
 
   #############
   ## Gallery - save the trimmed cutout

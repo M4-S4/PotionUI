@@ -206,7 +206,7 @@ def test_the_census_counts_a_streamer_pinned_module_as_pinned(monkeypatch):
     import torch.nn as nn
 
     from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
 
     module = nn.Sequential(*(disable_weight_init.Linear(128, 128) for _ in range(4)))
     for p in module.parameters():

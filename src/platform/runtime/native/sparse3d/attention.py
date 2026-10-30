@@ -7,7 +7,7 @@ project has no dependency on those packages and the native engine's own
 attention dispatcher already picks the fastest kernel available). The packed
 layout holds several sequences back to back; each is sliced out via
 ``layout`` and run separately through
-``src.platform.runtime.native.attention.attention`` (its ``(B, H, L, D)``
+``src.platform.runtime.native.kernels.attention`` (its ``(B, H, L, D)``
 contract is exactly what a ``[1, H, L, D]`` per-sequence slice already is), so
 this gets the dispatcher's backend selection (sage/flash/sdpa) for free
 instead of hardcoding ``F.scaled_dot_product_attention``. At batch=1 the loop
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import torch
 
-from .. import attention as native_attention
+from ..kernels import attention
 from .basic import SparseTensor
 
 __all__ = ["sparse_scaled_dot_product_attention"]
@@ -48,7 +48,7 @@ def sparse_scaled_dot_product_attention(q: SparseTensor, k: SparseTensor, v: Spa
         q_i = q_feats[q_slice].transpose(0, 1).unsqueeze(0)
         k_i = k_feats[kv_slice].transpose(0, 1).unsqueeze(0)
         v_i = v_feats[kv_slice].transpose(0, 1).unsqueeze(0)
-        o_i = native_attention.attention(q_i, k_i, v_i)
+        o_i = attention(q_i, k_i, v_i)
         chunks.append(o_i.squeeze(0).transpose(0, 1))
 
     out = torch.cat(chunks, dim=0)

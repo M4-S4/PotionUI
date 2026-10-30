@@ -6,6 +6,7 @@ import type { Segment } from './segments';
 import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 import type { CompareConfig } from '$lib/generation/compare/types';
+import type { ChatNotice, MessageUsage } from './chat';
 
 export interface APIResponse<T = unknown> {
 	success: boolean;
@@ -95,6 +96,7 @@ export interface PresetModeInfo {
 	/** The contributing plugin's id when this mode came from a plugin's
 	 *  `preset_modes:` instead of the preset's own preset.yml. */
 	source_plugin?: string | null;
+	requirements_missing?: string[] | null;
 }
 
 /** Body of a 422 response from `POST /api/generations/start` when the submitted
@@ -327,6 +329,7 @@ export interface RequirementResultInfo {
 	 *  field pulled from the raw entry) - what to show as this row's name. */
 	name?: string;
 	optional?: boolean;
+	mode?: string | null;
 	/** Present only on a backend-scoped entry (e.g. `comfyui_node`) - which
 	 *  backend this result was evaluated against. */
 	backend_id?: string;
@@ -688,6 +691,14 @@ export interface ChatMessageResponse {
 		result: { success: boolean; data: string; error?: string };
 		duration_ms: number;
 	}> | null;
+	reasoning?: Array<{
+		kind: 'raw' | 'summary' | 'omitted';
+		text: string;
+		redacted?: boolean;
+		duration_ms?: number | null;
+	}>;
+	usage?: MessageUsage | null;
+	notices?: ChatNotice[];
 }
 
 export interface ChatSessionResponse {

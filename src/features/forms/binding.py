@@ -75,6 +75,9 @@ from src.features.fields.video import Video
 from src.features.fields.audio import Audio
 from src.features.fields.media import Media
 from src.features.fields.tags import Tags
+from src.features.fields.segmented import Segmented
+from src.features.fields.anchor import Anchor
+from src.features.fields.color import Color
 from src.features.presets.configuration import resolve_field_tag_categories
 from src.features.models.form_refs import is_model_ref, model_id_of
 from src.platform.util.path_resolution import resolve_within
@@ -128,6 +131,9 @@ _INPUT_VALIDATORS = {
     "audio": Audio(None),
     "media": Media(None),
     "tags": Tags(None),
+    "segmented": Segmented(None),
+    "anchor": Anchor(None),
+    "color": Color(None),
 }
 
 
@@ -1026,7 +1032,8 @@ def _validate_field(
             _fail(missing)
         return
 
-    if required and (value is None or value == ""):
+    blank_text = field.type in _TEXT_FIELD_TYPES and isinstance(value, str) and not value.strip()
+    if required and (value is None or value == "" or blank_text):
         _fail(missing)
         return
 

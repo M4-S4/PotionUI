@@ -1,0 +1,55 @@
+# The face/hand detailer pass that runs after the upscale -- the same fields
+# the video mode's Enhance tab carries for its own detailer stage.
+fields:
+  - name: "enhance_faces_hands"
+    type: "checkbox"
+    formula: "detailer"
+    label: "Enhance faces and hands"
+    default: false
+
+  - name: "enhancement_strength"
+    type: "select"
+    formula: "detailer"
+    label: "Enhancement strength"
+    ai_hint: "Only used when Enhance faces and hands is on. Balanced is the safe default; suggest Light when the user worries the enhancement changes a face's identity, Strong only when they explicitly want maximum detail and accept more deviation."
+    default: "balanced"
+    configuration:
+      options:
+        - { label: "Light", value: "light" }
+        - { label: "Balanced", value: "balanced" }
+        - { label: "Strong", value: "strong" }
+    reactions:
+      - when: { field: "enhance_faces_hands", equals: false }
+        then: { set_visibility: false }
+      - when: { field: "enhance_faces_hands", equals: true }
+        then: { set_visibility: true }
+
+  #############
+  # Detection models: same idiom as the video mode's fields of the same name
+  # (see that mode's tabs/enhance.yml for the full rationale) -- a plain
+  # `model` field over model_type "mediapipe", no bespoke recommendations/
+  # download flow.
+  #############
+  - name: "face_detector_model"
+    type: "model"
+    formula: "models"
+    label: "Face Detection Model"
+    configuration:
+      model_type: "mediapipe"
+    reactions:
+      - when: { field: "enhance_faces_hands", equals: false }
+        then: { set_visibility: false }
+      - when: { field: "enhance_faces_hands", equals: true }
+        then: { set_visibility: true }
+
+  - name: "hand_detector_model"
+    type: "model"
+    formula: "models"
+    label: "Hand Detection Model"
+    configuration:
+      model_type: "mediapipe"
+    reactions:
+      - when: { field: "enhance_faces_hands", equals: false }
+        then: { set_visibility: false }
+      - when: { field: "enhance_faces_hands", equals: true }
+        then: { set_visibility: true }

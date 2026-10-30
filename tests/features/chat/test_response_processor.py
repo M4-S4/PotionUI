@@ -8,87 +8,22 @@ from src.platform.plugins.hooks import HookContext, execute_hook
 from src.features.chat.hooks import CHAT_RESPONSE_HOOKS
 
 
-class TestRemoveThinkingTags:
-    """Tests for _remove_thinking_tags method."""
-
+class TestTidy:
     def setup_method(self):
-        """Set up test fixtures."""
         self.processor = ResponseProcessor()
 
-    def test_remove_think_tags(self):
-        """Should remove <think> tags."""
-        content = "Hello <think>internal reasoning</think> World"
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "Hello  World"
+    def test_collapses_excessive_newlines(self):
+        assert self.processor._tidy("Hello\n\n\n\n\nWorld") == "Hello\n\nWorld"
 
-    def test_remove_thinking_tags(self):
-        """Should remove <thinking> tags."""
-        content = "Start <thinking>processing...</thinking> End"
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "Start  End"
+    def test_strips_surrounding_whitespace(self):
+        assert self.processor._tidy("  \n  Hello World  \n  ") == "Hello World"
 
-    def test_remove_thought_tags(self):
-        """Should remove <thought> tags."""
-        content = "Begin <thought>contemplating</thought> Finish"
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "Begin  Finish"
+    def test_leaves_clean_content_and_empty_strings_alone(self):
+        assert self.processor._tidy("Hello World") == "Hello World"
+        assert self.processor._tidy("") == ""
 
-    def test_remove_multiline_think_tags(self):
-        """Should remove multiline thinking tags."""
-        content = """Hello
-<think>
-This is some internal reasoning
-that spans multiple lines
-</think>
-World"""
-        result = self.processor._remove_thinking_tags(content)
-        assert "reasoning" not in result
-        assert "Hello" in result
-        assert "World" in result
-
-    def test_case_insensitive_removal(self):
-        """Should remove tags regardless of case."""
-        content = "Start <THINK>loud thinking</THINK> Middle <ThInKiNg>mixed</ThInKiNg> End"
-        result = self.processor._remove_thinking_tags(content)
-        assert "loud thinking" not in result
-        assert "mixed" not in result
-        assert "Start" in result
-        assert "End" in result
-
-    def test_think_tags_with_attributes(self):
-        """Should remove think tags with attributes."""
-        content = "Hello <think type='reasoning'>internal</think> World"
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "Hello  World"
-
-    def test_multiple_think_tags(self):
-        """Should remove multiple think tags."""
-        content = "<think>first</think>Hello<think>second</think>World"
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "HelloWorld"
-
-    def test_collapses_excessive_whitespace(self):
-        """Should collapse excessive newlines."""
-        content = "Hello\n\n\n\n\nWorld"
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "Hello\n\nWorld"
-
-    def test_strips_content(self):
-        """Should strip leading/trailing whitespace."""
-        content = "  \n  Hello World  \n  "
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "Hello World"
-
-    def test_no_tags_unchanged(self):
-        """Should leave content without tags unchanged."""
-        content = "Hello World"
-        result = self.processor._remove_thinking_tags(content)
-        assert result == "Hello World"
-
-    def test_empty_string(self):
-        """Should handle empty string."""
-        result = self.processor._remove_thinking_tags("")
-        assert result == ""
+    def test_reasoning_markup_is_no_longer_its_concern(self):
+        assert self.processor._tidy("Hello <think>x</think> World") == "Hello <think>x</think> World"
 
 
 class TestProcessWithoutPlugins:
@@ -98,13 +33,11 @@ class TestProcessWithoutPlugins:
         """Set up test fixtures."""
         self.processor = ResponseProcessor()
 
-    def test_process_removes_thinking_tags(self):
-        """Should remove thinking tags during processing."""
-        content = "Hello <think>thinking</think> World"
-        cleaned, parsed = self.processor.process(content)
+    def test_process_tidies_whitespace(self):
+        cleaned, parsed = self.processor.process("  Hello\n\n\n\nWorld  ")
 
-        assert cleaned == "Hello  World"
-        assert parsed == {'raw': 'Hello  World'}
+        assert cleaned == "Hello\n\nWorld"
+        assert parsed == {'raw': 'Hello\n\nWorld'}
 
     def test_process_returns_raw_content(self):
         """Should return raw cleaned content in parsed_content."""
@@ -124,7 +57,7 @@ class TestProcessWithoutPlugins:
 
     def test_process_repairs_a_recoverable_condition_in_a_proposed_segment(self):
         content = (
-            '<think>age check</think><tool_action type="update_segment" segment_index="0" segment_id="s1">'
+            '<tool_action type="update_segment" segment_index="0" segment_id="s1">'
             "woman, {% if age > 65 %}grey hair{% else %}auburn hair{% endif %}</tool_action>"
         )
         cleaned, parsed = self.processor.process(content)

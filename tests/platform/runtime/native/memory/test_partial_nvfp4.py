@@ -3,7 +3,7 @@
 A text encoder is mostly quantised Linears. The DiT path never streamed nvfp4
 leaves (their weight lives in buffers, ``weight is None``) and must keep not
 doing so; the text encoder's streamer opts in. These pin both behaviours on a
-small module built from the real ``vendor/gpl/comfyui/ops.py`` layers.
+small module built from the real ``kernels/`` layers.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from src.platform.runtime.native.memory.partial import (
     iter_streamable_leaves,
     plan_residency_split,
 )
-from vendor.gpl.comfyui.ops import fp8_ops, manual_cast
+from src.platform.runtime.native.kernels import fp8_ops, manual_cast, sync_nvfp4_dequant_tables
 
 from .._nvfp4_ref import default_tensor_scale, quantize_nvfp4
 from .._quant_layouts import int8_state_dict
@@ -185,6 +185,7 @@ def test_nvfp4_buffers_are_staged_onto_the_activation_device_for_the_call_only()
     device stands in for CUDA: any non-CPU activation exercises the swap."""
     m = _QuantTE()
     leaf = m.nv_out
+    sync_nvfp4_dequant_tables(m)
     plan = plan_residency_split(m, 0.0, stream_nvfp4=True)
     streamer = ModuleStreamer(m, stream_nvfp4=True, prefetch=False)
     streamer.apply("cpu", plan, pin=False)

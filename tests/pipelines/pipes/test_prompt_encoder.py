@@ -658,3 +658,23 @@ class TestImagePixelBudget:
                 lambda o: None,
             )
         assert models.fingerprints[0] == models.fingerprints[1]
+
+
+class TestTransparentReferenceFingerprint:
+    def test_a_cutout_and_its_flattened_picture_never_share_a_conditioning_entry(self):
+        import numpy as np
+        from PIL import Image
+
+        from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
+
+        pixels = np.zeros((48, 64, 4), dtype=np.uint8)
+        pixels[..., 0] = 255
+        pixels[16:32, 16:48] = (0, 0, 255, 255)
+        cutout = Image.fromarray(pixels, mode="RGBA")
+        models = _FakeModels()
+        for picture in (cutout, flatten_onto(cutout), cutout.convert("RGB")):
+            PromptEncoderPipe(config=_config()).process(
+                PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models, "reference_image": [picture]}),
+                lambda o: None,
+            )
+        assert len(set(models.fingerprints)) == 3

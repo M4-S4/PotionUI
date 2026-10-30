@@ -25,7 +25,7 @@ from src.platform.runtime.native.memory.partial import (
     plan_residency_split,
 )
 from src.platform.settings import runtime_flags
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 
 # --- toy module ---------------------------------------------------------------

@@ -69,7 +69,7 @@
   },
   "upscale": {
     "label": "Upscale",
-    "icon": "expand"
+    "icon": "mode-upscale"
   },
   "video_upscale": {
     "label": "Video Upscale",
@@ -79,9 +79,21 @@
     "label": "Edit",
     "icon": "pencil"
   },
+  "combine": {
+    "label": "Combine images",
+    "icon": "mode-combine"
+  },
+  "text": {
+    "label": "Edit text",
+    "icon": "mode-text"
+  },
+  "restyle": {
+    "label": "Restyle",
+    "icon": "mode-restyle"
+  },
   "control": {
     "label": "Control",
-    "icon": "sliders"
+    "icon": "mode-control"
   },
   "enhance": {
     "label": "Enhance",
@@ -93,7 +105,7 @@
   },
   "refs": {
     "label": "References",
-    "icon": "photo"
+    "icon": "mode-refs"
   },
   "song": {
     "label": "Song",
@@ -102,10 +114,6 @@
   "interpolate": {
     "label": "Interpolate",
     "icon": "film"
-  },
-  "trim": {
-    "label": "Trim",
-    "icon": "scissors"
   },
   "prepare": {
     "label": "Prepare",
@@ -146,5 +154,49 @@
   "merge_loras": {
     "label": "Merge LoRAs",
     "icon": "lora"
+  },
+  "restore": {
+    "label": "Restore",
+    "icon": "mode-restore"
+  },
+  "colorize": {
+    "label": "Colorize",
+    "icon": "mode-colorize"
+  },
+  "day_to_night": {
+    "label": "Day to Night",
+    "icon": "mode-day-night"
+  },
+  "add_water": {
+    "label": "Add Water",
+    "icon": "mode-add-water"
+  },
+  "remove_object": {
+    "label": "Remove Object",
+    "icon": "mode-remove-object"
+  },
+  "layout_to_render": {
+    "label": "Layout to Render",
+    "icon": "mode-layout-render"
+  },
+  "cinemagraph": {
+    "label": "Cinemagraph",
+    "icon": "mode-cinemagraph"
+  },
+  "extend": {
+    "label": "Extend",
+    "icon": "mode-extend"
+  },
+  "refine_faces": {
+    "label": "Refine Faces",
+    "icon": "mode-refine-faces"
+  },
+  "remix": {
+    "label": "Remix Video",
+    "icon": "mode-remix"
+  },
+  "talk": {
+    "label": "Talking Video",
+    "icon": "mode-talk"
   }
 }

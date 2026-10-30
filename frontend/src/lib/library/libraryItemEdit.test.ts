@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isSameLibraryRow, mergeEditedLibraryItem } from './libraryItemEdit';
+import { isSameLibraryRow, libraryItemFromEdit, mergeEditedLibraryItem } from './libraryItemEdit';
 import type { LibraryItem } from '$lib/services/api/library';
 import type { EditedMediaItem } from '$lib/services/api/media';
 
@@ -67,6 +67,72 @@ describe('mergeEditedLibraryItem', () => {
 	it('falls back to the existing display name when the edit reports none', () => {
 		const merged = mergeEditedLibraryItem(existing, { ...edited, original_filename: undefined });
 		expect(merged.original_filename).toBe('portrait.png');
+	});
+});
+
+describe('mergeEditedLibraryItem thumbnails', () => {
+	const withThumbs: LibraryItem = {
+		...existing,
+		thumbnail_small: '/api/media/uploads/old-name_small.webp',
+		thumbnail_medium: '/api/media/uploads/old-name_medium.webp',
+		thumbnail_large: '/api/media/uploads/old-name_large.webp'
+	};
+
+	it('does not keep the old thumbnails, which point at the file a replace deleted', () => {
+		const merged = mergeEditedLibraryItem(withThumbs, edited);
+
+		expect(merged.thumbnail_small).toBeUndefined();
+		expect(merged.thumbnail_medium).toBeUndefined();
+		expect(merged.thumbnail_large).toBeUndefined();
+	});
+
+	it('takes the thumbnails of the result when the backend provides them', () => {
+		const merged = mergeEditedLibraryItem(withThumbs, {
+			...edited,
+			thumbnail_small: '/api/media/uploads/new-name_small.webp',
+			thumbnail_medium: '/api/media/uploads/new-name_medium.webp',
+			thumbnail_large: '/api/media/uploads/new-name_large.webp'
+		});
+
+		expect(merged.thumbnail_small).toBe('/api/media/uploads/new-name_small.webp');
+		expect(merged.thumbnail_medium).toBe('/api/media/uploads/new-name_medium.webp');
+		expect(merged.thumbnail_large).toBe('/api/media/uploads/new-name_large.webp');
+	});
+
+	it('takes only the sizes the result provides and clears the rest', () => {
+		const merged = mergeEditedLibraryItem(withThumbs, {
+			...edited,
+			thumbnail_medium: '/api/media/uploads/new-name_medium.webp'
+		});
+
+		expect(merged.thumbnail_medium).toBe('/api/media/uploads/new-name_medium.webp');
+		expect(merged.thumbnail_small).toBeUndefined();
+		expect(merged.thumbnail_large).toBeUndefined();
+	});
+
+	it('treats a null thumbnail like a missing one', () => {
+		const merged = mergeEditedLibraryItem(withThumbs, { ...edited, thumbnail_medium: null });
+
+		expect(merged.thumbnail_medium).toBeUndefined();
+	});
+
+	it('still keeps the tags and the creation time of the row', () => {
+		const merged = mergeEditedLibraryItem(withThumbs, edited);
+
+		expect(merged.tags).toEqual(existing.tags);
+		expect(merged.created_at).toBe(existing.created_at);
+	});
+});
+
+describe('libraryItemFromEdit', () => {
+	it('carries the thumbnails a result brings so its card draws the small file', () => {
+		const row = libraryItemFromEdit({ ...edited, thumbnail_medium: '/api/media/uploads/new_medium.webp' });
+
+		expect(row.thumbnail_medium).toBe('/api/media/uploads/new_medium.webp');
+	});
+
+	it('has none when the result brings none, so the card falls back to the file itself', () => {
+		expect(libraryItemFromEdit(edited).thumbnail_medium).toBeUndefined();
 	});
 });
 

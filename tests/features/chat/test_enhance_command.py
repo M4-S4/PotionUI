@@ -8,6 +8,7 @@ routing end-to-end through a real ToolRegistry + ToolExecutor with a fake LLM,
 plus confirm typing "/enhance" literally is no longer special-cased.
 """
 
+from src.features.llm.harness.replay import policy_replay
 import json
 import pytest
 from types import SimpleNamespace
@@ -20,6 +21,7 @@ from src.features.chat.exceptions import MessageCreationFailedException
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.executor import ToolExecutor
 from src.features.llm.tools.builtin.enhance_prompt_tool import EnhancePromptTool
+from tests.fixtures.chat_engine import scripted_llm, turn_engine_for
 
 
 @pytest.fixture(autouse=True)
@@ -78,50 +80,12 @@ def make_enhancement_manager(candidates=None):
     return manager
 
 
-class FakeLLMService:
-    """Minimal LLM service for driving a real ToolExecutor in tests.
-
-    ``turns`` describes the model's successive responses: a turn with
-    ``tool_calls`` set drives a model-chosen tool call; a turn with only
-    ``text`` ends the loop with that presentation text. Defaults to a single
-    text-only turn (no tool calls), matching an ordinary chat reply.
-    """
-
-    def __init__(self, turns=None):
-        self.turns = turns if turns is not None else [{"text": "here you go"}]
-        self._n = 0
-        # get_configuration is read by _force_prompt_tools_for; empty options
-        # keeps the native (non-force_prompt_tools) streaming path.
-        self.repository = Mock()
-        self.repository.get_configuration.return_value = SimpleNamespace(provider_options={})
-        self.stream_calls: list = []
-        self.generate_calls: list = []
-
-    def _next_turn(self):
-        turn = self.turns[min(self._n, len(self.turns) - 1)]
-        self._n += 1
-        return turn
-
-    async def stream_with_tools(self, **kwargs):
-        self.stream_calls.append(kwargs)
-        turn = self._next_turn()
-        if turn.get("tool_calls"):
-            yield {"type": "tool_calls", "tool_calls": turn["tool_calls"]}
-            yield {"type": "usage", "tokens_used": None, "prompt_tokens": None, "completion_tokens": None}
-        else:
-            yield {"type": "token", "content": turn.get("text", "")}
-            yield {"type": "usage", "tokens_used": 10, "prompt_tokens": 5, "completion_tokens": 5}
-
-    async def generate_with_tools(self, **kwargs):
-        self.generate_calls.append(kwargs)
-        turn = self._next_turn()
-        resp = MagicMock()
-        resp.content = turn.get("text", "")
-        resp.tool_calls = turn.get("tool_calls") or []
-        resp.tokens_used = 10
-        resp.prompt_tokens = 5
-        resp.completion_tokens = 5
-        return resp
+def FakeLLMService(turns=None):
+    turns = turns if turns is not None else [{"text": "here you go"}]
+    scripted = [{"tool_calls": turn["tool_calls"]} if turn.get("tool_calls") else {"content": turn.get("text", "")} for turn in turns]
+    llm = scripted_llm(scripted)
+    llm.adapter.default = scripted[-1]
+    return llm
 
 
 def make_chat_manager(enhancement_manager=None):
@@ -158,7 +122,7 @@ def make_tool_chat_manager(enhancement_manager=None, turns=None):
     registry = ToolRegistry()
     registry.register(EnhancePromptTool())
     llm_service = FakeLLMService(turns)
-    executor = ToolExecutor(tool_registry=registry, llm_service=llm_service)
+    executor = ToolExecutor(tool_registry=registry)
 
     manager = ChatRuntime(
         chat_repository=repo,
@@ -168,6 +132,8 @@ def make_tool_chat_manager(enhancement_manager=None, turns=None):
         chat_mode_registry=mode_registry(),
         tool_executor=executor,
         tool_services=ToolServices(prompt_enhancement_manager=enhancement_manager or make_enhancement_manager()),
+        turn_engine=turn_engine_for(llm_service, executor),
+        replay_selector=policy_replay,
     )
     return manager, repo, llm_service
 
@@ -185,7 +151,6 @@ def _wire_repo(repo, content):
     """Wire chat_repository so add_message returns messages and captures the assistant save."""
     session = make_session()
     repo.get_session.return_value = session
-    repo.get_conversation_history.return_value = [{"role": "user", "content": content}]
     repo.count_messages.return_value = 2
     user_message = make_message("um-1", content)
     saved = {}
@@ -272,7 +237,7 @@ class TestSlashEnhanceIsPlainText:
 
         manager.tool_services.prompt_enhancement_manager.enhance.assert_not_awaited()
         assert not any(e["event"] == "tool_start" for e in events)
-        sent = llm.stream_calls[0]["messages"]
+        sent = llm.adapter.calls[0]["messages"]
         assert any((m.get("content") or "").startswith("/enhance a lonely lighthouse\n\n<context>\n") for m in sent)
 
     @pytest.mark.asyncio
@@ -292,7 +257,6 @@ class TestEnhancePromptToolNonStreaming:
             turns=[{"tool_calls": ENHANCE_TOOL_CALL}, {"text": "here's a richer version"}]
         )
         repo.get_session.return_value = make_session()
-        repo.get_conversation_history.return_value = [{"role": "user", "content": "make it richer"}]
         repo.count_messages.return_value = 2
         saved = {}
 
@@ -314,7 +278,7 @@ class TestEnhancePromptToolNonStreaming:
         )
 
         manager.tool_services.prompt_enhancement_manager.enhance.assert_awaited_once()
-        assert llm.generate_calls, "buffered tool loop should call the LLM to present"
+        assert len(llm.adapter.requests) == 2
         tool_execs = saved["metadata"].get("tool_executions") or []
         assert any(te["tool_name"] == "enhance_prompt" for te in tool_execs)
         assert response.assistant_message.id == "am-1"

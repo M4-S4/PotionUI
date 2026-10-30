@@ -6,7 +6,7 @@
 		flattenJustifiedRows,
 		type FlatJustifiedBox
 	} from '$lib/utils/justifiedLayout';
-	import { dayKey, dayLabel } from '$lib/utils/relativeTime';
+	import { groupByDay } from '$lib/library/dayGroups';
 	import { historyTileSize, TILE_SIZE_MULTIPLIER } from '$lib/stores/historyTileSize';
 	import { hasActiveLibraryFilters } from '$lib/library/libraryQuery';
 	import { libraryItemAspect } from '$lib/library/libraryItemMeta';
@@ -46,36 +46,10 @@
 				TILE_SIZE_MULTIPLIER[$historyTileSize]
 		);
 
-	interface DayGroup {
-		key: string;
-		label: string;
-		items: LibraryItem[];
-	}
-
-	function buildGroups(list: LibraryItem[]): DayGroup[] {
-		const groups: DayGroup[] = [];
-		for (const item of list) {
-			// An item with no created_at can't be dated; it joins the group above
-			// it rather than opening a header nobody can read.
-			const key = item.created_at ? dayKey(item.created_at) : '__undated__';
-			const last = groups[groups.length - 1];
-			if (last && last.key === key) {
-				last.items.push(item);
-			} else {
-				groups.push({
-					key,
-					label: item.created_at ? dayLabel(item.created_at) : 'Undated',
-					items: [item]
-				});
-			}
-		}
-		return groups;
-	}
-
 	// One flat keyed list per group: flex-wrap reproduces the packer's rows from
 	// the boxes' own widths, so a card keeps its DOM identity when a gridWidth
 	// reflow moves it across a row boundary (see flattenJustifiedRows).
-	$: groupLayouts = buildGroups(items).map((group) => ({
+	$: groupLayouts = groupByDay(items, state.placedIds).map((group) => ({
 		...group,
 		boxes: flattenJustifiedRows(
 			layoutJustifiedRows(
@@ -133,6 +107,13 @@
 		}
 	}
 
+	async function toggleFavorite(ctx: MediaToolContext) {
+		const found = items.find((candidate) => candidate.id === ctx.items[0]?.id);
+		if (!found) return;
+		const ok = await libraryStore.setItemFavorite(found.id, !found.is_favorite);
+		if (!ok) toasts.error('Could not update the favorite');
+	}
+
 	const host: ToolRunHost = {
 		open: (ctx) => {
 			const found = items.find((candidate) => candidate.id === ctx.items[0]?.id);
@@ -148,6 +129,7 @@
 		},
 		deselect: (_ctx, entryId) =>
 			libraryStore.setSelection(state.selectedIds.filter((id) => id !== entryId)),
+		favorite: toggleFavorite,
 		addToCollection
 	};
 
@@ -258,6 +240,7 @@
 								showActions={!state.selectionMode}
 								selectable={state.selectionMode}
 								selected={state.selectedIds.includes(box.item.id)}
+								isNew={state.freshIds.includes(box.item.id)}
 								onSelect={handleCardSelect}
 								on:open={(e) => libraryStore.setSelectedItem(e.detail)}
 								on:delete={(e) => onDeleteRequest(e.detail)}

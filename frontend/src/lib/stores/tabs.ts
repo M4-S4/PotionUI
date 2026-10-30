@@ -9,6 +9,7 @@ import { tabClaimedGenerationIds } from '$lib/generation/messages/ownership';
 import { retireOrphanedGenerationIds } from '$lib/generation/messages/generationOutputs';
 import { formulaApplied } from './formulaApplied';
 import { mirrorActivePrompt } from '$lib/generation/promptBatch';
+import { seedPromptTabs, seedSegmentsFromText } from '$lib/utils/promptTextSeed';
 import { adoptLegacyVariables } from './tabDraftOutbox';
 
 function createInitialGenerationState(): GenerationState {
@@ -119,6 +120,12 @@ function tabsRelevantToPersistenceChanged(prev: TabsState, next: TabsState): boo
 	return false;
 }
 
+const PROMPT_UPDATE_KEYS = ['prompt', 'negativePrompt', 'promptSegments', 'negativePromptSegments', 'promptTabs'] as const;
+
+function seedTabPrompts(tab: Tab): Tab {
+	return { ...seedSegmentsFromText(tab), promptTabs: seedPromptTabs(tab.promptTabs) };
+}
+
 function createTabsStore() {
 	// Try to load from localStorage, fallback to default tab
 	const persisted = loadTabsFromLocalStorage();
@@ -130,7 +137,7 @@ function createTabsStore() {
 		? persisted.tabs.map(p => {
 				const id = seenIds.has(p.id) ? generateTabId() : p.id;
 				seenIds.add(id);
-				return {
+				return seedTabPrompts({
 					...createDefaultTab(id, p.name),
 					selectedPreset: p.selectedPreset,
 					selectedMode: p.selectedMode,
@@ -174,7 +181,7 @@ function createTabsStore() {
 					variables: legacyVariables[p.id] ?? {},
 					modeStateByMode: p.modeStateByMode ?? {},
 					seed: p.seed
-				};
+				});
 		  })
 		: [createDefaultTab(generateTabId(), 'Generation 1')];
 	let initialActiveTabId = persisted?.activeTabId || initialTabs[0].id;
@@ -308,7 +315,11 @@ function createTabsStore() {
 						? { ...current.generation, ...updates.generation }
 						: current.generation
 				};
-				const nextTab: Tab = { ...merged, ...mirrorActivePrompt(merged, updates) };
+				const touchesPrompt = PROMPT_UPDATE_KEYS.some((key) => key in updates);
+				const seeded: Tab = touchesPrompt
+					? seedTabPrompts(merged)
+					: merged;
+				const nextTab: Tab = { ...seeded, ...mirrorActivePrompt(seeded, updates) };
 				const tabs = [...state.tabs];
 				tabs[index] = nextTab;
 				return { ...state, tabs };

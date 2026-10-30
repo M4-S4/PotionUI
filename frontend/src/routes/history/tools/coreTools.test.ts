@@ -5,6 +5,7 @@ import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 // The modals are leaves here: only the registrations and their `applies()`
 // predicates are under test, and mounting one would drag the whole modal stack
 // into a node-environment run.
+vi.mock('../components/HistoryApplyLookModal.svelte', () => ({ default: {} }));
 vi.mock('../components/HistoryCompareModal.svelte', () => ({ default: {} }));
 vi.mock('../components/HistoryEditImageModal.svelte', () => ({ default: {} }));
 vi.mock('../components/HistoryExportZipModal.svelte', () => ({ default: {} }));
@@ -104,5 +105,35 @@ describe('core history tools', () => {
 			enabled: false,
 			reason: 'Only images can be edited'
 		});
+	});
+
+	it('files Apply a look under Effects on both pages', () => {
+		const entry = entryFor('apply-look', ['a']);
+		expect(entry.category.id).toBe('effects');
+		expect(entry.tool.scopes).toEqual(['history', 'library']);
+		expect(entry.tool.label).toBe('Apply a look…');
+	});
+
+	it('offers a look for exactly one image', () => {
+		expect(entryFor('apply-look', ['a']).availability).toEqual({ enabled: true });
+		expect(entryFor('apply-look', ['a', 'b']).availability).toEqual({
+			enabled: false,
+			reason: 'Select one image'
+		});
+	});
+
+	it('hides Apply a look for video, audio and an empty selection', () => {
+		const item = (id: string, media_type: string) =>
+			({ id, filename: `${id}.bin`, media_type, url: `/u/${id}` }) as never;
+		const availability = (items: never[]) =>
+			listToolGroups(buildLibraryToolContext(items, null))
+				.flatMap((group) => group.tools)
+				.find(({ tool }) => tool.id === 'apply-look')?.availability;
+
+		expect(availability([item('v', 'video')])?.hidden).toBe(true);
+		expect(availability([item('s', 'audio')])?.hidden).toBe(true);
+		expect(availability([item('a', 'image'), item('v', 'video')])?.hidden).toBe(true);
+		expect(availability([])?.hidden).toBe(true);
+		expect(availability([item('a', 'image')])?.hidden).toBeUndefined();
 	});
 });

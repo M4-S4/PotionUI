@@ -10,6 +10,10 @@ describe('llmConfigDetailTabHasFooter', () => {
 		expect(llmConfigDetailTabHasFooter('access')).toBe(false);
 	});
 
+	it('hides the shared footer on the Profile tab, which renders its own', () => {
+		expect(llmConfigDetailTabHasFooter('profile')).toBe(false);
+	});
+
 	it('hides the footer on the Toolset tab, which saves per-toggle', () => {
 		expect(llmConfigDetailTabHasFooter('toolset')).toBe(false);
 	});

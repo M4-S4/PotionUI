@@ -9,15 +9,18 @@ from src.platform.runtime.native.arch.krea2.model import Krea2
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeModel
+from src.platform.runtime.native.kernels import fp8_linear, nvfp4_linear, pick_operations
 from src.platform.runtime.native.lora import LoraStepWindow, LoraStepWindowHook
 from src.platform.runtime.native.lora.apply import apply_loras, remove_loras
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui import ops
+from src.platform.runtime.native.kernels import lora_math
 
+from tests.fixtures.kernel_ops import patch_ops_name
 from tests.platform.runtime.native.lora.test_lora_fused_fast_path import (
     IN, OUT, _dequant, _delta, _fp8_fast, _fp8_layer, _input, _nvfp4_fast, _nvfp4_layer,
 )
 from tests.platform.runtime.native.lora.test_krea2_lora import TINY
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 CASES = {
     "full_w1_first": {"w1": (8, 8), "w2": (12, 8)},
@@ -36,11 +39,11 @@ PATHS = {
 
 @pytest.fixture(autouse=True)
 def _fused_default(monkeypatch):
-    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", True)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    ops._lora_path_layers.clear()
+    lora_math._lora_path_layers.clear()
     yield
-    ops._lora_path_layers.clear()
+    lora_math._lora_path_layers.clear()
 
 
 def _side(sd, prefix, spec, g):
@@ -76,7 +79,7 @@ def _applied(make_layer, loras):
 
 
 def _weight_side_delta(deltas):
-    return ops.apply_lora_deltas(torch.zeros(OUT, IN), deltas)
+    return lora_math.apply_lora_deltas(torch.zeros(OUT, IN), deltas)
 
 
 def _expected(base, x, deltas):
@@ -109,14 +112,14 @@ def test_activation_side_lokr_matches_the_weight_side_kron(path, case, alpha, dt
     assert not torch.allclose(base.float(), want.float(), atol=0.1)
     _close(got, want, dtype)
     _close(run(lin, x), want, dtype)
-    assert set(ops._lora_path_layers) == {label}
+    assert set(lora_math._lora_path_layers) == {label}
 
 
 @pytest.mark.parametrize("case", list(CASES))
 def test_the_cheaper_contraction_order_and_factor_form_are_chosen(case):
     lin = _applied(_fp8_layer, [(_lokr_sd(case, 4.0), 1.0)])
     d = lin.lora_deltas[0]
-    branch = ops._build_lokr_branch(d, torch.float32, torch.device("cpu"))
+    branch = lora_math._build_lokr_branch(d, torch.float32, torch.device("cpu"))
     for chain, spec in ((branch.chain1, CASES[case]["w1"]), (branch.chain2, CASES[case]["w2"])):
         assert len(chain) == (1 if len(spec) == 2 else 2)
     c1 = sum(m.numel() for m in branch.chain1)
@@ -131,7 +134,7 @@ def test_both_contraction_orders_occur_across_the_cases():
     orders = set()
     for case in CASES:
         d = _applied(_fp8_layer, [(_lokr_sd(case), 1.0)]).lora_deltas[0]
-        orders.add(ops._build_lokr_branch(d, torch.float32, torch.device("cpu")).w1_first)
+        orders.add(lora_math._build_lokr_branch(d, torch.float32, torch.device("cpu")).w1_first)
     assert orders == {True, False}
 
 
@@ -139,23 +142,23 @@ def test_both_contraction_orders_occur_across_the_cases():
 @pytest.mark.parametrize("w1_first", [True, False])
 def test_either_order_is_exact(case, w1_first):
     d = _applied(_fp8_layer, [(_lokr_sd(case, 4.0), 0.6)]).lora_deltas[0]
-    branch = ops._build_lokr_branch(d, torch.float32, torch.device("cpu"))
+    branch = lora_math._build_lokr_branch(d, torch.float32, torch.device("cpu"))
     branch.w1_first = w1_first
     x = _input(torch.float32).reshape(-1, IN)
     out = torch.zeros(x.shape[0], OUT)
-    ops._add_lokr_branch(out, x, branch)
+    lora_math._add_lokr_branch(out, x, branch)
     _close(out, F.linear(x, _weight_side_delta([d])), torch.float32)
 
 
 def test_row_chunking_keeps_the_result(monkeypatch):
     d = _applied(_fp8_layer, [(_lokr_sd("lowrank_both", 4.0), 1.3)]).lora_deltas[0]
-    branch = ops._build_lokr_branch(d, torch.float32, torch.device("cpu"))
+    branch = lora_math._build_lokr_branch(d, torch.float32, torch.device("cpu"))
     x = _input(torch.float32).reshape(-1, IN)
     whole = torch.zeros(x.shape[0], OUT)
-    ops._add_lokr_branch(whole, x, branch)
-    monkeypatch.setattr(ops, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", branch.width * 4 * 5)
+    lora_math._add_lokr_branch(whole, x, branch)
+    monkeypatch.setattr(lora_math, "_NVFP4_LORA_BRANCH_CHUNK_BYTES", branch.width * 4 * 5)
     chunked = torch.zeros(x.shape[0], OUT)
-    ops._add_lokr_branch(chunked, x, branch)
+    lora_math._add_lokr_branch(chunked, x, branch)
     _close(chunked, whole, torch.float32)
 
 
@@ -170,26 +173,26 @@ def _plain_kohya(rank, seed):
 
 def _spy(monkeypatch, name):
     calls = []
-    real = getattr(ops, name)
+    real = getattr(lora_math, name)
 
     def spy(*a, **k):
         calls.append(1)
         return real(*a, **k)
 
-    monkeypatch.setattr(ops, name, spy)
+    monkeypatch.setattr(lora_math, name, spy)
     return calls
 
 
 def _weight_side_spy(monkeypatch):
     calls = []
-    real = ops.apply_lora_deltas
+    real = lora_math.apply_lora_deltas
 
     def spy(weight, deltas):
         if deltas:
             calls.append(len(deltas))
         return real(weight, deltas)
 
-    monkeypatch.setattr(ops, "apply_lora_deltas", spy)
+    patch_ops_name(monkeypatch, "apply_lora_deltas", spy)
     return calls
 
 
@@ -210,10 +213,10 @@ def test_lokr_mixed_with_plain_loras_stays_on_the_activation(monkeypatch, path, 
     got = run(lin, x)
     assert weight_side == []
     _close(got, _expected(base, x, lin.lora_deltas), dtype)
-    assert set(ops._lora_path_layers) == {label}
-    fused = lin.__dict__[ops._LORA_FUSED_ATTR][2]
-    assert sum(isinstance(e, ops._LokrBranch) for e in fused) == 2
-    assert sum(not isinstance(e, ops._LokrBranch) for e in fused) == 1
+    assert set(lora_math._lora_path_layers) == {label}
+    fused = lin.__dict__[lora_math._LORA_FUSED_ATTR][2]
+    assert sum(isinstance(e, lora_math._LokrBranch) for e in fused) == 2
+    assert sum(not isinstance(e, lora_math._LokrBranch) for e in fused) == 1
 
 
 def test_zero_strength_lokr_contributes_nothing_and_builds_no_branch():
@@ -222,7 +225,7 @@ def test_zero_strength_lokr_contributes_nothing_and_builds_no_branch():
     lin = _applied(_fp8_layer, [(_lokr_sd("lowrank_both", 4.0), 1.0)])
     lin.lora_deltas[0].scale = 0.0
     assert torch.equal(_fp8_fast(lin, x), base)
-    assert lin.__dict__[ops._LORA_FUSED_ATTR][2] == []
+    assert lin.__dict__[lora_math._LORA_FUSED_ATTR][2] == []
 
 
 def test_factors_are_prepared_once_and_rebuilt_on_strength_change(monkeypatch):
@@ -244,9 +247,9 @@ def test_remove_invalidates_the_prepared_factors():
     host = _host(_fp8_layer(False))
     apply_loras(host, [(_lokr_sd("full_w1_first"), 1.0)])
     _fp8_fast(host.proj, _input(torch.bfloat16))
-    assert ops._LORA_FUSED_ATTR in host.proj.__dict__
+    assert lora_math._LORA_FUSED_ATTR in host.proj.__dict__
     remove_loras(host)
-    assert ops._LORA_FUSED_ATTR not in host.proj.__dict__
+    assert lora_math._LORA_FUSED_ATTR not in host.proj.__dict__
     assert not host.proj.lora_deltas
 
 
@@ -254,36 +257,36 @@ def test_fast_path_no_longer_rejects_lokr():
     lin = _applied(_fp8_layer, [(_lokr_sd("lowrank_both", 4.0), 1.0), (_plain_kohya(4, 3), 1.0)])
     kwargs = dict(input_dtype=torch.bfloat16, input_is_cuda=True, weight_is_cuda=True,
                   in_features=IN, out_features=OUT)
-    assert ops._deltas_output_branch_ok(lin.lora_deltas, OUT) is True
-    assert ops._scaled_mm_fast_path_reject_reason(
+    assert lora_math._deltas_output_branch_ok(lin.lora_deltas, OUT) is True
+    assert fp8_linear._scaled_mm_fast_path_reject_reason(
         weight_dtype=torch.float8_e4m3fn, has_weight_scale=True, lora_deltas=lin.lora_deltas, **kwargs) is None
-    assert ops._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) is None
+    assert nvfp4_linear._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) is None
 
 
 def test_a_lokr_that_does_not_tile_the_output_stays_weight_side_for_that_delta_only():
     bad = LoraDelta(down=torch.randn(5, 8) * 0.2, up=torch.randn(16, 8) * 0.2, alpha=1.0, scale=1.0, kron=True)
     plain = _delta(4, 1.0, 1, torch.float32)
     good = _applied(_fp8_layer, [(_lokr_sd("full_w1_first"), 1.0)]).lora_deltas[0]
-    assert ops._deltas_output_branch_ok([bad], OUT) is False
-    output_side, weight_side = ops.partition_output_branch_deltas([plain, bad, good], OUT)
+    assert lora_math._deltas_output_branch_ok([bad], OUT) is False
+    output_side, weight_side = lora_math.partition_output_branch_deltas([plain, bad, good], OUT)
     assert output_side == [plain, good]
     assert weight_side == [bad]
 
 
 def test_kill_switch_restores_the_weight_side_lokr(monkeypatch):
-    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", False)
     weight_side = _weight_side_spy(monkeypatch)
     builds = _spy(monkeypatch, "_build_lokr_branch")
     lin = _applied(_fp8_layer, [(_lokr_sd("lowrank_both", 4.0), 1.0), (_plain_kohya(4, 3), 1.0)])
     kwargs = dict(input_dtype=torch.bfloat16, input_is_cuda=True, weight_is_cuda=True,
                   in_features=IN, out_features=OUT)
-    assert ops._deltas_output_branch_ok(lin.lora_deltas, OUT) is False
-    assert ops._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) == "lora_deltas"
+    assert lora_math._deltas_output_branch_ok(lin.lora_deltas, OUT) is False
+    assert nvfp4_linear._nvfp4_fast_path_reject_reason(lora_deltas=lin.lora_deltas, **kwargs) == "lora_deltas"
     x = _input(torch.bfloat16)
     got = _dequant(lin, x)
     assert weight_side == [1]
     assert builds == []
-    assert set(ops._lora_path_layers) == {"weight-side (lokr)"}
+    assert set(lora_math._lora_path_layers) == {"weight-side (lokr)"}
     _close(got, _expected(_dequant(_fp8_layer(False), x), x, lin.lora_deltas), torch.bfloat16)
 
 
@@ -297,7 +300,7 @@ def test_grad_enabled_branch_matches(monkeypatch):
 
 
 def _fp8_krea2():
-    m = Krea2.from_config(TINY, ops.pick_operations(torch.float8_e4m3fn, torch.bfloat16))
+    m = Krea2.from_config(TINY, pick_operations(torch.float8_e4m3fn, torch.bfloat16))
     sd = {k: torch.randn_like(v.float()) * 0.02 if v.is_floating_point() else v.clone()
           for k, v in m.state_dict().items()}
     load_into_module(m, sd, match_model_spec(TINY))
@@ -329,21 +332,21 @@ def test_window_edges_invalidate_and_an_out_of_window_lokr_contributes_nothing(m
         with torch.no_grad():
             got = wq(x)
             if wq.lora_deltas:
-                monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", False)
+                monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", False)
                 want = wq(x)
-                monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
+                monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", True)
                 _close(got, want, torch.bfloat16)
         return got
 
     hook.on_start(6)
     assert torch.equal(step(), bare)
     hook.on_step(0, 6, None, 0.0, None)
-    assert ops._LORA_FUSED_ATTR not in wq.__dict__
+    assert lora_math._LORA_FUSED_ATTR not in wq.__dict__
     inside = step()
     hook.on_step(1, 6, None, 0.0, None)
     step()
     hook.on_step(2, 6, None, 0.0, None)
-    assert ops._LORA_FUSED_ATTR not in wq.__dict__
+    assert lora_math._LORA_FUSED_ATTR not in wq.__dict__
     assert torch.equal(step(), bare)
     hook.close(final=True)
 

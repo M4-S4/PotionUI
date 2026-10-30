@@ -31,7 +31,9 @@ export function computeAnchoredMenuPosition(
 	return { top: rect.bottom + gap, left };
 }
 
-export function dockInsetFor(trigger: HTMLElement): number {
+export type MenuAnchor = Pick<Element, 'getBoundingClientRect'> & Partial<Pick<Element, 'closest'>>;
+
+export function dockInsetFor(trigger: MenuAnchor): number {
 	if (typeof document === 'undefined' || typeof trigger.closest !== 'function') return 0;
 	if (trigger.closest('[role="dialog"]')) return 0;
 	const dock = document.querySelector('[data-menu-dock]');
@@ -101,7 +103,7 @@ export interface FlippedMenuPosition {
  * side has more room.
  */
 export function computeFlippedMenuPosition(
-	trigger: HTMLElement,
+	trigger: MenuAnchor,
 	options: {
 		width?: number;
 		heightEstimate?: number;
@@ -146,7 +148,7 @@ export function computeFlippedMenuPosition(
 export type FlippedMenuOptions = Parameters<typeof computeFlippedMenuPosition>[1];
 
 export function trackMenuPosition(
-	trigger: HTMLElement,
+	trigger: MenuAnchor,
 	getOptions: () => FlippedMenuOptions,
 	apply: (position: FlippedMenuPosition) => void
 ): () => void {

@@ -13,7 +13,8 @@ from src.features.chat.modes import (
     build_prompts_mode,
 )
 from src.features.llm import context_budget
-from src.features.llm.clients.ollama_wire import build_prompt_tools_text
+from src.features.llm.harness.adapter import ToolSpec
+from src.features.llm.harness.prompt_tools import build_prompt_tools_text
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.use_tools import use_tools_schema
@@ -25,18 +26,18 @@ _STANDARD = context_budget.TOOL_TIER_STANDARD
 _LARGE = context_budget.TOOL_TIER_LARGE
 
 _FIXED_OVERHEAD_CHARS = {
-    ("generation", _LARGE): 49386,
+    ("generation", _LARGE): 52484,
     ("generation", _STANDARD): 36536,
     ("generation", _COMPACT): 26542,
-    ("history", _LARGE): 13261,
-    ("history", _STANDARD): 13261,
-    ("history", _COMPACT): 10460,
-    ("models", _LARGE): 9124,
-    ("models", _STANDARD): 9124,
-    ("models", _COMPACT): 6323,
-    ("phrasebook", _LARGE): 13992,
-    ("phrasebook", _STANDARD): 13992,
-    ("phrasebook", _COMPACT): 11191,
+    ("history", _LARGE): 15471,
+    ("history", _STANDARD): 12806,
+    ("history", _COMPACT): 9712,
+    ("models", _LARGE): 8253,
+    ("models", _STANDARD): 8253,
+    ("models", _COMPACT): 5452,
+    ("phrasebook", _LARGE): 13121,
+    ("phrasebook", _STANDARD): 13121,
+    ("phrasebook", _COMPACT): 10320,
     ("prompts", _LARGE): 14712,
     ("prompts", _STANDARD): 14712,
     ("prompts", _COMPACT): 11911,
@@ -71,7 +72,7 @@ def _wire(builder, tools, mode_id, tier, form_state=None):
         _session(mode_id), form_state=form_state, tool_tier=tier,
     )
     schemas = tools.get_schemas(allowed) + ([use_tools_schema(deferred)] if deferred else [])
-    return prompt, json.dumps(schemas), build_prompt_tools_text(schemas)
+    return prompt, json.dumps(schemas), build_prompt_tools_text([ToolSpec.from_schema(schema) for schema in schemas])
 
 
 @pytest.mark.parametrize("mode_id,tier", sorted(_FIXED_OVERHEAD_CHARS))

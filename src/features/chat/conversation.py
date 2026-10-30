@@ -1,24 +1,16 @@
-"""Chat message send/stream orchestration.
-
-The heart of a chat turn: validate the session, persist the user message,
-assemble context, call the LLM (with or without tools), stream or collect the
-response, persist the assistant message, fire hooks and kick off title
-generation. Both the buffered (`send_message`) and streaming
-(`send_message_stream`) paths live here, plus the learning-loop feedback
-recorder and the title/pre-chat helpers they share.
-
-"""
-
 import asyncio
 import json
 import logging
 import re
 import time
 from contextlib import aclosing
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from src.platform.security.failure_text import failure_detail
-from src.features.chat.dto import SessionResponse, SendMessageResponse
+from src.features.chat import projection
+from src.features.chat.decisions import rejections_for_reply
+from src.features.chat.dto import MessageResponse, SessionResponse, SendMessageResponse
 from src.features.chat.exceptions import (
     AdminOnlyModeException,
     ContextBudgetExceededException,
@@ -29,14 +21,20 @@ from src.features.chat.exceptions import (
 from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
-from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
-from src.features.chat.thinking import (
-    THINKING, TEXT, ThinkingCapture, config_shows_thinking, visible_text, without_streamed_thinking,
-)
-from src.features.chat.tool_transcript import tool_metadata
+from src.features.chat.reply_contract import approval_continuation_message, continuation_nudge
+from src.features.chat.history import replayed_history
+from src.features.chat.thinking import ReasoningCapture, config_shows_thinking
 from src.features.llm import context_budget, trace_collector
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.build import new_id, user_message
+from src.features.llm.harness.engine import BudgetExhausted, TurnInput, TurnOutcome
+from src.features.llm.harness.events import ReasoningDelta, TextDelta
+from src.features.llm.harness.messages import ContextPart, Message, Origin, Role
+from src.features.llm.harness.profile import CapabilityProfile
+from src.features.llm.harness.turn_state import NoticeRaised, StepCommitted, StepDiscarded, ToolFinished, ToolStarted, TurnState
 from src.features.llm.trace_repository import chat_call_trace_repository
 from src.features.llm.tools.base import ToolExecution
+from src.features.llm.tools.executor import ToolExecutor
 from src.features.llm.tools.use_tools import use_tools_schema
 from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.platform.plugins.hooks import await_hook_blocking_waits
@@ -44,16 +42,37 @@ from src.platform.util.imaging import convert_image_to_base64
 
 logger = logging.getLogger(__name__)
 
-# Read-with-default (no migration seed): 0 means unlimited, matching the
-# "0 = unlimited" convention documented for the setting.
 _DEFAULT_HISTORY_TOKEN_BUDGET = 8000
 _HISTORY_BUDGET_CHARS_PER_TOKEN = 4
 _MAX_TOOL_ROUNDS = 20
+_TITLE_WAIT_SECONDS = 15
+
+
+class _AssistantNotSaved(MessageCreationFailedException):
+    pass
+
+
+@dataclass
+class _TurnRun:
+    title_task: Optional[asyncio.Task] = None
+    done: Optional[Dict[str, Any]] = None
+    step_records: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def _usage_data(usage: Any) -> Optional[Dict[str, Any]]:
+    if usage is None:
+        return None
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "reasoning_tokens": usage.reasoning_tokens,
+        "cached_input_tokens": usage.cached_input_tokens,
+        "cache_write_tokens": usage.cache_write_tokens,
+        "cost": usage.cost,
+    }
 
 
 class ConversationRunner:
-    """Orchestrates a chat turn end-to-end for both send and stream paths."""
-
     _TOOL_ACTION_CONTENT_RE = re.compile(
         r'<tool_action\s+type="(?:update_(?:director_)?|add_|delete_)segment"[^>]*>([\s\S]*?)</tool_action>'
     )
@@ -62,11 +81,6 @@ class ConversationRunner:
         self._m = manager
 
     def _verify_mode_access(self, session: SessionResponse, is_admin: bool) -> None:
-        """Reject a non-admin using a session whose mode is admin_only.
-
-        Shared by both the buffered and streaming send paths, run right after
-        ownership/active checks and before anything is persisted.
-        """
         mode = self._m.chat_mode_registry.get(session.mode)
         if mode is not None and mode.admin_only and not is_admin:
             raise AdminOnlyModeException(f"Chat mode '{session.mode}' is restricted to administrators")
@@ -81,310 +95,18 @@ class ConversationRunner:
         resources: Optional[List[str]] = None,
         is_admin: bool = False,
     ) -> SendMessageResponse:
-        """Send a message and get AI response.
-
-        Executes hooks:
-        - chat.message.before_send: Can modify content or block
-        - chat.response.before_generate: Can modify history/config
-        - chat.response.transform: Transform LLM output (via ResponseProcessor)
-        - chat.response.after_save: Notification of saved response
-        - chat.message.after_send: Notification of message exchange complete
-
-        Args:
-            session_id: The session ID
-            user_id: The user ID (for ownership verification)
-            content: The message content
-            image_data: Optional image data (path or base64)
-
-        Returns:
-            SendMessageResponse with user_message and assistant_message
-
-        Raises:
-            SessionNotFoundException: If session not found
-            AccessDeniedException: If user doesn't own the session
-            SessionClosedException: If session is closed
-            InvalidLLMConfigException: If no LLM config set
-            MessageCreationFailedException: If message creation fails
-        """
-        # Get session (without messages for validation)
-        session = self._m._get_session_or_raise(session_id)
-        self._m._verify_ownership(session, user_id)
-        self._m._verify_active(session)
-        self._verify_mode_access(session, is_admin)
-
-        if not session.llm_config_id:
-            raise InvalidLLMConfigException("Session has no LLM configuration")
-
-        hook_data, blocked, hook_ctx = self._m._execute_hook(
-            CHAT_MESSAGE_HOOKS.before_send,
-            {
-                "session_id": session_id,
-                "user_id": user_id,
-                "content": content,
-                "image_data": image_data
-            }
+        run = _TurnRun()
+        turn = self._turn(
+            run, session_id, user_id, content, image_data, context_metadata, resources, is_admin, None,
         )
-        await await_hook_blocking_waits(hook_ctx)
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Message blocked")
-            logger.warning(f"Message send blocked by plugin: {reason}")
-            raise MessageCreationFailedException(reason)
-
-        # Allow hooks to modify content
-        content = hook_data.get("content", content)
-        image_data = hook_data.get("image_data", image_data)
-
-        # Behavior-trace bookkeeping.
-        step_records: List[Dict[str, Any]] = []
-
-        # Snapshot-resolve @resource mentions (never raises; stale refs become error notes)
-        _resource_start = time.monotonic()
-        resolved_resources = await self._m._context.resolve_message_resources(
-            resources, user_id, session.mode, context_metadata, is_admin=is_admin
-        )
-        if resources:
-            step_records.append({
-                "step": "resolving_resources",
-                "duration_ms": int((time.monotonic() - _resource_start) * 1000),
-            })
-
-        # Add user message to session (store image reference in metadata for chat display)
-        user_metadata = {}
-        if image_data:
-            user_metadata["image_path"] = image_data
-        if context_metadata and context_metadata.get("image_url"):
-            user_metadata["image_url"] = context_metadata["image_url"]
-        if resolved_resources:
-            user_metadata["resources"] = self._m._context.resources_metadata(resolved_resources)
-        if session.mode == GENERATION_MODE_ID:
-            preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
-            if preset_id:
-                user_metadata["preset_id"] = preset_id
-        resolved_message = await self._m._tools.reject_pending_for_reply(session_id, content)
-        user_message = self._m.chat_repository.add_message(
-            session_id=session_id,
-            role='user',
-            content=content,
-            metadata=user_metadata if user_metadata else None,
-        )
-
-        if not user_message:
-            raise MessageCreationFailedException("Failed to save user message")
-
-        await self._prime_context_window(session)
-        tool_tier = self._tool_tier(session)
-        form_state = (context_metadata or {}).get("form_state")
-        tool_scope = self._m._context.resolve_tool_scope(session, form_state)
-        system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=form_state, tool_tier=tool_tier, scope=tool_scope,
-        )
-        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
-
-        conversation_history = self._m.chat_repository.get_conversation_history(
-            session_id, include_tool_transcript=tools_enabled,
-        )
-
-        # Execute before_generate hook
-        gen_hook_data, _, _ctx = self._m._execute_hook(
-            CHAT_RESPONSE_HOOKS.before_generate,
-            {
-                "session_id": session_id,
-                "conversation_history": conversation_history,
-                "llm_config_id": session.llm_config_id
-            }
-        )
-        # Allow hooks to modify generation parameters
-        conversation_history = gen_hook_data.get("conversation_history", conversation_history)
-
-        # Tools the mode's prompt describes but this session can't actually call
-        # right now (toggled off, governed off, or unavailable) - without this
-        # the model narrates using a tool it was never given. Computed even when
-        # some tools ARE allowed so a partial set doesn't get promised either.
-        withheld_tools = self._m._context.withheld_tools_for_session(
-            session, form_state=form_state, scope=tool_scope,
-        )
-        if withheld_tools:
-            step_records.append({"step": "tools", "duration_ms": 0})
-
-        _memory_start = time.monotonic()
-        memory_result = self._m._context.inject_memory_block(
-            conversation_history, context_metadata, user_id,
-            write_memory_available="write_memory" in (allowed_tools or []),
-            mode_id=session.mode,
-        )
-        step_records.append({"step": "loading_memory", "duration_ms": int((time.monotonic() - _memory_start) * 1000)})
-
-        # Cap what actually goes to the LLM to a token budget (repo/UI keep the
-        # full history regardless — see get_conversation_history's docstring).
-        history_info = self._apply_history_budget(conversation_history)
-
-        # Inject mode context + @resource snapshot right before the last user
-        # message (contributor, resource, workspace, prompt state, then the
-        # reply-contract reminder last so it lands closest to the user turn —
-        # recency matters for a rule the model must not lose to a long system
-        # prompt) — these run after the budget, same as before, so only the
-        # memory block's size is guaranteed to count against it.
-        await self._m._context.inject_contributor_block(conversation_history, session, context_metadata, user_id)
-        self._m._context.inject_resource_block(conversation_history, resolved_resources)
-
-        offered_tool_names = set(allowed_tools or ()).union(*(deferred_tools or {}).values())
-        workspace_result = self._m._context.inject_workspace_block(
-            conversation_history, context_metadata, offered_tools=offered_tool_names,
-        )
-        self._m._context.inject_prompt_state_block(
-            conversation_history, context_metadata, offered_tools=offered_tool_names,
-            variable_reader=self._m._context.prompt_state_variable_reader(user_id, context_metadata),
-        )
-        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
-        self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
-
-        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode)
-        try:
-            context_ledger = self._build_context_ledger(
-                system_prompt, tool_schemas, memory_result, conversation_history,
-                accounting=budget_accounting, image_data=image_data,
-            )
-        except context_budget.ContextBudgetExceededError as e:
-            raise ContextBudgetExceededException(str(e)) from e
-
-        # Execute pre-chat actions (e.g., clear ComfyUI VRAM)
-        enabled_pre_chat_actions = self._enabled_pre_chat_actions(session.llm_config_id)
-        _pre_chat_start = time.monotonic()
-        pre_chat_results = await self._run_pre_chat_actions(session.llm_config_id)
-        if enabled_pre_chat_actions:
-            step_records.append({
-                "step": "running_pre_chat",
-                "duration_ms": int((time.monotonic() - _pre_chat_start) * 1000),
-            })
-
-        # Convert image path to base64 if needed
-        image_base64 = convert_image_to_base64(image_data)
-
-        tool_executions: List[ToolExecution] = []
-        transcript: List[Dict[str, Any]] = []
-        rounds_used = 0
-
-        _thinking_start = time.monotonic()
-        if tools_enabled:
-            tool_context = self._m._tools.tool_context(session, user_id, is_admin, context_metadata, mode.id)
-
-            # Route through tool executor
-            with trace_collector.activate(session_id, user_id, purpose="chat_tools"):
-                llm_response, tool_executions = await self._m.tool_executor.execute_with_tools(
-                    messages=conversation_history,
-                    llm_id=session.llm_config_id,
-                    system_message=system_prompt or "",
-                    tool_context=tool_context,
-                    image_data=image_base64,
-                    max_iterations=_MAX_TOOL_ROUNDS,
-                    allowed_tools=allowed_tools,
-                    llm_options=mode.llm_options or None,
-                    iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
-                    deferred_tools=deferred_tools,
-                )
-            transcript = self._list_or_empty(getattr(llm_response, "tool_transcript", None))
-            rounds_used = self._int_or_zero(getattr(llm_response, "rounds_used", 0))
-        else:
-            # Standard path - direct LLM call without tools
-            with trace_collector.activate(session_id, user_id, purpose="chat"):
-                llm_response = await self._m.llm_service.generate_with_history(
-                    messages=conversation_history,
-                    llm_id=session.llm_config_id,
-                    image_data=image_base64,
-                    custom_system_message=system_prompt or None,
-                    options_override=mode.llm_options or None,
-                )
-        # No distinct "answering" phase to time on the buffered path — the whole
-        # LLM round-trip (including any tool loop) is one blocking call, so it is
-        # all recorded as a single "thinking" step.
-        step_records.append({"step": "thinking", "duration_ms": int((time.monotonic() - _thinking_start) * 1000)})
-
-        # Process response through ResponseProcessor (includes CHAT_RESPONSE_TRANSFORM hook)
-        cleaned_content, parsed_content = self._m.response_processor.process(
-            llm_response.content,
-            mode=session.mode
-        )
-
-        # Build assistant message metadata
-        assistant_metadata: Dict[str, Any] = {
-            'model': llm_response.model,
-            'tokens_used': llm_response.tokens_used,
-            'prompt_tokens': llm_response.prompt_tokens,
-            'completion_tokens': llm_response.completion_tokens,
-            'behavior_trace': self._build_behavior_trace(
-                mode=mode,
-                session=session,
-                resolved_resources=resolved_resources,
-                memory_result=memory_result,
-                workspace_result=workspace_result,
-                pre_chat_results=pre_chat_results,
-                tool_executions=tool_executions,
-                rescues=getattr(llm_response, "rescues", None),
-                prompt_tokens=llm_response.prompt_tokens,
-                completion_tokens=llm_response.completion_tokens,
-                steps=step_records,
-                tools_offered=allowed_tools,
-                tools_withheld=withheld_tools,
-                history_info=history_info,
-                image_base64=image_base64,
-                context_ledger=context_ledger,
-                tool_failures=getattr(llm_response, "tool_failures", None),
-                thinking_mode=getattr(llm_response, "thinking_mode", None),
-                completion=getattr(llm_response, "completion", None),
-                tool_tier=tool_tier,
-                tools_deferred=deferred_tools,
-            ),
-        }
-
-        assistant_metadata.update(tool_metadata(tool_executions, transcript, rounds_used, context_metadata))
-
-        # Add assistant message to session
-        assistant_message = self._m.chat_repository.add_message(
-            session_id=session_id,
-            role='assistant',
-            content=cleaned_content,
-            parsed_content=parsed_content,
-            metadata=assistant_metadata,
-        )
-
-        if not assistant_message:
-            raise MessageCreationFailedException("Failed to save assistant message")
-
-        self._backfill_trace_message_id(session_id, assistant_message.id)
-
-        # Execute after_save hook
-        self._m._execute_hook(
-            CHAT_RESPONSE_HOOKS.after_save,
-            {
-                "message_id": assistant_message.id,
-                "session_id": session_id,
-                "content": cleaned_content
-            }
-        )
-
-        # Execute after_send hook
-        self._m._execute_hook(
-            CHAT_MESSAGE_HOOKS.after_send,
-            {
-                "session_id": session_id,
-                "user_id": user_id,
-                "user_message_id": user_message.id,
-                "assistant_message_id": assistant_message.id
-            }
-        )
-
-        logger.debug(f"Message exchange complete in session {session_id}")
-
-        # Fire-and-forget: the frontend picks the new name up on session refetch
-        self._start_title_task(session, session_id)
-        self._start_reflection_task(session_id, (context_metadata or {}).get("form_state"))
-
+        async with aclosing(turn) as events:
+            async for _ in events:
+                pass
+        done = run.done or {}
         return SendMessageResponse(
-            user_message=user_message,
-            assistant_message=assistant_message,
-            resolved_message=resolved_message,
+            user_message=MessageResponse(**done["user_message"]),
+            assistant_message=MessageResponse(**done["assistant_message"]),
+            resolved_message=done.get("resolved_message"),
         )
 
     async def send_message_stream(
@@ -398,32 +120,45 @@ class ConversationRunner:
         is_admin: bool = False,
         continue_from: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Send a message and stream the AI response as an async generator.
+        run = _TurnRun()
+        turn = self._turn(
+            run, session_id, user_id, content, image_data, context_metadata, resources, is_admin, continue_from,
+        )
+        started = False
+        try:
+            async with aclosing(turn) as events:
+                async for event in events:
+                    started = True
+                    yield event
+        except _AssistantNotSaved as e:
+            yield {"event": "error", "data": {"error": "message_creation_failed", "message": str(e)}}
+            return
+        except Exception as e:
+            if not started:
+                raise
+            logger.exception(f"Error during streaming in session {session_id}: {e}")
+            yield {"event": "error", "data": {"error": "stream_error", "message": failure_detail(e, is_admin)}}
+            return
+        if run.title_task is not None:
+            try:
+                title = await asyncio.wait_for(run.title_task, timeout=_TITLE_WAIT_SECONDS)
+                if title:
+                    yield {"event": "title", "data": {"session_id": session_id, "name": title}}
+            except Exception as e:
+                logger.debug(f"Title generation did not complete for session {session_id}: {e}")
 
-        Validation errors (session not found, access denied, etc.) are raised
-        immediately before any yielding. Errors during streaming are yielded as
-        error events.
-
-        Args:
-            session_id: The session ID
-            user_id: The user ID (for ownership verification)
-            content: The message content
-            image_data: Optional image data (path or base64)
-            context_metadata: Optional context metadata
-            continue_from: ``{"message_id", "tool_index"}`` of a resolved tool
-                execution to continue the turn from, instead of a new user message
-
-        Yields:
-            Dicts with 'event' and 'data' keys describing streaming events.
-
-        Raises:
-            SessionNotFoundException: If session not found (before first yield)
-            AccessDeniedException: If user doesn't own the session (before first yield)
-            SessionClosedException: If session is closed (before first yield)
-            InvalidLLMConfigException: If no LLM config set (before first yield)
-            MessageCreationFailedException: If user message creation fails (before first yield)
-        """
-        # --- Validation (raises before any yield) ---
+    async def _turn(
+        self,
+        run: _TurnRun,
+        session_id: str,
+        user_id: str,
+        content: str,
+        image_data: Optional[str],
+        context_metadata: Optional[Dict[str, Any]],
+        resources: Optional[List[str]],
+        is_admin: bool,
+        continue_from: Optional[Dict[str, Any]],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         session = self._m._get_session_or_raise(session_id)
         self._m._verify_ownership(session, user_id)
         self._m._verify_active(session)
@@ -432,58 +167,48 @@ class ConversationRunner:
         if not session.llm_config_id:
             raise InvalidLLMConfigException("Session has no LLM configuration")
 
-        continuation = (
-            self._m._tools.continuation(session_id, continue_from) if continue_from else None
-        )
+        continuing = bool(continue_from)
+        paused: Optional[TurnState] = None
+        approval_execution: Dict[str, Any] = {}
+        if continuing:
+            paused, approval_execution, continued_context = self._m._tools.continuation(session_id, continue_from)
 
-        if continuation is None:
+        if not continuing:
             hook_data, blocked, hook_ctx = self._m._execute_hook(
                 CHAT_MESSAGE_HOOKS.before_send,
-                {
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "content": content,
-                    "image_data": image_data
-                }
+                {"session_id": session_id, "user_id": user_id, "content": content, "image_data": image_data},
             )
             await await_hook_blocking_waits(hook_ctx)
-
             if blocked:
                 reason = hook_data.get("block_reason", "Message blocked")
                 logger.warning(f"Message send blocked by plugin: {reason}")
                 raise MessageCreationFailedException(reason)
-
             content = hook_data.get("content", content)
             image_data = hook_data.get("image_data", image_data)
         else:
             image_data = None
             resources = None
             if context_metadata is None:
-                context_metadata = continuation.context_metadata
+                context_metadata = continued_context
 
-        # Behavior-trace bookkeeping.
-        step_records: List[Dict[str, Any]] = []
+        step_records = run.step_records
 
-        # Snapshot-resolve @resource mentions (never raises; stale refs become error notes)
         if resources:
-            _resource_start = time.monotonic()
+            resource_start = time.monotonic()
             yield {"event": "status", "data": {"step": "resolving_resources", "state": "started"}}
             resolved_resources = await self._m._context.resolve_message_resources(
                 resources, user_id, session.mode, context_metadata, is_admin=is_admin
             )
             step_records.append({
                 "step": "resolving_resources",
-                "duration_ms": int((time.monotonic() - _resource_start) * 1000),
+                "duration_ms": int((time.monotonic() - resource_start) * 1000),
             })
             yield {
                 "event": "status",
                 "data": {
                     "step": "resolving_resources",
                     "state": "completed",
-                    "detail": {
-                        "count": len(resolved_resources),
-                        "uris": [r.uri for r in resolved_resources],
-                    },
+                    "detail": {"count": len(resolved_resources), "uris": [r.uri for r in resolved_resources]},
                 },
             }
         else:
@@ -491,10 +216,19 @@ class ConversationRunner:
                 resources, user_id, session.mode, context_metadata, is_admin=is_admin
             )
 
-        user_message = None
+        user_row = None
         resolved_message = None
-        if continuation is None:
-            user_metadata = {}
+        rejections: List[Any] = []
+        if not continuing:
+            paused = self._m._tools.open_turn(session_id)
+            rejections = rejections_for_reply(paused, content)
+            if rejections:
+                resolved_message = await self._m._tools.mark_rejected_for_reply(session_id, paused, rejections)
+            else:
+                paused = None
+        turn_id = paused.turn_id if paused is not None else new_id("turn")
+        if not continuing:
+            user_metadata: Dict[str, Any] = {}
             if image_data:
                 user_metadata["image_path"] = image_data
             if context_metadata and context_metadata.get("image_url"):
@@ -505,15 +239,14 @@ class ConversationRunner:
                 preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
                 if preset_id:
                     user_metadata["preset_id"] = preset_id
-            resolved_message = await self._m._tools.reject_pending_for_reply(session_id, content)
-            user_message = self._m.chat_repository.add_message(
+            user_row = self._m.chat_repository.add_message(
                 session_id=session_id,
                 role='user',
                 content=content,
                 metadata=user_metadata if user_metadata else None,
+                turn_id=turn_id,
             )
-
-            if not user_message:
+            if not user_row:
                 raise MessageCreationFailedException("Failed to save user message")
 
         await self._prime_context_window(session)
@@ -522,29 +255,32 @@ class ConversationRunner:
         tool_scope = self._m._context.resolve_tool_scope(session, form_state)
         system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
             session, form_state=form_state, tool_tier=tool_tier, scope=tool_scope,
-            loaded_groups=continuation.loaded_groups if continuation else (),
+            loaded_groups=paused.loaded_tool_groups if paused is not None else (),
         )
         tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
-        conversation_history = self._m.chat_repository.get_conversation_history(
-            session_id, include_tool_transcript=tools_enabled,
+        replay_target, replay_profile = self._replay_target(session)
+        conversation_history = replayed_history(
+            self._m.turn_engine.store, self._m.replay_selector, session_id, turn_id,
+            replay_target, replay_profile, tools_enabled=tools_enabled,
         )
+        image_base64 = convert_image_to_base64(image_data)
+        if not continuing:
+            conversation_history.append(user_message(
+                content, images=(image_base64,) if image_base64 else (), message_id=user_row.id,
+            ))
 
-        # Execute before_generate hook
         gen_hook_data, _, _ctx = self._m._execute_hook(
             CHAT_RESPONSE_HOOKS.before_generate,
             {
                 "session_id": session_id,
                 "conversation_history": conversation_history,
-                "llm_config_id": session.llm_config_id
-            }
+                "llm_config_id": session.llm_config_id,
+            },
         )
-        conversation_history = gen_hook_data.get("conversation_history", conversation_history)
+        conversation_history = list(gen_hook_data.get("conversation_history", conversation_history))
+        injected = list(conversation_history) if continuing else conversation_history
 
-        # Tools the mode's prompt describes but this session can't actually call
-        # right now (toggled off, governed off, or unavailable) - without this
-        # the model narrates using a tool it was never given. Computed even when
-        # some tools ARE allowed so a partial set doesn't get promised either.
         withheld_tools = self._m._context.withheld_tools_for_session(
             session, form_state=form_state, scope=tool_scope,
         )
@@ -559,17 +295,14 @@ class ConversationRunner:
                 },
             }
 
-        _memory_start = time.monotonic()
+        memory_start = time.monotonic()
         yield {"event": "status", "data": {"step": "loading_memory", "state": "started"}}
         memory_result = self._m._context.inject_memory_block(
-            conversation_history, context_metadata, user_id,
+            injected, context_metadata, user_id,
             write_memory_available="write_memory" in (allowed_tools or []),
             mode_id=session.mode,
         )
-        step_records.append({
-            "step": "loading_memory",
-            "duration_ms": int((time.monotonic() - _memory_start) * 1000),
-        })
+        step_records.append({"step": "loading_memory", "duration_ms": int((time.monotonic() - memory_start) * 1000)})
         yield {
             "event": "status",
             "data": {
@@ -584,51 +317,57 @@ class ConversationRunner:
             },
         }
 
-        # Cap what actually goes to the LLM to a token budget (repo/UI keep the
-        # full history regardless — see get_conversation_history's docstring).
-        history_info = self._apply_history_budget(conversation_history)
+        history_info = self._apply_history_budget(injected)
+        if continuing:
+            self._apply_history_budget(conversation_history)
 
-        # Inject mode context + @resource snapshot right before the last user
-        # message (contributor, resource, workspace, prompt state, then the
-        # reply-contract reminder last so it lands closest to the user turn —
-        # recency matters for a rule the model must not lose to a long system
-        # prompt) — these run after the budget, same as before, so only the
-        # memory block's size is guaranteed to count against it.
-        await self._m._context.inject_contributor_block(conversation_history, session, context_metadata, user_id)
-        self._m._context.inject_resource_block(conversation_history, resolved_resources)
-
+        await self._m._context.inject_contributor_block(injected, session, context_metadata, user_id)
+        self._m._context.inject_resource_block(injected, resolved_resources)
         offered_tool_names = set(allowed_tools or ()).union(*(deferred_tools or {}).values())
         workspace_result = self._m._context.inject_workspace_block(
-            conversation_history, context_metadata, offered_tools=offered_tool_names,
+            injected, context_metadata, offered_tools=offered_tool_names,
         )
         self._m._context.inject_prompt_state_block(
-            conversation_history, context_metadata, offered_tools=offered_tool_names,
+            injected, context_metadata, offered_tools=offered_tool_names,
             variable_reader=self._m._context.prompt_state_variable_reader(user_id, context_metadata),
         )
-        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
-        self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
-        if continuation is not None:
-            conversation_history.append(approval_continuation_message(continuation.tool_name, continuation.tool_call_id))
+        self._m._context.inject_reply_contract_reminder_block(injected, mode, tool_tier)
+        self._m._context.inject_tool_availability_block(injected, allowed_tools, withheld_tools)
+
+        if not continuing:
+            history, new_messages = self._split_current_user(injected)
+            ledger_messages = [*history, *new_messages]
+        else:
+            history = tuple(conversation_history)
+            note = approval_continuation_message(
+                approval_execution.get("tool_name") or "", approval_execution.get("tool_call_id") or "",
+            )
+            new_messages = (Message(
+                id=f"approval_{approval_execution.get('tool_call_id')}",
+                role=Role.USER,
+                parts=(ContextPart(kind="approval", text=note["content"]),),
+            ),)
+            ledger_messages = [*injected, *new_messages]
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode)
+        settings = Settings.from_options(mode.llm_options)
+        budget_accounting = self._resolve_budget_inputs(session, settings)
         try:
             context_ledger = self._build_context_ledger(
-                system_prompt, tool_schemas, memory_result, conversation_history,
-                accounting=budget_accounting, image_data=image_data,
+                system_prompt, tool_schemas, memory_result, ledger_messages,
+                accounting=budget_accounting,
             )
         except context_budget.ContextBudgetExceededError as e:
             raise ContextBudgetExceededException(str(e)) from e
 
-        # Execute pre-chat actions (e.g., clear ComfyUI VRAM)
         enabled_pre_chat_actions = self._enabled_pre_chat_actions(session.llm_config_id)
         if enabled_pre_chat_actions:
-            _pre_chat_start = time.monotonic()
+            pre_chat_start = time.monotonic()
             yield {"event": "status", "data": {"step": "running_pre_chat", "state": "started"}}
             pre_chat_results = await self._run_pre_chat_actions(session.llm_config_id)
             step_records.append({
                 "step": "running_pre_chat",
-                "duration_ms": int((time.monotonic() - _pre_chat_start) * 1000),
+                "duration_ms": int((time.monotonic() - pre_chat_start) * 1000),
             })
             yield {
                 "event": "status",
@@ -641,29 +380,13 @@ class ConversationRunner:
         else:
             pre_chat_results = await self._run_pre_chat_actions(session.llm_config_id)
 
-        # Convert image path to base64 if needed
-        image_base64 = convert_image_to_base64(image_data)
-
-        # --- Streaming starts here ---
         yield {"event": "message_created", "data": {
-            "user_message_id": user_message.id if user_message else None, "assistant_message_id": "",
+            "user_message_id": user_row.id if user_row else None, "assistant_message_id": "",
         }}
 
-        base_rounds = continuation.rounds_used if continuation else 0
-        full_content = ""
-        tool_executions: List[ToolExecution] = []
-        transcript: List[Dict[str, Any]] = []
-        rounds_used = 0
-        rescues: Optional[List[Dict[str, Any]]] = None
-        tool_failures: Optional[Any] = None
-        thinking_mode: Optional[Dict[str, Any]] = None
-        turn_completion: Optional[Dict[str, Any]] = None
-        usage_data: Dict[str, Any] = {}
-
         show_thinking = config_shows_thinking(self._m.llm_service, session.llm_config_id)
-        thinking = ThinkingCapture(show_thinking)
-
-        _thinking_start = time.monotonic()
+        reasoning = ReasoningCapture(show_thinking)
+        thinking_start = time.monotonic()
         yield {
             "event": "status",
             "data": {
@@ -671,265 +394,194 @@ class ConversationRunner:
                 **({"detail": {"thinking_visible": True}} if show_thinking else {}),
             },
         }
-        _answering_started = False
-        _answering_start = _thinking_start
+        answering_start: Optional[float] = None
+        outcome: Optional[TurnOutcome] = None
 
-        def _release(pieces):
-            nonlocal full_content, _answering_started, _answering_start
-            for piece in pieces:
-                if piece.kind == THINKING:
-                    yield {"event": "thinking", "data": {"content": piece.text, "segment": piece.segment}}
-                elif piece.kind == TEXT:
-                    if not _answering_started:
-                        _answering_start = time.monotonic()
-                        step_records.append({
-                            "step": "thinking",
-                            "duration_ms": int((_answering_start - _thinking_start) * 1000),
-                        })
-                        yield {"event": "status", "data": {"step": "answering", "state": "started"}}
-                        _answering_started = True
-                    full_content += piece.text
-                    yield {"event": "token", "data": {"content": piece.text}}
+        turn_input = TurnInput(
+            session_id=session_id,
+            llm_id=session.llm_config_id,
+            system=system_prompt or None,
+            history=history,
+            new_messages=new_messages,
+            settings=settings,
+            tool_context=(
+                self._m._tools.tool_context(session, user_id, is_admin, context_metadata, mode.id)
+                if tools_enabled else None
+            ),
+            allowed_tools=tuple(allowed_tools) if allowed_tools is not None else None,
+            deferred_tools={group: tuple(names) for group, names in (deferred_tools or {}).items()},
+            max_rounds=_MAX_TOOL_ROUNDS,
+            iteration_nudge=continuation_nudge(mode.structured_reply),
+            mode=mode.id,
+            turn_id=turn_id,
+            tools_in_use=paused.snapshot.tools if paused is not None else self._m.turn_engine.previous_tools(session_id),
+            resume=(tuple(rejections) if rejections else ()) if paused is not None else None,
+        )
 
-        try:
-            if tools_enabled:
-                tool_context = self._m._tools.tool_context(session, user_id, is_admin, context_metadata, mode.id)
+        with trace_collector.activate(session_id, user_id, purpose="chat_tools" if tools_enabled else "chat"):
+            async with aclosing(self._m.turn_engine.run(turn_input)) as events:
+                async for event in events:
+                    if isinstance(event, ReasoningDelta):
+                        for released in reasoning.on_reasoning(event):
+                            yield released
+                        continue
+                    for released in reasoning.close():
+                        yield released
+                    if isinstance(event, TextDelta):
+                        if answering_start is None:
+                            answering_start = time.monotonic()
+                            step_records.append({
+                                "step": "thinking",
+                                "duration_ms": int((answering_start - thinking_start) * 1000),
+                            })
+                            yield {"event": "status", "data": {"step": "answering", "state": "started"}}
+                        yield {"event": "token", "data": {"content": event.text}}
+                    elif isinstance(event, ToolStarted):
+                        yield {"event": "tool_start", "data": {
+                            "tool_name": event.call.name, "arguments": dict(event.call.args or {}),
+                        }}
+                    elif isinstance(event, ToolFinished):
+                        if not getattr(event.record, "skipped", False):
+                            yield {"event": "tool_end", "data": ToolExecutor.tool_end_payload(event.record)}
+                    elif isinstance(event, BudgetExhausted):
+                        yield {"event": "status", "data": {
+                            "step": "tool_budget_exhausted", "state": "completed",
+                            "detail": {"max_iterations": event.max_rounds},
+                        }}
+                    elif isinstance(event, NoticeRaised):
+                        yield {"event": "notice", "data": {
+                            "kind": event.notice.kind.value, "message": event.notice.message,
+                            "detail": dict(event.notice.detail or {}),
+                        }}
+                    elif isinstance(event, StepDiscarded):
+                        yield {"event": "step_discarded", "data": {"seq": event.seq}}
+                    elif isinstance(event, StepCommitted):
+                        step = event.step
+                        if step.message.role is Role.ASSISTANT and step.finish is not None:
+                            yield {"event": "step", "data": {
+                                "seq": step.seq,
+                                "finish": step.finish.value,
+                                "tool_calls": len(step.message.tool_calls()),
+                                "usage": _usage_data(step.usage),
+                            }}
+                    elif isinstance(event, TurnOutcome):
+                        outcome = event
+            for released in reasoning.close():
+                yield released
 
-                with trace_collector.activate(session_id, user_id, purpose="chat_tools"):
-                    # Owns the executor's stream: this generator being closed
-                    # (the caller's subscriber disconnecting, or an exception
-                    # unwinding through it) must close the tool executor's
-                    # stream — which, through its own equivalent scopes,
-                    # reaches the workflow, the turn source and the provider
-                    # — rather than abandon a still-open provider connection.
-                    async with aclosing(self._m.tool_executor.execute_with_tools_stream(
-                        messages=conversation_history,
-                        llm_id=session.llm_config_id,
-                        system_message=system_prompt or "",
-                        tool_context=tool_context,
-                        image_data=image_base64,
-                        max_iterations=max(0, _MAX_TOOL_ROUNDS - base_rounds),
-                        allowed_tools=allowed_tools,
-                        llm_options=mode.llm_options or None,
-                        iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
-                        applied_calls=continuation.applied_calls if continuation else None,
-                        deferred_tools=deferred_tools,
-                    )) as agen:
-                        async for event in agen:
-                            if event["type"] in ("tool_start", "tool_end"):
-                                if event["type"] == "tool_start":
-                                    for released in _release(thinking.flush()):
-                                        yield released
-                                logger.debug(f"[ChatRuntime] Yielding SSE event: {event['type']} - {event['data'].get('tool_name', '')}")
-                                yield {"event": event["type"], "data": event["data"]}
-                            elif event["type"] == "status":
-                                yield {"event": "status", "data": event["data"]}
-                            elif event["type"] == "thinking":
-                                for released in _release(thinking.on_thinking(event["data"]["content"])):
-                                    yield released
-                            elif event["type"] == "thinking_end":
-                                for released in _release(thinking.flush()):
-                                    yield released
-                            elif event["type"] == "token":
-                                for released in _release(thinking.on_token(event["data"]["content"])):
-                                    yield released
-                            elif event["type"] == "done":
-                                for released in _release(thinking.flush()):
-                                    yield released
-                                tool_executions = event["data"]["tool_executions"]
-                                transcript = self._list_or_empty(event["data"].get("tool_transcript"))
-                                rounds_used = self._int_or_zero(event["data"].get("rounds_used"))
-                                rescues = event["data"].get("rescues")
-                                tool_failures = event["data"].get("tool_failures")
-                                thinking_mode = event["data"].get("thinking_mode")
-                                turn_completion = event["data"].get("completion")
-                                if not full_content:
-                                    full_content = event["data"].get("full_content", "")
-                                    if show_thinking:
-                                        full_content = visible_text(full_content)
-                                # Extract token usage from done event
-                                usage_data = {
-                                    "tokens_used": event["data"].get("tokens_used"),
-                                    "prompt_tokens": event["data"].get("prompt_tokens"),
-                                    "completion_tokens": event["data"].get("completion_tokens"),
-                                }
-                if not _answering_started:
-                    # No token was ever emitted (e.g. empty tool-path response) — still
-                    # close out "thinking" and mark "answering" for a consistent trace.
-                    _answering_start = time.monotonic()
-                    step_records.append({
-                        "step": "thinking",
-                        "duration_ms": int((_answering_start - _thinking_start) * 1000),
-                    })
-                    yield {"event": "status", "data": {"step": "answering", "state": "started"}}
-                    _answering_started = True
-            else:
-                # "answering" starts immediately before the token loop — the no-tools
-                # path has no separate tool phase, so "thinking" is effectively instant.
-                _answering_start = time.monotonic()
-                step_records.append({
-                    "step": "thinking",
-                    "duration_ms": int((_answering_start - _thinking_start) * 1000),
-                })
-                yield {"event": "status", "data": {"step": "answering", "state": "started"}}
-                _answering_started = True
-
-                # Stream tokens from LLM (yields dicts with type "token" or "usage")
-                with trace_collector.activate(session_id, user_id, purpose="chat"):
-                    # Owns the gateway's stream — same reasoning as the
-                    # tools-path scope above: this generator closing must
-                    # close the gateway's, reaching the provider's own
-                    # stream rather than abandoning it.
-                    async with aclosing(self._m.llm_service.stream_with_history(
-                        messages=conversation_history,
-                        llm_id=session.llm_config_id,
-                        image_data=image_base64,
-                        custom_system_message=system_prompt or None,
-                        options_override=mode.llm_options or None,
-                    )) as agen:
-                        async for event in agen:
-                            if event["type"] == "thinking":
-                                for released in _release(thinking.on_thinking(event["content"])):
-                                    yield released
-                            elif event["type"] == "token":
-                                for released in _release(thinking.on_token(event["content"])):
-                                    yield released
-                            elif event["type"] == "usage":
-                                usage_data = {
-                                    "tokens_used": event.get("tokens_used"),
-                                    "prompt_tokens": event.get("prompt_tokens"),
-                                    "completion_tokens": event.get("completion_tokens"),
-                                }
-                                thinking_mode = event.get("thinking_mode")
-                                turn_completion = event.get("completion")
-                for released in _release(thinking.flush()):
-                    yield released
-
+        if answering_start is None:
+            answering_start = time.monotonic()
             step_records.append({
-                "step": "answering",
-                "duration_ms": int((time.monotonic() - _answering_start) * 1000),
+                "step": "thinking",
+                "duration_ms": int((answering_start - thinking_start) * 1000),
             })
+            yield {"event": "status", "data": {"step": "answering", "state": "started"}}
+        step_records.append({
+            "step": "answering",
+            "duration_ms": int((time.monotonic() - answering_start) * 1000),
+        })
 
-            # Post-stream: process, save, and notify
-            cleaned_content, parsed_content = self._m.response_processor.process(
-                full_content,
-                mode=session.mode
-            )
+        if outcome is None:
+            raise _AssistantNotSaved("The turn produced no result")
+        usage = outcome.usage if outcome.model_generated else None
+        steps = list(outcome.steps)
+        cleaned_content, parsed_content = self._m.response_processor.process(
+            projection.segment_text(steps), mode=session.mode,
+        )
 
-            assistant_metadata: Dict[str, Any] = {
-                'behavior_trace': self._build_behavior_trace(
-                    mode=mode,
-                    session=session,
-                    resolved_resources=resolved_resources,
-                    memory_result=memory_result,
-                    workspace_result=workspace_result,
-                    pre_chat_results=pre_chat_results,
-                    tool_executions=tool_executions,
-                    rescues=rescues,
-                    prompt_tokens=usage_data.get('prompt_tokens'),
-                    completion_tokens=usage_data.get('completion_tokens'),
-                    steps=step_records,
-                    tools_offered=allowed_tools,
-                    tools_withheld=withheld_tools,
-                    history_info=history_info,
-                    image_base64=image_base64,
-                    context_ledger=context_ledger,
-                    tool_failures=tool_failures,
-                    thinking_mode=thinking_mode,
-                    completion=turn_completion,
-                    tool_tier=tool_tier,
-                    tools_deferred=deferred_tools,
-                    thinking_visible=show_thinking,
-                ),
+        extra: Dict[str, Any] = {
+            'behavior_trace': self._build_behavior_trace(
+                mode=mode,
+                session=session,
+                resolved_resources=resolved_resources,
+                memory_result=memory_result,
+                workspace_result=workspace_result,
+                pre_chat_results=pre_chat_results,
+                tool_executions=list(outcome.executions),
+                rescues=outcome.rescues,
+                prompt_tokens=usage.input_tokens if usage else None,
+                completion_tokens=usage.output_tokens if usage else None,
+                steps=step_records,
+                tools_offered=allowed_tools,
+                tools_withheld=withheld_tools,
+                history_info=history_info,
+                image_base64=image_base64,
+                context_ledger=context_ledger,
+                tool_failures=outcome.tool_failures,
+                thinking_mode=outcome.thinking_mode,
+                completion=outcome.completion,
+                tool_tier=tool_tier,
+                tools_deferred=deferred_tools,
+                thinking_visible=show_thinking,
+            ),
+        }
+        if continuing:
+            extra['continued_from'] = {
+                "message_id": continue_from["message_id"],
+                "tool_index": continue_from["tool_index"],
             }
+        assistant_metadata = projection.assistant_metadata(
+            steps,
+            outcome.state,
+            records={
+                execution.tool_call_id: projection.execution_record(execution)
+                for execution in outcome.executions
+                if execution.tool_call_id
+            },
+            context_metadata=context_metadata,
+            extra=extra,
+        )
 
-            captured_thinking = thinking.segments()
-            if captured_thinking:
-                assistant_metadata['thinking'] = {"segments": captured_thinking}
+        assistant_row = self._m.chat_repository.add_message(
+            session_id=session_id,
+            role='assistant',
+            content=cleaned_content,
+            parsed_content=parsed_content,
+            metadata=assistant_metadata,
+            turn_id=turn_id,
+        )
+        if not assistant_row:
+            raise _AssistantNotSaved("Failed to save assistant message")
 
-            # Include token usage data in metadata
-            if usage_data:
-                assistant_metadata['tokens_used'] = usage_data.get('tokens_used')
-                assistant_metadata['prompt_tokens'] = usage_data.get('prompt_tokens')
-                assistant_metadata['completion_tokens'] = usage_data.get('completion_tokens')
-
-            assistant_metadata.update(
-                tool_metadata(tool_executions, transcript, base_rounds + rounds_used, context_metadata)
-            )
-            if continuation is not None:
-                assistant_metadata['continued_from'] = {
-                    "message_id": continuation.message_id,
-                    "tool_index": continuation.tool_index,
-                }
-
-            assistant_message = self._m.chat_repository.add_message(
-                session_id=session_id,
-                role='assistant',
-                content=cleaned_content,
-                parsed_content=parsed_content,
-                metadata=assistant_metadata if assistant_metadata else None,
-            )
-
-            if not assistant_message:
-                yield {"event": "error", "data": {"error": "message_creation_failed", "message": "Failed to save assistant message"}}
-                return
-
-            self._backfill_trace_message_id(session_id, assistant_message.id)
-
-            # Execute after_save hook
+        self._backfill_trace_message_id(session_id, assistant_row.id)
+        self._m._execute_hook(
+            CHAT_RESPONSE_HOOKS.after_save,
+            {"message_id": assistant_row.id, "session_id": session_id, "content": cleaned_content},
+        )
+        if user_row is not None:
             self._m._execute_hook(
-                CHAT_RESPONSE_HOOKS.after_save,
+                CHAT_MESSAGE_HOOKS.after_send,
                 {
-                    "message_id": assistant_message.id,
                     "session_id": session_id,
-                    "content": cleaned_content
-                }
+                    "user_id": user_id,
+                    "user_message_id": user_row.id,
+                    "assistant_message_id": assistant_row.id,
+                },
             )
 
-            if user_message is not None:
-                self._m._execute_hook(
-                    CHAT_MESSAGE_HOOKS.after_send,
-                    {
-                        "session_id": session_id,
-                        "user_id": user_id,
-                        "user_message_id": user_message.id,
-                        "assistant_message_id": assistant_message.id
-                    }
-                )
+        logger.debug(f"Message exchange complete in session {session_id}")
+        run.title_task = self._start_title_task(session, session_id)
+        self._start_reflection_task(session_id, form_state)
 
-            logger.debug(f"Streaming message exchange complete in session {session_id}")
+        run.done = {
+            "assistant_message": self._presented(assistant_row, turn_id).model_dump(),
+            "user_message": user_row.model_dump() if user_row else None,
+            "resolved_message": resolved_message,
+        }
+        yield {"event": "done", "data": run.done}
 
-            title_task = self._start_title_task(session, session_id)
-            self._start_reflection_task(session_id, (context_metadata or {}).get("form_state"))
-
-            yield {
-                "event": "done",
-                "data": {
-                    "assistant_message": without_streamed_thinking(assistant_message.model_dump()),
-                    "user_message": user_message.model_dump() if user_message else None,
-                    "resolved_message": resolved_message,
-                }
-            }
-
-            if title_task is not None:
-                try:
-                    title = await asyncio.wait_for(title_task, timeout=15)
-                    if title:
-                        yield {"event": "title", "data": {"session_id": session_id, "name": title}}
-                except Exception as e:
-                    logger.debug(f"Title generation did not complete for session {session_id}: {e}")
-
-        except Exception as e:
-            logger.exception(f"Error during streaming in session {session_id}: {e}")
-            yield {"event": "error", "data": {"error": "stream_error", "message": failure_detail(e, is_admin)}}
+    def _presented(self, row: MessageResponse, turn_id: str) -> MessageResponse:
+        store = self._m.turn_engine.store
+        [presented] = projection.present(
+            [row], store.steps_by_turn([turn_id]), store.states([turn_id]), show_thinking=False,
+        )
+        return presented
 
     @staticmethod
-    def _list_or_empty(value: Any) -> List[Dict[str, Any]]:
-        return value if isinstance(value, list) else []
-
-    @staticmethod
-    def _int_or_zero(value: Any) -> int:
-        return value if isinstance(value, int) else 0
+    def _split_current_user(history: List[Message]) -> Tuple[Tuple[Message, ...], Tuple[Message, ...]]:
+        if history and history[-1].role is Role.USER:
+            return tuple(history[:-1]), (history[-1],)
+        return tuple(history), ()
 
     def _start_title_task(self, session: SessionResponse, session_id: str) -> Optional[asyncio.Task]:
         """Start async title generation if the session needs one.
@@ -985,9 +637,12 @@ class ConversationRunner:
         try:
             config = self._m.llm_service.repository.get_configuration(llm_config_id)
             if config is not None:
-                await self._m.llm_service.ensure_context_window(config)
+                await self._m.llm_service.profiles.ensure(config)
         except Exception:
             logger.debug("Could not prime LLM context window", exc_info=True)
+
+    def _replay_target(self, session: SessionResponse) -> Tuple[Origin, CapabilityProfile]:
+        return self._m.llm_service.replay_target(session.llm_config_id)
 
     def _tool_tier(self, session: SessionResponse) -> str:
         llm_config_id = getattr(session, "llm_config_id", None)
@@ -1006,45 +661,23 @@ class ConversationRunner:
     def _resolve_budget_inputs(
         self,
         session: SessionResponse,
-        mode: Optional[ChatMode],
+        settings: Settings,
     ) -> Optional[context_budget.ContextProfile]:
         llm_config_id = getattr(session, "llm_config_id", None)
         if not llm_config_id:
             return None
-        # Best-effort like every other per-turn lookup in this module (memory,
-        # workspace, contributor block): a test double or a not-yet-composed
-        # collaborator standing in for the real LLMGateway/LLMConfig must
-        # degrade to the unknown-capacity/default-reserve/estimate fallback,
-        # never break the send.
         try:
             config = self._m.llm_service.repository.get_configuration(llm_config_id)
             if config is None:
                 return None
-            mode_options = (mode.llm_options or {}) if mode else {}
-            inputs = self._m.llm_service.context_profile_for(config, mode_options or None)
-            int(inputs.reserve_tokens)  # validate now — a non-numeric test double degrades below, not mid-ledger
+            inputs = self._m.llm_service.context_profile_for(config, settings)
+            int(inputs.reserve_tokens)
             return inputs
         except Exception:
             logger.debug("Could not resolve LLM config for context budget", exc_info=True)
             return None
 
-    def _apply_history_budget(
-        self, conversation_history: List[Dict[str, Any]], min_protected: int = 1,
-    ) -> Dict[str, Any]:
-        """Trim `conversation_history` in place to a token budget before it reaches the LLM.
-
-        Uses a chars/4 heuristic per message. Whole units only, oldest
-        dropped first: an assistant tool-call round and its tool results form
-        one unit (see ``context_budget.atomic_units``), so a round is never
-        split. The current turn (the last user message and every round after
-        it) and at least the last ``min_protected`` units are always kept
-        regardless of their combined size. This only affects what's sent to
-        the LLM for this turn — the stored conversation in the repository/UI
-        is untouched.
-
-        Returns the manifest entry recorded into the behavior trace:
-        ``{"messages_sent": n, "messages_total": n, "truncated": bool}``.
-        """
+    def _apply_history_budget(self, conversation_history: List[Message], min_protected: int = 1) -> Dict[str, Any]:
         total = len(conversation_history)
         if total == 0:
             return {"messages_sent": 0, "messages_total": 0, "truncated": False}
@@ -1070,7 +703,7 @@ class ConversationRunner:
             kept_reversed.append(unit)
             used_chars += unit_chars
 
-        kept = [msg for unit in reversed(kept_reversed) for msg in unit]
+        kept = [message for unit in reversed(kept_reversed) for message in unit]
         truncated = len(kept) < total
         if truncated:
             conversation_history[:] = kept
@@ -1078,13 +711,13 @@ class ConversationRunner:
         return {"messages_sent": len(kept), "messages_total": total, "truncated": truncated}
 
     @staticmethod
-    def _unit_chars(unit: List[Dict[str, Any]]) -> int:
-        chars = 0
-        for msg in unit:
-            chars += len(msg.get("content", "") or "")
-            if msg.get("tool_calls"):
-                chars += len(json.dumps(msg["tool_calls"], default=str))
-        return chars
+    def _unit_chars(unit: List[Message]) -> int:
+        return sum(
+            len(fragment)
+            for message in unit
+            for fragments in context_budget.wire_fragments(message)
+            for fragment in fragments
+        )
 
     def _resolve_tool_schemas_for_ledger(
         self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,
@@ -1116,10 +749,9 @@ class ConversationRunner:
         system_prompt: Optional[str],
         tool_schemas: List[Dict[str, Any]],
         memory_result: Dict[str, Any],
-        conversation_history: List[Dict[str, Any]],
+        conversation_history: List[Message],
         *,
         accounting: Optional[context_budget.ContextProfile] = None,
-        image_data: Optional[str] = None,
     ) -> Dict[str, Any]:
         def _size(text: str) -> Dict[str, int]:
             chars = len(text or "")
@@ -1138,7 +770,7 @@ class ConversationRunner:
         memory_chars = (memory_result or {}).get("injected_chars") or 0
         memory_size = {"chars": memory_chars, "est_tokens": memory_chars // 4}
 
-        history_chars = sum(len(m.get("content", "") or "") for m in conversation_history)
+        history_chars = sum(len(fragments[0]) for message in conversation_history for fragments in context_budget.wire_fragments(message))
         history_size = {
             "chars": history_chars,
             "est_tokens": history_chars // 4,
@@ -1148,8 +780,7 @@ class ConversationRunner:
         total_chars = system_prompt_size["chars"] + tool_schemas_size["chars"] + history_size["chars"]
 
         outcome = context_budget.budget_with_profile(
-            accounting, system_message=system_prompt, messages=conversation_history,
-            tool_schemas=tool_schemas, image_data=image_data,
+            accounting, system_message=system_prompt, messages=conversation_history, tool_schemas=tool_schemas,
         )
 
         return {
@@ -1236,21 +867,11 @@ class ConversationRunner:
         trace viewer can answer "was an image attached to this turn" without
         anyone having to read raw request JSON.
 
-        ``tool_failures`` is pass-through from the executor response (see
-        ``execute_with_tools``/``execute_with_tools_stream``), read via
-        ``getattr``/``.get`` with a ``None`` default so a response object that
-        doesn't carry the attribute yet degrades cleanly rather than raising.
-
-        ``thinking_mode`` is the same pass-through for the native provider's
-        explicit thinking-mode outcome (``LLMResponse.thinking_mode`` — see
-        ``NativeLLMClient._chat_template_kwargs``): ``None`` for any provider
-        that doesn't report it.
-
-        ``completion`` is the normalized completion outcome from
-        ``clients.completion`` (``{"reason": ..., "raw": ...}``) — ``None``
-        when the terminal round was a rescue's fallback message rather than a
-        genuine model completion (see ``ToolExecutor``'s "answer"/"budget"
-        guards) or when a provider reported nothing.
+        ``tool_failures``, ``thinking_mode`` and ``completion`` come from the
+        turn engine's ``TurnOutcome``: ``completion`` is ``{"reason": ...,
+        "raw": ...}`` for a model-written answer and ``None`` when the turn
+        ended on a rescue's fallback message or the provider reported nothing;
+        ``thinking_mode`` is ``None`` for any provider that doesn't report it.
 
         ``tools_withheld`` is the reason each of the mode's tools missing from
         ``tools_offered`` was withheld (see

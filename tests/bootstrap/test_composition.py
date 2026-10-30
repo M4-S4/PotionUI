@@ -57,7 +57,8 @@ report = {
         "plugin_registry": c.plugin_controller.registry is c.plugin_registry,
         "runtime_plugins": r.plugins is c.plugin_registry,
         "indexer_plugins": indexer.plugins is c.plugin_registry,
-        "llm_provider_registry": c.llm_service.provider_registry is c.plugin_registry.llm_provider_registry,
+        "llm_provider_registry": c.llm_service.types.provider_registry is c.plugin_registry.llm_provider_registry,
+        "llm_profile_resolver": c.llm_controller.profile_resolver is c.llm_service.profiles,
         "facade_repo": c.generation_history_facade.generation_repo is c.generation_repository,
         "parameter_repository": (
             c.inspiration_collaborators.generation_parameter_repository
@@ -101,7 +102,7 @@ report = {
     "limit_wiring": {
         "orchestrator": c.generation_orchestrator.limit_guard is c.limit_guard,
         "uploads": c.media_controller.manager.limit_guard is c.limit_guard,
-        "editor": c.media_edit_controller.manager.limit_guard is c.limit_guard,
+        "media_tools": c.media_tool_service.publisher.limit_guard is c.limit_guard,
         "library": c.library_collaborators.limit_guard is c.limit_guard,
         "inspirations": c.inspiration_collaborators.limit_guard is c.limit_guard,
         "refunds": c.limit_guard.on_generation_terminal in c.generation_status_tracker._terminal_listeners,
@@ -117,6 +118,28 @@ report = {
         "housekeeping_sweeps_the_container_manager": any(
             t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
         ),
+    },
+    "media_tool_wiring": {
+        "chat_tools_use_the_container_service": c.chat_runtime.tool_services.media_tool_service is c.media_tool_service,
+        "mcp_tools_use_the_container_service": c.mcp_tool_collaborators.services.media_tool_service is c.media_tool_service,
+        "automation_nodes_use_the_container_service": (
+            c.automation_controller.manager.engine.services.media_tool_service is c.media_tool_service
+        ),
+        "the_chat_tool_reads_the_container_catalog": c.tool_registry.get("run_media_tool")._registry is c.media_tool_registry,
+        "automation_services_hold_the_container_catalog": (
+            c.automation_controller.manager.engine.services.media_tool_registry is c.media_tool_registry
+        ),
+        "the_automation_picker_lists_plugin_catalog_tools": any(
+            o["value"] == "trim" for o in __import__("src.features.automation.nodes.actions", fromlist=["x"])._media_tool_options()
+        ),
+        "the_service_reads_the_container_catalog": c.media_tool_service.registry is c.media_tool_registry,
+        "generation_engines_inject_the_container_catalog_into_pipes": (
+            c.backend_registry.generation_engine_factory().media_tools is c.media_tool_registry
+        ),
+    },
+    "turn_store_wiring": {
+        "engine_uses_the_container_store": c.turn_engine._store is c.turn_store,
+        "store_is_the_durable_one": type(c.turn_store).__name__ == "SqliteTurnStore",
     },
     "detected_tags_wired": any(
         pid == "organize_engine"
@@ -237,6 +260,13 @@ def test_the_digest_pool_is_wired_to_the_scanner_and_the_coordinator(report):
 def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):
     assert [k for k, v in report["tab_draft_wiring"].items() if not v] == []
 
+
+def test_chat_mcp_and_automation_run_media_tools_through_the_one_service_and_catalog(report):
+    assert [k for k, v in report["media_tool_wiring"].items() if not v] == []
+
+
+def test_chat_turns_are_stored_durably_by_the_one_container_store(report):
+    assert [k for k, v in report["turn_store_wiring"].items() if not v] == []
 
 def test_organize_listens_to_the_tags_the_media_indexer_announces(report):
     assert report["detected_tags_wired"] is True

@@ -1,0 +1,17 @@
+fields:
+  - name: "manual_sigmas"
+    type: "textbox"
+    label: "Manual Sigmas"
+    ai_hint: "Manual override for the sigma schedule, only relevant when the Speed profile (Generation tab) is Balanced or Custom. A non-empty value replaces the ltx_dynamic resolution-aware schedule the base pass otherwise runs -- only suggest hand-typing it for a CUSTOM schedule no profile covers. Prefer the Distilled speed profile for Lightricks' own distilled sigma recipe."
+    configuration:
+      placeholder: "Comma-separated sigma values, e.g. 1.0, 0.99375, ..., 0.0"
+    default: ""
+    reactions:
+      - when: { field: "speed_profile", equals: "balanced" }
+        then: { set_visibility: true }
+      - when: { field: "speed_profile", equals: "distilled" }
+        then: { set_visibility: false }
+      - when: { field: "speed_profile", equals: "quality" }
+        then: { set_visibility: false }
+      - when: { field: "speed_profile", equals: "custom" }
+        then: { set_visibility: true }

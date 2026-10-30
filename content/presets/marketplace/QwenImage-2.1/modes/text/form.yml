@@ -1,0 +1,33 @@
+prompt_label: "Placement and style"
+prompt_placeholder: "in white capitals at the top"
+name: "custom"
+mode_label: "Edit text"
+short_description: "Replace or add text in an image, optionally only inside a painted box."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/text/tabs/generation.yml"
+      - type: "tab"
+        label: "Image"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/text/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths._shared }}/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/text/tabs/advanced.yml"

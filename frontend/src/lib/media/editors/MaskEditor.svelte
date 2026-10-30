@@ -23,6 +23,7 @@
 	import EditorSaveControls from './EditorSaveControls.svelte';
 	import { EDITOR_ICONS } from './editorIcons';
 	import { loadImage } from './loadImage';
+	import { thresholdMaskPixels } from './maskThreshold';
 	import { canvasPoint, drawSegment } from '$lib/components/imageEditor/raster/brush';
 	import type { EditorCommitFn, MediaEditorSource } from './types';
 
@@ -180,6 +181,10 @@
 		outputContext.fillStyle = 'rgb(0, 0, 0)';
 		outputContext.fillRect(0, 0, output.width, output.height);
 		outputContext.drawImage(canvasElement, 0, 0);
+
+		const painted = outputContext.getImageData(0, 0, output.width, output.height);
+		thresholdMaskPixels(painted.data);
+		outputContext.putImageData(painted, 0, 0);
 
 		commit({ via: 'mask', dataUrl: output.toDataURL('image/png') });
 	}

@@ -165,6 +165,76 @@ class TestUploadRepository(PersistenceTestBase):
     def test_set_thumbnail_paths_nonexistent_id(self):
         self.assertFalse(self.repo.set_thumbnail_paths("does-not-exist", "a", "b", "c"))
 
+    def _replace_args(self, created, **overrides):
+        values = dict(
+            upload_id=created.id,
+            user_id=self.user_id,
+            expected_filename=created.filename,
+            filename="replacement.png",
+            mime_type="image/png",
+            width=10,
+            height=20,
+            duration_seconds=None,
+            fps=None,
+            file_size=99,
+            content_hash="newhash",
+            thumbnail_small="thumbnails/r_small.webp",
+            thumbnail_medium=None,
+            thumbnail_large=None,
+            thumbnail_profile="profile-2",
+        )
+        values.update(overrides)
+        return values
+
+    def test_replace_file_rewrites_file_hash_and_thumbnails_together_keeping_the_row_identity(self):
+        created = self.repo.create(self._upload(
+            thumbnail_small="thumbnails/old_small.webp",
+            thumbnail_medium="thumbnails/old_medium.webp",
+            thumbnail_profile="profile-1",
+            content_hash="oldhash",
+        ))
+
+        updated = self.repo.replace_file(**self._replace_args(created))
+
+        self.assertEqual(updated.id, created.id)
+        self.assertEqual(updated.filename, "replacement.png")
+        self.assertEqual((updated.width, updated.height, updated.file_size), (10, 20, 99))
+        self.assertEqual(updated.content_hash, "newhash")
+        self.assertEqual(updated.thumbnail_small, "thumbnails/r_small.webp")
+        self.assertIsNone(updated.thumbnail_medium)
+        self.assertEqual(updated.thumbnail_profile, "profile-2")
+        self.assertEqual(updated.original_filename, "cat.png")
+        self.assertEqual(updated.media_type, "image")
+
+    def test_replace_file_refuses_when_the_filename_is_no_longer_the_expected_one(self):
+        created = self.repo.create(self._upload(content_hash="oldhash"))
+
+        result = self.repo.replace_file(**self._replace_args(created, expected_filename="someone-else.png"))
+
+        self.assertIsNone(result)
+        untouched = self.repo.get_by_id(created.id, self.user_id)
+        self.assertEqual(untouched.filename, created.filename)
+        self.assertEqual(untouched.content_hash, "oldhash")
+        self.assertEqual(untouched.width, 800)
+
+    def test_replace_file_is_scoped_to_the_owner(self):
+        created = self.repo.create(self._upload())
+
+        result = self.repo.replace_file(**self._replace_args(created, user_id=self.other_user_id))
+
+        self.assertIsNone(result)
+        self.assertEqual(self.repo.get_by_id(created.id, self.user_id).filename, created.filename)
+
+    def test_replace_file_with_a_second_stale_writer_only_lets_the_first_win(self):
+        created = self.repo.create(self._upload())
+
+        first = self.repo.replace_file(**self._replace_args(created, filename="first.png"))
+        second = self.repo.replace_file(**self._replace_args(created, filename="second.png"))
+
+        self.assertEqual(first.filename, "first.png")
+        self.assertIsNone(second)
+        self.assertEqual(self.repo.get_by_id(created.id, self.user_id).filename, "first.png")
+
     def test_get_by_filename_unscoped_ignores_owner(self):
         self.repo.create(self._upload(filename="anyones.png", user_id=self.other_user_id))
 

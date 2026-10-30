@@ -12,7 +12,7 @@ import torch
 
 from src.platform.runtime.native.arch.z_image.model import ZImageDiT
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 # dim must be >= 256: the timestep embedder always emits 256 and the adaLN
 # Linear consumes min(dim, 256). dim 256 / n_heads 4 -> head_dim 64 == sum(axes_dims).

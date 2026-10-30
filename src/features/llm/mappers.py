@@ -46,5 +46,6 @@ def assignment_config_to_response(config: LLMConfig) -> LLMConfigResponse:
         timeout=config.timeout,
         supports_vision=config.supports_vision,
         memory_reflection=config.memory_reflection,
+        show_thinking=config.show_thinking,
         is_default=False,
     )

@@ -11,8 +11,8 @@
 		memory_reflection: boolean;
 		show_thinking: boolean;
 		system_message: string;
-		temperature: number;
-		max_tokens: number;
+		temperature: number | null;
+		max_tokens: number | null;
 		timeout: number;
 		provider_options: Record<string, any>;
 	};
@@ -22,12 +22,13 @@
 	import type { Snippet } from 'svelte';
 	import type { LLMProviderType, NativeCheckpoint, PreChatAction } from '$lib/types/llm';
 	import { api } from '$lib/services/api/index';
+	import * as adminApi from '$lib/services/admin-api';
 	import { Badge, Input, Spinner, Switch } from '$lib/components/ui';
 	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
-	import { baseUrlForType, llmTypeOptions } from './llmTypeOptions';
+	import { baseUrlForType, llmTypeOptions, usesOpenAIOptions } from './llmTypeOptions';
+	import { modelDefaultHint, recommendedSampling } from './llm/llmProfile';
 	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
-	import LLMContextWindow from './llm/LLMContextWindow.svelte';
 
 	/**
 	 * Shared Model / Prompting / Sampling / Capabilities / Ollama Options /
@@ -85,10 +86,6 @@
 			{ value: 'low', label: 'Low' },
 			{ value: 'medium', label: 'Medium' },
 			{ value: 'high', label: 'High' }
-		]},
-		force_prompt_tools: { default: false, type: 'select', label: 'Force Prompt Tools', description: 'Inject tool definitions into system prompt instead of native tool calling. Enable this for models where native tools don\'t work (e.g. Gemma 4).', options: [
-			{ value: false, label: 'Disabled (native)' },
-			{ value: true, label: 'Enabled (prompt injection)' }
 		]}
 	};
 
@@ -224,6 +221,28 @@
 	}
 
 	loadProviderTypes();
+
+	let recommended = $state<Record<string, number>>({});
+
+	async function loadRecommended(id: string) {
+		try {
+			const response = await adminApi.getLLMProfile(id);
+			recommended = response.success && response.data ? recommendedSampling(response.data) : {};
+		} catch {
+			recommended = {};
+		}
+	}
+
+	$effect(() => {
+		recommended = {};
+		if (configId) loadRecommended(configId);
+	});
+
+	function setSampling(key: 'temperature' | 'max_tokens', event: Event) {
+		const raw = (event.currentTarget as HTMLInputElement).value.trim();
+		const parsed = Number(raw);
+		draft[key] = raw === '' || !Number.isFinite(parsed) ? null : parsed;
+	}
 
 	const typeOptions = $derived(llmTypeOptions(providerTypes, draft.type));
 
@@ -371,11 +390,29 @@
 {/snippet}
 
 {#snippet temperatureInput()}
-	<input id="{idPrefix}-temperature" type="number" class="input font-mono tabular-nums" bind:value={draft.temperature} min="0" max="2" step="0.1" />
+	<input
+		id="{idPrefix}-temperature"
+		type="number"
+		class="input font-mono tabular-nums"
+		value={draft.temperature ?? ''}
+		placeholder={modelDefaultHint(recommended.temperature)}
+		min="0"
+		max="2"
+		step="0.1"
+		oninput={(event) => setSampling('temperature', event)}
+	/>
 {/snippet}
 
 {#snippet maxTokensInput()}
-	<input id="{idPrefix}-max-tokens" type="number" class="input font-mono tabular-nums" bind:value={draft.max_tokens} min="1" max="4096" />
+	<input
+		id="{idPrefix}-max-tokens"
+		type="number"
+		class="input font-mono tabular-nums"
+		value={draft.max_tokens ?? ''}
+		placeholder={modelDefaultHint(undefined)}
+		min="1"
+		oninput={(event) => setSampling('max_tokens', event)}
+	/>
 {/snippet}
 
 {#snippet timeoutInput()}
@@ -388,31 +425,6 @@
 		{@render field('Max Tokens', `${idPrefix}-max-tokens`, maxTokensInput)}
 		{@render field('Timeout (s)', `${idPrefix}-timeout`, timeoutInput)}
 	</div>
-{/snippet}
-
-{#snippet contextWindowInput()}
-	<LLMContextWindow
-		id="{idPrefix}-context-window"
-		type={draft.type}
-		model={draft.model}
-		baseUrl={draft.base_url}
-		apiKey={draft.api_key}
-		configId={apiKeySet ? configId : null}
-		value={draft.provider_options.context_window ?? undefined}
-		onchange={(next) => {
-			delete draft.provider_options.num_ctx;
-			setProviderOption('context_window', next, next === undefined);
-		}}
-	/>
-	{#if draft.type === 'ollama'}
-		<p class="text-xs text-fg-subtle mt-1">A bigger window uses more GPU memory, shared with image generation.</p>
-	{/if}
-{/snippet}
-
-{#snippet contextWindowFields()}
-	{@render field('Context window (tokens)', `${idPrefix}-context-window`, contextWindowInput, {
-		help: 'How many tokens a conversation can hold before it is trimmed. Leave blank to detect.'
-	})}
 {/snippet}
 
 {#snippet capabilityFields()}
@@ -603,9 +615,8 @@
 	{@render section('Model', true, modelFields)}
 	{@render section('Prompting', false, promptingFields, promptingHeaderExtra)}
 	{@render section('Sampling', false, samplingFields)}
-	{@render section('Context', false, contextWindowFields)}
 	{@render section('Capabilities', false, capabilityFields)}
-	{#if draft.type === 'openai'}
+	{#if usesOpenAIOptions(draft.type)}
 		{@render section('OpenAI Options', false, openaiFields)}
 	{/if}
 	{#if draft.type === 'ollama'}

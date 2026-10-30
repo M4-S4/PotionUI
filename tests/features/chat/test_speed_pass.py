@@ -18,6 +18,9 @@ from src.features.chat.context_builder import ChatContextBuilder
 from src.features.chat.conversation import ConversationRunner, _DEFAULT_HISTORY_TOKEN_BUDGET
 from tests.fixtures.chat_modes import mode_registry
 from src.features.llm import context_budget
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.build import user_message
+from src.features.llm.harness.legacy import messages_from_dicts
 
 
 def _session(mode="generation", metadata=None):
@@ -247,10 +250,10 @@ class TestFormStateAwareToolAvailability:
 
 class TestApplyHistoryBudget:
     def _history(self, n, content_len=100):
-        return [
+        return messages_from_dicts([
             {"role": "user" if i % 2 == 0 else "assistant", "content": "x" * content_len}
             for i in range(n)
-        ]
+        ])[0]
 
     def _runner(self, get_setting_return=None, get_setting_side_effect=None):
         manager = Mock()
@@ -351,10 +354,10 @@ class TestBuildContextLedger:
         system_prompt = "s" * 40
         tool_schemas = [{"function": {"name": "get_data", "description": "d"}}]
         memory_result = {"injected_chars": 48}
-        history = [
+        history = messages_from_dicts([
             {"role": "user", "content": "a" * 10},
             {"role": "assistant", "content": "b" * 20},
-        ]
+        ])[0]
 
         ledger = ConversationRunner._build_context_ledger(system_prompt, tool_schemas, memory_result, history)
 
@@ -384,7 +387,7 @@ class TestBuildContextLedger:
         method still uses) degrades to the labelled unknown-capacity default
         rather than crashing or silently skipping the new accounting."""
         ledger = ConversationRunner._build_context_ledger(
-            "sys", [], {}, [{"role": "user", "content": "hi"}],
+            "sys", [], {}, [user_message("hi")],
         )
         assert ledger["budget"]["capacity_source"] == "unknown"
         assert ledger["budget"]["capacity_tokens"] == context_budget.UNKNOWN_CAPACITY_TOKENS
@@ -397,7 +400,7 @@ class TestBuildContextLedger:
             counter=lambda t: len(t),
         )
         ledger = ConversationRunner._build_context_ledger(
-            "sys", [], {}, [{"role": "user", "content": "hello"}],
+            "sys", [], {}, [user_message("hello")],
             accounting=accounting,
         )
         budget = ledger["budget"]
@@ -413,7 +416,7 @@ class TestBuildContextLedger:
             messages_counter=lambda system_message, messages, tools: 12,
         )
         ledger = ConversationRunner._build_context_ledger(
-            None, [], {}, [{"role": "user", "content": "hello"}],
+            None, [], {}, [user_message("hello")],
             accounting=accounting,
         )
         budget = ledger["budget"]
@@ -427,13 +430,13 @@ class TestBuildContextLedger:
         )
         with pytest.raises(context_budget.ContextBudgetExceededError):
             ConversationRunner._build_context_ledger(
-                None, [], {}, [{"role": "user", "content": "x" * 500}],
+                None, [], {}, [user_message("x" * 500)],
                 accounting=accounting,
             )
 
     def test_image_attached_is_reflected_in_the_budget_section(self):
         ledger = ConversationRunner._build_context_ledger(
-            "sys", [], {}, [{"role": "user", "content": "hi"}], image_data="base64...",
+            "sys", [], {}, [user_message("hi", images=("base64...",))],
         )
         assert ledger["budget"]["image_tokens"] == context_budget.DEFAULT_IMAGE_TOKEN_ESTIMATE
 
@@ -454,7 +457,7 @@ class TestResolveBudgetInputs:
 
     def test_no_llm_config_id_degrades_to_none(self):
         runner = ConversationRunner(Mock())
-        result = runner._resolve_budget_inputs(self._session(llm_config_id=None), mode=None)
+        result = runner._resolve_budget_inputs(self._session(llm_config_id=None), Settings())
         assert result is None
 
     def test_delegates_to_the_gateways_shared_builder_with_no_mode_options(self):
@@ -467,10 +470,10 @@ class TestResolveBudgetInputs:
         manager.llm_service.context_profile_for.return_value = expected
         runner = ConversationRunner(manager)
 
-        result = runner._resolve_budget_inputs(self._session(), mode=None)
+        result = runner._resolve_budget_inputs(self._session(), Settings())
 
         assert result is expected
-        manager.llm_service.context_profile_for.assert_called_once_with(config, None)
+        manager.llm_service.context_profile_for.assert_called_once_with(config, Settings())
 
     def test_mode_llm_options_is_passed_through_as_options_override(self):
         from types import SimpleNamespace
@@ -483,19 +486,17 @@ class TestResolveBudgetInputs:
             reserve_tokens=512,
         )
         runner = ConversationRunner(manager)
-        mode = SimpleNamespace(llm_options={"max_tokens": 512})
-
-        result = runner._resolve_budget_inputs(self._session(), mode=mode)
+        result = runner._resolve_budget_inputs(self._session(), Settings.from_options({"max_tokens": 512}))
 
         assert result.reserve_tokens == 512
-        manager.llm_service.context_profile_for.assert_called_once_with(config, {"max_tokens": 512})
+        manager.llm_service.context_profile_for.assert_called_once_with(config, Settings(max_tokens=512))
 
     def test_config_lookup_failure_degrades_to_none_never_raises(self):
         manager = Mock()
         manager.llm_service.repository.get_configuration.side_effect = RuntimeError("db down")
         runner = ConversationRunner(manager)
 
-        result = runner._resolve_budget_inputs(self._session(), mode=None)
+        result = runner._resolve_budget_inputs(self._session(), Settings())
 
         assert result is None
 
@@ -513,7 +514,7 @@ class TestResolveBudgetInputs:
         )
         runner = ConversationRunner(manager)
 
-        result = runner._resolve_budget_inputs(self._session(), mode=None)
+        result = runner._resolve_budget_inputs(self._session(), Settings())
 
         assert result is None
 
@@ -526,7 +527,7 @@ class TestResolveBudgetInputs:
         manager.llm_service.repository.get_configuration.return_value = Mock()
         runner = ConversationRunner(manager)
 
-        result = runner._resolve_budget_inputs(self._session(), mode=None)
+        result = runner._resolve_budget_inputs(self._session(), Settings())
 
         assert result is None
 

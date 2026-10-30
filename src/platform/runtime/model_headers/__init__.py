@@ -6,6 +6,8 @@ from .reader import (
     HeaderStatus,
     HeaderView,
     TensorInfo,
+    header_hash,
+    invalid_header_hash,
     read_header,
     read_safetensors_header,
 )
@@ -41,6 +43,8 @@ __all__ = [
     "TensorInfo",
     "Verdict",
     "classify_header",
+    "header_hash",
+    "invalid_header_hash",
     "model_classifier_registry",
     "read_header",
     "read_safetensors_header",

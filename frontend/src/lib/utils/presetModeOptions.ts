@@ -1,6 +1,7 @@
 import type { PresetModeVariant } from '$lib/types/api';
 import { modeLabel } from '$lib/utils/modeLabel.svelte';
 import { hasIcon } from '$lib/utils/IconLibrary';
+import { modeRequirementIssue } from '$lib/utils/modeRequirements';
 
 export interface PresetModeChoice {
 	id: string;
@@ -9,6 +10,7 @@ export interface PresetModeChoice {
 	sourcePlugin?: string | null;
 	description?: string | null;
 	icon?: string | null;
+	requirementsMissing?: string[] | null;
 }
 
 export interface PresetModeOption {
@@ -18,6 +20,7 @@ export interface PresetModeOption {
 	description?: string;
 	marker?: string;
 	markerLabel?: string;
+	issue?: string;
 }
 
 export function presetModeOptions(modes: PresetModeChoice[]): PresetModeOption[] {
@@ -27,6 +30,7 @@ export function presetModeOptions(modes: PresetModeChoice[]): PresetModeOption[]
 		icon: mode.icon && hasIcon(mode.icon) ? mode.icon : undefined,
 		description: mode.description || undefined,
 		marker: mode.sourcePlugin ? '•' : undefined,
-		markerLabel: mode.sourcePlugin ? `contributed by ${mode.sourcePlugin}` : undefined
+		markerLabel: mode.sourcePlugin ? `contributed by ${mode.sourcePlugin}` : undefined,
+		issue: modeRequirementIssue(mode.requirementsMissing)
 	}));
 }

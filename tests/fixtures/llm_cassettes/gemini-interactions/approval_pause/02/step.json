@@ -1,0 +1,159 @@
+{
+  "message": {
+    "id": "a2",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent.",
+        "redacted": false,
+        "opaque": {
+          "signature": "ErgDCrUDAXLI2nxK3dRw8mYhVt1QpNfJc5LsUoZb7GeXa2TiMq9HvDn0AyEkBr4CjFwSlOz6PgIu1Vt3KmYhQdXe8Rb",
+          "summary": [
+            {
+              "type": "text",
+              "text": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent."
+            }
+          ]
+        },
+        "duration_ms": null
+      },
+      {
+        "type": "text",
+        "text": "Two backups are older than a year.",
+        "phase": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "x5n1h7cb",
+        "name": "delete_backup",
+        "args": {
+          "name": "2025-01"
+        },
+        "args_raw": "{\"name\": \"2025-01\"}",
+        "wire_id": "x5n1h7cb",
+        "opaque": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "y9t4j6fe",
+        "name": "delete_backup",
+        "args": {
+          "name": "2025-02"
+        },
+        "args_raw": "{\"name\": \"2025-02\"}",
+        "wire_id": "y9t4j6fe",
+        "opaque": null
+      }
+    ],
+    "origin": {
+      "adapter": "gemini-interactions",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "credential": "a974a864522332e8"
+    },
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "ErgDCrUDAXLI2nxK3dRw8mYhVt1QpNfJc5LsUoZb7GeXa2TiMq9HvDn0AyEkBr4CjFwSlOz6PgIu1Vt3KmYhQdXe8Rb",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent."
+          }
+        ]
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "Two backups are older than a year."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "x5n1h7cb",
+        "name": "delete_backup",
+        "arguments": {
+          "name": "2025-01"
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "y9t4j6fe",
+        "name": "delete_backup",
+        "arguments": {
+          "name": "2025-02"
+        }
+      }
+    ]
+  },
+  "usage": {
+    "input_tokens": 171,
+    "output_tokens": 107,
+    "total_tokens": 278,
+    "reasoning_tokens": 76,
+    "cached_input_tokens": 0,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "total_input_tokens": 171,
+      "input_tokens_by_modality": [
+        {
+          "modality": "text",
+          "tokens": 171
+        }
+      ],
+      "total_cached_tokens": 0,
+      "total_output_tokens": 31,
+      "total_thought_tokens": 76,
+      "total_tool_use_tokens": 0,
+      "total_tokens": 278
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "requires_action",
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "ErgDCrUDAXLI2nxK3dRw8mYhVt1QpNfJc5LsUoZb7GeXa2TiMq9HvDn0AyEkBr4CjFwSlOz6PgIu1Vt3KmYhQdXe8Rb",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Choosing what is stale**\n\nTwo backups are over a year old; the 2026 one is recent."
+          }
+        ]
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "Two backups are older than a year."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "x5n1h7cb",
+        "name": "delete_backup",
+        "arguments": {
+          "name": "2025-01"
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "y9t4j6fe",
+        "name": "delete_backup",
+        "arguments": {
+          "name": "2025-02"
+        }
+      }
+    ]
+  }
+}

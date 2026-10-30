@@ -4,11 +4,6 @@
  * A `<video>` element seeks in seconds and knows nothing about frames, but the
  * thing a user picks is a frame - so the two conversions live here, where the
  * off-by-one that turns "the last frame" into "past the end" can be asserted.
- *
- * `extract_video_frame` (src/features/media/editing/operations.py) refuses a
- * time at or past the duration outright, which makes the final frame the one
- * that is easiest to ask for and easiest to get wrong: it starts at
- * `duration - 1/fps`, not at `duration`.
  */
 
 /** Fallback step for a video whose fps never resolved. */

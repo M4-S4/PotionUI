@@ -27,6 +27,7 @@ from src.features.generation import GenerationHistoryFacade, GenerationDeleteFai
 from src.features.generation.dto import BulkDeleteByCriteriaRequest
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.generation.status_tracker import GenerationRecord
+from src.platform.security.user import AccountType
 from PIL import Image
 from src.features.generation.handlers.image_handler import ImageGenerationOutputHandler
 
@@ -169,6 +170,20 @@ class TestGenerationController:
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail['error'] == "validation_error"
         assert "Invalid preset" in exc_info.value.detail['message']
+
+    @pytest.mark.asyncio
+    async def test_start_generation_validation_error_names_only_the_file_for_a_user(self, controller, sample_generation_request, mock_current_user):
+        leaky = "continuation video '/srv/potion/storage/uploads/clip.mp4' could not be read"
+        controller.generation_orchestrator.start_generation.side_effect = ValueError(leaky)
+        admin = Mock(id="admin-1", account_type=AccountType.ADMIN)
+
+        with pytest.raises(HTTPException) as user_error:
+            await controller.start_generation(sample_generation_request, mock_current_user)
+        with pytest.raises(HTTPException) as admin_error:
+            await controller.start_generation(sample_generation_request, admin)
+
+        assert user_error.value.detail['message'] == "continuation video 'clip.mp4' could not be read"
+        assert admin_error.value.detail['message'] == leaky
 
     @pytest.mark.asyncio
     async def test_start_generation_form_binding_error(self, controller, sample_generation_request, mock_current_user):

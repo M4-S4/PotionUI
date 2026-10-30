@@ -15,9 +15,7 @@
 # Upscale: 1.5x | 2.0x (ports the txt2vid-mode in-flow
 # upscale option onto this mode, now that the standalone txt2vid MODE is
 # retired; `video` (Director) covers plain t2v too, a document with no
-# keyframes) -- the picked Resolution is STAGE 1's resolution (maintainer
-# decision: reject the "LTX workflow" idiom of rendering stage 1 at
-# Resolution/factor and upscaling back UP to the picked Resolution).
+# keyframes) -- the picked Resolution is STAGE 1's resolution.
 # generator_stage1 generates at the plain picked Resolution with
 # decode=false (emits a raw latent, no VAE round trip; its audio decode
 # still runs independently of `decode` -- see the "audio + upscale" note
@@ -88,10 +86,10 @@
 # unlike the plain first/last/keyframe entries, this is the one place the
 # index-alignment contract is enforced by construction rather than by
 # copy-pasted Jinja traversals: `media_images` walks `doc.media` in
-# first -> last -> keyframes-sorted-by-`at` order (image-typed entries only;
-# see the v1 cut note) and THEN appends image-typed `ic_lora[].reference`
-# entries (document order); `media_videos` holds ONLY video-typed
-# `ic_lora[].reference` entries (document order). Each `ic_lora` reference is
+# first -> last -> keyframes-sorted-by-`at` order (image-typed entries only)
+# and THEN appends image-typed `ic_lora[].reference` entries (document
+# order); `media_videos` holds video-typed last/keyframe clips and THEN
+# video-typed `ic_lora[].reference` entries (document order). Each `ic_lora` reference is
 # routed to whichever list matches its OWN media type -- an image reference
 # is a `source: "image"` placement into `media_images`, a video reference is
 # a `source: "video"` placement into `media_videos` -- because the video
@@ -99,24 +97,16 @@
 # `@loop`s below just replay these three precomputed lists verbatim; there is
 # no separate Jinja-side filter to keep in sync.
 #
-# -- v1 cut: image-only keyframe/last media --
-# MediaRef carries an optional `type` (frontend/src/lib/types/tabs.ts).
-# Keyframe clips (video-typed last/keyframe media) are allowed by the
-# document schema and by generator/video_ltx's `media_placements` contract
-# (`source: "image"|"video"`), but wiring a video-typed keyframe through this
-# pipeline would mean interleaving TWO different media_loader outputs into
-# ONE placement's index space depending on its type -- video-typed last/
-# keyframe entries are dropped here (not loaded, not placed) to keep the
-# index math simple. A video-typed 'first' entry is the one exception: a
-# director-timeline shot that continues from its predecessor carries the
-# predecessor's own rendered output video as its 'first' entry (see
-# frontend/src/lib/utils/directorContinuation.ts); derive_ltx_media_fields
-# resolves that to the video's LAST decoded frame and feeds it into
-# media_images exactly like an image-typed 'first', so it never widens
-# generator/video_ltx's index math. IC-LoRA `reference` entries are NOT
-# subject to this cut either -- both image- and video-typed references are
-# routed (see the index-alignment note above). Revisit if keyframe/last
-# video clips become a real feature request.
+# -- video keyframe/last media --
+# With `video_keyframes` declared on the director mode, a video-typed 'last'
+# or 'keyframe' entry is a clip: derive_ltx_media_fields loads it through
+# media_videos (ahead of the IC-LoRA reference clips) and places it with
+# `source: "video"` -- 'last' anchored with `frame: "end"` so the clip ends
+# on the final frame, a keyframe starting at its `at`. A video-typed 'first'
+# is a director-timeline continuation (frontend/src/lib/utils/
+# directorContinuation.ts): derive_ltx_media_fields resolves it to the
+# video's LAST decoded frame and feeds it into media_images like an
+# image-typed 'first'.
 #
 # -- audio routing --
 # doc.audio can only be non-empty in director mode (normalize.py rejects
@@ -189,22 +179,7 @@ pipeline:
             positive: "{{ form.video_director.segments | map(attribute='prompt') | join(' ') }}"
             negative: "{{ form.video_director.segments[0].negative_prompt }}"
       quantity: 1
-      # LTX uses true CFG -> encode the negative pass (guidance_scale > 1).
-      # form.cfg is the Generation tab's visible CFG slider, which the speed
-      # profile's reactions bake to the ACTUAL recipe value (1.0 distilled,
-      # 3.0 quality, whatever the user set for balanced) -- so this is the
-      # SAME source the generator's own cfg/quality_cfg below read, kept in
-      # sync only because there is exactly one visible field now (no more
-      # separate distilled_mode/quality_mode ternaries that could disagree;
-      # see this file's header comment for the identical
-      # per-field-independent-render constraint this mirrors).
-      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
-      # NAG needs the negative pass ENCODED even when true CFG is off, and
-      # both generator stages can request it (stage 2 runs at a hardcoded cfg
-      # 1.0). Without mirroring it here, prompt_encoder._do_cfg() returns
-      # False at cfg 1.0, n_embeds comes back {}, and _attach_nag's
-      # `uncond is None` guard silently drops NAG -- the exact distilled case
-      # NAG exists for.
+      guidance_scale: "{{ ([form.cfg | default(generation.profile.guidance), form.refine_cfg] | max) if (form.upscale) != 'off' else (form.cfg | default(generation.profile.guidance)) }}"
       nag_scale: "{{ form.nag_scale }}"
       negative_applied: "{{ generation.negative_applied }}"
 
@@ -378,8 +353,7 @@ pipeline:
       # file's header comment). Byte-identical to before this option existed
       # on this mode when Upscale is off (factor was always 1.0 there too);
       # differs from the old behavior when Upscale is on, where stage 1 used
-      # to render at Resolution/factor instead (maintainer-rejected "LTX
-      # workflow" idiom).
+      # to render at Resolution/factor instead.
       resolution: "{{ form.resolution }}"
       # duration is required for every LTX Director mode (LTX has no chain
       # mode, so unlike Wan there's no None case) -- `or 0` stays defensive.
@@ -520,17 +494,8 @@ pipeline:
             strength: "{{ item.strength }}"
             role: "{{ item.role }}"
       decode: true
-      # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
-      # pass) and a plain deterministic Euler loop for the refine stage --
-      # see docs/models/ltx.md's distilled-refine section for the citation.
-      cfg: 1.0
-      sampler: "euler"
-      # NAG applies here too, and this is the stage that needs it most: the
-      # cfg 1.0 above means the negative prompt has NO effect on this pass
-      # through the guider, so NAG's attention-level injection is the only
-      # path by which it reaches stage 2 at all. Same three form values as
-      # stage 1 -- one slider governs the whole render, rather than the
-      # control's reach depending on the Upscale setting.
+      cfg: "{{ form.refine_cfg }}"
+      sampler: "{{ form.refine_sampler }}"
       nag_scale: "{{ form.nag_scale }}"
       nag_tau: "{{ form.nag_tau }}"
       nag_alpha: "{{ form.nag_alpha }}"

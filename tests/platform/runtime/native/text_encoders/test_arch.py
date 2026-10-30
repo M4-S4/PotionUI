@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init as ops
-from vendor.gpl.comfyui.ops import manual_cast
+from src.platform.runtime.native.kernels import disable_weight_init as ops
+from src.platform.runtime.native.kernels import manual_cast
 from src.platform.settings import runtime_flags
 from src.platform.runtime.native.text_encoders.clip_l import CLIPLModel
 from src.platform.runtime.native.text_encoders.qwen3 import Qwen3Model

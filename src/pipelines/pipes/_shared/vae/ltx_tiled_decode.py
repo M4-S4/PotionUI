@@ -186,6 +186,26 @@ def _snap(value: int, cell: int, minimum: int) -> int:
     return max(minimum, (value // cell) * cell)
 
 
+def _tile_ladder() -> tuple[tuple[int, ...], tuple[int, ...]]:
+    override_px = int(runtime_flag("native_ltx_decode_tile_px")) or None
+    override_frames = int(runtime_flag("native_ltx_decode_tile_frames")) or None
+    spatial_options = (override_px,) if override_px else _SPATIAL_TILE_LADDER
+    temporal_options = (override_frames,) if override_frames else _TEMPORAL_TILE_LADDER
+    return spatial_options, temporal_options
+
+
+def _tile_decode_gb(vae_module: Any, tile_px: int, tile_frames: int) -> float:
+    _, _, patch_size = _decode_geometry(vae_module)
+    ratio_t = vae_module.temporal_compression_ratio
+    ratio_hw = vae_module.spatial_compression_ratio
+    tokens = tile_frames * (tile_px // patch_size) ** 2
+    latent_cells = (tile_frames // ratio_t) * (tile_px // ratio_hw) ** 2
+    return (
+        tokens * decode_bytes_per_context_token(vae_module)
+        + latent_cells * decode_bytes_per_latent_cell(vae_module)
+    ) / (1024 ** 3)
+
+
 def auto_decode_tile_sizes(
     vae_module: Any, latent: torch.Tensor, budget_gb: Optional[float],
 ) -> Dict[str, int]:
@@ -199,24 +219,13 @@ def auto_decode_tile_sizes(
     ``spatial_compression_ratio``) silently rounds down there; snapping here
     keeps the projection honest about what will actually run.
     """
-    _, _, patch_size = _decode_geometry(vae_module)
     ratio_t = vae_module.temporal_compression_ratio
     ratio_hw = vae_module.spatial_compression_ratio
-
-    override_px = int(runtime_flag("native_ltx_decode_tile_px")) or None
-    override_frames = int(runtime_flag("native_ltx_decode_tile_frames")) or None
-
-    per_token = decode_bytes_per_context_token(vae_module)
-    per_latent_cell = decode_bytes_per_latent_cell(vae_module)
-    spatial_options = (override_px,) if override_px else _SPATIAL_TILE_LADDER
-    temporal_options = (override_frames,) if override_frames else _TEMPORAL_TILE_LADDER
+    spatial_options, temporal_options = _tile_ladder()
 
     chosen_px, chosen_frames = spatial_options[-1], temporal_options[-1]
     for tile_px, tile_frames in zip(spatial_options, temporal_options):
-        tokens = tile_frames * (tile_px // patch_size) ** 2
-        latent_cells = (tile_frames // ratio_t) * (tile_px // ratio_hw) ** 2
-        tile_gb = (tokens * per_token + latent_cells * per_latent_cell) / (1024 ** 3)
-        if budget_gb is None or tile_gb <= budget_gb:
+        if budget_gb is None or _tile_decode_gb(vae_module, tile_px, tile_frames) <= budget_gb:
             chosen_px, chosen_frames = tile_px, tile_frames
             break
 
@@ -235,6 +244,29 @@ def auto_decode_tile_sizes(
     }
 
 
+def min_decode_gb(vae_module: Any, latent: torch.Tensor) -> float:
+    spatial_options, temporal_options = _tile_ladder()
+    return min(
+        estimate_whole_clip_decode_gb(vae_module, latent),
+        _tile_decode_gb(vae_module, spatial_options[-1], temporal_options[-1]),
+    )
+
+
+def decode_fits_beside(vae: Any, latent: torch.Tensor, free_gb: Optional[float]) -> bool:
+    module = vae.module
+    if free_gb is None or not supports_diffusion_tiled_decode(module):
+        return False
+    resident = str(getattr(vae, "device", "") or "").startswith("cuda")
+    vae_gb = 0.0 if resident else float(getattr(vae, "estimated_vram_gb", None) or 0.0)
+    need_gb = min_decode_gb(module, latent)
+    budget_gb = (free_gb - vae_gb) * DECODE_VRAM_BUDGET_FRACTION
+    get_profiler().mark(
+        "ltx.decode_beside", free_gb=round(free_gb, 2), vae_gb=round(vae_gb, 2),
+        need_gb=round(need_gb, 3), budget_gb=round(budget_gb, 2), fits=need_gb <= budget_gb,
+    )
+    return need_gb <= budget_gb
+
+
 def decode_with_oom_retry(
     vae: Any,
     latent: torch.Tensor,
@@ -243,6 +275,7 @@ def decode_with_oom_retry(
     generator: Optional[torch.Generator] = None,
     profiler_mark: str,
     log_prefix: str = "ltx_vae_decode",
+    keep_resident: tuple = (),
 ) -> torch.Tensor:
     """``vae.module.decode(latent)`` with the ladder described in the module
     docstring. ``vae`` is a bundle's ``NativeModel``-shaped VAE component.
@@ -348,7 +381,7 @@ def decode_with_oom_retry(
             "(free_vram=%.2fGB) at latent grid %s -- going straight to TILED decode",
             log_prefix, estimated_gb, budget_gb, free_before, grid,
         )
-        get_residency_registry().offload_all(device, exclude=(vae,))
+        get_residency_registry().offload_all(device, exclude=(vae, *keep_resident))
         clear_gpu_memory()
 
     tile_sizes = auto_decode_tile_sizes(module, latent, budget_gb)
@@ -363,7 +396,18 @@ def decode_with_oom_retry(
     was_tiling = module.use_tiling
     try:
         module.enable_tiling(**tile_sizes)
-        pixels = _do_decode()
+        try:
+            pixels = _do_decode()
+        except RuntimeError as exc:
+            if not keep_resident or not retry_after_cuda_oom(exc):
+                raise
+            logger.warning(
+                "%s: tiled diffusion decode OOM'd beside the kept-resident model(s); "
+                "evicting every foreign GPU-resident component and retrying once", log_prefix,
+            )
+            get_residency_registry().offload_all(device, exclude=(vae,))
+            clear_gpu_memory()
+            pixels = _do_decode()
     except RuntimeError as exc:
         if not retry_after_cuda_oom(exc):
             raise

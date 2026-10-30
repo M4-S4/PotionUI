@@ -41,6 +41,7 @@
 
 	export let source: MediaEditorSource;
 	export let busy: boolean = false;
+	export let allowReplace: boolean = true;
 	export let blockedReason: string | null = null;
 	/** What the editors had to do to give this media a resource, if anything. */
 	export let resourceNote: string | null = null;
@@ -62,10 +63,14 @@
 	let plan: ImageEditPlan = { ...EMPTY_IMAGE_PLAN };
 	let aspectKey = 'free';
 	let image: HTMLImageElement | null = null;
+	let videoSize: { width: number; height: number } | null = null;
 	let loadError: string | null = null;
 	let stageBoxWidth = 0;
 
+	const isVideo = source.kind === 'video';
+
 	onMount(async () => {
+		if (isVideo) return;
 		try {
 			image = await loadImage(source.url);
 		} catch {
@@ -73,9 +78,20 @@
 		}
 	});
 
+	function handleVideoMetadata(event: Event) {
+		const video = event.currentTarget as HTMLVideoElement;
+		if (video.videoWidth > 0 && video.videoHeight > 0) {
+			videoSize = { width: video.videoWidth, height: video.videoHeight };
+		}
+	}
+
+	function handleVideoError() {
+		if (!videoSize) loadError = 'This video could not be opened for editing.';
+	}
+
 	$: sourceSize = image
 		? { width: image.naturalWidth, height: image.naturalHeight }
-		: { width: source.width ?? 0, height: source.height ?? 0 };
+		: (videoSize ?? { width: source.width ?? 0, height: source.height ?? 0 });
 	$: frame = planDisplaySize(plan, sourceSize);
 	$: frameAspect = frame.height > 0 ? frame.width / frame.height : 1;
 	$: output = planOutputSize(plan, sourceSize);
@@ -97,7 +113,7 @@
 	$: imageTransform = `translate(-50%, -50%) scale(${plan.flipHorizontal ? -1 : 1}, ${plan.flipVertical ? -1 : 1}) rotate(${plan.rotation}deg)`;
 
 	$: operations = planToOperations(plan, sourceSize);
-	$: rejection = loadError ?? blockedReason ?? describeRejection(operations, 'image');
+	$: rejection = loadError ?? blockedReason ?? describeRejection(operations, isVideo ? 'video' : 'image');
 
 	function setRect(rect: CropRect) {
 		plan = { ...plan, rect };
@@ -243,13 +259,26 @@
 					class="relative overflow-hidden rounded bg-surface-2"
 					style="width: {stageWidth}px; height: {stageHeight}px;"
 				>
-					<img
-						src={source.url}
-						alt={source.fileName}
-						draggable="false"
-						class="absolute left-1/2 top-1/2 max-w-none select-none"
-						style="width: {imageBoxWidth}px; height: {imageBoxHeight}px; transform: {imageTransform};"
-					/>
+					{#if isVideo}
+						<video
+							src={source.url}
+							muted
+							playsinline
+							preload="metadata"
+							class="absolute left-1/2 top-1/2 max-w-none select-none object-fill pointer-events-none"
+							style="width: {imageBoxWidth}px; height: {imageBoxHeight}px; transform: {imageTransform};"
+							on:loadedmetadata={handleVideoMetadata}
+							on:error={handleVideoError}
+						></video>
+					{:else}
+						<img
+							src={source.url}
+							alt={source.fileName}
+							draggable="false"
+							class="absolute left-1/2 top-1/2 max-w-none select-none"
+							style="width: {imageBoxWidth}px; height: {imageBoxHeight}px; transform: {imageTransform};"
+						/>
+					{/if}
 
 					<!-- The discarded part is dimmed, not hidden: the user is judging
 					     where the cut falls, which needs to be visible on both sides
@@ -389,15 +418,14 @@
 				Reset
 			</button>
 			<p class="text-2xs text-fg-subtle">Drag inside the frame to move it, corners to resize.</p>
-			{#if resourceNote}
-				<p class="text-2xs text-fg-muted">{resourceNote}</p>
-			{/if}
 		</div>
 	</div>
 
 	<svelte:fragment slot="footer">
 		<EditorSaveControls
 			{busy}
+			{allowReplace}
+			note={resourceNote}
 			blockedReason={rejection}
 			{failureMessage}
 			onCancel={onClose}

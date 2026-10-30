@@ -12,7 +12,7 @@ from src.platform.runtime.native.vae.ltx_audio import LTXAudioAutoencoder, LTXVo
 from src.platform.runtime.native.vae.ltx_latent_upsampler import LTXLatentUpsampler
 from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
 from src.platform.runtime.native.vae.loader import _VaeSpec
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 from . import (
     test_ae_2d,

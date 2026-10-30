@@ -52,6 +52,7 @@ async function typePrompt(page: Page, text: string) {
 
 test('the phone deck shows one loader, a literal status and Cancel while a run is live', async ({ page }) => {
 	const sockets: WebSocketRoute[] = [];
+	const subscribed = new Set<string>();
 	const send = (ws: WebSocketRoute, message: object) => ws.send(JSON.stringify(message));
 
 	await page.routeWebSocket(/\/ws\/generation/, (ws) => {
@@ -59,7 +60,10 @@ test('the phone deck shows one loader, a literal status and Cancel while a run i
 		send(ws, { type: 'connection_established', client_id: 'e2e-mock' });
 		ws.onMessage((raw) => {
 			const msg = JSON.parse(raw as string);
-			if (msg.type === 'subscribe_generation') send(ws, { type: 'subscribed', generation_id: msg.generation_id });
+			if (msg.type === 'subscribe_generation') {
+				subscribed.add(msg.generation_id);
+				send(ws, { type: 'subscribed', generation_id: msg.generation_id });
+			}
 		});
 	});
 	await page.route('**/api/generations/start', async (route) => {
@@ -95,6 +99,7 @@ test('the phone deck shows one loader, a literal status and Cancel while a run i
 	await disc.click();
 
 	await expect.poll(() => sockets.length, { timeout: 15000 }).toBeGreaterThan(0);
+	await expect.poll(() => subscribed.has(GENERATION_ID), { timeout: 15000 }).toBe(true);
 	const ws = sockets[sockets.length - 1];
 	send(ws, statusMsg(9));
 

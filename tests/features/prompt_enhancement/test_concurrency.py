@@ -15,14 +15,15 @@ class _TimedLLM:
         self.write_calls = 0
         self.events = []
 
-    async def generate_with_history(self, messages, llm_id, custom_system_message=None, options_override=None, **kwargs):
+    async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
+        custom_system_message = system
         if custom_system_message == operations.CONCEPT_SYSTEM_MESSAGE:
             self.events.append("concepts_start")
             await asyncio.sleep(0.02)
             self.events.append("concepts_end")
-            return SimpleNamespace(content='["fox"]')
+            return SimpleNamespace(text='["fox"]')
         if custom_system_message == operations.IDEATE_SYSTEM_MESSAGE:
-            return SimpleNamespace(content="1. misty dawn\n2. neon night")
+            return SimpleNamespace(text="1. misty dawn\n2. neon night")
         assert custom_system_message == PROMPT_ENHANCEMENT_GUIDELINES
         self.write_calls += 1
         index = self.write_calls
@@ -30,7 +31,7 @@ class _TimedLLM:
         self.max_writes_in_flight = max(self.max_writes_in_flight, self.in_flight)
         await asyncio.sleep(0.03 if index == 1 else 0.005)
         self.in_flight -= 1
-        return SimpleNamespace(content=f"{LONG_PROMPT} variant {index}")
+        return SimpleNamespace(text=f"{LONG_PROMPT} variant {index}")
 
 
 class TestWriteStageConcurrency:
@@ -62,13 +63,14 @@ class TestWriteStageConcurrency:
         calls = []
 
         class _FlatThenGood:
-            async def generate_with_history(self, messages, llm_id, custom_system_message=None, options_override=None, **kw):
+            async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
+                custom_system_message = system
                 if custom_system_message == operations.CONCEPT_SYSTEM_MESSAGE:
-                    return SimpleNamespace(content='["fox"]')
+                    return SimpleNamespace(text='["fox"]')
                 if custom_system_message == operations.IDEATE_SYSTEM_MESSAGE:
-                    return SimpleNamespace(content="1. misty dawn")
-                calls.append(options_override["temperature"])
-                return SimpleNamespace(content="a fox in a forest" if len(calls) == 1 else LONG_PROMPT)
+                    return SimpleNamespace(text="1. misty dawn")
+                calls.append(settings.temperature)
+                return SimpleNamespace(text="a fox in a forest" if len(calls) == 1 else LONG_PROMPT)
 
         events = await run_enhance(make_collaborators(_FlatThenGood()), n_candidates=1)
 
@@ -105,11 +107,12 @@ class TestSiblingCancellation:
             def __init__(self):
                 self.writes = 0
 
-            async def generate_with_history(self, messages, llm_id, custom_system_message=None, options_override=None, **kw):
+            async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
+                custom_system_message = system
                 if custom_system_message == operations.CONCEPT_SYSTEM_MESSAGE:
-                    return SimpleNamespace(content='["fox"]')
+                    return SimpleNamespace(text='["fox"]')
                 if custom_system_message == operations.IDEATE_SYSTEM_MESSAGE:
-                    return SimpleNamespace(content="1. misty dawn\n2. neon night")
+                    return SimpleNamespace(text="1. misty dawn\n2. neon night")
                 self.writes += 1
                 if self.writes == 1:
                     raise RuntimeError("provider down")
@@ -130,11 +133,12 @@ class TestSiblingCancellation:
             pass
 
         class _Failing:
-            async def generate_with_history(self, messages, llm_id, custom_system_message=None, options_override=None, **kw):
+            async def complete(self, llm_id, messages, *, system=None, settings=None, tools=()):
+                custom_system_message = system
                 if custom_system_message == operations.CONCEPT_SYSTEM_MESSAGE:
-                    return SimpleNamespace(content='["fox"]')
+                    return SimpleNamespace(text='["fox"]')
                 if custom_system_message == operations.IDEATE_SYSTEM_MESSAGE:
-                    return SimpleNamespace(content="1. misty dawn")
+                    return SimpleNamespace(text="1. misty dawn")
                 raise _ProviderError("quota")
 
         with pytest.raises(_ProviderError, match="quota"):

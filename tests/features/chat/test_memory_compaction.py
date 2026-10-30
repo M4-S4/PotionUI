@@ -46,12 +46,12 @@ class TestThresholdGating:
     @pytest.mark.asyncio
     async def test_group_at_or_below_threshold_is_not_compacted(self, monkeypatch):
         manager = _manager(monkeypatch, _group(COMPACTION_THRESHOLD))
-        manager.llm_service.generate_with_history = AsyncMock()
+        manager.llm_service.complete = AsyncMock()
         compactor = MemoryCompactor(manager)
 
         await compactor.compact_after_reflection("user-1", "session-1", "llm-1")
 
-        manager.llm_service.generate_with_history.assert_not_called()
+        manager.llm_service.complete.assert_not_called()
         manager.memory_ops.write_note.assert_not_called()
         manager.memory_ops.delete_note.assert_not_called()
 
@@ -59,13 +59,13 @@ class TestThresholdGating:
     async def test_group_above_threshold_triggers_compaction_call(self, monkeypatch):
         manager = _manager(monkeypatch, _group(COMPACTION_THRESHOLD + 1))
         response = Mock()
-        response.content = "[]"
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        response.text = "[]"
+        manager.llm_service.complete = AsyncMock(return_value=response)
         compactor = MemoryCompactor(manager)
 
         await compactor.compact_after_reflection("user-1", "session-1", "llm-1")
 
-        manager.llm_service.generate_with_history.assert_called_once()
+        manager.llm_service.complete.assert_called_once()
 
 
 class TestMergeApplication:
@@ -75,12 +75,12 @@ class TestMergeApplication:
         manager = _manager(monkeypatch, group_notes)
 
         response = Mock()
-        response.content = json.dumps([
+        response.text = json.dumps([
             {"key": "note_0", "content": "note_0 kept as-is, still the same fact"},
             {"key": "merged_a", "content": "merged fact a covering several notes"},
             {"key": "merged_b", "content": "merged fact b covering the rest"},
         ])
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        manager.llm_service.complete = AsyncMock(return_value=response)
 
         def write_note(repo, user_id, key, content, scope, scope_ref=None):
             return LLMMemoryNote(id=f"new-{key}", user_id=user_id, key=key, content=content, scope=scope, scope_ref=scope_ref)
@@ -103,8 +103,8 @@ class TestSafetyRails:
     async def test_malformed_llm_output_leaves_group_untouched(self, monkeypatch):
         manager = _manager(monkeypatch, _group(COMPACTION_THRESHOLD + 1))
         response = Mock()
-        response.content = "not json at all, sorry"
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        response.text = "not json at all, sorry"
+        manager.llm_service.complete = AsyncMock(return_value=response)
         compactor = MemoryCompactor(manager)
 
         await compactor.compact_after_reflection("user-1", "session-1", "llm-1")
@@ -117,11 +117,11 @@ class TestSafetyRails:
         """A 16-note group collapsed to 2 notes looks like dropped facts, not a merge."""
         manager = _manager(monkeypatch, _group(COMPACTION_THRESHOLD + 1))
         response = Mock()
-        response.content = json.dumps([
+        response.text = json.dumps([
             {"key": "only_one", "content": "one note claiming to cover everything"},
             {"key": "only_two", "content": "a second note claiming to cover the rest"},
         ])
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        manager.llm_service.complete = AsyncMock(return_value=response)
         compactor = MemoryCompactor(manager)
 
         await compactor.compact_after_reflection("user-1", "session-1", "llm-1")
@@ -134,10 +134,10 @@ class TestSafetyRails:
         """More items back than the requested target is equally implausible."""
         manager = _manager(monkeypatch, _group(COMPACTION_THRESHOLD + 1))
         response = Mock()
-        response.content = json.dumps([
+        response.text = json.dumps([
             {"key": f"k{i}", "content": f"fact {i}"} for i in range(11)
         ])
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        manager.llm_service.complete = AsyncMock(return_value=response)
         compactor = MemoryCompactor(manager)
 
         await compactor.compact_after_reflection("user-1", "session-1", "llm-1")
@@ -156,9 +156,9 @@ class TestConcurrencyGuard:
         async def _generate(*args, **kwargs):
             calls["n"] += 1
             await hang.wait()
-            return Mock(content="[]")
+            return Mock(text="[]")
 
-        manager.llm_service.generate_with_history = AsyncMock(side_effect=_generate)
+        manager.llm_service.complete = AsyncMock(side_effect=_generate)
         compactor = MemoryCompactor(manager)
 
         task1 = asyncio.create_task(compactor.compact_after_reflection("user-1", "session-1", "llm-1"))

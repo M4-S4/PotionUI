@@ -1,0 +1,69 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "distilled"
+    configuration:
+      options:
+        - { label: "Distilled", value: "distilled", sub_label: "8 steps · CFG off · distilled sigma recipe" }
+        - { label: "Balanced", value: "balanced", sub_label: "24 steps · CFG 4 · needs the dev checkpoint" }
+        - { label: "Quality", value: "quality", sub_label: "30 steps · CFG 3 · multimodal guidance · needs the dev checkpoint" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps · sampler · CFG, left alone" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - type: "row"
+        children: "{{ paths.preset }}/files/form/seed_quantity.yml"
+
+      - name: "duration"
+        type: "slider"
+        label: "Added length (seconds)"
+        default: 5
+        configuration: {min: 1, max: 15, step: 0.5}
+
+      - name: "match_source"
+        type: "checkbox"
+        formula: "size"
+        label: "Match source size and frame rate"
+        ai_hint: "On by default: the new footage takes the source video's resolution and frame rate. Turn off only to render the new part at a different size or rate; it is still fitted to the source's frame when joined."
+        default: true
+
+      - name: "resolution"
+        type: "resolution"
+        formula: "size"
+        label: "Resolution"
+        reactions:
+          - when: { field: "match_source", equals: true }
+            then: { set_visibility: false }
+          - when: { field: "match_source", equals: false }
+            then: { set_visibility: true }
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
+            - { path: "{{ paths._shared }}/resolutions/social_media_video.yml", group: "Social Media" }
+        default: "768x512"
+
+      - name: "fps"
+        type: "slider"
+        formula: "size"
+        label: "FPS"
+        default: 25
+        configuration: {min: 1, max: 60, step: 1}
+        reactions:
+          - when: { field: "match_source", equals: true }
+            then: { set_visibility: false }
+          - when: { field: "match_source", equals: false }
+            then: { set_visibility: true }
+
+      - name: "generate_audio"
+        type: "checkbox"
+        label: "Generate Audio"
+        ai_hint: "Generates sound for the new footage; the source keeps its own sound either way. Needs the Audio VAE picker (Models section) filled."
+        default: false
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_av.yml"

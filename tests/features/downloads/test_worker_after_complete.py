@@ -110,7 +110,7 @@ async def test_fires_after_the_indexer_even_when_indexing_fails(repository, regi
     payload = _after_complete_payload(registry)
     assert payload["model_id"] is None
     assert payload["duplicate_of"] is None
-    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED)
+    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED, None)
 
 
 @pytest.mark.asyncio
@@ -143,7 +143,7 @@ async def test_a_failing_hook_never_fails_the_download(repository, registry):
 
     await _complete(_worker(repository, registry, indexer), _download())
 
-    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED)
+    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED, None)
     assert not any(c.args[1] == DownloadStatus.FAILED for c in repository.update_status.call_args_list)
 
 
@@ -199,7 +199,7 @@ async def test_a_slow_handler_does_not_hold_the_worker(repository, registry, mon
     await _complete(_worker(repository, registry), _download())
 
     assert not finished.is_set()
-    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED)
+    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED, None)
     assert finished.wait(5)
 
 
@@ -209,7 +209,7 @@ async def test_without_a_registry_nothing_is_fired(repository):
 
     await _complete(_worker(repository, None, indexer), _download())
 
-    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED)
+    repository.update_status.assert_any_call('dl-1', DownloadStatus.COMPLETED, None)
 
 
 @pytest.mark.asyncio

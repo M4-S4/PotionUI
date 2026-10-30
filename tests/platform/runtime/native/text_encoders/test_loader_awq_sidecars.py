@@ -29,7 +29,7 @@ torch = pytest.importorskip("torch")
 
 from src.platform.runtime.native.text_encoders.loader import _SPECS  # noqa: E402
 from src.platform.runtime.native.text_encoders.qwen3 import Qwen3Model  # noqa: E402
-from vendor.gpl.comfyui.ops import fp8_ops, pick_operations  # noqa: E402
+from src.platform.runtime.native.kernels import fp8_ops, pick_operations
 
 from .._nvfp4_ref import default_tensor_scale, quantize_nvfp4  # noqa: E402
 

@@ -23,6 +23,6 @@ export interface AuthLayoutState {
 export function resolveAuthLayoutMode(state: AuthLayoutState): AuthLayoutMode {
 	if (state.loading) return 'boot';
 	if (state.isAuthenticated && state.isPublicRoute) return 'redirecting';
-	if (state.mounted && state.isAuthenticated && !state.isPublicRoute) return 'app';
+	if (state.isAuthenticated && !state.isPublicRoute) return state.mounted ? 'app' : 'boot';
 	return 'public';
 }

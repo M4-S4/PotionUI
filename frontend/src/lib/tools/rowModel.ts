@@ -1,0 +1,128 @@
+import type { RecentLook } from '$lib/filters/recentLooks';
+import { applyLookAvailability, editImageAvailability } from './editImage';
+import {
+	listToolGroups,
+	type MediaTool,
+	type MediaToolAvailability,
+	type MediaToolContext,
+	type MediaToolItem,
+	type MediaToolScope
+} from './tools';
+
+export type RowToolAction = 'catalog' | 'edit-image' | 'apply-look';
+
+export interface RowTool {
+	id: string;
+	label: string;
+	icon: string;
+	action: RowToolAction;
+	enabled: boolean;
+	reason: string;
+	note: string;
+	plugin?: boolean;
+	pluginId?: string;
+	lookId?: string;
+	tool?: MediaTool;
+}
+
+export interface RowModel {
+	edit: RowTool[];
+	effects: RowTool[];
+	downloads: RowTool[];
+	plugins: RowTool[];
+}
+
+export function buildRowContext(
+	scope: Extract<MediaToolScope, 'history' | 'library'>,
+	items: MediaToolItem[]
+): MediaToolContext {
+	return {
+		scope,
+		items,
+		kinds: new Set(items.map((item) => item.kind)),
+		collectionId: null,
+		generations: [],
+		generationIds: [],
+		files: [],
+		entry: { status: 'completed', stackCells: null, looseCell: false, error: null }
+	};
+}
+
+function catalogEntry(tool: MediaTool, availability: MediaToolAvailability): RowTool {
+	return {
+		id: tool.id,
+		label: tool.label,
+		icon: tool.icon,
+		action: 'catalog',
+		enabled: availability.enabled,
+		reason: availability.reason ?? '',
+		note: tool.note ?? '',
+		plugin: tool.source === 'plugin',
+		pluginId: tool.pluginId,
+		tool
+	};
+}
+
+export const DOWNLOAD_ICON = 'download';
+
+export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[] = []): RowModel {
+	const core: RowTool[] = [];
+	const pluginEdit: RowTool[] = [];
+	const downloads: RowTool[] = [];
+	const plugins: RowTool[] = [];
+
+	for (const group of listToolGroups(ctx)) {
+		if (group.category.id !== 'edit' && group.category.id !== 'plugins') continue;
+		for (const { tool, availability } of group.tools) {
+			if (availability.hidden) continue;
+			const entry = catalogEntry(tool, availability);
+			if (group.category.id === 'edit') (entry.plugin ? pluginEdit : core).push(entry);
+			else if (tool.icon === DOWNLOAD_ICON && tool.catalogToolId) downloads.push(entry);
+			else if (tool.catalogToolId) plugins.push(entry);
+		}
+	}
+
+	const edit = [...core];
+	const editImage = editImageAvailability(ctx);
+	if (ctx.items.length > 0 && ctx.items.every((item) => item.kind === 'image')) {
+		edit.push({
+			id: 'edit-image',
+			label: 'Edit image',
+			icon: 'paint-brush',
+			action: 'edit-image',
+			enabled: editImage.enabled,
+			reason: editImage.reason ?? '',
+			note: ''
+		});
+	}
+	edit.push(...pluginEdit);
+
+	const look = applyLookAvailability(ctx);
+	const effects: RowTool[] = look.hidden
+		? []
+		: [
+				{
+					id: 'apply-look',
+					label: 'Apply a look…',
+					icon: 'palette',
+					action: 'apply-look',
+					enabled: look.enabled,
+					reason: look.reason ?? '',
+					note: ''
+				},
+				...looks.map(
+					(recent): RowTool => ({
+						id: `look:${recent.id}`,
+						label: recent.name,
+						icon: '',
+						action: 'apply-look',
+						enabled: look.enabled,
+						reason: look.reason ?? '',
+						note: recent.group,
+						lookId: recent.id
+					})
+				)
+			];
+
+	return { edit, effects, downloads, plugins };
+}

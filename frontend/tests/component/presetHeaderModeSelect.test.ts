@@ -210,13 +210,21 @@ describe('Generate header: one-line preset and mode select', () => {
 		]);
 	});
 
-	it('clamps menu descriptions to two lines and widens the menu', async () => {
+	it('clamps menu descriptions to two lines', async () => {
 		await render();
 		await openMenu();
-		const desc = document.body.querySelector('[role="option"] span.text-fg-subtle.block') as HTMLElement;
+		const desc = document.body.querySelector('[role="option"] span.text-fg-subtle') as HTMLElement;
 		expect(desc.className).toContain('line-clamp-2');
-		const menu = document.body.querySelector('[role="listbox"]') as HTMLElement;
-		expect(menu.style.width).toBe('276px');
+		expect(document.body.querySelector('[role="dialog"][aria-label="Choose mode"]')).not.toBeNull();
+	});
+
+	it('uses the preset picker option style: selected row is signal tinted with a check, not a bordered list', async () => {
+		await render();
+		const options = await openMenu();
+		expect(options[0].className).toContain('picker-row');
+		expect(options[0].className).toContain('is-current');
+		expect(options[0].querySelector('svg.text-signal')).not.toBeNull();
+		expect(options[1].className).not.toContain('is-current');
 	});
 
 	it('marks the selected option and shows the plugin dot on option and trigger', async () => {
@@ -242,15 +250,25 @@ describe('Generate header: one-line preset and mode select', () => {
 		expect(document.body.querySelector('[role="listbox"]')).toBeNull();
 	});
 
-	it('keyboard: arrows move and Enter selects', async () => {
-		const handlers = await render();
+	it('keyboard: ArrowDown opens, focus starts on the selected option and arrows move it', async () => {
+		await render();
 		trigger().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
 		await tick();
-		trigger().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+		flushSync();
+		await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+		const options = Array.from(document.body.querySelectorAll<HTMLElement>('[role="option"]'));
+		expect(document.activeElement).toBe(options[0]);
+		options[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+		expect(document.activeElement).toBe(options[1]);
+	});
+
+	it('Escape closes the menu', async () => {
+		await render();
+		await openMenu();
+		document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 		await tick();
-		trigger().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-		await tick();
-		expect(handlers.onModeChange).toHaveBeenCalledWith('enhance');
+		flushSync();
+		expect(document.body.querySelector('[role="listbox"]')).toBeNull();
 	});
 
 	it('hides the mode select for a single-mode preset but keeps the rest of the row', async () => {
@@ -265,7 +283,7 @@ describe('Generate header: one-line preset and mode select', () => {
 		await tick();
 		flushSync();
 		const mode = target.querySelector('[data-testid="preset-header-mode"]') as HTMLElement;
-		expect(mode.className).toContain('w-[148px]');
+		expect(mode.className).toContain('w-[168px]');
 		expect(mode.className).toContain('flex-shrink-0');
 		expect(trigger().textContent).not.toContain('Generate an image');
 	});
@@ -278,7 +296,7 @@ describe('Generate header: one-line preset and mode select', () => {
 		const mode = target.querySelector('[data-testid="preset-header-mode"]') as HTMLElement;
 		const picker = target.querySelector('[data-testid="preset-header-picker"]') as HTMLElement;
 		expect(mode.className).not.toContain('basis-full');
-		expect(mode.className).toContain('w-[148px]');
+		expect(mode.className).toContain('w-[168px]');
 		expect(picker.className).toContain('flex-1');
 		expect(picker.className).toContain('min-w-0');
 		expect(hasGlyph(trigger(), 'image')).toBe(true);

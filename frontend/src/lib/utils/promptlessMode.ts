@@ -15,8 +15,28 @@ export function isPromptlessMode(
 	mode: string | null | undefined,
 	formData?: Record<string, unknown> | null
 ): boolean {
+	return listsMode(presetVars, 'promptless_modes', mode, formData);
+}
+
+export function isOptionalPromptMode(
+	presetVars: Record<string, unknown> | null | undefined,
+	mode: string | null | undefined,
+	formData?: Record<string, unknown> | null
+): boolean {
+	return (
+		listsMode(presetVars, 'optional_prompt_modes', mode, formData) &&
+		!isPromptlessMode(presetVars, mode, formData)
+	);
+}
+
+function listsMode(
+	presetVars: Record<string, unknown> | null | undefined,
+	key: string,
+	mode: string | null | undefined,
+	formData?: Record<string, unknown> | null
+): boolean {
 	if (!mode || !presetVars) return false;
-	const modes = presetVars.promptless_modes;
+	const modes = presetVars[key];
 	if (!Array.isArray(modes)) return false;
 	return modes.some((entry) => {
 		if (typeof entry === 'string') return entry === mode;

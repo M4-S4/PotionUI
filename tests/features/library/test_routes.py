@@ -158,6 +158,53 @@ class TestLibraryRoutes(LibraryRoutesTestBase):
 
         self.assertEqual(response.json()["data"]["media_types"], {"image": 1, "video": 1})
 
+    def test_facets_count_favorites_only_when_asked(self):
+        favorite = self._upload(filename="a.png", media_type="image")
+        self._upload(filename="b.png", media_type="image")
+        self._upload(filename="c.mp4", media_type="video")
+        self.client.put(f"/api/library/items/{favorite.id}/favorite", json={"is_favorite": True})
+
+        response = self.client.get("/api/library/facets", params={"favorites_only": "true"})
+
+        self.assertEqual(response.json()["data"]["media_types"], {"image": 1})
+        everything = self.client.get("/api/library/facets")
+        self.assertEqual(everything.json()["data"]["media_types"], {"image": 2, "video": 1})
+
+
+class TestLibraryFacetViews(LibraryRoutesTestBase):
+
+    def _in_collection(self, upload):
+        from src.platform.util.ids import generate_ulid
+        collection_id = generate_ulid()
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO collections (id, name, user_id, scope) VALUES (?, ?, ?, 'library')",
+                (collection_id, "Folder", self.user_id),
+            )
+            cursor.execute(
+                "INSERT INTO collection_uploads (collection_id, upload_id) VALUES (?, ?)",
+                (collection_id, upload.id),
+            )
+        return collection_id
+
+    def test_facets_count_a_collection_view(self):
+        inside = self._upload(filename="in.png", media_type="image")
+        self._upload(filename="out.mp4", media_type="video")
+        collection_id = self._in_collection(inside)
+
+        response = self.client.get("/api/library/facets", params={"collection_id": collection_id})
+
+        self.assertEqual(response.json()["data"]["media_types"], {"image": 1})
+
+    def test_facets_count_the_unsorted_view(self):
+        inside = self._upload(filename="in.png", media_type="image")
+        self._upload(filename="out.mp4", media_type="video")
+        self._in_collection(inside)
+
+        response = self.client.get("/api/library/facets", params={"unsorted": "true"})
+
+        self.assertEqual(response.json()["data"]["media_types"], {"video": 1})
+
 
 class TestLibraryDeleteByCriteriaRoutes(LibraryRoutesTestBase):
 

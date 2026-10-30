@@ -1,0 +1,151 @@
+pipeline:
+  - name: "model_loader/minimax_h3"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+            audio: "{{ item.audio | default(true) }}"
+
+  - name: "media_loader"
+    id: "references"
+    enabled: true
+    configuration:
+      validate_files: true
+      media:
+        - type: "image"
+          path: "{{ form.portrait }}"
+
+  - name: "media_loader"
+    id: "reference_audios"
+    enabled: true
+    configuration:
+      validate_files: true
+      media:
+        - type: "audio"
+          path: "{{ form.voice }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader", "text_encoder"]
+      - ["reference_image", "references", "image"]
+      - ["reference_audio", "reference_audios", "audio"]
+      - ["vae", "model_loader", "video_vae"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: &document >-
+          {% set prompt = ((item.positive if item is defined else generation.prompts.first.positive) | default('', true)) | trim %}subject_definitions: <Subject 1> is the person in <Picture 1>.
+          summary: [reference generation] + [audio reuse] <Subject 1> speaks with the voice of <Audio 1>.
+          retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - face, hair and outfit match <Picture 1>. <Audio 1>: fully_copy - the speech is reused exactly, with lip movement in sync.
+          detailed_description: Natural, realistic footage. [Shot 1] {{ prompt if prompt else 'A medium close-up of <Subject 1> facing the camera, with natural head motion and facial expression.' }} <Subject 1> (S1) {% if form.words %}says, "<d>{{ form.words }}</d>"{% else %}speaks the words of <Audio 1>{% endif %}, with lip movement in sync with the voice.
+          overall_soundscape: Soft room tone.
+          non_diegetic_music: N/A
+        output: *document
+      pairs:
+        "@loop":
+          items: "{{ generation.prompts.pairs }}"
+          template:
+            positive: *document
+            negative: ""
+      quantity: "{{ form.quantity }}"
+      guidance_scale: 1.0
+      reference_video_frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["max_seconds", "{{ form.max_seconds }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["speed_profile", "{{ form.speed_profile }}"]
+        - ["fps", "{{ preset.vars.fps }}"]
+
+  - name: "generator/video_minimax_h3"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["reference_images", "references", "image"]
+      - ["reference_audios", "reference_audios", "audio"]
+      - ["audio", "reference_audios", "audio"]
+    enabled: true
+    configuration:
+      mode: "references"
+      references: ["{{ form.portrait }}"]
+      reference_audios: ["{{ form.voice }}"]
+      length_from: "reference_audio"
+      audio_source: "file"
+      resolution: "auto"
+      frames: "{{ (form.max_seconds * preset.vars.fps) | round(0, 'floor') | int }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      quantity: "{{ form.quantity }}"
+      preview: "{{ form.preview }}"
+      decode: true
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      sparse_attn: "{{ form.sparse_attn }}"
+      sol_attn_tau: "{{ form.sol_attn_tau }}"
+      sla_sparsity: "{{ form.sla_sparsity }}"
+      sla_block_size: "{{ form.sla_block_size | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps }}"
+      sampler: "{{ form.sampler }}"
+      scheduler: "{{ form.scheduler }}"
+      manual_sigmas: "{{ form.manual_sigmas }}"
+      manual_audio_sigmas: "{{ form.manual_audio_sigmas }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "generator", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

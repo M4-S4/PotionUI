@@ -1,0 +1,13 @@
+version: 1
+sources:
+  vllm-reasoning-outputs: https://docs.vllm.ai/en/latest/features/reasoning_outputs.html
+rows:
+  - id: vllm
+    source: [vllm-reasoning-outputs]
+    adapters: [openai-chat]
+    servers: [vllm]
+    fields:
+      parallel_tools: true
+      tool_choice: [auto, none, required, named]
+      reasoning_field: reasoning
+      cache: local_prefix

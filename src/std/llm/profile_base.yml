@@ -1,0 +1,33 @@
+version: 1
+base:
+  fields:
+    context_window: null
+    context_request: null
+    max_output_tokens: null
+    tools: true
+    prompt_tools: false
+    parallel_tools: false
+    tool_choice: [auto]
+    tool_choice_with_reasoning: [auto]
+    strict_tools: false
+    tool_id_rule: passthrough
+    structured_output: prompted
+    reasoning: none
+    reasoning_levels: []
+    reasoning_toggle: null
+    reasoning_field: null
+    server: null
+    replay: send_all
+    replay_required_with_tools: false
+    reasoning_prefix_bound: false
+    interleaved_reasoning: false
+    vision: false
+    max_images: 1
+    tool_result_media: false
+    sampling_rejected: []
+    sampling_ignored_with_reasoning: []
+    recommended_sampling: {}
+    cache: none
+    cache_min_tokens: null
+    prices: null
+    verified: null

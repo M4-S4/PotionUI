@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from src.features.generation.failure import is_video_request, scope_error_payload, scope_status
+from src.features.generation.failure import is_video_request, scope_error_payload, scope_live_message, scope_status
 from src.features.generation.handlers.error_handler import admin_error_fields
 from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.output_types import output_type_registry
@@ -56,6 +56,10 @@ class GenerationOutputBroadcaster:
         )
 
     @staticmethod
+    def _report_only(output: GenerationOutput, message: dict) -> bool:
+        return message.get('type') == 'pipe_artifact' and not output_type_registry.is_live_artifact(output)
+
+    @staticmethod
     def _is_video(generation_id: str) -> bool:
         try:
             generation = generation_repo.get_by_id(generation_id)
@@ -85,13 +89,15 @@ class GenerationOutputBroadcaster:
             except Exception:
                 logging.exception(f"Failed to record run report output for {generation_id}")
 
-            if not has_subscribers:
+            if not has_subscribers or self._report_only(output, message):
                 return
 
             privileged_message = None
             if isinstance(output, ErrorGenerationOutput):
                 privileged_message = {**message, **admin_error_fields(output)}
                 message = scope_error_payload(message, False, self._is_video(generation_id))
+            elif (viewer_message := scope_live_message(message, False)) is not message:
+                privileged_message, message = message, viewer_message
 
             await self.connection_hub.broadcast_to_generation(generation_id, message, privileged_message)
 

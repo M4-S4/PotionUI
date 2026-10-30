@@ -64,7 +64,7 @@ class TestRequirementsEligibility:
     async def test_backend_with_no_hard_miss_is_kept(self):
         candidates = _candidates("comfy_a", "comfy_b")
         cache = Mock()
-        cache.peek_backend_missing.side_effect = lambda registry, preset, backend_id: (
+        cache.peek_backend_missing.side_effect = lambda registry, preset, backend_id, mode=None: (
             [] if backend_id == "comfy_a" else ["FaceDetailer node"]
         )
         ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
@@ -182,6 +182,30 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         assert "16 GB" in by_id["native-local"].reasons[-1]
         assert not by_id["native-remote-1"].dropped
         assert by_id["native-remote-1"].reasons[-1] == "requirements satisfied"
+
+    @pytest.mark.asyncio
+    async def test_a_mode_scoped_miss_only_drops_for_that_mode(self):
+        preset = _preset_mock(
+            "native-preset", [{"type": "vram_min_gb", "gb": 16, "mode": "colorize"}]
+        )
+        gpu_monitor = _FakeGpuMonitor(total_vram_mb=8 * 1024, device_identity=_identity("local"))
+        local_info = RequirementBackendInfo(
+            id="native-local", engine="native", driver="native",
+            execution_device=ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0, identity=_identity("local")),
+        )
+        host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
+        backend_ctxs = {"native-local": build_requirement_context_for_backend(preset, None, gpu_monitor, local_info)}
+        cache = RequirementsCache()
+        await cache.get_or_evaluate_for_backends(requirement_checker_registry, preset, host_ctx, backend_ctxs)
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+
+        async def route(mode):
+            request = RoutingRequest(engine="native", preset=preset, form_data={}, mode=mode)
+            return (await RequirementsEligibility().apply(_candidates("native-local"), request, ctx))[0]
+
+        assert (await route("colorize")).dropped
+        assert not (await route("txt2img")).dropped
+        assert not (await route(None)).dropped
 
     @pytest.mark.asyncio
     async def test_unestablished_execution_device_backend_is_kept_not_excluded(self):

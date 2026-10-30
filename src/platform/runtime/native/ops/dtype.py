@@ -17,9 +17,10 @@ import logging
 
 import torch
 
-logger = logging.getLogger(__name__)
+from src.platform.runtime.native.io.quant_formats import FP8_DTYPES
+from src.platform.runtime.native.kernels import capabilities
 
-_FP8_DTYPES = {torch.float8_e4m3fn, torch.float8_e5m2}
+logger = logging.getLogger(__name__)
 
 # Per-tensor quant scale sidecars — legitimately f32 alongside fp8/bf16 weights,
 # so they must NOT count toward the mixed-precision test.
@@ -48,12 +49,11 @@ def is_mixed_precision(sd: dict[str, torch.Tensor]) -> bool:
 
 def _supports_bf16(device: torch.device) -> bool:
     if device.type != "cuda":
-        # CPU bf16 works for correctness (slow); treat as supported.
         return True
-    if not torch.cuda.is_available():
+    snapshot = capabilities()
+    if not snapshot.devices:
         return True
-    major, _ = torch.cuda.get_device_capability(device)
-    return major >= 8  # Ampere and newer
+    return snapshot.device(device).at_least(8)
 
 
 def pick_dtypes(
@@ -70,7 +70,7 @@ def pick_dtypes(
     device = torch.device(device)
     compute_dtype = torch.bfloat16 if _supports_bf16(device) else torch.float16
 
-    if sd_dtype in _FP8_DTYPES:
+    if sd_dtype in FP8_DTYPES:
         storage_dtype = sd_dtype  # keep fp8, dequant on forward
     elif sd_dtype in (torch.bfloat16, torch.float16):
         storage_dtype = sd_dtype

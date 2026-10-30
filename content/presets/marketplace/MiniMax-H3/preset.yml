@@ -49,6 +49,10 @@ configuration:
     type: "model_tags"
     label: "Latent upscaler tags"
     description: "Only models with any of these tags appear in the Latent Upscaler picker."
+  matting_tags:
+    type: "model_tags"
+    label: "Matting model tags"
+    description: "Only models with any of these tags appear in the Matting Model picker."
 
 # Selectable speed profiles (docs/presets.md "Speed profiles"), same pattern as
 # presets/native/LTX-2 and presets/native/Krea2. Each profile bakes the ACTUAL
@@ -97,9 +101,13 @@ vars:
   # so this is a constant the pipeline reports rather than a knob.
   fps: 24
   default_frames: 124
+  optional_prompt_modes: ["talk", "upscale"]
 
   prompt:
     segment_join: "paragraph"
+    modes:
+      remix: { segment_templates: [] }
+      talk: { segment_templates: [] }
     segment_templates:
       - name: "H3 prompt document"
         description: "The three labeled fields MiniMax-H3 was trained on, in order."
@@ -370,6 +378,26 @@ llm:
         reused, state the copy/reference relationship only in the section matching
         the audible layer.
 
+    remix:
+      guide: |
+        Remix video mode: the preset writes the structured request itself from the
+        source video and any pictures, so never write the three-field or
+        six-section document here. The prompt is required: one or two plain
+        English sentences saying what should be different in the re-created video,
+        describing the result rather than the edit steps ("it is snowing and the
+        street is at night"). The source video's camera movement, motion and
+        timing are kept.
+
+    talk:
+      guide: |
+        Talking portrait mode: the preset writes the structured request itself from
+        the portrait and the voice clip, so never write the three-field or
+        six-section document here. The prompt is optional plain English for the
+        scene: framing, place, mood and how the person moves while speaking
+        ("talking to the camera in a cafe"). Leave it empty for a medium close-up
+        facing the camera. What the person says comes from the voice clip and the
+        Words field, never from the prompt.
+
     upscale:
       guide: |
         Utility mode -- upscales and refines an EXISTING MiniMax-H3 video, not a
@@ -494,6 +522,10 @@ modes:
   - video
   - refs
   - upscale
+  - refine_faces
+  - extend
+  - remix
+  - talk
 
 media:
   cover: "public/cover-h35m40se.webm"

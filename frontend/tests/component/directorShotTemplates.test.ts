@@ -158,11 +158,15 @@ function mountStageBeat(context?: Map<string, unknown>) {
 
 async function openTemplateModal(target: HTMLElement) {
 	await settleFlush();
-	const templateButton = Array.from(target.querySelectorAll('button')).find(
-		(button) => button.textContent?.trim() === 'Templates'
+	const library = target.querySelector('button[aria-label="Library"]') as HTMLButtonElement | null;
+	if (!library) throw new Error('no Library menu found in StageBeat render');
+	library.click();
+	await settleFlush();
+	const templateItem = Array.from(document.body.querySelectorAll('[role="menu"] [role="menuitem"]')).find((item) =>
+		item.textContent?.trim().startsWith('Templates')
 	) as HTMLButtonElement | undefined;
-	if (!templateButton) throw new Error('no Apply a Segment Template button found in StageBeat render');
-	templateButton.click();
+	if (!templateItem) throw new Error('no Templates item found in the Library menu');
+	templateItem.click();
 	await settleFlush();
 }
 

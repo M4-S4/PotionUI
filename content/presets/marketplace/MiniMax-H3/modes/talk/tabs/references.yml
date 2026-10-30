@@ -1,0 +1,21 @@
+fields:
+  - name: "portrait"
+    type: "image"
+    label: "Portrait"
+    required: true
+    description: "Who speaks."
+    ai_hint: "A clear picture of the person who speaks. The video takes this picture's aspect ratio."
+  - name: "voice"
+    type: "audio"
+    label: "Voice"
+    required: true
+    description: "The speech to lip-sync."
+    ai_hint: "The speech the person says, reused exactly. The video is as long as this clip, up to Max length."
+  - name: "words"
+    type: "string"
+    label: "Words"
+    description: "Optional transcript of the voice clip."
+    ai_hint: "What the voice clip says, verbatim. It helps the lips match; leave empty if unknown."
+    configuration:
+      input_type: "textarea"
+      rows: 2

@@ -13,14 +13,17 @@ capabilities:
 llm_providers:
   - type: "deepseek"
     label: "DeepSeek"
-    backend: "backend.client:DeepSeekClient"
+    backend: "backend.adapter:DeepSeekAdapter"
     default_base_url: "https://api.deepseek.com"
+
+llm_profiles:
+  - path: "profiles"
 
 settings:
   - name: "thinking"
     type: "select"
     label: "Thinking"
-    description: "Auto lets DeepSeek reason before it answers when a request offers no tools (prompt enhancement, plain generation) and turns reasoning off as soon as tools are involved, because DeepSeek refuses tool conversations whose earlier reasoning is not sent back. Off never reasons."
+    description: "Auto: reasons before answering. In a tool conversation it reasons only while every earlier assistant turn still has its reasoning to send back. Off: never."
     default: "auto"
     options:
       - value: "auto"

@@ -10,6 +10,7 @@ from src.features.backends.native_backend import NativeBackend
 from src.features.backends.native_hardware import detect_native_hardware_defaults
 from src.platform.runtime.native.memory import residency
 from src.platform.runtime.native.memory.residency import module_size_gb, run_text_encode
+from tests.fixtures.kernel_capabilities import ada, fake_capabilities
 from tests.platform.runtime.native import _review_fit_layouts as L
 
 HISTORICAL_ENGINE_FIELDS = {
@@ -38,7 +39,8 @@ def _backend(cfg: NativeBackendConfig) -> NativeBackend:
     return NativeBackend(backend_config=cfg, generation_engine=engine)
 
 
-def _fake_host(monkeypatch, total_gb: float) -> None:
+def _fake_host(monkeypatch, install_capabilities, total_gb: float) -> None:
+    install_capabilities(fake_capabilities(ada()))
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "get_device_name", lambda *a: "Fake GPU")
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *a: (8, 9))
@@ -77,17 +79,17 @@ def test_historical_engine_fields_are_unchanged():
             assert fields[name][key] == value, (name, key)
 
 
-def test_hardware_default_gpu_max_vram_is_total_minus_reserve(monkeypatch):
-    _fake_host(monkeypatch, 15.99)
+def test_hardware_default_gpu_max_vram_is_total_minus_reserve(monkeypatch, install_capabilities):
+    _fake_host(monkeypatch, install_capabilities, 15.99)
 
     cfg = NativeBackendConfig(id="native", name="Local Generation", device="cuda:0")
 
     assert cfg.gpu_max_vram == 14
 
 
-def test_default_backend_keeps_the_whole_move_for_an_encoder_that_fits_after_eviction(monkeypatch):
+def test_default_backend_keeps_the_whole_move_for_an_encoder_that_fits_after_eviction(monkeypatch, install_capabilities):
     total = 15.99
-    _fake_host(monkeypatch, total)
+    _fake_host(monkeypatch, install_capabilities, total)
     cfg = NativeBackendConfig(id="native", name="Local Generation", device="cuda:0")
     _backend(cfg).prepare_pipes([{"config": {}}])
     log: list = []

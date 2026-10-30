@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # `_SPECS`/`_make_encoder`). ``off`` (default) matches ComfyUI's fp32 TE
 # activations (see `_Qwen3Transformer.forward`'s entry cast). ``on`` runs the
 # whole forward in bf16 instead, which is what makes an nvfp4-quantised layer
-# eligible for `vendor/gpl/comfyui/ops.py`'s native `_scaled_mm_v2` fast path
+# eligible for `kernels/nvfp4_linear.py`'s native `_scaled_mm_v2` fast path
 # (`_nvfp4_scaled_mm_fast_path_ok` requires `input_dtype in (float16,
 # bfloat16)`) rather than always falling through to LUT dequant. No `auto`:
 # unlike `$NATIVE_NVFP4_MATMUL`/`$NATIVE_FP8_MATMUL` there is no hardware probe
@@ -131,6 +131,7 @@ MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX = 49
 # `text_token_tags` VERBATIM (`token_tags[text_indices] = text_token_tags`),
 # never re-deriving it, so whatever this encoder emits IS what the DiT sees.
 MINIMAX_H3_TEXT_TAG = 1
+MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID = 151643
 MINIMAX_H3_VIDEO_TAG = 0
 
 # The rate MiniMax-H3's conditioner READS a `ref2va` video reference at
@@ -912,8 +913,10 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
         """Plain t2va encode: one raw prompt, no vision blocks."""
         if len(texts) != 1:
             raise ValueError("MiniMax-H3 packs one request into one sequence, so encode() takes exactly one prompt")
-        token_ids = self.tokenizer(texts[0])
-        return self.encode_presentation(token_ids)
+        return self.encode_presentation(self._text_presentation(texts[0]))
+
+    def _text_presentation(self, text: str) -> list[int]:
+        return self.tokenizer(text) or [MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID]
 
     @torch.inference_mode()
     def encode_presentation(
@@ -1056,7 +1059,7 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
         docstring for the exact per-row tag derivation.
         """
         if not images:
-            token_ids = self.tokenizer(text)
+            token_ids = self._text_presentation(text)
             out = self.encode_presentation(token_ids)
             out["token_tags"] = torch.full(
                 (len(token_ids),), MINIMAX_H3_TEXT_TAG, dtype=torch.long, device=out["context"].device,
@@ -1155,7 +1158,7 @@ class MiniMaxH3TextEncoder(NativeTextEncoder):
                     f"references[{index}] must be 'image', 'video' or 'audio', got {reference.kind!r}"
                 )
         if not references:
-            token_ids = self.tokenizer(text)
+            token_ids = self._text_presentation(text)
             out = self.encode_presentation(token_ids)
             out["token_tags"] = torch.full(
                 (len(token_ids),), MINIMAX_H3_TEXT_TAG, dtype=torch.long, device=out["context"].device,

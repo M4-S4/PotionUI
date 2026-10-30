@@ -4,17 +4,24 @@ import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import { tagCatalog } from '$lib/stores/tagCatalog';
 import { libraryCollectionsStore } from '$lib/stores/collections';
-import type { BulkDeleteLibraryByCriteriaRequest, LibraryItem } from '$lib/services/api/library';
+import type { BulkDeleteLibraryByCriteriaRequest, LibraryFacetScope, LibraryItem } from '$lib/services/api/library';
+import { collectionQueryParams } from '$lib/components/collections/selection';
 import type { Tag } from '$lib/types/history';
 import {
 	DEFAULT_LIBRARY_FILTERS,
 	buildLibraryQuery,
 	clampLibraryPage,
+	hasActiveLibraryFilters,
 	totalLibraryPages,
 	type LibraryFilters
 } from '$lib/library/libraryQuery';
 import { collectCopyableFileIds, type CopyableGeneration } from '$lib/library/copyToLibrary';
-import { isSameLibraryRow, mergeEditedLibraryItem } from '$lib/library/libraryItemEdit';
+import {
+	isSameLibraryRow,
+	libraryItemFromEdit,
+	mergeEditedLibraryItem,
+	type EditedLibraryResult
+} from '$lib/library/libraryItemEdit';
 import type { EditedMediaItem } from '$lib/services/api/media';
 import { isPerItemError, refusalMessage } from '$lib/plans/refusal';
 import { blockedUploadMessage } from '$lib/plans/uploadLimit';
@@ -40,6 +47,8 @@ export interface LibraryPageState {
 	selectedIds: string[];
 	availableTags: Tag[];
 	mediaTypeCounts: Record<string, number>;
+	freshIds: string[];
+	placedIds: string[];
 }
 
 const initialState: LibraryPageState = {
@@ -54,7 +63,9 @@ const initialState: LibraryPageState = {
 	selectionMode: false,
 	selectedIds: [],
 	availableTags: [],
-	mediaTypeCounts: {}
+	mediaTypeCounts: {},
+	freshIds: [],
+	placedIds: []
 };
 
 function isItemsPerPageOption(value: number): boolean {
@@ -88,6 +99,15 @@ function createLibraryStore() {
 		return state;
 	}
 
+	let facetsScopeKey = '{}';
+
+	function facetScope(filters: LibraryFilters): LibraryFacetScope {
+		return {
+			...collectionQueryParams(filters),
+			...(filters.favoritesOnly ? { favorites_only: true } : {})
+		};
+	}
+
 	async function load(opts?: { silent?: boolean }) {
 		if (!opts?.silent) update((state) => ({ ...state, loading: true }));
 
@@ -102,14 +122,31 @@ function createLibraryStore() {
 					...state,
 					items: data.items,
 					totalCount: data.total,
-					loading: false
+					loading: false,
+					freshIds: [],
+					placedIds: []
 				}));
+				if (JSON.stringify(facetScope(filters)) !== facetsScopeKey) await loadFacets();
 			} else {
 				update((state) => ({ ...state, loading: false }));
 			}
 		} catch (error) {
 			logger.error('Failed to load library items:', getErrorMessage(error));
 			update((state) => ({ ...state, loading: false }));
+		}
+	}
+
+	async function loadFacets() {
+		const scope = facetScope(snapshot().filters);
+		try {
+			const response = await api.getLibraryFacets(scope);
+			if (response.success && response.data) {
+				const counts = response.data.media_types ?? {};
+				facetsScopeKey = JSON.stringify(scope);
+				update((state) => ({ ...state, mediaTypeCounts: counts }));
+			}
+		} catch (error) {
+			logger.error('Failed to load library facets:', getErrorMessage(error));
 		}
 	}
 
@@ -130,17 +167,7 @@ function createLibraryStore() {
 
 		load,
 
-		async loadFacets() {
-			try {
-				const response = await api.getLibraryFacets();
-				if (response.success && response.data) {
-					const counts = response.data.media_types ?? {};
-					update((state) => ({ ...state, mediaTypeCounts: counts }));
-				}
-			} catch (error) {
-				logger.error('Failed to load library facets:', getErrorMessage(error));
-			}
-		},
+		loadFacets,
 
 		async loadTags() {
 			try {
@@ -157,7 +184,7 @@ function createLibraryStore() {
 		},
 
 		setPage(page: number) {
-			update((state) => ({ ...state, currentPage: page }));
+			update((state) => ({ ...state, currentPage: page, freshIds: [], placedIds: [] }));
 		},
 
 		setItemsPerPage(itemsPerPage: number) {
@@ -169,7 +196,7 @@ function createLibraryStore() {
 					// Keep the in-memory selection when localStorage is unavailable.
 				}
 			}
-			update((state) => ({ ...state, itemsPerPage, currentPage: 1 }));
+			update((state) => ({ ...state, itemsPerPage, currentPage: 1, freshIds: [], placedIds: [] }));
 		},
 
 		// Restores the viewer's display preference after hydration, before the
@@ -184,7 +211,9 @@ function createLibraryStore() {
 			update((state) => ({
 				...state,
 				filters: { ...state.filters, [key]: value },
-				currentPage: 1
+				currentPage: 1,
+				freshIds: [],
+				placedIds: []
 			}));
 		},
 
@@ -199,7 +228,9 @@ function createLibraryStore() {
 							? state.filters.selectedTagIds.filter((id) => id !== tagId)
 							: [...state.filters.selectedTagIds, tagId]
 					},
-					currentPage: 1
+					currentPage: 1,
+					freshIds: [],
+					placedIds: []
 				};
 			});
 		},
@@ -208,7 +239,9 @@ function createLibraryStore() {
 			update((state) => ({
 				...state,
 				filters: { ...state.filters, selectedTagIds: [] },
-				currentPage: 1
+				currentPage: 1,
+				freshIds: [],
+				placedIds: []
 			}));
 		},
 
@@ -216,8 +249,14 @@ function createLibraryStore() {
 			update((state) => ({
 				...state,
 				filters: { ...DEFAULT_LIBRARY_FILTERS },
-				currentPage: 1
+				currentPage: 1,
+				freshIds: [],
+				placedIds: []
 			}));
+		},
+
+		markFresh(ids: readonly string[]) {
+			update((state) => ({ ...state, freshIds: [...new Set([...state.freshIds, ...ids])] }));
 		},
 
 		setSelectedItem(item: LibraryItem | null) {
@@ -326,6 +365,42 @@ function createLibraryStore() {
 			return response;
 		},
 
+		async setItemFavorite(itemId: string, isFavorite: boolean): Promise<boolean> {
+			const previous = snapshot();
+			const before =
+				previous.items.find((item) => item.id === itemId)?.is_favorite ??
+				(previous.selectedItem?.id === itemId ? previous.selectedItem.is_favorite : undefined) ??
+				false;
+			const patch = (value: boolean) =>
+				update((state) => ({
+					...state,
+					items: state.items.map((item) =>
+						item.id === itemId ? { ...item, is_favorite: value } : item
+					),
+					selectedItem:
+						state.selectedItem?.id === itemId
+							? { ...state.selectedItem, is_favorite: value }
+							: state.selectedItem
+				}));
+
+			patch(isFavorite);
+			try {
+				const response = await api.setLibraryFavorite(itemId, isFavorite);
+				if (!response.success) throw new Error('Favorite update failed');
+			} catch (error) {
+				logger.error('Failed to set library favorite:', getErrorMessage(error));
+				patch(before);
+				return false;
+			}
+
+			if (!isFavorite && snapshot().filters.favoritesOnly) {
+				await reloadAfterRemoval(1);
+				await loadFacets();
+			}
+			await libraryCollectionsStore.load();
+			return true;
+		},
+
 		/**
 		 * Folds an edit's result back in.
 		 *
@@ -352,6 +427,77 @@ function createLibraryStore() {
 			}
 
 			await this.showNewRows();
+		},
+
+		async applyToolResult(
+			results: EditedLibraryResult[],
+			sourceIds: string[],
+			options: { replaced?: boolean } = {}
+		): Promise<{ added: number; replaced: number }> {
+			const before = snapshot();
+			const known = new Set(before.items.map((item) => item.id));
+			if (before.selectedItem) known.add(before.selectedItem.id);
+			const patched = results.filter((result) => known.has(result.id));
+			const added = options.replaced === true ? [] : results.filter((result) => !known.has(result.id));
+
+			if (patched.length > 0) {
+				const byId = new Map(patched.map((result) => [result.id, result]));
+				update((state) => ({
+					...state,
+					items: state.items.map((item) => {
+						const edited = byId.get(item.id);
+						return edited ? mergeEditedLibraryItem(item, edited) : item;
+					}),
+					selectedItem:
+						state.selectedItem && byId.has(state.selectedItem.id)
+							? mergeEditedLibraryItem(state.selectedItem, byId.get(state.selectedItem.id)!)
+							: state.selectedItem
+				}));
+			}
+
+			if (added.length > 0) {
+				const fresh = added.map((result) => result.id);
+				const markFresh = (placed: boolean) =>
+					update((state) => ({
+						...state,
+						freshIds: [...state.freshIds, ...fresh],
+						placedIds: placed ? [...state.placedIds, ...fresh] : state.placedIds
+					}));
+				const sourceIndex = before.items.findIndex((item) => sourceIds.includes(item.id));
+
+				if (hasActiveLibraryFilters(before.filters)) {
+					await load({ silent: true });
+					markFresh(false);
+				} else if (sourceIndex >= 0) {
+					const rows = added.map(libraryItemFromEdit);
+					update((state) => {
+						const at = state.items.findIndex((item) => sourceIds.includes(item.id));
+						const index = at >= 0 ? at : 0;
+						return {
+							...state,
+							items: [...state.items.slice(0, index), ...rows, ...state.items.slice(index)],
+							totalCount: state.totalCount + rows.length
+						};
+					});
+					markFresh(true);
+				} else {
+					await this.showNewRows();
+					markFresh(false);
+				}
+				await Promise.all([this.loadFacets(), libraryCollectionsStore.load()]);
+			} else {
+				await this.loadFacets();
+			}
+
+			return { added: added.length, replaced: patched.length };
+		},
+
+		clearFresh() {
+			update((state) =>
+				state.freshIds.length > 0 || state.placedIds.length > 0
+					? { ...state, freshIds: [], placedIds: [] }
+					: state
+			);
 		},
 
 		/**
@@ -428,6 +574,7 @@ function createLibraryStore() {
 		},
 
 		reset() {
+			facetsScopeKey = '{}';
 			set({ ...initialState, filters: { ...DEFAULT_LIBRARY_FILTERS } });
 		}
 	};

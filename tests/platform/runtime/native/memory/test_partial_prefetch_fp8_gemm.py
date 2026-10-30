@@ -17,7 +17,7 @@ operands it receives.
 CPU-only box: CUDA stream/event/copy primitives for ``LayerPrefetcher`` are
 faked by reusing ``_install_fake_cuda``/``_streamed_leaves`` from
 ``test_partial_prefetch.py`` (not reinvented); "already on the activation
-device" for ops.py's own on-demand-staging check is faked via an
+device" for ``Fp8ScaledLinear``'s own on-demand-staging check is faked via an
 ``is_cuda`` id-EXCLUSION set (default resident=True, so an activation or any
 intermediate the real model computes never needs individually marking --
 only the leaf weight Parameters that must start off-device are named), the
@@ -34,12 +34,14 @@ import pytest
 import torch
 import torch.nn as nn
 
-import vendor.gpl.comfyui.ops as wo
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
-from vendor.gpl.comfyui.ops import fp8_ops
+from tests.fixtures.kernel_gemm import install_gemm_verdicts
+from tests.fixtures.kernel_ops import patch_ops_name
+from src.platform.runtime.native.kernels import Fp8ScaledLinear, fp8_ops
 
 from .test_partial_prefetch import _install_fake_cuda
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 # --- fixtures ------------------------------------------------------------
 
@@ -159,14 +161,14 @@ def _install_fp8_residency(monkeypatch, *, excluded: set[int]):
         return tensor.detach().to(dtype=dtype).clone()
 
     monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda self: self.data_ptr() not in excluded))
-    monkeypatch.setattr(wo, "cast_to", _fake_cast_to)
+    patch_ops_name(monkeypatch, "cast_to", _fake_cast_to)
 
 
 def _dense_reference(m: nn.Module, x: torch.Tensor, monkeypatch) -> torch.Tensor:
     """The existing (already-validated) dequant path's output for the SAME
     model/input, with the fp8 GEMM gate off -- the oracle every fast-path
     output below is compared against."""
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     with torch.no_grad():
         return m(x)
 
@@ -178,13 +180,13 @@ def test_prefetch_off_on_demand_stage_reaches_kernel_with_real_dequant_parity(mo
     m = _fp8_chain()
     excluded = {m.a.weight.data_ptr(), m.b.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     calls, fake_kernel = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         staged_out = m(x)
@@ -203,7 +205,7 @@ def test_recording_pass_with_prefetch_enabled_still_stages_on_demand(monkeypatch
     excluded = {m.a.weight.data_ptr(), m.b.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
     _install_fake_cuda(monkeypatch)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     streamer = _streamed(m, prefetch=True)
     assert streamer.prefetcher is not None  # real LayerPrefetcher, constructed by real apply()
@@ -211,7 +213,7 @@ def test_recording_pass_with_prefetch_enabled_still_stages_on_demand(monkeypatch
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     calls, fake_kernel = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         out = m(x)  # forward #1: the prefetcher's OWN recording pass -- stages nothing
@@ -230,13 +232,13 @@ def test_prefetch_hit_reaches_kernel_with_zero_extra_on_demand_staging(monkeypat
     excluded = {m.a.weight.data_ptr(), m.b.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
     _install_fake_cuda(monkeypatch)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     streamer = _streamed(m, prefetch=True)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)  # forward #1: records execution order a -> b, no prefetch yet
@@ -246,7 +248,7 @@ def test_prefetch_hit_reaches_kernel_with_zero_extra_on_demand_staging(monkeypat
     # LayerPrefetcher._consume/_prefetch_after choreography, swapping
     # b.weight.data to a resident clone before b's forward ever runs.
     b_on_demand_calls: list = []
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy_stage(self, device):
         result = real_stage(self, device)
@@ -254,10 +256,10 @@ def test_prefetch_hit_reaches_kernel_with_zero_extra_on_demand_staging(monkeypat
             b_on_demand_calls.append(1)
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
     calls2, fake_kernel2 = _recording_scaled_mm()
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel2)
     with torch.no_grad():
         out2 = m(x)  # forward #2: prefetch kicks in for b
@@ -277,12 +279,12 @@ def test_teardown_restores_leaf_storage_ownership_after_fp8_dispatch(monkeypatch
     excluded = {m.a.weight.data_ptr(), m.b.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
     _install_fake_cuda(monkeypatch)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     streamer = _streamed(m, prefetch=True)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)
@@ -301,7 +303,7 @@ def test_teardown_restores_leaf_storage_ownership_after_fp8_dispatch(monkeypatch
     assert streamer.prefetcher is None
 
     # And the model still works correctly afterward (gate off -- plain dequant).
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     with torch.no_grad():
         out = m(x)
     assert out.shape == (2, 16)
@@ -314,21 +316,21 @@ def test_eligible_staged_path_never_dequantizes_the_weight(monkeypatch):
     m = _fp8_chain()
     excluded = {m.a.weight.data_ptr(), m.b.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     dequant_calls: list = []
-    real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
+    real_prepare = Fp8ScaledLinear._prepare_dequant_operand
 
     def _spy_prepare(self, dtype, device, **kwargs):
         dequant_calls.append(1)
         return real_prepare(self, dtype, device, **kwargs)
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
+    monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)
@@ -344,10 +346,10 @@ def test_staged_operand_weakref_dies_after_each_forward(monkeypatch):
     m = _fp8_chain()
     excluded = {m.a.weight.data_ptr(), m.b.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     refs: list[weakref.ReferenceType] = []
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy_stage(self, device):
         result = real_stage(self, device)
@@ -355,12 +357,12 @@ def test_staged_operand_weakref_dies_after_each_forward(monkeypatch):
             refs.append(weakref.ref(result))  # id/weakref only -- never the tensor itself
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
     _, fake_kernel = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel)
     with torch.no_grad():
         m(x)
@@ -378,10 +380,10 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
     m = _fp8_chain()
     excluded = {m.a.weight.data_ptr(), m.b.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     staged_ref_by_leaf: dict[int, weakref.ReferenceType] = {}
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy_stage(self, device):
         result = real_stage(self, device)
@@ -389,10 +391,10 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
             staged_ref_by_leaf[id(self)] = weakref.ref(result)
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy_stage)
 
     dead_before_dequant: dict[int, bool] = {}
-    real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
+    real_prepare = Fp8ScaledLinear._prepare_dequant_operand
 
     def _spy_prepare(self, dtype, device, **kwargs):
         gc.collect()
@@ -401,7 +403,7 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
             dead_before_dequant[id(self)] = ref() is None
         return real_prepare(self, dtype, device, **kwargs)
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
+    monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
 
     # Every kernel call is rejected (a real capability-probe-style rejection),
     # for BOTH leaves -- each independently falls back to dense dequant.
@@ -410,7 +412,7 @@ def test_staged_operand_released_before_dense_fallback_on_kernel_rejection(monke
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(2, 16, dtype=torch.bfloat16)
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", _rejecting_kernel)
     with torch.no_grad():
         out = m(x)
@@ -464,13 +466,13 @@ def test_staged_path_matches_resident_path_and_dense_reference(monkeypatch, scen
     m, _ = _make_scenario_leaf(scenario)
     excluded = {m.lin.weight.data_ptr()}
     _install_fp8_residency(monkeypatch, excluded=excluded)
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
 
     streamer = _streamed(m, prefetch=False)
     x = torch.randn(3, 16, dtype=torch.bfloat16)
 
     _, fake_kernel_staged = _recording_scaled_mm()
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", fake_kernel_staged)
     with torch.no_grad():
         staged_out = m(x)  # weight excluded -> on-demand staged

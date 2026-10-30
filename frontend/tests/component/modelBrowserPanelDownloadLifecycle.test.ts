@@ -24,6 +24,7 @@ vi.mock('$lib/stores/auth', () => ({
 }));
 
 const { api } = await import('$lib/services/api/index');
+const { onModelInstalled } = await import('$lib/stores/modelInstalls');
 const { default: ModelBrowserPanel } = await import(
 	'../../src/lib/components/form-fields/ModelBrowserPanel.svelte'
 );
@@ -169,5 +170,67 @@ describe('ModelBrowserPanel recommendation-download lifecycle', () => {
 
 		await vi.advanceTimersByTimeAsync(20_000);
 		expect(vi.mocked(api.getModelDownloadStatus)).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('ModelBrowserPanel installed-model announcement', () => {
+	async function startDownload(statuses: Array<{ status: string; progress: number }>) {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+		vi.mocked(api.getTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
+		vi.mocked(api.startModelDownload).mockResolvedValue({
+			success: true,
+			data: { download_id: 'dl-1' }
+		} as never);
+		for (const entry of statuses) {
+			vi.mocked(api.getModelDownloadStatus).mockResolvedValueOnce({
+				success: true,
+				data: { ...entry, error: null }
+			} as never);
+		}
+		mounted = mountPanel();
+		await vi.advanceTimersByTimeAsync(0);
+		mounted.target.querySelector<HTMLButtonElement>('[data-recommended-download] button')!.click();
+		await vi.advanceTimersByTimeAsync(0);
+	}
+
+	it('announces after the finished download has been re-listed, exactly once', async () => {
+		const events: string[] = [];
+		vi.mocked(api.getModels).mockImplementation((async () => {
+			events.push('listed');
+			return EMPTY_MODELS;
+		}) as never);
+		const off = onModelInstalled(() => events.push('installed'));
+		await startDownload([{ status: 'completed', progress: 1 }]);
+		events.length = 0;
+
+		await vi.advanceTimersByTimeAsync(2000);
+		await vi.advanceTimersByTimeAsync(0);
+		off();
+
+		expect(events).toEqual(['listed', 'installed']);
+	});
+
+	it('stays silent while the download is still running', async () => {
+		vi.mocked(api.getModels).mockResolvedValue(EMPTY_MODELS as never);
+		const installed = vi.fn();
+		const off = onModelInstalled(installed);
+		await startDownload([{ status: 'running', progress: 0.4 }]);
+
+		await vi.advanceTimersByTimeAsync(2000);
+		off();
+
+		expect(installed).not.toHaveBeenCalled();
+	});
+
+	it('stays silent when the download fails', async () => {
+		vi.mocked(api.getModels).mockResolvedValue(EMPTY_MODELS as never);
+		const installed = vi.fn();
+		const off = onModelInstalled(installed);
+		await startDownload([{ status: 'failed', progress: 0.4 }]);
+
+		await vi.advanceTimersByTimeAsync(2000);
+		off();
+
+		expect(installed).not.toHaveBeenCalled();
 	});
 });

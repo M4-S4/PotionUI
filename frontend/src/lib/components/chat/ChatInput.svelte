@@ -371,7 +371,12 @@
 				<span class="send-hint">ENTER TO SEND · SHIFT+ENTER FOR LINE</span>
 				{#if isGenerating && onStop}
 					<Tooltip text="Stop generating">
-						<button type="button" class="send-button" on:click={() => onStop?.()}>
+						<button
+							type="button"
+							class="send-button"
+							aria-label="Stop generating"
+							on:click={() => onStop?.()}
+						>
 							<svg class="icon" fill="none" stroke="none" viewBox="0 0 24 24">
 								<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" />
 							</svg>

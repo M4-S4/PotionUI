@@ -1,19 +1,19 @@
+import shutil
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from src.features.media.editing.dto import CropOperation, TrimOperation
 from src.features.media.routes import MediaController
 from src.features.plans.errors import LimitExceeded
 from src.features.plans.kinds import human_bytes
 from src.features.user_groups.constants import ALL_USERS_GROUP_ID
 from src.platform.plugins.limit_kinds import AdmissionRequest, InvalidLimitKindError, LimitKind, validate_kind
+from src.platform.media_tools import MediaTool, ToolSpec
 from tests.features.plans.conftest import make_plan
 from tests.features.plans.test_enforcement import (
     backend,
     bind_form_passthrough,
-    editor,
     history_archive,
     history_file,
     limit_storage,
@@ -21,14 +21,27 @@ from tests.features.plans.test_enforcement import (
     media_store,
     orchestrator_for,
     repo,
-    splits_into,
-    stored_media,
-    stored_uploads,
+    stamp,
+    stamp_with,
+    stored_files,
+    tools,
     upload_rows,
-    writes,
 )
 
 MB = 1024 ** 2
+
+
+class Parts(MediaTool):
+    def __init__(self, paths):
+        self.paths = paths
+
+    def run(self, inputs, params, ctx):
+        outputs = []
+        for index, path in enumerate(self.paths):
+            out = ctx.new_path(".png", stem=f"part{index}")
+            shutil.copyfile(path, out)
+            outputs.append(ctx.probe(out, "image"))
+        return outputs
 
 
 def limit_files(plans, value, **more):
@@ -217,64 +230,55 @@ async def test_the_history_upload_checks_each_file_before_anything_is_written(se
     assert len(result["files"]) == 2
 
 
-@pytest.mark.asyncio
-async def test_an_editor_save_as_new_over_the_file_limit_is_refused_and_leaves_no_file(editor, plans, seed):
-    manager, image, driver, size = editor
-    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
-    limit_files(plans, 8)
-    trim = [TrimOperation(type="trim", start_seconds=0, end_seconds=1)]
+def test_a_save_as_new_over_the_file_limit_is_refused_and_leaves_no_file(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    limit_files(plans, sizes.big - 1)
 
-    with patch("src.features.media.editing.editor.apply_video_operations", writes(9)):
-        with pytest.raises(LimitExceeded) as refused:
-            await manager.edit_item(video.id, "u1", trim, mode="new")
+    refused = stamp(service, upload)
 
-    assert refused.value.payload()["code"] == "upload_file_size_exceeded"
-    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
+    assert (refused.status, refused.error.code) == ("failed", "limit_exceeded")
+    assert stored_files(driver) == ["uploads/source.png"]
+    assert upload_rows(seed) == [{"filename": "source.png"}]
+
+    stamp_with(service, results["small"])
+    assert stamp(service, upload).ok is True
     assert len(upload_rows(seed)) == 2
 
-    with patch("src.features.media.editing.editor.apply_video_operations", writes(8)):
-        await manager.edit_item(video.id, "u1", trim, mode="new")
-    assert len(stored_uploads(driver)) == 3
+
+def test_a_result_exactly_at_the_file_limit_is_accepted(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    limit_files(plans, sizes.big)
+
+    assert stamp(service, upload).ok is True
 
 
-@pytest.mark.asyncio
-async def test_an_editor_replace_is_not_a_new_file(editor, plans):
-    manager, image, driver, size = editor
+def test_a_replace_is_not_a_new_file(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    stamp_with(service, results["small"])
     limit_files(plans, 1)
 
-    result = await manager.edit_item(image.id, "u1", [CropOperation(type="crop", x=0, y=0, width=150, height=90)],
-                                     mode="replace")
+    result = stamp(service, upload, "replace")
 
-    assert result.replaced is True
-
-
-@pytest.mark.asyncio
-async def test_a_frame_grab_over_the_file_limit_is_refused_and_leaves_no_file(editor, plans):
-    manager, image, driver, size = editor
-    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
-    limit_files(plans, 50)
-
-    with patch("src.features.media.editing.editor.extract_video_frame", writes(51)):
-        with pytest.raises(LimitExceeded):
-            await manager.extract_frame(video.id, "u1", 1.0)
-
-    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
+    assert result.ok is True and result.replaced is True
 
 
-@pytest.mark.asyncio
-async def test_an_audio_split_is_checked_part_by_part(editor, plans):
-    manager, image, driver, size = editor
-    audio = stored_media(driver, manager.upload_repo, "song.mp3", "audio")
-    limit_files(plans, 10)
+def test_each_part_of_a_split_is_checked_alone(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    service.registry.register(ToolSpec(
+        id="parts", label="Parts", accepts=("image",), produces="same", cardinality="one_to_many",
+        impl=Parts([results["small"], results["big"]]),
+    ))
+    limit_files(plans, sizes.big - 1)
 
-    with patch("src.features.media.editing.editor.split_audio", splits_into(10, 11)):
-        with pytest.raises(LimitExceeded):
-            await manager.split_item(audio.id, "u1", 5)
-    assert stored_uploads(driver) == ["song.mp3", "source.png"]
+    refused = service.run_blocking("u1", [{"tool": "parts", "params": {}}], [{"item_id": upload.id}], {"mode": "new"}, timeout=20)
 
-    with patch("src.features.media.editing.editor.split_audio", splits_into(10, 10, 10)):
-        parts = await manager.split_item(audio.id, "u1", 5)
-    assert len(parts) == 3
+    assert (refused.status, refused.error.code) == ("failed", "limit_exceeded")
+    assert stored_files(driver) == ["uploads/source.png"]
+    assert upload_rows(seed) == [{"filename": "source.png"}]
+
+    service.registry.get("parts").impl.paths = [results["small"], results["small"], results["small"]]
+    accepted = service.run_blocking("u1", [{"tool": "parts", "params": {}}], [{"item_id": upload.id}], {"mode": "new"}, timeout=20)
+    assert accepted.ok is True and len(accepted.items) == 3
 
 
 def test_library_copy_and_inspiration_save_check_each_file(seed, plans, tmp_path):

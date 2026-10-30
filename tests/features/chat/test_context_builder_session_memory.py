@@ -4,6 +4,7 @@ from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.llm.tools.base import ToolServices
 from src.features.chat.runtime import ChatRuntime
 from src.features.llm_memory.records import LLMMemoryNote
+from tests.fixtures.chat_engine import typed_history
 
 
 class FakeMemoryRepository:
@@ -46,7 +47,7 @@ NOTES = [
 def _inject(runtime, form_state):
     history = [{"role": "system", "content": "sys"}, {"role": "user", "content": "hello"}]
     metadata = {"form_state": form_state} if form_state is not None else None
-    result = runtime._context.inject_memory_block(history, metadata, user_id="user-1")
+    result = typed_history(runtime._context.inject_memory_block)(history, metadata, user_id="user-1")
     return history, result
 
 

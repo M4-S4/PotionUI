@@ -40,7 +40,7 @@ CONVERTED = [
     ("Flux1/modes/txt2img", "flux", "euler", "shift"),
     ("Flux2/modes/txt2img", "flux", "euler", "shift"),
     ("Krea2/modes/txt2img", "krea2", "euler", "shift"),
-    ("LTX-2/modes/video", "ltx", "euler", "shift"),
+    ("LTX-2/modes/video", "ltx", "euler_cfg_pp", "shift"),
     ("LTX-2.5/modes/video", "ltx", "euler_ancestral", "ltx_dynamic"),
     ("QwenImage/modes/txt2img", "qwen_image", "euler", "shift"),
     ("QwenImage/modes/img2img", "qwen_image", "euler", "shift"),

@@ -1,9 +1,3 @@
-"""min_p / repetition_penalty coverage for NativeLLMClient._generation_kwargs,
-exercised through the real generate_with_history / stream_with_history entry
-points (never the static method directly) with a fake, recording model —
-finite and GPU-free, no live checkpoint weights.
-"""
-
 from __future__ import annotations
 
 import weakref
@@ -11,7 +5,12 @@ import weakref
 import pytest
 import torch
 
-from src.features.llm.clients.native import NativeLLMClient, _LoadedCheckpoint
+from src.features.llm.native.runtime import RunStats, _LoadedCheckpoint
+from src.features.llm.harness.adapter import RenderRequest, Settings
+from src.features.llm.harness.adapters.native import NativeAdapter
+from src.features.llm.harness.messages import Message, Role, TextPart
+from src.features.llm.harness.profile import CapabilityProfile
+from tests.fixtures.native_runtime import NativeDriver
 from src.features.llm.repository import LLMConfig
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from tests.fixtures.model_roots import make_roots
@@ -44,8 +43,6 @@ class _RecordingTokenizer:
 
 
 class _RecordingGenModel:
-    """Records every kwarg NativeLLMClient hands to ``generate()`` beyond the
-    tensor inputs, without running any real inference."""
 
     def __init__(self):
         self.calls: list = []
@@ -71,7 +68,7 @@ def fake_model_name(tmp_path, client):
 
 @pytest.fixture
 def client():
-    return NativeLLMClient(ModelLifecycle(gpu_monitor=None, settings=None))
+    return NativeDriver(ModelLifecycle(gpu_monitor=None, settings=None))
 
 
 def _wire_fake_checkpoint(client, model_name):
@@ -102,7 +99,7 @@ def _config(model_name: str, **overrides) -> LLMConfig:
 @pytest.mark.asyncio
 async def test_min_p_unset_reaches_no_kwarg(client, fake_model_name, monkeypatch):
     checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     config = _config(fake_model_name)
 
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
@@ -114,7 +111,7 @@ async def test_min_p_unset_reaches_no_kwarg(client, fake_model_name, monkeypatch
 @pytest.mark.asyncio
 async def test_saved_min_p_and_repetition_penalty_reach_generate(client, fake_model_name, monkeypatch):
     checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     config = _config(fake_model_name, provider_options={"min_p": 0.05, "repetition_penalty": 1.15})
 
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
@@ -126,7 +123,7 @@ async def test_saved_min_p_and_repetition_penalty_reach_generate(client, fake_mo
 @pytest.mark.asyncio
 async def test_per_call_override_wins_over_saved_provider_option(client, fake_model_name, monkeypatch):
     checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     config = _config(fake_model_name, provider_options={"min_p": 0.05, "repetition_penalty": 1.15})
 
     await client.generate_with_history(
@@ -143,7 +140,7 @@ async def test_neutral_values_are_preserved_not_dropped(client, fake_model_name,
     """min_p=0 and repetition_penalty=1 are explicit, meaningful values (no
     effect on sampling), not "unset" — they must still reach generate()."""
     checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     config = _config(fake_model_name, provider_options={"min_p": 0.0, "repetition_penalty": 1.0})
 
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
@@ -157,7 +154,7 @@ async def test_greedy_path_never_receives_min_p(client, fake_model_name, monkeyp
     """temperature=0 is the greedy path (do_sample=False): min_p is a
     sampling-only knob and must not be forced in alongside it."""
     checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     config = _config(fake_model_name, temperature=0.0, provider_options={"min_p": 0.05})
 
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
@@ -173,7 +170,7 @@ async def test_greedy_path_still_applies_an_explicitly_requested_repetition_pena
     client, fake_model_name, monkeypatch
 ):
     checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     config = _config(fake_model_name, temperature=0.0, provider_options={"repetition_penalty": 1.2})
 
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
@@ -191,14 +188,14 @@ async def test_buffered_and_streamed_calls_receive_identical_sampling_kwargs(
     proven here by driving both real entry points against the same fake
     model and comparing what each handed to generate()."""
     buffered_checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: buffered_checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: buffered_checkpoint)
     config = _config(fake_model_name, provider_options={"min_p": 0.1, "repetition_penalty": 1.1})
 
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
     buffered_kwargs = buffered_checkpoint.model.calls[0]
 
     stream_checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: stream_checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: stream_checkpoint)
 
     async for _ in client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message):
         pass
@@ -212,27 +209,57 @@ async def test_buffered_and_streamed_calls_receive_identical_sampling_kwargs(
 
 
 @pytest.mark.asyncio
-async def test_tool_entry_points_honour_the_per_call_override_over_saved_options(client, fake_model_name, monkeypatch):
-    """The executor and chat modes hand their per-call options to the TOOL
-    entry points (`generate_with_tools` / `stream_with_tools`), not only to
-    the plain history ones; a saved sampling option must lose to that override
-    on both, exactly as on the history path."""
+async def test_adapter_settings_override_saved_options(client, fake_model_name, monkeypatch):
     checkpoint = _wire_fake_checkpoint(client, fake_model_name)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     config = _config(fake_model_name, provider_options={"min_p": 0.05, "repetition_penalty": 1.15, "top_k": 40})
-    tools = [{"type": "function", "function": {"name": "do_thing", "description": "d", "parameters": {"type": "object", "properties": {}}}}]
-    override = {"min_p": 0.2, "repetition_penalty": 1.3}
-
-    await client.generate_with_tools(
-        [{"role": "user", "content": "hi"}], config, config.system_message, tools=tools, options_override=override,
+    adapter = NativeAdapter()
+    adapter.runtime = client
+    request = RenderRequest(
+        config=config,
+        system=config.system_message,
+        messages=(Message(id="u1", role=Role.USER, parts=(TextPart("hi"),)),),
+        settings=Settings(min_p=0.2, top_k=7, max_tokens=3),
     )
-    async for _event in client.stream_with_tools(
-        [{"role": "user", "content": "hi"}], config, config.system_message, tools=tools, options_override=override,
-    ):
+    wire = adapter.render(request, CapabilityProfile(adapter="native", model=fake_model_name))
+    async for _chunk in adapter.send(wire, request):
         pass
 
-    assert len(checkpoint.model.calls) == 2
-    for call in checkpoint.model.calls:
-        assert call["min_p"] == 0.2
-        assert call["repetition_penalty"] == 1.3
-        assert call["top_k"] == 40
+    call = checkpoint.model.calls[0]
+    assert call["min_p"] == 0.2
+    assert call["top_k"] == 7
+    assert call["repetition_penalty"] == 1.15
+    assert call["max_new_tokens"] == 3
+
+
+@pytest.mark.asyncio
+async def test_adapter_with_unset_temperature_and_max_tokens_leaves_the_model_defaults(client, fake_model_name, monkeypatch):
+    checkpoint = _wire_fake_checkpoint(client, fake_model_name)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    config = _config(fake_model_name).model_copy(update={"temperature": None, "max_tokens": None})
+    adapter = NativeAdapter()
+    adapter.runtime = client
+    request = RenderRequest(
+        config=config,
+        system=config.system_message,
+        messages=(Message(id="u1", role=Role.USER, parts=(TextPart("hi"),)),),
+    )
+    wire = adapter.render(request, CapabilityProfile(adapter="native", model=fake_model_name, max_output_tokens=11))
+    async for _chunk in adapter.send(wire, request):
+        pass
+
+    call = checkpoint.model.calls[0]
+    assert "do_sample" not in call and "temperature" not in call
+    assert call["max_new_tokens"] == 11
+
+
+@pytest.mark.asyncio
+async def test_stream_without_max_new_tokens_reaches_generate_with_the_default(client, fake_model_name, monkeypatch):
+    checkpoint = _wire_fake_checkpoint(client, fake_model_name)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    config = _config(fake_model_name)
+
+    async for _text in client.stream(config, [{"role": "user", "content": "hi"}], {}, None, RunStats()):
+        pass
+
+    assert checkpoint.model.calls[0]["max_new_tokens"] == 4096

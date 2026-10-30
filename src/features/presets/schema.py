@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, ValidationError, model_validator
 
 from src.features.presets.css_named_colors import CSS_NAMED_COLORS
+from src.features.presets.field_rules import configuration_error
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -268,6 +269,13 @@ class FieldSpec(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _validate_configuration_rules(self) -> "FieldSpec":
+        error = configuration_error(self.type, self.configuration, self.default)
+        if error:
+            raise ValueError(f"field '{self.name}' ({self.type}): {error}")
+        return self
+
+    @model_validator(mode="after")
     def _validate_width(self) -> "FieldSpec":
         error = _validate_field_width(self.width)
         if error:
@@ -396,6 +404,7 @@ class FormFile(BaseModel):
 
     name: str = "custom_form_preset"
     fields: List[FieldSpec] = Field(default_factory=list)
+    requirements: List["RequirementEntry"] = Field(default_factory=list)
     # Variant display metadata (roadmap "preset variants") - surfaced by
     # operations.get_available_modes()'s `variants` list, see docs/presets.md.
     label: Optional[str] = None
@@ -403,6 +412,11 @@ class FormFile(BaseModel):
     short_description: Optional[str] = None
     mode_label: Optional[str] = None
     mode_icon: Optional[str] = None
+    prompt: Optional[Literal["required", "optional", "none"]] = None
+    prompt_label: Optional[str] = None
+    prompt_placeholder: Optional[str] = None
+    llm_guide: Optional[str] = None
+    segment_templates: Optional[List[Dict[str, Any]]] = None
     examples: List[str] = Field(default_factory=list)  # paths, must live under public/
     default: bool = False
     order: int = 0

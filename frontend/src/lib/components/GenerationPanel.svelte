@@ -4,7 +4,9 @@
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
 	import type { GenerationState } from '$lib/types/tabs';
-	import { parseTemplateMarkers } from '$lib/utils/templateProcessor';
+	import { authStore } from '$lib/stores/auth';
+	import { readBatchProgress } from '$lib/generation/batchProgress';
+	import { resolveStageStatus } from './generation-panel/stageLabels';
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import Tooltip from './Tooltip.svelte';
@@ -32,7 +34,7 @@
 	import CompareDrawer from './compare/CompareDrawer.svelte';
 	import GenerationDetailsModal from './modals/GenerationDetailsModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Menu } from '$lib/components/ui';
+	import { Menu, AdminOnlyMark } from '$lib/components/ui';
 
 	const dispatch = createEventDispatcher();
 
@@ -296,19 +298,16 @@
 	$: progressPercent = compareGridActive
 		? gridPercent($compareProgressRevision, compareState.cells)
 		: Math.round((generation.currentProgress?.progress ?? 0) * 100);
-	$: stepParsed = parseTemplateMarkers(generation.currentProgress?.current_step || '');
-	$: messageParsed = parseTemplateMarkers(generation.currentProgress?.message || '');
-	$: progressMarkers = [...stepParsed.markers, ...messageParsed.markers];
-	$: currentPipeName = progressMarkers.find((marker) => marker.type === 'PIPE')?.value;
-	$: stepCount = progressMarkers.find((marker) => marker.type === 'PROGRESS')?.value;
-	$: stepText = stepCount && /^\d+\/\d+$/.test(stepCount) ? `Step ${stepCount.replace('/', ' / ')}` : null;
-	$: progressMeta = progressMarkers.filter(
-		(marker, i, arr) =>
-			marker.type !== 'PIPE' &&
-			marker.type !== 'PROGRESS' &&
-			arr.findIndex((m) => m.type === marker.type && m.value === marker.value) === i
-	);
-	$: progressMessage = [stepParsed.plain, messageParsed.plain].filter(Boolean).join(' — ');
+	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
+	$: stage = resolveStageStatus({
+		currentStep: generation.currentProgress?.current_step,
+		message: generation.currentProgress?.message,
+		pipeName: generation.currentProgress?.pipe_name,
+		pipeId: generation.currentProgress?.pipe_id,
+		isAdmin
+	});
+	$: batchReading = readBatchProgress(generation.currentProgress);
+	$: stepText = stage.stepCount && /^\d+\/\d+$/.test(stage.stepCount) ? `Step ${stage.stepCount.replace('/', ' / ')}` : null;
 
 	$: elapsedText = isGenerating ? formatDurationSeconds(elapsedSeconds) : 'none';
 	$: lastText = formatDurationMs(generation.lastDurationMs ?? null);
@@ -341,10 +340,9 @@
 	$: runningDetail = [
 		hasProgressFraction ? `${progressPercent}%` : null,
 		compareGridActive ? `${compareResolved}/${compareState.cells.length} cells` : null,
-		progressMessage,
+		stage.label,
 		stepText,
-		currentPipeName,
-		...progressMeta.map((marker) => marker.value),
+		...stage.meta.map((marker) => marker.value),
 		$stopAfterCurrentRequested ? 'stopping after this one' : $generationMode === 'forever' ? 'continuous' : null
 	]
 		.filter(Boolean)
@@ -503,7 +501,13 @@
 				<div class="deck-detail">
 					<span class="deck-detail-text">
 						{#if isGenerating}
+							{#if batchReading}
+								<span class="font-mono tabular-nums" data-batch-progress>{batchReading.label}</span> ·
+							{/if}
 							{runningDetail}
+							{#if stage.technical}
+								<span class="ml-1.5 inline-flex align-middle" data-admin-stage-detail><AdminOnlyMark text={stage.technical} /></span>
+							{/if}
 						{:else if otherTab}
 							Another tab currently owns the generation worker
 						{:else if generation.cancelNotice}

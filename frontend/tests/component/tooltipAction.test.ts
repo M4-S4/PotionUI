@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 const { default: tooltip } = await import('$lib/actions/tooltip');
 const { default: TooltipWrapFixture } = await import('./fixtures/TooltipWrapFixture.svelte');
@@ -43,19 +44,19 @@ describe('tooltip action', () => {
 
 	it('shows immediately on keyboard focus and describes the element while open', async () => {
 		const { node } = attach('Delete item');
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		const bubble = document.body.querySelector('[role="tooltip"]')!;
 		expect(bubble.textContent?.trim()).toBe('Delete item');
 		expect(node.getAttribute('aria-describedby')).toBe(bubble.id);
-		node.dispatchEvent(new FocusEvent('focusout'));
+		node.blur();
 		expect(bubbleText()).toBeNull();
 		expect(node.hasAttribute('aria-describedby')).toBe(false);
 	});
 
 	it('closes on Escape', async () => {
 		const { node } = attach('Delete item');
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 		expect(bubbleText()).toBeNull();
@@ -63,26 +64,27 @@ describe('tooltip action', () => {
 
 	it('shows nothing for empty text', async () => {
 		const { node } = attach(undefined);
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		expect(bubbleText()).toBeNull();
 	});
 
 	it('truncateOnly shows only when the content overflows', async () => {
 		const { node } = attach({ text: 'A very long name', truncateOnly: true }, 'span');
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		expect(bubbleText()).toBeNull();
 		Object.defineProperty(node, 'scrollWidth', { value: 200, configurable: true });
 		Object.defineProperty(node, 'clientWidth', { value: 100, configurable: true });
-		node.dispatchEvent(new FocusEvent('focusin'));
+		node.blur();
+		keyboardFocus(node);
 		await Promise.resolve();
 		expect(bubbleText()).toBe('A very long name');
 	});
 
 	it('follows a changed text while open and removes the bubble on destroy', async () => {
 		const { node, action } = attach('One');
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		action.update('Two');
 		await Promise.resolve();
@@ -93,7 +95,7 @@ describe('tooltip action', () => {
 
 	it('wrap lets a long text break onto several lines', async () => {
 		const { node } = attach({ text: 'Cinematic lighting studies, glass, liquids and reflections', wrap: true });
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		const style = document.body.querySelector<HTMLElement>('[role="tooltip"]')!.getAttribute('style') ?? '';
 		expect(style).not.toContain('max-content');
@@ -102,7 +104,7 @@ describe('tooltip action', () => {
 
 	it('keeps one line without wrap', async () => {
 		const { node } = attach('Copy');
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		const style = document.body.querySelector<HTMLElement>('[role="tooltip"]')!.getAttribute('style') ?? '';
 		expect(style).toContain('min-width: max-content');
@@ -112,10 +114,10 @@ describe('tooltip action', () => {
 		const { node } = attach({ text: 'Row name', focusSelf: true }, 'div');
 		const child = document.createElement('button');
 		node.appendChild(child);
-		child.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(child);
 		await Promise.resolve();
 		expect(bubbleText()).toBeNull();
-		node.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(node);
 		await Promise.resolve();
 		expect(bubbleText()).toBe('Row name');
 	});
@@ -161,7 +163,7 @@ describe('Tooltip wrapper', () => {
 	it('opens on focusin of its trigger and closes on Escape', async () => {
 		const target = mountWrapper({ text: 'Hint' });
 		const trigger = target.querySelector('button')!.parentElement!;
-		trigger.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(trigger);
 		await new Promise((r) => setTimeout(r, 0));
 		expect(bubbleText()).toBe('Hint');
 		trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -172,7 +174,7 @@ describe('Tooltip wrapper', () => {
 	it('truncateOnly keeps a non-overflowing trigger silent', async () => {
 		const target = mountWrapper({ text: 'Hint', truncateOnly: true });
 		const trigger = target.querySelector('button')!.parentElement!;
-		trigger.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(trigger);
 		await new Promise((r) => setTimeout(r, 0));
 		expect(bubbleText()).toBeNull();
 	});

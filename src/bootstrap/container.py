@@ -98,6 +98,8 @@ from src.platform.plugins.limit_kinds import (
     LimitKindRegistry,
     limit_kind_registry as _shared_limit_kind_registry,
 )
+from src.platform.media_tools import MediaToolRegistry
+from src.platform.media_tools.ops import register_core_tools as register_core_media_tools
 from src.features.fields.builtin import register_builtin_fields
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
 from src.features.presets.requirements.evaluator import RequirementsCache
@@ -143,6 +145,21 @@ from src.features.segments.repository import (
     SegmentTemplateRepository,
 )
 from src.features.llm.gateway import LLMGateway
+from src.features.llm.harness.adapters.anthropic_messages import AnthropicMessagesAdapter
+from src.features.llm.harness.adapters.gemini_interactions import GeminiInteractionsAdapter
+from src.features.llm.harness.adapters.native import NativeAdapter
+from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
+from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
+from src.features.llm.harness.adapters.openai_responses import OpenAIResponsesAdapter
+from src.features.llm.harness.adapters.openrouter import DEFAULT_BASE_URL as OPENROUTER_BASE_URL, OpenRouterAdapter
+from src.features.llm.harness.replay import policy_replay
+from src.features.llm.harness.engine import TurnEngine
+from src.features.llm.harness.profile_seed_catalog import SeedCatalog
+from src.features.llm.harness.profiles import LayeredProfileResolver
+from src.features.llm.harness.retry import BackoffRetry
+from src.features.llm.harness.store import SqliteTurnStore
+from src.features.llm.harness.tool_runner import ParallelToolRunner
+from src.features.llm.types import LLMType, LLMTypes
 from src.bootstrap.composition import ChatDeps, build_chat
 from src.bootstrap.composition.chat import register_session_memory_cleanup
 
@@ -243,8 +260,9 @@ from src.features.housekeeping.worker import HousekeepingWorker, build_tasks
 from src.features.backup.admin import BackupRuns
 from src.features.backup.settings import repo_root as backup_repo_root
 from src.features.media.preset_prerender import PresetMediaPrerenderQueue
-from src.features.media.editing.editor import MediaEditor
-from src.features.media.editing.routes import MediaEditController
+from src.features.media_tools.repository import MediaToolParamsRepository
+from src.features.media_tools.routes import MediaToolController
+from src.features.media_tools.service import MediaToolService
 from src.features.library import LibraryCollaborators, LibraryRepository
 from src.features.library.routes import LibraryController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
@@ -333,6 +351,7 @@ class AppContainer:
     recipe_step_kind_registry: RecipeStepKindRegistry
     requirements_cache: RequirementsCache
     tool_registry: "ToolRegistry"
+    media_tool_registry: MediaToolRegistry
     tool_executor: "ToolExecutor"
     chat_mode_registry: "ChatModeRegistry"
     resource_registry: "ResourceRegistry"
@@ -363,6 +382,8 @@ class AppContainer:
     # LLM
     llm_repository: LLMRepository
     llm_service: LLMGateway
+    turn_store: "SqliteTurnStore"
+    turn_engine: "TurnEngine"
     llm_memory_repository: "LLMMemoryRepository"
     chat_call_trace_recorder: "ChatCallTraceRecorder"
 
@@ -479,7 +500,9 @@ class AppContainer:
     backup_runs: "BackupRuns"
     media_controller: "MediaController"
     media_access: "MediaAccess"
-    media_edit_controller: "MediaEditController"
+    media_tool_repository: "MediaToolParamsRepository"
+    media_tool_service: "MediaToolService"
+    media_tool_controller: "MediaToolController"
 
     # Library
     library_repository: "LibraryRepository"
@@ -659,9 +682,12 @@ def build_container() -> AppContainer:
     # their tools/chat_modes/resources into them. Builtins are registered
     # first so a plugin colliding with a builtin fails plugin enable.
 
+    media_tool_registry = MediaToolRegistry()
+    register_core_media_tools(media_tool_registry)
+
     tool_registry = ToolRegistry()
     _rr._global_tool_registry = tool_registry
-    register_builtin_tools(tool_registry)
+    register_builtin_tools(tool_registry, media_tool_registry)
 
     chat_mode_registry = ChatModeRegistry()
     builtin_modes = [
@@ -686,6 +712,7 @@ def build_container() -> AppContainer:
     # `automation_nodes:` entries can be registered during
     # `_sync_enabled_plugins` below.
     from src.platform.plugins.automation_nodes import node_type_registry as automation_node_type_registry
+    from src.features.automation.nodes.actions import bind_media_tool_registry
 
     automation_template_registry = AutomationTemplateRegistry()
     register_builtin_templates(automation_template_registry)
@@ -740,6 +767,7 @@ def build_container() -> AppContainer:
         recipe_step_kind_registry=recipe_step_kind_registry,
         llm_provider_registry=llm_provider_registry,
         limit_kind_registry=limit_kind_registry,
+        media_tool_registry=media_tool_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -762,6 +790,7 @@ def build_container() -> AppContainer:
     # one fails plugin enable rather than crashing builtin registration.
     plugin_repository = PluginRepository()
     _sync_enabled_plugins(plugin_registry, plugin_repository)
+    plugin_operations.enable_default_plugins(plugin_repository, plugin_registry)
 
 
     plans = build_plans(limit_kind_registry, settings, plugin_registry)
@@ -805,11 +834,30 @@ def build_container() -> AppContainer:
 
     # Initialize LLM components
     llm_repository = LLMRepository()
+    llm_types = LLMTypes(
+        core=(
+            LLMType(type="ollama", adapter=OllamaChatAdapter()),
+            LLMType(type="openai", adapter=OpenAIResponsesAdapter(), default_base_url="https://api.openai.com/v1"),
+            LLMType(type="openai-compatible", adapter=OpenAIChatAdapter()),
+            LLMType(type="openrouter", adapter=OpenRouterAdapter(), default_base_url=OPENROUTER_BASE_URL),
+            LLMType(type="anthropic", adapter=AnthropicMessagesAdapter(), default_base_url="https://api.anthropic.com"),
+            LLMType(
+                type="gemini",
+                adapter=GeminiInteractionsAdapter(),
+                default_base_url="https://generativelanguage.googleapis.com",
+            ),
+            LLMType(type="native", adapter=NativeAdapter(model_lifecycle, model_roots)),
+        ),
+        provider_registry=llm_provider_registry,
+    )
+    llm_profiles = LayeredProfileResolver(
+        llm_types.adapter_for,
+        SeedCatalog(Path(os.getenv("POTIONUI_LLM_PROFILES_DIR", "content/llm-profiles")), plugin_registry),
+    )
     llm_service = LLMGateway(
         llm_repository=llm_repository,
-        model_lifecycle=model_lifecycle,
-        model_roots=model_roots,
-        provider_registry=llm_provider_registry,
+        types=llm_types,
+        profiles=llm_profiles,
     )
 
     tool_governance_repository = ToolGovernanceRepository()
@@ -879,6 +927,7 @@ def build_container() -> AppContainer:
             llm_service=llm_service,
             models=model_lifecycle,
             assets=download_queue,
+            media_tools=media_tool_registry,
         )
 
     backend_registry = BackendRegistry(
@@ -965,6 +1014,7 @@ def build_container() -> AppContainer:
         tool_governance_repository=tool_governance_repository,
         download_queue=download_queue,
         model_roots=model_roots,
+        profile_resolver=llm_profiles,
     )
 
     # Initialize user components
@@ -1014,7 +1064,15 @@ def build_container() -> AppContainer:
     # registries themselves were created earlier (before the plugin
     # registry) so startup plugin enabling could populate them.
 
-    tool_executor = ToolExecutor(tool_registry=tool_registry, llm_service=llm_service)
+    tool_executor = ToolExecutor(tool_registry=tool_registry)
+    turn_store = SqliteTurnStore()
+    turn_engine = TurnEngine(
+        gateway=llm_service,
+        tools=tool_executor,
+        runner=ParallelToolRunner(tool_executor),
+        store=turn_store,
+        retry=BackoffRetry(),
+    )
 
     # Global tool governance (admin enable/lock + per-user opt-out), layered
     # on top of the mode/session tool filtering above.
@@ -1480,13 +1538,20 @@ def build_container() -> AppContainer:
     preset_media_prerender_queue.schedule_scan(preset_template_loader.presets)
 
 
-    media_editor = MediaEditor(
+    media_tool_repository = MediaToolParamsRepository()
+    media_tool_service = MediaToolService(
+        registry=media_tool_registry,
+        params_repository=media_tool_repository,
         upload_repository=upload_repository,
+        file_repository=file_repo,
         media_type_resolver=media_type_resolver,
         storage_driver=storage_driver,
         limit_guard=limit_guard,
     )
-    media_edit_controller = MediaEditController(media_editor)
+    media_tool_controller = MediaToolController(media_tool_service)
+    automation_services.media_tool_service = media_tool_service
+    automation_services.media_tool_registry = media_tool_registry
+    bind_media_tool_registry(media_tool_registry)
 
     # Library components (uploads as first-class, curatable resources)
 
@@ -1688,6 +1753,7 @@ def build_container() -> AppContainer:
         content_safety=content_safety,
         library_collaborators=library_collaborators,
         tab_drafts=tab_draft_manager,
+        media_tool_service=media_tool_service,
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,
@@ -1722,6 +1788,8 @@ def build_container() -> AppContainer:
             generation_repository=generation_repository,
             generation_parameter_repository=generation_parameter_repository,
             generation_model_repository=generation_model_repository,
+            turn_engine=turn_engine,
+            replay_selector=policy_replay,
         )
     )
     chat.pre_chat_action_registry.discover_actions()

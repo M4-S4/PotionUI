@@ -211,6 +211,7 @@ class TestAuth:
         mock_user_repository.exists_by_email.return_value = False
         mock_instance_claim.is_claimed.return_value = False
         mock_claim_tokens.verify.return_value = False
+        mock_claim_tokens.describe_location.return_value = "the file storage/setup_claim_token"
 
         with pytest.raises(ValueError) as exc_info:
             auth.register(
@@ -218,7 +219,10 @@ class TestAuth:
                 origin_is_loopback=False, claim_token="wrong",
             )
 
-        assert "setup token" in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "setup token" in message
+        assert "the file storage/setup_claim_token on the server" in message
+        assert "console" not in message
         mock_user_repository.create_claiming_instance.assert_not_called()
         mock_claim_tokens.verify.assert_called_once_with("wrong")
 

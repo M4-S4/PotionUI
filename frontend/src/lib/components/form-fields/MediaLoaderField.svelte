@@ -19,7 +19,7 @@
 	import { fetchMediaMetadata } from './mediaLoaderMetadata';
 	import { readSingleValue, type SingleValue } from './mediaLoaderValue';
 	import { pickFromGeneration, pickFromUpload } from './mediaLoaderPicks';
-	import { clickClearsSelection, clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
+	import { clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
 	import { itemLimitFor, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
 	import { kindFromMimeType, kindFromFilename, kindOfMediaItem } from './mediaLoaderKind';
 	import {
@@ -266,11 +266,10 @@
 
 	function handleClickOutside(event: MouseEvent) {
 		if (clickIsOutside(uploadAreaRef, event.target as Node)) isPasteActive = false;
-		if (multiple && clickClearsSelection(event.target)) selected = null;
 	}
 
-	function toggleSelection(flatIndex: number) {
-		selected = selected === flatIndex ? null : flatIndex;
+	function selectItem(flatIndex: number) {
+		selected = flatIndex;
 	}
 
 	let resizeObserver: ResizeObserver | null = null;
@@ -773,6 +772,16 @@
 		}
 	}
 
+	let pointerInside = false;
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (!pointerInside || event.key === 'Delete') return;
+		if (event.target !== document.body && event.target !== document.documentElement) return;
+		const modal = document.querySelector('[aria-modal="true"]');
+		if (modal && !modal.contains(uploadAreaRef)) return;
+		handleRootKeydown(event);
+	}
+
 	function handleRootKeydown(event: KeyboardEvent) {
 		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
 		if (face !== 'inspector' && face !== 'strip') return;
@@ -788,12 +797,15 @@
 		const tool = matchToolShortcut(inspectorToolGroups, event.key);
 		if (tool) {
 			event.preventDefault();
+			event.stopPropagation();
 			runFieldTool(tool, flatIndex);
 		}
 	}
 
 	$: countText = multiple && countLimit !== null ? formatCount(multiItems.length, countLimit) : null;
 </script>
+
+<svelte:window on:keydown|capture={handleWindowKeydown} />
 
 <div
 	bind:this={uploadAreaRef}
@@ -802,6 +814,8 @@
 	data-media-field
 	data-face={face}
 	on:keydown={handleRootKeydown}
+	on:mouseenter={() => (pointerInside = true)}
+	on:mouseleave={() => (pointerInside = false)}
 	use:fileDrop={{ onFiles: handleDroppedFiles, onActive: (active) => (isDragging = active) }}
 	on:click={() => (isPasteActive = true)}
 >
@@ -898,6 +912,7 @@
 				label={selectedItem && typeof selectedItem.label === 'string' ? selectedItem.label : ''}
 				maxLabelLength={MAX_LABEL_LENGTH}
 				hasMask={!multiple && existingMaskUrl !== null}
+				maskUrl={multiple ? null : existingMaskUrl}
 				fromGeneration={!multiple && value && typeof value === 'object' && Boolean(value.fromGeneration)}
 				toolGroups={inspectorToolGroups}
 				uploading={inspectorUploading}
@@ -921,7 +936,7 @@
 					adding={addingKind}
 					addingProgress={uploadProgress}
 					offersDraw={false}
-					onSelect={toggleSelection}
+					onSelect={selectItem}
 					onReorder={reorderItems}
 					onRemove={removeMultiItem}
 					onSource={handleSource}

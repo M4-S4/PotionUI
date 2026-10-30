@@ -1,0 +1,42 @@
+prompt_label: "Water to add"
+prompt_placeholder: "a shallow stream flowing across the floor"
+name: "custom"
+mode_label: "Add water"
+short_description: "Add water to a scene."
+negative_prompt:
+  applies_when:
+    logic: "OR"
+    conditions:
+      - { field: "cfg", greater_than: 1 }
+requirements:
+  - type: "model"
+    filename: "ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors"
+    hint: "Download the Add water LoRA in this mode."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/add_water/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/add_water/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/add_water/tabs/advanced.yml"

@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
+const retryMediaToolCatalog = vi.fn();
+vi.mock('$lib/tools/pluginTools', () => ({
+	retryMediaToolCatalog: (...args: unknown[]) => retryMediaToolCatalog(...args)
+}));
+
 import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 import type { MediaTool, MediaToolGroup } from '$lib/tools/tools';
 
@@ -9,7 +14,7 @@ function tool(id: string, extra: Partial<MediaTool> = {}): MediaTool {
 		id,
 		label: id.toUpperCase(),
 		icon: 'extension',
-		category: 'edit',
+		category: 'compose',
 		source: 'core',
 		scopes: ['history', 'field'],
 		applies: () => ({ enabled: true }),
@@ -20,7 +25,7 @@ function tool(id: string, extra: Partial<MediaTool> = {}): MediaTool {
 function groups(): MediaToolGroup[] {
 	return [
 		{
-			category: { id: 'edit', label: 'Edit', order: 10 },
+			category: { id: 'compose', label: 'Compose', order: 10 },
 			tools: [
 				{ tool: tool('crop', { shortcut: 'C', description: 'Crop it' }), availability: { enabled: true } },
 				{ tool: tool('clear'), availability: { enabled: false, reason: 'No mask' } }
@@ -32,6 +37,7 @@ function groups(): MediaToolGroup[] {
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
+	retryMediaToolCatalog.mockReset();
 	cleanup?.();
 	cleanup = undefined;
 	document.body.innerHTML = '';
@@ -92,7 +98,7 @@ describe('ToolsMenu', () => {
 	it('lists each group under its category with the tools in it', () => {
 		render({});
 		const group = menu().querySelector('[role="group"]')!;
-		expect(group.getAttribute('aria-label')).toBe('Edit');
+		expect(group.getAttribute('aria-label')).toBe('Compose');
 		expect(Array.from(menu().querySelectorAll('[data-tool]')).map((el) => el.getAttribute('data-tool'))).toEqual([
 			'crop',
 			'clear'
@@ -193,5 +199,127 @@ describe('ToolsMenu', () => {
 		const trigger = target.querySelector('[data-tools-trigger]')!;
 		expect(trigger.getAttribute('aria-label')).toBe('Tools');
 		expect(trigger.textContent?.trim()).toBe('');
+	});
+});
+
+describe('ToolsMenu second line', () => {
+	function noted(): MediaToolGroup[] {
+		return [
+			{
+				category: { id: 'compose', label: 'Compose', order: 20 },
+				tools: [
+					{ tool: tool('frame', { note: 'Saves one image' }), availability: { enabled: true } },
+					{ tool: tool('plain'), availability: { enabled: true } },
+					{ tool: tool('concat'), availability: { enabled: false, reason: 'Select 2 to 8 items' } },
+					{ tool: tool('upscaler.upscale', { source: 'plugin', note: 'Upscaler' }), availability: { enabled: true } }
+				]
+			}
+		];
+	}
+
+	const sub = (id: string) => menu().querySelector(`[data-tool="${id}"] [data-tool-sub]`);
+
+	it('says what an enabled tool saves under its label', () => {
+		render({ groups: noted() });
+		expect(sub('frame')!.textContent).toBe('Saves one image');
+	});
+
+	it('gives a plain tool one line only', () => {
+		render({ groups: noted() });
+		expect(sub('plain')).toBeNull();
+	});
+
+	it('puts the reason a tool is unavailable under its label on a page menu', () => {
+		render({ groups: noted() });
+		expect(sub('concat')!.textContent).toBe('Select 2 to 8 items');
+		expect(menu().querySelector('[data-tool="concat"]')!.getAttribute('aria-disabled')).toBe('true');
+	});
+
+	it('does the same on the card menu, which used to show it at the end of the row', () => {
+		render({ groups: noted(), variant: 'entry', scope: 'library' });
+		expect(sub('concat')!.textContent).toBe('Select 2 to 8 items');
+	});
+
+	it('keeps the reason at the end of the row for a field menu', () => {
+		render({ groups: noted(), scope: 'field' });
+		expect(sub('concat')).toBeNull();
+		expect(menu().querySelector('[data-tool="concat"]')!.textContent).toContain('Select 2 to 8 items');
+	});
+
+	it('names the plugin on the second line instead of a Plugin tag', () => {
+		render({ groups: noted(), variant: 'entry', scope: 'history' });
+		expect(sub('upscaler.upscale')!.textContent).toBe('Upscaler');
+		expect(menu().querySelector('[data-tool="upscaler.upscale"]')!.textContent?.toLowerCase()).not.toContain('plugin');
+	});
+
+	it('draws the second line at 12px or larger in the subtle text colour', () => {
+		render({ groups: noted() });
+		const line = sub('frame')!;
+		expect(line.className).toContain('text-[12px]');
+		expect(line.className).toContain('text-fg-subtle');
+	});
+
+	it('truncates a long label and a long second line rather than wrapping the row', () => {
+		render({ groups: noted() });
+		expect(menu().querySelector('[data-tool="frame"] span.truncate')).toBeTruthy();
+		expect(sub('frame')!.className).toContain('truncate');
+	});
+
+	it('shows the second line in the phone sheet too', () => {
+		render({ groups: noted(), sheet: true, title: 'clip.mp4' });
+		expect(sub('frame')!.textContent).toBe('Saves one image');
+	});
+});
+
+describe('ToolsMenu catalog retry', () => {
+	it('asks the catalog to retry when a page menu opens', () => {
+		render({ open: true, scope: 'library' });
+		expect(retryMediaToolCatalog).toHaveBeenCalledTimes(1);
+	});
+
+	it('does so for a History menu and a card menu as well', () => {
+		render({ open: true, scope: 'history', variant: 'entry' });
+		expect(retryMediaToolCatalog).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not ask while the menu is closed', () => {
+		render({ open: false, scope: 'library' });
+		expect(retryMediaToolCatalog).not.toHaveBeenCalled();
+	});
+
+	it('asks again each time the menu is opened', async () => {
+		const { createClassComponent } = await import('svelte/legacy');
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const instance = createClassComponent({
+			component: ToolsMenu as never,
+			target,
+			props: {
+				open: false,
+				scope: 'library',
+				groups: groups(),
+				onToggle: vi.fn(),
+				onClose: vi.fn(),
+				onPick: vi.fn()
+			}
+		});
+		cleanup = () => {
+			instance.$destroy();
+			target.remove();
+		};
+		flushSync();
+		instance.$set({ open: true });
+		flushSync();
+		instance.$set({ open: false });
+		flushSync();
+		instance.$set({ open: true });
+		flushSync();
+
+		expect(retryMediaToolCatalog).toHaveBeenCalledTimes(2);
+	});
+
+	it('leaves a field menu alone, which builds its tools from its own catalog call', () => {
+		render({ open: true, scope: 'field' });
+		expect(retryMediaToolCatalog).not.toHaveBeenCalled();
 	});
 });

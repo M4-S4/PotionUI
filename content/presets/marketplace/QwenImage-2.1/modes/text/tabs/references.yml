@@ -1,0 +1,24 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "source_image"
+        type: "image"
+        label: "Image"
+        required: true
+        configuration:
+          allow_inpaint: true
+        ai_hint: "The image to edit. Put where the new text goes and how it looks in the prompt, for example 'in white capitals at the top'; it is optional. Paint a region on it to change only that area: the area is cropped with surrounding context, edited at the model's working size and composited back, so every pixel outside it stays exactly as it was."
+
+  - type: "section"
+    label: "Text"
+    children:
+      - name: "current_text"
+        type: "string"
+        label: "Current text"
+        ai_hint: "The text now in the image, written exactly as it appears. Leave empty to add new text instead of changing existing text."
+      - name: "new_text"
+        type: "string"
+        label: "New text"
+        required: true
+        ai_hint: "The text the image should show, written exactly: spelling, case, punctuation and script are kept as typed, in any language."

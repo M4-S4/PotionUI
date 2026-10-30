@@ -15,11 +15,16 @@
 	export let fit: 'cover' | 'contain' = 'cover';
 	/** Skip the thumbnail entirely and render the full-resolution image right away. */
 	export let startFullLoaded: boolean = false;
+	export let skeleton: boolean = false;
 
 	let error = false;
 	let fullLoaded = startFullLoaded;
 	let isHovering = false;
 	let activeFilePath = file.file_path;
+	let imgEl: HTMLImageElement | undefined;
+	let loadedUrl: string | undefined;
+	$: if (imgEl && imageUrl && loadedUrl !== imageUrl && imgEl.complete && imgEl.naturalWidth > 0) loadedUrl = imageUrl;
+	$: showSkeleton = skeleton && !!imageUrl && loadedUrl !== imageUrl;
 
 	nsfwFilterStore.init();
 
@@ -206,13 +211,21 @@
 {:else if imageUrl}
 	<!-- Image with thumbnail -->
 	<div class="relative overflow-hidden flex items-center justify-center {className} {alphaCheckerboard ? 'alpha-checkerboard' : ''}">
+		{#if showSkeleton}
+			<div class="absolute inset-0 z-10 bg-surface-2 animate-pulse" data-card-skeleton></div>
+		{/if}
 		<img
+			bind:this={imgEl}
+			on:load={() => (loadedUrl = imageUrl)}
 			src={imageUrl}
 			alt="Generated content"
 			class="w-full h-full {fitClass} {shouldBlur ? 'blur-2xl scale-110' : ''} {loadFullOnClick && !fullLoaded ? 'cursor-pointer' : ''}"
 			role={loadFullOnClick && !fullLoaded ? 'button' : undefined}
 			tabindex={loadFullOnClick && !fullLoaded && !shouldBlur ? 0 : undefined}
-			on:error={handleImageError}
+			on:error={() => {
+				loadedUrl = imageUrl;
+				handleImageError();
+			}}
 			on:click={handleClick}
 			on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}
 			loading="lazy"

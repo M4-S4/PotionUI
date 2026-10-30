@@ -20,8 +20,15 @@
 	import { toasts } from '$lib/stores/toast';
 	import AccountsSheet from '$lib/components/accounts/AccountsSheet.svelte';
 	import { accountsStore } from '$lib/stores/accounts';
+	import { refreshResumeSetup, showResumeSetup } from '$lib/stores/resumeSetup';
 
 	$: user = $authStore.user;
+	$: isAdmin = user?.account_type === 'ADMIN';
+	let resumeChecked = false;
+	$: if (isAdmin && !resumeChecked) {
+		resumeChecked = true;
+		refreshResumeSetup();
+	}
 	let accountsSheetOpen = false;
 	$: accountCount = Math.max($accountsStore.accounts.length, 1);
 	$: hasLocalPassword = user?.has_local_password ?? true;
@@ -334,6 +341,17 @@
 <div class="min-h-screen bg-canvas text-fg">
 	<PageHeader title="Settings" description="Manage your account and application settings" sticky={false} />
 	<PageContainer width="sm" class="space-y-6">
+		{#if isAdmin && $showResumeSetup}
+			<Card class="flex items-center justify-between gap-3">
+				<div class="min-w-0">
+					<h2 class="text-sm font-semibold text-fg">Resume setup</h2>
+					<p class="text-sm text-fg-muted mt-0.5">
+						This instance isn't ready to generate yet. Pick the setup guide up where you left it.
+					</p>
+				</div>
+				<Button variant="secondary" href="/setup">Resume setup</Button>
+			</Card>
+		{/if}
 
 		<!-- User Profile Card -->
 		{#if user}

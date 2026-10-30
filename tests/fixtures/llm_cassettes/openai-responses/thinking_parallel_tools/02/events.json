@@ -1,0 +1,89 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": false,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "id",
+    "value": "rs_1b2c3d4e5f607182"
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "encrypted_content",
+    "value": "gAAAAABq_weather_wrap_encrypted_blob_c2Vjb25k"
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Paris is 18 degrees and clear; ",
+    "phase": "final_answer"
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Zürich is 14 degrees ",
+    "phase": "final_answer"
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "and overcast.",
+    "phase": "final_answer"
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 655,
+      "output_tokens": 61,
+      "total_tokens": 716,
+      "reasoning_tokens": 24,
+      "cached_input_tokens": 384,
+      "cache_write_tokens": null,
+      "cost": null,
+      "raw": {
+        "input_tokens": 655,
+        "input_tokens_details": {
+          "cached_tokens": 384
+        },
+        "output_tokens": 61,
+        "output_tokens_details": {
+          "reasoning_tokens": 24
+        },
+        "total_tokens": 716
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "completed",
+    "raw": [
+      {
+        "id": "rs_1b2c3d4e5f607182",
+        "type": "reasoning",
+        "summary": [],
+        "encrypted_content": "gAAAAABq_weather_wrap_encrypted_blob_c2Vjb25k"
+      },
+      {
+        "id": "msg_1b2c3d4e5f607182",
+        "type": "message",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "Paris is 18 degrees and clear; Zürich is 14 degrees and overcast."
+          }
+        ],
+        "role": "assistant"
+      }
+    ]
+  }
+]

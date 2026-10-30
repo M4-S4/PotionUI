@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { page } from '$app/stores';
+	import { createUrlState } from '$lib/utils/urlState';
+	import { hrefWithLibraryItem, libraryItemIdFromUrl } from '$lib/library/deepLink';
+	import { takePendingFresh } from '$lib/library/freshHandoff';
 	import { libraryStore } from '$lib/stores/library';
 	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { toasts } from '$lib/stores/toast';
@@ -13,12 +18,18 @@
 	import LibrarySidebar from './components/LibrarySidebar.svelte';
 	import LibrarySelectionToolbar from './components/LibrarySelectionToolbar.svelte';
 	import LibraryGrid from './components/LibraryGrid.svelte';
-	import LibraryItemModal from './components/LibraryItemModal.svelte';
+	import LibraryItemModal from '$lib/components/library/LibraryItemModal.svelte';
 	import { libraryItemDisplayName } from '$lib/library/libraryItemMeta';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import ToolHost from '$lib/components/tools/ToolHost.svelte';
 	import { registerCoreHistoryTools } from '../history/tools/coreTools';
 	import { loadPluginMediaTools } from '$lib/tools/pluginTools';
+	import { pickTool } from '$lib/tools/toolPicker';
+	import { plainLetter, pageOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { gridShortcutTarget } from '$lib/tools/gridShortcut';
+	import { buildLibraryToolContext, listTools } from '$lib/tools/tools';
+	import { editImageAvailability } from '../history/tools/editImage';
+	import type { EditedMediaItem } from '$lib/services/api/media';
 	import type { MediaTool, MediaToolContext } from '$lib/tools/tools';
 
 	registerCoreHistoryTools();
@@ -29,8 +40,47 @@
 	let activeToolContext: MediaToolContext | null = null;
 
 	function handleToolSelect(tool: MediaTool, context: MediaToolContext) {
-		activeTool = tool;
-		activeToolContext = context;
+		pickTool(tool, context, {
+			mount: (picked, pickedContext) => {
+				activeTool = picked;
+				activeToolContext = pickedContext;
+			},
+			onResult: handleToolResult
+		});
+	}
+
+	async function handleToolResult(
+		items: EditedMediaItem[],
+		context: MediaToolContext,
+		info: { replaced: boolean }
+	) {
+		if (items.length > 0) {
+			await libraryStore.applyToolResult(
+				items,
+				context.items.map((item) => item.id),
+				{ replaced: info.replaced }
+			);
+		}
+		if (!context.entry) libraryStore.clearSelection();
+	}
+
+	function focusedItemId(): string | null {
+		const active = document.activeElement as HTMLElement | null;
+		return active?.closest?.('[data-library-card]')?.getAttribute('data-library-card') ?? null;
+	}
+
+	function handleGridShortcut(event: KeyboardEvent) {
+		if (plainLetter(event) !== 'e' || !pageOwnsKeys(event)) return;
+		const selected = $libraryStore.selectedIds;
+		const id = gridShortcutTarget(selected, focusedItemId());
+		if (!id) return;
+		const item = $libraryStore.items.find((candidate) => candidate.id === id);
+		if (!item) return;
+		const context = buildLibraryToolContext([item], null);
+		const tool = listTools('library').find((candidate) => candidate.id === 'edit-image');
+		if (!tool || !editImageAvailability(context).enabled) return;
+		event.preventDefault();
+		handleToolSelect(tool, context);
 	}
 
 	function closeTool() {
@@ -64,14 +114,74 @@
 	];
 
 	$: state = $libraryStore;
+	$: currentUrl = $page.url;
+
+	let lastUrlItemId: string | null = null;
+	let lastSelectedItemId: string | null = null;
+
+	const itemUrl = createUrlState<string | null>({
+		href: (id) => hrefWithLibraryItem(currentUrl, id)
+	});
+
+	function linkedItemMissing() {
+		toasts.error("That library item couldn't be found");
+		lastUrlItemId = null;
+		void itemUrl.replace(null);
+	}
+
+	async function openLinkedItem(id: string) {
+		const known = get(libraryStore).items.find((item) => item.id === id);
+		if (known) {
+			libraryStore.setSelectedItem(known);
+			return;
+		}
+		try {
+			const response = await api.getLibraryItem(id);
+			if (lastUrlItemId !== id) return;
+			if (response.success && response.data) libraryStore.setSelectedItem(response.data);
+			else linkedItemMissing();
+		} catch {
+			if (lastUrlItemId === id) linkedItemMissing();
+		}
+	}
+
+	function syncItemFromUrl(urlId: string | null) {
+		if (urlId === lastUrlItemId) return;
+		lastUrlItemId = urlId;
+		const selectedId = get(libraryStore).selectedItem?.id ?? null;
+		if (!urlId) {
+			if (selectedId) libraryStore.setSelectedItem(null);
+			return;
+		}
+		if (selectedId !== urlId) void openLinkedItem(urlId);
+	}
+
+	function syncItemToUrl(selectedId: string | null) {
+		if (selectedId === lastSelectedItemId) return;
+		lastSelectedItemId = selectedId;
+		if (selectedId === lastUrlItemId) return;
+		lastUrlItemId = selectedId;
+		void itemUrl.replace(selectedId);
+	}
+
+	$: syncItemFromUrl(libraryItemIdFromUrl($page.url));
+	$: syncItemToUrl(state.selectedItem?.id ?? null);
 
 	onMount(() => {
+		libraryStore.clearFresh();
 		libraryStore.restoreItemsPerPage();
-		libraryStore.load().then(() => libraryStore.loadTags());
+		libraryStore
+			.load()
+			.then(() => {
+				libraryStore.markFresh(takePendingFresh());
+				return libraryStore.loadTags();
+			});
 		libraryStore.loadFacets();
 		collectionsStore.load();
 		void loadPluginMediaTools();
 	});
+
+	onDestroy(() => libraryStore.clearFresh());
 
 	function pickFiles() {
 		fileInput?.click();
@@ -122,6 +232,8 @@
 		}
 	}
 </script>
+
+<svelte:window on:keydown={handleGridShortcut} />
 
 <svelte:head>
 	<title>Library · PotionUI</title>

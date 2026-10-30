@@ -14,6 +14,14 @@ TEXT_FIELD_TYPES = frozenset({"string", "textbox"})
 VIDEO_DIRECTOR_FIXTURE_PROMPT = "a calm lake at sunrise, gentle ripples, soft morning light"
 
 
+def requires_by_reaction(field: FieldTemplate) -> bool:
+    for reaction in field.reactions or []:
+        validation = (reaction.get("then") or {}).get("update_validation") or {}
+        if validation.get("required") is True:
+            return True
+    return False
+
+
 def collect_named_fields(
     fields: List[FieldTemplate],
     form_data: Dict[str, Any],
@@ -48,7 +56,7 @@ def inject_unresolvable_defaults(fields: List[FieldTemplate], form_data: Dict[st
                 placeholder = f"/{tag}/media/{name}.{MEDIA_EXTENSIONS.get(field.type, 'bin')}"
                 multi = bool((field.configuration or {}).get("multi"))
                 form_data[name] = [placeholder] if multi else placeholder
-            elif (field.type in TEXT_FIELD_TYPES or field.type == "tags") and field.required:
+            elif (field.type in TEXT_FIELD_TYPES or field.type == "tags") and (field.required or requires_by_reaction(field)):
                 form_data[name] = f"{tag} placeholder text"
         if isinstance(field.children, list):
             inject_unresolvable_defaults(field.children, form_data, tag)

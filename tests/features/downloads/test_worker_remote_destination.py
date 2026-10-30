@@ -109,7 +109,7 @@ class _NoTypes:
     def get_assertions(self, shas):
         return {}
 
-    def get_verdicts(self, shas):
+    def get_verdicts_by_sha(self, shas):
         return {}
 
 

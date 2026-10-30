@@ -7,7 +7,7 @@ from src.platform.runtime.native.arch.flux3.model import Flux3
 from src.platform.runtime.native.arch.moss_image.model import MossImage
 from src.platform.runtime.native.cancellation import cancellation_scope
 from src.platform.runtime.native.errors import SamplingCancelled
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 from .test_anima_model import TINY as TINY_ANIMA
 from .test_anima_model import _build_ready as _build_anima

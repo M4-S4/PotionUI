@@ -40,18 +40,21 @@ pipeline:
   #############
   ## Colour key - flat background colour -> alpha
   #############
-  - name: "color_key"
+  - name: "media_tool"
     id: "color_key"
     enabled: true
     input:
       - ["image", "media_loader", "image"]
     configuration:
-      key_mode: "{{ form.key_mode }}"
-      key_color: "{{ form.key_color }}"
-      tolerance: "{{ form.tolerance }}"
-      softness: "{{ form.softness }}"
-      despill: "{{ form.despill }}"
-      feather: "{{ form.key_feather }}"
+      display_title: "Keying color"
+      tool: "color_key"
+      params:
+        key_mode: "{{ form.key_mode }}"
+        key_color: "{{ form.key_color }}"
+        tolerance: "{{ form.tolerance }}"
+        softness: "{{ form.softness }}"
+        despill: "{{ form.despill }}"
+        feather: "{{ form.key_feather }}"
 
   #############
   ## Gallery - save the keyed RGBA image

@@ -5,6 +5,9 @@ from unittest.mock import Mock
 import pytest
 
 from src.features.chat.dto import MessageResponse, SessionResponse
+from src.features.llm.harness.baseline import InMemoryTurnStore
+from src.features.llm.harness.messages import Message, Origin, ReasoningPart, Role, TextPart
+from src.features.llm.harness.turn_state import StepRecord, StepStatus
 from src.features.chat.routes import ChatController
 from src.features.chat.runtime import ChatRuntime
 from src.features.chat.turns import ChatTurnRegistry
@@ -12,6 +15,7 @@ from src.platform.security.user import User
 from tests.fixtures.chat_modes import mode_registry
 
 STORED = {"segments": [{"text": "weighing options", "duration_ms": 1200}]}
+TURN = "t1"
 
 
 class Knob:
@@ -36,7 +40,29 @@ def stored_message(msg_id="a1"):
         msg_id,
         thinking=STORED,
         behavior_trace={"version": 1, "thinking_visible": True},
-    )
+    ).model_copy(update={"turn_id": TURN})
+
+
+def projected_message(msg_id="a1"):
+    return assistant(
+        msg_id,
+        step_range={"first": 0, "last": 0},
+        behavior_trace={"version": 1, "thinking_visible": True},
+    ).model_copy(update={"turn_id": TURN})
+
+
+@pytest.fixture
+def store():
+    store = InMemoryTurnStore()
+    store.append(StepRecord(
+        id="s0", session_id="s1", turn_id=TURN, seq=0, status=StepStatus.COMPLETED,
+        message=Message(
+            id="m0", role=Role.ASSISTANT,
+            parts=(ReasoningPart(text="weighing options", duration_ms=1200), TextPart(text="the answer")),
+            origin=Origin(adapter="a", provider="p", model="m"),
+        ),
+    ))
+    return store
 
 
 def session(messages, llm_config_id="cfg-1"):
@@ -57,32 +83,41 @@ def repo():
 
 
 @pytest.fixture
-def runtime(repo, knob):
+def runtime(repo, knob, store):
     return ChatRuntime(
         chat_repository=repo,
         llm_service=SimpleNamespace(repository=knob),
         response_processor=Mock(),
         plugin_registry=Mock(),
         chat_mode_registry=mode_registry(),
+        turn_engine=SimpleNamespace(store=store),
     )
 
 
 def has_thinking(message):
-    return "thinking" in message.metadata
+    return bool(message.reasoning)
 
 
 class TestSessionRead:
     def test_stored_thinking_is_returned_while_the_knob_is_on(self, runtime, repo):
+        repo.get_session_with_messages.return_value = session([projected_message()])
+
+        result = runtime.get_session("s1", "u1")
+
+        [block] = result.messages[0].reasoning
+        assert (block.kind, block.text, block.duration_ms) == ("raw", "weighing options", 1200)
+        assert result.messages[0].metadata["behavior_trace"]["thinking_visible"] is True
+
+    def test_a_legacy_thinking_copy_in_the_metadata_is_never_returned(self, runtime, repo):
         repo.get_session_with_messages.return_value = session([stored_message()])
 
         result = runtime.get_session("s1", "u1")
 
-        assert result.messages[0].metadata["thinking"] == STORED
-        assert result.messages[0].metadata["behavior_trace"]["thinking_visible"] is True
+        assert "thinking" not in result.messages[0].metadata
 
     def test_it_is_hidden_while_the_knob_is_off(self, runtime, repo, knob):
         knob.shown = False
-        repo.get_session_with_messages.return_value = session([stored_message()])
+        repo.get_session_with_messages.return_value = session([projected_message()])
 
         result = runtime.get_session("s1", "u1")
 
@@ -91,7 +126,7 @@ class TestSessionRead:
         assert result.messages[0].metadata["tokens_used"] == 7
 
     def test_it_reappears_when_the_knob_is_turned_back_on(self, runtime, repo, knob):
-        repo.get_session_with_messages.return_value = session([stored_message()])
+        repo.get_session_with_messages.return_value = session([projected_message()])
 
         knob.shown = False
         assert not has_thinking(runtime.get_session("s1", "u1").messages[0])
@@ -99,7 +134,7 @@ class TestSessionRead:
         knob.shown = True
         assert has_thinking(runtime.get_session("s1", "u1").messages[0])
 
-    def test_the_stored_data_is_never_modified(self, runtime, repo, knob):
+    def test_the_stored_data_is_never_modified(self, runtime, repo, knob, store):
         knob.shown = False
         stored = session([stored_message()])
         repo.get_session_with_messages.return_value = stored
@@ -107,10 +142,11 @@ class TestSessionRead:
         runtime.get_session("s1", "u1")
 
         assert stored.messages[0].metadata["thinking"] == STORED
+        assert [part.text for part in store.steps("s1")[0].message.reasoning()] == ["weighing options"]
 
     def test_the_tail_read_is_gated_too(self, runtime, repo, knob):
         knob.shown = False
-        repo.get_session_with_messages_tail.return_value = session([stored_message()])
+        repo.get_session_with_messages_tail.return_value = session([projected_message()])
 
         result = runtime.get_session("s1", "u1", tail=20)
 
@@ -123,19 +159,19 @@ class TestSessionRead:
 
         assert knob.lookups == ["other"]
 
-    def test_a_session_without_thinking_costs_no_config_lookup(self, runtime, repo, knob):
+    def test_a_session_without_projected_turns_still_gates_by_the_knob(self, runtime, repo, knob):
         repo.get_session_with_messages.return_value = session([assistant()])
 
         runtime.get_session("s1", "u1")
 
-        assert knob.lookups == []
+        assert knob.lookups == ["cfg-1"]
 
 
 class TestMessagePageRead:
     def test_the_tail_page_is_gated(self, runtime, repo, knob):
         knob.shown = False
         repo.get_session.return_value = session(None)
-        repo.get_message_tail.return_value = ([stored_message()], True)
+        repo.get_message_tail.return_value = ([projected_message()], True)
 
         messages, has_earlier = runtime.get_session_messages("s1", "u1")
 
@@ -145,7 +181,7 @@ class TestMessagePageRead:
     def test_an_earlier_page_is_gated(self, runtime, repo, knob):
         knob.shown = False
         repo.get_session.return_value = session(None)
-        repo.get_messages_before.return_value = ([stored_message()], False)
+        repo.get_messages_before.return_value = ([projected_message()], False)
 
         messages, has_earlier = runtime.get_session_messages("s1", "u1", before="a9")
 
@@ -154,7 +190,7 @@ class TestMessagePageRead:
 
     def test_a_page_shows_thinking_while_the_knob_is_on(self, runtime, repo):
         repo.get_session.return_value = session(None)
-        repo.get_message_tail.return_value = ([stored_message()], False)
+        repo.get_message_tail.return_value = ([projected_message()], False)
 
         messages, _ = runtime.get_session_messages("s1", "u1")
 
@@ -190,7 +226,7 @@ class TestReattachRead:
         return [
             {"event": "status", "data": {"step": "thinking", "state": "started", "detail": {"thinking_visible": True}}},
             {"event": "status", "data": {"step": "tools", "state": "started", "detail": {"thinking_visible": True, "count": 2}}},
-            {"event": "thinking", "data": {"content": "weighing", "segment": 0}},
+            {"event": "reasoning", "data": {"block": 0, "kind": "raw", "text": "weighing"}},
             {"event": "token", "data": {"content": "the answer"}},
             {"event": "done", "data": {"assistant_message": {"id": "a1", "content": "the answer", "metadata": stored}}},
         ]
@@ -246,7 +282,7 @@ class TestReattachRead:
 
         replayed = await read()
 
-        assert [name for name, _ in replayed] == ["status", "status", "thinking", "token", "done"]
+        assert [name for name, _ in replayed] == ["status", "status", "reasoning", "token", "done"]
         assert replayed[0][1]["detail"] == {"thinking_visible": True}
         metadata = replayed[-1][1]["assistant_message"]["metadata"]
         assert metadata["thinking"] == STORED
@@ -261,8 +297,8 @@ class TestReattachRead:
         knob.shown = True
         shown = await read()
 
-        assert "thinking" not in [name for name, _ in hidden]
-        assert "thinking" in [name for name, _ in shown]
+        assert "reasoning" not in [name for name, _ in hidden]
+        assert "reasoning" in [name for name, _ in shown]
         assert turn.events[-1]["data"]["assistant_message"]["metadata"]["thinking"] == STORED
 
     @pytest.mark.asyncio
@@ -271,7 +307,7 @@ class TestReattachRead:
         controller = ChatController(chat_runtime=runtime, turn_registry=ChatTurnRegistry())
 
         async def factory():
-            yield {"event": "thinking", "data": {"content": "x", "segment": 0}}
+            yield {"event": "reasoning", "data": {"block": 0, "kind": "raw", "text": "x"}}
             yield {"event": "done", "data": {}}
 
         turn = controller.turn_registry.start("s1", "u1", factory)

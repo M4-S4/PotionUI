@@ -12,6 +12,8 @@ name: "SDXL Starter"
 engine: "native"
 category: "image"
 summary: "Get a working SDXL setup on your local GPU and produce a first image."
+blurb: "Classic all-rounder with a huge library of styles and LoRAs."
+first_run: true
 description: >
   Installs the bundled SDXL preset on the native (in-process) engine, makes
   sure its checkpoint is available, and proves the pipeline is wired up
@@ -39,6 +41,7 @@ artifacts:
     # download source through whichever enabled plugin advertises this
     # capability (see plugin manifest `capabilities:`).
     capability: "model-lookup"
+    source_host: "huggingface.co"
     provider_hint:
       source: "huggingface"
       model_id: "RunDiffusion/Juggernaut-XL-v9"

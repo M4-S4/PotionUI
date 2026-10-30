@@ -68,7 +68,7 @@ class IOType(Enum):
     DICT = "DICT"
 
     # Built-in Services (injected by GenerationEngine)
-    SERVICE = "SERVICE"  # System services (ASSETS, GPU, LLM, MEMORY, MODELS, SETTINGS) - uppercase names
+    SERVICE = "SERVICE"
 
 
 @dataclass
@@ -306,14 +306,8 @@ PIPE_FAMILY_TITLES: Dict[str, str] = {
     "inpaint_region_restore": "Restoring inpaint region",
     "controlnet_loader": "Loading ControlNet",
     "controlnet_preprocessor": "Preparing ControlNet",
-    "crop_subject": "Cropping subject",
-    "color_key": "Keying color",
-    "canvas_fit": "Fitting canvas",
     "film_grain": "Adding film grain",
-    "video_frame_extractor": "Extracting frames",
-    "video_frame_merger": "Merging frames",
-    "video_speed": "Adjusting video speed",
-    "audio_trim": "Trimming audio",
+    "media_tool": "Editing media",
     "output_skipper": "Finalizing",
     "cloud_generate": "Generating in the cloud",
     "gallery": "Saving to gallery",

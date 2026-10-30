@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -45,7 +45,8 @@ def _raised(cls):
 
 @pytest.fixture
 def controller():
-    return PresetController(Mock(), Mock())
+    with patch("src.features.presets.routes.operations.refresh_mode_requirements", AsyncMock()):
+        yield PresetController(Mock(), Mock())
 
 
 @pytest.mark.asyncio

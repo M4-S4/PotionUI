@@ -446,8 +446,11 @@ Indexing progress is pushed to administrators over `/ws/admin` as `indexing_stat
 the same payload as `GET /api/models/indexing/status`; the UI no longer polls. A frame is sent only
 when the payload changed, about once a second while work runs and nothing while it is idle.
 
-Header-typed files get their type from a header read during the scan; the stored verdict (family,
-whether a transformer can be extracted) is keyed by digest and is written when the digest lands.
+Header-typed files get their type from a header read during the scan, and the stored verdict (family,
+whether a transformer can be extracted) is written at the same moment. Verdicts are keyed by a hash of
+the header (format, tensor names, dtypes, shapes and metadata), kept on each file's location, so two
+files with the same header share one verdict and a file without a digest yet already has its verdict.
+Verdicts stored before this change stay keyed by digest and are still read through the model's digest.
 
 ### Who asks for a digest
 
@@ -530,8 +533,6 @@ digests land; the organize engine treats it like the end of a scan and re-evalua
 
 - A type pin for a download without a checksum is held in memory; a restart between the download
   and its digest loses the pin (the type itself already came from the header).
-- Header verdicts (family, "full checkpoint" packaging) appear when the digest does, so they lag a
-  freshly added file; the type itself is right at once.
 - A file held back for comparison is not listed until its comparison finishes, and it is found
   again by the next scan after a restart.
 - Windows thread priority is untested; the cap and the generation pause do not depend on it.

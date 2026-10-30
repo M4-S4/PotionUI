@@ -19,11 +19,13 @@ export type {
 	MediaEditorSource
 } from './types';
 export {
-	editorTitle,
 	editsTheResource,
 	hasEditor,
+	isSurfaceEditorKind,
+	isToolDialogKind,
 	MEDIA_EDITOR_KINDS,
-	RESOURCE_EDIT_TOOLS
+	toolDialogKind,
+	toolIdOfKind
 } from './types';
 
 export { resolveEditableResource, uploadFilenameFromPath } from './editorSource';

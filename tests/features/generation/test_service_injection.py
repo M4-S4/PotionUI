@@ -123,3 +123,28 @@ class TestConvertedPipesDeclareAssets:
             spec for spec in ModelLoaderMayaPipe.inputs() if spec.name == "ASSETS"
         )
         assert spec.io_type == IOType.SERVICE
+
+
+class TestMediaToolsService:
+    def test_the_media_tool_registry_is_injected(self):
+        registry = Mock(name="media_tools")
+        manager = GenerationEngine(
+            gpu=Mock(), pipe_catalog=Mock(), settings=Mock(), system_monitor=Mock(),
+            memory_advisor=Mock(), llm_service=Mock(), media_tools=registry,
+        )
+
+        result = manager._inject_built_in_services(_pipe_class("MEDIA_TOOLS"), {})
+
+        assert result["MEDIA_TOOLS"] is registry
+
+    def test_it_is_none_when_not_wired(self, manager):
+        result = manager._inject_built_in_services(_pipe_class("MEDIA_TOOLS"), {})
+
+        assert result["MEDIA_TOOLS"] is None
+
+    def test_the_media_tool_pipe_asks_for_it(self):
+        from src.pipelines.pipes.media_tool.main import MediaToolPipe
+
+        services = [spec.name for spec in MediaToolPipe.inputs() if spec.io_type == IOType.SERVICE]
+
+        assert services == ["MEDIA_TOOLS"]

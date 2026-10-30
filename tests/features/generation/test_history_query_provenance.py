@@ -86,6 +86,16 @@ class TestGetParamsProvenanceInheritance(PersistenceTestBase):
         self.assertEqual(len(result["models"]), 1)
         self.assertEqual(result["models"][0]["id"], model_id)
 
+    def test_the_models_carry_no_storage_details(self):
+        gen = self._create_generation()
+        self._link_model(gen, self._create_model())
+
+        model = self.query.get_params(gen, 0, self.user_id)["models"][0]
+
+        for key in ("location", "copies", "file_size", "sha256", "indexed_at"):
+            self.assertNotIn(key, model)
+        self.assertEqual(model["filename"], "model.safetensors")
+
     # --- merge semantics ------------------------------------------------------
 
     def test_missing_own_key_inherits_from_source(self):

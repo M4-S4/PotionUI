@@ -118,6 +118,17 @@ class FileRepository:
             cursor.execute(query, params)
             return [File.from_row(row) for row in cursor.fetchall()]
 
+    def get_generation_id(self, file_id: str) -> Optional[str]:
+        """The generation a file was produced by (earliest link), or None."""
+        with get_cursor() as cursor:
+            cursor.execute(
+                "SELECT generation_id FROM generation_files WHERE file_id = ? "
+                "ORDER BY created_at ASC, id ASC LIMIT 1",
+                (file_id,),
+            )
+            row = cursor.fetchone()
+            return row["generation_id"] if row else None
+
     def delete(self, file_id: str) -> bool:
         """Delete file"""
         with get_cursor() as cursor:

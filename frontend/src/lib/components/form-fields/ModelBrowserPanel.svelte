@@ -18,6 +18,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { tagCatalog } from '$lib/stores/tagCatalog';
+	import { announceModelInstalled } from '$lib/stores/modelInstalls';
 	import { authStore } from '$lib/stores/auth';
 	import { AdminOnlyMark, Badge, Button, Spinner } from '$lib/components/ui';
 	import Icon from '../Icon.svelte';
@@ -445,6 +446,11 @@
 		}
 	}
 
+	async function handleModelInstalled() {
+		await fetchModels();
+		announceModelInstalled();
+	}
+
 	function schedulePollRecommendationDownload(recommendation: ModelRecommendation, downloadId: string, op: number) {
 		const key = recommendation.name;
 		if (pollTimeouts[key]) clearTimeout(pollTimeouts[key]);
@@ -466,7 +472,7 @@
 				if (status === 'completed' || status === 'failed') {
 					delete pollTimeouts[key];
 					delete activeDownloadOps[key];
-					if (status === 'completed') await fetchModels();
+					if (status === 'completed') await handleModelInstalled();
 				} else {
 					schedulePollRecommendationDownload(recommendation, downloadId, op);
 				}
@@ -540,7 +546,7 @@
 		<PickerVariantSuggestions
 			{presetId}
 			{modelType}
-			onInstalled={() => fetchModels()}
+			onInstalled={handleModelInstalled}
 			onSlotFilenames={(f) => (recipeVariantFilenames = f)}
 			onCount={(n) => (suggestionCount = n)}
 			onAttributions={(a) => (variantAttributions = a)}

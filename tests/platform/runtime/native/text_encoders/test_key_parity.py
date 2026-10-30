@@ -17,7 +17,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from vendor.gpl.comfyui.ops import disable_weight_init as ops  # noqa: E402
+from src.platform.runtime.native.kernels import disable_weight_init as ops
 from src.platform.runtime.native.text_encoders.clip_l import CLIPLModel  # noqa: E402
 from src.platform.runtime.native.text_encoders.loader import _SPECS  # noqa: E402
 from src.platform.runtime.native.text_encoders.qwen3 import Qwen3Model  # noqa: E402

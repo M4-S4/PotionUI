@@ -63,9 +63,10 @@ export function profileOf(user: User): AccountProfile {
 }
 
 function loadInitialRegistry(): AccountRegistry {
-	if (!browser || typeof localStorage === 'undefined') return emptyRegistry();
+	if (!browser) return emptyRegistry();
 	let raw: string | null = null;
 	try {
+		if (typeof localStorage === 'undefined') return emptyRegistry();
 		raw = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
 	} catch {
 		return emptyRegistry();

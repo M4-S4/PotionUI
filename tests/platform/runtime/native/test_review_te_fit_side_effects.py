@@ -11,7 +11,7 @@ from src.platform.runtime.native.memory.device_plan import DevicePlan
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
 from src.platform.runtime.native.memory.residency import module_size_gb, run_text_encode, run_text_encode_batch
 from src.platform.runtime.native.memory.tiering import ComponentPlacement, PlacementPlan, plan_placement
-from vendor.gpl.comfyui.ops import fp8_ops, manual_cast
+from src.platform.runtime.native.kernels import fp8_ops, manual_cast
 
 from . import _review_fit_layouts as L
 from ._review_fit_layouts import CTX_GB, DEV, RESERVE_GB, Case

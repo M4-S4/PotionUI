@@ -15,6 +15,14 @@ from src.features.chat.modes import (
     build_phrasebook_mode,
     build_prompts_mode,
 )
+from src.features.chat.context_builder import ChatContextBuilder
+from src.features.chat.reply_contract import (
+    ACTION_CONTINUATION_NUDGE,
+    REPLY_CONTRACT_PROMPT_BLOCK,
+    REPLY_CONTRACT_REMINDER,
+    TOOL_LOOP_CONTINUATION_NUDGE,
+    continuation_nudge,
+)
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
 
@@ -78,6 +86,54 @@ class TestScopeModeShape:
         assert "exactly as written" not in without_save
 
 
+class TestPromptWritingContractByMode:
+    @pytest.mark.parametrize("builder", [build_history_mode, build_models_mode, build_phrasebook_mode])
+    def test_modes_that_do_not_write_prompt_text_drop_the_contract(self, builder):
+        mode = builder()
+        assert mode.structured_reply is False
+        prompt = ChatModeRegistry().resolve_system_prompt(mode, "", [])
+        assert REPLY_CONTRACT_PROMPT_BLOCK not in prompt
+        history = [{"role": "user", "content": "hi"}]
+        ChatContextBuilder.inject_reply_contract_reminder_block(history, mode)
+        assert REPLY_CONTRACT_REMINDER not in history[-1]["content"]
+        assert continuation_nudge(mode.structured_reply) == ACTION_CONTINUATION_NUDGE
+
+    def test_prompts_mode_keeps_the_contract_because_it_writes_prompt_text(self):
+        mode = build_prompts_mode()
+        assert mode.structured_reply is True
+        prompt = ChatModeRegistry().resolve_system_prompt(mode, "", [])
+        assert REPLY_CONTRACT_PROMPT_BLOCK in prompt
+        assert continuation_nudge(mode.structured_reply) == TOOL_LOOP_CONTINUATION_NUDGE
+
+
+class TestHistoryModeReplyContract:
+    def test_history_prompt_has_no_prompt_writing_contract(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(build_history_mode(), "", ["organize_gallery"])
+        assert REPLY_CONTRACT_PROMPT_BLOCK not in prompt
+        assert "## improved" not in prompt
+
+    def test_history_keeps_the_action_nudge_without_prompt_writing_wording(self):
+        nudge = continuation_nudge(build_history_mode().structured_reply)
+        assert nudge == ACTION_CONTINUATION_NUDGE
+        assert "call the next tool NOW" in nudge
+        assert "tool_action" not in nudge
+        assert "prompt" not in nudge
+
+    def test_generation_keeps_the_full_nudge(self):
+        assert continuation_nudge(build_generation_mode().structured_reply) == TOOL_LOOP_CONTINUATION_NUDGE
+
+    def test_generation_prompt_keeps_the_contract(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(build_generation_mode(), "", [])
+        assert REPLY_CONTRACT_PROMPT_BLOCK in prompt
+
+    def test_history_send_gets_no_reply_contract_reminder(self):
+        history = [{"role": "user", "content": "hi"}]
+        ChatContextBuilder.inject_reply_contract_reminder_block(history, build_history_mode())
+        assert REPLY_CONTRACT_REMINDER not in history[-1]["content"]
+
+
 class TestScopeModeRegistration:
     def test_all_five_builtin_modes_register_without_collision(self):
         registry = ChatModeRegistry()
@@ -122,7 +178,7 @@ class TestScopeModeToolMembership:
         assert "list_models" in names
         assert "get_model_info" in names
 
-    def test_models_mode_does_not_see_history_tools(self):
+    def test_models_mode_does_not_see_history_mode_tools(self):
         registry = self._registry()
         names = {t.name for t in registry.get_for_mode(build_models_mode())}
         assert "organize_gallery" not in names

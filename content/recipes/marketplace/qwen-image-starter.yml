@@ -12,6 +12,8 @@ name: "Qwen-Image Starter"
 engine: "native"
 category: "image"
 summary: "Get a working Qwen-Image setup on your local GPU and produce a first image."
+blurb: "Strong at readable text inside images."
+first_run: true
 description: >
   Installs the bundled Qwen-Image preset on the native (in-process) engine
   in its txt2img mode, makes sure its three model files are available, and
@@ -49,6 +51,7 @@ artifacts:
     # download source through whichever enabled plugin advertises this
     # capability (see plugin manifest `capabilities:`).
     capability: "model-lookup"
+    source_host: "huggingface.co"
     provider_hint:
       source: "huggingface"
       model_id: "Comfy-Org/Qwen-Image_ComfyUI"
@@ -65,6 +68,7 @@ artifacts:
       algorithm: "sha256"
       value: "cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4"
     capability: "model-lookup"
+    source_host: "huggingface.co"
     provider_hint:
       source: "huggingface"
       model_id: "Comfy-Org/Qwen-Image_ComfyUI"
@@ -81,6 +85,7 @@ artifacts:
       algorithm: "sha256"
       value: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
     capability: "model-lookup"
+    source_host: "huggingface.co"
     provider_hint:
       source: "huggingface"
       model_id: "Comfy-Org/Qwen-Image_ComfyUI"

@@ -23,7 +23,7 @@ from typing import Optional
 
 import torch
 
-from src.platform.runtime.native import attention
+from src.platform.runtime.native.kernels import available_backends, capabilities, get_attention_backend
 
 _NVCC_RELEASE_RE = re.compile(r"release (\d+)\.(\d+)")
 
@@ -74,14 +74,12 @@ def _package_version(name: str) -> Optional[str]:
 
 
 def _gpu_info() -> tuple[bool, Optional[tuple[int, int]], Optional[str], Optional[float]]:
-    cuda_available = torch.cuda.is_available()
-    if not cuda_available:
+    snapshot = capabilities()
+    if not snapshot.devices:
         return False, None, None, None
 
-    try:
-        capability = torch.cuda.get_device_capability()
-    except Exception:  # noqa: BLE001 — a driver hiccup must not break probing
-        capability = None
+    current = snapshot.device()
+    capability = current.capability if current.capability != (0, 0) else None
 
     gpu_name: Optional[str] = None
     gpu_vram_gb: Optional[float] = None
@@ -98,12 +96,9 @@ def _gpu_info() -> tuple[bool, Optional[tuple[int, int]], Optional[str], Optiona
         pass
 
     if gpu_name is None:
-        try:
-            gpu_name = torch.cuda.get_device_name(0)
-        except Exception:  # noqa: BLE001
-            gpu_name = None
+        gpu_name = snapshot.device(0).name
 
-    return cuda_available, capability, gpu_name, gpu_vram_gb
+    return True, capability, gpu_name, gpu_vram_gb
 
 
 def cuda_major_of(cuda_version: Optional[str]) -> Optional[int]:
@@ -237,6 +232,6 @@ def probe_system() -> SystemProbe:
         triton_version=_package_version("triton"),
         flash_attn_version=_package_version("flash_attn"),
         xformers_version=_package_version("xformers"),
-        active_backend=attention.get_attention_backend(),
-        available_backends=attention.available_backends(),
+        active_backend=get_attention_backend(),
+        available_backends=available_backends(),
     )

@@ -38,7 +38,7 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 		await presetOption(page, name).click();
 		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await sheet.getByTestId('preset-header-mode').getByRole('button').first().click();
-		await page.getByRole('option', { name: /^Control/ }).first().click();
+		await page.getByRole('option', { name: /^Structure/ }).first().click();
 		await page.keyboard.press('Escape');
 		if (!(await page.getByRole('dialog', { name: 'Settings' }).isVisible())) {
 			await page.getByRole('button', { name: 'Settings' }).first().click();
@@ -48,7 +48,7 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 		await presetOption(page, name).click();
 		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
-		await page.getByRole('option', { name: /^Control/ }).first().click();
+		await page.getByRole('option', { name: /^Structure/ }).first().click();
 	}
 	const root = mobile ? page.getByRole('dialog', { name: 'Settings' }) : page.locator('body');
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();

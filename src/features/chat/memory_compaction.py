@@ -13,6 +13,8 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm import trace_collector
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.build import user_message
 from src.features.llm_memory import operations as memory_operations
 from src.features.llm_memory.operations import MAX_CONTENT_LENGTH
 from src.features.llm_memory.records import LLMMemoryNote
@@ -96,10 +98,10 @@ class MemoryCompactor:
 
         try:
             with trace_collector.activate(session_id, user_id, purpose="memory_compaction"):
-                response = await self._m.llm_service.generate_with_history(
-                    messages=[{"role": "user", "content": prompt}],
-                    llm_id=llm_config_id,
-                    options_override={"max_tokens": 1200, "temperature": 0.2, "think": False},
+                response = await self._m.llm_service.complete(
+                    llm_config_id,
+                    [user_message(prompt)],
+                    settings=Settings(max_tokens=1200, temperature=0.2, reasoning=False),
                 )
         except Exception as e:
             logger.info(f"Memory compaction call failed for group {scope}/{scope_ref}: {e}")
@@ -110,7 +112,7 @@ class MemoryCompactor:
         # JSON-array parser and key slugifier reflection already uses.
         from src.features.chat.reflection import ChatReflectionGenerator
 
-        items = ChatReflectionGenerator._parse_items(response.content if response else None)
+        items = ChatReflectionGenerator._parse_items(response.text if response else None)
         if not self._is_plausible(items):
             logger.info(
                 f"Memory compaction skipped implausible result for user {user_id} "

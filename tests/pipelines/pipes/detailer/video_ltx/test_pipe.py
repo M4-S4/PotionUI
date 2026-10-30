@@ -18,11 +18,12 @@ from PIL import Image
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import CompareImagesGenerationOutput
-from src.pipelines.pipes.detailer.video_ltx.detection import DetectorBuildResult
-from src.pipelines.pipes.detailer.video_ltx.main import DetailerVideoLtxPipe, _free_room_for_tube_refine
-from src.pipelines.pipes.detailer.video_ltx.tracking import Detection, Track
+from src.pipelines.pipes._shared.video.tubes.detection import DetectorBuildResult
+from src.pipelines.pipes.detailer.video_ltx.main import DetailerVideoLtxPipe
+from src.pipelines.pipes._shared.video.tubes.tracking import Detection, Track
 
 _MOD = "src.pipelines.pipes.detailer.video_ltx.main"
+_SHARED = "src.pipelines.pipes._shared.video.tubes.detailer"
 
 
 def _available_build_result(*a, **k):
@@ -95,7 +96,7 @@ def test_strength_choices():
 
 
 def test_rejects_non_ltx_model():
-    with pytest.raises(ValueError, match="not an\\s+LTX"):
+    with pytest.raises(ValueError, match="not an?\\s+LTX"):
         _pipe().process(
             PipeInput(input={"model": _bundle(family="flux"), "video": ["x.mp4"],
                              "conditioning": [object()]}),
@@ -122,11 +123,11 @@ def _one_face_track():
 
 
 def test_no_tracks_returns_source_unchanged_without_reencode(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(), 24.0))
-    monkeypatch.setattr(f"{_MOD}.build_frame_detectors", _available_build_result)
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", lambda *a, **k: [])
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: [])
     encode_called = {"n": 0}
-    monkeypatch.setattr(f"{_MOD}.encode_frames_to_mp4",
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4",
                         lambda *a, **k: encode_called.__setitem__("n", encode_called["n"] + 1))
 
     out = _pipe().process(
@@ -138,9 +139,9 @@ def test_no_tracks_returns_source_unchanged_without_reencode(monkeypatch):
 
 
 def test_full_flow_refines_and_reencodes_with_audio_passthrough(monkeypatch, tmp_path):
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
-    monkeypatch.setattr(f"{_MOD}.build_frame_detectors", _available_build_result)
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", lambda *a, **k: _one_face_track())
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: _one_face_track())
 
     def fake_refine(bundle, cond_model, pixels, **kw):
         # pixels is (1,3,n,th,tw) -> return an all-200 uint8 tube (n,th,tw,3)
@@ -157,7 +158,7 @@ def test_full_flow_refines_and_reencodes_with_audio_passthrough(monkeypatch, tmp
         Path(out_path).write_bytes(b"mp4")
         return Path(out_path)
 
-    monkeypatch.setattr(f"{_MOD}.encode_frames_to_mp4", fake_encode)
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4", fake_encode)
 
     bundle = _bundle()
     out = _pipe(color_correction="none").process(
@@ -197,11 +198,11 @@ def _refine_to_200(bundle, cond_model, pixels, **kw):
 
 
 def test_emits_one_before_after_compare_per_tube(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
-    monkeypatch.setattr(f"{_MOD}.build_frame_detectors", _available_build_result)
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", lambda *a, **k: _face_and_hand_tracks())
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: _face_and_hand_tracks())
     monkeypatch.setattr(f"{_MOD}.refine_tube_pixels", _refine_to_200)
-    monkeypatch.setattr(f"{_MOD}.encode_frames_to_mp4",
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4",
                         lambda frames, out_path, fps, audio=None: Path(out_path).write_bytes(b"mp4"))
 
     messages = []
@@ -221,11 +222,11 @@ def test_emits_one_before_after_compare_per_tube(monkeypatch):
 
 
 def test_compare_before_is_original_after_is_refined_same_size(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
-    monkeypatch.setattr(f"{_MOD}.build_frame_detectors", _available_build_result)
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", lambda *a, **k: _one_face_track())
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: _one_face_track())
     monkeypatch.setattr(f"{_MOD}.refine_tube_pixels", _refine_to_200)
-    monkeypatch.setattr(f"{_MOD}.encode_frames_to_mp4",
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4",
                         lambda frames, out_path, fps, audio=None: Path(out_path).write_bytes(b"mp4"))
 
     messages = []
@@ -244,13 +245,13 @@ def test_compare_before_is_original_after_is_refined_same_size(monkeypatch):
 
 
 def test_offload_runs_even_if_processing_raises(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(), 24.0))
-    monkeypatch.setattr(f"{_MOD}.build_frame_detectors", _available_build_result)
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)
 
     def boom(*a, **k):
         raise RuntimeError("detect boom")
 
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", boom)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", boom)
 
     bundle = _bundle()
     with pytest.raises(RuntimeError, match="detect boom"):
@@ -267,15 +268,15 @@ def test_offload_runs_even_if_processing_raises(monkeypatch):
 
 
 def test_both_models_missing_skips_enhancement_without_crashing(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(), 24.0))
     monkeypatch.setattr(
-        f"{_MOD}.build_frame_detectors",
+        f"{_SHARED}.build_frame_detectors",
         lambda *a, **k: DetectorBuildResult(detectors=[], missing=["face", "hand"]))
 
     def boom(*a, **k):
         raise AssertionError("detect_tracks must not run when every kind is missing its model")
 
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", boom)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", boom)
 
     messages = []
     out = _pipe().process(
@@ -291,18 +292,18 @@ def test_both_models_missing_skips_enhancement_without_crashing(monkeypatch):
 
 
 def test_hand_model_missing_still_refines_faces(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
     monkeypatch.setattr(
-        f"{_MOD}.build_frame_detectors",
+        f"{_SHARED}.build_frame_detectors",
         lambda *a, **k: DetectorBuildResult(detectors=[object()], missing=["hand"]))
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", lambda *a, **k: _one_face_track())
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: _one_face_track())
 
     def fake_refine(bundle, cond_model, pixels, **kw):
         n, th, tw = pixels.shape[2], pixels.shape[3], pixels.shape[4]
         return np.full((n, th, tw, 3), 200, np.uint8)
 
     monkeypatch.setattr(f"{_MOD}.refine_tube_pixels", fake_refine)
-    monkeypatch.setattr(f"{_MOD}.encode_frames_to_mp4",
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4",
                         lambda frames, out_path, fps, audio=None: Path(out_path).write_bytes(b"mp4"))
 
     messages = []
@@ -320,21 +321,14 @@ def test_hand_model_missing_still_refines_faces(monkeypatch):
     assert not any("Face and hand enhancement was skipped" in s for s in states)
 
 
-# -- OOM fix: free room BEFORE the per-track loop's own GPU work
-# (the first tube's VAE encode) -- mirrors latent_upscaler/ltx's
-# `_free_room_for_upscale`. A live maintainer OOM traced to a fully-resident
-# DiT (warm-parked by the generator pipe that runs right before this one)
-# still occupying VRAM when the first tube's encode ran.
-
-
 def test_free_room_for_tube_refine_noop_on_non_cuda_device():
     dit = _Recording(device="cuda")  # parked resident
     bundle = _bundle()
     bundle.dit = dit
     manager = _FakeResidencyRegistry()
-    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
-         patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
-        _free_room_for_tube_refine(bundle, "cpu")
+    with patch(f"{_SHARED}.get_residency_registry", return_value=manager), \
+         patch(f"{_SHARED}.clear_gpu_memory") as mock_clear:
+        _pipe().free_room(bundle, "cpu")
     assert dit.offloaded == 0
     assert manager.offload_all_calls == []
     mock_clear.assert_not_called()
@@ -345,9 +339,9 @@ def test_free_room_for_tube_refine_offloads_resident_dit_and_evicts_foreign_resi
     bundle = _bundle()
     bundle.dit = dit
     manager = _FakeResidencyRegistry()
-    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
-         patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
-        _free_room_for_tube_refine(bundle, "cuda")
+    with patch(f"{_SHARED}.get_residency_registry", return_value=manager), \
+         patch(f"{_SHARED}.clear_gpu_memory") as mock_clear:
+        _pipe().free_room(bundle, "cuda")
     assert dit.offloaded == 1
     assert manager.offload_all_calls == [("cuda", (bundle.vae, dit))]
     mock_clear.assert_called_once()
@@ -358,9 +352,9 @@ def test_free_room_for_tube_refine_skips_dit_offload_when_not_resident():
     bundle = _bundle()
     bundle.dit = dit
     manager = _FakeResidencyRegistry()
-    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
-         patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
-        _free_room_for_tube_refine(bundle, "cuda")
+    with patch(f"{_SHARED}.get_residency_registry", return_value=manager), \
+         patch(f"{_SHARED}.clear_gpu_memory") as mock_clear:
+        _pipe().free_room(bundle, "cuda")
     assert dit.offloaded == 0
     # offload_all/clear_gpu_memory still run unconditionally -- other foreign
     # residents besides the DiT may exist.
@@ -399,7 +393,7 @@ def _checkerboard(size, cell=4):
 
 def test_tube_to_pixels_uses_bicubic_interpolation(monkeypatch):
     import torch as _torch
-    from src.pipelines.pipes.detailer.video_ltx import main as main_mod
+    from src.pipelines.pipes._shared.video.tubes import detailer as main_mod
 
     seen = {}
     orig_interp = _torch.nn.functional.interpolate
@@ -410,7 +404,7 @@ def test_tube_to_pixels_uses_bicubic_interpolation(monkeypatch):
 
     monkeypatch.setattr(main_mod.torch.nn.functional, "interpolate", spy_interpolate)
     frames = np.zeros((1, 32, 32, 3), np.uint8)[None, ...][0]  # (1,32,32,3)
-    from src.pipelines.pipes.detailer.video_ltx.windowing import TubeWindow
+    from src.pipelines.pipes._shared.video.tubes.windowing import TubeWindow
     window = TubeWindow("face", 0, 0, 32, 32, [(0, 0, 32, 32)], moving=False)
 
     DetailerVideoLtxPipe._tube_to_pixels(frames, window, 64, 64, "cpu")
@@ -419,7 +413,7 @@ def test_tube_to_pixels_uses_bicubic_interpolation(monkeypatch):
 
 
 def test_tube_to_pixels_output_is_clamped_to_valid_range():
-    from src.pipelines.pipes.detailer.video_ltx.windowing import TubeWindow
+    from src.pipelines.pipes._shared.video.tubes.windowing import TubeWindow
 
     frames = _checkerboard(32, cell=2)[None, ...]  # (1,32,32,3), sharp high-freq edges
     window = TubeWindow("face", 0, 0, 32, 32, [(0, 0, 32, 32)], moving=False)
@@ -433,7 +427,7 @@ def test_tube_to_pixels_output_is_clamped_to_valid_range():
 
 def test_tube_to_pixels_bicubic_sharper_than_bilinear_upscale():
     import torch as _torch
-    from src.pipelines.pipes.detailer.video_ltx.windowing import TubeWindow
+    from src.pipelines.pipes._shared.video.tubes.windowing import TubeWindow
 
     crop = _checkerboard(128, cell=4)
     frames = crop[None, ...]
@@ -453,10 +447,10 @@ def test_process_calls_free_room_for_tube_refine_before_the_track_loop(monkeypat
     """Integration repro of the live crash: a parked-resident DiT must
     be offloaded by `process()` BEFORE the first track's `refine_tube_pixels`
     call actually runs."""
-    monkeypatch.setattr(f"{_MOD}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
-    monkeypatch.setattr(f"{_MOD}.build_frame_detectors", _available_build_result)
-    monkeypatch.setattr(f"{_MOD}.detect_tracks", lambda *a, **k: _one_face_track())
-    monkeypatch.setattr(f"{_MOD}.encode_frames_to_mp4",
+    monkeypatch.setattr(f"{_SHARED}.read_video_frames", lambda p: (_pil_clip(value=100), 24.0))
+    monkeypatch.setattr(f"{_SHARED}.build_frame_detectors", _available_build_result)
+    monkeypatch.setattr(f"{_SHARED}.detect_tracks", lambda *a, **k: _one_face_track())
+    monkeypatch.setattr(f"{_SHARED}.encode_frames_to_mp4",
                         lambda frames, out_path, fps, audio=None: Path(out_path).write_bytes(b"mp4"))
 
     seen = {}
@@ -483,8 +477,8 @@ def test_process_calls_free_room_for_tube_refine_before_the_track_loop(monkeypat
     bundle.dit = dit
 
     manager = _FakeResidencyRegistry()
-    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
-         patch(f"{_MOD}.clear_gpu_memory"):
+    with patch(f"{_SHARED}.get_residency_registry", return_value=manager), \
+         patch(f"{_SHARED}.clear_gpu_memory"):
         _pipe(device="cuda").process(
             PipeInput(input={"model": bundle, "video": ["/src/clip.mp4"],
                              "conditioning": [object()], "seed": [42]}),

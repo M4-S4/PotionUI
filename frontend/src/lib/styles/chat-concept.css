@@ -1142,7 +1142,7 @@ textarea:focus-visible, input:not([type='checkbox'], [type='radio'], [type='rang
       background: rgb(var(--success) / 0.11);
     }
 
-.action-label.is-rejected {
+.action-label.is-rejected, .action-label.is-expired {
       color: rgb(var(--fg-subtle));
       background: rgb(var(--surface-3));
     }

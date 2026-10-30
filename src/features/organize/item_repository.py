@@ -218,7 +218,7 @@ class OrganizeItemRepository:
                 cursor.execute(
                     f"SELECT m.id, m.filename, m.model_type, m.sha256, m.file_size, m.description, m.model_metadata, "
                     f"m.created_at, v.family, umm.custom_name "
-                    f"FROM models m LEFT JOIN model_header_verdicts v ON v.sha256 = m.sha256 "
+                    f"FROM models m LEFT JOIN model_verdicts v ON v.model_id = m.id "
                     f"LEFT JOIN user_model_meta umm ON umm.model_id = m.id AND umm.user_id = ? "
                     f"WHERE {visible} AND m.id IN ({placeholders})",
                     (user_id, *visible_params, *chunk),
@@ -378,7 +378,7 @@ class OrganizeItemRepository:
     def model_families(self) -> List[str]:
         with _db().get_cursor() as cursor:
             cursor.execute(
-                "SELECT DISTINCT LOWER(v.family) AS family FROM model_header_verdicts v JOIN models m ON m.sha256 = v.sha256 "
+                "SELECT DISTINCT LOWER(v.family) AS family FROM model_verdicts v "
                 "WHERE v.family IS NOT NULL AND v.family != '' ORDER BY family"
             )
             return [row["family"] for row in cursor.fetchall()]
