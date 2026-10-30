@@ -189,13 +189,23 @@ class LibraryRepository:
             cursor.execute(query, params)
             return [row['id'] for row in cursor.fetchall()]
 
-    def media_type_counts(self, user_id: str, favorites_only: bool = False) -> dict:
-        """How many items of each media type the user's library holds."""
-        where = "user_id = ? AND purpose = 'user_upload'" + (" AND is_favorite = 1" if favorites_only else "")
+    def media_type_counts(
+        self,
+        user_id: str,
+        collection_id: Optional[str] = None,
+        include_descendants: bool = True,
+        unsorted: bool = False,
+        favorites_only: bool = False,
+    ) -> dict:
+        """How many items of each media type the user's library view holds."""
+        where, params = self._filters(
+            user_id, None, None, collection_id, None,
+            include_descendants, unsorted, favorites_only,
+        )
         with get_cursor() as cursor:
             cursor.execute(f"""
-                SELECT media_type, COUNT(*) as count FROM uploads
+                SELECT u.media_type AS media_type, COUNT(*) AS count FROM uploads u
                 WHERE {where}
-                GROUP BY media_type
-            """, (user_id,))
+                GROUP BY u.media_type
+            """, params)
             return {row['media_type']: row['count'] for row in cursor.fetchall()}

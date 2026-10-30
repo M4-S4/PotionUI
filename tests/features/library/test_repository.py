@@ -161,6 +161,31 @@ class TestLibraryRepositoryScoping(LibraryRepositoryTestBase):
 
         self.assertEqual(self.repo.media_type_counts(self.user_id), {"image": 2, "video": 1})
 
+    def test_media_type_counts_follow_the_collection_view(self):
+        folder = self._collection()
+        inside = self._upload(filename="in.png", media_type="image")
+        self._upload(filename="out.mp4", media_type="video")
+        self._add_to_collection(folder, inside.id)
+
+        self.assertEqual(self.repo.media_type_counts(self.user_id, collection_id=folder), {"image": 1})
+
+    def test_media_type_counts_follow_the_unsorted_view(self):
+        folder = self._collection()
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE collections SET scope = 'library' WHERE id = ?", (folder,))
+        inside = self._upload(filename="in.png", media_type="image")
+        self._upload(filename="out.mp4", media_type="video")
+        self._add_to_collection(folder, inside.id)
+
+        self.assertEqual(self.repo.media_type_counts(self.user_id, unsorted=True), {"video": 1})
+
+    def test_media_type_counts_follow_the_favorites_view(self):
+        favorite = self._upload(filename="fav.png", media_type="image")
+        self._upload(filename="plain.mp4", media_type="video")
+        self.repo.set_favorite(favorite.id, self.user_id, True)
+
+        self.assertEqual(self.repo.media_type_counts(self.user_id, favorites_only=True), {"image": 1})
+
 
 class TestFindIdsByCriteria(LibraryRepositoryTestBase):
     """`find_ids_by_criteria` - the "Delete by criteria" candidate set,

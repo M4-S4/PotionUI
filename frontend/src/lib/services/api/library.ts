@@ -48,6 +48,13 @@ export interface LibraryListResult {
 }
 
 /** Mirrors `LibraryFacets` (src/features/library/dto.py). */
+export interface LibraryFacetScope {
+	collection_id?: string;
+	include_descendants?: boolean;
+	unsorted?: boolean;
+	favorites_only?: boolean;
+}
+
 export interface LibraryFacets {
 	media_types: Record<string, number>;
 }
@@ -78,10 +85,8 @@ export function createLibraryApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getLibraryFacets(favoritesOnly = false): Promise<APIResponse<LibraryFacets>> {
-			const response = await client.get('/api/library/facets', {
-				params: favoritesOnly ? { favorites_only: true } : undefined
-			});
+		async getLibraryFacets(scope: LibraryFacetScope = {}): Promise<APIResponse<LibraryFacets>> {
+			const response = await client.get('/api/library/facets', { params: scope });
 			return response.data;
 		},
 

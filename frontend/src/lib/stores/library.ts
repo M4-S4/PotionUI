@@ -4,7 +4,8 @@ import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import { tagCatalog } from '$lib/stores/tagCatalog';
 import { libraryCollectionsStore } from '$lib/stores/collections';
-import type { BulkDeleteLibraryByCriteriaRequest, LibraryItem } from '$lib/services/api/library';
+import type { BulkDeleteLibraryByCriteriaRequest, LibraryFacetScope, LibraryItem } from '$lib/services/api/library';
+import { collectionQueryParams } from '$lib/components/collections/selection';
 import type { Tag } from '$lib/types/history';
 import {
 	DEFAULT_LIBRARY_FILTERS,
@@ -98,7 +99,14 @@ function createLibraryStore() {
 		return state;
 	}
 
-	let facetsFavoritesOnly = false;
+	let facetsScopeKey = '{}';
+
+	function facetScope(filters: LibraryFilters): LibraryFacetScope {
+		return {
+			...collectionQueryParams(filters),
+			...(filters.favoritesOnly ? { favorites_only: true } : {})
+		};
+	}
 
 	async function load(opts?: { silent?: boolean }) {
 		if (!opts?.silent) update((state) => ({ ...state, loading: true }));
@@ -118,7 +126,7 @@ function createLibraryStore() {
 					freshIds: [],
 					placedIds: []
 				}));
-				if (!!filters.favoritesOnly !== facetsFavoritesOnly) await loadFacets();
+				if (JSON.stringify(facetScope(filters)) !== facetsScopeKey) await loadFacets();
 			} else {
 				update((state) => ({ ...state, loading: false }));
 			}
@@ -129,12 +137,12 @@ function createLibraryStore() {
 	}
 
 	async function loadFacets() {
-		const favoritesOnly = !!snapshot().filters.favoritesOnly;
+		const scope = facetScope(snapshot().filters);
 		try {
-			const response = await api.getLibraryFacets(favoritesOnly);
+			const response = await api.getLibraryFacets(scope);
 			if (response.success && response.data) {
 				const counts = response.data.media_types ?? {};
-				facetsFavoritesOnly = favoritesOnly;
+				facetsScopeKey = JSON.stringify(scope);
 				update((state) => ({ ...state, mediaTypeCounts: counts }));
 			}
 		} catch (error) {
@@ -566,7 +574,7 @@ function createLibraryStore() {
 		},
 
 		reset() {
-			facetsFavoritesOnly = false;
+			facetsScopeKey = '{}';
 			set({ ...initialState, filters: { ...DEFAULT_LIBRARY_FILTERS } });
 		}
 	};
