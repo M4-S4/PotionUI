@@ -48,6 +48,11 @@ class _UpsamplerModule:
 
     def __init__(self):
         self.calls = []
+        self.eval_calls = 0
+
+    def eval(self):
+        self.eval_calls += 1
+        return self
 
     def __call__(self, latent, *, scale, target_size):
         self.calls.append((latent.clone(), scale, target_size))
@@ -138,10 +143,11 @@ def test_upsample_moves_and_offloads_the_upsampler():
 def test_offload_happens_even_if_upsampler_raises():
     bundle = _bundle()
 
-    def boom(latent, *, scale, target_size):
-        raise RuntimeError("boom")
+    class _Boom(_UpsamplerModule):
+        def __call__(self, latent, *, scale, target_size):
+            raise RuntimeError("boom")
 
-    bundle.upsampler.module = boom
+    bundle.upsampler.module = _Boom()
     latent = torch.randn(1, 24, 3, 4, 4)
     with pytest.raises(RuntimeError, match="boom"):
         _pipe(device="cpu", target_mode="scale", scale=2.0).process(
@@ -410,3 +416,25 @@ def test_prepared_pixels_match_a_one_shot_resize_and_repeat_the_last_frame_up_to
     mean = torch.tensor((0.485, 0.456, 0.406)).view(1, -1, 1, 1, 1)
     std = torch.tensor((0.229, 0.224, 0.225)).view(1, -1, 1, 1, 1)
     assert torch.allclose(pixels, (expected - mean) / std, atol=1e-5)
+
+
+def test_a_cached_upsampler_left_in_training_mode_still_runs_without_dropout():
+    from src.platform.runtime.native.kernels import disable_weight_init
+    from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
+
+    torch.manual_seed(5)
+    module = MiniMaxH3LatentUpsampler.from_config(
+        {"in_channels": 24, "channels": 32, "num_res_blocks": 2, "temporal_kernel": 3, "embed_dim": 8}, disable_weight_init,
+    )
+    with torch.no_grad():
+        for p in module.parameters():
+            p.normal_(std=0.05)
+    module.train()
+    bundle = _bundle()
+    bundle.upsampler.module = module
+    latent = torch.randn(1, 24, 3, 4, 4)
+    pipe = _pipe(device="cpu", target_mode="scale", scale=2.0)
+    first = pipe.process(PipeInput(input={"model": bundle, "latent": latent}), lambda o: None).output["latent"]
+    second = pipe.process(PipeInput(input={"model": bundle, "latent": latent}), lambda o: None).output["latent"]
+    assert not module.training
+    assert torch.equal(first, second)

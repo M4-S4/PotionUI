@@ -289,6 +289,7 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
     @staticmethod
     def _upsample(upsampler: Any, latent: torch.Tensor, geometry: Any, device: str) -> torch.Tensor:
         upsampler.move_to(device)
+        upsampler.module.eval()
         try:
             with torch.no_grad():
                 z = latent.to(device=device, dtype=upsampler.compute_dtype)

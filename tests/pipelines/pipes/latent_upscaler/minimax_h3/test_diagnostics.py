@@ -72,6 +72,14 @@ def _tiny_vae() -> MiniMaxH3VideoVAE:
     return module
 
 
+class _Passthrough:
+    def eval(self):
+        return self
+
+    def __call__(self, latent, *, scale, target_size):
+        return latent
+
+
 class _Profiler:
     def __init__(self, out_dir):
         self.out_dir = out_dir
@@ -105,7 +113,7 @@ def test_diagnostics_are_off_while_no_profile_is_being_written():
 
 def test_pipe_never_dumps_without_a_profile_dir():
     bundle = SimpleNamespace(
-        video_vae=_Component(_tiny_vae()), upsampler=_Component(lambda latent, *, scale, target_size: latent),
+        video_vae=_Component(_tiny_vae()), upsampler=_Component(_Passthrough()),
         audio_vae=None, dit=None,
     )
     bundle.upsampler.compute_dtype = torch.float32
@@ -119,7 +127,7 @@ def test_pipe_never_dumps_without_a_profile_dir():
 
 def test_pipe_dumps_the_encoded_and_the_upscaled_latent_when_profiling(tmp_path):
     bundle = SimpleNamespace(
-        video_vae=_Component(_tiny_vae()), upsampler=_Component(lambda latent, *, scale, target_size: latent),
+        video_vae=_Component(_tiny_vae()), upsampler=_Component(_Passthrough()),
         audio_vae=None, dit=None,
     )
     upsampled = torch.ones(1, 24, 7, 4, 4)
