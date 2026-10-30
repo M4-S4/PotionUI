@@ -1691,7 +1691,7 @@ async def test_leased_falls_back_to_cpu_on_the_wsl_driver_oom(client, native_che
         raise RuntimeError("CUDA driver error: device not ready")
 
     checkpoint.model.to = _raise_driver_oom
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
     async with client._leased(path, _config(name)) as (ck, device, _handoff):
         assert ck is checkpoint
