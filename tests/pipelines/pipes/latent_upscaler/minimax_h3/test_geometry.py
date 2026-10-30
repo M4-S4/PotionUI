@@ -86,6 +86,17 @@ class _LinearRef:
         return F.interpolate(latent, size=target_size, mode="trilinear", align_corners=False)
 
 
+class _TemporalMixRef:
+    def __init__(self, radius: int):
+        self.radius = radius
+
+    def __call__(self, latent, *, scale, target_size):
+        k = 2 * self.radius + 1
+        padded = F.pad(latent, (0, 0, 0, 0, self.radius, self.radius))
+        mixed = F.avg_pool3d(padded, kernel_size=(k, 1, 1), stride=1)
+        return F.interpolate(mixed, size=target_size, mode="trilinear", align_corners=False)
+
+
 class TestUpsampleChunked:
     def test_single_call_when_t_within_chunk(self):
         latent = torch.randn(1, 4, 3, 6, 8)
@@ -120,6 +131,29 @@ class TestUpsampleChunked:
 
         assert chunked.shape == whole.shape
         assert torch.equal(chunked, whole)
+
+    @pytest.mark.parametrize("t,chunk,overlap", [(20, 6, 1), (33, 8, 3), (17, 5, 2), (40, 32, 5)])
+    def test_every_kept_frame_sees_overlap_frames_of_real_context_on_both_sides(self, t, chunk, overlap):
+        torch.manual_seed(3)
+        latent = torch.randn(1, 4, t, 4, 4)
+        mod = _TemporalMixRef(radius=overlap)
+
+        whole = mod(latent, scale=2.0, target_size=(t, 8, 8))
+        chunked = upsample_chunked(mod, latent, 2.0, (8, 8), chunk=chunk, overlap=overlap)
+
+        assert chunked.shape == whole.shape
+        assert torch.allclose(chunked, whole, atol=1e-6)
+
+    def test_default_window_runs_a_32_frame_latent_in_one_full_context_call(self):
+        latent = torch.randn(1, 4, 32, 4, 4)
+        calls = []
+
+        def mod(window, *, scale, target_size):
+            calls.append(tuple(window.shape))
+            return F.interpolate(window, size=target_size, mode="trilinear", align_corners=False)
+
+        upsample_chunked(mod, latent, 2.0, (8, 8))
+        assert calls == [(1, 4, 32, 4, 4)]
 
     def test_frame_count_is_unchanged_only_spatial_moves(self):
         latent = torch.randn(1, 4, 9, 4, 4)
