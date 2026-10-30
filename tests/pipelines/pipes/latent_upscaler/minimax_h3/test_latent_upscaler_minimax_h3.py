@@ -378,6 +378,9 @@ def test_process_on_the_video_path_offloads_a_resident_dit_the_encode_would_not_
          patch(f"{_MOD}.get_residency_registry", return_value=_FakeResidencyRegistry()), \
          patch(f"{_MOD}.effective_free_vram_gb", return_value=4.0), \
          patch(f"{_MOD}.clear_gpu_memory"), \
+         patch("torch.cuda.reset_peak_memory_stats"), \
+         patch("torch.cuda.synchronize"), \
+         patch("torch.cuda.max_memory_allocated", return_value=0), \
          patch.object(LatentUpscalerMinimaxH3Pipe, "_upsample", return_value=torch.zeros(1, 24, 3, 8, 8)):
         _pipe(device="cuda", target_mode="scale", scale=2.0).process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)

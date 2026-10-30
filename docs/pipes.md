@@ -1765,7 +1765,7 @@ Upsample a MiniMax-H3 video latent spatially, via the model's optional upscaler 
 | Name | IO Type | Array | Description |
 |---|---|---|---|
 | `latent` | `LATENT` | no | Upsampled latent |
-| `source_frame_count` | `INT` | no | Original (pre-temporal-padding) frame count of the 'video' input, before pad_frames_to_h3_grid repeated its last frame up to the video VAE's 17*n+5 lattice -- lets a downstream refine trim that padding back out of its own decoded output before mux. None on the 'latent'-input path (in-flow two-stage: no video was decoded here, so no padding was ever added) |
+| `source_frame_count` | `INT` | no | Original (pre-temporal-padding) frame count of the 'video' input, before the pipe repeated its last frame up to the video VAE's 17*n+5 lattice -- lets a downstream refine trim that padding back out of its own decoded output before mux. None on the 'latent'-input path (in-flow two-stage: no video was decoded here, so no padding was ever added) |
 
 **Configuration**
 
