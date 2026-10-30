@@ -62,7 +62,7 @@
       "config": {
         "guidance_scale": {
           "type": "float",
-          "value": 4.0
+          "value": 1.0
         },
         "n_prompt.input": {
           "type": "str",
@@ -74,7 +74,7 @@
         },
         "negative_applied": {
           "type": "bool",
-          "value": true
+          "value": false
         },
         "p_prompt.input": {
           "type": "str",
@@ -196,11 +196,11 @@
             ],
             [
               "cfg",
-              4.0
+              1.0
             ],
             [
               "steps",
-              30
+              8
             ],
             [
               "sampler",
@@ -240,7 +240,7 @@
         },
         "cfg": {
           "type": "float",
-          "value": 4.0
+          "value": 1.0
         },
         "decode": {
           "type": "bool",
@@ -256,7 +256,7 @@
         },
         "manual_sigmas": {
           "type": "str",
-          "value": ""
+          "value": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
         },
         "media_placements": {
           "type": "list",
@@ -272,7 +272,7 @@
         },
         "quality_cfg": {
           "type": "float",
-          "value": 4.0
+          "value": 1.0
         },
         "quality_modality": {
           "type": "float",
@@ -280,7 +280,7 @@
         },
         "quality_mode": {
           "type": "bool",
-          "value": true
+          "value": false
         },
         "quality_rescale": {
           "type": "float",
@@ -333,7 +333,7 @@
         },
         "steps": {
           "type": "int",
-          "value": 30
+          "value": 8
         }
       },
       "enabled": {

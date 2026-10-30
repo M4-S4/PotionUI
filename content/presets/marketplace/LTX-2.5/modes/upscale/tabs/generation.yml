@@ -12,8 +12,8 @@ fields:
     configuration:
       options:
         - { label: "Distilled", value: "distilled", sub_label: "8 steps · CFG off · distilled sigma recipe" }
-        - { label: "Balanced", value: "balanced", sub_label: "24 steps · CFG 4" }
-        - { label: "Quality", value: "quality", sub_label: "30 steps · CFG 3 · multimodal guidance" }
+        - { label: "Balanced", value: "balanced", sub_label: "24 steps · CFG 4 · needs the dev checkpoint" }
+        - { label: "Quality", value: "quality", sub_label: "30 steps · CFG 3 · multimodal guidance · needs the dev checkpoint" }
         - { label: "Custom", value: "custom", sub_label: "your own steps · sampler · CFG, left alone" }
     reactions:
       - when: { field: "upscale_method", equals: "latent" }

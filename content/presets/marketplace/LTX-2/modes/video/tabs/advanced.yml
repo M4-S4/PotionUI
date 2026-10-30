@@ -7,7 +7,7 @@ fields:
         type: "slider"
         label: "Steps"
         audience: "advanced"
-        default: 24
+        default: 8
         configuration: {min: 1, max: 100, step: 1}
         reactions:
           - when: { field: "speed_profile", equals: "balanced" }
@@ -25,7 +25,7 @@ fields:
             type: "sampler"
             label: "Sampler"
             audience: "advanced"
-            default: "euler"
+            default: "euler_cfg_pp"
             configuration:
               family: "ltx"
               include: ["euler", "euler_ancestral", "euler_cfg_pp", "euler_ancestral_cfg_pp"]
@@ -61,7 +61,7 @@ fields:
         type: "slider"
         label: "CFG Scale"
         audience: "advanced"
-        default: 4.0
+        default: 1.0
         configuration: {min: 1.0, max: 20.0, step: 0.5}
         reactions:
           - when: { field: "speed_profile", equals: "balanced" }

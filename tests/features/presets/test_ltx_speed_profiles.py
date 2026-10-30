@@ -87,16 +87,16 @@ def _process_video(ltx_template, form_over=None):
     return processor.process(ltx_template, generation_data)
 
 
-def test_video_balanced_is_the_default(ltx_template):
+def test_video_distilled_is_the_default(ltx_template):
     pipes = _process_video(ltx_template)
     gen = _pipe(pipes, "generator/video_ltx")
-    assert gen["config"]["steps"] == 24
-    assert gen["config"]["cfg"] == 4.0
-    assert gen["config"]["sampler"] == "euler"
-    assert gen["config"]["manual_sigmas"] == ""
+    assert gen["config"]["steps"] == 8
+    assert gen["config"]["cfg"] == 1.0
+    assert gen["config"]["sampler"] == "euler_cfg_pp"
+    assert gen["config"]["manual_sigmas"] == DISTILLED_RECIPE
     assert gen["config"]["quality_mode"] is False
     encoder = _pipe(pipes, "prompt_encoder")
-    assert encoder["config"]["guidance_scale"] == 4.0
+    assert encoder["config"]["guidance_scale"] == 1.0
 
 
 def test_video_balanced_respects_explicit_fields(ltx_template):
@@ -165,9 +165,9 @@ def test_video_quality_profile_prompt_encoder_encodes_negative(ltx_template):
 def test_video_legacy_checkbox_keys_are_inert(ltx_template):
     pipes = _process_video(ltx_template, form_over={"distilled_mode": True, "quality_mode": True})
     gen = _pipe(pipes, "generator/video_ltx")
-    assert gen["config"]["steps"] == 24
-    assert gen["config"]["cfg"] == 4.0
-    assert gen["config"]["sampler"] == "euler"
+    assert gen["config"]["steps"] == 8
+    assert gen["config"]["cfg"] == 1.0
+    assert gen["config"]["sampler"] == "euler_cfg_pp"
     assert gen["config"]["quality_mode"] is False
 
 

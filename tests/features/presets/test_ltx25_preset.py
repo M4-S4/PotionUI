@@ -30,7 +30,13 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from scripts.preset_render import build_fixture_form_data, build_processor
+from scripts.preset_render import (
+    ROOT,
+    build_fixture_form_data,
+    build_processor,
+    load_all_presets,
+    render_preset_mode,
+)
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.features.prompt_enhancement.operations import _gather_preset_guide
@@ -179,7 +185,7 @@ def test_audio_vae_is_optional(ltx25_template):
     ("balanced", 24, 4.0),
     ("distilled", 8, 1.0),
     ("quality", 30, 3.0),
-    ("custom", 24, 4.0),
+    ("custom", 8, 1.0),
 ])
 def test_every_profile_bakes_euler_ancestral_stage1(ltx25_template, profile, steps, cfg):
     gen = _pipe(_process_video(ltx25_template, form_over={"speed_profile": profile}),
@@ -370,3 +376,52 @@ def test_the_prompt_writer_gets_the_guide_of_the_active_mode(ltx25_template, mod
     expected = ltx25_template.llm["modes"][mode]["guide"] if mode in MODE_GUIDE_RULES else ltx25_template.llm["guide"]
 
     assert _prompt_writer_guide(ltx25_template, mode) == expected
+
+
+# -- default profile: distilled on every mode -------------------------------
+
+def _generator_configs(record):
+    return [
+        p["config"] for p in record["pipes"]
+        if p["name"] == "generator/video_ltx" and "steps" in p["config"]
+    ]
+
+
+def _rendered(ltx25_template, mode, speed_profile=None):
+    form_data = build_fixture_form_data(ltx25_template, mode)
+    if speed_profile is not None:
+        form_data["speed_profile"] = speed_profile
+    return render_preset_mode(build_processor(), ltx25_template, mode, form_data)
+
+
+@pytest.fixture(scope="module")
+def ltx25_preset():
+    presets, _errors = load_all_presets(presets_root=ROOT / "content" / "presets" / "marketplace", include_plugins=False)
+    return next(p for p in presets if Path(p.path).as_posix().endswith("marketplace/LTX-2.5"))
+
+
+def _speed_modes(preset):
+    return sorted(
+        mode for mode in preset.modes
+        if _generator_configs(render_preset_mode(build_processor(), preset, mode))
+    )
+
+
+def test_every_generating_mode_defaults_to_the_distilled_profile(ltx25_preset):
+    modes = _speed_modes(ltx25_preset)
+    assert {"video", "extend", "cinemagraph", "day_to_night"} <= set(modes)
+    for mode in modes:
+        for config in _generator_configs(_rendered(ltx25_preset, mode)):
+            assert config["steps"]["value"] == 8, mode
+            assert config["cfg"]["value"] == 1.0, mode
+            assert config["quality_mode"]["value"] is False, mode
+            assert config["manual_sigmas"]["value"] == DISTILLED_RECIPE, mode
+
+
+@pytest.mark.parametrize("mode", ["cinemagraph", "day_to_night"])
+def test_distilled_run_ignores_the_modes_quality_cfg(ltx25_preset, mode):
+    distilled = _generator_configs(_rendered(ltx25_preset, mode, "distilled"))[0]
+    assert distilled["quality_mode"]["value"] is False
+    assert distilled["cfg"]["value"] == 1.0
+    quality = _generator_configs(_rendered(ltx25_preset, mode, "quality"))[0]
+    assert quality["quality_mode"]["value"] is True
