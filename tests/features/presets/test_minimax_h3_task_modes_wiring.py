@@ -59,7 +59,15 @@ def _final_prompts(pipes, count):
 
 def test_the_task_modes_take_the_standard_prompt(h3_template):
     assert not {"remix", "talk"} & set(h3_template.vars.get("promptless_modes", []))
-    assert h3_template.vars["optional_prompt_modes"] == ["talk"]
+    assert h3_template.vars["optional_prompt_modes"] == ["talk", "upscale"]
+
+
+def test_upscale_without_a_prompt_encodes_an_empty_prompt(h3_template):
+    pipes = _process(h3_template, "upscale", {
+        "input_video": "/media/clip.mp4", "upscale_model": "/models/h3_upscaler.safetensors",
+    })
+
+    assert _document(pipes) == ""
 
 
 @pytest.mark.parametrize("mode, field", [("remix", "instruction"), ("talk", "scene")])
