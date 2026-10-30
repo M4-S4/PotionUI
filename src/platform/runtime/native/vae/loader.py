@@ -475,6 +475,7 @@ def load_minimax_h3_latent_upsampler(
     module = MiniMaxH3LatentUpsampler.from_config(config, operations)
     spec = _VaeSpec(family="vae", variant="minimax_h3_latent_upsampler")
     load_into_module(module, sd, spec)
+    module.eval()
 
     logger.debug(
         "loaded MiniMax-H3 latent upsampler from %s (channels=%d, num_res_blocks=%d)",

@@ -178,6 +178,27 @@ class TestLoadMinimaxH3LatentUpsampler:
         assert out.shape == (1, _TINY_CONFIG["in_channels"], 3, 6, 8)
         assert torch.isfinite(out).all()
 
+    def test_loaded_module_runs_in_eval_mode_so_dropout_is_off(self):
+        config = {k: v for k, v in _TINY_CONFIG.items() if k != "dropout"}
+        module = MiniMaxH3LatentUpsampler.from_config(config, disable_weight_init)
+        _randomize(module)
+        sd = module.state_dict()
+
+        loaded = load_minimax_h3_latent_upsampler(
+            "fake-minimax-h3-latent-upscaler.safetensors",
+            disable_weight_init, sd=sd, metadata={},
+        )
+        dropouts = [m for m in loaded.modules() if isinstance(m, torch.nn.Dropout)]
+        assert dropouts and all(m.p == pytest.approx(0.1) for m in dropouts)
+        assert not any(m.training for m in loaded.modules())
+
+        torch.manual_seed(0)
+        latent = torch.randn(1, config["in_channels"], 3, 4, 4)
+        with torch.no_grad():
+            first = loaded(latent, scale=1.5, target_size=(3, 6, 8))
+            second = loaded(latent, scale=1.5, target_size=(3, 6, 8))
+        assert torch.equal(first, second)
+
     def test_not_this_family_raises(self):
         from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 
