@@ -63,7 +63,11 @@ class _VaeModule:
         self.use_tiling = True
         self.tile_sample_min_height = 256
         self.tile_sample_min_width = 256
+        self.encode_tile_batch_size = 1
         self.encoded = []
+
+    def encode_tile_grid(self, height, width):
+        return 1, 1
 
     def encode(self, pixels):
         self.encoded.append(pixels)
@@ -180,19 +184,45 @@ def test_source_frame_count_reports_pre_padding_count_on_video_path():
     assert out.output["source_frame_count"] == 100
 
 
-def test_encode_video_raises_a_clear_message_on_oom():
+def test_encode_video_raises_a_clear_message_when_even_the_smallest_tile_runs_out_of_vram():
     bundle = _bundle()
+    tiles_tried = []
 
     def oom_encode(pixels):
+        tiles_tried.append(bundle.video_vae.module.tile_sample_min_height)
         raise torch.cuda.OutOfMemoryError("boom")
 
     bundle.video_vae.module.encode = oom_encode
     frames = torch.rand(5, 32, 32, 3)
     with patch(f"{_MOD}.load_video_frames", return_value=frames):
-        with pytest.raises(torch.cuda.OutOfMemoryError, match="no tiled encode fallback"):
+        with pytest.raises(torch.cuda.OutOfMemoryError, match="even at 128px tiles"):
             _pipe(device="cpu", target_mode="scale", scale=2.0).process(
                 PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    assert tiles_tried == [256, 192, 128]
     assert bundle.video_vae.offloaded == 1
+    assert bundle.video_vae.module.tile_sample_min_height == 256
+
+
+def test_encode_oom_beside_a_resident_dit_offloads_it_and_retries_at_the_same_tile_size():
+    dit = _RecordingComponent(SimpleNamespace(), device="cuda")
+    bundle = _bundle(dit=dit)
+    tiles_tried = []
+
+    def encode_once_dit_is_gone(pixels):
+        tiles_tried.append(bundle.video_vae.module.tile_sample_min_height)
+        if dit.device == "cuda":
+            raise torch.cuda.OutOfMemoryError("boom")
+        return torch.zeros(1, 24, 2, 4, 4)
+
+    bundle.video_vae.module.encode = encode_once_dit_is_gone
+    frames = torch.rand(5, 32, 32, 3)
+    with patch(f"{_MOD}.load_video_frames", return_value=frames), \
+         patch(f"{_MOD}._free_room_for_upscale"), \
+         patch(f"{_MOD}.clear_gpu_memory"):
+        _pipe(device="cpu", target_mode="scale", scale=2.0).process(
+            PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    assert dit.offloaded == 1
+    assert tiles_tried == [256, 256]
 
 
 def test_downscale_request_raises_before_any_gpu_work():

@@ -40,6 +40,7 @@ from src.pipelines.pipes.latent_upscaler.minimax_h3.diagnostics import diagnosti
 from src.pipelines.pipes._shared.vae.minimax_h3_encode import (
     encode_activation_gb,
     encode_compute_dtype,
+    encode_video,
 )
 from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
@@ -139,6 +140,17 @@ def _free_room_for_upscale(bundle: Any, device: str, models: Any = None, need_gb
         alloc_before_gb=round(alloc0, 2), alloc_after_gb=round(alloc1, 2),
         te_unloaded_gb=round(te_unloaded_gb, 2), pinned_emptied=pinned_emptied,
     )
+
+
+def _offload_resident_dit(bundle: Any, device: str) -> bool:
+    dit = getattr(bundle, "dit", None)
+    if dit is None or not str(getattr(dit, "device", "")).startswith("cuda"):
+        return False
+    dit.offload()
+    clear_gpu_memory()
+    get_profiler().mark("h3_upscale.oom_dit_offload", device=str(device))
+    logger.warning("[H3_UPSCALE] VAE encode ran out of VRAM beside the resident DiT; offloaded it and retrying")
+    return True
 
 
 class LatentUpscalerMinimaxH3Pipe(BasePipe):
@@ -262,14 +274,7 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
         vae.move_to(device)
         try:
             pixels = pixels.to(dtype=encode_compute_dtype(vae.module))
-            try:
-                with torch.no_grad():
-                    return vae.module.encode(pixels)
-            except torch.cuda.OutOfMemoryError as exc:
-                raise torch.cuda.OutOfMemoryError(
-                    "latent_upscaler/minimax_h3: VAE encode ran out of VRAM -- the H3 video VAE has no tiled "
-                    "encode fallback yet, so try a shorter source clip or free VRAM first"
-                ) from exc
+            return encode_video(vae.module, pixels, device, free_more=lambda: _offload_resident_dit(bundle, device))
         finally:
             vae.offload()
 

@@ -598,6 +598,7 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         # `_shared/vae/minimax_h3_decode.py`) raises it, because THIS module
         # cannot see how much of the card the rest of the request is holding.
         self.decode_tile_batch_size = 1
+        self.encode_tile_batch_size = 1
         # Optional `observer(index=..., tiles=..., batches=...)` called after
         # each temporal chunk of a decode. Unset by default, so a decode that
         # nobody is profiling does no timing and no device sync.
@@ -696,17 +697,32 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         y_indices, y_lengths, y_overlaps = self._split_tiles(height, self.tile_sample_min_height, self.tile_sample_min_overlap_height)
         x_indices, x_lengths, x_overlaps = self._split_tiles(width, self.tile_sample_min_width, self.tile_sample_min_overlap_width)
 
-        rows = []
-        for i_pos, i_len in zip(y_indices, y_lengths):
-            row = []
-            for j_pos, j_len in zip(x_indices, x_lengths):
-                tile = x[..., i_pos : i_pos + i_len, j_pos : j_pos + j_len]
-                row.append(self.quant_conv(self.encoder(tile)))
-            rows.append(row)
+        tiles = [
+            x[..., i_pos : i_pos + i_len, j_pos : j_pos + j_len]
+            for i_pos, i_len in zip(y_indices, y_lengths)
+            for j_pos, j_len in zip(x_indices, x_lengths)
+        ]
+        encoded = self._run_tile_batches(tiles, self.encode_tile_batch_size, self._encode_tile_batch, "encode")
+        cols = len(x_indices)
+        rows = [encoded[i * cols : (i + 1) * cols] for i in range(len(y_indices))]
 
         latent_y_overlaps = [o // self.spatial_compression_ratio for o in y_overlaps]
         latent_x_overlaps = [o // self.spatial_compression_ratio for o in x_overlaps]
         return self._stitch_tiles(rows, latent_y_overlaps, latent_x_overlaps)
+
+    def encode_tile_grid(self, height: int, width: int) -> tuple[int, int]:
+        if not self.use_tiling:
+            return 1, 1
+        y_indices, _, _ = self._split_tiles(height, self.tile_sample_min_height, self.tile_sample_min_overlap_height)
+        x_indices, _, _ = self._split_tiles(width, self.tile_sample_min_width, self.tile_sample_min_overlap_width)
+        return len(y_indices), len(x_indices)
+
+    def _encode_tile_batch(self, group: list[torch.Tensor]) -> list[torch.Tensor]:
+        if len(group) == 1:
+            return [self.quant_conv(self.encoder(group[0]))]
+        sizes = [tile.shape[0] for tile in group]
+        encoded = self.quant_conv(self.encoder(torch.cat(group, dim=0)))
+        return list(torch.split(encoded, sizes, dim=0))
 
     def decode_tile_grid(self, latent_height: int, latent_width: int) -> tuple[int, int]:
         """`(rows, cols)` of spatial tiles a decode of this latent size will
@@ -739,19 +755,15 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         return list(torch.split(decoded, sizes, dim=0))
 
     def _decode_tiles(self, tiles: list[torch.Tensor]) -> list[torch.Tensor]:
-        """Decode every spatial tile of one temporal chunk, in order, in
-        batches of at most `decode_tile_batch_size` tiles that share a shape
-        (the last tile of a row or column can be a different size than its
-        neighbours, and only equal shapes concatenate).
+        return self._run_tile_batches(tiles, self.decode_tile_batch_size, self._decode_tile_batch, "decode")
 
-        An OOM halves the batch and retries rather than failing the decode:
-        the budget the caller sized the batch from is an upper-bound estimate
-        against free VRAM it does not exclusively own. The reduced size STICKS
-        for the rest of the chunk -- the tiles left are the same size as the
-        one that just OOM'd, so retrying them at the size that already failed
-        only buys another OOM."""
-        decoded: list[torch.Tensor] = []
-        limit = max(1, int(self.decode_tile_batch_size))
+    @staticmethod
+    def _run_tile_batches(
+        tiles: list[torch.Tensor], batch_size: int,
+        forward: Callable[[list[torch.Tensor]], list[torch.Tensor]], label: str,
+    ) -> list[torch.Tensor]:
+        done: list[torch.Tensor] = []
+        limit = max(1, int(batch_size))
         index = 0
         while index < len(tiles):
             group = 1
@@ -759,7 +771,7 @@ class MiniMaxH3VideoVAE(NativeArchModule):
                 group += 1
             while True:
                 try:
-                    decoded.extend(self._decode_tile_batch(tiles[index : index + group]))
+                    done.extend(forward(tiles[index : index + group]))
                     break
                 except torch.cuda.OutOfMemoryError:
                     if group == 1:
@@ -768,10 +780,10 @@ class MiniMaxH3VideoVAE(NativeArchModule):
                     limit = group
                     torch.cuda.empty_cache()
                     logger.warning(
-                        "minimax_h3 video VAE: batched tile decode OOM'd; retrying at batch %d", group,
+                        "minimax_h3 video VAE: batched tile %s OOM'd; retrying at batch %d", label, group,
                     )
             index += group
-        return decoded
+        return done
 
     def _decode_clip(self, z: torch.Tensor) -> torch.Tensor:
         if not self.use_tiling:
