@@ -395,6 +395,31 @@ async def test_without_approval_tools_the_prompt_cache_ttl_is_left_alone():
     assert adapter.requests[0].settings.cache_ttl is None
 
 
+async def test_a_tool_whose_approval_is_per_call_does_not_ask_for_the_long_prompt_cache():
+    class PerCall(PreviewTool):
+        approval_per_call = True
+
+    adapter = ScriptedAdapter(text_step("hi"))
+    rig = scripted_engine(adapter, [EchoTool(), PerCall()])
+
+    await drain(rig.engine.run(turn()))
+
+    assert adapter.requests[0].settings.cache_ttl is None
+
+
+async def test_a_per_call_tool_next_to_an_always_approved_tool_still_asks_for_the_long_cache():
+    class PerCall(PreviewTool):
+        name = "per_call"
+        approval_per_call = True
+
+    adapter = ScriptedAdapter(text_step("hi"))
+    rig = scripted_engine(adapter, [PerCall(), PreviewTool()])
+
+    await drain(rig.engine.run(turn()))
+
+    assert adapter.requests[0].settings.cache_ttl == "1h"
+
+
 async def test_the_same_notice_is_raised_once_per_turn():
     slow = RateLimited("slow down", status=429)
     adapter = ScriptedAdapter(

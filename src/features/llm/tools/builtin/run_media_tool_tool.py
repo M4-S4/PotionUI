@@ -15,6 +15,7 @@ from src.platform.media_tools.params import ANCHORS
 RUN_TIMEOUT_SECONDS = 600.0
 MODES = ("new", "replace")
 DESCRIPTION_LIMIT = 90
+MAX_RESULT_ITEMS = 20
 CALL_EXAMPLE = (
     '{"steps": [{"tool": "trim", "params": {"start": 0, "end": 5}}], '
     '"items": [{"item_id": "<library item id>"}]}'
@@ -199,6 +200,7 @@ class RunMediaToolTool(BaseTool):
     name = "run_media_tool"
     group = "Generation"
     requires_approval = True
+    approval_per_call = True
     user_description = "Edits images, videos and audio in your library, such as trim, crop, resize, rotate or speed."
 
     def __init__(self, registry: MediaToolRegistry):
@@ -319,16 +321,20 @@ class RunMediaToolTool(BaseTool):
             return ToolResult(success=False, data="", error=teach("The library limit was reached", str(exc)))
         if not result.ok:
             return ToolResult(success=False, data="", error=self._run_failure(result))
-        items = [_item_payload(item) for item in result.items]
+        total = len(result.items)
+        items = [_item_payload(item) for item in result.items[:MAX_RESULT_ITEMS]]
         message = (
             "Replaced the original library item with the edited version."
             if result.replaced
-            else f"Saved {len(items)} new library item(s); the originals are unchanged."
+            else f"Saved {total} new library item(s); the originals are unchanged."
         )
-        return ToolResult(
-            success=True,
-            data=json.dumps({"status": "completed", "replaced": result.replaced, "items": items, "message": message}),
-        )
+        payload: Dict[str, Any] = {
+            "status": "completed", "replaced": result.replaced, "count": total, "items": items, "message": message,
+        }
+        if total > len(items):
+            payload["truncated"] = True
+            payload["message"] += f" Only the first {len(items)} are listed."
+        return ToolResult(success=True, data=json.dumps(payload))
 
     async def _propose(
         self, context: ToolContext, steps: List[Dict[str, Any]], inputs: List[Dict[str, str]]

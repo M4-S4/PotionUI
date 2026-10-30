@@ -206,6 +206,7 @@ class BaseTool(ABC):
     group: str = "Other"
     user_description: str = ""
     requires_approval: bool = False
+    approval_per_call: bool = False
     read_only: bool = False
 
     @property

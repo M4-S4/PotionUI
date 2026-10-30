@@ -52,7 +52,7 @@ class ToolExecutor:
 
     def requires_approval(self, name: str) -> bool:
         tool = self.tool_registry.get(name)
-        return bool(tool is not None and tool.requires_approval)
+        return bool(tool is not None and tool.requires_approval and not tool.approval_per_call)
 
     def turn_tool_schemas(
         self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,

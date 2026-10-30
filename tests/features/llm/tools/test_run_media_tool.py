@@ -395,3 +395,34 @@ class TestErrors(RunMediaToolCase):
 
         self.assertFalse(result.success)
         self.assertIn("not available", result.error)
+
+
+class TestLongResults(RunMediaToolCase):
+
+    def test_a_fifty_part_result_lists_twenty_items_and_says_it_was_cut(self):
+        from src.features.media_tools.dto import MediaToolItem, RunResult
+
+        parts = [
+            MediaToolItem(id=f"p{index}", filename=f"part-{index}.wav", media_type="audio", url=f"/api/media/uploads/{index}.wav", size=10)
+            for index in range(50)
+        ]
+
+        class Splitter:
+            async def run_sync(self, *args, **kwargs):
+                return RunResult(items=parts, run_id="r")
+
+        context = ToolContext(user_id=self.user_id, media_tool_service=Splitter())
+        result = asyncio.run(self.tool.execute(context, steps=[{"tool": "splittwo"}], items=[{"item_id": "x"}]))
+
+        data = json.loads(result.data)
+        self.assertEqual((data["count"], len(data["items"]), data["truncated"]), (50, 20, True))
+        self.assertEqual(data["items"][-1]["id"], "p19")
+        self.assertLess(len(result.data), 8000)
+
+    def test_a_short_result_reports_its_count_and_is_not_marked_truncated(self):
+        item = self.image_item()
+
+        data = self.payload(self.call(steps=[{"tool": "shrink"}], items=[{"item_id": item.id}])[0])
+
+        self.assertEqual(data["count"], 1)
+        self.assertNotIn("truncated", data)
