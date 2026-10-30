@@ -191,10 +191,6 @@
     "label": "Refine Faces",
     "icon": "wand"
   },
-  "swap": {
-    "label": "Swap Character",
-    "icon": "layers"
-  },
   "remix": {
     "label": "Remix Video",
     "icon": "sparkles"

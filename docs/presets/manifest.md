@@ -109,7 +109,7 @@ needs a prompt, leave it out of this list; if it takes one but does not require 
 
 ### `vars.optional_prompt_modes` (modes where the prompt is optional)
 
-Some modes take a prompt but do not need one — a swap or talking-head mode whose text only
+Some modes take a prompt but do not need one — a talking-head mode whose text only
 steers the result. List them here and the prompt pane stays fully visible (segments,
 phrasebooks, variables), but Generate no longer waits for prompt text. The entries have the
 same shape as `promptless_modes`, including the `when` condition:
@@ -117,7 +117,7 @@ same shape as `promptless_modes`, including the `when` condition:
 ```yaml
 vars:
   optional_prompt_modes:
-    - "swap"
+    - "talk"
     - mode: "restyle"
       when: { field: "restyle_task", in: ["colourise", "restore"] }
 ```

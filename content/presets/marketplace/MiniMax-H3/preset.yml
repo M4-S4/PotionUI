@@ -101,12 +101,11 @@ vars:
   # so this is a constant the pipeline reports rather than a knob.
   fps: 24
   default_frames: 124
-  optional_prompt_modes: ["swap", "talk"]
+  optional_prompt_modes: ["talk"]
 
   prompt:
     segment_join: "paragraph"
     modes:
-      swap: { segment_templates: [] }
       remix: { segment_templates: [] }
       talk: { segment_templates: [] }
     segment_templates:
@@ -379,16 +378,6 @@ llm:
         reused, state the copy/reference relationship only in the section matching
         the audible layer.
 
-    swap:
-      guide: |
-        Swap character mode: the preset writes the structured request itself from
-        the source video and the character pictures, so never write the
-        three-field or six-section document here. The prompt is optional plain
-        English, a sentence or two added to the shot description: how the person
-        looks or behaves beyond the pictures ("a tall woman in a red coat", "she
-        smiles at the end"). Leave it empty for a straight swap. Never describe
-        the source video's camera, setting or lighting; those come from the video.
-
     remix:
       guide: |
         Remix video mode: the preset writes the structured request itself from the
@@ -535,7 +524,6 @@ modes:
   - upscale
   - refine_faces
   - extend
-  - swap
   - remix
   - talk
 

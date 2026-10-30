@@ -75,33 +75,33 @@ describe('isPromptlessMode', () => {
 
 describe('isOptionalPromptMode', () => {
 	it('returns true when the mode is listed in optional_prompt_modes', () => {
-		const vars = { optional_prompt_modes: ['swap', 'talk'] };
-		expect(isOptionalPromptMode(vars, 'swap')).toBe(true);
+		const vars = { optional_prompt_modes: ['recast', 'talk'] };
+		expect(isOptionalPromptMode(vars, 'recast')).toBe(true);
 		expect(isOptionalPromptMode(vars, 'talk')).toBe(true);
 	});
 
 	it('returns false for a mode not in the list', () => {
-		expect(isOptionalPromptMode({ optional_prompt_modes: ['swap'] }, 't2v')).toBe(false);
+		expect(isOptionalPromptMode({ optional_prompt_modes: ['recast'] }, 't2v')).toBe(false);
 	});
 
 	it('does not read promptless_modes', () => {
 		expect(isOptionalPromptMode({ promptless_modes: ['upscale'] }, 'upscale')).toBe(false);
-		expect(isPromptlessMode({ optional_prompt_modes: ['swap'] }, 'swap')).toBe(false);
+		expect(isPromptlessMode({ optional_prompt_modes: ['recast'] }, 'recast')).toBe(false);
 	});
 
 	it('returns false when the var is absent, not an array, or the inputs are empty', () => {
-		expect(isOptionalPromptMode({}, 'swap')).toBe(false);
-		expect(isOptionalPromptMode(null, 'swap')).toBe(false);
-		expect(isOptionalPromptMode(undefined, 'swap')).toBe(false);
-		expect(isOptionalPromptMode({ optional_prompt_modes: 'swap' }, 'swap')).toBe(false);
-		expect(isOptionalPromptMode({ optional_prompt_modes: ['swap'] }, null)).toBe(false);
-		expect(isOptionalPromptMode({ optional_prompt_modes: ['swap'] }, '')).toBe(false);
+		expect(isOptionalPromptMode({}, 'recast')).toBe(false);
+		expect(isOptionalPromptMode(null, 'recast')).toBe(false);
+		expect(isOptionalPromptMode(undefined, 'recast')).toBe(false);
+		expect(isOptionalPromptMode({ optional_prompt_modes: 'recast' }, 'recast')).toBe(false);
+		expect(isOptionalPromptMode({ optional_prompt_modes: ['recast'] }, null)).toBe(false);
+		expect(isOptionalPromptMode({ optional_prompt_modes: ['recast'] }, '')).toBe(false);
 	});
 
 	describe('a mode that is optional only for some form values', () => {
 		const vars = {
 			optional_prompt_modes: [
-				'swap',
+				'recast',
 				{ mode: 'restyle', when: { field: 'restyle_task', in: ['colourise', 'restore'] } }
 			]
 		};
@@ -117,8 +117,8 @@ describe('isOptionalPromptMode', () => {
 		});
 
 		it('keeps plain mode names working beside it', () => {
-			expect(isOptionalPromptMode(vars, 'swap')).toBe(true);
-			expect(isOptionalPromptMode(vars, 'swap', { restyle_task: 'custom' })).toBe(true);
+			expect(isOptionalPromptMode(vars, 'recast')).toBe(true);
+			expect(isOptionalPromptMode(vars, 'recast', { restyle_task: 'custom' })).toBe(true);
 		});
 
 		it('skips an entry without a mode', () => {
@@ -128,10 +128,10 @@ describe('isOptionalPromptMode', () => {
 
 	describe('a mode listed in both vars', () => {
 		it('is promptless, not optional', () => {
-			const vars = { promptless_modes: ['upscale'], optional_prompt_modes: ['upscale', 'swap'] };
+			const vars = { promptless_modes: ['upscale'], optional_prompt_modes: ['upscale', 'recast'] };
 			expect(isPromptlessMode(vars, 'upscale')).toBe(true);
 			expect(isOptionalPromptMode(vars, 'upscale')).toBe(false);
-			expect(isOptionalPromptMode(vars, 'swap')).toBe(true);
+			expect(isOptionalPromptMode(vars, 'recast')).toBe(true);
 		});
 
 		it('turns optional again while the promptless condition does not hold', () => {

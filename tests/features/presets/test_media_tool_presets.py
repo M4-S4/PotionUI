@@ -60,17 +60,6 @@ def test_every_ported_step_names_a_core_tool_with_params_the_platform_accepts(pr
         assert validate_params(spec, step["config"]["params"]) is not None
 
 
-def test_the_swap_step_crops_the_matted_pictures_and_passes_opaque_ones_through(presets):
-    (step,) = rendered_media_tools(presets, "MiniMax-H3", "swap")
-
-    assert step["id"] == "crop_subject" and step["config"]["tool"] == "crop_subject"
-    opaque = Image.new("RGB", (30, 20), (1, 2, 3))
-    out, _ = run(step, opaque)
-    assert out[0] is opaque
-    cropped, _ = run(step, cutout())
-    assert cropped[0].size == (80, 80)
-
-
 def test_the_crop_subject_mode_trims_a_cutout_to_its_box_plus_margin(presets):
     (step,) = rendered_media_tools(presets, "ImageTools", "crop_subject", crop_margin=10, crop_alpha_threshold=16)
 

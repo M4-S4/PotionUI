@@ -8,7 +8,6 @@ from src.features.models.routes import ModelController
 
 PRESETS = Path("content/presets/marketplace")
 MATTING_TABS = [
-    "MiniMax-H3/modes/swap/tabs/generation.yml",
     "ImageTools/modes/remove_background/tabs/generation.yml",
     "ImageTools/modes/prepare/tabs/generation.yml",
     "Pixal3D/modes/views2mesh/tabs/generation.yml",

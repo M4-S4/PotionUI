@@ -16,7 +16,7 @@ vi.mock('$lib/services/websocket', async (importOriginal) => {
 	};
 });
 
-const MODES = ['swap', 'restyle', 'txt2img', 'upscale'];
+const MODES = ['recast', 'restyle', 'txt2img', 'upscale'];
 
 vi.mock('$lib/services/api', async (importOriginal) => {
 	const real = await importOriginal<Record<string, unknown>>();
@@ -40,7 +40,7 @@ vi.mock('$lib/services/api', async (importOriginal) => {
 						data: {
 							vars: {
 								optional_prompt_modes: [
-									'swap',
+									'recast',
 									{ mode: 'restyle', when: { field: 'restyle_task', in: ['colourise', 'restore'] } },
 									'upscale'
 								],
@@ -53,7 +53,7 @@ vi.mock('$lib/services/api', async (importOriginal) => {
 				if (key === 'listPresets') {
 					return {
 						success: true,
-						data: [{ id: 'swapper', name: 'Swapper', version: '1', engine: 'native', modes: MODES, engine_available: true }]
+						data: [{ id: 'recaster', name: 'Recaster', version: '1', engine: 'native', modes: MODES, engine_available: true }]
 					};
 				}
 				if (key === 'getReadiness') return { checks: [], ready: true, status: 'ready' };
@@ -90,14 +90,14 @@ afterEach(() => {
 
 async function render(mode: string, formData: Record<string, unknown> = {}) {
 	invalidatePresets();
-	tabsStore.updateTab(get(tabsStore).tabs[0].id, { selectedPreset: 'swapper', selectedMode: mode, formData, prompt: '' });
+	tabsStore.updateTab(get(tabsStore).tabs[0].id, { selectedPreset: 'recaster', selectedMode: mode, formData, prompt: '' });
 	const target = document.body.appendChild(document.createElement('div'));
 	const app = mount(Page as never, { target, props: {} });
 	teardown = () => {
 		unmount(app);
 		target.remove();
 	};
-	for (let i = 0; i < 100 && !target.textContent?.includes('Swapper'); i++) await wait(10);
+	for (let i = 0; i < 100 && !target.textContent?.includes('Recaster'); i++) await wait(10);
 	await wait(80);
 	return target;
 }
@@ -112,7 +112,7 @@ function promptPane(target: HTMLElement) {
 
 describe('Generate in a mode whose prompt is optional', () => {
 	it('keeps the prompt pane and enables Generate with no prompt text', async () => {
-		const target = await render('swap');
+		const target = await render('recast');
 
 		expect(promptPane(target)).not.toBeNull();
 		expect(generateButton(target).disabled).toBe(false);

@@ -351,9 +351,9 @@ describe('prepareRequestFromSession', () => {
 	it('treats an optional-prompt mode as ready without a prompt', () => {
 		const result = prepareRequestFromSession({
 			presetId: 'preset-1',
-			mode: 'swap',
+			mode: 'recast',
 			session: { prompt: '', formData: { video: 'uploads/a.mp4' } },
-			presetVars: { optional_prompt_modes: ['swap'] },
+			presetVars: { optional_prompt_modes: ['recast'] },
 			random: () => 0,
 			now: () => 1
 		});

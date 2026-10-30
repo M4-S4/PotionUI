@@ -20,14 +20,14 @@ describe('resolveRequestContext', () => {
 			prompt: { segment_join: 'paragraph' },
 			prompt_relay_modes: ['relay'],
 			promptless_modes: ['upscale'],
-			optional_prompt_modes: ['swap'],
+			optional_prompt_modes: ['recast'],
 			video_director: { preset_modes: ['video'], modes: { t2v: {} } }
 		};
 
 		expect(resolveRequestContext(vars, 'relay')).toMatchObject({ segmentJoin: 'paragraph', promptRelayActive: true, videoDirectorActive: false });
 		expect(resolveRequestContext(vars, 'upscale').promptlessActive).toBe(true);
 		expect(resolveRequestContext(vars, 'upscale').promptOptionalActive).toBe(false);
-		expect(resolveRequestContext(vars, 'swap')).toMatchObject({ promptlessActive: false, promptOptionalActive: true });
+		expect(resolveRequestContext(vars, 'recast')).toMatchObject({ promptlessActive: false, promptOptionalActive: true });
 		expect(resolveRequestContext(vars, 'video').videoDirectorActive).toBe(true);
 		expect(resolveRequestContext(vars, null).promptRelayActive).toBe(false);
 	});
@@ -51,7 +51,7 @@ describe('createRequestContextCache', () => {
 	it('recomputes when the optional-prompt modes change', () => {
 		const contextFor = createRequestContextCache();
 
-		expect(contextFor('p', { optional_prompt_modes: [] }, 'swap').promptOptionalActive).toBe(false);
-		expect(contextFor('p', { optional_prompt_modes: ['swap'] }, 'swap').promptOptionalActive).toBe(true);
+		expect(contextFor('p', { optional_prompt_modes: [] }, 'recast').promptOptionalActive).toBe(false);
+		expect(contextFor('p', { optional_prompt_modes: ['recast'] }, 'recast').promptOptionalActive).toBe(true);
 	});
 });
