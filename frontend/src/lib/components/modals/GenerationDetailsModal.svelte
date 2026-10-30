@@ -76,6 +76,22 @@
 			.then((map) => (presetNamesCache = map))
 			.catch((err) => logger.error('Failed to load preset names:', err));
 	});
+	let detailImg: HTMLImageElement | undefined;
+	let trackedImg: HTMLImageElement | undefined;
+	let loadedStageSrc: string | undefined;
+	$: stageImageSrc =
+		currentFile && !isVideoFile(currentFile) && !isMeshFile(currentFile) && !isAudioFile(currentFile)
+			? getImageUrl(currentFile)
+			: null;
+	$: if (detailImg !== trackedImg) {
+		trackedImg = detailImg;
+		loadedStageSrc = undefined;
+	}
+	$: if (detailImg && stageImageSrc && loadedStageSrc !== stageImageSrc && detailImg.complete && detailImg.naturalWidth > 0) {
+		loadedStageSrc = stageImageSrc;
+	}
+	$: stageImageLoading = !!stageImageSrc && loadedStageSrc !== stageImageSrc;
+
 	$: presetLabel = activeGeneration
 		? resolveReusePresetLabel(activeGeneration, (id) => presetNamesCache[id] ?? null)
 		: '';
@@ -847,7 +863,13 @@
 							</div>
 						</div>
 					{:else}
+						{#if stageImageLoading}
+							<div class="absolute inset-0 z-[1] bg-surface-2 animate-pulse" data-stage-skeleton></div>
+						{/if}
 						<img
+							bind:this={detailImg}
+							on:load={() => (loadedStageSrc = stageImageSrc ?? undefined)}
+							on:error={() => (loadedStageSrc = stageImageSrc ?? undefined)}
 							src={getImageUrl(currentFile)}
 							alt={`Output ${currentFileIndex + 1}`}
 							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''} {currentFileAlphaCheckerboard ? 'alpha-checkerboard' : ''}"
