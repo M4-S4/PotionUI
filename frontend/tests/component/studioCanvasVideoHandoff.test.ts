@@ -65,7 +65,7 @@ describe('studio canvas video result landing', () => {
 					})
 				)
 			}
-		}) as never;
+		}) as unknown as typeof component;
 		flushSync();
 		expect(target.querySelector(`img[src="${PREVIEW}"]`)).not.toBeNull();
 
