@@ -291,7 +291,10 @@ export const iconPaths: Record<string, string | string[]> = {
 		'M2 18q2.5-3 5 0t5 0t5 0t5 0'
 	],
 	'mode-cinemagraph': [
-		'M12 12c-2-2.5-3.5-4-5.5-4a4 4 0 0 0 0 8c2 0 3.5-1.5 5.5-4s3.5-4 5.5-4a4 4 0 0 1 0 8c-2 0-3.5-1.5-5.5-4z'
+		'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
+		'm3 12 4.5-4 3.5 3',
+		'M11 16q1.5-2 3 0t3 0',
+		'M16.5 8.5h.01'
 	],
 	'mode-remove-object': [
 		'm7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21',
@@ -317,8 +320,11 @@ export const iconPaths: Record<string, string | string[]> = {
 		'M9 20h6'
 	],
 	'mode-combine': [
-		'M3 12a6 6 0 1 0 12 0a6 6 0 1 0-12 0',
-		'M9 12a6 6 0 1 0 12 0a6 6 0 1 0-12 0'
+		'M3 4h6v6H3z',
+		'M3 14h6v6H3z',
+		'M9 7q4 0 5 5',
+		'M9 17q4 0 5-5',
+		'M15 8h6v8h-6z'
 	],
 	'mode-control': [
 		'M10 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
