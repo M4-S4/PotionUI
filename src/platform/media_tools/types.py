@@ -66,6 +66,8 @@ class ToolMedia:
     fps: Optional[float] = None
     has_audio: Optional[bool] = None
     has_alpha: Optional[bool] = None
+    audio_codec: Optional[str] = None
+    bit_depth: Optional[int] = None
 
     def with_changes(self, **changes: Any) -> "ToolMedia":
         return replace(self, **changes)

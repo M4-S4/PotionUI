@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 
+import numpy as np
 import pytest
 import soundfile
 
@@ -276,6 +277,67 @@ class TestAudioFormat:
         samples, _ = soundfile.read(result.path)
         assert abs(samples[: len(samples) // 2]).mean() > 0.4
         assert abs(samples[-800:]).mean() > 0.4
+
+
+class TestLosslessAudio:
+    @staticmethod
+    def source(tmp_path, subtype, fmt="WAV", suffix=".wav"):
+        samples = np.stack([
+            0.3 * np.sin(2 * np.pi * 440 * np.arange(88200) / 44100),
+            0.2 * np.sin(2 * np.pi * 660 * np.arange(88200) / 44100),
+        ], axis=1)
+        path = tmp_path / f"{subtype}{suffix}"
+        soundfile.write(path, samples, 44100, subtype=subtype, format=fmt)
+        return path
+
+    @pytest.mark.parametrize("subtype", ["PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE", "PCM_U8"])
+    def test_a_wav_keeps_its_sample_format(self, tmp_path, ctx, subtype):
+        path = self.source(tmp_path, subtype)
+
+        (result,) = run_trim(probe(path), ctx, 0.5, 1.5)
+
+        assert soundfile.info(result.path).subtype == subtype
+
+    @pytest.mark.parametrize("subtype", ["PCM_24", "PCM_32", "FLOAT"])
+    def test_a_trimmed_wav_holds_the_sources_samples_unquantised(self, tmp_path, ctx, subtype):
+        path = self.source(tmp_path, subtype)
+        whole, _ = soundfile.read(path, dtype="float64")
+
+        (result,) = run_trim(probe(path), ctx, 0.5, 1.5)
+
+        kept, _ = soundfile.read(result.path, dtype="float64")
+        assert len(kept) == 44100
+        assert np.allclose(kept, whole[22050:66150], atol=1e-6)
+
+    @pytest.mark.parametrize("subtype", ["PCM_16", "PCM_24"])
+    def test_a_flac_keeps_its_bit_depth(self, tmp_path, ctx, subtype):
+        path = self.source(tmp_path, subtype, "FLAC", ".flac")
+
+        (result,) = run_trim(probe(path), ctx, 0.5, 1.5)
+
+        assert result.path.suffix == ".flac"
+        assert soundfile.info(result.path).subtype == subtype
+
+    @pytest.mark.parametrize("subtype", ["PCM_16", "PCM_24"])
+    def test_an_aiff_keeps_its_bit_depth(self, tmp_path, ctx, subtype):
+        path = self.source(tmp_path, subtype, "AIFF", ".aiff")
+
+        (result,) = run_trim(probe(path), ctx, 0.5, 1.5)
+
+        assert soundfile.info(result.path).subtype == subtype
+
+    def test_the_probe_reports_the_codec_and_depth(self, tmp_path):
+        media = probe(self.source(tmp_path, "PCM_24"))
+
+        assert (media.audio_codec, media.bit_depth) == ("pcm_s24le", 24)
+
+    def test_a_lossy_source_is_not_widened(self, tmp_path, ctx):
+        path = tmp_path / "tone.mp3"
+        run_ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=2", str(path))
+
+        (result,) = run_trim(probe(path), ctx, 0.5, 1.5)
+
+        assert result.path.suffix == ".mp3"
 
 
 class QuietRunner:

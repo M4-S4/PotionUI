@@ -27,6 +27,7 @@ _VIDEO_LINE_RE = re.compile(r"Stream #\d+:\d+[^:]*:\s*Video:(.*)")
 _SIZE_RE = re.compile(r"(?<![\dx])(\d{2,5})x(\d{2,5})(?![\dx])")
 _FPS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*fps")
 _TBR_RE = re.compile(r"(\d+(?:\.\d+)?)\s*tbr")
+_AUDIO_LINE_RE = re.compile(r"Stream #\d+:\d+[^:]*:\s*Audio:\s*([\w]+)[^\n]*?,\s*[\d.]+ Hz,[^,\n]*,\s*(\w+)(?:\s*\((\d+) bit\))?")
 _ROTATION_RE = re.compile(r"rotation of (-?\d+(?:\.\d+)?) degrees")
 
 
@@ -103,6 +104,8 @@ def _probe_timed(path: Path, kind: str) -> ToolMedia:
         fps=info.get("fps") if kind == "video" else None,
         has_audio=bool(info.get("has_audio")),
         has_alpha=False if kind == "video" else None,
+        audio_codec=info.get("audio_codec"),
+        bit_depth=info.get("bit_depth"),
     )
 
 
@@ -115,6 +118,14 @@ def _rate(value: object) -> Optional[float]:
         return float(text) if text else None
     except ValueError:
         return None
+
+
+def _bits(value: object) -> Optional[int]:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _positive(value: object) -> Optional[float]:
@@ -153,6 +164,9 @@ def _ffprobe_info(path: Path) -> Optional[dict]:
         if duration:
             break
     info: dict = {"duration": duration, "has_audio": audio is not None}
+    if audio is not None:
+        info["audio_codec"] = audio.get("codec_name")
+        info["bit_depth"] = _bits(audio.get("bits_per_raw_sample")) or _bits(audio.get("bits_per_sample"))
     if video is not None:
         width, height = int(video.get("width") or 0), int(video.get("height") or 0)
         rotation = _stream_rotation(video)
@@ -191,6 +205,11 @@ def parse_ffmpeg_banner(text: str) -> Optional[dict]:
     if duration is None and video_line is None and not has_audio:
         return None
     info: dict = {"duration": duration, "has_audio": has_audio}
+    audio_line = _AUDIO_LINE_RE.search(text)
+    if audio_line:
+        codec, sample_format, depth = audio_line.groups()
+        info["audio_codec"] = codec
+        info["bit_depth"] = int(depth) if depth else {"u8": 8, "s16": 16, "s16p": 16, "s32": 32, "s32p": 32}.get(sample_format)
     if video_line is not None:
         size = _SIZE_RE.search(re.sub(r"\[[^\]]*\]", "", video_line))
         width, height = (int(size.group(1)), int(size.group(2))) if size else (None, None)

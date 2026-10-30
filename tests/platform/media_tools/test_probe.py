@@ -50,7 +50,7 @@ AUDIO_ONLY_BANNER = "\n".join(
 def test_banner_parse_of_a_normal_video():
     info = parse_ffmpeg_banner(VIDEO_BANNER)
 
-    assert info == {"duration": 2.04, "has_audio": True, "width": 320, "height": 240, "fps": 25.0}
+    assert info == {"duration": 2.04, "has_audio": True, "audio_codec": "aac", "bit_depth": None, "width": 320, "height": 240, "fps": 25.0}
 
 
 def test_banner_parse_ignores_the_hex_codec_tag_when_reading_the_size():
@@ -75,7 +75,7 @@ def test_banner_parse_skips_attached_cover_art():
 
 
 def test_banner_parse_of_audio_only_and_of_garbage():
-    assert parse_ffmpeg_banner(AUDIO_ONLY_BANNER) == {"duration": 2.0, "has_audio": True}
+    assert parse_ffmpeg_banner(AUDIO_ONLY_BANNER) == {"duration": 2.0, "has_audio": True, "audio_codec": "pcm_s16le", "bit_depth": 16}
     assert parse_ffmpeg_banner("nothing useful here") is None
 
 

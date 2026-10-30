@@ -124,6 +124,32 @@ def _seek_args(plan: MergedPlan) -> list[str]:
     return args
 
 
+PCM_WAV_CODECS = {8: "pcm_u8", 16: "pcm_s16le", 24: "pcm_s24le", 32: "pcm_s32le"}
+PCM_AIFF_CODECS = {16: "pcm_s16be", 24: "pcm_s24be", 32: "pcm_s32be"}
+FLAC_MAX_BITS = 24
+LOSSLESS_AUDIO_CODECS = ("pcm_", "flac", "alac", "wavpack", "tta")
+
+
+def lossless_audio_args(media: ToolMedia, suffix: str) -> list[str]:
+    codec = (media.audio_codec or "").lower()
+    if not codec.startswith(LOSSLESS_AUDIO_CODECS):
+        return []
+    depth = media.bit_depth or 16
+    if suffix == ".wav":
+        if codec.startswith("pcm_f64"):
+            return ["-c:a", "pcm_f64le"]
+        if codec.startswith("pcm_f32"):
+            return ["-c:a", "pcm_f32le"]
+        return ["-c:a", PCM_WAV_CODECS.get(depth, "pcm_s32le" if depth > 24 else "pcm_s16le")]
+    if suffix in (".aiff", ".aif"):
+        return ["-c:a", PCM_AIFF_CODECS.get(depth, "pcm_s32be" if depth > 24 else "pcm_s16be")]
+    if suffix == ".flac":
+        if depth <= 16 and not codec.startswith(("pcm_f32", "pcm_f64")):
+            return ["-sample_fmt", "s16"]
+        return ["-sample_fmt", "s32", "-bits_per_raw_sample", str(FLAC_MAX_BITS)]
+    return []
+
+
 def _audio_codec_args(suffix: str, reencode: bool) -> list[str]:
     if not reencode:
         return ["-c:a", "copy"]
@@ -164,7 +190,7 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
         args += ["-vn"]
         if plan.af:
             args += ["-af", ",".join(plan.af)]
-        args += _audio_codec_args(suffix, True)
+        args += lossless_audio_args(media, suffix) or _audio_codec_args(suffix, True)
         args += [str(out_path)]
         return args
 
