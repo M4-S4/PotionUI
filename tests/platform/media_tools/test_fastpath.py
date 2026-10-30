@@ -352,3 +352,31 @@ def test_audio_run_keeps_the_source_suffix_when_encodable(tmp_path):
 
     assert outputs[0].path.suffix == ".wav"
     assert outputs[0].duration == pytest.approx(0.5, abs=0.15)
+
+
+def test_a_frame_cap_is_a_hard_limit_with_timestamps_passed_through():
+    plan = merge_fragments(video(), [FilterFragment(frames=9)])
+
+    args = build_timed_args(video(), plan, Path("/m/out.mp4"))
+
+    assert args[args.index("-frames:v") + 1] == "9"
+    assert args[args.index("-fps_mode") + 1] == "passthrough"
+
+
+def test_the_smallest_frame_cap_wins_when_fragments_merge():
+    assert merge_fragments(video(), [FilterFragment(frames=9), FilterFragment(frames=5)]).frames == 5
+    assert merge_fragments(video(), [FilterFragment(), FilterFragment(frames=7)]).frames == 7
+
+
+def test_no_frame_cap_means_no_frames_flag():
+    args = build_timed_args(video(), merge_fragments(video(), [FilterFragment(vf=["hflip"])]), Path("/m/out.mp4"))
+
+    assert "-frames:v" not in args and "-fps_mode" not in args
+
+
+def test_cropping_to_even_sides_also_resets_the_pixel_aspect():
+    odd = video(width=63, height=47)
+
+    args = build_timed_args(odd, merge_fragments(odd, [FilterFragment(vf=["hflip"])]), Path("/m/out.mp4"))
+
+    assert args[args.index("-vf") + 1] == f"hflip,{EVEN_CROP},setsar=1"

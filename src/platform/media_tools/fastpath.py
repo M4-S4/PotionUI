@@ -38,6 +38,7 @@ WEBM_CRF_OFFSET = 9
 OPAQUE_ONLY_IMAGE_SUFFIXES = (".jpg", ".jpeg", ".bmp")
 LOSSY_IMAGE_QUALITY = 95
 EVEN_CROP = "crop=trunc(iw/2)*2:trunc(ih/2)*2"
+SQUARE_PIXELS = "setsar=1"
 
 
 @dataclass
@@ -48,6 +49,7 @@ class MergedPlan:
     af: list[str] = field(default_factory=list)
     drop_audio: bool = False
     crf: Optional[int] = None
+    frames: Optional[int] = None
     width: Optional[int] = None
     height: Optional[int] = None
     duration: Optional[float] = None
@@ -100,6 +102,8 @@ def merge_fragments(media: ToolMedia, fragments: Sequence[FilterFragment]) -> Me
         plan.drop_audio = plan.drop_audio or fragment.drop_audio
         if fragment.crf is not None:
             plan.crf = fragment.crf
+        if fragment.frames is not None:
+            plan.frames = fragment.frames if plan.frames is None else min(plan.frames, fragment.frames)
         current = advance_media(current, fragment)
     plan.width, plan.height, plan.duration = current.width, current.height, current.duration
     return plan
@@ -197,7 +201,7 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
     video_filters = list(plan.vf)
     even = plan.width is not None and plan.height is not None and plan.width % 2 == 0 and plan.height % 2 == 0
     if not even:
-        video_filters.append(EVEN_CROP)
+        video_filters.extend([EVEN_CROP, SQUARE_PIXELS])
     args += ["-map", "0:v:0"]
     if plan.drop_audio:
         args += ["-an"]
@@ -208,6 +212,8 @@ def build_timed_args(media: ToolMedia, plan: MergedPlan, out_path: Path) -> list
         args += _audio_codec_args(suffix, reencode_audio)
     if video_filters:
         args += ["-vf", ",".join(video_filters)]
+    if plan.frames is not None:
+        args += ["-fps_mode", "passthrough", "-frames:v", str(plan.frames)]
     args += video_encoder_args(suffix, plan.crf)
     args += [str(out_path)]
     return args

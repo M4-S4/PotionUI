@@ -23,13 +23,34 @@ from src.platform.media_tools import (
     ToolSpec,
     run_chain,
 )
-from src.platform.media_tools.ops.trim import DEFAULT_FPS, head_tail_frame_count
+from src.platform.media_tools.ops.trim import DEFAULT_FPS, head_tail_frame_count, head_tail_window
 
 KEPT_CRF = 12
+
+
+def decoded_frames(path: str) -> int:
+    import cv2
+
+    capture = cv2.VideoCapture(str(path))
+    try:
+        count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if count <= 0:
+            while capture.grab():
+                count += 1
+        return count
+    finally:
+        capture.release()
 WINDOW_PAD_SECONDS = 1.0
 
 
 class HeadTail(MediaTool):
+    @staticmethod
+    def frame_target(media: ToolMedia, params: dict) -> int:
+        fps = float(params.get("fps") or 0.0)
+        seconds = float(params.get("seconds") or 0.0) or None
+        rate = fps if fps > 0 else float(media.fps or DEFAULT_FPS)
+        return head_tail_frame_count(int(params.get("frames") or 1), seconds, rate, int(params.get("frame_step") or 1))
+
     def video_filter(self, media: ToolMedia, params: dict) -> FilterFragment:
         if media.duration is None:
             raise ToolFailed("Could not read the media's duration")
@@ -37,11 +58,14 @@ class HeadTail(MediaTool):
         fps = float(params.get("fps") or 0.0)
         seconds = float(params.get("seconds") or 0.0) or None
         rate = fps if fps > 0 else float(media.fps or DEFAULT_FPS)
-        count = head_tail_frame_count(int(params.get("frames") or 1), seconds, rate, int(params.get("frame_step") or 1))
-        kept = count / rate
-        reach = kept + 2 / rate + WINDOW_PAD_SECONDS
+        count = self.frame_target(media, params)
+        start, end = head_tail_window(
+            media, keep, frames=int(params.get("frames") or 1), seconds=seconds, fps=fps,
+            frame_step=int(params.get("frame_step") or 1),
+        )
         duration = float(media.duration)
-        start, end = (0.0, min(duration, reach)) if keep == "head" else (max(0.0, duration - reach), duration)
+        start, end = (0.0, min(duration, end + WINDOW_PAD_SECONDS)) if keep == "head" else (max(0.0, start - WINDOW_PAD_SECONDS), duration)
+        kept = count / rate
         resample = [f"fps={fps:g}"] if fps > 0 else []
         if keep == "head":
             video = [f"trim=end_frame={count}"]
@@ -53,10 +77,11 @@ class HeadTail(MediaTool):
             start=start,
             end=end,
             duration=min(kept, end - start),
-            vf=[*resample, *video, "setpts=PTS-STARTPTS", f"fps={rate:g}"],
+            vf=[*resample, *video, f"setpts=N/{rate:g}/TB", f"fps={rate:g}", "setsar=1"],
             af=sound,
             drop_audio=not params.get("keep_audio", True),
             crf=KEPT_CRF,
+            frames=count,
         )
 
 
@@ -158,7 +183,9 @@ class VideoTrimPipe(BasePipe):
         try:
             with tool_session(generation_outputs, label, is_cancelled) as ctx:
                 for video in videos:
-                    (result,) = run_chain([(HEAD_TAIL, params)], [ctx.probe(video, "video")], ctx)
+                    source = ctx.probe(video, "video")
+                    (result,) = run_chain([(HEAD_TAIL, params)], [source], ctx)
+                    self._check_count(source, result, params)
                     trimmed.append(keep_file(result.path, "potionui-trim-"))
                     logger.info(f"[VIDEO_TRIM] kept the {keep} frames of {video}")
         except ToolCancelled:
@@ -171,6 +198,16 @@ class VideoTrimPipe(BasePipe):
             self._discard(trimmed)
             raise
         return PipeOutput(output={"video": trimmed})
+
+    @staticmethod
+    def _check_count(source: ToolMedia, result: ToolMedia, params: dict) -> None:
+        wanted = HEAD_TAIL.impl.frame_target(source, params)
+        rate = float(params.get("fps") or 0.0) or float(source.fps or DEFAULT_FPS)
+        if float(source.duration or 0.0) * rate < wanted:
+            return
+        got = decoded_frames(result.path)
+        if got != wanted:
+            raise ToolFailed(f"The trimmed video has {got} frames, not the {wanted} that were asked for")
 
     @staticmethod
     def _discard(paths: List[str]) -> None:

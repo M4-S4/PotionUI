@@ -10,6 +10,7 @@ from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import GenerationExecutionError, ProgressGenerationOutput
 from src.pipelines.pipes._shared.media import tools as pipe_tools
+from src.pipelines.pipes.video_trim import main as trim_module
 from src.pipelines.pipes.video_trim.main import HEAD_TAIL, KEPT_CRF, VideoTrimPipe
 from src.platform.media_tools import ToolMedia, probe, validate_params
 from src.platform.util.video_transcode import find_ffmpeg
@@ -111,14 +112,18 @@ class TestFilters:
         assert fragment.af[0] == "atrim=end=0.900000"
 
     def test_the_picture_always_ends_with_zeroed_timestamps_and_a_pinned_rate(self):
-        assert self.fragment().vf[-2:] == ["setpts=PTS-STARTPTS", "fps=10"]
-        assert self.fragment(fps=24.0).vf[-2:] == ["setpts=PTS-STARTPTS", "fps=24"]
+        assert self.fragment().vf[-3:] == ["setpts=N/10/TB", "fps=10", "setsar=1"]
+        assert self.fragment(fps=24.0).vf[-3:] == ["setpts=N/24/TB", "fps=24", "setsar=1"]
 
     def test_a_resample_comes_before_the_frames_are_counted(self):
         assert self.fragment(keep="head", fps=24.0).vf[:2] == ["fps=24", "trim=end_frame=9"]
 
     def test_the_clip_is_encoded_at_the_high_quality_it_always_was(self):
         assert self.fragment().crf == KEPT_CRF == 12
+
+    def test_the_kept_frame_count_is_a_hard_cap(self):
+        assert self.fragment(frames=9).frames == 9
+        assert self.fragment(keep="head", frames=17).frames == 17
 
     def test_the_sound_is_dropped_when_asked(self):
         assert self.fragment(keep_audio=False).drop_audio is True
@@ -280,3 +285,67 @@ class TestRun:
         with pytest.raises(GenerationExecutionError):
             run(make(frames=5), video=[str(clip), str(tmp_path / "gone.mp4")])
         assert leftovers(scratch_root) == []
+
+
+def run_ffmpeg_args(*args):
+    subprocess.run([find_ffmpeg(), "-hide_banner", "-nostdin", "-y", "-loglevel", "error", *args], check=True)
+
+
+def sample_aspect(path):
+    result = subprocess.run([find_ffmpeg(), "-hide_banner", "-nostdin", "-i", str(path)], capture_output=True, text=True)
+    return re.search(r"SAR (\d+:\d+)", result.stderr).group(1)
+
+
+@pytest.mark.skipif(not ffmpeg_available(), reason="ffmpeg is not available")
+class TestExactCount:
+    @pytest.fixture
+    def variable_rate(self, tmp_path):
+        slow = make_video(tmp_path / "slow.mp4", seconds=1.0, size=(64, 48), fps=8, audio=False)
+        fast = make_video(tmp_path / "fast.mp4", seconds=1.0, size=(64, 48), fps=30, audio=False)
+        listing = tmp_path / "list.txt"
+        listing.write_text(f"file '{slow}'\nfile '{fast}'\nfile '{slow}'\n")
+        joined = tmp_path / "variable.mp4"
+        run_ffmpeg_args("-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(joined))
+        assert count_video_frames(joined) == 46
+        return joined
+
+    @pytest.mark.parametrize("keep", ["head", "tail"])
+    @pytest.mark.parametrize("fps", [0.0, 24.0])
+    @pytest.mark.parametrize("frames", [9, 17, 25])
+    def test_a_variable_frame_rate_source_still_gives_exactly_the_requested_frames(
+        self, variable_rate, scratch_root, keep, fps, frames,
+    ):
+        (result,), _ = run(make(keep=keep, frames=frames, fps=fps, keep_audio=False), video=[str(variable_rate)])
+
+        assert count_video_frames(Path(result)) == frames
+        Path(result).unlink()
+
+    def test_an_output_with_the_wrong_count_is_an_error_not_a_silent_clip(self, tmp_path, scratch_root, monkeypatch):
+        clip = make_video(tmp_path / "in.mp4", seconds=2.0, size=(64, 48), fps=10)
+        monkeypatch.setattr(trim_module, "decoded_frames", lambda path: 6)
+
+        with pytest.raises(GenerationExecutionError, match="6 frames, not the 5"):
+            run(make(frames=5), video=[str(clip)])
+        assert leftovers(scratch_root) == []
+
+    def test_a_clip_with_fewer_frames_than_asked_is_not_an_error(self, tmp_path, scratch_root):
+        clip = make_video(tmp_path / "in.mp4", seconds=1.0, size=(64, 48), fps=10)
+
+        (result,), _ = run(make(frames=50), video=[str(clip)])
+
+        assert count_video_frames(Path(result)) == 10
+        Path(result).unlink()
+
+    @pytest.mark.parametrize("keep", ["head", "tail"])
+    def test_an_anamorphic_source_comes_out_with_square_pixels(self, tmp_path, scratch_root, keep):
+        clip = tmp_path / "anamorphic.mp4"
+        run_ffmpeg_args(
+            "-f", "lavfi", "-i", "testsrc=size=64x48:rate=10:duration=2", "-vf", "setsar=2/1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip),
+        )
+        assert sample_aspect(clip) == "2:1"
+
+        (result,), _ = run(make(keep=keep, frames=5), video=[str(clip)])
+
+        assert sample_aspect(result) == "1:1"
+        Path(result).unlink()

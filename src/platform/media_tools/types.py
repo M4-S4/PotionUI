@@ -84,6 +84,7 @@ class FilterFragment:
     height: Optional[int] = None
     duration: Optional[float] = None
     crf: Optional[int] = None
+    frames: Optional[int] = None
 
 
 ProgressCallback = Callable[[float, str], None]
