@@ -25,6 +25,23 @@ afterEach(() => {
 	target?.remove();
 });
 
+describe('PageTitle singular label', () => {
+	it('uses the singular label for a count of one and the plural otherwise', () => {
+		mountTitle({ count: 1, countLabel: 'items', countLabelOne: 'item' });
+		expect(eyebrow()?.textContent?.trim()).toBe('1 item');
+		unmount(component!);
+		component = null;
+		target.remove();
+		mountTitle({ count: 0, countLabel: 'items', countLabelOne: 'item' });
+		expect(eyebrow()?.textContent?.trim()).toBe('0 items');
+		unmount(component!);
+		component = null;
+		target.remove();
+		mountTitle({ count: 2, countLabel: 'items', countLabelOne: 'item' });
+		expect(eyebrow()?.textContent?.trim()).toBe('2 items');
+	});
+});
+
 describe('PageTitle', () => {
 	it('renders the title as an h1 and the count with its label as the eyebrow', () => {
 		mountTitle({ count: 214, countLabel: 'generations' });

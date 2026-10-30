@@ -80,7 +80,7 @@
 		<CollectionSidebarSheet label="Library" collapsed={!sidebarOpen} onExpand={onOpenSidebar}>
 			<LibrarySidebar />
 		</CollectionSidebarSheet>
-		<PageTitle title="Library" count={state.totalCount} countLabel="items" />
+		<PageTitle title="Library" count={state.totalCount} countLabel="items" countLabelOne="item" />
 
 		<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
 
