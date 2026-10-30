@@ -252,7 +252,7 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
 
         generation_outputs(ProgressGenerationOutput(
             state="Upsampling latent", icon=Icon(name="bolt", effect="pulse")))
-        upsampled = self._upsample(upsampler, latent, geometry, device)
+        upsampled = self._upsample(upsampler, latent, geometry, device, bundle.video_vae.module)
         if dumping:
             dump_upscale_previews(bundle, device, source_frame, latent, upsampled)
         return PipeOutput(output={"latent": upsampled, "source_frame_count": source_frame_count})
@@ -287,19 +287,22 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
             vae.offload()
 
     @staticmethod
-    def _upsample(upsampler: Any, latent: torch.Tensor, geometry: Any, device: str) -> torch.Tensor:
+    def _upsample(upsampler: Any, latent: torch.Tensor, geometry: Any, device: str, vae_module: Any) -> torch.Tensor:
+        vae_mean = vae_module.latents_mean.to(device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+        vae_std = vae_module.latents_std.to(device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
         upsampler.move_to(device)
         upsampler.module.eval()
         try:
             with torch.no_grad():
-                z = latent.to(device=device, dtype=upsampler.compute_dtype)
-                z = normalize_h3_latent(z)
+                z = (latent.to(device=device, dtype=torch.float32) - vae_mean) / vae_std
+                z = normalize_h3_latent(z).to(dtype=upsampler.compute_dtype)
                 z = upsample_chunked(
                     upsampler.module, z, geometry.effective_scale,
                     (geometry.latent_height, geometry.latent_width),
                     chunk=UPSAMPLE_CHUNK, overlap=UPSAMPLE_CONTEXT,
                 )
-                z = denormalize_h3_latent(z)
+                z = denormalize_h3_latent(z.to(dtype=torch.float32))
+                z = z * vae_std + vae_mean
         finally:
             upsampler.offload()
         return z

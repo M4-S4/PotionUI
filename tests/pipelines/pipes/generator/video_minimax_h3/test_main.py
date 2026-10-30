@@ -1532,6 +1532,54 @@ def test_generate_one_skips_dit_restore_when_decode_is_false():
     mock_restore.assert_not_called()
 
 
+def _decode_false_latent(vae_module) -> torch.Tensor:
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=19.5,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=vae_module, compute_dtype=torch.float32,
+                                   move_to=Mock(), offload=Mock(), estimated_vram_gb=2.0),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=Mock(), offload=Mock(),
+                                   estimated_vram_gb=0.5),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="passthrough", audio_file="fake.mp3",
+        decode=False,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    with patch(f"{_MAIN}.restore_dit_best_effort"):
+        return pipe.generate_one(ctx, 0, 7, ProgressEmitter([].append, title="test"))
+
+
+def test_decode_false_hands_on_the_raw_vae_latent_the_initial_latent_input_expects():
+    class _ShiftedVae(StubVideoVae):
+        latents_mean = torch.linspace(-1.0, 1.0, 24)
+        latents_std = torch.linspace(0.5, 3.0, 24)
+
+    torch.manual_seed(0)
+    normalized = _decode_false_latent(StubVideoVae())
+    torch.manual_seed(0)
+    raw = _decode_false_latent(_ShiftedVae())
+
+    mean = _ShiftedVae.latents_mean.view(1, -1, 1, 1, 1)
+    std = _ShiftedVae.latents_std.view(1, -1, 1, 1, 1)
+    assert raw.dtype == torch.float32
+    assert torch.allclose(raw, normalized * std + mean, atol=1e-5)
+    assert torch.allclose(GeneratorMinimaxH3Pipe._normalized_initial_latent(
+        SimpleNamespace(initial_latents=[raw], device="cpu", num_latent_frames=2, latent_height=2, latent_width=2),
+        0, _ShiftedVae(),
+    ), normalized, atol=1e-5)
+
+
 # -- cancellation -------------------------------------------------------------
 
 def _cancel_after(n: int):

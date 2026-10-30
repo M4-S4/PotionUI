@@ -752,6 +752,12 @@ def _require_h3_video_vae(module):
     return module
 
 
+def _raw_video_latent(latent: Tensor, vae_module: Any) -> Tensor:
+    mean = vae_module.latents_mean.to(device=latent.device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+    std = vae_module.latents_std.to(device=latent.device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+    return latent.to(torch.float32) * std + mean
+
+
 def _place_vae(c: "_MiniMaxH3Ctx", vae) -> None:
     """Offload a GPU-resident DiT first when `vae` would not otherwise fit, then move `vae` in."""
     free_gb = effective_free_vram_gb(c.device)
@@ -2153,7 +2159,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if not c.decode:
             if index == ctx.quantity - 1:
                 c.reference_cache.release()
-            return video_latent
+            return _raw_video_latent(video_latent, c.bundle.video_vae.module)
 
         frames_np = self._decode_video(c, video_latent)
         if c.source_role == "continue":

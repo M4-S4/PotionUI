@@ -10,6 +10,7 @@ import torch
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import resolve_target_geometry
+from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import MEAN, STD
 from src.pipelines.pipes.latent_upscaler.minimax_h3.main import (
     LatentUpscalerMinimaxH3Pipe,
     _free_room_for_upscale,
@@ -70,6 +71,8 @@ class _VaeModule:
         self.tile_sample_min_height = 256
         self.tile_sample_min_width = 256
         self.encode_tile_batch_size = 1
+        self.latents_mean = torch.tensor(MEAN)
+        self.latents_std = torch.tensor(STD)
         self.encoded = []
 
     def encode_tile_grid(self, height, width):
@@ -105,30 +108,21 @@ def test_raises_when_neither_latent_nor_video_given():
         _pipe(device="cpu").process(PipeInput(input={"model": bundle}), lambda o: None)
 
 
-def test_upsample_calls_normalize_then_upsampler_then_denormalize_in_order():
+def test_the_upsampler_sees_the_vae_normalized_latent_normalized_a_second_time_and_hands_back_raw():
     bundle = _bundle()
-    latent = torch.randn(1, 24, 3, 4, 4)
-    calls = []
+    torch.manual_seed(6)
+    latent = torch.randn(1, 24, 3, 4, 4) * 2.0
+    mean = torch.tensor(MEAN).view(1, -1, 1, 1, 1)
+    std = torch.tensor(STD).view(1, -1, 1, 1, 1)
 
-    def fake_normalize(x):
-        calls.append("normalize")
-        return x + 1.0
+    out = _pipe(device="cpu", target_mode="scale", scale=2.0).process(
+        PipeInput(input={"model": bundle, "latent": latent}), lambda o: None)
 
-    def fake_denormalize(x):
-        calls.append("denormalize")
-        return x - 1.0
-
-    with patch(f"{_MOD}.normalize_h3_latent", side_effect=fake_normalize), \
-         patch(f"{_MOD}.denormalize_h3_latent", side_effect=fake_denormalize):
-        out = _pipe(device="cpu", target_mode="scale", scale=2.0).process(
-            PipeInput(input={"model": bundle, "latent": latent}), lambda o: None)
-
-    assert calls == ["normalize", "denormalize"]
     seen_latent, seen_scale, seen_target = bundle.upsampler.module.calls[0]
-    assert torch.allclose(seen_latent, latent + 1.0)
+    assert torch.allclose(seen_latent, ((latent - mean) / std - mean) / std, atol=1e-5)
     assert seen_scale == pytest.approx(2.0)
     assert seen_target == (3, 8, 8)
-    assert out.output["latent"].shape == (1, 24, 3, 8, 8)
+    assert torch.allclose(out.output["latent"], (mean * std + mean).expand(1, 24, 3, 8, 8), atol=1e-5)
 
 
 def test_upsample_moves_and_offloads_the_upsampler():
