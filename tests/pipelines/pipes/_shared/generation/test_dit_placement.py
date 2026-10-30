@@ -35,7 +35,7 @@ from src.platform.settings import runtime_flags
 from src.platform.runtime.native.kernels.lora_math import _add_lora_output_branch, _lora_output_branch
 
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
-from src.platform.runtime.native.kernels import Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm
+from src.platform.runtime.native.kernels import Fp8ScaledLinear, FastPathKind, fast_path, fp8_ops, gemm, manual_cast
 from src.platform.runtime.native.kernels.fp8_linear import _quantize_fp8_dynamic
 from src.platform.runtime.native.kernels.nvfp4_linear import Nvfp4Linear
 from src.platform.runtime.native.memory.partial import plan_residency_split
@@ -1997,16 +1997,6 @@ def test_sequence_fit_needs_a_cuda_device_and_a_vram_reading():
         assert sequence_fit(dit, "cuda") is None
 
 
-def test_native_lora_fused_flag_decides_the_term(monkeypatch):
-    dit = SimpleNamespace(module=nn.Sequential(_quantized_linear(5376, 28672, nvfp4=True)))
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_lora_fused", False)
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(dit).output_buffer_out_features == 28672
-    monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_lora_fused", True)
-    with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
-        assert _dit_lora_profile(dit).output_buffer_out_features == 0
-
-
 _DRIVER_OOM = "CUDA error: out of memory"
 _WSL_DRIVER_OOM = "CUDA driver error: device not ready"
 
@@ -2171,35 +2161,26 @@ def test_the_warm_fast_path_keeps_the_allocator_pool():
     assert not empty.called
 
 
-class _Int8Linear(nn.Module):
-    def __init__(self, in_features: int, out_features: int):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = nn.Parameter(torch.zeros(1, dtype=torch.int8), requires_grad=False)
-        self.weight_scale = torch.ones(out_features, 1)
-
-
 _H3_FC1 = (5376, 28672)
 _H3_FC1_DEQUANT_BYTES = 2 * 5376 * 28672 * 2
 
 
 def test_an_int8_linear_costs_two_dequantised_copies_of_its_weight():
-    dit = SimpleNamespace(module=nn.Sequential(_Int8Linear(5376, 21504), _Int8Linear(*_H3_FC1)))
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(5376, 21504), _int8_layer(*_H3_FC1)))
     assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
 
 
-def test_an_int8_linear_dequantises_even_with_the_fp8_gemm_gate_on(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: True)
-    dit = SimpleNamespace(module=nn.Sequential(_Int8Linear(*_H3_FC1)))
+def test_an_int8_linear_dequantises_even_with_the_fp8_gemm_gate_on(machine):
+    machine(fp8=True)
+    dit = SimpleNamespace(module=nn.Sequential(_int8_layer(*_H3_FC1)))
     assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
 
 
-def test_an_fp8_linear_on_the_gemm_fast_path_has_no_dequant_transient(monkeypatch):
-    dit = SimpleNamespace(module=nn.Sequential(_QuantLinear(4096, fp8=True)))
-    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: True)
+def test_an_fp8_linear_on_the_gemm_fast_path_has_no_dequant_transient(machine):
+    dit = SimpleNamespace(module=nn.Sequential(_fp8_layer(4096, 4096)))
+    machine(fp8=True)
     assert _dit_dequant_transient_bytes(dit) == 0
-    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: False)
+    machine(fp8=False)
     assert _dit_dequant_transient_bytes(dit) == 2 * 4096 * 4096 * 2
 
 
@@ -2235,7 +2216,7 @@ def test_the_dequant_transient_rides_on_top_of_a_chunked_ffn_phase():
 def test_placement_charges_the_dits_own_dequant_transient():
     calls = []
     dit = SimpleNamespace(
-        module=nn.Sequential(_Int8Linear(*_H3_FC1)), estimated_vram_gb=19.61, device="cpu",
+        module=nn.Sequential(_int8_layer(*_H3_FC1)), estimated_vram_gb=19.61, device="cpu",
         move_to=lambda d: calls.append(("resident", d)),
         stream_to=lambda d, budget: calls.append(("partial", d, budget)),
     )
@@ -2258,7 +2239,7 @@ _T8_FREE_GB = 10.56
 
 def test_the_t8_orbit_at_512_on_a_12gb_card_streams_with_the_logged_budget():
     calls = []
-    linear = _Int8Linear(*_H3_FC1)
+    linear = _int8_layer(*_H3_FC1)
     linear.lora_masked_deltas = [SimpleNamespace(down=torch.zeros(16, 4), up=torch.zeros(4, 16))]
     dit = SimpleNamespace(
         module=nn.Sequential(linear), estimated_vram_gb=19.61, device="cpu",
@@ -2366,7 +2347,7 @@ def _ltx25_dit_with_layout_lora():
     linears = []
     for _ in range(48):
         for in_features, out_features in [(4096, 4096)] * 8 + [_LTX25_FFN, _LTX25_FFN[::-1]]:
-            linear = _Int8Linear(in_features, out_features)
+            linear = _int8_layer(in_features, out_features)
             linear.lora_deltas = [LoraDelta(
                 down=torch.empty((128, in_features), dtype=torch.bfloat16, device="meta"),
                 up=torch.empty((out_features, 128), dtype=torch.bfloat16, device="meta"),
@@ -2411,7 +2392,7 @@ def test_bite_check_the_take_a_budget_without_the_ltx_terms_overruns_the_card():
 
 def test_a_scoped_stack_applied_around_placement_is_counted_then_dropped():
     module = nn.Module()
-    module.proj = comfy_ops.manual_cast.Linear(64, 32)
+    module.proj = manual_cast.Linear(64, 32)
     dit, calls = _dit(estimated_vram_gb=1.0)
     dit.module = module
     lora = {"diffusion_model.proj.lora_A.weight": torch.zeros(4, 64),

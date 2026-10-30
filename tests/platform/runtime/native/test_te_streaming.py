@@ -28,7 +28,7 @@ from src.platform.runtime.native.memory.text_encoder import (
     text_encoder_footprint,
 )
 from src.platform.runtime.native.memory.tiering import ComponentPlacement, PlacementPlan
-from vendor.gpl.comfyui.ops import fp8_ops, manual_cast
+from src.platform.runtime.native.kernels import fp8_ops, manual_cast
 
 from ._nvfp4_ref import default_tensor_scale, quantize_nvfp4
 from ._te_layouts import FAMILIES, FamilyEncoder, RecordingModule, minimax_h3_module, minimax_h3_te

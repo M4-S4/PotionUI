@@ -3,7 +3,7 @@
 A text encoder is mostly quantised Linears. The DiT path never streamed nvfp4
 leaves (their weight lives in buffers, ``weight is None``) and must keep not
 doing so; the text encoder's streamer opts in. These pin both behaviours on a
-small module built from the real ``vendor/gpl/comfyui/ops.py`` layers.
+small module built from the real ``kernels/`` layers.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from src.platform.runtime.native.memory.partial import (
     iter_streamable_leaves,
     plan_residency_split,
 )
-from vendor.gpl.comfyui.ops import fp8_ops, manual_cast
+from src.platform.runtime.native.kernels import fp8_ops, manual_cast
 
 from .._nvfp4_ref import default_tensor_scale, quantize_nvfp4
 from .._quant_layouts import int8_state_dict

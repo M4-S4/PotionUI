@@ -14,7 +14,7 @@ from src.platform.runtime.native.detect.registry import arch_registry
 from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import causal3d_frame_need_gb
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 LATENT_480P_5S = (1, 16, 21, 60, 104)
 UMT5_FP8_GB = 6.27

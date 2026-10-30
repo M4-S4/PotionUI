@@ -17,7 +17,7 @@ from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.memory.partial import LayerPrefetcher, iter_streamable_leaves
 from src.platform.runtime.native.sampling.conditioned import denoise_prenoised
 from src.platform.runtime.native.sampling.denoise_loop import denoise
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 from .memory.test_partial_prefetch import _install_fake_cuda
 

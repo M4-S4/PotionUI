@@ -15,7 +15,7 @@ from src.platform.runtime.native.memory.partial import (
     plan_residency_split,
 )
 from src.platform.runtime.system_memory import SystemMemory
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 
 class _Tiny(nn.Module):

@@ -411,12 +411,8 @@ def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
 
 
 def _takes_dequant_path(linear: Any) -> bool:
-    if getattr(linear, "weight_scale", None) is None:
-        return False
-    weight = getattr(linear, "weight", None)
-    if isinstance(weight, torch.Tensor) and weight.dtype == torch.int8:
-        return True
-    return not _fp8_matmul_enabled()
+    path = fast_path(linear)
+    return path is not None and path.kind is FastPathKind.DEQUANT
 
 
 def _dit_dequant_transient_bytes(dit: Any) -> int:

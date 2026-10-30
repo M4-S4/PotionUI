@@ -8,7 +8,8 @@ import torch.nn as nn
 from src.platform.observability import profiling
 from src.platform.runtime.native import engine as engine_mod
 from src.platform.runtime.native.memory import residency
-from vendor.gpl.comfyui.ops import _NVFP4_BLOCK, fp8_ops, manual_cast
+from src.platform.runtime.native.io.quant_formats import NVFP4_BLOCK
+from src.platform.runtime.native.kernels import fp8_ops, manual_cast
 
 try:
     from src.platform.runtime.native.memory import text_encoder as te_placement
@@ -62,7 +63,7 @@ def _fp8(in_f, out_f):
 
 def _nvfp4(in_f, out_f):
     layer = fp8_ops.Linear(in_f, out_f, bias=False, device=META, dtype=torch.bfloat16)
-    blocks = in_f // _NVFP4_BLOCK
+    blocks = in_f // NVFP4_BLOCK
     layer._is_nvfp4 = True
     layer.nvfp4_packed = torch.empty(out_f, in_f // 2, dtype=torch.uint8, device=META)
     layer.nvfp4_scale = torch.empty(out_f, blocks, dtype=torch.float32, device=META)
