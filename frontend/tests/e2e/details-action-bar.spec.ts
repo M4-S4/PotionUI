@@ -413,6 +413,45 @@ test.describe('letter shortcuts', () => {
 		await expect(editor(page)).toBeVisible();
 	});
 
+	test('Cancel in the editor brings the History details back with the information column where it was', async ({
+		page
+	}) => {
+		await mockBackend(page);
+		await openHistoryDetails(page);
+		const info = page.getByRole('dialog', { name: 'Generation Details' }).locator('[data-details-info]');
+		const before = await info.evaluate((node) => {
+			node.scrollTop = 140;
+			return node.scrollTop;
+		});
+
+		await page.keyboard.press('e');
+		await expect(editor(page)).toBeVisible();
+		await editor(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+
+		await expect(page.getByRole('dialog', { name: 'Generation Details' })).toBeVisible();
+		await expect
+			.poll(() =>
+				page
+					.getByRole('dialog', { name: 'Generation Details' })
+					.locator('[data-details-info]')
+					.evaluate((node) => node.scrollTop)
+			)
+			.toBe(before);
+	});
+
+	test('the editor footer on a Library item says a copy is saved and the original is not changed', async ({
+		page
+	}) => {
+		await mockBackend(page);
+		await openLibraryDetails(page);
+
+		await page.keyboard.press('e');
+
+		await expect(editor(page).locator('[data-tool-note]')).toHaveText(
+			'Saves a copy. The original is not changed.'
+		);
+	});
+
 	test('F in the Library details toggles the favorite and E opens the editor', async ({ page }) => {
 		const backend = await mockBackend(page);
 		await openLibraryDetails(page);

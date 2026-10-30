@@ -55,7 +55,7 @@ const { default: GenerationDetailsModal } = await import('$lib/components/modals
 const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 const { unregisterMediaTools } = await import('$lib/tools/tools');
 const { createClassComponent } = await import('svelte/legacy');
-const { registerDetailsReturn } = await import('$lib/tools/detailsReturn');
+const { registerDetailsReturn, returnToDetails } = await import('$lib/tools/detailsReturn');
 const { flushSync } = await import('svelte');
 
 function generation(fileType: string, extra: Record<string, unknown> = {}) {
@@ -510,5 +510,55 @@ describe('GenerationDetailsModal letter shortcuts', () => {
 
 		expect(leaked).not.toHaveBeenCalled();
 		document.removeEventListener('keydown', leaked);
+	});
+});
+
+describe('GenerationDetailsModal scroll on the way back', () => {
+	const stored = new WeakMap<HTMLElement, number>();
+	let descriptor: PropertyDescriptor | undefined;
+
+	beforeEach(() => {
+		descriptor = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+		Object.defineProperty(Element.prototype, 'scrollTop', {
+			configurable: true,
+			get(this: HTMLElement) {
+				return stored.get(this) ?? 0;
+			},
+			set(this: HTMLElement, value: number) {
+				stored.set(this, Math.min(value, 1000));
+			}
+		});
+	});
+
+	afterEach(() => {
+		if (descriptor) Object.defineProperty(Element.prototype, 'scrollTop', descriptor);
+		else delete (Element.prototype as { scrollTop?: number }).scrollTop;
+	});
+
+	const panel = () => document.body.querySelector<HTMLElement>('[data-details-info]')!;
+
+	async function launchAndCome(scrolled: number, comeBack: boolean) {
+		const unregister = registerDetailsReturn(vi.fn());
+		await open(generation('image'));
+		panel().scrollTop = scrolled;
+		await pick('edit', 'Resize');
+		destroy?.();
+		destroy = undefined;
+		document.body.innerHTML = '';
+		if (comeBack) returnToDetails({ generationId: 'gen-row', fileIndex: 0 });
+		await open(generation('image'));
+		unregister();
+	}
+
+	it('puts the information column back where it was when the details return after a Cancel', async () => {
+		await launchAndCome(420, true);
+
+		expect(panel().scrollTop).toBe(420);
+	});
+
+	it('opens a generation at the top when it is opened afresh and not returned to', async () => {
+		await launchAndCome(420, false);
+
+		expect(panel().scrollTop).toBe(0);
 	});
 });

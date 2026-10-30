@@ -14,7 +14,8 @@
 	import { isTypingInField } from '$lib/utils/editableTarget';
 	import portal from '$lib/actions/portal';
 	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
-	import { canReturnToDetails } from '$lib/tools/detailsReturn';
+	import { canReturnToDetails, rememberDetailsScroll, takeDetailsScroll } from '$lib/tools/detailsReturn';
+	import { restoreScroll } from '$lib/utils/restoreScroll';
 	import BaseModal from './BaseModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -439,8 +440,12 @@
 
 	// Arrows walk files and roll over into the neighbouring generation; Shift jumps. Escape: BaseModal.
 	function handleLaunch() {
-		if (canReturnToDetails()) handleClose();
+		if (!canReturnToDetails()) return;
+		rememberDetailsScroll(activeGenerationId, infoPanel?.scrollTop ?? 0);
+		handleClose();
 	}
+
+	let infoPanel: HTMLElement | undefined;
 
 	let detailsRoot: HTMLElement | undefined;
 	let actionBar: DetailsActionBar | undefined;
@@ -868,7 +873,7 @@
 			</div>
 
 			<!-- Right Side - Information -->
-			<div class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
+			<div bind:this={infoPanel} use:restoreScroll={takeDetailsScroll(activeGenerationId)} data-details-info class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
 				<div class="p-4 space-y-3">
 					<!-- Information Section -->
 					<div class="bg-surface-2 rounded-lg overflow-hidden">

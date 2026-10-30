@@ -18,6 +18,7 @@
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import LibraryModalHost from '$lib/components/library/LibraryModalHost.svelte';
+	import ToolRunChip from '$lib/components/tools/ToolRunChip.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
 	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
@@ -319,6 +320,7 @@
 		{#if KeyboardShortcutsModalComponent}<svelte:component this={KeyboardShortcutsModalComponent} />{/if}
 		{#if NotificationPanelComponent}<svelte:component this={NotificationPanelComponent} />{/if}
 		<LibraryModalHost />
+		<ToolRunChip />
 		<ToastContainer />
 		<ConfirmHost />
 		<IndexingChoiceModal />

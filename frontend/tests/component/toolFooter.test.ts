@@ -49,6 +49,18 @@ describe('ToolFooter', () => {
 		expect(onMode).toHaveBeenLastCalledWith('replace');
 	});
 
+	it('says a copy is saved and the original is not changed while Save as new is chosen', () => {
+		const { target } = mountComponent(ToolFooter, props({ mode: 'new' }));
+		expect(target.querySelector('[data-tool-note]')?.textContent).toBe(
+			'Saves a copy. The original is not changed.'
+		);
+	});
+
+	it('drops that line when Replace original is chosen', () => {
+		const { target } = mountComponent(ToolFooter, props({ mode: 'replace' }));
+		expect(target.querySelector('[data-tool-note]')).toBeNull();
+	});
+
 	it('shows the note instead of the choice when replacing is not offered', () => {
 		const { target } = mountComponent(ToolFooter, props({ showModes: false, note: 'Saved as a new video.' }));
 		expect(target.querySelector('[role="group"]')).toBeNull();

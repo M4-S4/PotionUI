@@ -44,6 +44,8 @@
 		onCancelRun: () => void;
 	} = $props();
 
+	const NEW_COPY_NOTE = 'Saves a copy. The original is not changed.';
+
 	const MODES = [
 		{ id: 'new', label: 'Save as new' },
 		{ id: 'replace', label: 'Replace original' }
@@ -99,6 +101,9 @@
 					selected={mode}
 					onSelect={(id) => onMode(id === 'replace' ? 'replace' : 'new')}
 				/>
+				{#if mode === 'new'}
+					<p class="min-w-0 flex-1 basis-48 text-sm text-fg-muted" data-tool-note>{NEW_COPY_NOTE}</p>
+				{/if}
 			{:else if note}
 				<p class="min-w-0 flex-1 basis-48 text-sm text-fg-muted" data-tool-note>{note}</p>
 			{/if}

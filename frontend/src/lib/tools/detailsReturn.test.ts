@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { canReturnToDetails, registerDetailsReturn, returnToDetails } from './detailsReturn';
+import {
+	canReturnToDetails,
+	rememberDetailsScroll,
+	registerDetailsReturn,
+	returnToDetails,
+	takeDetailsScroll
+} from './detailsReturn';
 
 describe('detailsReturn', () => {
 	it('does nothing and says so when no History page is listening', () => {
@@ -29,5 +35,36 @@ describe('detailsReturn', () => {
 
 		expect(second).toHaveBeenCalledTimes(1);
 		expect(first).not.toHaveBeenCalled();
+	});
+});
+
+describe('details scroll memory', () => {
+	function comeBack(id: string) {
+		const unregister = registerDetailsReturn(() => {});
+		returnToDetails({ generationId: id, fileIndex: 0 });
+		unregister();
+	}
+
+	it('hands the remembered scroll back once, when the page returns to that generation', () => {
+		rememberDetailsScroll('g1', 320);
+		comeBack('g1');
+
+		expect(takeDetailsScroll('g2')).toBeNull();
+		expect(takeDetailsScroll('g1')).toBe(320);
+		expect(takeDetailsScroll('g1')).toBeNull();
+	});
+
+	it('does not restore when the generation is opened afresh rather than returned to', () => {
+		rememberDetailsScroll('g1', 320);
+
+		expect(takeDetailsScroll('g1')).toBeNull();
+	});
+
+	it('keeps nothing for a window that was not scrolled', () => {
+		rememberDetailsScroll('g1', 320);
+		rememberDetailsScroll('g1', 0);
+		comeBack('g1');
+
+		expect(takeDetailsScroll('g1')).toBeNull();
 	});
 });
