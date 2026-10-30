@@ -2,16 +2,6 @@
 #
 #   model_loader/minimax_music3 -> generator/audio_minimax_music3
 #
-# No prompt_encoder, no seed_generator, no gallery: this family has no
-# separate text-encode stage (the tokenizer lives on the loaded bundle
-# itself and the AR core IS the conditioning, built fresh inside the
-# generator every run -- see that pipe's module docstring), the generator
-# reads `seed` as a plain config value rather than a wired pipe input
-# (one song per generation, no quantity), and the generator emits its own
-# terminal `AudioGenerationOutput` directly (temporary=false) the same way
-# AudioTools' `audio_trim` does -- there is nothing for a gallery node to
-# merge.
-#
 # CAPTION/DURATION/INSTRUMENTAL ARE PLAIN FORM FIELDS (modes/song/tabs/
 # generation.yml). Lyrics are the STANDARD prompt section -- the same
 # segmented editor every image preset uses, with [Verse]/[Chorus]/etc. tags

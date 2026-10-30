@@ -69,9 +69,6 @@ function humanize(segment: string): string {
 		.join(' ');
 }
 
-/** Pipe names are laid out as "<family>/<variant>" (e.g. "generator/z_image"),
- * mirroring their location under src/pipelines/pipes/ - not every pipe has a
- * variant (a flat pipe like "audio_trim" has none). */
 export function pipeFamily(pipe: PipeEntry): string | undefined {
 	const name = pipeLabel(pipe);
 	const slash = name.indexOf('/');

@@ -1,11 +1,3 @@
-# Pipeline for the 'fit_canvas' mode.
-#
-#   media_loader -> param_emitter -> canvas_fit -> gallery
-#
-# The placement stage of the `prepare` chain on its own: scale the source so
-# its long side spans `scale_percent`% of the canvas's SHORT side, place it at
-# `anchor`, and fill everything else with `fill`. Deterministic -- no text
-# encoder, no denoise loop, no seed.
 pipeline:
   #############
   ## Media Loader - Load the source image from the form file path

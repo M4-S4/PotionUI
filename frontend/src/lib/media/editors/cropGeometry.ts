@@ -10,11 +10,6 @@
  * "Currently displayed" matters: a rotate or a flip is applied BEFORE the crop
  * (see `planToOperations`), so the rectangle is always in the coordinates the
  * user drew it in - which is the whole point of letting them rotate first.
- *
- * The clamping here mirrors `_validated_crop` in
- * `src/features/media/editing/operations.py`. The server is still the
- * authority; this exists so the UI cannot offer a rectangle the server will
- * refuse, not so the server can stop checking.
  */
 
 /** A rectangle over the displayed media, every field in 0..1. */

@@ -68,7 +68,7 @@ class IOType(Enum):
     DICT = "DICT"
 
     # Built-in Services (injected by GenerationEngine)
-    SERVICE = "SERVICE"  # System services (ASSETS, GPU, LLM, MEMORY, MODELS, SETTINGS) - uppercase names
+    SERVICE = "SERVICE"
 
 
 @dataclass

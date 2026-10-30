@@ -30,14 +30,6 @@ export type EditOperation =
 
 export type EditableMediaKind = 'image' | 'video' | 'audio';
 
-/**
- * Every `EditOperation` type, plus `'split'` - which is NOT one. Split hits
- * its own endpoint (`POST /api/media/split/{item_id}`, `{part_seconds}`) and
- * returns several items, never the single-item shape `/edit`'s operations
- * produce, so it can never appear inside an `EditOperation[]` sent to
- * `editMediaItem`. It still belongs in this table: this is the one place that
- * knows what a media kind supports, and split is one of those things.
- */
 export type EditableActionType = EditOperation['type'] | 'split';
 
 export const MAX_EDIT_OPERATIONS = 8;
