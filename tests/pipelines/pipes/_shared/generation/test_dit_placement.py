@@ -2423,6 +2423,27 @@ def test_sequence_fit_predicts_exactly_the_placement_mode(resident, seconds):
     assert fit.reserve_gb(tokens) == pytest.approx(decision.activation_reserve_gb)
 
 
+@pytest.mark.parametrize("resident", [False, True])
+@pytest.mark.parametrize("seconds", [1, 5, 10, 20])
+def test_sequence_fit_with_the_ltx_terms_and_a_dequant_transient_predicts_the_placement_mode(resident, seconds):
+    tokens = _video_tokens_for(seconds)
+    terms = ltx_reserve_terms(SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True)), per_token_timestep=True)
+    free = 32.0 - (23.3 if resident else 0.0)
+    probe, _ = _dit(estimated_vram_gb=23.3)
+    placed, _ = _dit(estimated_vram_gb=23.3)
+    probe.module = nn.Sequential(_int8_layer(*_H3_FC1))
+    placed.module = nn.Sequential(_int8_layer(*_H3_FC1))
+    if resident:
+        probe.device = placed.device = "cuda"
+    patches, _ = _patched(free_gb=free)
+    with patches[0], patches[1], patches[2]:
+        fit = sequence_fit(probe, "cuda", **terms)
+        decision = place_dit_for_sequence(placed, "cuda", video_tokens=tokens, **terms)
+    assert fit.dequant_transient_bytes == _H3_FC1_DEQUANT_BYTES
+    assert fit.resident(tokens) == (decision.mode == "resident")
+    assert fit.reserve_gb(tokens) == pytest.approx(decision.activation_reserve_gb)
+
+
 def test_sequence_fit_activations_fit_is_the_over_commit_boundary(caplog):
     dit, _ = _dit(estimated_vram_gb=15.65)
     patches, _ = _patched(free_gb=31.0)

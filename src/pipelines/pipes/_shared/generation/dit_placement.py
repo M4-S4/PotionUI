@@ -524,11 +524,16 @@ class SequenceFit:
     free_gb: float
     lora: DitLoraProfile
     quant_activation_bytes_per_token: int
+    dequant_transient_bytes: int = 0
+    gelu_ffn_dim: int | None = None
+    modulation_rows: int = 0
 
     def reserve_gb(self, video_tokens: int, audio_tokens: int = 0) -> float:
         return estimate_activation_reserve_gb(
             video_tokens, audio_tokens, lora=self.lora,
             quant_activation_bytes_per_token=self.quant_activation_bytes_per_token,
+            dequant_transient_bytes=self.dequant_transient_bytes,
+            gelu_ffn_dim=self.gelu_ffn_dim, modulation_rows=self.modulation_rows,
         )
 
     def resident(self, video_tokens: int, audio_tokens: int = 0) -> bool:
@@ -538,7 +543,9 @@ class SequenceFit:
         return self.reserve_gb(video_tokens, audio_tokens) <= self.free_gb
 
 
-def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
+def sequence_fit(
+    dit: Any, device: str, *, gelu_ffn_dim: int | None = None, modulation_rows: int = 0,
+) -> "SequenceFit | None":
     free = effective_free_vram_gb(device)
     if free is None:
         return None
@@ -546,7 +553,10 @@ def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
     weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb + _dit_dequant_table_gb(dit)
     if dit_is_fully_resident(dit, device):
         free += weight_gb
-    return SequenceFit(weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit))
+    return SequenceFit(
+        weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit),
+        _dit_dequant_transient_bytes(dit), gelu_ffn_dim, modulation_rows,
+    )
 
 @dataclass(frozen=True)
 class DitPlacementDecision:

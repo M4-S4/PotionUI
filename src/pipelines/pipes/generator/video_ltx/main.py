@@ -512,7 +512,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                    overlap: Optional[int], refine_scale: float = 1.0) -> Tuple[int, List[int]]:
         total = max(1, min(clip_frames, MAX_FRAMES))
         one = snap_frames_up(total)
-        fit = sequence_fit(dit, device)
+        fit = sequence_fit(dit, device, **ltx_reserve_terms(dit.module, per_token_timestep=True))
         if fit is None:
             return one, [0]
         sizes = [(width, height)]
