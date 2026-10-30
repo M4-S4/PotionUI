@@ -10,6 +10,7 @@ import torch
 import src.pipelines.pipes._shared.video.wan_experts as wan_experts
 from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter, decode_wan_video
 from src.platform.runtime import cuda_allocator
+from src.platform.runtime.native.detect.registry import arch_registry
 from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import causal3d_frame_need_gb
@@ -423,7 +424,7 @@ def _sizing_spies(monkeypatch, need_gb):
     return seen
 
 
-def test_a_16x_vae_prices_its_tiled_decode_four_times_dearer_per_latent_px(monkeypatch):
+def test_an_undeclared_16x_vae_prices_its_tiled_decode_four_times_dearer_per_latent_px(monkeypatch):
     seen = _sizing_spies(monkeypatch, need_gb=100.0)
     monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 1.0)
 
@@ -434,7 +435,7 @@ def test_a_16x_vae_prices_its_tiled_decode_four_times_dearer_per_latent_px(monke
     assert "chunk" not in seen
 
 
-def test_a_16x_vae_prices_its_temporal_chunks_by_the_same_cost(monkeypatch):
+def test_an_undeclared_16x_vae_prices_its_temporal_chunks_by_the_same_cost(monkeypatch):
     seen = _sizing_spies(monkeypatch, need_gb=0.0)
     monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 1.0)
 
@@ -465,7 +466,7 @@ def test_a_spec_that_declares_its_measured_decode_cost_is_believed_over_the_spat
     assert seen["tile"]["decode_mb_per_latent_px"] == 2.0
 
 
-def test_making_room_before_a_16x_decode_asks_for_the_dearer_frame(monkeypatch):
+def test_making_room_before_an_undeclared_16x_decode_asks_for_the_dearer_frame(monkeypatch):
     seen = _sizing_spies(monkeypatch, need_gb=3.0)
     asked = []
     monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 10.0)
@@ -479,6 +480,63 @@ def test_making_room_before_a_16x_decode_asks_for_the_dearer_frame(monkeypatch):
     assert seen["need"]["vae_resident_gb"] == 0.24
     assert asked == [3.0]
 
+
+def _the_5b_conductor(module=None):
+    return SimpleNamespace(vae=_Vae(module), device="cpu", latent_channels=48, spatial_downscale=16,
+                           spec=arch_registry.get("wan", "wan_ti2v_5b"))
+
+
+def test_the_5b_prices_its_decode_by_the_cost_measured_for_its_vae(monkeypatch):
+    seen = _sizing_spies(monkeypatch, need_gb=100.0)
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 1.0)
+
+    decode_wan_video(_the_5b_conductor(), torch.zeros(1, 48, 1, 4, 4))
+
+    assert seen["need"]["decode_mb_per_latent_px"] == 2.6
+    assert seen["tile"]["decode_mb_per_latent_px"] == 2.6
+
+
+def test_the_5b_prices_its_temporal_chunks_by_the_measured_cost(monkeypatch):
+    seen = _sizing_spies(monkeypatch, need_gb=0.0)
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 1.0)
+
+    decode_wan_video(_the_5b_conductor(), torch.zeros(1, 48, 3, 4, 4))
+
+    assert seen["chunk"]["decode_mb_per_latent_px"] == 2.6
+
+
+def test_making_room_before_a_5b_decode_asks_for_the_measured_frame(monkeypatch):
+    seen = _sizing_spies(monkeypatch, need_gb=3.0)
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: 10.0)
+    monkeypatch.setattr(wan_experts.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(wan_experts, "get_residency_registry",
+                        lambda: SimpleNamespace(ensure_free=lambda device, need, free, exclude: []))
+    c = _the_5b_conductor()
+    c.device = "cuda:0"
+
+    wan_experts._make_room_for_decode(c, torch.zeros(1, 48, 1, 4, 4))
+
+    assert seen["need"]["decode_mb_per_latent_px"] == 2.6
+
+
+@pytest.mark.parametrize("latent_hw,free_gb,decoded", [
+    ((30, 52), 9.4, ("whole", 1)),
+    ((30, 52), 5.5, ("tiles", 24)),
+    ((44, 80), 20.5, ("whole", 1)),
+    ((44, 80), 9.4, ("tiles", 40)),
+    ((44, 80), 5.5, ("tiles", 32)),
+])
+def test_the_5b_decodes_a_121_frame_clip_whole_or_in_tiles_by_its_measured_cost(monkeypatch, latent_hw, free_gb, decoded):
+    calls = []
+    monkeypatch.setattr(wan_experts, "effective_free_vram_gb", lambda device: free_gb)
+    monkeypatch.setattr(wan_experts, "_decode_latent",
+                        lambda vae_module, z, chunk_frames: calls.append(("whole", chunk_frames)) or z)
+    monkeypatch.setattr(wan_experts, "tiled_decode_causal3d",
+                        lambda vae, z, **kw: calls.append(("tiles", kw["tile_size"])) or z)
+
+    wan_experts._decode_pixels(_the_5b_conductor(Mock(spec=["new_feat_cache"])), torch.zeros(1, 48, 31, *latent_hw))
+
+    assert calls == [decoded]
 
 def test_the_host_assembly_of_a_long_1080p_clip_is_priced_as_the_half_precision_accumulator_plus_the_result():
     pixels = 3 * (1 + 4 * 40) * 1088 * 1920

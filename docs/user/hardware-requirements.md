@@ -86,6 +86,17 @@ The Video Producer plugin ships five video presets, each set up for one size of 
 - **What does not fit on a 12 GB card yet.** LTX-2.3 22B distilled (fp8) runs out of GPU memory inside the DiT, for a 5 s and a 2 s clip.
 - **How the figures were taken.** The container's RAM is limited with `--memory` equal to `--memory-swap` (no swap), at the full tier and at that tier minus 3 GB. For the 8 GB presets the engine was told the card has 8 GB (`POTIONUI_VRAM_CAP_GB=7.99`, `gpu_max_vram` 6): a 12 GB card made to report 8 GB, not a physical 8 GB card. The Wan 2.2 14B and LTX-2.5 runs are whole-card runs in Docker Desktop on WSL 2: the engine was told the card's real 12 GB (the backend's `gpu_max_vram` at 10). **Engine VRAM peak** is the high-water mark PotionUI reports for the run (`peak_vram_mb`), not the `nvidia-smi` figure, which also counts the allocator's cache; Windows' "Shared Usage" counter counts pinned memory as well. **Process RAM peak** is the container's anonymous memory (of the finished run); the cgroup's `memory.current` also counts the file cache of the model files.
 
+### Wan 2.2 TI2V 5B: the VAE decode
+
+The 5B decodes through the Wan 2.2 VAE, whose decode peak was measured alone on 30 October 2026 on the same RTX 4070 Ti, on the whole card and under an 8 GB cap of the PyTorch allocator, with the engine's own load path and decode calls (five latent frames, 17 pixel frames). The engine now prices that decode at 2.6 MB per latent pixel (`docs/native-engine.md`, "Memory tiers & low-VRAM") and decodes in spatial tiles when a frame does not fit:
+
+| Resolution | 8 GB card | 12 GB card | Decode peak, VAE weights included (allocated / reserved) |
+|---|---|---|---|
+| 832×480 | 24-pixel tiles (2×3) | Whole, one latent frame at a time | Tiles: 2,798 / 3,182 MiB. Whole: 5,256 / 5,848 MiB |
+| 1280×704 | 32-pixel tiles (2×3) | 40-pixel tiles (2×3) | 32-pixel tiles: 3,918 / 4,468 MiB. 40-pixel tiles: 5,357 / 5,962 MiB. Whole: 10,154 / 10,468 MiB, out of memory under the 8 GB cap |
+
+Tile sizes are in latent pixels, each covering 16×16 image pixels. The 12 GB column assumes about 9.4 GB free once the VAE is on the card, as on the measuring machine; a 832×480 frame decodes whole from 7.95 GB free. The 1280×704 decode now fits an 8 GB card in tiles, but a whole 1280×704 generation on 8 GB has not been run again since the failure in the table above.
+
 ## Disk space
 
 Budget for the checkpoint files themselves plus their text encoders and VAEs — native-engine families ship DiT, text encoder, and VAE as separate files, all of which sit on disk simultaneously once downloaded:

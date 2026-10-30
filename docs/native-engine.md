@@ -174,17 +174,58 @@ cards get different plans for a 9B Klein vs a 14B Wan. Residency priority is DiT
 VAE is dropped to tiled/offloaded first, the TE next).
 
 The causal-3D decode spike is priced per latent pixel from a constant calibrated on the 8x Wan 2.1
-VAE (1.2 MB per latent pixel, fp32). A 16x VAE (Wan 2.2 5B, Qwen-Image 2.1) turns one latent pixel
-into four times the pixels, so the Wan decode path (`wan_experts.py`) scales the constant by
-`(spatial_downscale / 8)²` through `vae/tiling.causal3d_decode_mb_per_latent_px`, 4.8 MB per latent
-pixel, unless the model's `latent_format` declares a measured `decode_mb_per_latent_px`. The square
-is an upper bound, not a measurement: the 2.2 decoder runs its convolutions on a 2x2-patchified
-grid, so its real spike per latent pixel lies between 1.2 and 4.8 MB. The bound errs towards more
-tiles (a 5B frame at 1280x704 is priced at about 25 GB and decodes in spatial tiles on every card,
-24 latent pixels wide with 6 GB free instead of 40), never towards an OOM, which under WSL2 is
-fatal. Measuring the 5B decode at 1280x704 on an 8 GB and a 12 GB card with the tiles would turn
-the bound into a declared value. The image engine's own causal-3D decode (`engine.py`) still prices
-every causal VAE at 1.2 MB per latent pixel.
+VAE (1.2 MB per latent pixel). The Wan decode path (`wan_experts.py`) reads the cost through
+`vae/tiling.causal3d_decode_mb_per_latent_px`: a model whose `latent_format` declares a measured
+`decode_mb_per_latent_px` is priced at that value; any other VAE at the constant times
+`(spatial_downscale / 8)²`, so 4.8 MB per latent pixel for an undeclared 16x VAE, an upper bound
+that errs towards more tiles, never towards an OOM, which under WSL2 is fatal. The sizing functions
+(`causal3d_frame_need_gb`, `causal3d_decode_tile`, `causal3d_chunk_frames` and the eviction before
+the decode) add the same margins to every cost: a 2 GB working base and a 0.75 fraction of the free
+VRAM.
+
+The Wan 2.2 5B (`wan_ti2v_5b`) declares 2.6 MB per latent pixel, measured on 30 October 2026 on a
+12 GB RTX 4070 Ti under Docker Desktop on WSL 2 (torch 2.12.1). The VAE ran alone, loaded by the
+engine's own loader (fp16 weights, bf16 compute, `manual_cast`, 1.34 GB resident), through the
+production calls: `vae.decode`, `chunked_decode_causal3d` and `tiled_decode_causal3d` with
+`accumulate_device="cpu"` and one latent frame per call. Peaks are `max_memory_allocated` and
+`max_memory_reserved` after `reset_peak_memory_stats`, over the resident weights, for five latent
+frames (17 pixel frames):
+
+| Window decoded | First latent frame, allocated | Later latent frames, allocated | Later latent frames, reserved (expandable segments / default allocator) |
+|---|---|---|---|
+| 832x480 whole (30x52, 1,560 latent px) | 1,461 MiB (0.94 MB per px) | 3,911 MiB (2.51) | 4,503 / 5,548 MiB |
+| 1280x704 whole (44x80, 3,520 latent px) | 3,280 MiB (0.93) | 8,808 MiB (2.50) | 9,122 MiB / over the 9 GiB cap of that run |
+| 40-px tile (1,600 latent px) | 1,498 MiB (0.94) | 4,011 MiB (2.51) | 4,616 / 5,690 MiB |
+| 32-px tile (1,024 latent px) | 964 MiB (0.94) | 2,572 MiB (2.51) | 3,122 / 3,356 MiB |
+| 24-px tile (576 latent px) | 548 MiB (0.95) | 1,453 MiB (2.52) | 1,837 / 1,916 MiB |
+
+The figures are the same on the whole card and under an 8 GiB allocator cap
+(`set_per_process_memory_fraction`), where the whole 1280x704 frame runs out of memory and every
+tile fits. What they show:
+
+- The first latent frame decodes to one pixel frame and costs 0.94 MB per latent pixel. Every later
+  one decodes to four pixel frames and costs 2.5 MB, of which 0.87 MB is the causal `feat_cache`
+  kept for the rest of the clip. A one-frame measurement under-prices a video by 2.7 times.
+- From the third latent frame on the peak no longer moves: it does not grow with the clip length in
+  the chunked and tiled paths, which assemble on the host. A whole-clip decode on the device adds
+  only the pixels it accumulates (89 MiB for five latent frames at 1280x704). `causal3d_chunk_frames`
+  prices a chunk of k latent frames at k spikes, which is pessimistic; it is left as it is.
+- The allocated cost per latent pixel is the same for every window from 576 to 3,520 latent pixels.
+  The reserved peak adds about 0.4 GB with expandable segments (the default under Linux and WSL 2)
+  and up to 40 % with the default allocator (Windows native).
+
+The declared 2.6 is the worst allocated cost of the later frames (2.53 MB, whole clip on the device)
+rounded up to the tenth. With the 2 GB base it also covers every reserved peak of the table, under
+both allocators; `test_tiling.py` pins the measurements against it. For a 121-frame 5B clip, a
+832x480 frame decodes whole, one latent frame at a time, from 7.95 GB free (a 12 GB card has about
+9.4 GB free with the VAE on it) and in 24-px tiles below; a 1280x704 frame decodes in 40-px tiles
+with 9.4 GB free, in 32-px tiles with 5.5 GB, and whole from 14.6 GB free.
+
+Measured the same way, the Wan 2.1 VAE (bf16) costs 0.64 MB per latent pixel allocated and 0.76
+reserved for its later frames, under its 1.2 constant. The Qwen-Image 2.1 VAE (bf16, one image
+frame) costs 1.43 MB allocated and 1.51 reserved at 1024x1024 and 1536x1024, more than the
+1.2 MB per latent pixel at which the image engine's own causal-3D decode (`engine.py`) still prices
+every causal VAE: its 2 GB base covers the difference up to about 1536x1024, not beyond.
 
 The tiles of a Wan decode are assembled on the host. The accumulator is float16 and the blend
 weight a single `(H, W)` plane, normalised in place, so the assembly holds one half-precision copy
