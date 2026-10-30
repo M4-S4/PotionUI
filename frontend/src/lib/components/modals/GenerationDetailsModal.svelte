@@ -77,9 +77,9 @@
 			.then((map) => (presetNamesCache = map))
 			.catch((err) => logger.error('Failed to load preset names:', err));
 	});
-	function resolvePresetName(id: string): string | null {
-		return presetNamesCache[id] ?? null;
-	}
+	$: presetLabel = activeGeneration
+		? resolveReusePresetLabel(activeGeneration, (id) => presetNamesCache[id] ?? null)
+		: '';
 
 	$: canNavigate = typeof onNavigate === 'function';
 	let navigating = false;
@@ -896,8 +896,8 @@
 								<div class="flex items-center justify-between px-3 py-2">
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Preset</span>
 									<div class="flex items-center gap-1">
-										<Tooltip text={resolveReusePresetLabel(activeGeneration, resolvePresetName)} wrapperClass="min-w-0">
-										<span class="font-mono text-xs text-fg truncate max-w-[220px] block">{resolveReusePresetLabel(activeGeneration, resolvePresetName)}</span>
+										<Tooltip text={presetLabel} wrapperClass="min-w-0">
+										<span class="font-mono text-xs text-fg truncate max-w-[220px] block">{presetLabel}</span>
 									</Tooltip>
 										<CopyButton
 											text={activeGeneration.preset_id ?? ''}
