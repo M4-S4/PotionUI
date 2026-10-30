@@ -238,19 +238,23 @@ def listed(path, width, height, duration, fps, audio):
     )
 
 
+def native(path):
+    return str(Path(path))
+
+
 PLAIN_ARGS = [
-    "-i", "/c/a.mp4", "-i", "/c/w.mp4", "-filter_complex",
+    "-i", native("/c/a.mp4"), "-i", native("/c/w.mp4"), "-filter_complex",
     "[0:v]scale=64:48:force_original_aspect_ratio=decrease,pad=64:48:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=10,format=yuv420p[v0];"
     "[0:a]aresample=48000,aformat=channel_layouts=stereo[a0];"
     "[1:v]scale=64:48:force_original_aspect_ratio=decrease,pad=64:48:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=10,format=yuv420p[v1];"
     "[1:a]aresample=48000,aformat=channel_layouts=stereo[a1];"
     "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]",
     "-map", "[v]", "-map", "[a]", "-c:a", "aac", "-b:a", "192k",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "/c/out.mp4",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", native("/c/out.mp4"),
 ]
 
 COVER_SILENT_ARGS = [
-    "-i", "/c/w.mp4", "-i", "/c/a.mp4", "-i", "/c/m.mp4", "-f", "lavfi", "-t", "1.000", "-i", "anullsrc=r=48000:cl=stereo",
+    "-i", native("/c/w.mp4"), "-i", native("/c/a.mp4"), "-i", native("/c/m.mp4"), "-f", "lavfi", "-t", "1.000", "-i", "anullsrc=r=48000:cl=stereo",
     "-filter_complex",
     "[0:v]scale=96:64:force_original_aspect_ratio=increase,crop=96:64,setsar=1,fps=10,format=yuv420p[v0];"
     "[0:a]aresample=48000,aformat=channel_layouts=stereo[a0];"
@@ -260,7 +264,7 @@ COVER_SILENT_ARGS = [
     "[3:a]aresample=48000,aformat=channel_layouts=stereo[a2];"
     "[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[v][a]",
     "-map", "[v]", "-map", "[a]", "-c:a", "aac", "-b:a", "192k",
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "/c/out.mp4",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart", native("/c/out.mp4"),
 ]
 
 FADE_GRAPH_TAIL = (

@@ -342,7 +342,7 @@ def tools(seed, plans, tmp_path):
 
 
 def stored_files(driver):
-    return sorted(str(p.relative_to(driver.base_dir)) for p in driver.base_dir.rglob("*") if p.is_file())
+    return sorted(p.relative_to(driver.base_dir).as_posix() for p in driver.base_dir.rglob("*") if p.is_file())
 
 
 def upload_rows(seed):

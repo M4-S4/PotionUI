@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-import signal
 import threading
 import time
 from pathlib import Path
 
+import psutil
 import pytest
 
 from src.platform.media_tools import (
@@ -26,8 +26,8 @@ def no_leaked_ffmpeg(tmp_path):
     yield
     for pid in processes_writing(tmp_path):
         try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
+            psutil.Process(pid).kill()
+        except psutil.Error:
             pass
 
 
@@ -40,15 +40,10 @@ def long_encode(out: Path) -> list[str]:
 
 def processes_writing(path: Path) -> list[int]:
     found = []
-    for entry in os.listdir("/proc"):
-        if not entry.isdigit():
-            continue
-        try:
-            cmdline = Path(f"/proc/{entry}/cmdline").read_bytes().decode(errors="replace")
-        except OSError:
-            continue
-        if str(path) in cmdline and int(entry) != os.getpid():
-            found.append(int(entry))
+    for process in psutil.process_iter(["pid", "cmdline"]):
+        cmdline = " ".join(process.info["cmdline"] or [])
+        if str(path) in cmdline and process.info["pid"] != os.getpid():
+            found.append(process.info["pid"])
     return found
 
 
