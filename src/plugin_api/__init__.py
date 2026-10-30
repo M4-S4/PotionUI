@@ -14,7 +14,7 @@ The capability modules (`src.plugin_api.automation`, `.backends`, `.chat`,
 `.cloud`, `.cloud_testing`, `.compute`, `.downloads`, `.filters`, `.generation`,
 `.groups`, `.hooks`, `.identity`, `.limits`, `.llm`, `.media`, `.models`, `.native`,
 `.notifications`, `.organize`, `.phrasebook`, `.pipes`, `.presets`, `.prompts`,
-`.providers`, `.recipes`, `.sampling`, `.setup`, `.storage`) group the same
+`.providers`, `.recipes`, `.sampling`, `.setup`, `.storage`, `.testing`) group the same
 names, and each one's docstring explains what it is for. Import from whichever
 reads better. A few specialised names live only in their module, the cloud
 provider kit among them; `__all__` below is the exact list available here.
@@ -196,6 +196,8 @@ from src.plugin_api.storage import (
     generate_ulid,
     plugin_settings,
 )
+
+from src.plugin_api.testing import scratch_database, use_database
 
 # Contributing an automation node.
 from src.plugin_api.automation import (
@@ -516,6 +518,8 @@ __all__ = [
     "db",
     "generate_ulid",
     "plugin_settings",
+    "scratch_database",
+    "use_database",
     # Automation nodes
     "NodeExecutionContext",
     "NodeField",
