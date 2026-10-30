@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -26,13 +25,20 @@ from src.platform.runtime.native.memory.residency import (
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import denormalize_h3_latent, normalize_h3_latent
+from src.platform.runtime.native.vae.minimax_h3_video import video_latent_frame_count
 from src.pipelines.pipes._shared.video.frames import load_video_frames
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import resolve_canvas_size
 from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import (
+    UPSAMPLE_CHUNK,
+    UPSAMPLE_CONTEXT,
     pad_frames_to_h3_grid,
     resolve_target_geometry,
     upsample_chunked,
+)
+from src.pipelines.pipes._shared.vae.minimax_h3_encode import (
+    encode_activation_gb,
+    encode_compute_dtype,
 )
 from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
@@ -40,18 +46,7 @@ logger = logging.getLogger(__name__)
 
 _PIXEL_MEAN = (0.485, 0.456, 0.406)
 _PIXEL_STD = (0.229, 0.224, 0.225)
-
-
-def _encode_dtype(vae_module: Any) -> torch.dtype:
-    """The float dtype to hand `encode` its pixels in -- a quantised repack
-    may store some parameters as integer codes, which are not a valid
-    activation dtype, so the choice must come from a parameter actually
-    stored in floating point. Same idiom as
-    `generator/video_minimax_h3/conditioning.py`'s own `_encode_dtype`."""
-    for parameter in vae_module.parameters():
-        if parameter.is_floating_point():
-            return parameter.dtype
-    return torch.float32
+_UPSAMPLE_LIVE_TENSORS = 6
 
 
 def _resize_cover_center_crop_01(frames: torch.Tensor, height: int, width: int) -> torch.Tensor:
@@ -69,15 +64,34 @@ def _unload_idle_te(bundle: Any, models: Any) -> float:
     return release_idle_te(bundle, models, "H3_UPSCALE")
 
 
-def _free_room_for_upscale(bundle: Any, device: str, models: Any = None) -> None:
-    """Evict every foreign GPU-resident component before this pipe's own
-    VAE-encode/upsampler-forward GPU work, plus fully unload the idle TE's
-    host RAM -- see the module docstring. A resident DiT is only evicted
-    when the upsampler would not otherwise fit beside it (same fit rule as
-    ``generator/video_minimax_h3``'s ``_place_vae``) -- unlike
-    ``latent_upscaler/ltx``'s own ``_free_room_for_upscale``, which always
-    evicts a resident DiT unconditionally.
-    """
+def _upsample_activation_gb(upsampler: Any, latent_frames: int, latent_height: int, latent_width: int) -> float:
+    channels = getattr(upsampler.module, "channels", None)
+    if not channels:
+        return 0.0
+    frames = min(latent_frames, UPSAMPLE_CHUNK + 2 * UPSAMPLE_CONTEXT)
+    element = torch.empty((), dtype=getattr(upsampler, "compute_dtype", torch.float32)).element_size()
+    voxels = frames * latent_height * latent_width
+    return voxels * channels * element * _UPSAMPLE_LIVE_TENSORS / (1 << 30)
+
+
+def _upscale_need_gb(
+    bundle: Any, geometry: Any, latent_frames: int, encode_canvas: Optional[Tuple[int, int]],
+) -> float:
+    upsampler = bundle.upsampler
+    need = (getattr(upsampler, "estimated_vram_gb", None) or 0.0) + _upsample_activation_gb(
+        upsampler, latent_frames, geometry.latent_height, geometry.latent_width,
+    )
+    if encode_canvas is not None:
+        vae = bundle.video_vae
+        height, width = encode_canvas
+        encode = (getattr(vae, "estimated_vram_gb", None) or 0.0) + encode_activation_gb(
+            vae.module, height, width, encode_compute_dtype(vae.module),
+        )
+        need = max(need, encode)
+    return need
+
+
+def _free_room_for_upscale(bundle: Any, device: str, models: Any = None, need_gb: Optional[float] = None) -> None:
     te_unloaded_gb = _unload_idle_te(bundle, models)
     get_profiler().census_now("h3_upscale.te_evicted")
     empty_pinned_host_cache()
@@ -89,17 +103,18 @@ def _free_room_for_upscale(bundle: Any, device: str, models: Any = None) -> None
             te_unloaded_gb=round(te_unloaded_gb, 2), pinned_emptied=pinned_emptied,
         )
         return
+    if need_gb is None:
+        need_gb = getattr(bundle.upsampler, "estimated_vram_gb", None) or 0.0
+    need_gb += minimum_inference_memory_gb()
     alloc0 = torch.cuda.memory_allocated(device) / (1 << 30) if torch.cuda.is_available() else 0.0
     dit = getattr(bundle, "dit", None)
     dit_dev = str(getattr(dit, "device", "<no dit>"))
     dit_was_resident = dit is not None and dit_dev.startswith("cuda")
     dit_offloaded = False
-    if dit_was_resident:
-        free_gb = effective_free_vram_gb(device)
-        need_gb = (getattr(bundle.upsampler, "estimated_vram_gb", None) or 0.0) + minimum_inference_memory_gb()
-        if free_gb is None or free_gb < need_gb:
-            dit.offload()
-            dit_offloaded = True
+    free_gb = effective_free_vram_gb(device)
+    if dit_was_resident and (free_gb is None or free_gb < need_gb):
+        dit.offload()
+        dit_offloaded = True
     own_models = tuple(
         m for m in (
             getattr(bundle, "video_vae", None),
@@ -111,12 +126,15 @@ def _free_room_for_upscale(bundle: Any, device: str, models: Any = None) -> None
     get_residency_registry().offload_all(device, exclude=own_models)
     clear_gpu_memory()
     alloc1 = torch.cuda.memory_allocated(device) / (1 << 30) if torch.cuda.is_available() else 0.0
-    logger.debug(
-        "[H3_UPSCALE] eviction pass: dit.device=%s, dit_offloaded=%s, allocated %.2fGB -> %.2fGB, te_unloaded_gb=%.2f",
-        dit_dev, dit_offloaded, alloc0, alloc1, te_unloaded_gb,
+    logger.info(
+        "[H3_UPSCALE] eviction pass: dit.device=%s, dit_offloaded=%s, need_gb=%.2f, free_gb=%s, "
+        "allocated %.2fGB -> %.2fGB, te_unloaded_gb=%.2f",
+        dit_dev, dit_offloaded, need_gb, "n/a" if free_gb is None else f"{free_gb:.2f}", alloc0, alloc1,
+        te_unloaded_gb,
     )
     get_profiler().mark(
         "h3_upscale.free_room", device=str(device), dit_was_resident=dit_was_resident, dit_offloaded=dit_offloaded,
+        need_gb=round(need_gb, 2), free_gb=None if free_gb is None else round(free_gb, 2),
         alloc_before_gb=round(alloc0, 2), alloc_after_gb=round(alloc1, 2),
         te_unloaded_gb=round(te_unloaded_gb, 2), pinned_emptied=pinned_emptied,
     )
@@ -181,19 +199,18 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
         device = self.config.get("device", "cuda")
         models = pipe_input.input.get("MODELS")
 
-        _free_room_for_upscale(bundle, device, models)
-
         latent = pipe_input.input.get("latent")
         source_frame_count: Optional[int] = None
+        pixels: Optional[torch.Tensor] = None
         if latent is None:
             videos = pipe_input.input.get("video") or []
             if not videos:
                 raise ValueError("latent_upscaler/minimax_h3 requires either a 'latent' or a 'video' input")
-            generation_outputs(ProgressGenerationOutput(
-                state="Encoding source video", icon=Icon(name="film", effect="pulse")))
-            latent, source_frame_count, source_height, source_width = self._encode_video(bundle, videos[0], device)
+            pixels, source_frame_count = self._prepare_pixels(videos[0])
+            source_height, source_width = int(pixels.shape[-2]), int(pixels.shape[-1])
+            latent_frames = video_latent_frame_count(int(pixels.shape[2]))
         else:
-            _, _, _, lat_h, lat_w = latent.shape
+            _, _, latent_frames, lat_h, lat_w = latent.shape
             source_height, source_width = lat_h * 16, lat_w * 16
 
         target_mode = str(self.config.get("target_mode", "megapixels"))
@@ -202,61 +219,55 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
             megapixels=float(self.config.get("megapixels", 2.1)), scale=float(self.config.get("scale", 2.0)),
         )
 
+        encode_canvas = (source_height, source_width) if pixels is not None else None
+        _free_room_for_upscale(
+            bundle, device, models, need_gb=_upscale_need_gb(bundle, geometry, int(latent_frames), encode_canvas),
+        )
+
+        if pixels is not None:
+            generation_outputs(ProgressGenerationOutput(
+                state="Encoding source video", icon=Icon(name="film", effect="pulse")))
+            latent = self._encode_pixels(bundle, pixels, device)
+            del pixels
+
         generation_outputs(ProgressGenerationOutput(
             state="Upsampling latent", icon=Icon(name="bolt", effect="pulse")))
         upsampled = self._upsample(upsampler, latent, geometry, device)
         return PipeOutput(output={"latent": upsampled, "source_frame_count": source_frame_count})
 
-    def _encode_video(self, bundle: Any, video_path: str, device: str) -> Tuple[torch.Tensor, int, int, int]:
-        """Standalone-mode entry: read an existing video file, put it on the
-        SAME encode canvas MiniMax-H3 generation itself resolves to for that
-        aspect ratio (``resolve_canvas_size``), pad its frame count UP to the
-        video VAE's ``17*n+5`` lattice, and VAE-encode it to a raw latent --
-        ready for :meth:`_upsample`.
-
-        Returns ``(latent, n0, height, width)`` -- ``n0`` is the frame count
-        BEFORE temporal padding (surfaced via this pipe's own
-        ``source_frame_count`` output); ``height``/``width`` are the encode
-        canvas in pixels, the ``resolve_target_geometry`` source size.
-        """
+    def _prepare_pixels(self, video_path: str) -> Tuple[torch.Tensor, int]:
         max_frames = int(self.config.get("max_frames", 601))
         frames = load_video_frames(video_path, max_frames)
         h0, w0 = int(frames.shape[1]), int(frames.shape[2])
         height, width = resolve_canvas_size(w0, h0)
 
-        frames = frames.to(device=device)
         frames, n0 = pad_frames_to_h3_grid(frames)
         pixels01 = _resize_cover_center_crop_01(frames, height, width)
         del frames
 
-        pixel_mean = torch.tensor(_PIXEL_MEAN, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
-        pixel_std = torch.tensor(_PIXEL_STD, device=device, dtype=torch.float32).view(1, -1, 1, 1, 1)
-        pixels = (pixels01 - pixel_mean) / pixel_std
-        del pixels01
+        pixel_mean = torch.tensor(_PIXEL_MEAN, dtype=torch.float32).view(1, -1, 1, 1, 1)
+        pixel_std = torch.tensor(_PIXEL_STD, dtype=torch.float32).view(1, -1, 1, 1, 1)
+        return (pixels01 - pixel_mean) / pixel_std, n0
 
-        bundle.video_vae.move_to(device)
+    @staticmethod
+    def _encode_pixels(bundle: Any, pixels: torch.Tensor, device: str) -> torch.Tensor:
+        vae = bundle.video_vae
+        vae.move_to(device)
         try:
-            pixels = pixels.to(dtype=_encode_dtype(bundle.video_vae.module))
+            pixels = pixels.to(dtype=encode_compute_dtype(vae.module))
             try:
                 with torch.no_grad():
-                    latent = bundle.video_vae.module.encode(pixels)
+                    return vae.module.encode(pixels)
             except torch.cuda.OutOfMemoryError as exc:
                 raise torch.cuda.OutOfMemoryError(
                     "latent_upscaler/minimax_h3: VAE encode ran out of VRAM -- the H3 video VAE has no tiled "
                     "encode fallback yet, so try a shorter source clip or free VRAM first"
                 ) from exc
         finally:
-            bundle.video_vae.offload()
-            del pixels
-        return latent, n0, height, width
+            vae.offload()
 
     @staticmethod
     def _upsample(upsampler: Any, latent: torch.Tensor, geometry: Any, device: str) -> torch.Tensor:
-        """Run ``upsampler`` over ``latent`` inside the arch's fixed
-        normalization sandwich, chunked over the temporal axis (module
-        docstring). Moved onto ``device`` for the call and offloaded again on
-        the way out, including on an exception.
-        """
         upsampler.move_to(device)
         try:
             with torch.no_grad():
@@ -265,6 +276,7 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
                 z = upsample_chunked(
                     upsampler.module, z, geometry.effective_scale,
                     (geometry.latent_height, geometry.latent_width),
+                    chunk=UPSAMPLE_CHUNK, overlap=UPSAMPLE_CONTEXT,
                 )
                 z = denormalize_h3_latent(z)
         finally:

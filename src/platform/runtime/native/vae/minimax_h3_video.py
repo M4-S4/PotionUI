@@ -806,15 +806,19 @@ class MiniMaxH3VideoVAE(NativeArchModule):
         encodes elsewhere in this family expect a 1:1 frame:latent-frame
         contract, matching diffusers' documented behavior)."""
         clip_length = self.clip_length
+        device = self.encoder.conv_in.weight.device
         num_frames = x.shape[2]
         if num_frames == 1:
-            return self._encode_clip(x)
+            return self._encode_clip(x.to(device))
         if num_frames % clip_length != 0:
             pad_frames = x[:, :, -1:].repeat(1, 1, (-num_frames) % clip_length, 1, 1)
             x = torch.cat([x, pad_frames], dim=2)
 
         moments = torch.cat(
-            [self._encode_clip(x[:, :, i * clip_length : (i + 1) * clip_length]) for i in range(x.shape[2] // clip_length)],
+            [
+                self._encode_clip(x[:, :, i * clip_length : (i + 1) * clip_length].to(device))
+                for i in range(x.shape[2] // clip_length)
+            ],
             dim=2,
         )
         if self.token_drop > 0:

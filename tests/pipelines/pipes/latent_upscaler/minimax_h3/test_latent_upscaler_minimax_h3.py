@@ -9,9 +9,11 @@ import pytest
 import torch
 
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import resolve_target_geometry
 from src.pipelines.pipes.latent_upscaler.minimax_h3.main import (
     LatentUpscalerMinimaxH3Pipe,
     _free_room_for_upscale,
+    _upscale_need_gb,
 )
 
 _MOD = "src.pipelines.pipes.latent_upscaler.minimax_h3.main"
@@ -53,12 +55,23 @@ class _UpsamplerModule:
         return torch.zeros(b, c, target_t, target_h, target_w)
 
 
+class _VaeModule:
+    def __init__(self):
+        self.encoder = torch.nn.Module()
+        self.encoder.conv_in = torch.nn.Conv3d(3, 128, 1)
+        self.clip_length = 17
+        self.use_tiling = True
+        self.tile_sample_min_height = 256
+        self.tile_sample_min_width = 256
+        self.encoded = []
+
+    def encode(self, pixels):
+        self.encoded.append(pixels)
+        return torch.zeros(1, 24, 3, 4, 4)
+
+
 def _bundle(with_upsampler=True, dit=None):
-    video_vae_module = SimpleNamespace(
-        encode=lambda pixels: torch.zeros(1, 24, 3, 4, 4),
-        parameters=lambda: iter([torch.zeros(1)]),
-    )
-    video_vae = _RecordingComponent(video_vae_module)
+    video_vae = _RecordingComponent(_VaeModule())
     upsampler = _RecordingComponent(_UpsamplerModule()) if with_upsampler else None
     return SimpleNamespace(video_vae=video_vae, upsampler=upsampler, audio_vae=None, dit=dit)
 
@@ -269,4 +282,84 @@ def test_process_calls_free_room_for_upscale_exactly_once():
     with patch(f"{_MOD}._free_room_for_upscale") as mock_free:
         _pipe(device="cpu", target_mode="scale", scale=2.0).process(
             PipeInput(input={"model": bundle, "latent": latent}), lambda o: None)
-    mock_free.assert_called_once_with(bundle, "cpu", None)
+    mock_free.assert_called_once()
+    assert mock_free.call_args.args == (bundle, "cpu", None)
+
+
+def _marks(mock_profiler):
+    return {c.args[0]: c.kwargs for c in mock_profiler.return_value.mark.call_args_list}
+
+
+def test_upscale_need_counts_the_video_encode_only_on_the_video_path():
+    bundle = _bundle()
+    bundle.upsampler.estimated_vram_gb = 0.64
+    bundle.video_vae.estimated_vram_gb = 2.95
+    geometry = resolve_target_geometry(1344, 768, mode="megapixels", megapixels=2.1)
+
+    latent_only = _upscale_need_gb(bundle, geometry, 32, None)
+    with_encode = _upscale_need_gb(bundle, geometry, 32, (1344, 768))
+
+    assert latent_only < 2.95
+    assert with_encode > 2.95 + 1.0
+    assert with_encode > latent_only
+
+
+def test_free_room_offloads_a_resident_dit_when_the_encode_need_exceeds_free_vram():
+    dit = _RecordingComponent(SimpleNamespace(), device="cuda")
+    bundle = _bundle(dit=dit)
+    bundle.upsampler.estimated_vram_gb = 0.64
+    bundle.video_vae.estimated_vram_gb = 2.95
+    geometry = resolve_target_geometry(1344, 768, mode="megapixels", megapixels=2.1)
+    need_gb = _upscale_need_gb(bundle, geometry, 32, (1344, 768))
+    registry = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=registry), \
+         patch(f"{_MOD}.effective_free_vram_gb", return_value=need_gb - 0.5), \
+         patch(f"{_MOD}.minimum_inference_memory_gb", return_value=0.0), \
+         patch(f"{_MOD}.get_profiler") as mock_profiler, \
+         patch(f"{_MOD}.clear_gpu_memory"):
+        _free_room_for_upscale(bundle, "cuda", need_gb=need_gb)
+    assert dit.offloaded == 1
+    assert registry.offload_all_calls == [("cuda", (bundle.video_vae, bundle.upsampler))]
+    mark = _marks(mock_profiler)["h3_upscale.free_room"]
+    assert mark["dit_was_resident"] is True
+    assert mark["dit_offloaded"] is True
+
+
+def test_free_room_keeps_a_resident_dit_when_the_encode_need_fits_beside_it():
+    dit = _RecordingComponent(SimpleNamespace(), device="cuda")
+    bundle = _bundle(dit=dit)
+    registry = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=registry), \
+         patch(f"{_MOD}.effective_free_vram_gb", return_value=9.0), \
+         patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+         patch(f"{_MOD}.clear_gpu_memory"):
+        _free_room_for_upscale(bundle, "cuda", need_gb=7.9)
+    assert dit.offloaded == 0
+
+
+def test_process_on_the_video_path_offloads_a_resident_dit_the_encode_would_not_fit_beside():
+    dit = _RecordingComponent(SimpleNamespace(), device="cuda")
+    bundle = _bundle(dit=dit)
+    bundle.upsampler.estimated_vram_gb = 0.64
+    bundle.video_vae.estimated_vram_gb = 2.95
+    frames = torch.rand(5, 32, 32, 3)
+    with patch(f"{_MOD}.load_video_frames", return_value=frames), \
+         patch(f"{_MOD}.get_residency_registry", return_value=_FakeResidencyRegistry()), \
+         patch(f"{_MOD}.effective_free_vram_gb", return_value=4.0), \
+         patch(f"{_MOD}.clear_gpu_memory"), \
+         patch.object(LatentUpscalerMinimaxH3Pipe, "_upsample", return_value=torch.zeros(1, 24, 3, 8, 8)):
+        _pipe(device="cuda", target_mode="scale", scale=2.0).process(
+            PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    assert dit.offloaded == 1
+
+
+def test_video_path_keeps_the_pixel_clip_off_the_device_until_the_vae_streams_it():
+    bundle = _bundle()
+    frames = torch.rand(5, 32, 32, 3)
+    with patch(f"{_MOD}.load_video_frames", return_value=frames):
+        _pipe(device="cpu", target_mode="scale", scale=2.0).process(
+            PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    (pixels,) = bundle.video_vae.module.encoded
+    assert pixels.device.type == "cpu"
+    assert pixels.dtype == torch.float32
+    assert pixels.shape[:3] == (1, 3, 5)

@@ -39,6 +39,8 @@ import torch
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames
 
 _MEGAPIXEL_AREA = 1_000_000.0
+UPSAMPLE_CHUNK = 32
+UPSAMPLE_CONTEXT = 5
 
 
 def _round_to_multiple(value: float, multiple: int) -> int:
@@ -110,7 +112,7 @@ def pad_frames_to_h3_grid(frames: torch.Tensor) -> Tuple[torch.Tensor, int]:
 
 def upsample_chunked(
     module: Any, latent: torch.Tensor, scale: float, target_hw: Tuple[int, int],
-    *, chunk: int = 32, overlap: int = 5,
+    *, chunk: int = UPSAMPLE_CHUNK, overlap: int = UPSAMPLE_CONTEXT,
 ) -> torch.Tensor:
     if chunk <= overlap:
         raise ValueError(f"chunk ({chunk}) must be greater than overlap ({overlap})")
