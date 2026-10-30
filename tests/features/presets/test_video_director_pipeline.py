@@ -913,10 +913,10 @@ def test_ltx_frames_computed_from_duration_and_fps(ltx_template):
     assert video_ltx["config"]["fps"] == 25
 
 
-def test_ltx_sampler_defaults_to_euler(ltx_template):
+def test_ltx_sampler_defaults_to_the_distilled_profile_sampler(ltx_template):
     pipes = _process_ltx(ltx_template, DOC_DIRECTOR_LTX)
     video_ltx = _pipe(pipes, "generator/video_ltx")
-    assert video_ltx["config"]["sampler"] == "euler"
+    assert video_ltx["config"]["sampler"] == "euler_cfg_pp"
 
 
 def test_ltx_sampler_follows_form_choice(ltx_template):
@@ -938,8 +938,14 @@ def test_ltx_manual_sigmas_follows_form_value(ltx_template):
     assert video_ltx["config"]["manual_sigmas"] == recipe
 
 
-def test_ltx_manual_sigmas_defaults_empty(ltx_template):
+def test_ltx_manual_sigmas_defaults_to_the_distilled_recipe(ltx_template):
     pipes = _process_ltx(ltx_template, DOC_DIRECTOR_LTX)
+    video_ltx = _pipe(pipes, "generator/video_ltx")
+    assert video_ltx["config"]["manual_sigmas"] == "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+
+
+def test_ltx_quality_profile_clears_the_manual_sigmas(ltx_template):
+    pipes = _process_ltx(ltx_template, DOC_DIRECTOR_LTX, form_over={"speed_profile": "quality"})
     video_ltx = _pipe(pipes, "generator/video_ltx")
     assert video_ltx["config"]["manual_sigmas"] == ""
 
