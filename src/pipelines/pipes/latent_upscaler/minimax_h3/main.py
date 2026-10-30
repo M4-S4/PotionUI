@@ -28,11 +28,10 @@ from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import denormal
 from src.platform.runtime.native.vae.minimax_h3_video import VaeCannotEncodeError, video_latent_frame_count
 from src.pipelines.pipes._shared.video.frames import load_video_frames
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
-from src.pipelines.pipes.generator.video_minimax_h3.geometry import resolve_canvas_size
+from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames, resolve_canvas_size
 from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import (
     UPSAMPLE_CHUNK,
     UPSAMPLE_CONTEXT,
-    pad_frames_to_h3_grid,
     resolve_target_geometry,
     upsample_chunked,
 )
@@ -49,6 +48,7 @@ logger = logging.getLogger(__name__)
 _PIXEL_MEAN = (0.485, 0.456, 0.406)
 _PIXEL_STD = (0.229, 0.224, 0.225)
 _UPSAMPLE_LIVE_TENSORS = 6
+_PREP_FRAMES_PER_BATCH = 32
 UPSCALE_NEEDS_ENCODER_MESSAGE = "This VAE can only decode; pick the standard MiniMax-H3 video VAE for Upscale"
 
 
@@ -195,7 +195,7 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
             PipeOutputSpec("latent", IOType.LATENT, "Upsampled latent", is_array=False),
             PipeOutputSpec("source_frame_count", IOType.INT,
                            "Original (pre-temporal-padding) frame count of the 'video' input, before "
-                           "pad_frames_to_h3_grid repeated its last frame up to the video VAE's 17*n+5 lattice "
+                           "the pipe repeated its last frame up to the video VAE's 17*n+5 lattice "
                            "-- lets a downstream refine trim that padding back out of its own decoded output "
                            "before mux. None on the 'latent'-input path (in-flow two-stage: no video was "
                            "decoded here, so no padding was ever added)", is_array=False),
@@ -260,16 +260,21 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
     def _prepare_pixels(self, video_path: str) -> Tuple[torch.Tensor, int]:
         max_frames = int(self.config.get("max_frames", 601))
         frames = load_video_frames(video_path, max_frames)
-        h0, w0 = int(frames.shape[1]), int(frames.shape[2])
+        n0, h0, w0 = int(frames.shape[0]), int(frames.shape[1]), int(frames.shape[2])
         height, width = resolve_canvas_size(w0, h0)
+        total = align_num_frames(n0)
 
-        frames, n0 = pad_frames_to_h3_grid(frames)
-        pixels01 = _resize_cover_center_crop_01(frames, height, width)
+        pixels = torch.empty(1, 3, total, height, width, dtype=torch.float32)
+        for start in range(0, n0, _PREP_FRAMES_PER_BATCH):
+            batch = frames[start:start + _PREP_FRAMES_PER_BATCH]
+            pixels[0, :, start:start + batch.shape[0]] = _resize_cover_center_crop_01(batch, height, width)[0]
         del frames
+        if total > n0:
+            pixels[:, :, n0:] = pixels[:, :, n0 - 1:n0]
 
-        pixel_mean = torch.tensor(_PIXEL_MEAN, dtype=torch.float32).view(1, -1, 1, 1, 1)
-        pixel_std = torch.tensor(_PIXEL_STD, dtype=torch.float32).view(1, -1, 1, 1, 1)
-        return (pixels01 - pixel_mean) / pixel_std, n0
+        pixels.sub_(torch.tensor(_PIXEL_MEAN, dtype=torch.float32).view(1, -1, 1, 1, 1))
+        pixels.div_(torch.tensor(_PIXEL_STD, dtype=torch.float32).view(1, -1, 1, 1, 1))
+        return pixels, n0
 
     @staticmethod
     def _encode_pixels(bundle: Any, pixels: torch.Tensor, device: str) -> torch.Tensor:

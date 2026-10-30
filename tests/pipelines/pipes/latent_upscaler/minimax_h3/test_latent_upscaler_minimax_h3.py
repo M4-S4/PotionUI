@@ -13,6 +13,7 @@ from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import resolve_targ
 from src.pipelines.pipes.latent_upscaler.minimax_h3.main import (
     LatentUpscalerMinimaxH3Pipe,
     _free_room_for_upscale,
+    _resize_cover_center_crop_01,
     _upscale_need_gb,
 )
 
@@ -393,3 +394,19 @@ def test_video_path_keeps_the_pixel_clip_off_the_device_until_the_vae_streams_it
     assert pixels.device.type == "cpu"
     assert pixels.dtype == torch.float32
     assert pixels.shape[:3] == (1, 3, 5)
+
+
+def test_prepared_pixels_match_a_one_shot_resize_and_repeat_the_last_frame_up_to_the_17n5_grid():
+    torch.manual_seed(4)
+    frames = torch.rand(40, 24, 16, 3)
+    with patch(f"{_MOD}.load_video_frames", return_value=frames), \
+         patch(f"{_MOD}.resolve_canvas_size", return_value=(36, 20)):
+        pixels, n0 = _pipe(device="cpu")._prepare_pixels("clip.mp4")
+
+    assert n0 == 40
+    assert pixels.shape == (1, 3, 56, 36, 20)
+    padded = torch.cat([frames, frames[-1:].expand(16, 24, 16, 3)], dim=0)
+    expected = _resize_cover_center_crop_01(padded, 36, 20)
+    mean = torch.tensor((0.485, 0.456, 0.406)).view(1, -1, 1, 1, 1)
+    std = torch.tensor((0.229, 0.224, 0.225)).view(1, -1, 1, 1, 1)
+    assert torch.allclose(pixels, (expected - mean) / std, atol=1e-5)
