@@ -150,17 +150,30 @@ def test_mode_labels_route_serves_the_map_ahead_of_preset_ids():
     ("txt2vid", "video"),
     ("img2video", "video"),
     ("inpaint", "brush"),
-    ("upscale", "expand"),
+    ("upscale", "mode-upscale"),
     ("edit", "pencil"),
-    ("combine", "layers"),
-    ("text", "pencil"),
-    ("restyle", "palette"),
-    ("control", "sliders"),
+    ("combine", "mode-combine"),
+    ("text", "mode-text"),
+    ("restyle", "mode-restyle"),
+    ("control", "mode-control"),
     ("txt2music", "audio"),
     ("img2mesh", "cube"),
 ])
 def test_map_gives_well_known_keys_an_icon(key, icon):
     assert mode_display_icon(key) == icon
+
+
+SHIPPED_PRESETS = ["QwenImage-2.1", "MiniMax-H3", "MiniMax-H3-Fast", "LTX-2.5"]
+
+
+@pytest.mark.parametrize("preset", SHIPPED_PRESETS)
+def test_modes_of_one_shipped_preset_never_share_an_icon(preset):
+    modes_dir = ROOT / "content" / "presets" / "marketplace" / preset / "modes"
+    keys = sorted(path.name for path in modes_dir.iterdir() if path.is_dir())
+    assert len(keys) >= 3
+    icons = [mode_display_icon(key) for key in keys]
+    assert None not in icons
+    assert len(set(icons)) == len(icons)
 
 
 def test_icon_override_beats_the_map_and_unknown_keys_have_none():

@@ -76,7 +76,7 @@ def test_mode_follows_text_is_named_restyle_and_takes_the_standard_prompt(templa
     assert list(template.modes)[:5] == ["txt2img", "edit", "combine", "text", "restyle"]
     naming = read_mode_naming(Path("content/presets/marketplace/QwenImage-2.1/modes/restyle"))
     assert mode_display_name("restyle", naming["mode_label"]) == "Restyle"
-    assert mode_display_icon("restyle") == "palette"
+    assert mode_display_icon("restyle") == "mode-restyle"
     assert all(isinstance(e, dict) and e["mode"] != "restyle" for e in template.vars["promptless_modes"])
     entry = next(e for e in template.vars["optional_prompt_modes"] if isinstance(e, dict) and e["mode"] == "restyle")
     assert entry["when"] == {"field": "restyle_task", "in": ["colourise", "restore"]}

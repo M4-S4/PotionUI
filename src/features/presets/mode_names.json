@@ -69,7 +69,7 @@
   },
   "upscale": {
     "label": "Upscale",
-    "icon": "expand"
+    "icon": "mode-upscale"
   },
   "video_upscale": {
     "label": "Video Upscale",
@@ -81,19 +81,19 @@
   },
   "combine": {
     "label": "Combine images",
-    "icon": "layers"
+    "icon": "mode-combine"
   },
   "text": {
     "label": "Edit text",
-    "icon": "pencil"
+    "icon": "mode-text"
   },
   "restyle": {
     "label": "Restyle",
-    "icon": "palette"
+    "icon": "mode-restyle"
   },
   "control": {
     "label": "Control",
-    "icon": "sliders"
+    "icon": "mode-control"
   },
   "enhance": {
     "label": "Enhance",
@@ -105,7 +105,7 @@
   },
   "refs": {
     "label": "References",
-    "icon": "photo"
+    "icon": "mode-refs"
   },
   "song": {
     "label": "Song",
@@ -157,46 +157,46 @@
   },
   "restore": {
     "label": "Restore",
-    "icon": "wand"
+    "icon": "mode-restore"
   },
   "colorize": {
     "label": "Colorize",
-    "icon": "palette"
+    "icon": "mode-colorize"
   },
   "day_to_night": {
     "label": "Day to Night",
-    "icon": "film"
+    "icon": "mode-day-night"
   },
   "add_water": {
     "label": "Add Water",
-    "icon": "sparkles"
+    "icon": "mode-add-water"
   },
   "remove_object": {
     "label": "Remove Object",
-    "icon": "scissors"
+    "icon": "mode-remove-object"
   },
   "layout_to_render": {
     "label": "Layout to Render",
-    "icon": "cube"
+    "icon": "mode-layout-render"
   },
   "cinemagraph": {
     "label": "Cinemagraph",
-    "icon": "film"
+    "icon": "mode-cinemagraph"
   },
   "extend": {
     "label": "Extend",
-    "icon": "expand"
+    "icon": "mode-extend"
   },
   "refine_faces": {
     "label": "Refine Faces",
-    "icon": "wand"
+    "icon": "mode-refine-faces"
   },
   "remix": {
     "label": "Remix Video",
-    "icon": "sparkles"
+    "icon": "mode-remix"
   },
   "talk": {
     "label": "Talking Video",
-    "icon": "audio"
+    "icon": "mode-talk"
   }
 }
