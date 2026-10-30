@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -187,7 +188,7 @@ def test_dump_writes_source_encoded_and_upscaled_previews_next_to_the_profile(pr
 
     written = dump_upscale_previews(bundle, "cpu", source_frame, encoded, upscaled)
 
-    names = sorted(p.split("/")[-1] for p in written)
+    names = sorted(Path(p).name for p in written)
     assert names == sorted([SOURCE_PREVIEW, ENCODED_PREVIEW, UPSCALED_PREVIEW])
     with Image.open(tmp_path / SOURCE_PREVIEW) as image:
         assert image.size == (12, 20)
