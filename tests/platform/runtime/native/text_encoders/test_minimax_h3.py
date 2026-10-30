@@ -24,6 +24,7 @@ from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.kernels import pick_operations
 from src.platform.runtime.native.text_encoders.loader import _SPECS, _build_config, load_text_encoder
 from src.platform.runtime.native.text_encoders.qwen3 import (
+    MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID,
     MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX,
     MINIMAX_H3_TEXT_TAG,
     MINIMAX_H3_VIDEO_TAG,
@@ -1197,3 +1198,43 @@ def test_vision_embed_cache_evicts_the_lru_entry_once_over_its_byte_limit():
     got_b = cache.get_on_device("b", "cpu")
     assert got_b is not None
     assert torch.equal(got_b[0], merged_b)
+
+
+def test_the_empty_presentation_token_is_qwens_end_of_text_pad():
+    pytest.importorskip("transformers")
+    tok = MiniMaxH3Tokenizer()
+    assert tok("") == []
+    assert tok.convert_tokens_to_ids("<|endoftext|>") == MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID
+
+
+@pytest.mark.parametrize("call", ["encode", "encode_request", "encode_reference_request"])
+def test_an_empty_prompt_presents_one_pad_token_never_a_zero_token_context(call):
+    pytest.importorskip("transformers")
+    m = _tiny_h3_module()
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+
+    if call == "encode":
+        out = enc.encode([""])
+    elif call == "encode_request":
+        out = enc.encode_request("")
+    else:
+        out = enc.encode_reference_request("", [])
+
+    expected = m(
+        torch.tensor([[MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID]]), attention_mask=None,
+        layers_to_extract=(MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX,), capture="output",
+    ).squeeze(1)
+    assert out["context"].shape == (1, 1, _H3_TINY_CFG["hidden_size"])
+    assert torch.allclose(out["context"], expected)
+    if call != "encode":
+        assert torch.equal(out["token_tags"], torch.tensor([MINIMAX_H3_TEXT_TAG]))
+
+
+def test_a_non_empty_prompt_is_still_presented_verbatim():
+    pytest.importorskip("transformers")
+    m = _tiny_h3_module()
+    enc = _SmallEncoder(m, MiniMaxH3Tokenizer(), device="cpu")
+    token_ids = MiniMaxH3Tokenizer()("a cat")
+    out = enc.encode_request("a cat")
+    assert out["context"].shape[1] == len(token_ids)
+    assert MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID not in token_ids

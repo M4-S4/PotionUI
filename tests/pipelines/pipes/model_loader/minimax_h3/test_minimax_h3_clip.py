@@ -93,6 +93,24 @@ def test_t2va_encode_prompt_is_all_text_tagged():
     assert result.n_embeds == {}  # guidance-distilled: never a negative branch
 
 
+@pytest.mark.parametrize("references", [None, []])
+def test_an_empty_prompt_reaches_the_dit_as_one_pad_token_not_a_zero_token_context(references):
+    from src.platform.runtime.native.text_encoders.qwen3 import MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID
+
+    module = _FakeQwen3Module()
+    te = MiniMaxH3TextEncoder(module, MiniMaxH3Tokenizer(), device="cpu")
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    request = {"prompt": "", "negative_prompt": ""}
+    if references is not None:
+        request["references"] = references
+    (result,) = encoder.encode_prompts([request])
+
+    assert result.embeds["context"].shape == (1, 1, _TEXT_HIDDEN)
+    assert torch.equal(result.embeds["token_tags"], torch.ones(1, dtype=torch.long))
+    (input_ids, _), = module.calls
+    assert input_ids.tolist() == [[MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID]]
+
+
 # -- fl2va: label + vision block per keyframe, through the REAL encode_request --
 
 def test_fl2va_single_keyframe_boundary_and_pad_run_length():
