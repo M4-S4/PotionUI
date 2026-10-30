@@ -8,6 +8,7 @@ from PIL import Image
 pytest.importorskip("cv2", reason="cv2 is needed to write and read the tiny test clips", exc_type=ImportError)
 
 from src.features.cloud.testing.fake import fake_video_bytes, image_colour
+from tests.platform.media_tools.media_factory import video_frame_count
 from src.pipelines.cloud import CloudRunArtifact, CloudRunCancelled, CloudRunCost, CloudRunError, CloudRunOutcome, CloudRunProgress
 from src.pipelines.contracts import PipeInput
 from src.pipelines.outputs import (
@@ -160,12 +161,7 @@ def test_each_shot_is_saved_when_it_finishes_and_the_joined_film_comes_out_last(
     galleries = [item for item in emitted if isinstance(item, GalleryGenerationOutput)]
     assert len(galleries) == 2 and all(video.temporary is False for item in galleries for video in item.videos)
     (joined,) = output["video"]
-    import cv2
-
-    capture = cv2.VideoCapture(joined)
-    frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    capture.release()
-    assert frames == 16 + 32
+    assert video_frame_count(Path(joined)) == 16 + 32
     assert output["seed"] == [100]
 
 
