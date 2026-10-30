@@ -1,11 +1,10 @@
 import asyncio
 import json
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from src.features.automation.context import AutomationServices, NodeExecutionContext, RunContext
 from src.features.automation.nodes import register_builtin_nodes
-from src.features.automation.nodes.actions import _media_tool_options
+from src.features.automation.nodes.actions import _media_tool_options, bind_media_tool_registry
 from src.features.automation.routes import AutomationController
 from src.platform.plugins.automation_nodes import NodeTypeRegistry, resolved_config_schema
 from src.platform.security.user import AccountType, User
@@ -68,21 +67,24 @@ class TestSpec(MediaToolNodeCase):
         self.assertIsNone(controller._admin_denial(graph, admin))
 
     def test_the_tool_picker_lists_runnable_catalog_tools_including_plugin_ones(self):
-        container = SimpleNamespace(media_tool_registry=self.registry)
+        bind_media_tool_registry(self.registry)
+        self.addCleanup(bind_media_tool_registry, None)
 
-        with patch("src.platform.plugins.runtime_registries.get_container", return_value=container):
-            values = {option["value"] for option in _media_tool_options()}
-            schema = resolved_config_schema(self.spec)
+        values = {option["value"] for option in _media_tool_options()}
+        schema = resolved_config_schema(self.spec)
 
         self.assertIn("shrink", values)
         self.assertIn("acme.mirror", values)
         self.assertNotIn("acme.panel", values)
         self.assertEqual({o["value"] for o in schema[0]["options"]}, values)
 
-    def test_the_tool_picker_falls_back_to_the_core_tools_before_the_app_is_composed(self):
-        values = {option["value"] for option in _media_tool_options()}
+    def test_an_unbound_picker_fails_loudly_instead_of_listing_core_tools_only(self):
+        bind_media_tool_registry(None)
 
-        self.assertTrue({"trim", "resize", "rotate", "concat"} <= values)
+        with self.assertRaises(RuntimeError) as caught:
+            _media_tool_options()
+
+        self.assertIn("bind_media_tool_registry", str(caught.exception))
 
 
 class TestRun(MediaToolNodeCase):

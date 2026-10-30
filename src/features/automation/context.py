@@ -49,6 +49,7 @@ class AutomationServices:
     # Backs action.add_to_collection.
     model_collection_repository: Optional[Any] = None
     media_tool_service: Optional[Any] = None
+    media_tool_registry: Optional[Any] = None
 
 
 @dataclass

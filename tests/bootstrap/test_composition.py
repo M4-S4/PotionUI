@@ -126,6 +126,12 @@ report = {
             c.automation_controller.manager.engine.services.media_tool_service is c.media_tool_service
         ),
         "the_chat_tool_reads_the_container_catalog": c.tool_registry.get("run_media_tool")._registry is c.media_tool_registry,
+        "automation_services_hold_the_container_catalog": (
+            c.automation_controller.manager.engine.services.media_tool_registry is c.media_tool_registry
+        ),
+        "the_automation_picker_lists_plugin_catalog_tools": any(
+            o["value"] == "trim" for o in __import__("src.features.automation.nodes.actions", fromlist=["x"])._media_tool_options()
+        ),
         "the_service_reads_the_container_catalog": c.media_tool_service.registry is c.media_tool_registry,
         "generation_engines_inject_the_container_catalog_into_pipes": (
             c.backend_registry.generation_engine_factory().media_tools is c.media_tool_registry

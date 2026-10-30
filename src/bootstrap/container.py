@@ -712,6 +712,7 @@ def build_container() -> AppContainer:
     # `automation_nodes:` entries can be registered during
     # `_sync_enabled_plugins` below.
     from src.platform.plugins.automation_nodes import node_type_registry as automation_node_type_registry
+    from src.features.automation.nodes.actions import bind_media_tool_registry
 
     automation_template_registry = AutomationTemplateRegistry()
     register_builtin_templates(automation_template_registry)
@@ -1549,6 +1550,8 @@ def build_container() -> AppContainer:
     )
     media_tool_controller = MediaToolController(media_tool_service)
     automation_services.media_tool_service = media_tool_service
+    automation_services.media_tool_registry = media_tool_registry
+    bind_media_tool_registry(media_tool_registry)
 
     # Library components (uploads as first-class, curatable resources)
 

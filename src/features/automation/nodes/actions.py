@@ -610,22 +610,20 @@ MEDIA_TOOL_DEFAULT_USER = "{{ event.user_id }}"
 MEDIA_TOOL_DEFAULT_TIMEOUT_S = 300
 
 
-def _media_tool_registry():
-    try:
-        from src.platform.plugins.runtime_registries import get_container
-        return get_container().media_tool_registry
-    except Exception:
-        from src.platform.media_tools import MediaToolRegistry
-        from src.platform.media_tools.ops import register_core_tools
-        registry = MediaToolRegistry()
-        register_core_tools(registry)
-        return registry
+_media_tool_catalog: Dict[str, Any] = {"registry": None}
+
+
+def bind_media_tool_registry(registry) -> None:
+    _media_tool_catalog["registry"] = registry
 
 
 def _media_tool_options() -> List[Dict[str, str]]:
+    registry = _media_tool_catalog["registry"]
+    if registry is None:
+        raise RuntimeError("action.media_tool: no media tool registry bound; the composition root must call bind_media_tool_registry")
     return [
         {"value": spec.id, "label": f"{spec.label} ({', '.join(spec.accepts)})"}
-        for spec in _media_tool_registry().list()
+        for spec in registry.list()
         if spec.impl is not None
     ]
 
