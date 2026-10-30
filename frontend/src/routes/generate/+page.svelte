@@ -576,6 +576,7 @@
 	let readiness: ReadinessReport | null = null;
 	let readinessLoading = false;
 	let readinessFetched = false;
+	let presetsSettled = false;
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
 	$: presetsEmptyState = describePresetsEmptyState(readiness, isAdmin);
 	// An admin staring at an empty preset list can install what a recipe brings
@@ -967,6 +968,7 @@
 			isLoading = false;
 		}
 		await loadReadinessIfPresetsEmpty();
+		presetsSettled = true;
 
 		// Restore sessions for tabs that have selectedSessionId
 		await restoreTabSessions();
@@ -1935,7 +1937,9 @@
 					Desktop-only since StudioView replaced the mobile carousel — mobile
 					handles "nothing selected" inline (disabled shutter + reason). -->
 				<div class="w-full max-w-md text-center">
-					{#if presets.length === 0}
+					{#if presets.length === 0 && !presetsSettled}
+						<div class="h-24"></div>
+					{:else if presets.length === 0}
 						<EmptyState
 							icon={presetsEmptyState.showSetupLink ? 'settings' : 'cube'}
 							title={presetsEmptyState.title}
