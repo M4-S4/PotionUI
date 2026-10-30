@@ -21,6 +21,8 @@
 	import LiveModelFileArtifacts from '$lib/components/generation/LiveModelFileArtifacts.svelte';
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
+	import { createImageHandoff } from '$lib/generation/imageHandoff';
+	import { createPreviewKeeper, createVideoHandoff, preloadVideo } from '$lib/generation/videoHandoff';
 
 	export let tab: Tab;
 
@@ -56,8 +58,21 @@
 		? entryFileType(currentGalleryEntry)
 		: normalizeFileType(currentGeneration?.file_type);
 
-	$: displayImage =
-		isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image;
+	let shownImage: string | null | undefined;
+	const handoffImage = createImageHandoff((url) => (shownImage = url));
+	$: handoffImage(
+		isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image
+	);
+	$: displayImage = shownImage;
+	let videoPending = false;
+	const keepPreview = createPreviewKeeper();
+	$: heldPreview = keepPreview(
+		currentGeneration?.generation_id ?? currentGeneration?.id,
+		currentGeneration?.current_image
+	);
+	const handoffVideo = createVideoHandoff((pending) => (videoPending = pending), preloadVideo);
+	$: handoffVideo(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+	$: holdingPreview = videoPending && !!heldPreview;
 	$: displayVideo =
 		isGalleryMode && isVideoFileType(displayFileType)
 			? galleryItemUrl(currentGalleryItem)
@@ -136,6 +151,8 @@
 				<AudioPlayer tracks={audioTracks} showWaveform={true} showDownload={false} />
 			{:else if isFallbackFileType && resolvedFallbackRenderer}
 				<svelte:component this={resolvedFallbackRenderer} file={currentGalleryItem ?? currentGeneration} />
+			{:else if holdingPreview && heldPreview}
+				<img src={heldPreview} alt="Generation preview" class="h-full w-full object-contain" />
 			{:else if displayFileType === 'video' && displayVideo}
 				<!-- svelte-ignore a11y-media-has-caption -->
 				<video src={displayVideo} controls playsinline class="h-full w-full object-contain"></video>

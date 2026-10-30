@@ -26,6 +26,7 @@
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
 	import { createImageHandoff, preloadImage } from '$lib/generation/imageHandoff';
+	import { createPreviewKeeper, createVideoHandoff, preloadVideo } from '$lib/generation/videoHandoff';
 	import { batchCaption } from '$lib/components/workbench/promptGroups';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
@@ -204,6 +205,19 @@
 		? entryFileType(currentGalleryEntry)
 		: normalizeFileType(currentGeneration?.file_type);
 
+	let videoPending = false;
+	const keepPreview = createPreviewKeeper();
+	$: heldPreview = keepPreview(
+		currentGeneration?.generation_id ?? currentGeneration?.id,
+		currentGeneration?.current_image
+	);
+	const handoffVideo = createVideoHandoff(
+		(pending) => (videoPending = pending),
+		preloadVideo,
+		(url) => getDisplayUrl(url)
+	);
+	$: handoffVideo(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+
 	let displayImage: string | null | undefined;
 	const handoffImage = createImageHandoff(
 		(url) => (displayImage = url),
@@ -239,8 +253,15 @@
 	$: actions = workbenchActionsFor(displayFileType);
 
 	$: ambientBlocked = previewSuppressed || isNsfwFile(((isGalleryMode ? currentGalleryItem : currentGeneration) ?? {}) as ContentFlagged);
-	$: ambientKind = displayFileType === 'video' && displayVideo ? ('video' as const) : ('image' as const);
-	$: ambientSrc = ambientKind === 'video' && displayVideo ? getDisplayUrl(displayVideo) : displayImage ? getDisplayUrl(displayImage) : null;
+	$: holdingPreview = videoPending && !!heldPreview;
+	$: ambientKind = !holdingPreview && displayFileType === 'video' && displayVideo ? ('video' as const) : ('image' as const);
+	$: ambientSrc = holdingPreview
+		? heldPreview
+		: ambientKind === 'video' && displayVideo
+			? getDisplayUrl(displayVideo)
+			: displayImage
+				? getDisplayUrl(displayImage)
+				: null;
 	$: showAmbient =
 		hasDisplayMedia &&
 		displayFileType !== 'audio' &&
@@ -792,6 +813,8 @@
 							showDownload={true}
 							className="shadow-lg"
 						/>
+					{:else if holdingPreview && heldPreview}
+						<ImagePreview imageUrl={heldPreview} />
 					{:else if displayFileType === 'video' && displayVideo}
 						<VideoPreview
 							bind:this={videoPlayerRef}
@@ -1135,7 +1158,7 @@
 		</div>
 
 		<!-- Video controls bar for regular (non-comparison) video - rendered outside media area -->
-		{#if displayFileType === 'video' && displayVideo && !isComparing}
+		{#if displayFileType === 'video' && displayVideo && !isComparing && !holdingPreview}
 			<div class="flex-shrink-0 bg-canvas border-t border-line-strong px-4 py-2 flex items-center gap-3">
 				<!-- Play/Pause button -->
 				<Tooltip text={vpRegularPlaying ? 'Pause video' : 'Play video'} position="top" delay={150}>
