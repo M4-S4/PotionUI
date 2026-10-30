@@ -53,6 +53,7 @@ def to_item(upload: Upload) -> MediaToolItem:
         thumbnail_small=_thumbnail_url(upload, "small"),
         thumbnail_medium=_thumbnail_url(upload, "medium"),
         thumbnail_large=_thumbnail_url(upload, "large"),
+        source_generation_id=upload.source_generation_id,
     )
 
 
@@ -92,7 +93,11 @@ class MediaToolPublisher:
             self.limit_guard.check(AdmissionRequest(point="upload", user_id=user_id))
 
     def publish_new(
-        self, user_id: str, outputs: Sequence[ToolMedia], names: Sequence[Optional[str]]
+        self,
+        user_id: str,
+        outputs: Sequence[ToolMedia],
+        names: Sequence[Optional[str]],
+        source_generation_id: Optional[str] = None,
     ) -> list[Upload]:
         profile = load_thumbnail_profile(self.settings)
         stored: list[str] = []
@@ -109,7 +114,7 @@ class MediaToolPublisher:
                 paths = self._image_thumbnails(profile, media, Path(key).stem)
                 thumbnails |= paths_to_keys(paths, False)
                 created.append(
-                    self.upload_repo.create(self._row(user_id, key, media, name, size, paths, profile))
+                    self.upload_repo.create(self._row(user_id, key, media, name, size, paths, profile, source_generation_id))
                 )
         except Exception:
             for row in created:
@@ -225,6 +230,7 @@ class MediaToolPublisher:
         size: int,
         thumbnail_paths: Dict[str, str],
         profile,
+        source_generation_id: Optional[str] = None,
     ) -> Upload:
         return Upload(
             user_id=user_id,
@@ -243,6 +249,7 @@ class MediaToolPublisher:
             thumbnail_profile=profile_hash(profile) if thumbnail_paths else None,
             content_hash=file_digest(media.path),
             has_alpha=media.has_alpha,
+            source_generation_id=source_generation_id,
         )
 
     def _forget_row(self, row: Upload, user_id: str) -> None:

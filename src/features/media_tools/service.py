@@ -90,6 +90,11 @@ class _Plan:
     mode: str
 
 
+def _shared_generation_id(inputs: List[ResolvedInput]) -> Optional[str]:
+    ids = {item.source_generation_id for item in inputs}
+    return ids.pop() if len(ids) == 1 else None
+
+
 def _user_id(user: Any) -> str:
     return str(getattr(user, "id", user))
 
@@ -555,7 +560,9 @@ class MediaToolService:
             source = plan.inputs[0]
             updated = self.publisher.publish_replace(user_id, source.upload, source.key, outputs[0])
             return RunOutcome(items=[to_item(updated)], replaced=True)
-        rows = self.publisher.publish_new(user_id, outputs, self._names(plan, outputs))
+        rows = self.publisher.publish_new(
+            user_id, outputs, self._names(plan, outputs), _shared_generation_id(plan.inputs)
+        )
         return RunOutcome(items=[to_item(row) for row in rows], replaced=False)
 
     def _names(self, plan: _Plan, outputs: list) -> List[Optional[str]]:

@@ -53,6 +53,7 @@ class Upload:
     content_hash: Optional[str] = None
     is_favorite: bool = False
     has_alpha: Optional[bool] = None
+    source_generation_id: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> 'Upload':
@@ -78,4 +79,5 @@ class Upload:
             content_hash=row_get(row, 'content_hash'),
             is_favorite=bool(row_get(row, 'is_favorite')),
             has_alpha=_alpha_from_row(row_get(row, 'has_alpha')),
+            source_generation_id=row_get(row, 'source_generation_id'),
         )

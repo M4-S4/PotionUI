@@ -27,8 +27,8 @@ class UploadRepository:
                     id, user_id, filename, original_filename, media_type, mime_type,
                     width, height, duration_seconds, fps, file_size, purpose,
                     thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile,
-                    content_hash, has_alpha
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    content_hash, has_alpha, source_generation_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 upload.id,
                 upload.user_id,
@@ -48,6 +48,7 @@ class UploadRepository:
                 upload.thumbnail_profile,
                 upload.content_hash,
                 None if upload.has_alpha is None else int(upload.has_alpha),
+                upload.source_generation_id,
             ))
 
             cursor.execute("SELECT * FROM uploads WHERE id = ?", (upload.id,))

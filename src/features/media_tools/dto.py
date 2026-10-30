@@ -78,6 +78,7 @@ class MediaToolItem(BaseModel):
     thumbnail_small: Optional[str] = None
     thumbnail_medium: Optional[str] = None
     thumbnail_large: Optional[str] = None
+    source_generation_id: Optional[str] = None
 
 
 class RunError(BaseModel):

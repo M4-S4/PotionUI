@@ -48,9 +48,8 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
     The result is a resource, not a reference: fresh bytes under a fresh name
     in `storage/uploads/`, and an `uploads` row that carries only what a
     direct upload of the same file would carry - owner, name, media type,
-    dimensions. No preset, no prompt, no seed, no generation id; the
-    `uploads` table has nowhere to put them, which is what makes the copy
-    indistinguishable from an upload rather than merely undecorated.
+    dimensions - plus the id of the generation it came from, so the library
+    item can link back. No preset, no prompt, no seed.
 
     Deleting the generation afterwards leaves this untouched - the bytes were
     copied, and no foreign key points back.
@@ -108,6 +107,7 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
         fps=file_record.fps,
         file_size=file_record.file_size or written,
         has_alpha=file_record.has_alpha if media_type == 'image' else None,
+        source_generation_id=collaborators.file_repository.get_generation_id(file_record.id),
         thumbnail_small=thumbnail_paths.get('small'),
         thumbnail_medium=thumbnail_paths.get('medium'),
         thumbnail_large=thumbnail_paths.get('large'),

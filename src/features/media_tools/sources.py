@@ -31,6 +31,7 @@ class ResolvedInput:
     original_filename: Optional[str]
     upload: Optional[Upload] = None
     generation_file_id: Optional[str] = None
+    source_generation_id: Optional[str] = None
 
     @property
     def is_library_item(self) -> bool:
@@ -83,6 +84,7 @@ class InputResolver:
             suffix=Path(upload.filename).suffix,
             original_filename=upload.original_filename or upload.filename,
             upload=upload,
+            source_generation_id=upload.source_generation_id,
         )
 
     def _generation_file(self, user_id: str, file_id: str) -> ResolvedInput:
@@ -104,6 +106,7 @@ class InputResolver:
             suffix=Path(record.file_path).suffix,
             original_filename=Path(record.file_path).name,
             generation_file_id=record.id,
+            source_generation_id=self.file_repo.get_generation_id(record.id),
         )
 
     @contextmanager

@@ -46,4 +46,5 @@ def upload_to_item(upload: Upload, tags: List[Any]) -> LibraryItem:
         tags=[tag.model_dump() for tag in tags],
         is_favorite=upload.is_favorite,
         has_alpha=upload.has_alpha,
+        source_generation_id=upload.source_generation_id,
     )
