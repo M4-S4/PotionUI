@@ -234,12 +234,12 @@ describe('card hover row', () => {
 		expect(document.body.querySelector('[data-tool="delete"]')).not.toBeNull();
 	});
 
-	it('folds the Favorite toggle into the menu on a narrow tile but keeps the menu button', () => {
+	it('keeps the Favorite toggle and the menu button on a narrow tile', () => {
 		mounted = mountCard(generation('g1'), { width: 120 });
-		expect(mounted.rowLabels()).toEqual(['Item actions']);
+		expect(mounted.rowLabels()).toEqual(['Favorite', 'Item actions']);
 		mounted.destroy();
 		mounted = mountCard(generation('g1'), { width: 90 });
-		expect(mounted.rowLabels()).toEqual(['Item actions']);
+		expect(mounted.rowLabels()).toEqual(['Favorite', 'Item actions']);
 		expect(mounted.trigger().style.width).toBe('20px');
 	});
 
@@ -313,7 +313,7 @@ describe('menu contents per variant', () => {
 		expect(labelOf('download')).toContain('D');
 		expect(labelOf('favorite')).toContain('F');
 		expect(labelOf('delete')).toContain('⌫');
-		expect(labelOf('open-details')).toContain('↵');
+		expect(labelOf('open-details')).not.toContain('↵');
 	});
 
 	it('a plugin tool names its plugin on a second line, a core tool does not', async () => {

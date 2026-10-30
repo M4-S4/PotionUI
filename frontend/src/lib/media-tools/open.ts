@@ -4,7 +4,12 @@ import MediaEditors from '$lib/media/editors/MediaEditors.svelte';
 import MediaToolDialog from './MediaToolDialog.svelte';
 import type { AnnounceOptions, AnnounceSetting } from './announce';
 import ToolHost from '$lib/components/tools/ToolHost.svelte';
-import { isSurfaceEditorKind, type MediaEditorKind, type MediaEditorResult } from '$lib/media/editors/types';
+import {
+	isSurfaceEditorKind,
+	type MediaEditorKind,
+	type MediaEditorRequest,
+	type MediaEditorResult
+} from '$lib/media/editors/types';
 import type { MediaTool, MediaToolContext, MediaKind } from '$lib/tools/tools';
 import { isRunnable, loadMediaToolCatalog, toolAvailability, toolById } from './catalog';
 import { isEditableKind, normalizeSources, resolveToolInput } from './inputs';
@@ -25,6 +30,29 @@ export interface OpenMediaToolOptions {
 	onClose?: () => void;
 	context?: MediaToolContext;
 	announce?: false | AnnounceOptions;
+}
+
+export interface OpenPaintEditorOptions {
+	request: MediaEditorRequest;
+	scope: ToolScope;
+	announce?: AnnounceSetting;
+	onResult?: (result: MediaEditorResult) => void | Promise<void>;
+	onClose?: () => void;
+}
+
+export function openPaintEditor(options: OpenPaintEditorOptions): void {
+	let close: () => void = () => undefined;
+	close = mountHost(MediaEditors, {
+		request: options.request,
+		detach: true,
+		announce: options.announce,
+		scope: options.scope,
+		onClose: () => {
+			close();
+			options.onClose?.();
+		},
+		onResult: (result: MediaEditorResult) => options.onResult?.(result)
+	});
 }
 
 export function routeFor(tool: ToolDTO): MediaToolRoute {

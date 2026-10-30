@@ -415,7 +415,7 @@ describe('applying', () => {
 
 		expect(buttonByText('Replace original')).toBeUndefined();
 		expect(dialog().querySelector('[data-tool-note]')?.textContent).toBe(
-			'Saved as a new Library item. The generation stays as it is.'
+			'Saves a copy to your Library. The generation is not changed.'
 		);
 		buttonByText('Apply')!.click();
 		await settle();

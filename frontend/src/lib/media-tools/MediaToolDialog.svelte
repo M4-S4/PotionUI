@@ -112,7 +112,9 @@
 			return `The result replaces this ${kind} in the field. The library copy stays as it is.`;
 		}
 		if (scope === 'history') {
-			return `${tool.cardinality === 'one_to_many' ? 'Saved as new Library items.' : 'Saved as a new Library item.'} The generation stays as it is.`;
+			return tool.cardinality === 'one_to_many'
+				? 'Saves copies to your Library. The generation is not changed.'
+				: 'Saves a copy to your Library. The generation is not changed.';
 		}
 		if (manyToOne) return `Saved as a new ${tool.produces === 'same' ? kind : tool.produces}.`;
 		if (tool.cardinality === 'one_to_many') return 'Saved as new items.';

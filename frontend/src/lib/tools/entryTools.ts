@@ -50,7 +50,6 @@ export function registerEntryTools(): void {
 		id: 'open-details',
 		label: 'Open details',
 		icon: 'eyes',
-		shortcut: 'Enter',
 		category: 'open',
 		source: 'core',
 		scopes: ['history', 'library'],

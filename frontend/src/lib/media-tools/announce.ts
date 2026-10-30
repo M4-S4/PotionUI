@@ -1,6 +1,9 @@
 export interface AnnounceOptions {
 	title?: string;
 	action?: { label: string; href: string };
+	quietSuccess?: boolean;
+	retry?: () => void;
+	label?: string;
 }
 
 export type AnnounceSetting = boolean | 'failures' | AnnounceOptions;

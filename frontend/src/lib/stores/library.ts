@@ -240,6 +240,10 @@ function createLibraryStore() {
 			}));
 		},
 
+		markFresh(ids: readonly string[]) {
+			update((state) => ({ ...state, freshIds: [...new Set([...state.freshIds, ...ids])] }));
+		},
+
 		setSelectedItem(item: LibraryItem | null) {
 			update((state) => ({ ...state, selectedItem: item }));
 		},

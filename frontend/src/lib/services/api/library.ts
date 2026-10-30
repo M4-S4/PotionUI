@@ -29,6 +29,7 @@ export interface LibraryItem {
 	tags: LibraryItemTag[];
 	is_favorite?: boolean;
 	has_alpha?: boolean | null;
+	source_generation_id?: string | null;
 }
 
 export interface LibraryItemTag {
@@ -69,6 +70,11 @@ export function createLibraryApi(client: AxiosInstance) {
 		 */
 		async listLibraryItems(query: LibraryQuery): Promise<APIResponse<LibraryListResult>> {
 			const response = await client.get('/api/library/items', { params: query });
+			return response.data;
+		},
+
+		async getLibraryItem(itemId: string): Promise<APIResponse<LibraryItem>> {
+			const response = await client.get(`/api/library/items/${encodeURIComponent(itemId)}`);
 			return response.data;
 		},
 

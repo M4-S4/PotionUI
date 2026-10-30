@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, shotPath } from './helpers';
 import { fixturePng } from './imageEditorHelpers';
 
 const JOURNEY = 'media-tools-surfaces';
@@ -106,7 +106,7 @@ async function json(route: Route, data: unknown) {
 
 interface Backend {
 	library: ReturnType<typeof libraryRow>[];
-	runs: { started: unknown[]; cancelled: string[]; progress: number; finish: boolean };
+	runs: { started: unknown[]; cancelled: string[]; progress: number; finish: boolean; fail?: boolean };
 }
 
 async function mockBackend(page: Page): Promise<Backend> {
@@ -136,6 +136,17 @@ async function mockBackend(page: Page): Promise<Backend> {
 				items: [],
 				replaced: false,
 				error: null
+			});
+		}
+		if (backend.runs.fail) {
+			return json(route, {
+				run_id: 'run-1',
+				status: 'failed',
+				progress: 0,
+				label: '',
+				items: [],
+				replaced: false,
+				error: { code: 'x', message: 'The encoder stopped' }
 			});
 		}
 		if (backend.runs.finish) {
@@ -172,12 +183,25 @@ async function mockBackend(page: Page): Promise<Backend> {
 	await page.route(/\/api\/media-tools\/preview$/, (route) =>
 		route.fulfill({ status: 200, contentType: 'image/webp', body: PNG })
 	);
+	await page.route(/\/api\/library\/items\/[^/?]+$/, async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const id = decodeURIComponent(route.request().url().split('/').pop() ?? '');
+		const found = id === 'lib-new' ? libraryRowAfter() : backend.library.find((entry) => entry.id === id);
+		if (!found) {
+			return route.fulfill({ status: 404, contentType: 'application/json', body: '{"success":false}' });
+		}
+		return json(route, found);
+	});
 	await page.route(/\/api\/library\/items(\?.*)?$/, (route) =>
 		json(route, { items: backend.library, total: backend.library.length, limit: 24, offset: 0 })
 	);
 	await page.route(/\/api\/generations\/history(\?.*)?$/, (route) =>
 		json(route, { generations, total: generations.length })
 	);
+	await page.route(/\/api\/generations\/history\/gen-\d+(\?.*)?$/, (route) => {
+		const id = route.request().url().match(/gen-\d+/)![0];
+		return json(route, generations.find((entry) => entry.id === id));
+	});
 	await page.route(/\/api\/tags(\?.*)?$/, (route) => json(route, { tags: [] }));
 	await page.route(/\/api\/media\/generations\/gen-\d+\/.+$/, (route) =>
 		route.fulfill({ status: 200, contentType: 'image/png', body: PNG })
@@ -555,6 +579,7 @@ test.describe('Edit and Effects submenus', () => {
 		await openLibraryMenu(page, 'harbour.png');
 		await menu(page).locator('[data-submenu-row="edit"]').focus();
 		await page.keyboard.press('ArrowRight');
+		await expect(menu(page).locator('[data-tool="crop"]')).toBeFocused();
 
 		await page.keyboard.press('ArrowDown');
 		await page.keyboard.press('ArrowDown');
@@ -622,12 +647,12 @@ test.describe('Edit and Effects submenus on a phone', () => {
 		const sheet = page.locator('[data-tools-sheet]');
 		await expect(sheet).toBeVisible();
 		await expect(sheet.locator('[data-submenu-row="edit"] [data-submenu-count]')).toHaveText('7');
-		await screenshot(page, JOURNEY, 'sheet-rows-390');
+		await sheet.screenshot({ path: shotPath(JOURNEY, 'sheet-rows-390'), animations: 'disabled' });
 
 		await sheet.locator('[data-submenu-row="edit"]').tap();
 		await expect(sheet.locator('[data-submenu-back]')).toBeVisible();
 		await expect(sheet.locator('[data-tool="crop"]')).toBeVisible();
-		await screenshot(page, JOURNEY, 'sheet-edit-390');
+		await sheet.screenshot({ path: shotPath(JOURNEY, 'sheet-edit-390'), animations: 'disabled' });
 
 		await sheet.locator('[data-submenu-back]').tap();
 		await expect(sheet.locator('[data-submenu-row="effects"]')).toBeVisible();
@@ -882,7 +907,7 @@ test.describe('running a tool', () => {
 		await expect(card.locator('[data-tool-run]')).toHaveCount(0);
 	});
 
-	test('a run started from History saves to the Library and links to it', async ({ page }) => {
+	test('a run started from the History card menu opens the result in a Library modal over History', async ({ page }) => {
 		test.setTimeout(120000);
 		const backend = await mockBackend(page);
 		await page.goto('/history');
@@ -892,16 +917,135 @@ test.describe('running a tool', () => {
 		await openSubmenu(page, 'edit');
 		await menu(page).locator('[data-tool="rotate"]').click();
 		const dialog = page.getByRole('dialog', { name: /Rotate/ });
-		await expect(dialog).toContainText('Saved as a new Library item');
+		await expect(dialog).toContainText('Saves a copy to your Library. The generation is not changed.');
 		await dialog.getByRole('button', { name: 'Apply' }).click();
 
 		await expect(card.locator('[data-tool-run]')).toBeVisible();
 		backend.runs.finish = true;
 
-		const toast = page.getByRole('status').filter({ hasText: 'Saved to Library' });
+		await expect(page.getByRole('dialog', { name: 'harbour-rotated.png' })).toBeVisible({ timeout: 15000 });
+		await expect(page).toHaveURL(/\/history/);
+		await expect(page.getByRole('status').filter({ hasText: 'Saved to Library' })).toHaveCount(0);
+	});
+
+	async function openDetailsOf(page: Page, id: string) {
+		await page.goto('/history');
+		const cards = page.locator('[data-generation-card]');
+		await expect(cards).toHaveCount(2);
+		const details = page.getByRole('dialog', { name: 'Generation Details' });
+		for (let position = 0; position < 2; position += 1) {
+			await cards.nth(position).locator('.media-zoom').click();
+			await expect(details).toBeVisible();
+			if ((await details.locator('code').first().innerText()).trim() === id) return details;
+			await page.keyboard.press('Escape');
+			await expect(details).toHaveCount(0);
+		}
+		return details;
+	}
+
+	test('History details: Edit, Rotate and Apply close the details and open the result over History, and Back to the generation reopens them', async ({
+		page
+	}) => {
+		test.setTimeout(120000);
+		const backend = await mockBackend(page);
+		const details = await openDetailsOf(page, 'gen-1');
+
+		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
+		await page.getByRole('menuitem', { name: /Rotate/ }).click();
+		await expect(details).toHaveCount(0);
+		const dialog = page.getByRole('dialog', { name: /Rotate/ });
+		await dialog.getByRole('button', { name: 'Apply' }).click();
+
+		backend.runs.finish = true;
+
+		const result = page.getByRole('dialog', { name: 'harbour-rotated.png' });
+		await expect(result).toBeVisible({ timeout: 15000 });
+		await expect(page).toHaveURL(/\/history/);
+		await result.getByRole('button', { name: 'Back to the generation' }).click();
+
+		await expect(result).toHaveCount(0);
+		await expect(details).toBeVisible();
+		await expect(details.locator('code').first()).toHaveText('gen-1');
+		await expect(page).toHaveURL(/\/history/);
+	});
+
+	test('History details: browser Back closes the result modal and reopens the details', async ({ page }) => {
+		test.setTimeout(120000);
+		const backend = await mockBackend(page);
+		const details = await openDetailsOf(page, 'gen-1');
+
+		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
+		await page.getByRole('menuitem', { name: /Rotate/ }).click();
+		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Apply' }).click();
+		backend.runs.finish = true;
+		const result = page.getByRole('dialog', { name: 'harbour-rotated.png' });
+		await expect(result).toBeVisible({ timeout: 15000 });
+
+		await page.goBack();
+
+		await expect(result).toHaveCount(0);
+		await expect(details).toBeVisible();
+		await expect(page).toHaveURL(/\/history/);
+	});
+
+	test('History details: Cancel in the tool dialog reopens the details on the same generation', async ({ page }) => {
+		test.setTimeout(120000);
+		await mockBackend(page);
+		const details = await openDetailsOf(page, 'gen-1');
+
+		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
+		await page.getByRole('menuitem', { name: /Rotate/ }).click();
+		await expect(details).toHaveCount(0);
+		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Cancel' }).click();
+
+		await expect(details).toBeVisible();
+		await expect(details.locator('code').first()).toHaveText('gen-1');
+	});
+
+	test('History details: a failed run reopens the details and offers Try again', async ({ page }) => {
+		test.setTimeout(120000);
+		const backend = await mockBackend(page);
+		const details = await openDetailsOf(page, 'gen-1');
+
+		await page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: 'Edit' }).click();
+		await page.getByRole('menuitem', { name: /Rotate/ }).click();
+		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Apply' }).click();
+		backend.runs.fail = true;
+
+		const toast = page.getByRole('status').filter({ hasText: 'Rotate failed. Your settings are kept.' });
 		await expect(toast).toBeVisible({ timeout: 15000 });
-		await toast.getByRole('button', { name: 'Open Library' }).click();
-		await expect(page).toHaveURL(/\/library/);
+		await expect(details).toBeVisible();
+		await toast.getByRole('button', { name: 'Try again' }).click();
+		await expect(page.getByRole('dialog', { name: /Rotate/ })).toBeVisible();
+	});
+
+	test('a tool opened from the History card menu does not reopen anything when it is cancelled', async ({ page }) => {
+		await mockBackend(page);
+		await page.goto('/history');
+		const card = page.locator('[data-generation-card]').first();
+		await card.hover();
+		await card.getByRole('button', { name: 'Item actions' }).click();
+		await openSubmenu(page, 'edit');
+		await menu(page).locator('[data-tool="rotate"]').click();
+		await page.getByRole('dialog', { name: /Rotate/ }).getByRole('button', { name: 'Cancel' }).click();
+
+		await expect(page.getByRole('dialog')).toHaveCount(0);
+	});
+
+	test('/library?item=<id> opens an item that is not on the current page, and clears a missing one', async ({
+		page
+	}) => {
+		await mockBackend(page);
+		await page.goto('/library?item=lib-new');
+		await expect(page.getByRole('dialog', { name: 'harbour-rotated.png' })).toBeVisible({ timeout: 15000 });
+		await page.keyboard.press('Escape');
+		await expect(page).not.toHaveURL(/item=/);
+		await page.reload();
+		await expect(page.getByRole('dialog')).toHaveCount(0);
+
+		await page.goto('/library?item=lib-ghost');
+		await expect(page.getByText("That library item couldn't be found")).toBeVisible({ timeout: 15000 });
+		await expect(page).not.toHaveURL(/item=/);
 	});
 });
 

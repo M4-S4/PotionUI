@@ -118,7 +118,7 @@ describe('a tool run from History', () => {
 		});
 	});
 
-	it('is announced once through the Tools menu path as well, with the same link and no second toast', async () => {
+	it('says nothing on success through the Tools menu path, and hands the result to the page', async () => {
 		const onResult = vi.fn();
 		pickTool(mediaToolFromCatalog(CORE_TOOLS.find((tool) => tool.id === 'rotate')!), historyContext(), {
 			mount: vi.fn(),
@@ -126,9 +126,8 @@ describe('a tool run from History', () => {
 		});
 		await applyDialog();
 
-		expect(successToasts()).toHaveLength(1);
-		expect(successToasts()[0].action?.label).toBe('Open Library');
-		expect(get(toasts).filter((entry) => (entry.title ?? '').includes('Saved'))).toHaveLength(1);
+		expect(successToasts()).toHaveLength(0);
+		expect(get(toasts).filter((entry) => (entry.title ?? '').includes('Saved'))).toHaveLength(0);
 		expect(onResult).toHaveBeenCalledTimes(1);
 		expect(onResult.mock.calls[0][0]).toEqual([RESULT]);
 	});

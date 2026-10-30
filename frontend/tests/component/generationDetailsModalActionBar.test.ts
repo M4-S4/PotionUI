@@ -4,6 +4,7 @@ import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS } from './fixtures/mediaToolCata
 import { settle } from './helpers/settle';
 
 const openMediaTool = vi.fn();
+const openPaintEditor = vi.fn();
 const listMediaTools = vi.fn();
 const toastShow = vi.fn();
 const goto = vi.fn();
@@ -11,7 +12,10 @@ const goto = vi.fn();
 vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
 	default: (await import('./fixtures/PluginSlotStub.svelte')).default
 }));
-vi.mock('$lib/media-tools/open', () => ({ openMediaTool: (...args: unknown[]) => openMediaTool(...args) }));
+vi.mock('$lib/media-tools/open', () => ({
+	openMediaTool: (...args: unknown[]) => openMediaTool(...args),
+	openPaintEditor: (...args: unknown[]) => openPaintEditor(...args)
+}));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
 vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
 	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
@@ -51,6 +55,7 @@ const { default: GenerationDetailsModal } = await import('$lib/components/modals
 const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 const { unregisterMediaTools } = await import('$lib/tools/tools');
 const { createClassComponent } = await import('svelte/legacy');
+const { registerDetailsReturn } = await import('$lib/tools/detailsReturn');
 const { flushSync } = await import('svelte');
 
 function generation(fileType: string, extra: Record<string, unknown> = {}) {
@@ -133,6 +138,7 @@ const corner = () => document.body.querySelector<HTMLElement>('[data-stage-meta]
 
 beforeEach(() => {
 	openMediaTool.mockReset();
+	openPaintEditor.mockReset();
 	toastShow.mockReset();
 	goto.mockReset();
 	listMediaTools.mockReset();
@@ -341,64 +347,48 @@ describe('GenerationDetailsModal running a tool', () => {
 		expect(call.context.generationIds).toEqual(['gen-row']);
 	});
 
-	it('asks the tool run to name the result with a link to the Library, and posts no toast of its own', async () => {
-		await open(generation('image'));
+	it('closes the details before it opens the tool when the History page can bring them back, with quiet success', async () => {
+		const unregister = registerDetailsReturn(vi.fn());
+		const onClose = vi.fn();
+		await open(generation('image'), { onClose });
 		await pick('edit', 'Resize');
 
-		expect(openMediaTool.mock.calls[0][0].announce).toEqual({
-			title: 'Saved to Library',
-			action: { label: 'Open Library', href: '/library' }
-		});
-
-		await openMediaTool.mock.calls[0][0].onResult(
-			[{ id: 'lib-1', filename: 'x-uuid.png', original_filename: 'gen-resized.png', media_type: 'image', url: '/u' }],
-			{ toolId: 'resize', replaced: false }
-		);
-
+		expect(onClose).toHaveBeenCalledTimes(1);
+		expect(openMediaTool.mock.calls[0][0].announce.quietSuccess).toBe(true);
 		expect(toastShow).not.toHaveBeenCalled();
+		unregister();
 	});
 
-	it('opens the image editor for Edit image and keeps the details open', async () => {
+	it('leaves the details open when no History page is there to bring them back', async () => {
+		const onClose = vi.fn();
+		await open(generation('image'), { onClose });
+		await pick('edit', 'Resize');
+
+		expect(onClose).not.toHaveBeenCalled();
+		expect(openMediaTool).toHaveBeenCalledTimes(1);
+	});
+
+	it('closes the details and opens the detached editor for Edit image', async () => {
+		const unregister = registerDetailsReturn(vi.fn());
 		const onClose = vi.fn();
 		await open(generation('image'), { onClose });
 
 		await pick('edit', 'Edit image');
+		unregister();
 
-		const stub = document.body.querySelector('[data-editor-stub]');
-		expect(stub?.getAttribute('data-kind')).toBe('paint');
-		expect(stub?.getAttribute('data-url')).toContain('gen-row');
-		expect(onClose).not.toHaveBeenCalled();
+		expect(onClose).toHaveBeenCalledTimes(1);
+		const options = openPaintEditor.mock.calls[0][0];
+		expect(options.request.kind).toBe('paint');
+		expect(options.request.source.url).toContain('gen-row');
+		expect(options.scope).toBe('history');
 	});
 
-	it('opens the image editor on the Filters tool for Apply a look', async () => {
+	it('opens the editor on the Filters tool for Apply a look', async () => {
 		await open(generation('image'));
 
 		await pick('effects', 'Apply a look…');
 
-		expect(document.body.querySelector('[data-editor-stub]')?.getAttribute('data-initial-tool')).toBe('filters');
-	});
-
-	it('does not close the details on Escape while the image editor is open, and does once it is shut', async () => {
-		const onClose = vi.fn();
-		await open(generation('image'), { onClose });
-		const escape = () =>
-			window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-
-		escape();
-		await settle(2);
-		expect(onClose).toHaveBeenCalledTimes(1);
-		onClose.mockClear();
-
-		await pick('edit', 'Edit image');
-		escape();
-		await settle(2);
-		expect(onClose).not.toHaveBeenCalled();
-
-		document.body.querySelector<HTMLButtonElement>('[data-stub-close]')!.click();
-		flushSync();
-		escape();
-		await settle(2);
-		expect(onClose).toHaveBeenCalledTimes(1);
+		expect(openPaintEditor.mock.calls[0][0].request.initialTool).toBe('filters');
 	});
 });
 
@@ -421,5 +411,104 @@ describe('GenerationDetailsModal keyboard in the bar', () => {
 		await settle(2);
 
 		expect(onNavigate).toHaveBeenCalledWith(1);
+	});
+});
+
+describe('GenerationDetailsModal letter shortcuts', () => {
+	const press = (key: string, target: EventTarget = window, init: KeyboardEventInit = {}) => {
+		target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+		flushSync();
+	};
+
+	it('E opens the image editor, as the Edit image hint says', async () => {
+		const unregister = registerDetailsReturn(vi.fn());
+		const onClose = vi.fn();
+		await open(generation('image'), { onClose });
+
+		press('e');
+		unregister();
+
+		expect(openPaintEditor).toHaveBeenCalledTimes(1);
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it('D downloads the file', async () => {
+		const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+		await open(generation('image'));
+
+		press('d');
+
+		expect(click).toHaveBeenCalledTimes(1);
+		click.mockRestore();
+	});
+
+	it('F toggles the favorite', async () => {
+		const { historyStore } = await import('$lib/stores/history');
+		const toggle = vi.spyOn(historyStore, 'toggleFavorite').mockImplementation(() => undefined as never);
+		await open(generation('image'));
+
+		press('f');
+
+		expect(toggle).toHaveBeenCalledWith('gen-row');
+		toggle.mockRestore();
+	});
+
+	it('does nothing for E on a video, which has no Edit image', async () => {
+		await open(generation('video'));
+
+		press('e');
+
+		expect(openPaintEditor).not.toHaveBeenCalled();
+	});
+
+	it('does nothing while typing in a field', async () => {
+		await open(generation('image'));
+		const input = document.createElement('input');
+		document.body.appendChild(input);
+		input.focus();
+
+		press('e', input);
+
+		expect(openPaintEditor).not.toHaveBeenCalled();
+	});
+
+	it('does nothing while a bar menu is open above the details', async () => {
+		await open(generation('image'));
+		barButton('more').click();
+		flushSync();
+		await settle(3);
+
+		press('e');
+
+		expect(openPaintEditor).not.toHaveBeenCalled();
+	});
+
+	it('does nothing while another dialog is open above the details', async () => {
+		await open(generation('image'));
+		await pick('more', 'Publish to Inspirations');
+		await settle(3);
+
+		press('e');
+
+		expect(openPaintEditor).not.toHaveBeenCalled();
+	});
+
+	it('does nothing with a modifier held', async () => {
+		await open(generation('image'));
+
+		press('e', window, { ctrlKey: true });
+
+		expect(openPaintEditor).not.toHaveBeenCalled();
+	});
+
+	it('does not let the key through to the page behind', async () => {
+		const leaked = vi.fn();
+		document.addEventListener('keydown', leaked);
+		await open(generation('image'));
+
+		press('e');
+
+		expect(leaked).not.toHaveBeenCalled();
+		document.removeEventListener('keydown', leaked);
 	});
 });

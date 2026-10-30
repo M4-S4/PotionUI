@@ -5,9 +5,13 @@ import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS, toolDto } from './fixtures/medi
 import { settle } from './helpers/settle';
 
 const openMediaTool = vi.fn();
+const openPaintEditor = vi.fn();
 const listMediaTools = vi.fn();
 
-vi.mock('$lib/media-tools/open', () => ({ openMediaTool: (...args: unknown[]) => openMediaTool(...args) }));
+vi.mock('$lib/media-tools/open', () => ({
+	openMediaTool: (...args: unknown[]) => openMediaTool(...args),
+	openPaintEditor: (...args: unknown[]) => openPaintEditor(...args)
+}));
 vi.mock('$lib/services/api/mediaTools', () => ({ listMediaTools: (...args: unknown[]) => listMediaTools(...args) }));
 vi.mock('$lib/stores/toast', () => ({
 	toasts: { show: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() }
@@ -54,6 +58,7 @@ const WIDTHS: Record<string, number> = {
 
 let observers: Array<(entries: unknown[]) => void> = [];
 let cleanup: (() => void) | undefined;
+let lastInstance: { triggerShortcut: (key: string) => boolean } | undefined;
 
 class FakeResizeObserver {
 	constructor(callback: (entries: unknown[]) => void) {
@@ -145,6 +150,7 @@ function render(props: Record<string, unknown>) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const instance = mount(DetailsActionBar, { target, props: props as never });
+	lastInstance = instance as never;
 	flushSync();
 	cleanup = () => {
 		unmount(instance);
@@ -206,6 +212,7 @@ beforeEach(() => {
 	});
 	recentLooks.set([]);
 	openMediaTool.mockReset();
+	openPaintEditor.mockReset();
 	listMediaTools.mockReset();
 	listMediaTools.mockResolvedValue([...CORE_TOOLS, A1111_TOOL]);
 	resetMediaToolCatalog();
@@ -461,6 +468,95 @@ describe('running things', () => {
 		await renderSettled(libraryProps());
 
 		expect(listMediaTools).toHaveBeenCalled();
+	});
+});
+
+describe('key hints', () => {
+	it('every hint shown in a bar menu is bound', async () => {
+		const props = historyProps();
+		const root = await renderSettled(props);
+		const hints: string[] = [];
+		for (const id of ['edit', 'download', 'more']) {
+			await open(root, id);
+			for (const node of document.body.querySelectorAll('[data-bar-menu] kbd')) hints.push((node.textContent ?? '').trim());
+			key(document.activeElement, 'Escape');
+			await settle(3);
+			flushSync();
+		}
+
+		expect(hints.sort()).toEqual(['D', 'E']);
+		expect(lastInstance!.triggerShortcut('e')).toBe(true);
+		expect(lastInstance!.triggerShortcut('d')).toBe(true);
+		expect(props.downloadActions[0].onclick).toHaveBeenCalledTimes(1);
+	});
+
+	it('F toggles the favorite the tooltip names, and Z is not a shortcut', async () => {
+		const props = historyProps();
+		await renderSettled(props);
+
+		expect(lastInstance!.triggerShortcut('f')).toBe(true);
+		expect(props.favorite.onToggle).toHaveBeenCalledTimes(1);
+		expect(lastInstance!.triggerShortcut('z')).toBe(false);
+	});
+
+	it('E does nothing for a video, where Edit image is not offered', async () => {
+		await renderSettled(historyProps('video'));
+
+		expect(lastInstance!.triggerShortcut('e')).toBe(false);
+	});
+});
+
+describe('menu details', () => {
+	it('puts a divider before Edit image', async () => {
+		const root = await renderSettled(libraryProps());
+		await open(root, 'edit');
+
+		const labels = Array.from(document.body.querySelectorAll('[data-bar-menu] [role="separator"], [data-bar-menu] [data-bar-row]')).map(
+			(node) => (node as HTMLElement).dataset.barRow ?? 'sep'
+		);
+		expect(labels.slice(-3)).toEqual(['crop_subject', 'sep', 'edit-image']);
+	});
+
+	it('shows only a described action second line, not its tooltip', async () => {
+		const root = await renderSettled(historyProps(), 304);
+		await open(root, 'more');
+
+		expect(rows().find((row) => row.dataset.barRow === 'reuse')!.querySelector('[data-bar-row-sub]')).toBeNull();
+	});
+
+	it('labels the folded Tags row with its count on the right', async () => {
+		const root = await renderSettled(historyProps(), 304);
+		await open(root, 'more');
+
+		const row = rows().find((entry) => entry.dataset.barRow === 'tags')!;
+		expect(row.textContent).toContain('Tags…');
+		expect(row.textContent).toContain('3');
+	});
+
+	it('opens Edit and Effects at the narrower menu width and the rest wider', async () => {
+		const root = await renderSettled(libraryProps());
+		await open(root, 'edit');
+
+		expect(menu()!.style.width).toBe('256px');
+	});
+
+	it('gives a phone sheet a title, the file name and a close button', async () => {
+		vi.stubGlobal('matchMedia', (query: string) => ({
+			matches: query.includes('max-width: 639px'),
+			media: query,
+			addEventListener: () => undefined,
+			removeEventListener: () => undefined
+		}));
+		const root = await renderSettled(historyProps(), 374);
+		await open(root, 'more');
+
+		const header = document.body.querySelector('[data-bar-sheet-header]')!;
+		expect(header.textContent).toContain('More');
+		expect(header.textContent).toContain('photo.png');
+		(header.querySelector('button') as HTMLElement).click();
+		flushSync();
+		await settle(2);
+		expect(menu()).toBeNull();
 	});
 });
 

@@ -27,7 +27,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { libraryStore } = await import('$lib/stores/library');
 const { default: LibraryItemModal } = await import(
-	'../../src/routes/library/components/LibraryItemModal.svelte'
+	'../../src/lib/components/library/LibraryItemModal.svelte'
 );
 const { default: LibraryCard } = await import(
 	'../../src/routes/library/components/LibraryCard.svelte'

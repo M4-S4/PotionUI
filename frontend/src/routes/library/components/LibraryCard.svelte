@@ -257,7 +257,6 @@
 				onPick={handleMenuPick}
 				favorite={showActions && !selectable ? !!item.is_favorite : null}
 				onFavorite={handleFavoriteToggle}
-				favoriteInRow={bucket.favoriteInRow}
 				chipSize={bucket.menuChipSize}
 			/>
 		{/if}

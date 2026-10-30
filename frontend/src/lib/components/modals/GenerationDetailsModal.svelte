@@ -13,6 +13,8 @@
 	import { api } from '$lib/services/api/index';
 	import { isTypingInField } from '$lib/utils/editableTarget';
 	import portal from '$lib/actions/portal';
+	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
+	import { canReturnToDetails } from '$lib/tools/detailsReturn';
 	import BaseModal from './BaseModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -436,8 +438,21 @@
 	}
 
 	// Arrows walk files and roll over into the neighbouring generation; Shift jumps. Escape: BaseModal.
+	function handleLaunch() {
+		if (canReturnToDetails()) handleClose();
+	}
+
+	let detailsRoot: HTMLElement | undefined;
+	let actionBar: DetailsActionBar | undefined;
+
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen) return;
+		const letter = plainLetter(event);
+		if (letter && windowOwnsKeys(event, detailsRoot) && actionBar?.triggerShortcut(letter)) {
+			event.preventDefault();
+			event.stopPropagation();
+			return;
+		}
 		if ((event.target as HTMLElement | null)?.closest?.('[data-details-action-bar], [data-bar-menu]')) return;
 		if (
 			onArrowKey &&
@@ -736,11 +751,12 @@
 			</div>
 		</div>
 	{:else if activeGeneration}
-		<div class="flex flex-col md:flex-row h-full min-h-0">
+		<div class="flex flex-col md:flex-row h-full min-h-0" bind:this={detailsRoot} data-details-window>
 			<!-- Left Side - Media -->
 			<div class="group relative flex min-h-0 min-w-0 flex-1 flex-col">
 				{#if currentFile}
 					<DetailsActionBar
+						bind:this={actionBar}
 						items={rowItems}
 						context={rowContext}
 						scope="history"
@@ -750,6 +766,7 @@
 						{downloadActions}
 						{moreActions}
 						pluginContext={pluginActionContext}
+						onLaunch={handleLaunch}
 						onEditingChange={(editing) => (toolEditing = editing)}
 					/>
 				{/if}

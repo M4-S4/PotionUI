@@ -137,7 +137,7 @@
 	$: resourceNote = inField
 		? `The result replaces this ${kindWord} in the field. The library copy stays as it is.`
 		: resourceOrigin === 'pending'
-			? 'Saved as a new Library item. The generation stays as it is.'
+			? 'Saves a copy to your Library. The generation is not changed.'
 			: null;
 
 	$: allowReplace = !inField && resourceOrigin !== 'pending';

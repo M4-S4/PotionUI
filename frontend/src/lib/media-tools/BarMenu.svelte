@@ -4,6 +4,7 @@
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import menuNav, { focusFirstItem } from '$lib/actions/menuNav';
+	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import { trackMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	const ROW_SELECTOR = '[role="menuitem"]:not([aria-disabled="true"])';
@@ -14,6 +15,7 @@
 		sheet = false,
 		align = 'left',
 		width = 288,
+		subtitle = '',
 		onbarnav,
 		trigger,
 		children
@@ -23,6 +25,7 @@
 		sheet?: boolean;
 		align?: 'left' | 'right';
 		width?: number;
+		subtitle?: string;
 		onbarnav?: (direction: -1 | 1) => void;
 		trigger: Snippet<[{ open: boolean; toggle: () => void }]>;
 		children: Snippet<[{ close: (restoreFocus?: boolean) => void }]>;
@@ -116,6 +119,15 @@
 				data-bar-sheet
 			>
 				<div class="mx-auto mb-2 mt-1 h-1 w-9 rounded bg-line-strong" aria-hidden="true"></div>
+				<div class="flex items-center gap-3 px-3 pb-2" data-bar-sheet-header>
+					<div class="min-w-0 flex-1">
+						<p class="truncate font-mono text-sm text-fg">{label}</p>
+						{#if subtitle}
+							<p class="truncate font-mono text-[12px] uppercase tracking-[0.07em] text-fg-subtle">{subtitle}</p>
+						{/if}
+					</div>
+					<IconButton icon="close" label="Close menu" size="sm" onclick={() => close(true)} />
+				</div>
 				{@render children({ close })}
 			</div>
 		</div>

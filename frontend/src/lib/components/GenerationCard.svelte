@@ -9,7 +9,6 @@
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
 	import StarRating from './StarRating.svelte';
-	import FavoriteButton from './FavoriteButton.svelte';
 	import { Badge, CopyButton, IconButton } from '$lib/components/ui';
 	import { historyStore } from '$lib/stores/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
@@ -219,18 +218,6 @@
 		}
 	}
 
-	function handleViewClick(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		dispatch('viewClick', generation);
-	}
-
-	function handleDeleteClick(e: Event) {
-		e.stopPropagation();
-		e.preventDefault();
-		dispatch('deleteClick', generation);
-	}
-
 	let actions: EntryActions | undefined;
 	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 	let longPressOrigin = { x: 0, y: 0 };
@@ -325,6 +312,7 @@
 	class:opacity-50={disabled}
 	style={tile ? `width: ${tile.width}px` : undefined}
 	data-generation-card
+	data-generation-id={generation.id}
 	role="presentation"
 	on:contextmenu={handleContextMenu}
 >
@@ -482,27 +470,6 @@
 				</div>
 			{/if}
 
-			<!-- Actions - top right on hover -->
-			{#if !menuEnabled && showActions && !selectable}
-					{#if !tile && density.actionMode !== 'none'}
-					<div class="absolute top-2 right-2 z-30 flex items-center gap-1">
-						<div
-							class="bg-black/60 hover:bg-black/80 rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-						>
-							<FavoriteButton
-								active={generation.is_favorite}
-								tone="onMedia"
-								onToggle={handleFavoriteToggle}
-							/>
-						</div>
-						{#if density.actionMode === 'full'}
-							<IconButton icon="eyes" label="View generation details" size="xs" variant="overlay" onclick={handleViewClick} class="opacity-0 group-hover:opacity-100" />
-							<IconButton icon="trash" label="Delete generation" size="xs" variant="overlay" onclick={handleDeleteClick} class="opacity-0 group-hover:opacity-100 hover:!bg-danger-solid" />
-						{/if}
-					</div>
-				{/if}
-			{/if}
-
 			{#if stackEntry || looseCell}
 				<div
 					data-testid={stackEntry ? 'grid-stack-chip' : 'grid-cell-chip'}
@@ -647,7 +614,6 @@
 					onPick={handleMenuPick}
 					favorite={showActions && !selectable && !stackEntry ? !!generation.is_favorite : null}
 					onFavorite={handleFavoriteToggle}
-					favoriteInRow={chromeBucket.favoriteInRow}
 					chipSize={chromeBucket.menuChipSize}
 				/>
 		{/if}

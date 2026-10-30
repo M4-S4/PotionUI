@@ -17,6 +17,7 @@
 	import { loadModeLabels } from '$lib/utils/modeLabel.svelte';
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
+	import LibraryModalHost from '$lib/components/library/LibraryModalHost.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
 	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
@@ -317,6 +318,7 @@
 		{#if $isMobile && $isChatPanelOpen && ChatSheetComponent}<svelte:component this={ChatSheetComponent} />{/if}
 		{#if KeyboardShortcutsModalComponent}<svelte:component this={KeyboardShortcutsModalComponent} />{/if}
 		{#if NotificationPanelComponent}<svelte:component this={NotificationPanelComponent} />{/if}
+		<LibraryModalHost />
 		<ToastContainer />
 		<ConfirmHost />
 		<IndexingChoiceModal />

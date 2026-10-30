@@ -39,11 +39,13 @@
 	import { loadPluginMediaTools, mediaToolRegistrations } from '$lib/tools/pluginTools';
 	import { buildRowContext, buildRowModel, type RowTool } from '$lib/tools/rowModel';
 	import type { MediaToolContext, MediaToolItem as RowItem } from '$lib/tools/tools';
-	import { notifySavedToLibrary } from '$lib/tools/savedToLibrary';
+	import { editorResultItems, landOnHistoryResult } from '$lib/tools/historyResult';
+	import { returnToDetails } from '$lib/tools/detailsReturn';
+	import { trackLaunch } from '$lib/tools/launchTracker';
+	import type { LandingSource } from '$lib/library/landing';
 	import { applyLibraryPaintResult } from '$lib/tools/paintResult';
 	import type { MediaToolItem as ToolResultItem } from './types';
-	import { openMediaTool, type MediaToolResultInfo } from './open';
-	import { SAVED_TO_LIBRARY_ANNOUNCE } from './announce';
+	import { openMediaTool, openPaintEditor, type MediaToolResultInfo } from './open';
 	import { foldedIds } from './barLayout';
 	import BarMenu from './BarMenu.svelte';
 
@@ -58,6 +60,7 @@
 		disabled?: boolean;
 		loading?: boolean;
 		on?: boolean;
+		count?: number;
 		run: () => void;
 	}
 
@@ -73,6 +76,7 @@
 		dangerActions = [],
 		pluginContext = null,
 		onResult,
+		onLaunch,
 		onEditingChange
 	}: {
 		items: RowItem[];
@@ -86,6 +90,7 @@
 		dangerActions?: BarAction[];
 		pluginContext?: Record<string, unknown> | null;
 		onResult?: (items: ToolResultItem[], info: MediaToolResultInfo) => void;
+		onLaunch?: () => void;
 		onEditingChange?: (editing: boolean) => void;
 	} = $props();
 
@@ -193,12 +198,49 @@
 		void tick().then(() => measure());
 	});
 
+	function launchSource(): LandingSource | null {
+		const first = items[0];
+		if (!first?.generationId) return null;
+		return { generationId: first.generationId, fileIndex: first.paramIndex ?? 0 };
+	}
+
+	function historyHooks() {
+		const source = launchSource();
+		const startPath = typeof window === 'undefined' ? '' : window.location.pathname;
+		const tracker = trackLaunch(() => {
+			if (source) returnToDetails(source);
+		});
+		return {
+			tracker,
+			onClose: tracker.closed,
+			land: (landed: { id: string }[]) => {
+				tracker.delivered();
+				return landOnHistoryResult(landed as never, { source, startPath });
+			}
+		};
+	}
+
 	function openPaint(initialTool: string | null, initialFilter: string | null = null) {
 		const request = editImageRequest(toolContext);
 		if (!request) return;
-		if (!initialTool) paintRequest = request;
-		else if (initialFilter) paintRequest = { ...request, initialTool, initialFilter };
-		else paintRequest = { ...request, initialTool };
+		const next = !initialTool
+			? request
+			: initialFilter
+				? { ...request, initialTool, initialFilter }
+				: { ...request, initialTool };
+		if (scope === 'history') {
+			onLaunch?.();
+			const hooks = historyHooks();
+			openPaintEditor({
+				request: next,
+				scope: 'history',
+				announce: { quietSuccess: true, retry: () => openPaint(initialTool, initialFilter) },
+				onClose: hooks.onClose,
+				onResult: (result) => void hooks.land(editorResultItems(result))
+			});
+			return;
+		}
+		paintRequest = next;
 	}
 
 	function run(entry: RowTool) {
@@ -207,26 +249,59 @@
 		if (entry.action === 'apply-look') return openPaint('filters', entry.lookId ?? null);
 		const toolId = entry.tool?.catalogToolId;
 		if (!toolId) return;
+		if (scope !== 'history') {
+			void openMediaTool({
+				toolId,
+				items,
+				scope,
+				context: toolContext,
+				onResult: (results: ToolResultItem[], info: MediaToolResultInfo) => onResult?.(results, info)
+			});
+			return;
+		}
+		onLaunch?.();
+		const hooks = historyHooks();
 		void openMediaTool({
 			toolId,
 			items,
 			scope,
 			context: toolContext,
-			announce: scope === 'history' ? SAVED_TO_LIBRARY_ANNOUNCE : undefined,
-			onResult: (results: ToolResultItem[], info: MediaToolResultInfo) => onResult?.(results, info)
+			announce: { quietSuccess: true, retry: () => run(entry) },
+			onClose: hooks.onClose,
+			onResult: (results: ToolResultItem[], info: MediaToolResultInfo) => {
+				void hooks.land(results);
+				onResult?.(results, info);
+			}
 		});
 	}
 
 	function handlePaintResult(result: MediaEditorResult) {
-		if (scope === 'library') {
-			return applyLibraryPaintResult(
-				result,
-				items.map((item) => item.id)
-			);
+		return applyLibraryPaintResult(
+			result,
+			items.map((item) => item.id)
+		);
+	}
+
+	export function triggerShortcut(key: string): boolean {
+		const letter = key.toLowerCase();
+		if (letter === 'e') {
+			const entry = model.edit.find((candidate) => candidate.action === 'edit-image');
+			if (!entry?.enabled) return false;
+			run(entry);
+			return true;
 		}
-		const saved = result.type === 'item' ? [result.item] : result.type === 'items' ? result.items : [];
-		notifySavedToLibrary(saved);
-		if (saved.length > 0) onResult?.(saved, { toolId: 'edit-image', replaced: false });
+		if (letter === 'd') {
+			const action = downloadActions.find((candidate) => candidate.shortcut?.toLowerCase() === 'd' && !candidate.disabled);
+			if (!action) return false;
+			action.onclick();
+			return true;
+		}
+		if (letter === 'f') {
+			if (!favorite) return false;
+			favorite.onToggle();
+			return true;
+		}
+		return false;
 	}
 
 	function subline(entry: RowTool): string {
@@ -275,7 +350,7 @@
 			id: action.id,
 			label: action.label,
 			icon: action.icon,
-			sub: action.description ?? action.tooltip,
+			sub: action.description,
 			kbd: action.shortcut,
 			tone: action.tone,
 			disabled: action.disabled || action.loading,
@@ -316,9 +391,9 @@
 		if (tags && folded.has('tags')) {
 			lead.push({
 				id: 'tags',
-				label: 'Tags',
+				label: 'Tags…',
 				icon: 'tag',
-				sub: tags.selectedIds.length > 0 ? `${tags.selectedIds.length} selected` : undefined,
+				count: tags.selectedIds.length > 0 ? tags.selectedIds.length : undefined,
 				run: () => {
 					tagsOpen = true;
 				}
@@ -334,6 +409,8 @@
 		if (model.plugins.length > 0) groups.push(model.plugins.map(pluginDownloadRow));
 		return groups;
 	});
+
+	let sheetSubtitle = $derived(items[0]?.filename ?? '');
 
 	let rowPad = $derived(sheet ? 'py-3 text-base' : 'py-1.5 text-sm');
 
@@ -431,7 +508,9 @@
 				</span>
 			{/if}
 		</span>
-		{#if row.on}
+		{#if row.count}
+			<span class="shrink-0 font-mono text-[12px] leading-4 tabular-nums text-fg-subtle">{row.count}</span>
+		{:else if row.on}
 			<Icon name="check" className="h-3.5 w-3.5 shrink-0 text-signal" />
 		{:else if row.kbd && !sheet}
 			<Kbd keys={row.kbd} />
@@ -442,7 +521,7 @@
 {#snippet toolRows(entries: RowTool[], close: (restoreFocus?: boolean) => void)}
 	{@const firstPlugin = entries.findIndex((entry) => entry.plugin)}
 	{#each entries as entry, index (entry.id)}
-		{#if index > 0 && index === firstPlugin}
+		{#if index > 0 && (index === firstPlugin || entry.action === 'edit-image')}
 			<div class="my-1 h-px bg-line" role="separator" data-bar-divider-row></div>
 		{/if}
 		{@render menuRow({ ...toolRow(entry), kbd: entry.action === 'edit-image' ? 'E' : undefined }, close)}
@@ -496,7 +575,7 @@
 		{@render ghost()}
 
 		{#if model.edit.length > 0}
-			<BarMenu bind:open={editOpen} label="Edit" {sheet} onbarnav={(direction) => focusNeighbour('edit', direction)}>
+			<BarMenu bind:open={editOpen} label="Edit" {sheet} width={256} subtitle={sheetSubtitle} onbarnav={(direction) => focusNeighbour('edit', direction)}>
 				{#snippet trigger({ open, toggle })}
 					<Button
 						variant="secondary"
@@ -518,7 +597,7 @@
 		{/if}
 
 		{#if model.effects.length > 0}
-			<BarMenu bind:open={effectsOpen} label="Effects" {sheet} onbarnav={(direction) => focusNeighbour('effects', direction)}>
+			<BarMenu bind:open={effectsOpen} label="Effects" {sheet} width={256} subtitle={sheetSubtitle} onbarnav={(direction) => focusNeighbour('effects', direction)}>
 				{#snippet trigger({ open, toggle })}
 					<Button
 						variant="secondary"
@@ -548,7 +627,7 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					class="{plainButton} {favorite.active ? '!text-signal' : ''}"
+					class="{plainButton} {favorite.active ? '!bg-signal/10 !text-signal' : ''}"
 					tabindex={currentId === 'favorite' ? 0 : -1}
 					attrs={{
 						'data-bar-item': 'favorite',
@@ -620,6 +699,7 @@
 						bind:open={downloadOpen}
 						label="Download"
 						{sheet}
+						subtitle={sheetSubtitle}
 						align="right"
 						onbarnav={(direction) => focusNeighbour('download', direction)}
 					>
@@ -653,7 +733,7 @@
 			{/if}
 
 			<div class="relative">
-				<BarMenu bind:open={moreOpen} label="More" {sheet} align="right" onbarnav={(direction) => focusNeighbour('more', direction)}>
+				<BarMenu bind:open={moreOpen} label="More" {sheet} subtitle={sheetSubtitle} align="right" onbarnav={(direction) => focusNeighbour('more', direction)}>
 					{#snippet trigger({ open, toggle })}
 						<Button
 							variant="ghost"

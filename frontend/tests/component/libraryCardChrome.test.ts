@@ -140,13 +140,13 @@ describe('library card', () => {
 		expect(toggle.getAttribute('aria-pressed')).toBe('false');
 	});
 
-	it('folds the Favorite toggle into the menu on narrow tiles but keeps the menu button', () => {
+	it('keeps the Favorite toggle and the menu button on narrow tiles', () => {
 		mounted = mountCard({ tile: { width: 120, height: 120 } });
-		expect(mounted.labels()).not.toContain('Favorite');
+		expect(mounted.labels()).toContain('Favorite');
 		expect(mounted.labels()).toContain('Item actions');
 		mounted.destroy();
 		mounted = mountCard({ tile: { width: 100, height: 100 } });
-		expect(mounted.labels()).not.toContain('Favorite');
+		expect(mounted.labels()).toContain('Favorite');
 		expect(mounted.labels()).toContain('Item actions');
 	});
 

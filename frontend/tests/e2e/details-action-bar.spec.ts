@@ -394,3 +394,83 @@ test.describe('grid cards', () => {
 		await screenshot(page, JOURNEY, 'cards-library-1440');
 	});
 });
+
+test.describe('letter shortcuts', () => {
+	test.beforeEach(async ({ page }) => {
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await loginAsOwner(page);
+	});
+
+	const editor = (page: Page) => page.getByRole('dialog', { name: 'Edit image' });
+
+	test('E in the History details closes them and opens the image editor', async ({ page }) => {
+		await mockBackend(page);
+		await openHistoryDetails(page);
+
+		await page.keyboard.press('e');
+
+		await expect(page.getByRole('dialog', { name: 'Generation Details' })).toHaveCount(0);
+		await expect(editor(page)).toBeVisible();
+	});
+
+	test('F in the Library details toggles the favorite and E opens the editor', async ({ page }) => {
+		const backend = await mockBackend(page);
+		await openLibraryDetails(page);
+
+		await page.keyboard.press('f');
+		await expect.poll(() => backend.writes).toEqual([{ id: 'lib-1', is_favorite: true }]);
+		await expect(bar(page).getByRole('button', { name: 'Favorite' })).toHaveAttribute('aria-pressed', 'true');
+
+		await page.keyboard.press('e');
+		await expect(editor(page)).toBeVisible();
+	});
+
+	test('the letters do nothing while a bar menu is open above the details', async ({ page }) => {
+		const backend = await mockBackend(page);
+		await openLibraryDetails(page);
+		await openMenu(page, 'More');
+
+		await page.keyboard.press('f');
+
+		expect(backend.writes).toEqual([]);
+	});
+
+	test('E on the History grid opens Edit image for the one selected image', async ({ page }) => {
+		await mockBackend(page);
+		await page.goto('/history');
+		const cards = page.locator('[data-generation-card]');
+		await expect(cards).toHaveCount(2);
+		const target = page.locator('[data-generation-card][data-generation-id="gen-1"]');
+		await target.hover();
+		await target.getByRole('button', { name: 'Select generation' }).click();
+
+		await page.keyboard.press('e');
+
+		await expect(editor(page)).toBeVisible();
+	});
+
+	test('E on the Library grid opens Edit image for the one selected image', async ({ page }) => {
+		await mockBackend(page);
+		await page.goto('/library');
+		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
+		await card.hover();
+		await card.getByRole('button', { name: 'Select item' }).click();
+
+		await page.keyboard.press('e');
+
+		await expect(editor(page)).toBeVisible();
+	});
+
+	test('E in an open card menu runs the Edit image row', async ({ page }) => {
+		await mockBackend(page);
+		await page.goto('/library');
+		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });
+		await card.hover();
+		await card.getByRole('button', { name: 'Item actions' }).click();
+		await expect(page.locator('[data-tools-menu]')).toBeVisible();
+
+		await page.keyboard.press('e');
+
+		await expect(editor(page)).toBeVisible();
+	});
+});

@@ -37,7 +37,7 @@ const { libraryStore } = await import('$lib/stores/library');
 const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 const { unregisterMediaTools } = await import('$lib/tools/tools');
 const { default: LibraryItemModal } = await import(
-	'../../src/routes/library/components/LibraryItemModal.svelte'
+	'../../src/lib/components/library/LibraryItemModal.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
@@ -384,3 +384,88 @@ async function libraryStoreLoad(items: Record<string, unknown>[]) {
 	} as never);
 	await libraryStore.load();
 }
+
+describe('LibraryItemModal letter shortcuts', () => {
+	const press = (key: string, target: EventTarget = window, init: KeyboardEventInit = {}) => {
+		target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
+	};
+
+	it('E opens the image editor, as the Edit image hint says', async () => {
+		mount(image);
+		await settle();
+
+		press('e');
+		await settle();
+
+		expect(document.body.querySelector('[data-editor-stub]')?.getAttribute('data-kind')).toBe('paint');
+	});
+
+	it('D downloads the file', async () => {
+		const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+		mount(image);
+		await settle();
+
+		press('d');
+
+		expect(click).toHaveBeenCalledTimes(1);
+		click.mockRestore();
+	});
+
+	it('F toggles the favorite', async () => {
+		const toggle = vi.spyOn(libraryStore, 'setItemFavorite').mockResolvedValue(true);
+		mount(image);
+		await settle();
+
+		press('f');
+
+		expect(toggle).toHaveBeenCalledWith('row-1', true);
+		toggle.mockRestore();
+	});
+
+	it('does nothing for E on a clip', async () => {
+		mount(clip);
+		await settle();
+
+		press('e');
+		await settle();
+
+		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+	});
+
+	it('does nothing while typing in a field', async () => {
+		mount(image);
+		await settle();
+		const input = document.createElement('input');
+		document.body.appendChild(input);
+		input.focus();
+
+		press('e', input);
+		await settle();
+
+		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+	});
+
+	it('does nothing while a bar menu is open above the details', async () => {
+		mount(image);
+		await settle();
+		await menuLabels('more');
+
+		press('e');
+		await settle();
+
+		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+	});
+
+	it('does nothing while the delete dialog is open above the details', async () => {
+		const { registerDismissLayer, unregisterDismissLayer } = await import('$lib/actions/layerStack');
+		mount(image);
+		await settle();
+		const layer = registerDismissLayer({ node: document.createElement('div') });
+
+		press('e');
+		await settle();
+		unregisterDismissLayer(layer);
+
+		expect(document.body.querySelector('[data-editor-stub]')).toBeNull();
+	});
+});

@@ -469,7 +469,7 @@ describe('generated media', () => {
 			const target = open(onClose);
 			await settle();
 
-			expect(target.textContent).toContain('Saved as a new Library item. The generation stays as it is.');
+			expect(target.textContent).toContain('Saves a copy to your Library. The generation is not changed.');
 			buttonByText(target, 'Cancel')!.click();
 			await settle();
 
@@ -531,7 +531,7 @@ describe('generated media', () => {
 
 			expect(copyGenerationFileToLibrary).not.toHaveBeenCalled();
 			expect(deleteLibraryItem).not.toHaveBeenCalled();
-			expect(target.textContent).not.toContain('Saved as a new Library item');
+			expect(target.textContent).not.toContain('Saves a copy to your Library');
 		});
 	});
 });
@@ -956,8 +956,8 @@ describe('the footer every editor shares with the media tool dialog', () => {
 		await settle();
 
 		expect(seg(target)).toBeNull();
-		expect(footer(target).querySelector('[data-tool-note]')?.textContent).toBe('Saved as a new Library item. The generation stays as it is.');
-		expect(target.textContent!.split('Saved as a new Library item. The generation stays as it is.')).toHaveLength(2);
+		expect(footer(target).querySelector('[data-tool-note]')?.textContent).toBe('Saves a copy to your Library. The generation is not changed.');
+		expect(target.textContent!.split('Saves a copy to your Library. The generation is not changed.')).toHaveLength(2);
 	});
 
 	it.each(['crop', 'trim', 'resize', 'frame', 'split'] as const)('shows the field note and no choice on %s when the editor is opened for a field', async (kind) => {

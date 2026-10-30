@@ -75,6 +75,7 @@ export interface EditedMediaItem {
 	fps?: number;
 	size?: number;
 	created_at?: string;
+	source_generation_id?: string | null;
 }
 
 /** Mirrors `UploadListResult` (src/features/media/dto.py). */

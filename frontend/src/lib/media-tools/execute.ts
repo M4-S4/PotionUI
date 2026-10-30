@@ -1,6 +1,7 @@
 import { goto } from '$app/navigation';
 import { toasts } from '$lib/stores/toast';
 import { rememberToolParams } from './catalog';
+import { emitRunStarted } from './runEvents';
 import type { AnnounceOptions, AnnounceSetting } from './announce';
 import { mediaToolRuns, type MediaToolRunOutcome, type MediaToolRunsStore, type RunHandle } from './runs';
 import type {
@@ -49,7 +50,14 @@ export function announceOutcome(outcome: MediaToolRunOutcome, options: AnnounceO
 				: undefined
 		});
 	} else if (outcome.status === 'failed') {
-		toasts.show('error', outcome.message, { title: 'Edit failed' });
+		toasts.show(
+			'error',
+			options.retry ? `${options.label ?? 'The edit'} failed. Your settings are kept.` : outcome.message,
+			{
+				title: options.retry ? outcome.message : 'Edit failed',
+				action: options.retry ? { label: 'Try again', onClick: options.retry } : undefined
+			}
+		);
 	} else {
 		toasts.show('info', 'Nothing was saved.', { title: 'Edit cancelled' });
 	}
@@ -68,17 +76,21 @@ export async function executeMediaTool(options: ExecuteOptions): Promise<RunHand
 		}
 	});
 	const setting = options.announce ?? false;
-	const full = setting !== false && setting !== 'failures';
+	const quiet = typeof setting === 'object' && setting.quietSuccess === true;
+	const full = setting !== false && setting !== 'failures' && !quiet;
 	if (full) announceStart(options.label, options.mode);
 
 	const done = handle.done.then((outcome) => {
 		if (outcome.status === 'completed' && options.steps.length === 1) {
 			rememberToolParams(options.steps[0].tool, options.steps[0].params);
 		}
+		if (outcome.status === 'failed') rememberToolParams(options.steps[0].tool, options.steps[0].params);
 		if (setting !== false) {
-			announceOutcome(outcome, typeof setting === 'object' ? setting : {}, !full);
+			announceOutcome(outcome, typeof setting === 'object' ? { ...setting, label: options.label } : {}, !full);
 		}
 		return outcome;
 	});
-	return { runId: handle.runId, done };
+	const started = { runId: handle.runId, done };
+	emitRunStarted(started);
+	return started;
 }

@@ -173,13 +173,17 @@
 		all[(index + all.length) % all.length]?.focus();
 	}
 
+	function visibleEntries(): ToolEntry[] {
+		if (submenu === 'collection') return [];
+		if (submenu === 'edit' || submenu === 'effects') return submenuTools[submenu];
+		return topGroups.flatMap((group) => group.tools);
+	}
+
 	function acceleratorTarget(key: string): MediaTool | null {
-		for (const group of groups) {
-			for (const { tool, availability } of group.tools) {
-				const shortcut = tool.shortcut;
-				if (!shortcut || shortcut === 'Enter' || !availability.enabled) continue;
-				if (shortcut.toLowerCase() === key.toLowerCase()) return tool;
-			}
+		for (const { tool, availability } of visibleEntries()) {
+			const shortcut = tool.shortcut;
+			if (!shortcut || !availability.enabled) continue;
+			if (shortcut.toLowerCase() === key.toLowerCase()) return tool;
 		}
 		return null;
 	}
@@ -191,19 +195,12 @@
 			closeSubmenu();
 			return;
 		}
-		if (
-			(variant === 'entry' || variant === 'bar') &&
-			!event.ctrlKey &&
-			!event.metaKey &&
-			!event.altKey &&
-			!submenu &&
-			!isTypingInField(event)
-		) {
+		if (!event.ctrlKey && !event.metaKey && !event.altKey && !isTypingInField(event)) {
 			const target = acceleratorTarget(event.key);
 			if (target) {
 				event.preventDefault();
+				event.stopPropagation();
 				pick(target, true);
-				return;
 			}
 		}
 	}

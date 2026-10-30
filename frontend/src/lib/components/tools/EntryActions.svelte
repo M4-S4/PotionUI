@@ -13,7 +13,6 @@
 		onPick,
 		favorite = null,
 		onFavorite,
-		favoriteInRow = true,
 		chipSize = 26
 	}: {
 		scope: MediaToolScope;
@@ -21,7 +20,6 @@
 		onPick: (tool: MediaTool, ctx: MediaToolContext, extra?: ToolRunExtra) => void;
 		favorite?: boolean | null;
 		onFavorite?: () => void;
-		favoriteInRow?: boolean;
 		chipSize?: number;
 	} = $props();
 
@@ -73,7 +71,7 @@
 </script>
 
 <div class="absolute top-2 right-2 z-30 flex items-center gap-1" data-entry-actions>
-	{#if favorite !== null && favoriteInRow}
+	{#if favorite !== null}
 		<Tooltip text={favorite ? 'Remove favorite' : 'Favorite'} position="bottom" delay={150}>
 			<button
 				type="button"

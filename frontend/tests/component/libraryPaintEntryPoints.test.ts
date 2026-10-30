@@ -47,7 +47,7 @@ const { api } = await import('$lib/services/api/index');
 const { libraryStore } = await import('$lib/stores/library');
 const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 const { unregisterMediaTools, buildLibraryToolContext } = await import('$lib/tools/tools');
-const { default: LibraryItemModal } = await import('../../src/routes/library/components/LibraryItemModal.svelte');
+const { default: LibraryItemModal } = await import('../../src/lib/components/library/LibraryItemModal.svelte');
 const { default: HistoryEditImageModal } = await import(
 	'../../src/routes/history/components/HistoryEditImageModal.svelte'
 );

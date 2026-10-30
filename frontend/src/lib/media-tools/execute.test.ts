@@ -289,6 +289,32 @@ describe('announce settings', () => {
 		expect(toastMessages()).toEqual([]);
 	});
 
+	it('says nothing on success with quiet success, and no start toast', async () => {
+		await run({ quietSuccess: true });
+		expect(toastMessages()).toEqual([]);
+	});
+
+	it('names the tool, keeps the reason as the title and offers Try again when a retry is given', async () => {
+		const failed: MediaToolRun = { run_id: 'run-1', status: 'failed', progress: 0, label: '', items: [], replaced: false, error: { code: 'x', message: 'The encoder stopped' } };
+		const retry = vi.fn();
+		await run({ quietSuccess: true, retry }, failed);
+
+		const [toast] = get(toasts);
+		expect(toast).toMatchObject({ type: 'error', message: 'Speed failed. Your settings are kept.', title: 'The encoder stopped' });
+		expect(toast.action?.label).toBe('Try again');
+		toast.action!.onClick();
+		expect(retry).toHaveBeenCalledTimes(1);
+	});
+
+	it('is quiet about a cancel with no retry on offer', async () => {
+		const cancelled: MediaToolRun = { run_id: 'run-1', status: 'cancelled', progress: 0, label: '', items: [], replaced: false, error: null };
+		await run({ quietSuccess: true, retry: vi.fn() }, cancelled);
+
+		const [toast] = get(toasts);
+		expect(toast).toMatchObject({ type: 'info', title: 'Edit cancelled' });
+		expect(toast.action).toBeUndefined();
+	});
+
 	it('does not put the link on an original that was replaced', async () => {
 		await run(SAVED_TO_LIBRARY_ANNOUNCE, completed({ replaced: true }));
 		const success = get(toasts).filter((entry) => entry.type === 'success');
