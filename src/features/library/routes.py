@@ -79,9 +79,11 @@ class LibraryController(BaseController):
         return self.success_response(data=result.model_dump())
 
     @guarded(fallback=Fail("facets_failed", "Failed to get library facets", 400))
-    async def get_facets(self, current_user) -> APIResponse:
+    async def get_facets(self, current_user, favorites_only: bool = False) -> APIResponse:
         """Per-media-type counts for the current user's library."""
-        facets = await asyncio.to_thread(operations.get_facets, self.collaborators, current_user.id)
+        facets = await asyncio.to_thread(
+            operations.get_facets, self.collaborators, current_user.id, favorites_only
+        )
         return self.success_response(data=facets.model_dump())
 
     @guarded({ValueError: Fail("not_found", status=404)}, Fail("get_failed", "Failed to get library item", 400))
@@ -216,10 +218,11 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.get("/facets", response_model=APIResponse, summary="Library Facets")
     async def get_facets(
+        favorites_only: bool = Query(False, description="Count favorite items only"),
         current_user=Depends(get_current_active_user)
     ) -> APIResponse:
         """Per-media-type counts for the current user's library."""
-        return await controller.get_facets(current_user)
+        return await controller.get_facets(current_user, favorites_only)
 
     @router.post("/items/from-generation", response_model=APIResponse, summary="Copy Generated File Into Library")
     async def copy_from_generation(

@@ -78,8 +78,10 @@ export function createLibraryApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getLibraryFacets(): Promise<APIResponse<LibraryFacets>> {
-			const response = await client.get('/api/library/facets');
+		async getLibraryFacets(favoritesOnly = false): Promise<APIResponse<LibraryFacets>> {
+			const response = await client.get('/api/library/facets', {
+				params: favoritesOnly ? { favorites_only: true } : undefined
+			});
 			return response.data;
 		},
 

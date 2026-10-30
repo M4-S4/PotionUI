@@ -98,6 +98,8 @@ function createLibraryStore() {
 		return state;
 	}
 
+	let facetsFavoritesOnly = false;
+
 	async function load(opts?: { silent?: boolean }) {
 		if (!opts?.silent) update((state) => ({ ...state, loading: true }));
 
@@ -116,12 +118,27 @@ function createLibraryStore() {
 					freshIds: [],
 					placedIds: []
 				}));
+				if (!!filters.favoritesOnly !== facetsFavoritesOnly) await loadFacets();
 			} else {
 				update((state) => ({ ...state, loading: false }));
 			}
 		} catch (error) {
 			logger.error('Failed to load library items:', getErrorMessage(error));
 			update((state) => ({ ...state, loading: false }));
+		}
+	}
+
+	async function loadFacets() {
+		const favoritesOnly = !!snapshot().filters.favoritesOnly;
+		try {
+			const response = await api.getLibraryFacets(favoritesOnly);
+			if (response.success && response.data) {
+				const counts = response.data.media_types ?? {};
+				facetsFavoritesOnly = favoritesOnly;
+				update((state) => ({ ...state, mediaTypeCounts: counts }));
+			}
+		} catch (error) {
+			logger.error('Failed to load library facets:', getErrorMessage(error));
 		}
 	}
 
@@ -142,17 +159,7 @@ function createLibraryStore() {
 
 		load,
 
-		async loadFacets() {
-			try {
-				const response = await api.getLibraryFacets();
-				if (response.success && response.data) {
-					const counts = response.data.media_types ?? {};
-					update((state) => ({ ...state, mediaTypeCounts: counts }));
-				}
-			} catch (error) {
-				logger.error('Failed to load library facets:', getErrorMessage(error));
-			}
-		},
+		loadFacets,
 
 		async loadTags() {
 			try {
@@ -378,7 +385,10 @@ function createLibraryStore() {
 				return false;
 			}
 
-			if (!isFavorite && snapshot().filters.favoritesOnly) await reloadAfterRemoval(1);
+			if (!isFavorite && snapshot().filters.favoritesOnly) {
+				await reloadAfterRemoval(1);
+				await loadFacets();
+			}
 			await libraryCollectionsStore.load();
 			return true;
 		},
@@ -556,6 +566,7 @@ function createLibraryStore() {
 		},
 
 		reset() {
+			facetsFavoritesOnly = false;
 			set({ ...initialState, filters: { ...DEFAULT_LIBRARY_FILTERS } });
 		}
 	};

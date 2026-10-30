@@ -158,6 +158,18 @@ class TestLibraryRoutes(LibraryRoutesTestBase):
 
         self.assertEqual(response.json()["data"]["media_types"], {"image": 1, "video": 1})
 
+    def test_facets_count_favorites_only_when_asked(self):
+        favorite = self._upload(filename="a.png", media_type="image")
+        self._upload(filename="b.png", media_type="image")
+        self._upload(filename="c.mp4", media_type="video")
+        self.client.put(f"/api/library/items/{favorite.id}/favorite", json={"is_favorite": True})
+
+        response = self.client.get("/api/library/facets", params={"favorites_only": "true"})
+
+        self.assertEqual(response.json()["data"]["media_types"], {"image": 1})
+        everything = self.client.get("/api/library/facets")
+        self.assertEqual(everything.json()["data"]["media_types"], {"image": 2, "video": 1})
+
 
 class TestLibraryDeleteByCriteriaRoutes(LibraryRoutesTestBase):
 
