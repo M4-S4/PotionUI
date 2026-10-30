@@ -671,7 +671,7 @@ class _FakeFit:
 
 
 def _fit_tokens(monkeypatch, resident_tokens, activation_tokens=None):
-    monkeypatch.setattr(f"{_MAIN}.sequence_fit", lambda dit, device: _FakeFit(resident_tokens, activation_tokens))
+    monkeypatch.setattr(f"{_MAIN}.sequence_fit", lambda dit, device, **terms: _FakeFit(resident_tokens, activation_tokens))
 
 
 def _tokens_64(frames):
