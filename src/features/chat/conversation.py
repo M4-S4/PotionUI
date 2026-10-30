@@ -21,7 +21,7 @@ from src.features.chat.exceptions import (
 from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
-from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
+from src.features.chat.reply_contract import approval_continuation_message, continuation_nudge
 from src.features.chat.history import replayed_history
 from src.features.chat.thinking import ReasoningCapture, config_shows_thinking
 from src.features.llm import context_budget, trace_collector
@@ -411,7 +411,7 @@ class ConversationRunner:
             allowed_tools=tuple(allowed_tools) if allowed_tools is not None else None,
             deferred_tools={group: tuple(names) for group, names in (deferred_tools or {}).items()},
             max_rounds=_MAX_TOOL_ROUNDS,
-            iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
+            iteration_nudge=continuation_nudge(mode.structured_reply),
             mode=mode.id,
             turn_id=turn_id,
             tools_in_use=paused.snapshot.tools if paused is not None else self._m.turn_engine.previous_tools(session_id),

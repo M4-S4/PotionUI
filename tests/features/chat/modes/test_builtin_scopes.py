@@ -16,7 +16,13 @@ from src.features.chat.modes import (
     build_prompts_mode,
 )
 from src.features.chat.context_builder import ChatContextBuilder
-from src.features.chat.reply_contract import REPLY_CONTRACT_PROMPT_BLOCK, REPLY_CONTRACT_REMINDER
+from src.features.chat.reply_contract import (
+    ACTION_CONTINUATION_NUDGE,
+    REPLY_CONTRACT_PROMPT_BLOCK,
+    REPLY_CONTRACT_REMINDER,
+    TOOL_LOOP_CONTINUATION_NUDGE,
+    continuation_nudge,
+)
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
 
@@ -86,6 +92,16 @@ class TestHistoryModeReplyContract:
         prompt = registry.resolve_system_prompt(build_history_mode(), "", ["organize_gallery"])
         assert REPLY_CONTRACT_PROMPT_BLOCK not in prompt
         assert "## improved" not in prompt
+
+    def test_history_keeps_the_action_nudge_without_prompt_writing_wording(self):
+        nudge = continuation_nudge(build_history_mode().structured_reply)
+        assert nudge == ACTION_CONTINUATION_NUDGE
+        assert "call the next tool NOW" in nudge
+        assert "tool_action" not in nudge
+        assert "prompt" not in nudge
+
+    def test_generation_keeps_the_full_nudge(self):
+        assert continuation_nudge(build_generation_mode().structured_reply) == TOOL_LOOP_CONTINUATION_NUDGE
 
     def test_generation_prompt_keeps_the_contract(self):
         registry = ChatModeRegistry()

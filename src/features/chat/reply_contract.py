@@ -73,6 +73,16 @@ TOOL_LOOP_CONTINUATION_NUDGE = (
     "just a bullet describing it."
 )
 
+ACTION_CONTINUATION_NUDGE = (
+    "If the task is not finished, call the next tool NOW, in this same "
+    "response. Never end a reply announcing an action you have not "
+    "performed."
+)
+
+
+def continuation_nudge(structured_reply: bool) -> str:
+    return TOOL_LOOP_CONTINUATION_NUDGE if structured_reply else ACTION_CONTINUATION_NUDGE
+
 
 APPROVAL_CONTINUATION_TEMPLATE = (
     "The user just resolved the pending `{tool_name}` tool call (id {tool_call_id}); "

@@ -1132,11 +1132,11 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
         assert kwargs["iteration_nudge"] == TOOL_LOOP_CONTINUATION_NUDGE
 
     @pytest.mark.asyncio
-    async def test_tools_path_omits_iteration_nudge_for_non_structured_reply_mode(self):
+    async def test_tools_path_passes_action_only_nudge_for_non_structured_reply_mode(self):
         """A mode that opts out of the reply contract (structured_reply=False)
-        already governs its own output shape -- it must not receive this
-        nudge either."""
-        from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE
+        still runs tools, so it keeps the action nudge without the
+        prompt-writing wording."""
+        from src.features.chat.reply_contract import ACTION_CONTINUATION_NUDGE, TOOL_LOOP_CONTINUATION_NUDGE
 
         te = self._make_tool_execution("get_data")
         session, mock_tool_executor = self._setup_tools_session([te])
@@ -1151,7 +1151,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
         )
 
         kwargs = self.engine.call_kwargs
-        assert kwargs["iteration_nudge"] is None
+        assert kwargs["iteration_nudge"] == ACTION_CONTINUATION_NUDGE
         assert kwargs["iteration_nudge"] != TOOL_LOOP_CONTINUATION_NUDGE
 
 
