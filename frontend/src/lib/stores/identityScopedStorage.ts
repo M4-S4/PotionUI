@@ -63,8 +63,12 @@ function listKeys(): string[] {
 	return keys;
 }
 
-function hasStorage(): boolean {
-	return typeof localStorage !== 'undefined';
+export function hasStorage(): boolean {
+	try {
+		return typeof localStorage !== 'undefined' && localStorage !== null;
+	} catch {
+		return false;
+	}
 }
 
 export function readActiveIdentity(): string {
@@ -98,18 +102,26 @@ export function migrateLegacyIdentityKeys(userId: string): void {
 
 export function hasIdentityState(userId: string): boolean {
 	if (!hasStorage()) return false;
-	const keys = listKeys();
-	return keysToPurge(keys).length > 0 || namespacedKeys(keys, userId).length > 0;
+	try {
+		const keys = listKeys();
+		return keysToPurge(keys).length > 0 || namespacedKeys(keys, userId).length > 0;
+	} catch {
+		return false;
+	}
 }
 
 export function removeIdentityKeys(userId: string): void {
 	if (!hasStorage()) return;
-	for (const key of namespacedKeys(listKeys(), userId)) localStorage.removeItem(key);
+	try {
+		for (const key of namespacedKeys(listKeys(), userId)) localStorage.removeItem(key);
+	} catch {}
 }
 
 export function removeAllIdentityKeys(): void {
 	if (!hasStorage()) return;
-	for (const key of namespacedKeys(listKeys())) localStorage.removeItem(key);
+	try {
+		for (const key of namespacedKeys(listKeys())) localStorage.removeItem(key);
+	} catch {}
 }
 
 let migratedFor: string | null = null;
@@ -118,7 +130,9 @@ function scopedKey(base: string): string {
 	const userId = readActiveIdentity();
 	if (migratedFor !== userId) {
 		migratedFor = userId;
-		migrateLegacyIdentityKeys(userId);
+		try {
+			migrateLegacyIdentityKeys(userId);
+		} catch {}
 	}
 	return identityKey(base, userId);
 }
@@ -126,15 +140,23 @@ function scopedKey(base: string): string {
 export const scopedStorage = {
 	get(base: string): string | null {
 		if (!hasStorage()) return null;
-		return localStorage.getItem(scopedKey(base));
+		try {
+			return localStorage.getItem(scopedKey(base));
+		} catch {
+			return null;
+		}
 	},
 	set(base: string, value: string): void {
 		if (!hasStorage()) return;
-		localStorage.setItem(scopedKey(base), value);
+		try {
+			localStorage.setItem(scopedKey(base), value);
+		} catch {}
 	},
 	remove(base: string): void {
 		if (!hasStorage()) return;
-		localStorage.removeItem(scopedKey(base));
+		try {
+			localStorage.removeItem(scopedKey(base));
+		} catch {}
 	},
 	getJSON<T>(base: string): T | null {
 		const raw = scopedStorage.get(base);

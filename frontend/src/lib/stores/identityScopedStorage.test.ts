@@ -6,6 +6,7 @@ import {
 	namespacedKeys,
 	identityKey,
 	hasIdentityState,
+	hasStorage,
 	removeIdentityKeys,
 	scopedStorage,
 	LAST_USER_ID_KEY
@@ -111,5 +112,46 @@ describe('tab draft keys are identity scoped', () => {
 		expect(hasIdentityState('user-a')).toBe(true);
 		removeIdentityKeys('user-a');
 		expect(data.has(identityKey(TAB_DRAFT_OUTBOX_KEY, 'user-a'))).toBe(false);
+	});
+});
+
+describe('when the browser refuses storage', () => {
+	function refuseStorage() {
+		const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+		Object.defineProperty(globalThis, 'localStorage', {
+			configurable: true,
+			get() {
+				throw new DOMException('blocked', 'SecurityError');
+			}
+		});
+		return {
+			mockRestore() {
+				if (original) Object.defineProperty(globalThis, 'localStorage', original);
+				else delete (globalThis as { localStorage?: unknown }).localStorage;
+			}
+		};
+	}
+
+	it('reports no storage instead of throwing', () => {
+		const spy = refuseStorage();
+		expect(hasStorage()).toBe(false);
+		spy.mockRestore();
+	});
+
+	it('reads, writes and removes scoped keys as no-ops', () => {
+		const spy = refuseStorage();
+		expect(scopedStorage.get('k')).toBeNull();
+		expect(() => scopedStorage.set('k', 'v')).not.toThrow();
+		expect(() => scopedStorage.remove('k')).not.toThrow();
+		expect(scopedStorage.getJSON('k')).toBeNull();
+		expect(() => scopedStorage.setJSON('k', { a: 1 })).not.toThrow();
+		spy.mockRestore();
+	});
+
+	it('has no identity state and removes nothing', () => {
+		const spy = refuseStorage();
+		expect(hasIdentityState('user-a')).toBe(false);
+		expect(() => removeIdentityKeys('user-a')).not.toThrow();
+		spy.mockRestore();
 	});
 });

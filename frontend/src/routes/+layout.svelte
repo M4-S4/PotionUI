@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto, afterNavigate } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import { storage } from '$lib/utils/storage';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
 	import { installLimitsWatcher, refreshLimits, resetLimitsState } from '$lib/plans/store';
@@ -51,7 +52,7 @@
 		printStartupBanner();
 		themeStore.init();
 		initPwaInstall();
-		installDismissed = localStorage.getItem('potionui-install-dismissed') === '1';
+		installDismissed = storage.get('potionui-install-dismissed') === '1';
 		return () => {
 			stopCrossTab();
 			stopInputModality();
@@ -60,7 +61,7 @@
 
 	function dismissInstallPrompt() {
 		installDismissed = true;
-		localStorage.setItem('potionui-install-dismissed', '1');
+		storage.set('potionui-install-dismissed', '1');
 	}
 
 	async function initializeAuthenticatedRuntime() {

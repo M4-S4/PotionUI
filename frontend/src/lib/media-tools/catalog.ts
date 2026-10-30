@@ -12,10 +12,14 @@ let loaded = false;
 let loading: Promise<ToolDTO[]> | null = null;
 let unwatch: (() => void) | null = null;
 let warnedMissingRunnable = false;
+let fetchedAt = 0;
+
+export const CATALOG_FRESH_MS = 3000;
 
 function publish(tools: ToolDTO[]) {
 	catalog.set(tools);
 	loaded = true;
+	fetchedAt = Date.now();
 	mediaToolCatalogRevision.update((tick) => tick + 1);
 }
 
@@ -42,6 +46,7 @@ async function watchPluginChanges() {
 				first = false;
 				return;
 			}
+			if (Date.now() - fetchedAt < CATALOG_FRESH_MS) return;
 			void refreshMediaToolCatalog();
 		});
 	} catch (error) {
@@ -74,6 +79,7 @@ export function resetMediaToolCatalog(tools: ToolDTO[] = []) {
 	unwatch = null;
 	loading = null;
 	loaded = false;
+	fetchedAt = 0;
 	warnedMissingRunnable = false;
 	catalog.set(tools);
 	mediaToolCatalogRevision.set(0);

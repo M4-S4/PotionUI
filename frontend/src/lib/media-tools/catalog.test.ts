@@ -16,6 +16,7 @@ import {
 	mediaToolCatalog,
 	mediaToolCatalogRevision,
 	refreshMediaToolCatalog,
+	CATALOG_FRESH_MS,
 	rememberToolParams,
 	selectionBounds,
 	resetMediaToolCatalog,
@@ -101,13 +102,30 @@ describe('loading', () => {
 	});
 
 	it('reloads when the plugin set changes, and not for the initial value', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] });
+		try {
+			listMediaTools.mockResolvedValue(ALL);
+			await loadMediaToolCatalog();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(listMediaTools).toHaveBeenCalledTimes(1);
+
+			vi.setSystemTime(Date.now() + CATALOG_FRESH_MS + 1);
+			extensionRegistrations.set(1);
+			await vi.waitFor(() => expect(listMediaTools).toHaveBeenCalledTimes(2));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it('ignores a plugin snapshot that lands right after the catalog was fetched', async () => {
 		listMediaTools.mockResolvedValue(ALL);
 		await loadMediaToolCatalog();
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		expect(listMediaTools).toHaveBeenCalledTimes(1);
 
 		extensionRegistrations.set(1);
-		await vi.waitFor(() => expect(listMediaTools).toHaveBeenCalledTimes(2));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		expect(listMediaTools).toHaveBeenCalledTimes(1);
 	});
 });
 

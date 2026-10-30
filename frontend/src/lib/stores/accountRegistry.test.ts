@@ -11,6 +11,7 @@ import {
 	normalizeRegistry,
 	parseRegistry,
 	removeAccount,
+	saveRegistry,
 	setActive,
 	upsertAccount,
 	type AccountProfile,
@@ -178,5 +179,23 @@ describe('parseRegistry', () => {
 		const parsed = parseRegistry(raw, NOW);
 		expect(parsed.accounts.map((a) => a.userId)).toEqual(['u1']);
 		expect(parsed.activeId).toBeNull();
+	});
+});
+
+describe('saveRegistry when the browser refuses storage', () => {
+	it('does not throw', () => {
+		const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+		Object.defineProperty(globalThis, 'localStorage', {
+			configurable: true,
+			get() {
+				throw new DOMException('blocked', 'SecurityError');
+			}
+		});
+		try {
+			expect(() => saveRegistry(emptyRegistry())).not.toThrow();
+		} finally {
+			if (original) Object.defineProperty(globalThis, 'localStorage', original);
+			else delete (globalThis as { localStorage?: unknown }).localStorage;
+		}
 	});
 });
