@@ -1,19 +1,34 @@
 import asyncio
 import json
+from dataclasses import dataclass
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from PIL import Image
 
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.orchestrator import GenerationOrchestrator
+from src.features.generation.output_types import OutputTypeRegistry, OutputTypeSpec
 from src.features.generation.routes import GenerationController
 from src.features.generation.status_tracker import GenerationStatusTracker
 from src.pipelines.outputs import (
+    CompareImagesGenerationOutput,
+    ComfyUIWorkflowGenerationOutput,
     CostGenerationOutput,
+    DiffTextGenerationOutput,
     ErrorGenerationOutput,
+    GenerationOutput,
+    ImageGenerationOutput,
+    ModelFileGenerationOutput,
+    ModelGenerationOutput,
+    ModelsGenerationOutput,
     ProgressGenerationOutput,
+    RenderedPromptGenerationOutput,
+    SeedGenerationOutput,
+    TextGenerationOutput,
+    WarmStartGenerationOutput,
 )
 from src.platform.websocket.connection_hub import ConnectionHub
 
@@ -29,10 +44,10 @@ class _Socket:
         self.sent.append(json.loads(text))
 
 
-async def _subscribe(hub, client_id, generation_id):
+async def _subscribe(hub, client_id, generation_id, privileged=False):
     socket = _Socket()
     await hub.connect(socket, client_id)
-    await hub.subscribe_to_generation(client_id, generation_id)
+    await hub.subscribe_to_generation(client_id, generation_id, privileged=privileged)
     return socket
 
 
@@ -229,3 +244,92 @@ async def test_cancelled_is_not_broadcast_for_an_unknown_generation():
     await broadcaster.broadcast_cancelled("other")
 
     assert socket.sent == []
+
+
+MODEL_PATH = "/srv/potion/models/diffusion_models/secret_dit_fp16.safetensors"
+
+
+def _report_only_artifact(kind):
+    image = Image.new("RGB", (4, 4))
+    return {
+        "models": lambda: ModelsGenerationOutput(models=[ModelGenerationOutput(name=MODEL_PATH, type="checkpoint")]),
+        "diff_text": lambda: DiffTextGenerationOutput(index=0, name="Positive Prompt", diff="a cat in the rain"),
+        "seed": lambda: SeedGenerationOutput(index=0, seed=424242),
+        "rendered_prompt": lambda: RenderedPromptGenerationOutput(index=0, positive="a cat in the rain"),
+        "warm_start": lambda: WarmStartGenerationOutput(index=0, resume_step=3, total_steps=20, steps_skipped=3, similarity=0.9),
+        "compare_images": lambda: CompareImagesGenerationOutput(index=0, compare=("Before", image), to=("After", image)),
+        "workflow": lambda: ComfyUIWorkflowGenerationOutput(workflow={"1": {"inputs": {"ckpt_name": MODEL_PATH}}}, workflow_file=MODEL_PATH),
+        "image": lambda: ImageGenerationOutput(image=image, isArtifact=True, label="Control Image"),
+    }[kind]()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["models", "diff_text", "seed", "rendered_prompt", "warm_start", "compare_images", "workflow", "image"],
+)
+async def test_a_diagnostic_artifact_goes_to_the_run_report_and_never_to_a_subscriber(kind):
+    broadcaster, hub, recorder = _broadcaster()
+    user = await _subscribe(hub, "user", "gen-1")
+    admin = await _subscribe(hub, "admin", "gen-1", privileged=True)
+
+    await broadcaster.handle_output("gen-1", _report_only_artifact(kind))
+
+    assert user.sent == []
+    assert admin.sent == []
+    recorded = recorder.record_output.call_args[0][1]
+    assert recorded["type"] == "pipe_artifact"
+    assert recorded["artifact_type"] == kind
+
+
+@pytest.mark.asyncio
+async def test_the_run_report_keeps_the_model_paths_an_admin_reads():
+    broadcaster, hub, recorder = _broadcaster()
+    await _subscribe(hub, "user", "gen-1")
+
+    await broadcaster.handle_output("gen-1", _report_only_artifact("models"))
+
+    recorded = recorder.record_output.call_args[0][1]
+    assert recorded["artifact_data"]["models"][0]["name"] == MODEL_PATH
+
+
+@pytest.mark.asyncio
+async def test_text_and_model_file_artifacts_still_stream_without_server_paths():
+    broadcaster, hub, _ = _broadcaster()
+    user = await _subscribe(hub, "user", "gen-1")
+    admin = await _subscribe(hub, "admin", "gen-1", privileged=True)
+
+    await broadcaster.handle_output("gen-1", TextGenerationOutput(title="Caption", text="a cat"))
+    await broadcaster.handle_output(
+        "gen-1", ModelFileGenerationOutput(path=MODEL_PATH, size_bytes=1, format="fp8"),
+    )
+
+    for socket in (user, admin):
+        assert [m["artifact_type"] for m in socket.sent] == ["text", "model_file"]
+        assert socket.sent[1]["artifact_data"]["file_name"] == "secret_dit_fp16.safetensors"
+        assert "/srv/" not in json.dumps(socket.sent)
+
+
+@dataclass
+class _PluginArtifactOutput(GenerationOutput):
+    note: str = ""
+
+
+@pytest.mark.asyncio
+async def test_a_plugin_artifact_type_is_report_only_unless_it_opts_in():
+    registry = OutputTypeRegistry()
+    registry.register(OutputTypeSpec(
+        output_cls=_PluginArtifactOutput,
+        key="plugin_artifact",
+        message_type="pipe_artifact",
+        serializer=lambda output, ctx: {"artifact_type": "plugin_artifact", "artifact_data": {"note": output.note}},
+    ))
+    broadcaster, hub, recorder = _broadcaster()
+    user = await _subscribe(hub, "user", "gen-1")
+
+    with patch("src.features.generation.output_broadcaster.output_type_registry", registry), \
+            patch("src.features.generation.output_serializer.output_type_registry", registry):
+        await broadcaster.handle_output("gen-1", _PluginArtifactOutput(note=MODEL_PATH))
+
+    assert user.sent == []
+    assert recorder.record_output.call_args[0][1]["artifact_type"] == "plugin_artifact"

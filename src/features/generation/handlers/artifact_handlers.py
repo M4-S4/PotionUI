@@ -342,6 +342,7 @@ output_type_registry.register(OutputTypeSpec(
     key='text',
     message_type='pipe_artifact',
     serializer=serialize_text_output,
+    live_artifact=True,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -350,4 +351,5 @@ output_type_registry.register(OutputTypeSpec(
     message_type='pipe_artifact',
     serializer=serialize_model_file_output,
     handler_cls=ModelFileGenerationOutputHandler,
+    live_artifact=True,
 ))

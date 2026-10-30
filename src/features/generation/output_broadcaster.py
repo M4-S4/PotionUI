@@ -56,6 +56,10 @@ class GenerationOutputBroadcaster:
         )
 
     @staticmethod
+    def _report_only(output: GenerationOutput, message: dict) -> bool:
+        return message.get('type') == 'pipe_artifact' and not output_type_registry.is_live_artifact(output)
+
+    @staticmethod
     def _is_video(generation_id: str) -> bool:
         try:
             generation = generation_repo.get_by_id(generation_id)
@@ -85,7 +89,7 @@ class GenerationOutputBroadcaster:
             except Exception:
                 logging.exception(f"Failed to record run report output for {generation_id}")
 
-            if not has_subscribers:
+            if not has_subscribers or self._report_only(output, message):
                 return
 
             privileged_message = None
