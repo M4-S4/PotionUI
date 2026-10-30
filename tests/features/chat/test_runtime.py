@@ -2632,9 +2632,11 @@ class TestSendMessageToolsPathIterationNudge:
         assert kwargs["iteration_nudge"] == TOOL_LOOP_CONTINUATION_NUDGE
 
     @pytest.mark.asyncio
-    async def test_non_structured_reply_mode_omits_nudge(self):
+    async def test_non_structured_reply_mode_passes_the_action_continuation_nudge(self):
+        from src.features.chat.reply_contract import ACTION_CONTINUATION_NUDGE
+
         manager, mock_tool_executor = self._setup_tools_session(structured_reply=False)
         await manager.send_message(session_id="session-123", user_id="user-123", content="hi")
 
         kwargs = self.engine.call_kwargs
-        assert kwargs["iteration_nudge"] is None
+        assert kwargs["iteration_nudge"] == ACTION_CONTINUATION_NUDGE
