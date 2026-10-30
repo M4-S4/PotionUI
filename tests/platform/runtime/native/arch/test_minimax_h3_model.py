@@ -1031,24 +1031,18 @@ def test_attention_wsl_driver_oom_retries_query_chunked_sdpa(monkeypatch):
     )
     dense = attn(x, None)
 
-    dispatch_rows = []
+    calls = []
 
-    def driver_oom(q, k, v, heads=None, mask=None):
-        dispatch_rows.append(q.shape[2])
-        raise RuntimeError("CUDA driver error: device not ready")
-
-    sdpa_rows = []
-
-    def recording_sdpa(q, k, v):
-        sdpa_rows.append(q.shape[2])
+    def driver_oom_unless_sdpa(q, k, v, heads=None, mask=None, backend=None):
+        calls.append((q.shape[2], backend))
+        if backend != SDPA:
+            raise RuntimeError("CUDA driver error: device not ready")
         return F.scaled_dot_product_attention(q, k, v)
 
-    monkeypatch.setattr(model_module, "_dispatch_attention", driver_oom)
-    monkeypatch.setattr(model_module, "_fallback_sdpa", recording_sdpa)
+    monkeypatch.setattr(model_module, "_dispatch_attention", driver_oom_unless_sdpa)
     out = attn(x, None, None, 4)
 
-    assert dispatch_rows == [10]
-    assert sdpa_rows == [4, 4, 2]
+    assert calls == [(10, None), (4, SDPA), (4, SDPA), (2, SDPA)]
     assert torch.allclose(out, dense, atol=1e-5, rtol=1e-4)
 
 

@@ -18,6 +18,7 @@ import torch
 
 from src.platform.runtime.native import engine as engine_mod
 from src.platform.runtime.native.engine import TextEncoderStreaming
+from src.platform.runtime.native.kernels import sync_nvfp4_dequant_tables
 from src.platform.runtime.native.memory import partial, residency
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
 from src.platform.runtime.native.memory.residency import get_residency_registry, run_text_encode
@@ -69,6 +70,7 @@ def _use_streamer(monkeypatch, streamer_cls=_CpuStreamer):
 def _single(log):
     module = _RealTE(log)
     encoder = _RealEncoder(module, log, "probe")
+    sync_nvfp4_dequant_tables(module)
     fixed = plan_residency_split(module, 0.0, stream_nvfp4=True).fixed_bytes
     one_block = sum(t.numel() * t.element_size() for t in module.blocks[0].buffers())
     return encoder, module, (fixed + one_block) / GB
