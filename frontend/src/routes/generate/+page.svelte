@@ -53,6 +53,7 @@
 	import StudioView from './components/studio/StudioView.svelte';
 	import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { promptModeCopy } from '$lib/utils/promptModeCopy';
+	import { createDisconnectBanner } from '$lib/utils/disconnectBanner';
 	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
@@ -128,7 +129,8 @@
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	let ws: WebSocketService | null = null;
-	let isConnected = false;
+	let showDisconnected = false;
+	const disconnectBanner = createDisconnectBanner((visible) => (showDisconnected = visible));
 	let presets: any[] = [];
 	let unregisterChatRunGeneration: (() => void) | null = null;
 
@@ -905,7 +907,7 @@
 		setGenerationUnsubscribeHandler(unsubscribeGeneration);
 		setGridRunHandlers({ enrolled: subscribeGridCells, cancelled: retireGridCells });
 		ws.onConnectionChange((connected) => {
-			isConnected = connected;
+			disconnectBanner.changed(connected);
 			if (connected && !restoreInFlight) {
 				restoreInFlight = true;
 				restoreGenerations().finally(() => {
@@ -914,6 +916,7 @@
 				});
 			}
 		});
+		disconnectBanner.connecting();
 		ws.connect();
 		unregisterChatRunGeneration = onToolApplied('run_generation', handleChatRunGeneration);
 
@@ -1144,6 +1147,7 @@
 	}
 
 	onDestroy(() => {
+		disconnectBanner.destroy();
 		overlayTracker.destroy();
 		unsubscribeModelInstalled?.();
 		unsubscribeModelInstalled = null;
@@ -2057,7 +2061,7 @@
 			</div>
 
 			<!-- Connection Status Warning -->
-			{#if !isConnected}
+			{#if showDisconnected}
 				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25 md:mb-[var(--deck-height)]">
 					<div class="flex items-center gap-3">
 						<svg class="w-5 h-5 text-warning flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">

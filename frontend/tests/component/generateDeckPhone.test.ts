@@ -106,8 +106,11 @@ describe('generate page on a phone', () => {
 		expect(wrapper).not.toBeNull();
 		expect(wrapper!.className).toContain('pb-[var(--deck-height)]');
 		expect(wrapper!.className).toContain('md:pb-0');
-		const banner = [...wrapper!.querySelectorAll<HTMLElement>('.bg-warning\\/10')].find((el) => el.textContent?.includes('WebSocket disconnected'))!;
-		expect(banner).toBeDefined();
+		const findBanner = () =>
+			[...wrapper!.querySelectorAll<HTMLElement>('.bg-warning\\/10')].find((el) => el.textContent?.includes('WebSocket disconnected'));
+		expect(findBanner()).toBeUndefined();
+		await vi.waitFor(() => expect(findBanner()).toBeDefined(), { timeout: 8000 });
+		const banner = findBanner()!;
 		const classes = banner.className.split(/\s+/);
 		expect(classes).toContain('md:mb-[var(--deck-height)]');
 		expect(classes.filter((name) => /^mb-/.test(name))).toEqual([]);
