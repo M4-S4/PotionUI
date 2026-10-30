@@ -15,6 +15,8 @@ from src.features.chat.modes import (
     build_phrasebook_mode,
     build_prompts_mode,
 )
+from src.features.chat.context_builder import ChatContextBuilder
+from src.features.chat.reply_contract import REPLY_CONTRACT_PROMPT_BLOCK, REPLY_CONTRACT_REMINDER
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.registry import ToolRegistry
 
@@ -76,6 +78,24 @@ class TestScopeModeShape:
         assert "save it exactly as written" in with_save
         assert "Compose or improve a prompt only when asked" in with_save
         assert "exactly as written" not in without_save
+
+
+class TestHistoryModeReplyContract:
+    def test_history_prompt_has_no_prompt_writing_contract(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(build_history_mode(), "", ["organize_gallery"])
+        assert REPLY_CONTRACT_PROMPT_BLOCK not in prompt
+        assert "## improved" not in prompt
+
+    def test_generation_prompt_keeps_the_contract(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(build_generation_mode(), "", [])
+        assert REPLY_CONTRACT_PROMPT_BLOCK in prompt
+
+    def test_history_send_gets_no_reply_contract_reminder(self):
+        history = [{"role": "user", "content": "hi"}]
+        ChatContextBuilder.inject_reply_contract_reminder_block(history, build_history_mode())
+        assert REPLY_CONTRACT_REMINDER not in history[-1]["content"]
 
 
 class TestScopeModeRegistration:

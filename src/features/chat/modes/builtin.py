@@ -220,6 +220,7 @@ def build_history_mode() -> ChatMode:
         default_route_prefixes=["/history"],
         resource_namespaces=["generations"],
         llm_options={},
+        structured_reply=False,
         core_groups=("core", "library"),
         source="builtin",
     )
