@@ -186,6 +186,9 @@ def read_mode_prompting(mode_dir: Path) -> Dict[str, Any]:
     prompting: Dict[str, Any] = {}
     prompt = data.get('prompt')
     prompting['prompt'] = prompt if prompt in ('required', 'optional', 'none') else None
+    for key in ('prompt_label', 'prompt_placeholder'):
+        value = data.get(key)
+        prompting[key] = (value.strip() or None) if isinstance(value, str) else None
     guide = data.get('llm_guide')
     prompting['llm_guide'] = guide.strip() or None if isinstance(guide, str) else None
     templates = data.get('segment_templates')
@@ -198,11 +201,19 @@ def _apply_mode_prompting(target: PresetTemplate, mode_name: str, mode: ModeTemp
     for key, requirement in (('optional_prompt_modes', 'optional'), ('promptless_modes', 'none')):
         if mode.prompt == requirement:
             template_vars[key] = [*(template_vars.get(key) or []), mode_name]
+    mode_prompt_vars: Dict[str, Any] = {}
     if mode.segment_templates is not None:
+        mode_prompt_vars['segment_templates'] = mode.segment_templates
+    if mode.prompt_label:
+        mode_prompt_vars['label'] = mode.prompt_label
+    if mode.prompt_placeholder:
+        mode_prompt_vars['placeholder'] = mode.prompt_placeholder
+    if mode_prompt_vars:
         prompt_vars = dict(template_vars.get('prompt') or {})
+        existing_modes = prompt_vars.get('modes') or {}
         prompt_vars['modes'] = {
-            **(prompt_vars.get('modes') or {}),
-            mode_name: {'segment_templates': mode.segment_templates},
+            **existing_modes,
+            mode_name: {**(existing_modes.get(mode_name) or {}), **mode_prompt_vars},
         }
         template_vars['prompt'] = prompt_vars
     target.vars = template_vars
@@ -379,7 +390,7 @@ class PresetTemplateLoader:
         }
         styles, styles_preview = self._load_styles(preset_path)
 
-        return PresetTemplate(
+        template = PresetTemplate(
             id=manifest.id,
             name=manifest.name,
             version=manifest.version,
@@ -405,6 +416,9 @@ class PresetTemplateLoader:
             formulas=manifest.formulas.model_dump() if manifest.formulas else None,
             negative_prompt=manifest.negative_prompt.model_dump() if manifest.negative_prompt else None,
         )
+        for mode_name, mode_template in modes_dict.items():
+            _apply_mode_prompting(template, mode_name, mode_template)
+        return template
 
     _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": "", "example_prompt": ""}
 

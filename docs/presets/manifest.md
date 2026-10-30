@@ -127,6 +127,32 @@ hint like `promptless_modes`; the backend rejects nothing when the prompt is emp
 can be read by the pipeline, but with nothing written `generation.prompts.first` is
 `{'positive': '', 'negative': ''}`, so the pipeline must handle an empty prompt.
 
+### What the prompt is for (`prompt_label`, `prompt_placeholder`)
+
+A mode that mixes form fields with a prompt should say what the prompt is for. Exact strings
+(text to draw on an image, words to speak) belong in form fields, because the prompt pipeline
+would rewrite them; the prompt is always the free description around them. Declare the copy in
+the mode's own `modes/<mode>/form.yml`:
+
+```yaml
+prompt: "optional"
+prompt_label: "Placement and style"
+prompt_placeholder: "in white capitals at the top"
+```
+
+- `prompt_label` replaces the word "Prompt" above the prompt box. An optional prompt shows
+  "<label> (optional)".
+- `prompt_placeholder` is the example shown in the empty prompt box. Write it as an example
+  of what to type, not an instruction.
+- `prompt:` is `required` (the default), `optional` or `none`, the same values a plugin-contributed
+  mode uses. For a core mode, `prompt: optional` / `prompt: none` has the same effect as listing the
+  mode in `optional_prompt_modes` / `promptless_modes`; use those `vars` lists when the requirement
+  depends on a field (`when`). `none` hides the prompt box, so a label on it is never shown.
+- The loader writes the copy to `vars.prompt.modes.<mode>.label` and `.placeholder`, next to
+  `segment_templates`, and PotionAI is told what the prompt box is for in that mode.
+- `preset_lint.py` rejects a `prompt:` value other than `required`, `optional` or `none`, a label or
+  placeholder that is not a non-empty string, and warns when either is set on a mode with no prompt.
+
 ### Prompt segment templates
 
 A `vars.prompt` block can declare **Segment Templates** the segment picker offers alongside a

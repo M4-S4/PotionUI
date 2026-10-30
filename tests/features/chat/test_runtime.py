@@ -2177,6 +2177,32 @@ class TestInjectWorkspaceBlockLLMContext:
         # form: off - the guide still shows, but no form-field listing.
         assert "Form fields" not in block
 
+    def test_mode_prompt_label_tells_the_model_what_the_prompt_box_is_for(self):
+        template = _make_preset_template(llm=None)
+        template.vars = {"prompt": {"modes": {"text": {
+            "label": "Placement and style", "placeholder": "in white capitals at the top",
+        }}}}
+        self._wire_preset(template)
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {"form_state": {"preset": "QwenImage-2.1", "mode": "text", "form_data": {}}}
+
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
+
+        block = history[0]["content"]
+        assert "The prompt box in this mode is for: Placement and style" in block
+        assert "in white capitals at the top" in block
+
+    def test_a_mode_without_a_prompt_label_adds_no_prompt_purpose_line(self):
+        template = _make_preset_template(llm=None)
+        template.vars = {"prompt": {"modes": {"text": {"label": "Placement and style"}}}}
+        self._wire_preset(template)
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {"form_state": {"preset": "QwenImage-2.1", "mode": "restyle", "form_data": {}}}
+
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
+
+        assert "The prompt box in this mode" not in history[0]["content"]
+
     def test_guide_is_capped(self):
         long_guide = "G" * 4000
         self._wire_preset(_make_preset_template(llm={"guide": long_guide, "context": {"form": "off"}}))

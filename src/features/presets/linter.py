@@ -514,6 +514,8 @@ class PresetLinter:
 
         issues.extend(self._lint_mode_labels(preset_file, manifest))
 
+        issues.extend(self._lint_prompt_copy(preset_file, manifest))
+
         issues.extend(self._lint_formulas(preset_file, manifest))
 
         issues.extend(self._lint_segment_templates(preset_file, manifest))
@@ -2209,6 +2211,53 @@ class PresetLinter:
                         f"modes/{mode_name}: add a short_description so the mode menu can describe it",
                     )
                 )
+        return issues
+
+    def _lint_prompt_copy(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        promptless = {
+            entry for entry in ((manifest.vars or {}).get("promptless_modes") or []) if isinstance(entry, str)
+        }
+        for mode_name in manifest.modes:
+            mode_dir = preset_file.parent / "modes" / mode_name
+            try:
+                raw = load_yaml_file(mode_dir / "form.yml") or {}
+            except Exception:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            requirement = raw.get("prompt")
+            if requirement is not None and requirement not in ("required", "optional", "none"):
+                issues.append(
+                    LintIssue(
+                        "error",
+                        str(preset_file),
+                        f"modes/{mode_name}/form.yml: prompt must be required, optional or none, "
+                        f"not \"{requirement}\"",
+                    )
+                )
+                continue
+            for key in ("prompt_label", "prompt_placeholder"):
+                value = raw.get(key)
+                if value is None:
+                    continue
+                if not isinstance(value, str) or not value.strip():
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            str(preset_file),
+                            f"modes/{mode_name}/form.yml: {key} must be a non-empty string",
+                        )
+                    )
+                elif requirement == "none" or mode_name in promptless:
+                    issues.append(
+                        LintIssue(
+                            "warning",
+                            str(preset_file),
+                            f"modes/{mode_name}/form.yml: {key} is set but this mode has no prompt, "
+                            f"so it is never shown",
+                        )
+                    )
         return issues
 
     def _lint_mode_labels(self, preset_file: Path, manifest) -> List[LintIssue]:

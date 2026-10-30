@@ -1816,7 +1816,7 @@ installed, or a disabled owning plugin, means the contribution is simply absent,
 
 A contributed mode declares its own prompting in its default `form.yml`, since it cannot edit the
 target's `vars:` and `llm:`: `prompt: required | optional | none` (adds the mode to the target's
-`optional_prompt_modes` or `promptless_modes`), `llm_guide:` (the mode's `llm.modes.<name>.guide`) and
+`optional_prompt_modes` or `promptless_modes`), `prompt_label:` / `prompt_placeholder:` (what the prompt box is for, and an example), `llm_guide:` (the mode's `llm.modes.<name>.guide`) and
 `segment_templates:` (the mode's `vars.prompt.modes.<name>.segment_templates`). They are merged into the
 target preset when the contribution is accepted; see [Plugin-Contributed Presets](presets/plugins.md).
 

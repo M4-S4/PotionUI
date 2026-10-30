@@ -291,6 +291,21 @@ def _classify_withheld_tools(
     return reasons
 
 
+def _prompt_purpose_line(preset_template: Any, mode: Optional[str]) -> Optional[str]:
+    if preset_template is None or not mode:
+        return None
+    prompt_vars = (getattr(preset_template, "vars", None) or {}).get("prompt") or {}
+    mode_vars = (prompt_vars.get("modes") or {}).get(mode) or {}
+    label = mode_vars.get("label")
+    if not isinstance(label, str) or not label.strip():
+        return None
+    line = f"The prompt box in this mode is for: {label.strip()}"
+    placeholder = mode_vars.get("placeholder")
+    if isinstance(placeholder, str) and placeholder.strip():
+        line += f' (for example: "{placeholder.strip()}")'
+    return line + ". Exact text and spoken words belong in the form fields, not the prompt."
+
+
 class ChatContextBuilder:
     """Assembles the system prompt, tool set and injected context blocks."""
 
@@ -892,6 +907,10 @@ class ChatContextBuilder:
             if guide:
                 lines.append("Prompting guide:")
                 lines.append(_cap_text(guide, _WORKSPACE_MAX_GUIDE_CHARS, "… (truncated)"))
+
+            prompt_purpose = _prompt_purpose_line(preset_template, mode)
+            if prompt_purpose:
+                lines.append(prompt_purpose)
 
             if video_director and video_director.get("active"):
                 lines.append(

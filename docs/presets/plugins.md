@@ -50,6 +50,8 @@ segment_templates: []
 - `prompt:` is `required` (the default), `optional` or `none`. `optional` adds the mode to
   [`vars.optional_prompt_modes`](manifest.md#varsoptional_prompt_modes-modes-where-the-prompt-is-optional),
   `none` adds it to [`vars.promptless_modes`](manifest.md#varspromptless_modes-modes-that-need-no-prompt).
+- `prompt_label:` and `prompt_placeholder:` name what the prompt box is for and give an example, see
+  [What the prompt is for](manifest.md#what-the-prompt-is-for-prompt_label-prompt_placeholder).
 - `llm_guide:` becomes `llm.modes.<name>.guide`, the prompting guide that replaces the preset-level guide
   while this mode is active.
 - `segment_templates:` becomes `vars.prompt.modes.<name>.segment_templates`, the same flat replace as for a
