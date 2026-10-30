@@ -6,16 +6,22 @@ function sequence(...values: number[]) {
 	return () => values[index++ % values.length];
 }
 
+function seg(id: string, content: string) {
+	return content.trim() ? [{ id, type: 'content', content, chips: {}, enabled: true }] : [];
+}
+
 function baseTab(overrides: Record<string, unknown> = {}) {
+	const prompt = (overrides.prompt as string | undefined) ?? '  a lighthouse at dusk  ';
+	const negativePrompt = (overrides.negativePrompt as string | undefined) ?? ' blur ';
 	return {
 		selectedPreset: 'preset-1',
 		selectedMode: 'txt2img',
 		selectedVariant: null,
 		formData: { seed: 7, quantity: 1 },
-		prompt: '  a lighthouse at dusk  ',
-		negativePrompt: ' blur ',
-		promptSegments: [],
-		negativePromptSegments: [],
+		prompt,
+		negativePrompt,
+		promptSegments: seg('p', prompt),
+		negativePromptSegments: seg('n', negativePrompt),
 		promptTabs: undefined,
 		activePromptTab: 0,
 		promptRelay: undefined,
@@ -49,9 +55,9 @@ function prepare(tab: any, extra: Record<string, unknown> = {}) {
 
 function batchTab({ active }: { active: number }) {
 	const entries = [
-		{ prompt: 'first', negativePrompt: 'neg one', promptSegments: [], negativePromptSegments: [] },
+		{ prompt: 'first', negativePrompt: 'neg one', promptSegments: seg('a', 'first'), negativePromptSegments: seg('an', 'neg one') },
 		{ prompt: 'unused', negativePrompt: '', promptSegments: [{ id: 'x', content: 'second from segments' }], negativePromptSegments: [] },
-		{ prompt: 'third', negativePrompt: '', promptSegments: [], negativePromptSegments: [] }
+		{ prompt: 'third', negativePrompt: '', promptSegments: seg('c', 'third'), negativePromptSegments: [] }
 	];
 	const current = entries[active];
 	return baseTab({
@@ -98,15 +104,18 @@ describe('prepareRequest', () => {
 			prompt_state: {
 				prompt: '  a lighthouse at dusk  ',
 				negativePrompt: ' blur ',
-				promptSegments: [],
-				negativePromptSegments: [],
+				promptSegments: seg('p', '  a lighthouse at dusk  '),
+				negativePromptSegments: seg('n', ' blur '),
 				variables: undefined,
 				promptTabs: undefined,
 				activePromptTab: 0,
 				promptRelay: undefined,
 				videoDirector: undefined
 			},
-			segments: []
+			segments: [
+				expect.objectContaining({ channel: 'positive', text: '  a lighthouse at dusk  ' }),
+				expect.objectContaining({ channel: 'negative', text: ' blur ' })
+			]
 		});
 		expect(Object.keys(result.request)).toEqual([
 			'preset_id', 'prompts', 'mode', 'form_name', 'form_data', 'tag_ids', 'collection_ids',
@@ -158,7 +167,10 @@ describe('prepareRequest', () => {
 			{ positive: 'third', negative: '' }
 		]);
 		expect(result.request.segments).toEqual([
-			expect.objectContaining({ channel: 'positive', prompt_index: 1, text: 'second from segments' })
+			expect.objectContaining({ channel: 'positive', prompt_index: 0, text: 'first' }),
+			expect.objectContaining({ channel: 'negative', prompt_index: 0, text: 'neg one' }),
+			expect.objectContaining({ channel: 'positive', prompt_index: 1, text: 'second from segments' }),
+			expect.objectContaining({ channel: 'positive', prompt_index: 2, text: 'third' })
 		]);
 		const state = result.request.prompt_state as Record<string, any>;
 		expect(state.prompts).toHaveLength(3);
@@ -179,13 +191,16 @@ describe('prepareRequest', () => {
 		if (!result.ok) return;
 		expect('batch_prompts' in result.request).toBe(false);
 		expect(result.request.prompts).toEqual([{ positive: 'first', negative: 'neg one' }]);
-		expect(result.request.segments).toEqual([]);
+		expect(result.request.segments).toEqual([
+			expect.objectContaining({ channel: 'positive', text: 'first' }),
+			expect.objectContaining({ channel: 'negative', text: 'neg one' })
+		]);
 		expect(result.shuffled.changed).toBe(false);
 	});
 
 	it('refuses a batch that contains an empty prompt', () => {
 		const tab = batchTab({ active: 0 });
-		tab.promptTabs[2] = { ...tab.promptTabs[2], prompt: '' };
+		tab.promptTabs[2] = { ...tab.promptTabs[2], prompt: '', promptSegments: [] };
 
 		expect(prepare(tab, { canBatch: true })).toEqual({ ok: false, code: 'no_prompt', reason: null });
 	});
@@ -262,7 +277,7 @@ describe('prepareRequest', () => {
 	it('accepts an empty prompt in a batch only in an optional-prompt mode', () => {
 		const tab = baseTab({
 			promptTabs: [
-				{ prompt: 'first', negativePrompt: '', promptSegments: [], negativePromptSegments: [] },
+				{ prompt: 'first', negativePrompt: '', promptSegments: seg('f', 'first'), negativePromptSegments: [] },
 				{ prompt: '', negativePrompt: '', promptSegments: [], negativePromptSegments: [] }
 			],
 			activePromptTab: 0

@@ -11,6 +11,7 @@ import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMod
 import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
 import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
+import { seedPromptTabs, seedSegmentsFromText } from '$lib/utils/promptTextSeed';
 import { resolveRequestContext } from '$lib/generation/requestContext';
 import { activePromptIndex, firstEmptyPrompt, promptList } from '$lib/generation/promptBatch';
 import type { DirectorModelOverlay } from '$lib/utils/cloudDirector';
@@ -249,14 +250,8 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 			const entryNegative =
 				index === active ? negative.segments : shuffleSegmentChips(entry.negativePromptSegments, random).segments;
 			return {
-				positive: (entryPositive.length > 0
-					? resolvePromptSegments(entryPositive, options.segmentJoin)
-					: entry.prompt || ''
-				).trim(),
-				negative: (entryNegative.length > 0
-					? resolvePromptSegments(entryNegative, options.segmentJoin)
-					: entry.negativePrompt || ''
-				).trim()
+				positive: resolvePromptSegments(entryPositive, options.segmentJoin).trim(),
+				negative: resolvePromptSegments(entryNegative, options.segmentJoin).trim()
 			};
 		});
 		activeSent = active < sent.length;
@@ -312,7 +307,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 		merged.formData = { ...((session.formData as Record<string, unknown>) || {}), ...(overrides.formData as Record<string, unknown>) };
 	}
 	const vars = input.presetVars ?? {};
-	const tab = {
+	const raw = {
 		promptSegments: [],
 		negativePromptSegments: [],
 		...merged,
@@ -323,6 +318,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 		prompt: (merged.prompt as string) ?? '',
 		negativePrompt: (merged.negativePrompt as string) ?? ''
 	} as RequestTab;
+	const tab = { ...seedSegmentsFromText(raw), promptTabs: seedPromptTabs(raw.promptTabs) } as RequestTab;
 	const context = resolveRequestContext(vars, input.mode, input.directorOverlay ?? null);
 	return prepareRequest({
 		tab,

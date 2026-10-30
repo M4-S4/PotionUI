@@ -185,8 +185,7 @@ export function promptTitle(entry: PromptTabData, index: number): string {
 }
 
 export function hasPromptText(entry: PromptTabData): boolean {
-	const fromSegments = entry.promptSegments?.length ? resolvePromptSegments(entry.promptSegments).trim() : '';
-	return fromSegments.length > 0 || (entry.prompt || '').trim().length > 0;
+	return resolvePromptSegments(entry.promptSegments ?? []).trim().length > 0;
 }
 
 export function firstEmptyPrompt(list: PromptTabData[]): number {
