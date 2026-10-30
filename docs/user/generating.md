@@ -76,14 +76,10 @@ During generation you see real-time updates:
 
 If the live connection drops you will see a warning banner; updates resume once it reconnects.
 
-## Results: gallery and artifacts
+## Results: gallery
 
 When the run completes, the finished images (or videos) collect in the **gallery**. From there you can view them full size and move any item back onto the workbench for a closer look. Everything is also saved to your **History** automatically.
 
-Alongside the results, generations expose **artifacts** — extra details the pipeline recorded:
-
-- the **seed** actually used (so you can reproduce or vary a result),
-- the **list of models** that were applied (checkpoint, LoRAs, VAE, and so on, with their weights),
-- and **comparison** images where a step shows a before/after, such as an upscale or detail pass.
+Text a pipeline writes for you, such as a transcription, and a model file a model tool produced show under the workbench while the run is live. The pipeline's diagnostics (seeds, the models it loaded, prompt diffs, before/after comparisons) are recorded in the run report, which administrators open from **Admin → Generations**.
 
 To find, re-open, tag, or reuse any of these results later, head to **History & Tags**.

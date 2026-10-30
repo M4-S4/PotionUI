@@ -139,21 +139,6 @@ def scope_generation_state(payload: Dict[str, Any], is_admin: bool) -> Dict[str,
     return scope_generation(scope_status(payload, is_admin), is_admin)
 
 
-def scope_run_report(report: Optional[Dict[str, Any]], is_admin: bool, error_code: Optional[str], video: bool = False) -> Optional[Dict[str, Any]]:
-    if is_admin or not report:
-        return report
-    message = user_failure_copy(error_code)[0]
-    history = [
-        {**entry, "message": message} if isinstance(entry, dict) and entry.get("step") == "failed" and entry.get("message") else entry
-        for entry in report.get("status_history") or []
-    ]
-    outputs = dict(report.get("plugin_outputs") or {})
-    error_entry = outputs.get("generation_error")
-    if isinstance(error_entry, dict) and isinstance(error_entry.get("message"), dict):
-        outputs["generation_error"] = {**error_entry, "message": scope_error_payload(error_entry["message"], False, video)}
-    return {**report, "status_history": history, "plugin_outputs": outputs}
-
-
 def cap_detail(text: str, limit: int = DETAIL_LIMIT_CHARS) -> str:
     if len(text) <= limit:
         return text

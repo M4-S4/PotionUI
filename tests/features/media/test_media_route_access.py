@@ -250,14 +250,18 @@ def _owner_routes(world):
         "temp": f"/api/media/tmp/{world.temp(generation.id)}",
         "file": f"/api/media/files/{generation.file_id}",
         "model_preview": f"/api/media/files/{world.model_preview(world.owner)}",
-        "run_report": f"/api/generations/{generation.id}/run-report/artifacts/compare.png",
     }
+
+
+def _run_report_artifact(generation):
+    return f"/api/generations/{generation.id}/run-report/artifacts/compare.png"
 
 
 class TestSignedOut:
     def test_every_private_media_route_refuses_a_signed_out_request(self, client, world):
-        _, routes = _owner_routes(world)
+        generation, routes = _owner_routes(world)
         routes["avatar"] = "/api/users/avatars/someone.png"
+        routes["run_report"] = _run_report_artifact(generation)
         for name, url in routes.items():
             response = _get(client, url)
             assert response.status_code == 401, name
@@ -276,7 +280,7 @@ class TestOwnership:
         for name, url in routes.items():
             response = _get(client, url, "tok-owner", via=via)
             assert response.status_code == 200, name
-            assert response.content in (PIXELS, b"artifact"), name
+            assert response.content == PIXELS, name
 
     def test_another_user_gets_a_404_identical_to_a_missing_file(self, client, world):
         _, routes = _owner_routes(world)
@@ -298,6 +302,18 @@ class TestOwnership:
         _, routes = _owner_routes(world)
         for name, url in routes.items():
             assert _get(client, url, "tok-admin").status_code == 200, name
+
+    def test_run_report_artifacts_are_admin_only(self, client, world):
+        generation = world.generation(world.owner)
+        url = _run_report_artifact(generation)
+
+        for token in ("tok-owner", "tok-other"):
+            response = _get(client, url, token)
+            assert response.status_code == 404, token
+            assert response.content != b"artifact", token
+        admin = _get(client, url, "tok-admin")
+        assert admin.status_code == 200
+        assert admin.content == b"artifact"
 
     def test_a_temp_file_without_a_generation_owner_is_admin_only(self, client, world):
         filename = f"tmp_video_{generate_ulid()}.mp4"
@@ -373,7 +389,6 @@ class TestRestrictedViewer:
         urls = [
             f"/api/media/generations/{safe.id}/{safe.filename}",
             f"/api/media/files/{safe.file_id}",
-            f"/api/generations/{safe.id}/run-report/artifacts/compare.png",
         ]
         for url in urls:
             assert _get(client, url, "tok-kid").status_code == 200, url

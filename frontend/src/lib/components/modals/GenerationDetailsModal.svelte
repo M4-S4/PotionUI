@@ -39,7 +39,6 @@
 	import { generationItemRule } from '$lib/organize/itemPrefill';
 	import DetailsActionBar, { type BarAction } from '$lib/media-tools/DetailsActionBar.svelte';
 	import { buildHistoryEntryContext } from '$lib/tools/entryMenu';
-	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 	import type { DetailsExtraSection, DetailsFileChange } from './generationDetailsExtras';
@@ -1183,9 +1182,6 @@
 							</div>
 						</div>
 					{/if}
-
-					<!-- Artifacts Section -->
-					<GenerationArtifacts generationId={activeGenerationId} />
 
 					<!-- Parameters Section -->
 					<div class="bg-surface-2 rounded-lg overflow-hidden">

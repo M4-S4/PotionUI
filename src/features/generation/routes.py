@@ -51,10 +51,8 @@ from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.cloud.cost_repository import GenerationCostRepository
 from src.features.generation.failure import (
     failure_report,
-    is_video_request,
     scope_generation,
     scope_generation_state,
-    scope_run_report,
     scope_status,
     start_failure_reason,
 )
@@ -941,43 +939,6 @@ class GenerationController(BaseController):
             )
         return self.success_response(data=failure_report(generation))
 
-    async def get_run_report(self, generation_id: str, current_user) -> APIResponse:
-        """The persisted run report for a generation the caller owns.
-
-        The admin detail endpoint above returns the same report with the whole
-        generation record attached; this one carries only the report, so the
-        history detail can show a run's artifacts without admin rights. A
-        generation someone else owns 404s rather than 403s - same
-        existence-concealing rationale as `get_generation_status`.
-        """
-        generation = generation_repo.get_by_id(generation_id)
-        if generation is None or not GenerationPolicy.can_access(
-            current_user, getattr(generation, "user_id", None)
-        ):
-            return self.error_response(
-                error="generation_not_found",
-                message=f"Generation '{generation_id}' not found",
-                status_code=404
-            )
-
-        report = self.run_report_recorder.get_report(generation_id)
-        if report is not None:
-            prompt = None
-            if isinstance(generation.form_data, dict):
-                prompt = generation.form_data.get('prompt')
-            report = {**report, 'prompt_template': prompt}
-            safety = self.history_query.content_safety
-            if safety is not None and safety.is_restricted(current_user.id):
-                report = {**report, 'artifacts': [], 'plugin_outputs': {}}
-            report = scope_run_report(
-                report,
-                GenerationPolicy.is_admin(current_user),
-                getattr(generation, 'error_code', None),
-                is_video_request(getattr(generation, 'form_data', None), getattr(generation, 'mode', None)),
-            )
-
-        return self.success_response(data={'run_report': report})
-
     async def get_run_report_artifact(self, generation_id: str, name: str):
         """One binary payload a persisted run report references.
 
@@ -1055,14 +1016,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_generation_failure(generation_id: str, current_user = Depends(get_current_admin_user)):
         return await controller.get_generation_failure(generation_id)
 
-    @router.get("/{generation_id}/run-report", response_model=APIResponse, summary="Get Run Report")
-    async def get_run_report(generation_id: str, current_user = Depends(get_current_active_user)):
-        """Get the persisted run report for one of your own generations."""
-        return await controller.get_run_report(generation_id, current_user)
-
     @router.get("/{generation_id}/run-report/artifacts/{name}", summary="Serve Run Report Artifact")
     async def get_run_report_artifact(generation_id: str, name: str, viewer=Depends(require_media_viewer)):
-        allowed = await asyncio.to_thread(container.media_access.generation_allowed, viewer, generation_id)
+        allowed = GenerationPolicy.is_admin(viewer) and await asyncio.to_thread(
+            container.media_access.generation_allowed, viewer, generation_id
+        )
         if not allowed:
             raise HTTPException(status_code=404, detail="Run report artifact not found")
         return await controller.get_run_report_artifact(generation_id, name)
