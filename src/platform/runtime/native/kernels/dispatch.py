@@ -269,6 +269,15 @@ def _grouped(
     )
 
 
+def _empty_attention(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+    if q.shape[-2] == 0:
+        return q.new_empty(*q.shape[:-1], v.shape[-1])
+    raise ValueError(
+        f"attention over an empty key/value sequence is undefined: {q.shape[-2]} quer(ies) against 0 keys "
+        f"(q {tuple(q.shape)}, k {tuple(k.shape)}, v {tuple(v.shape)}); the caller built a zero-length context"
+    )
+
+
 def attention(
     q: Tensor,
     k: Tensor,
@@ -280,6 +289,8 @@ def attention(
     causal: bool = False,
     backend: str | None = None,
 ) -> Tensor:
+    if q.shape[-2] == 0 or k.shape[-2] == 0:
+        return _empty_attention(q, k, v)
     if q.ndim == 4:
         if heads is not None and heads != q.shape[1]:
             raise ValueError(f"heads={heads} disagrees with q.shape[1]={q.shape[1]}")
