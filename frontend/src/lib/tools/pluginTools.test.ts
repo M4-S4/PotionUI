@@ -131,17 +131,17 @@ describe('retrying when a menu opens', () => {
 		expect(listMediaTools).not.toHaveBeenCalled();
 	});
 
-	it('allows one more retry after the page loads the catalog again and it fails again', async () => {
+	it('does not fetch again when a second page mount follows a failed load, and still allows its one retry', async () => {
 		listMediaTools.mockRejectedValue(new Error('offline'));
 		const { loadPluginMediaTools, retryMediaToolCatalog } = await fresh();
 		await loadPluginMediaTools();
-		await retryMediaToolCatalog();
-		expect(listMediaTools).toHaveBeenCalledTimes(2);
-
 		await loadPluginMediaTools();
+		expect(listMediaTools).toHaveBeenCalledTimes(1);
+
+		await retryMediaToolCatalog();
 		await retryMediaToolCatalog();
 
-		expect(listMediaTools).toHaveBeenCalledTimes(4);
+		expect(listMediaTools).toHaveBeenCalledTimes(2);
 		expect(toastShow).toHaveBeenCalledTimes(1);
 	});
 });

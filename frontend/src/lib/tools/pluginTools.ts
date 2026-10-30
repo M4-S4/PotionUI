@@ -30,6 +30,7 @@ function catalogLoaded(): boolean {
 
 export async function loadPluginMediaTools(): Promise<void> {
 	mirrorCatalog();
+	if (failed) return;
 	await loadMediaToolCatalog();
 	if (catalogLoaded()) {
 		failed = false;
