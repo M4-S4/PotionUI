@@ -56,7 +56,7 @@ test('a prompt stored only as a plain string is shown in the editor and is what 
 	expect(sent.prompt_state.promptSegments[0].content).toBe(LEGACY_PROMPT);
 });
 
-test('clearing the editor sends no prompt even though the tab once held one', async ({ page }) => {
+test('clearing the editor leaves Generate blocked on a missing prompt even though the tab once held one', async ({ page }) => {
 	test.setTimeout(180000);
 	await makeModelFieldsOptional(page);
 	await loginAsOwner(page);
@@ -67,20 +67,23 @@ test('clearing the editor sends no prompt even though the tab once held one', as
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await expect(positiveList(page)).toBeVisible({ timeout: 20000 });
 
+	const starts: string[] = [];
+	await page.route('**/api/generations/start', (route) => {
+		starts.push(route.request().url());
+		return route.fulfill({ status: 400, json: { success: false, error: 'captured_by_spec', message: 'captured by spec' } });
+	});
+
 	const editor = positiveList(page).locator('.inline-chip-editor[role="textbox"]').first();
 	await editor.click();
 	await page.keyboard.type('a prompt that will be erased');
+	await expect(page.getByRole('button', { name: /^Generate/ }).first()).toBeEnabled();
 	await page.keyboard.press('Control+A');
 	await page.keyboard.press('Backspace');
 	await expect(positiveList(page)).not.toContainText('erased');
 
-	await page.route('**/api/generations/start', (route) =>
-		route.fulfill({ status: 400, json: { success: false, error: 'captured_by_spec', message: 'captured by spec' } })
-	);
-	const request = page.waitForRequest(
-		(candidate) => candidate.method() === 'POST' && candidate.url().endsWith('/api/generations/start')
-	);
-	await page.getByRole('button', { name: /^Generate/ }).first().click({ force: true });
-	const sent = JSON.parse((await request).postData() ?? '{}');
-	expect(sent.prompts[0].positive).toBe('');
+	const blocked = page.getByRole('button', { name: 'Missing prompt', exact: true });
+	await expect(blocked).toBeDisabled();
+	await expect(page.getByRole('region', { name: 'Generation status' })).toContainText("Can't generate yet");
+	await blocked.click({ force: true });
+	expect(starts).toEqual([]);
 });

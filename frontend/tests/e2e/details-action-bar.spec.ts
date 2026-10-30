@@ -445,9 +445,12 @@ test.describe('letter shortcuts', () => {
 		await mockBackend(page);
 		await openLibraryDetails(page);
 
-		await page.keyboard.press('e');
+		const edit = await openMenu(page, 'Edit');
+		await edit.getByRole('menuitem', { name: 'Crop', exact: true }).click();
 
-		await expect(editor(page).locator('[data-tool-note]')).toHaveText(
+		const crop = page.getByRole('dialog', { name: 'Crop & frame' });
+		await expect(crop.getByRole('group', { name: 'Save as' })).toBeVisible();
+		await expect(crop.locator('[data-tool-note]')).toHaveText(
 			'Saves a copy. The original is not changed.'
 		);
 	});

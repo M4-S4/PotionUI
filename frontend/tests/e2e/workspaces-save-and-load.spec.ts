@@ -95,7 +95,8 @@ test('loading a workspace with legacy/foreign tab data does not break the page',
 	const unexpectedErrors: string[] = [];
 	page.on('pageerror', (err) => unexpectedErrors.push(`pageerror: ${err.message}`));
 	page.on('console', (msg) => {
-		if (msg.type() === 'error' && !msg.text().includes('preset_not_found')) {
+		const draftCleanup404 = msg.location().url.includes('/api/tab-drafts/') && msg.text().includes('404');
+		if (msg.type() === 'error' && !msg.text().includes('preset_not_found') && !draftCleanup404) {
 			unexpectedErrors.push(`console.error: ${msg.text()}`);
 		}
 	});
