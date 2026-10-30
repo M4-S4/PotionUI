@@ -243,14 +243,18 @@ export const iconPaths: Record<string, string | string[]> = {
 	'sidebar-collapse': ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M9 4v16', 'm16 9-3 3 3 3'],
 	'sidebar-expand': ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M9 4v16', 'm13 9 3 3-3 3'],
 	'mode-extend': [
-		'M5 7h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z',
+		'M5 6h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z',
+		'M6.5 10v4l3-2z',
 		'M16 12h5',
 		'm18 9 3 3-3 3'
 	],
 	'mode-upscale': [
-		'M5 13h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z',
-		'M12 12 21 3',
-		'M15 3h6v6'
+		'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
+		'M9.5 9.5h5v5h-5z',
+		'M15.5 8.5l2.5-2.5',
+		'M15 6h3v3',
+		'M8.5 15.5 6 18',
+		'M9 18H6v-3'
 	],
 	'mode-refine-faces': [
 		'M3 8V5a2 2 0 0 1 2-2h3',
@@ -325,7 +329,7 @@ export const iconPaths: Record<string, string | string[]> = {
 		'M12 13l3.5 3-.5 5'
 	],
 	'mode-talk': [
-		'M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6l-4 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
+		'M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-1v4l-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
 		'M8 9v2',
 		'M12 7v6',
 		'M16 9v2'
