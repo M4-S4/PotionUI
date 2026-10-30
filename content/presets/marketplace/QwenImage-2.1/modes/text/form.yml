@@ -1,3 +1,5 @@
+prompt_label: "Placement and style"
+prompt_placeholder: "in white capitals at the top"
 name: "custom"
 mode_label: "Edit text"
 short_description: "Replace or add text in an image, optionally only inside a painted box."

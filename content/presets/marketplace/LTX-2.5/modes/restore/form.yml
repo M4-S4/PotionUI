@@ -1,3 +1,5 @@
+prompt_label: "What the clip shows"
+prompt_placeholder: "an old family picnic filmed in the 1970s"
 name: "custom"
 mode_label: "Restore"
 short_description: "Clean up old, blurry or compressed footage."

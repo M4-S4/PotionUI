@@ -1,3 +1,5 @@
+prompt_label: "Water to add"
+prompt_placeholder: "a shallow stream flowing across the floor"
 name: "custom"
 mode_label: "Add water"
 short_description: "Add water to a scene."

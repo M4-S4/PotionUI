@@ -1,3 +1,5 @@
+prompt_label: "How it should look"
+prompt_placeholder: "a cinematic rainy street at dusk"
 name: "custom"
 mode_label: "Layout to render"
 short_description: "Turn a 3D layout or blockout into a finished shot."

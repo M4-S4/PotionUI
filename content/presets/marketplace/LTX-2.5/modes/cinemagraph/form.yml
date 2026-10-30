@@ -1,3 +1,5 @@
+prompt_label: "What should move"
+prompt_placeholder: "steam rising from the cup"
 name: "custom"
 mode_label: "Cinemagraph"
 short_description: "Turn a still image into a seamless looping video."

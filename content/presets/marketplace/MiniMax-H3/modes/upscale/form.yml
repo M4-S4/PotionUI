@@ -1,3 +1,5 @@
+prompt_label: "Scene"
+prompt_placeholder: "a rainy street at night"
 name: "custom"
 short_description: "Increase the resolution of a video."
 fields:

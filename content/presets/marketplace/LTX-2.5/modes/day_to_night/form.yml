@@ -1,3 +1,5 @@
+prompt_label: "Night look"
+prompt_placeholder: "a moonlit street with warm lamps in the windows"
 name: "custom"
 mode_label: "Day to night"
 short_description: "Relight a daytime video as night."

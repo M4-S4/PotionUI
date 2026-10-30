@@ -1,3 +1,5 @@
+prompt_label: "Scene"
+prompt_placeholder: "a newsroom, soft window light"
 name: "custom"
 mode_label: "Talking video"
 short_description: "Make a portrait speak a voice clip."

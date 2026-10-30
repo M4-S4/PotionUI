@@ -1,3 +1,5 @@
+prompt_label: "What the clip shows"
+prompt_placeholder: "a street market in the 1950s"
 name: "custom"
 mode_label: "Colorize"
 short_description: "Add natural color to a black and white video."

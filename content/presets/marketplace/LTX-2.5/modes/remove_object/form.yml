@@ -1,3 +1,5 @@
+prompt_label: "What should be left"
+prompt_placeholder: "an empty street with no people or cars"
 name: "custom"
 mode_label: "Remove object"
 short_description: "Remove people and moving objects from a shot."
