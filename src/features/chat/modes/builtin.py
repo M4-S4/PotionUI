@@ -238,6 +238,7 @@ def build_models_mode() -> ChatMode:
         default_route_prefixes=["/models"],
         resource_namespaces=["models"],
         llm_options={},
+        structured_reply=False,
         core_groups=("core", "library"),
         source="builtin",
     )
@@ -255,6 +256,7 @@ def build_phrasebook_mode() -> ChatMode:
         default_route_prefixes=["/phrasebook"],
         resource_namespaces=["phrasebook"],
         llm_options={},
+        structured_reply=False,
         core_groups=("core", "phrasebook_write"),
         source="builtin",
     )

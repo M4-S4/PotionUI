@@ -43,6 +43,21 @@ describe('introForMode', () => {
 		expect(intro.body).toMatch(/edit/);
 	});
 
+	it('gives Prompts, Models and Phrasebook their own copy', () => {
+		const generation = introForMode('generation');
+		const seen = new Set([generation.heading]);
+		for (const mode of ['history', 'prompts', 'models', 'phrasebook']) {
+			const intro = introForMode(mode);
+			expect(intro.heading && intro.body).toBeTruthy();
+			expect(`${intro.heading} ${intro.body}`).not.toMatch(/making|shape prompts|workspace/);
+			expect(seen.has(intro.heading)).toBe(false);
+			seen.add(intro.heading);
+		}
+		expect(introForMode('prompts').body).toMatch(/prompts/);
+		expect(introForMode('models').body).toMatch(/models/);
+		expect(introForMode('phrasebook').body).toMatch(/phrasebook/);
+	});
+
 	it('keeps the workspace copy for generation and unknown modes', () => {
 		expect(introForMode('generation').heading).toBe('What are we making?');
 		expect(introForMode('some-plugin-mode')).toEqual(introForMode('generation'));

@@ -86,6 +86,26 @@ class TestScopeModeShape:
         assert "exactly as written" not in without_save
 
 
+class TestPromptWritingContractByMode:
+    @pytest.mark.parametrize("builder", [build_history_mode, build_models_mode, build_phrasebook_mode])
+    def test_modes_that_do_not_write_prompt_text_drop_the_contract(self, builder):
+        mode = builder()
+        assert mode.structured_reply is False
+        prompt = ChatModeRegistry().resolve_system_prompt(mode, "", [])
+        assert REPLY_CONTRACT_PROMPT_BLOCK not in prompt
+        history = [{"role": "user", "content": "hi"}]
+        ChatContextBuilder.inject_reply_contract_reminder_block(history, mode)
+        assert REPLY_CONTRACT_REMINDER not in history[-1]["content"]
+        assert continuation_nudge(mode.structured_reply) == ACTION_CONTINUATION_NUDGE
+
+    def test_prompts_mode_keeps_the_contract_because_it_writes_prompt_text(self):
+        mode = build_prompts_mode()
+        assert mode.structured_reply is True
+        prompt = ChatModeRegistry().resolve_system_prompt(mode, "", [])
+        assert REPLY_CONTRACT_PROMPT_BLOCK in prompt
+        assert continuation_nudge(mode.structured_reply) == TOOL_LOOP_CONTINUATION_NUDGE
+
+
 class TestHistoryModeReplyContract:
     def test_history_prompt_has_no_prompt_writing_contract(self):
         registry = ChatModeRegistry()

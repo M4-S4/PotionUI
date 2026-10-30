@@ -157,6 +157,18 @@ const INTRO_BY_MODE: Record<string, ChatIntro> = {
 	history: {
 		heading: 'What are we looking for?',
 		body: 'I can find your past generations, sort them into collections and tags, and edit files for you.'
+	},
+	prompts: {
+		heading: 'What should we write?',
+		body: 'I can search your saved prompts, write new ones and keep your library tidy.'
+	},
+	models: {
+		heading: 'Which model are you after?',
+		body: 'I can look up your installed models, what each one does and its trigger words.'
+	},
+	phrasebook: {
+		heading: 'What are we collecting?',
+		body: 'I can browse your phrasebook categories and help you add to them and clean up their values.'
 	}
 };
 
