@@ -859,3 +859,41 @@ def test_mux_audio_from_source_returns_false_for_a_zero_byte_result_and_removes_
 
     assert encode.mux_audio_from_source("v.mp4", "s.mp4", out_path) is False
     assert not out_path.exists()
+
+
+class _Banner:
+    def __init__(self, stderr, returncode=1):
+        self.stderr = stderr
+        self.returncode = returncode
+        self.stdout = ""
+
+
+def _banner_probe(monkeypatch, stderr):
+    monkeypatch.setattr(encode, "find_ffprobe", lambda: None)
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode.subprocess, "run", lambda cmd, **kwargs: _Banner(stderr))
+
+
+def test_probe_without_ffprobe_reads_an_audio_stream_from_the_ffmpeg_banner(monkeypatch):
+    _banner_probe(monkeypatch, "Input #0, mov\n  Stream #0:0[0x1](und): Video: h264, yuv420p\n  Stream #0:1[0x2](und): Audio: aac, 44100 Hz\n")
+
+    assert encode.probe_audio_stream("src.mp4").status == encode.AUDIO_PROBE_PRESENT
+    assert encode.has_audio_stream("src.mp4") is True
+
+
+def test_probe_without_ffprobe_reports_silent_for_a_banner_with_only_video(monkeypatch):
+    _banner_probe(monkeypatch, "Input #0, mov\n  Stream #0:0[0x1](und): Video: h264, yuv420p\n")
+
+    assert encode.probe_audio_stream("src.mp4").status == encode.AUDIO_PROBE_SILENT
+
+
+def test_probe_without_ffprobe_stays_failed_when_the_banner_lists_no_streams(monkeypatch):
+    _banner_probe(monkeypatch, "src.mp4: No such file or directory\n")
+
+    assert encode.probe_audio_stream("src.mp4").status == encode.AUDIO_PROBE_FAILED
+
+
+def test_an_audio_title_tag_is_not_mistaken_for_a_stream(monkeypatch):
+    _banner_probe(monkeypatch, "  Metadata:\n    title           : Audio: demo\n  Stream #0:0: Video: h264\n")
+
+    assert encode.probe_audio_stream("src.mp4").status == encode.AUDIO_PROBE_SILENT

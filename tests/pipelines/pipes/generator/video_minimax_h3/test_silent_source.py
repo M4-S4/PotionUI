@@ -7,7 +7,7 @@ import torch
 from src.pipelines.pipes._shared.media.video_encode import AudioTrack
 from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
 from src.pipelines.pipes.generator.video_minimax_h3.main import GeneratorMinimaxH3Pipe, _MiniMaxH3Ctx
-from src.platform.util.video_stream import AUDIO_PROBE_FAILED, AUDIO_PROBE_PRESENT, AUDIO_PROBE_SILENT, AudioProbeResult, find_ffprobe
+from src.platform.util.video_stream import AUDIO_PROBE_FAILED, AUDIO_PROBE_PRESENT, AUDIO_PROBE_SILENT, AudioProbeResult
 from tests.pipelines.pipes.generator.video_minimax_h3.test_main import (
     _fake_bundle,
     _fake_conditioning,
@@ -18,9 +18,7 @@ from tests.platform.media_tools.media_factory import ffmpeg_available, make_vide
 
 _MAIN = "src.pipelines.pipes.generator.video_minimax_h3.main"
 
-needs_ffprobe = pytest.mark.skipif(
-    not ffmpeg_available() or find_ffprobe() is None, reason="needs ffmpeg and ffprobe"
-)
+needs_ffmpeg = pytest.mark.skipif(not ffmpeg_available(), reason="needs ffmpeg")
 
 
 def _probe_as(monkeypatch, status):
@@ -36,10 +34,13 @@ def _context(pipe, **inputs):
 
 
 def _refine_overrides(extra):
-    return {
+    overrides = {
         "decode": False, "denoise": 0.5, "initial_latents": [torch.rand(1, 24, 2, 2, 2)],
-        "audio_source": extra.audio_source, "audio_file": extra.audio_file, "audio_silent": extra.audio_silent,
+        "audio_source": extra.audio_source, "audio_file": extra.audio_file,
     }
+    if hasattr(extra, "audio_silent"):
+        overrides["audio_silent"] = extra.audio_silent
+    return overrides
 
 
 def _forbid_decode(monkeypatch):
@@ -136,9 +137,8 @@ def test_silent_continue_window_drops_nothing_on_none():
     assert h3_main._concat_audio_tracks([None, None]) is None
 
 
-@needs_ffprobe
-def test_real_silent_clip_refines_without_decoding(tmp_path, monkeypatch):
-    _forbid_decode(monkeypatch)
+@needs_ffmpeg
+def test_real_silent_clip_refines_without_decoding(tmp_path):
     clip = make_video(tmp_path / "silent.mp4", audio=False)
     extra = _context(_pipe(audio_source="passthrough"), audio=[str(clip)])
     pipe, _ = _run_generate_one({}, ctx_overrides=_refine_overrides(extra))
@@ -146,7 +146,7 @@ def test_real_silent_clip_refines_without_decoding(tmp_path, monkeypatch):
     assert pipe._audio_results == [None]
 
 
-@needs_ffprobe
+@needs_ffmpeg
 def test_real_clip_with_audio_still_decodes_and_passes_through(tmp_path):
     clip = make_video(tmp_path / "sound.mp4", audio=True)
     extra = _context(_pipe(audio_source="passthrough"), audio=[str(clip)])
