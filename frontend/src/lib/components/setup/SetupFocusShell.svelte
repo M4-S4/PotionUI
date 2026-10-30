@@ -4,6 +4,7 @@
 	import SetupStepper from './SetupStepper.svelte';
 	import TrustFooter from './TrustFooter.svelte';
 	import type { SetupStepId } from '$lib/utils/setupGuide';
+	import { resetScrollOnChange } from '$lib/utils/scrollToTop';
 
 	let {
 		current,
@@ -14,9 +15,10 @@
 		onnavigate?: (id: SetupStepId) => void;
 		children?: Snippet;
 	} = $props();
+
 </script>
 
-<div class="flex min-h-screen flex-col bg-canvas text-fg">
+<div use:resetScrollOnChange={current} class="flex min-h-screen flex-col bg-canvas text-fg">
 	<header
 		class="flex min-h-header items-center gap-3 border-b border-line bg-surface-1 px-6 py-3 max-sm:px-4"
 	>

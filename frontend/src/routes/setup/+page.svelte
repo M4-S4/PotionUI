@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
+	import { resetScrollOnChange } from '$lib/utils/scrollToTop';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
@@ -311,7 +312,7 @@
 	</div>
 {/snippet}
 
-<div class="flex min-h-screen flex-col bg-canvas text-fg">
+<div use:resetScrollOnChange={step} class="flex min-h-screen flex-col bg-canvas text-fg">
 	<PageHeader title="Setup" description="Is this instance ready to generate?" sticky={false}>
 		{#snippet actions()}
 			{#if guideReady && showsSkipGuide(step)}
