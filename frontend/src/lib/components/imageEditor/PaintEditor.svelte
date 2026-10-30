@@ -3,6 +3,7 @@
 	import EditorShell from '$lib/media/editors/EditorShell.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
+	import { NEW_COPY_NOTE } from '$lib/media-tools/newCopyNote';
 	import { resumeKeyboard, suppressKeyboard } from '$lib/services/keyboard';
 	import { isTypingInField } from '$lib/utils/editableTarget';
 	import { primaryModifier } from '$lib/utils/platform';
@@ -563,7 +564,7 @@
 				<p class="min-w-0 flex-1 text-xs text-warning">{state.notice}</p>
 			{:else}
 				<p class="min-w-0 flex-1 text-xs text-fg-muted max-md:hidden">
-					Saves as a new Library upload. The original is untouched.
+					{NEW_COPY_NOTE}
 				</p>
 			{/if}
 

@@ -2,6 +2,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import SegmentedControl from '$lib/components/ui/SegmentedControl.svelte';
+	import { NEW_COPY_NOTE } from './newCopyNote';
 	import type { MediaToolOutputMode } from './types';
 
 	let {
@@ -43,8 +44,6 @@
 		onApply: () => void;
 		onCancelRun: () => void;
 	} = $props();
-
-	const NEW_COPY_NOTE = 'Saves a copy. The original is not changed.';
 
 	const MODES = [
 		{ id: 'new', label: 'Save as new' },

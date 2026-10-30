@@ -95,3 +95,13 @@ describe('no context key is left behind', () => {
 		expect(source.default).toContain('export let initialTool');
 	});
 });
+
+describe('the image editor footer note', () => {
+	it('uses the same wording as every media tool footer', async () => {
+		open();
+		await editorReady();
+
+		expect(document.body.textContent).toContain('Saves a copy. The original is not changed.');
+		expect(document.body.textContent).not.toContain('new Library upload');
+	});
+});
