@@ -105,6 +105,9 @@ class ModeTemplate:
     source_plugin: Optional[str] = None
     mode_label: Optional[str] = None
     mode_icon: Optional[str] = None
+    prompt: Optional[str] = None
+    llm_guide: Optional[str] = None
+    segment_templates: Optional[List[Dict[str, Any]]] = None
 
 
 def sorted_forms(mode_data: 'ModeTemplate') -> List[FormTemplate]:

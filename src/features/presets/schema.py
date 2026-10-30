@@ -412,6 +412,9 @@ class FormFile(BaseModel):
     short_description: Optional[str] = None
     mode_label: Optional[str] = None
     mode_icon: Optional[str] = None
+    prompt: Optional[Literal["required", "optional", "none"]] = None
+    llm_guide: Optional[str] = None
+    segment_templates: Optional[List[Dict[str, Any]]] = None
     examples: List[str] = Field(default_factory=list)  # paths, must live under public/
     default: bool = False
     order: int = 0

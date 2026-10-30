@@ -33,6 +33,28 @@ contributed to `target`. A contributed mode is schema-validated through the exac
 core mode is (no second validator) - a broken `pipeline.yml`/`form.yml` in a contribution fails to
 load exactly like a broken core one would, with the error attributed to the plugin (see below).
 
+**Prompting declared by the mode itself**: a contributed mode cannot edit the target's `preset.yml`,
+so three optional keys in the mode's own default `modes/<name>/form.yml` (not a variant's) carry what
+a core mode puts in the target's `vars:` and `llm:` blocks. They are read only for a contributed mode
+and merged into the target preset when the contribution is accepted:
+
+```yaml
+name: "custom"
+mode_label: "Restyle"
+prompt: "optional"
+llm_guide: |
+  The prompt is optional plain English, one sentence added to the request.
+segment_templates: []
+```
+
+- `prompt:` is `required` (the default), `optional` or `none`. `optional` adds the mode to
+  [`vars.optional_prompt_modes`](manifest.md#varsoptional_prompt_modes-modes-where-the-prompt-is-optional),
+  `none` adds it to [`vars.promptless_modes`](manifest.md#varspromptless_modes-modes-that-need-no-prompt).
+- `llm_guide:` becomes `llm.modes.<name>.guide`, the prompting guide that replaces the preset-level guide
+  while this mode is active.
+- `segment_templates:` becomes `vars.prompt.modes.<name>.segment_templates`, the same flat replace as for a
+  core mode; an empty list means "no preset templates for this mode".
+
 **Provenance**: a contributed mode's `source_plugin` (the contributing plugin's id) is carried on
 its `ModeTemplate` and surfaced in the `GET /api/presets/{id}/modes` contract (see below) and the
 mode picker (a quiet "Contributed by `<plugin>`" tooltip - no pill, no color, since this is

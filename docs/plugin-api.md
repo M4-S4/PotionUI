@@ -1814,6 +1814,12 @@ there is contributed to `target` — there's no separate per-mode enable list. A
 is schema-validated through the exact same loader path a core mode is; a target that isn't
 installed, or a disabled owning plugin, means the contribution is simply absent, not an error.
 
+A contributed mode declares its own prompting in its default `form.yml`, since it cannot edit the
+target's `vars:` and `llm:`: `prompt: required | optional | none` (adds the mode to the target's
+`optional_prompt_modes` or `promptless_modes`), `llm_guide:` (the mode's `llm.modes.<name>.guide`) and
+`segment_templates:` (the mode's `vars.prompt.modes.<name>.segment_templates`). They are merged into the
+target preset when the contribution is accepted; see [Plugin-Contributed Presets](presets/plugins.md).
+
 Name collisions are resolved deterministically, never silently: a core mode of the target preset
 always wins over a contribution; between two contributions for the same target+mode name, the
 first one (contributions sorted by plugin id, then declaration order) wins and the rest are

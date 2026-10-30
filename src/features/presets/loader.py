@@ -176,6 +176,42 @@ def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
     return naming
 
 
+def read_mode_prompting(mode_dir: Path) -> Dict[str, Any]:
+    try:
+        data = load_yaml_file(mode_dir / 'form.yml') or {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    prompting: Dict[str, Any] = {}
+    prompt = data.get('prompt')
+    prompting['prompt'] = prompt if prompt in ('required', 'optional', 'none') else None
+    guide = data.get('llm_guide')
+    prompting['llm_guide'] = guide.strip() or None if isinstance(guide, str) else None
+    templates = data.get('segment_templates')
+    prompting['segment_templates'] = templates if isinstance(templates, list) else None
+    return prompting
+
+
+def _apply_mode_prompting(target: PresetTemplate, mode_name: str, mode: ModeTemplate) -> None:
+    template_vars = dict(target.vars or {})
+    for key, requirement in (('optional_prompt_modes', 'optional'), ('promptless_modes', 'none')):
+        if mode.prompt == requirement:
+            template_vars[key] = [*(template_vars.get(key) or []), mode_name]
+    if mode.segment_templates is not None:
+        prompt_vars = dict(template_vars.get('prompt') or {})
+        prompt_vars['modes'] = {
+            **(prompt_vars.get('modes') or {}),
+            mode_name: {'segment_templates': mode.segment_templates},
+        }
+        template_vars['prompt'] = prompt_vars
+    target.vars = template_vars
+    if mode.llm_guide:
+        llm = dict(target.llm or {})
+        llm['modes'] = {**(llm.get('modes') or {}), mode_name: {'guide': mode.llm_guide}}
+        target.llm = llm
+
+
 def _known_field_types() -> set:
     """The set of registered field-type names, for the loader's cross-check.
 
@@ -438,7 +474,9 @@ class PresetTemplateLoader:
         if errors:
             return None, errors
 
-        return ModeTemplate(forms=forms, pipes=pipes, **read_mode_naming(mode_dir)), []
+        return ModeTemplate(
+            forms=forms, pipes=pipes, **read_mode_naming(mode_dir), **read_mode_prompting(mode_dir)
+        ), []
 
     def _load_forms_from_mode_dir(self, mode_dir: Path, mode_name: str) -> Tuple[List[FormTemplate], List[str]]:
         """Load and validate a mode's form variants (flattened layout).
@@ -892,6 +930,7 @@ class PresetTemplateLoader:
 
                 mode_template.source_plugin = contribution.plugin_id
                 target.modes[mode_name] = mode_template
+                _apply_mode_prompting(target, mode_name, mode_template)
                 target.requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
                 claimed[claim_key] = contribution.plugin_id
 
