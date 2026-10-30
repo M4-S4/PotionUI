@@ -739,7 +739,7 @@ class GenerationHistoryQuery:
         own_params = {p.parameter_name: p.to_dict()['parameter_value'] for p in own_param_rows}
 
         own_models = [
-            model.to_dict(include_providers=True, include_tags=False)
+            model.to_dict(include_providers=True, include_tags=False, admin=False)
             for model in generation_model_repo.get_by_generation(
                 generation_id, include_model_info=True, include_files=True
             )
