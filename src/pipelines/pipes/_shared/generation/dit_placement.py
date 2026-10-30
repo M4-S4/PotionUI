@@ -412,7 +412,7 @@ def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
 
 def _takes_dequant_path(linear: Any) -> bool:
     path = fast_path(linear)
-    return path is not None and path.kind is FastPathKind.DEQUANT
+    return path is not None and path.kind is FastPathKind.DEQUANT and path.quant_format is not QuantFormat.NVFP4
 
 
 def _dit_dequant_transient_bytes(dit: Any) -> int:

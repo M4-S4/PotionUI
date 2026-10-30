@@ -314,7 +314,8 @@ def test_a_draft_sized_reference_video_reaches_the_encoder_at_its_own_size_unles
 
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_h3_reference_upscale", upscale)
     monkeypatch.setattr(
-        clip_module, "read_video_frames", lambda path: (np.zeros((30, 480, 832, 3), dtype=np.uint8), 24.0),
+        clip_module, "read_video_frames",
+        lambda path, max_seconds=None: (np.zeros((30, 480, 832, 3), dtype=np.uint8), 24.0),
     )
     assert tuple(clip_module._to_fhwc_float01("ref.mp4", 22).shape) == shape
 

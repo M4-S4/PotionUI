@@ -272,7 +272,7 @@ def test_reference_image_outside_1_to_4_is_padded_out_to_the_limit(size, padded)
 
 @pytest.mark.parametrize("size", [(500, 100), (100, 500)])
 def test_reference_image_outside_1_to_4_normalizes_to_exactly_1_to_4(size):
-    fitted = normalize_reference_image(Image.new("RGB", size), canvas_multiple=32, short_edge=256)
+    fitted = normalize_reference_image(Image.new("RGB", size), canvas_multiple=32, short_edge=256, upscale=True)
     assert sorted(fitted.size) == [256, 1024]
 
 
@@ -285,7 +285,7 @@ def test_reference_image_within_1_to_4_is_not_padded(size):
 def test_reference_image_within_1_to_4_resizes_exactly_as_before():
     rng = np.random.default_rng(0)
     image = Image.fromarray(rng.integers(0, 256, (60, 40, 4), dtype=np.uint8), mode="RGBA")
-    fitted = normalize_reference_image(image, canvas_multiple=16, short_edge=80)
+    fitted = normalize_reference_image(image, canvas_multiple=16, short_edge=80, upscale=True)
     assert fitted.mode == "RGBA"
     assert fitted.tobytes() == image.resize((80, 128), Image.Resampling.LANCZOS).tobytes()
 

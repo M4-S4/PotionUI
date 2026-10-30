@@ -226,17 +226,37 @@ def test_encode_oom_beside_a_resident_dit_offloads_it_and_retries_at_the_same_ti
     assert tiles_tried == [256, 256]
 
 
-def test_video_encode_wsl_driver_oom_raises_the_explained_out_of_memory_error():
+def test_video_encode_wsl_driver_oom_walks_the_tile_ladder_to_the_explained_out_of_memory_error():
     bundle = _bundle()
+    tiles_tried = []
 
     def driver_oom_encode(pixels):
+        tiles_tried.append(bundle.video_vae.module.tile_sample_min_height)
         raise RuntimeError("CUDA driver error: device not ready")
 
     bundle.video_vae.module.encode = driver_oom_encode
     with patch(f"{_MOD}.load_video_frames", return_value=torch.rand(5, 32, 32, 3)):
-        with pytest.raises(torch.cuda.OutOfMemoryError, match="no tiled encode fallback"):
+        with pytest.raises(torch.cuda.OutOfMemoryError, match="even at 128px tiles"):
             _pipe(device="cpu", target_mode="scale", scale=2.0).process(
                 PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    assert tiles_tried == [256, 192, 128]
+    assert bundle.video_vae.offloaded == 1
+
+
+def test_video_encode_driver_error_that_is_not_exhaustion_is_not_retried():
+    bundle = _bundle()
+    tiles_tried = []
+
+    def broken_encode(pixels):
+        tiles_tried.append(bundle.video_vae.module.tile_sample_min_height)
+        raise RuntimeError("CUDA driver error: invalid argument")
+
+    bundle.video_vae.module.encode = broken_encode
+    with patch(f"{_MOD}.load_video_frames", return_value=torch.rand(5, 32, 32, 3)):
+        with pytest.raises(RuntimeError, match="invalid argument"):
+            _pipe(device="cpu", target_mode="scale", scale=2.0).process(
+                PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
+    assert tiles_tried == [256]
     assert bundle.video_vae.offloaded == 1
 
 
