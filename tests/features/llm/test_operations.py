@@ -133,6 +133,15 @@ class TestMappers:
         assert "api_key" not in result.model_dump()
         assert "super-secret" not in str(result.model_dump())
 
+    def test_assignment_config_to_response_reports_show_thinking(self, sample_llm_config):
+        sample_llm_config.show_thinking = True
+
+        assert assignment_config_to_response(sample_llm_config).show_thinking is True
+
+        sample_llm_config.show_thinking = False
+
+        assert assignment_config_to_response(sample_llm_config).show_thinking is False
+
 
 # =========================================================================
 # Configuration Management Tests
