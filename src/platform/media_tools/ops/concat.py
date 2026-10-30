@@ -166,7 +166,7 @@ def concat_args(
         start, end = windows[index]
         filters.append(
             f"[{index}:v]{trim_filter('trim', float(clip.duration), start, end)}"
-            f"{fit_filter(width, height, fit)},setsar=1,fps={fps:g},format=yuv420p{timebase}[v{index}]"
+            f"fps={fps:g},{fit_filter(width, height, fit)},setsar=1,format=yuv420p{timebase}[v{index}]"
         )
         joined += f"[v{index}]"
         if with_audio:

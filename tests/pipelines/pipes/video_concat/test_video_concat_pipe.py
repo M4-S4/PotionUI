@@ -169,7 +169,7 @@ def graph(clips, **kwargs):
 SOURCE = listed("/c/src.mp4", 64, 48, 2.0)
 EXTENSION = listed("/c/ext.mp4", 60, 48, 1.5)
 
-OLD_SCALE = "scale=64:48:force_original_aspect_ratio=increase,crop=64:48,setsar=1,fps=10,format=yuv420p"
+OLD_SCALE = "fps=10,scale=64:48:force_original_aspect_ratio=increase,crop=64:48,setsar=1,format=yuv420p"
 OLD_AUDIO = "aresample=48000,aformat=channel_layouts=stereo"
 
 
