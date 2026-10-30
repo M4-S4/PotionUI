@@ -109,6 +109,7 @@ what the DiT samples against during the refine itself.
 from __future__ import annotations
 
 import math
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -163,7 +164,13 @@ from src.pipelines.pipes._shared.media.video_encode import (
     AudioTrack,
     encode_frames_to_mp4,
 )
-from src.platform.util.video_stream import FFmpegNotFoundError, has_audio_stream, require_ffmpeg
+from src.platform.util.video_stream import (
+    AUDIO_PROBE_SILENT,
+    FFmpegNotFoundError,
+    has_audio_stream,
+    probe_audio_stream,
+    require_ffmpeg,
+)
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (
@@ -431,6 +438,13 @@ def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
         Path(wav_path).unlink(missing_ok=True)
     return torch.from_numpy(np.ascontiguousarray(samples.T)), int(sample_rate)
 
+
+def _is_silent_media(source: Any) -> bool:
+    return isinstance(source, (str, os.PathLike)) and probe_audio_stream(source).status == AUDIO_PROBE_SILENT
+
+def _silent_audio_track(frames: int) -> AudioTrack:
+    samples = max(1, int(round(frames / FPS * AUDIO_SAMPLE_RATE)))
+    return AudioTrack(waveform=np.zeros((2, samples), dtype=np.float32), sample_rate=AUDIO_SAMPLE_RATE)
 
 def _encode_refine_audio_latent(c: "_MiniMaxH3Ctx", audio_file: Any, num_audio_latents: int) -> Tensor:
     """A refine's fallback audio target: encode `audio_file` (the
@@ -941,6 +955,7 @@ class _MiniMaxH3Ctx:
     references: tuple = ()
     audio_source: str = "generate"
     audio_file: Optional[Any] = None
+    audio_silent: bool = False
     decode: bool = True
     manual_sigmas: str = ""
     manual_audio_sigmas: str = ""
@@ -1519,6 +1534,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     "input was provided"
                 )
             audio_file = reference_videos[0]
+        audio_silent = _is_silent_media(audio_file)
+        if audio_silent:
+            audio_file = None
 
         plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
         raw_references = self._load_reference_media(packed, self._reference_decode_seconds(plan, source_role, bool(initial_latents))) if packed else []
@@ -1723,7 +1741,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 num_audio_latents=num_audio_latents, device=device, dtype=bundle.dit.compute_dtype, spec=spec,
                 keyframe_images=keyframe_images, keyframe_anchors=anchors,
                 references=references,
-                audio_source=audio_source, audio_file=audio_file, decode=decode,
+                audio_source=audio_source, audio_file=audio_file, audio_silent=audio_silent, decode=decode,
                 manual_sigmas=manual_sigmas, manual_audio_sigmas=manual_audio_sigmas,
                 sampler=sampler, scheduler=scheduler,
                 plan=plan, director_images=director_images,
@@ -2020,6 +2038,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     f"rows for this refine's derived geometry"
                 )
             return raw.to(device=c.device, dtype=torch.float32)
+        if c.audio_source == "passthrough" and c.audio_silent:
+            return _encode_refine_audio_latent(c, _silent_audio_track(c.frames), c.num_audio_latents)
         if c.audio_source == "passthrough" and c.audio_file is not None:
             return _encode_refine_audio_latent(c, c.audio_file, c.num_audio_latents)
         raise GenerationExecutionError(
