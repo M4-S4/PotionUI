@@ -500,3 +500,17 @@ describe('every built-in editor opened from a field', () => {
 		});
 	});
 });
+
+describe('crop on a video in a field', () => {
+	it('opens the crop editor on the clip', async () => {
+		const target = mount({ name: 'clip', config: { title: 'Source video', accept: 'video/*' }, value: clip, onChange: vi.fn() });
+		await settle();
+
+		await pickTool(target, 'crop');
+		await settle();
+
+		expect(document.body.textContent).toContain('Crop & frame');
+		expect(document.body.querySelector('[data-tool-footer]')).not.toBeNull();
+		expect(target.querySelector('video')).not.toBeNull();
+	});
+});

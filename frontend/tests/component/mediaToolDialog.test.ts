@@ -290,7 +290,8 @@ describe('the form built from the params', () => {
 
 		expect(param('width').textContent).toContain('At least 1');
 		expect(buttonByText('Apply')!.disabled).toBe(true);
-		expect(dialog().querySelector('[data-tool-blocked]')?.textContent).toContain('At least 1');
+		expect(dialog().querySelector('[data-tool-blocked]')?.textContent).toBe('Fix the highlighted setting to continue.');
+		expect(dialog().textContent!.split('At least 1')).toHaveLength(2);
 	});
 });
 

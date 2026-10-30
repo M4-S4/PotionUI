@@ -95,7 +95,7 @@
 		if (!resolution.ready) return 'Preparing this media…';
 		if (resolution.reason) return resolution.reason;
 		if (!availability.enabled) return availability.reason ?? null;
-		return firstIssue;
+		return firstIssue ? 'Fix the highlighted setting to continue.' : null;
 	});
 	let canApply = $derived(phase === 'edit' && blocked === null);
 

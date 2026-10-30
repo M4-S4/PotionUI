@@ -144,7 +144,8 @@ export type EditorCommitFn = (request: EditorCommitRequest) => void | Promise<vo
 export function hasEditor(kind: MediaEditorKind, mediaKind: EditorMediaKind | null): boolean {
 	if (!mediaKind) return false;
 	if (isToolDialogKind(kind)) return true;
-	if (kind === 'crop' || kind === 'mask' || kind === 'paint') return mediaKind === 'image';
+	if (kind === 'crop') return mediaKind === 'image' || mediaKind === 'video';
+	if (kind === 'mask' || kind === 'paint') return mediaKind === 'image';
 	if (kind === 'frame') return mediaKind === 'video';
 	if (kind === 'split') return mediaKind === 'audio';
 	if (kind === 'resize') return mediaKind === 'image' || mediaKind === 'video';

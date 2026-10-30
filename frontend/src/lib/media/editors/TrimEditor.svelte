@@ -24,6 +24,7 @@
 	import {
 		fractionOfTime,
 		fullTrim,
+		clampTrimPoints,
 		isFullClip,
 		safeDuration,
 		setTrimEnd,
@@ -148,7 +149,12 @@
 	function handleMetadata() {
 		if (!mediaElement) return;
 		const reported = mediaElement.duration;
-		if (Number.isFinite(reported) && reported > 0) probedDuration = reported;
+		if (!Number.isFinite(reported) || reported <= 0 || reported === duration) return;
+		const previous = duration;
+		probedDuration = reported;
+		if (initialised) {
+			points = isFullClip(points, previous) ? fullTrim(reported) : clampTrimPoints(points, reported);
+		}
 	}
 
 	function handleTimeUpdate() {

@@ -337,6 +337,24 @@ describe('trim editor', () => {
 		});
 	});
 
+	it('follows the length the clip reports when it differs from the stored one', async () => {
+		const target = mount({ request: { kind: 'trim', source: clipSource, itemIndex: null }, onClose: vi.fn(), onResult: vi.fn() });
+		await settle();
+		const video = target.querySelector('video') as HTMLVideoElement;
+		Object.defineProperty(video, 'duration', { value: 0.8, configurable: true });
+		video.dispatchEvent(new Event('loadedmetadata'));
+		await settle();
+
+		expect(target.textContent).toContain('Move a handle to choose what to keep.');
+		nudgeOut(target);
+		await settle();
+		expect(buttonByText(target, 'Apply')!.disabled).toBe(false);
+		buttonByText(target, 'Apply')!.click();
+		await settle();
+
+		expect(startMediaToolRun.mock.calls[0][0].steps).toEqual([{ tool: 'trim', params: { start: 0, end: 0.7 } }]);
+	});
+
 	it('refuses a selection that is still the whole clip', async () => {
 		const target = mount({
 			request: { kind: 'trim', source: clipSource, itemIndex: null },

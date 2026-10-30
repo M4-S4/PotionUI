@@ -19,10 +19,10 @@ describe('hasEditor', () => {
 		expect(hasEditor('paint', 'audio')).toBe(false);
 	});
 
-	it('offers crop and mask on images only', () => {
+	it('offers crop on images and video, and mask on images only', () => {
 		expect(hasEditor('crop', 'image')).toBe(true);
+		expect(hasEditor('crop', 'video')).toBe(true);
 		expect(hasEditor('mask', 'image')).toBe(true);
-		expect(hasEditor('crop', 'video')).toBe(false);
 		expect(hasEditor('crop', 'audio')).toBe(false);
 		expect(hasEditor('mask', 'video')).toBe(false);
 		expect(hasEditor('mask', 'audio')).toBe(false);
