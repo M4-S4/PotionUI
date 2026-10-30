@@ -35,7 +35,7 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-async function render(promptCopy?: Record<string, unknown>) {
+async function render(promptCopy?: { label: string | null; placeholder: string | null; optional: boolean }) {
 	const id = get(tabsStore).activeTabId;
 	tabsStore.updateTab(id, { selectedPreset: 'preset', selectedMode: 'text', formData: {} });
 	const target = document.createElement('div');
