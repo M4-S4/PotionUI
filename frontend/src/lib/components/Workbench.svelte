@@ -25,6 +25,7 @@
 	import { pluginStore } from '$lib/stores/plugins';
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
+	import { createImageHandoff, preloadImage } from '$lib/generation/imageHandoff';
 	import { batchCaption } from '$lib/components/workbench/promptGroups';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
@@ -203,7 +204,15 @@
 		? entryFileType(currentGalleryEntry)
 		: normalizeFileType(currentGeneration?.file_type);
 
-	$: displayImage = isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image;
+	let displayImage: string | null | undefined;
+	const handoffImage = createImageHandoff(
+		(url) => (displayImage = url),
+		preloadImage,
+		(url) => getDisplayUrl(url)
+	);
+	$: handoffImage(
+		isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image
+	);
 	$: displayVideo = isGalleryMode && isVideoFileType(displayFileType) ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_video;
 	$: displayAudio = isGalleryMode && isAudioFileType(displayFileType) ? currentGalleryItem : currentGeneration?.current_audio;
 	// `mesh` has no dedicated display* wiring beyond this gate - it renders
