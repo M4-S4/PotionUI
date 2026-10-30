@@ -251,4 +251,14 @@ describe('StepFacts', () => {
 		expect(target.textContent).toContain('Stored in');
 		expect(target.querySelector('.font-mono.tabular-nums')?.textContent).toBe('storage/db.sqlite');
 	});
+
+	it('offers line breaks only after path separators', () => {
+		const target = render(StepFacts, { facts: [{ label: 'Saved to', body: [{ mono: '/workspace/potionui/models' }] }] });
+		const mono = target.querySelector('.font-mono.tabular-nums')!;
+		expect(mono.textContent).toBe('/workspace/potionui/models');
+		expect(mono.querySelectorAll('wbr')).toHaveLength(3);
+		expect(mono.className).not.toContain('anywhere');
+		const windows = render(StepFacts, { facts: [{ label: 'Saved to', body: [{ mono: 'C:\\models\\flux' }] }] });
+		expect(windows.querySelectorAll('wbr')).toHaveLength(2);
+	});
 });
