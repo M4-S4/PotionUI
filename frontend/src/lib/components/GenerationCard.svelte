@@ -425,6 +425,7 @@
 							className="w-full h-full {tile ? 'object-contain' : 'object-cover'}"
 							{thumbnailSize}
 							loadFullOnClick={false}
+							skeleton={!!tile}
 						/>
 					{/key}
 				{/if}
