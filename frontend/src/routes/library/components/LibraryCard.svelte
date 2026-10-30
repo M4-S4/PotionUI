@@ -43,10 +43,19 @@
 
 	const dispatch = createEventDispatcher<{ open: LibraryItem; delete: LibraryItem }>();
 
+	let mediaEl: HTMLImageElement | HTMLVideoElement | undefined;
+	let loadedSrc: string | undefined;
+	$: gridSrc = libraryItemGridSrc(item);
+	$: if (mediaEl && gridSrc !== loadedSrc && isMediaReady(mediaEl)) loadedSrc = gridSrc;
+	$: mediaLoaded = loadedSrc !== undefined && loadedSrc === gridSrc;
+
+	function isMediaReady(el: HTMLImageElement | HTMLVideoElement): boolean {
+		return el instanceof HTMLImageElement ? el.complete && el.naturalWidth > 0 : el.readyState >= 2;
+	}
+
 	$: bucket = bucketForCardWidth(tile.width);
 	$: run = $mediaToolRuns[item.id];
 	$: displayName = libraryItemDisplayName(item);
-	$: gridSrc = libraryItemGridSrc(item);
 	$: metaParts = libraryItemMetaParts(item);
 	$: mediaIcon = libraryItemIcon(item.media_type);
 	$: isVideo = (item.media_type ?? '').toLowerCase() === 'video';
@@ -185,6 +194,9 @@
 				}
 			}}
 		>
+			{#if !isAudio && !mediaLoaded}
+				<div class="absolute inset-0 z-10 bg-surface-2 animate-pulse" data-card-skeleton></div>
+			{/if}
 			{#if isAudio}
 				<div
 					class="w-full h-full flex flex-col items-center justify-center gap-2"
@@ -201,11 +213,22 @@
 				<!-- A generated thumbnail is a static image, far cheaper for the grid
 				     to render than the video itself - the media-kind chip below still
 				     marks it as a video. -->
-				<img src={gridSrc} alt={displayName} class="w-full h-full object-contain" loading="lazy" />
+				<img
+					bind:this={mediaEl}
+					src={gridSrc}
+					alt={displayName}
+					class="w-full h-full object-contain"
+					loading="lazy"
+					on:load={() => (loadedSrc = gridSrc)}
+					on:error={() => (loadedSrc = gridSrc)}
+				/>
 			{:else if isVideo}
 				<!-- No thumbnail yet (row predates thumbnail generation) - fall back
 				     to the video itself, same as before. -->
 				<video
+					bind:this={mediaEl}
+					on:loadeddata={() => (loadedSrc = gridSrc)}
+					on:error={() => (loadedSrc = gridSrc)}
 					src={gridSrc}
 					class="w-full h-full object-contain"
 					muted
@@ -215,7 +238,15 @@
 					<track kind="captions" />
 				</video>
 			{:else}
-				<img src={gridSrc} alt={displayName} class="w-full h-full object-contain" loading="lazy" />
+				<img
+					bind:this={mediaEl}
+					src={gridSrc}
+					alt={displayName}
+					class="w-full h-full object-contain"
+					loading="lazy"
+					on:load={() => (loadedSrc = gridSrc)}
+					on:error={() => (loadedSrc = gridSrc)}
+				/>
 			{/if}
 
 			<!-- Media kind (+ a video's duration), bottom-left -->

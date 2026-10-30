@@ -88,6 +88,37 @@ afterEach(() => {
 	mounted = undefined;
 });
 
+describe('library card loading state', () => {
+	it('shows the skeleton until the thumbnail has loaded, then removes it', () => {
+		mounted = mountCard();
+		const skeleton = () => mounted!.target.querySelector('[data-card-skeleton]');
+
+		expect(skeleton()).not.toBeNull();
+		expect(skeleton()!.className).toContain('animate-pulse');
+		expect(skeleton()!.className).not.toContain('bg-black');
+
+		mounted.target.querySelector('img')!.dispatchEvent(new Event('load'));
+		flushSync();
+
+		expect(skeleton()).toBeNull();
+	});
+
+	it('also clears the skeleton when the thumbnail fails to load', () => {
+		mounted = mountCard();
+
+		mounted.target.querySelector('img')!.dispatchEvent(new Event('error'));
+		flushSync();
+
+		expect(mounted.target.querySelector('[data-card-skeleton]')).toBeNull();
+	});
+
+	it('has no skeleton on an audio card', () => {
+		mounted = mountCard({ item: { ...ITEM, media_type: 'audio' } });
+
+		expect(mounted.target.querySelector('[data-card-skeleton]')).toBeNull();
+	});
+});
+
 describe('library card', () => {
 	it('shows the original filename, never the on-disk uuid', () => {
 		mounted = mountCard();
