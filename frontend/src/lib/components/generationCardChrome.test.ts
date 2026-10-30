@@ -61,12 +61,12 @@ describe('bucketForCardWidth', () => {
 
 describe('menu chrome folding', () => {
 	it('keeps Delete in the hover row from the compact bucket up and folds it into the menu below', () => {
-		expect(bucketForCardWidth(320).deleteInRow).toBe(true);
-		expect(bucketForCardWidth(220).deleteInRow).toBe(true);
-		expect(bucketForCardWidth(140).deleteInRow).toBe(true);
-		expect(bucketForCardWidth(139).deleteInRow).toBe(false);
-		expect(bucketForCardWidth(110).deleteInRow).toBe(false);
-		expect(bucketForCardWidth(80).deleteInRow).toBe(false);
+		expect(bucketForCardWidth(320).favoriteInRow).toBe(true);
+		expect(bucketForCardWidth(220).favoriteInRow).toBe(true);
+		expect(bucketForCardWidth(140).favoriteInRow).toBe(true);
+		expect(bucketForCardWidth(139).favoriteInRow).toBe(false);
+		expect(bucketForCardWidth(110).favoriteInRow).toBe(false);
+		expect(bucketForCardWidth(80).favoriteInRow).toBe(false);
 	});
 
 	it('shrinks the menu chip with the tile and never below 20px', () => {

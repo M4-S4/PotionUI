@@ -4,13 +4,11 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
-	import TagSelector from '$lib/components/TagSelector.svelte';
-	import FavoriteButton from '$lib/components/FavoriteButton.svelte';
 	import { Badge } from '$lib/components/ui';
 	import { libraryStore, LIBRARY_TAG_TYPE } from '$lib/stores/library';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
 	import { libraryItemDisplayName, libraryItemIcon } from '$lib/library/libraryItemMeta';
-	import MediaToolRow, { type RowPageAction } from '$lib/media-tools/MediaToolRow.svelte';
+	import DetailsActionBar, { type BarAction } from '$lib/media-tools/DetailsActionBar.svelte';
 	import { buildLibraryToolContext } from '$lib/tools/tools';
 	import { toasts } from '$lib/stores/toast';
 	import type { EditedMediaItem } from '$lib/services/api/media';
@@ -52,8 +50,8 @@
 		link.click();
 	}
 
-	async function handleTagsChange(event: CustomEvent<string[]>) {
-		await libraryStore.setItemTags(item.id, event.detail);
+	async function handleTagsChange(ids: string[]) {
+		await libraryStore.setItemTags(item.id, ids);
 	}
 
 	async function handleFavoriteToggle() {
@@ -65,23 +63,47 @@
 
 	$: rowItems = buildLibraryToolContext([item], null).items;
 
-	let libraryActions: RowPageAction[] = [];
+	function openInNewTab() {
+		window.open(item.url, '_blank');
+	}
+
 	$: libraryActions = [
 		{
 			id: 'auto-file',
-			label: 'Auto-file items like this…',
+			label: 'Auto-file…',
 			icon: 'sparkles',
+			tooltip: 'Create a rule that files items like this one',
 			onclick: () => startRuleFrom(uploadItemRule(item))
-		},
+		}
+	] satisfies BarAction[];
+
+	$: downloadActions = [
+		{
+			id: 'download-file',
+			label: 'Download file',
+			icon: 'download',
+			shortcut: 'D',
+			tooltip: 'Download this file',
+			description: [displayName, typeof item.size === 'number' && item.size > 0 ? formatBytes(item.size) : '']
+				.filter(Boolean)
+				.join(' · '),
+			onclick: handleDownload
+		}
+	] satisfies BarAction[];
+
+	$: moreActions = [
+		{ id: 'open-new-tab', label: 'Open in new tab', icon: 'external-link', onclick: openInNewTab }
+	] satisfies BarAction[];
+
+	$: dangerActions = [
 		{
 			id: 'delete',
 			label: 'Delete',
 			icon: 'trash',
 			tone: 'danger',
 			onclick: () => onDeleteRequest(item)
-		},
-		{ id: 'download', label: 'Download', icon: 'download', onclick: handleDownload }
-	];
+		}
+	] satisfies BarAction[];
 
 	async function handleToolResult(results: EditedMediaItem[], info: { replaced: boolean }) {
 		await libraryStore.applyToolResult(results, [item.id], { replaced: info.replaced });
@@ -89,19 +111,20 @@
 </script>
 
 <BaseModal isOpen={true} size="xl" title={displayName} closeable={!toolEditing} on:close={onClose}>
+	<DetailsActionBar
+		items={rowItems}
+		scope="library"
+		favorite={{ active: !!item.is_favorite, onToggle: handleFavoriteToggle }}
+		tags={{ selectedIds: selectedTagIds, tagType: LIBRARY_TAG_TYPE, onChange: handleTagsChange }}
+		pageActions={libraryActions}
+		{downloadActions}
+		{moreActions}
+		{dangerActions}
+		onResult={handleToolResult}
+		onEditingChange={(editing) => (toolEditing = editing)}
+	/>
 	<div class="p-4 md:p-6 flex flex-col gap-4">
 		<div class="relative rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[60vh]">
-			<div
-				data-library-favorite
-				class="absolute top-3 right-3 z-20 flex items-center rounded-lg bg-black/50 p-3 shadow-lg backdrop-blur-sm transition-colors hover:bg-black/70"
-			>
-				<FavoriteButton
-					active={!!item.is_favorite}
-					tone="onMedia"
-					size="lg"
-					onToggle={handleFavoriteToggle}
-				/>
-			</div>
 			{#if kind === 'video'}
 				<video src={item.url} class="max-h-[60vh] max-w-full" controls playsinline>
 					<track kind="captions" />
@@ -115,29 +138,14 @@
 			{/if}
 		</div>
 
-		<MediaToolRow
-			items={rowItems}
-			scope="library"
-			pageLabel="Library"
-			pageActions={libraryActions}
-			onResult={handleToolResult}
-			onEditingChange={(editing) => (toolEditing = editing)}
-		/>
-
-		<div class="flex flex-wrap items-center gap-2">
+		<div class="flex flex-wrap items-center gap-2" data-library-item-tags>
 			<Badge variant="neutral" class="inline-flex items-center gap-1.5">
 				<Icon name={libraryItemIcon(item.media_type)} className="w-3 h-3" />
 				{kind || 'media'}
 			</Badge>
-			<div class="flex-1"></div>
-			<TagSelector
-				{selectedTagIds}
-				tagType={LIBRARY_TAG_TYPE}
-				allowCreate={true}
-				triggerStyle="pills"
-				placeholder="Add tags..."
-				on:change={handleTagsChange}
-			/>
+			{#each item.tags as tag (tag.id)}
+				<span class="rounded border border-line bg-surface-2 px-2 py-0.5 text-[12px] leading-4 text-fg-muted">{tag.name}</span>
+			{/each}
 		</div>
 
 		{#if details.length > 0}

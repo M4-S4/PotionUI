@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
+	default: (await import('./fixtures/PluginSlotStub.svelte')).default
+}));
 import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
 import { settle } from './helpers/settle';
 

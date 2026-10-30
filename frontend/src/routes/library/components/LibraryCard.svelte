@@ -6,6 +6,8 @@
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { formatSeconds } from '$lib/utils/format';
 	import type { LibraryItem } from '$lib/services/api/library';
+	import { libraryStore } from '$lib/stores/library';
+	import { toasts } from '$lib/stores/toast';
 	import {
 		bucketForCardWidth,
 		formatBarResolution,
@@ -84,6 +86,11 @@
 
 	function menuModel() {
 		return entryMenu!.model(item);
+	}
+
+	async function handleFavoriteToggle() {
+		const ok = await libraryStore.setItemFavorite(item.id, !item.is_favorite);
+		if (!ok) toasts.error('Could not update the favorite');
 	}
 
 	function handleMenuPick(tool: MediaTool, ctx: MediaToolContext, extra?: ToolRunExtra) {
@@ -248,10 +255,9 @@
 				scope="library"
 				getModel={menuModel}
 				onPick={handleMenuPick}
-				onDelete={() => dispatch('delete', item)}
-				deleteLabel="Delete library item"
-				showDelete={showActions && !selectable}
-				deleteInRow={bucket.deleteInRow}
+				favorite={showActions && !selectable ? !!item.is_favorite : null}
+				onFavorite={handleFavoriteToggle}
+				favoriteInRow={bucket.favoriteInRow}
 				chipSize={bucket.menuChipSize}
 			/>
 		{/if}

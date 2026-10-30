@@ -16,11 +16,14 @@ vi.mock('$lib/services/api/index', () => ({
 		listCollections: vi.fn().mockResolvedValue({ success: false })
 	}
 }));
+vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
+	default: (await import('./fixtures/PluginSlotStub.svelte')).default
+}));
 vi.mock('$lib/media/editors/MediaEditors.svelte', async () => ({
 	default: (await import('./fixtures/MediaEditorsStub.svelte')).default
 }));
 
-const { default: MediaToolRow } = await import('$lib/media-tools/MediaToolRow.svelte');
+const { default: DetailsActionBar } = await import('$lib/media-tools/DetailsActionBar.svelte');
 const { SAVED_TO_LIBRARY_ANNOUNCE } = await import('$lib/media-tools/announce');
 const { resetMediaToolCatalog } = await import('$lib/media-tools/catalog');
 const { unregisterMediaTools } = await import('$lib/tools/tools');
@@ -45,9 +48,9 @@ let cleanup: (() => void) | undefined;
 async function render(props: Record<string, unknown>) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
-	const instance = mount(MediaToolRow, {
+	const instance = mount(DetailsActionBar, {
 		target,
-		props: { items: [video], scope: 'library', pageLabel: 'Library', pageActions: [], ...props }
+		props: { items: [video], scope: 'library', ...props }
 	});
 	cleanup = () => {
 		unmount(instance);
@@ -58,8 +61,13 @@ async function render(props: Record<string, unknown>) {
 	return target;
 }
 
-function button(root: ParentNode, text: string): HTMLButtonElement {
-	return Array.from(root.querySelectorAll('button')).find((entry) => (entry.textContent ?? '').trim() === text)!;
+function pick(_root: ParentNode, text: string): HTMLButtonElement {
+	const trigger = document.body.querySelector<HTMLButtonElement>('[data-bar-item="edit"]')!;
+	trigger.click();
+	flushSync();
+	return Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-bar-menu] [role="menuitem"]')).find(
+		(entry) => (entry.querySelector('span')?.textContent ?? '').trim() === text
+	)!;
 }
 
 beforeEach(() => {
@@ -76,11 +84,11 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-describe('the row on History', () => {
+describe('the bar on History', () => {
 	it('opens a tool with the saved-to-Library toast and its link', async () => {
 		const root = await render({ scope: 'history' });
 
-		button(root, 'Trim').click();
+		pick(root, 'Trim').click();
 
 		expect(openMediaTool).toHaveBeenCalledTimes(1);
 		expect(openMediaTool.mock.calls[0][0]).toMatchObject({ toolId: 'trim', scope: 'history', announce: SAVED_TO_LIBRARY_ANNOUNCE });
@@ -89,7 +97,7 @@ describe('the row on History', () => {
 	it('opens a tool on the Library with the default toast', async () => {
 		const root = await render({ scope: 'library' });
 
-		button(root, 'Trim').click();
+		pick(root, 'Trim').click();
 
 		expect(openMediaTool.mock.calls[0][0].scope).toBe('library');
 		expect(openMediaTool.mock.calls[0][0].announce).toBeUndefined();
@@ -98,7 +106,7 @@ describe('the row on History', () => {
 	it('posts the one toast for an image saved from the editor, and tells the page', async () => {
 		const onResult = vi.fn();
 		const root = await render({ scope: 'history', items: [image], onResult });
-		button(root, 'Edit image').click();
+		pick(root, 'Edit image').click();
 		flushSync();
 
 		document.body.querySelector<HTMLButtonElement>('[data-stub-result]')!.click();
@@ -112,7 +120,7 @@ describe('the row on History', () => {
 
 	it('posts the one plain toast, with no link, for an image saved from the editor on the Library', async () => {
 		const root = await render({ scope: 'library', items: [image] });
-		button(root, 'Edit image').click();
+		pick(root, 'Edit image').click();
 		flushSync();
 
 		document.body.querySelector<HTMLButtonElement>('[data-stub-result]')!.click();

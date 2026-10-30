@@ -12,7 +12,6 @@
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import { isTypingInField } from '$lib/utils/editableTarget';
-	import TagSelector from '$lib/components/TagSelector.svelte';
 	import portal from '$lib/actions/portal';
 	import BaseModal from './BaseModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
@@ -22,7 +21,6 @@
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import type { AudioTrack, AudioTrackType } from '$lib/types/audio';
 	import StarRating from '$lib/components/StarRating.svelte';
-	import FavoriteButton from '$lib/components/FavoriteButton.svelte';
 	import { historyStore } from '$lib/stores/history';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
@@ -36,7 +34,7 @@
 	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
 	import { startRuleFrom } from '$lib/organize/handoff';
 	import { generationItemRule } from '$lib/organize/itemPrefill';
-	import MediaToolRow, { type RowPageAction } from '$lib/media-tools/MediaToolRow.svelte';
+	import DetailsActionBar, { type BarAction } from '$lib/media-tools/DetailsActionBar.svelte';
 	import { buildHistoryEntryContext } from '$lib/tools/entryMenu';
 	import GenerationArtifacts from '$lib/components/generation/artifacts/GenerationArtifacts.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
@@ -440,6 +438,7 @@
 	// Arrows walk files and roll over into the neighbouring generation; Shift jumps. Escape: BaseModal.
 	function handleKeyDown(event: KeyboardEvent) {
 		if (!isOpen) return;
+		if ((event.target as HTMLElement | null)?.closest?.('[data-details-action-bar], [data-bar-menu]')) return;
 		if (
 			onArrowKey &&
 			['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) &&
@@ -521,10 +520,9 @@
 
 	let toolEditing = false;
 
-	$: rowItems =
-		activeGeneration && currentFile
-			? buildHistoryEntryContext(activeGeneration, currentFile, null).items
-			: [];
+	$: rowContext =
+		activeGeneration && currentFile ? buildHistoryEntryContext(activeGeneration, currentFile, null) : null;
+	$: rowItems = rowContext?.items ?? [];
 
 	let exportingBundle = false;
 
@@ -556,8 +554,8 @@
 		link.click();
 	}
 
-	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean): RowPageAction[] {
-		const actions: RowPageAction[] = [];
+	function buildGenerationActions(withReuse: boolean, withCopy: boolean, copying: boolean): BarAction[] {
+		const actions: BarAction[] = [];
 		if (withReuse) {
 			actions.push({
 				id: 'reuse',
@@ -577,7 +575,6 @@
 				onclick: handleCopyToLibrary
 			});
 		}
-		actions.push({ id: 'download', label: 'Download', icon: 'download', onclick: downloadCurrentFile });
 		return actions;
 	}
 
@@ -586,6 +583,56 @@
 		canCopyToLibrary,
 		copyingToLibrary
 	);
+
+	$: downloadActions = [
+		{
+			id: 'download-file',
+			label: 'Download file',
+			icon: 'download',
+			shortcut: 'D',
+			tooltip: 'Download this file',
+			description: currentFile
+				? [currentFile.file_path.split('/').pop(), currentFile.file_size ? formatBytes(currentFile.file_size) : '']
+						.filter(Boolean)
+						.join(' · ')
+				: undefined,
+			onclick: downloadCurrentFile
+		},
+		{
+			id: 'export-bundle',
+			label: 'Export bundle',
+			icon: 'box',
+			description: 'Files and settings in one bundle',
+			tooltip: 'Export this generation as a portable bundle',
+			loading: exportingBundle,
+			onclick: handleExportBundle
+		}
+	] satisfies BarAction[];
+
+	$: moreActions = [
+		{
+			id: 'publish',
+			label: 'Publish to Inspirations',
+			icon: 'lightbulb',
+			onclick: () => (showPublishModal = true)
+		},
+		{ id: 'open-new-tab', label: 'Open in new tab', icon: 'external-link', onclick: openCurrentFileInTab }
+	] satisfies BarAction[];
+
+	$: pluginActionContext =
+		activeGeneration && currentFile
+			? {
+					generationId: activeGenerationId,
+					fileIndex: currentFileIndex,
+					filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
+					fileUrl: getImageUrl(currentFile),
+					fileType: currentFile.file_type
+				}
+			: null;
+
+	function handleBarTagsChange(ids: string[]) {
+		void applyTagIds(ids);
+	}
 
 	function openCurrentFileInTab() {
 		if (!currentFile) return;
@@ -691,7 +738,21 @@
 	{:else if activeGeneration}
 		<div class="flex flex-col md:flex-row h-full min-h-0">
 			<!-- Left Side - Media -->
-			<div class="group relative flex min-h-0 flex-1 flex-col">
+			<div class="group relative flex min-h-0 min-w-0 flex-1 flex-col">
+				{#if currentFile}
+					<DetailsActionBar
+						items={rowItems}
+						context={rowContext}
+						scope="history"
+						favorite={{ active: !!activeGeneration.is_favorite, onToggle: handleFavoriteToggle }}
+						tags={{ selectedIds: selectedTagIds, onChange: handleBarTagsChange }}
+						pageActions={generationActions}
+						{downloadActions}
+						{moreActions}
+						pluginContext={pluginActionContext}
+						onEditingChange={(editing) => (toolEditing = editing)}
+					/>
+				{/if}
 			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">
 				{#if currentFile}
 					<!-- Navigation Arrows -->
@@ -787,82 +848,6 @@
 					<slot name="stageEmpty" />
 				{/if}
 			</div>
-				{#if currentFile}
-					<!-- Action buttons - top-right corner, shown on hover -->
-					<div data-stage-toolbar class="flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-line bg-surface-1 px-3 py-2 max-sm:[&_button]:!p-2 max-sm:[&_svg]:!h-5 max-sm:[&_svg]:!w-5 max-sm:[&>*]:shrink-0 sm:absolute sm:right-4 sm:top-4 sm:z-20 sm:max-w-[calc(100%-2rem)] sm:flex-wrap sm:justify-end sm:overflow-visible sm:border-t-0 sm:bg-transparent sm:p-0 sm:opacity-0 sm:transition-opacity sm:duration-200 sm:group-hover:opacity-100">
-						<!-- Favorite toggle -->
-						<div
-							class="bg-black/50 hover:bg-black/70 p-3 max-sm:p-0 rounded-lg shadow-lg backdrop-blur-sm transition-colors flex items-center"
-						>
-							<FavoriteButton
-								active={activeGeneration.is_favorite}
-								tone="onMedia"
-								size="lg"
-								onToggle={handleFavoriteToggle}
-							/>
-						</div>
-
-						<!-- Tag icon button with dropdown -->
-						<TagSelector
-							{selectedTagIds}
-							on:change={handleTagsChange}
-							placeholder="Add tags..."
-							allowCreate={true}
-							compact={true}
-							iconOnly={true}
-						/>
-
-						<button
-							on:click={handleExportBundle}
-							aria-label="Export this generation as a portable bundle"
-							disabled={exportingBundle}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors disabled:opacity-50"
-							use:tooltip={'Export this generation as a portable bundle'}
-						>
-							{#if exportingBundle}
-								<Spinner size="sm" />
-							{:else}
-								<Icon name="box" className="h-6 w-6" />
-							{/if}
-						</button>
-
-						<button
-							on:click={() => (showPublishModal = true)}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							use:tooltip={'Publish to Inspirations'}
-							aria-label="Publish to Inspirations"
-						>
-							<Icon name="lightbulb" className="h-6 w-6" />
-						</button>
-
-						<!-- Open in new tab button -->
-						<IconButton icon="external-link" label="Display in new tab" variant="overlay" onclick={openCurrentFileInTab} />
-
-						<!-- Plugin actions slot -->
-						<PluginSlot
-							hookName="image.actions"
-							position="top-right"
-							context={{
-								generationId: activeGenerationId,
-								fileIndex: currentFileIndex,
-								filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
-								fileUrl: getImageUrl(currentFile),
-								fileType: currentFile.file_type
-							}}
-						/>
-					</div>
-				{/if}
-				{#if currentFile}
-					<div class="max-h-[40vh] shrink-0 overflow-y-auto border-t border-line bg-surface-1 px-3 py-3" data-details-tool-row>
-						<MediaToolRow
-							items={rowItems}
-							scope="history"
-							pageLabel="Generation"
-							pageActions={generationActions}
-							onEditingChange={(editing) => (toolEditing = editing)}
-						/>
-					</div>
-				{/if}
 			</div>
 
 			<!-- Right Side - Information -->

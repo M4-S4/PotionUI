@@ -15,6 +15,7 @@ const { registerEntryTools } = await import('$lib/tools/entryTools');
 const { registerMediaTool } = await import('$lib/tools/tools');
 const { createLibraryEntryMenu } = await import('$lib/tools/entryMenu');
 const { flushSync } = await import('svelte');
+const { libraryStore } = await import('$lib/stores/library');
 
 vi.stubGlobal('ClipboardItem', class {});
 registerEntryTools();
@@ -101,10 +102,10 @@ describe('library card', () => {
 		expect(mounted.text()).toContain('1024×512');
 	});
 
-	it('hover row is exactly Delete and the menu button on a wide tile', () => {
+	it('hover row is exactly the Favorite toggle and the menu button on a wide tile', () => {
 		mounted = mountCard({ tile: { width: 320, height: 160 } });
 
-		expect(mounted.labels()).toEqual(['Select item', 'Delete library item', 'Item actions']);
+		expect(mounted.labels()).toEqual(['Select item', 'Favorite', 'Item actions']);
 	});
 
 	it('retires the grouped pill toolbar: no view or download buttons on the card', () => {
@@ -123,19 +124,29 @@ describe('library card', () => {
 		expect(media.contains(mounted.target.querySelector('[data-entry-menu-trigger]'))).toBe(false);
 	});
 
-	it('keeps Favorite in the menu rather than on the tile', () => {
-		mounted = mountCard();
+	it('shows a Favorite toggle on the tile, signal blue and pressed for a favorite', () => {
+		mounted = mountCard({ item: { ...ITEM, is_favorite: true } });
 
-		expect(mounted.labels().join(' ')).not.toMatch(/favorit/i);
+		const toggle = mounted.target.querySelector<HTMLButtonElement>('[data-entry-favorite]')!;
+		expect(toggle.getAttribute('aria-label')).toBe('Remove favorite');
+		expect(toggle.getAttribute('aria-pressed')).toBe('true');
+		expect(toggle.className).toContain('text-signal');
 	});
 
-	it('folds Delete into the menu on narrow tiles but keeps the menu button', () => {
+	it('leaves the Favorite toggle off for an item that is not a favorite', () => {
+		mounted = mountCard();
+
+		const toggle = mounted.target.querySelector<HTMLButtonElement>('[data-entry-favorite]')!;
+		expect(toggle.getAttribute('aria-pressed')).toBe('false');
+	});
+
+	it('folds the Favorite toggle into the menu on narrow tiles but keeps the menu button', () => {
 		mounted = mountCard({ tile: { width: 120, height: 120 } });
-		expect(mounted.labels()).not.toContain('Delete library item');
+		expect(mounted.labels()).not.toContain('Favorite');
 		expect(mounted.labels()).toContain('Item actions');
 		mounted.destroy();
 		mounted = mountCard({ tile: { width: 100, height: 100 } });
-		expect(mounted.labels()).not.toContain('Delete library item');
+		expect(mounted.labels()).not.toContain('Favorite');
 		expect(mounted.labels()).toContain('Item actions');
 	});
 
@@ -151,23 +162,31 @@ describe('library card', () => {
 		expect(host.open).toHaveBeenCalledTimes(1);
 	});
 
-	it('emits delete with the item rather than deleting anything itself', () => {
+	it('hands Delete to the host from the menu rather than deleting anything itself', async () => {
 		mounted = mountCard();
-		const onDelete = vi.fn();
-		mounted.component.$on('delete', (e: CustomEvent) => onDelete(e.detail));
+		(mounted.target.querySelector('[data-entry-menu-trigger]') as HTMLButtonElement).click();
+		for (let i = 0; i < 4; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+		flushSync();
 
-		const button = Array.from(mounted.target.querySelectorAll('button')).find(
-			(b) => b.getAttribute('aria-label') === 'Delete library item'
-		);
-		button!.click();
+		document.body.querySelector<HTMLButtonElement>('[data-tool="delete"]')!.click();
 
-		expect(onDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 'item-1' }));
+		expect(host.remove).toHaveBeenCalledTimes(1);
+	});
+
+	it('writes the favorite through the store when the toggle is pressed', async () => {
+		const spy = vi.spyOn(libraryStore, 'setItemFavorite').mockResolvedValue(true);
+		mounted = mountCard();
+
+		mounted.target.querySelector<HTMLButtonElement>('[data-entry-favorite]')!.click();
+
+		expect(spy).toHaveBeenCalledWith('item-1', true);
+		spy.mockRestore();
 	});
 
 	it('leaves only the menu button in selection mode', () => {
 		mounted = mountCard({ selectable: true });
 
-		expect(mounted.labels()).not.toContain('Delete library item');
+		expect(mounted.labels()).not.toContain('Favorite');
 		expect(mounted.labels()).toContain('Item actions');
 	});
 });

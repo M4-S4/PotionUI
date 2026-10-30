@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 import { fixturePng } from './imageEditorHelpers';
 
@@ -61,7 +61,8 @@ function libraryRow(id: string, name: string, kind: 'image' | 'video' | 'audio')
 		duration_seconds: kind === 'image' ? undefined : 8,
 		created_at: '2026-01-01T00:00:00Z',
 		tags: [],
-		is_favorite: false
+		is_favorite: false,
+		has_alpha: kind === 'image' ? false : undefined
 	};
 }
 
@@ -72,8 +73,8 @@ function generation(id: string, kind: 'image' | 'video', index: number) {
 		preset_name: 'Landscape',
 		status: 'completed',
 		progress: 1,
-		created_at: '2026-01-01T00:00:00Z',
-		updated_at: '2026-01-01T00:00:00Z',
+		created_at: `2026-01-0${3 - index}T00:00:00Z`,
+		updated_at: `2026-01-0${3 - index}T00:00:00Z`,
 		form_data: { prompt: `prompt for ${id}` },
 		files: [
 			{
@@ -127,7 +128,15 @@ async function mockBackend(page: Page): Promise<Backend> {
 	await page.route(/\/api\/media-tools\/runs\/run-1$/, async (route) => {
 		if (route.request().method() === 'DELETE') {
 			backend.runs.cancelled.push('run-1');
-			return json(route, { cancelled: true });
+			return json(route, {
+				run_id: 'run-1',
+				status: 'cancelled',
+				progress: backend.runs.progress,
+				label: '',
+				items: [],
+				replaced: false,
+				error: null
+			});
 		}
 		if (backend.runs.finish) {
 			return json(route, {
@@ -392,11 +401,24 @@ test.describe('recent looks', () => {
 
 	test('still renders the menu when the browser refuses storage', async ({ page }) => {
 		await page.addInitScript(() => {
-			Object.defineProperty(window, 'localStorage', {
-				get() {
-					throw new DOMException('blocked', 'SecurityError');
-				}
-			});
+			const allowed = (key: string) => key.startsWith('auth_') || key === 'potionui_accounts';
+			const original = {
+				getItem: Storage.prototype.getItem,
+				setItem: Storage.prototype.setItem,
+				removeItem: Storage.prototype.removeItem
+			};
+			const refuse = () => {
+				throw new DOMException('blocked', 'SecurityError');
+			};
+			Storage.prototype.getItem = function (key: string) {
+				return allowed(key) ? original.getItem.call(this, key) : refuse();
+			};
+			Storage.prototype.setItem = function (key: string, value: string) {
+				return allowed(key) ? original.setItem.call(this, key, value) : refuse();
+			};
+			Storage.prototype.removeItem = function (key: string) {
+				return allowed(key) ? original.removeItem.call(this, key) : refuse();
+			};
 		});
 		await mockBackend(page);
 		await openLibraryMenu(page, 'harbour.png');
@@ -655,88 +677,149 @@ test.describe('card menu', () => {
 	});
 });
 
-test.describe('details rows', () => {
+test.describe('details action bar', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await loginAsOwner(page);
 		await mockBackend(page);
 	});
 
-	test('Library details: Edit, Effects and the Library actions in their own group', async ({ page }) => {
+	const bar = (root: Page | Locator) => root.getByRole('toolbar', { name: 'Actions' });
+	const barItems = (root: Page | Locator) => bar(root).locator('[data-bar-item]');
+
+	async function openBarMenu(page: Page, name: string) {
+		await bar(page).getByRole('button', { name }).click();
+		const menuEl = page.getByRole('menu', { name });
+		await expect(menuEl).toBeVisible();
+		return menuEl;
+	}
+
+	const rowLabels = (menuEl: Locator) =>
+		menuEl.locator('[data-bar-row-label]').allTextContents();
+
+	test('Library details: one labelled bar above the media', async ({ page }) => {
 		await page.goto('/library');
 		await page.locator('[data-library-card]').filter({ hasText: 'harbour.png' }).locator('.media-zoom').click();
 
-		const row = page.locator('[data-media-tool-row]');
-		await expect(row).toBeVisible();
-		await expect(row.locator('[data-row-group="edit"] button')).toHaveText([
-			'Crop',
-			'Resize',
-			'Edit image',
-			'More tools'
-		]);
-		await expect(row.locator('[data-row-group="effects"] button')).toHaveText(['Apply a look…']);
-		await expect(row.locator('[data-row-group="page"]')).toHaveAttribute('aria-label', 'Library actions');
-		await expect(row.locator('[data-row-group="page"] button')).toHaveText([
-			'Auto-file items like this…',
-			'Delete',
-			'Download'
-		]);
-		await expect(page.locator('[data-library-favorite]')).toBeVisible();
+		await expect(bar(page)).toBeVisible();
+		await expect(barItems(page)).toHaveText([/^\s*Edit/, /^\s*Effects/, /^\s*Favorite/, /^\s*Tags/, 'Auto-file…', 'Download', /^\s*More/]);
+		await expect(page.locator('[data-library-favorite]')).toHaveAttribute('aria-pressed', 'false');
+		const barBox = (await bar(page).boundingBox())!;
+		const mediaBox = (await page.getByRole('dialog').locator('img[alt="harbour.png"]').boundingBox())!;
+		expect(barBox.y + barBox.height).toBeLessThanOrEqual(mediaBox.y + 1);
 		await screenshot(page, JOURNEY, 'library-details-1440');
 	});
 
-	test('Library details: More tools holds the rest', async ({ page }) => {
+	test('Library details: Edit lists the tools and Crop to subject says why it is off', async ({ page }) => {
 		await page.goto('/library');
 		await page.locator('[data-library-card]').filter({ hasText: 'harbour.png' }).locator('.media-zoom').click();
 
-		await page.locator('[data-media-tool-row]').getByRole('button', { name: 'More tools' }).click();
-		const more = page.getByRole('menu', { name: 'More tools' });
-		await expect(more.locator('[data-row-tool]')).toHaveCount(5);
-		await expect(more.locator('[data-row-tool="crop_subject"]')).toHaveAttribute('aria-disabled', 'true');
+		const edit = await openBarMenu(page, 'Edit');
+		expect(await rowLabels(edit)).toEqual([
+			'Crop',
+			'Resize',
+			'Rotate',
+			'Flip',
+			'Fit canvas',
+			'Color key',
+			'Crop to subject',
+			'Edit image'
+		]);
+		await expect(edit.locator('[data-bar-row="crop_subject"]')).toHaveAttribute('aria-disabled', 'true');
+		await expect(edit.locator('[data-bar-row="crop_subject"]')).toContainText('Needs a transparent image');
+		await screenshot(page, JOURNEY, 'library-details-edit-1440');
+	});
+
+	test('Library details: Effects offers Apply a look, and Edit image opens the editor', async ({ page }) => {
+		await page.goto('/library');
+		await page.locator('[data-library-card]').filter({ hasText: 'harbour.png' }).locator('.media-zoom').click();
+
+		const effects = await openBarMenu(page, 'Effects');
+		expect(await rowLabels(effects)).toEqual(['Apply a look…']);
+		await page.keyboard.press('Escape');
+		await expect(effects).toHaveCount(0);
+
+		const edit = await openBarMenu(page, 'Edit');
+		await edit.getByRole('menuitem', { name: /Edit image/ }).click();
+		await expect(page.getByRole('dialog', { name: 'Edit image' })).toBeVisible();
+	});
+
+	test('Library details: More holds Open in new tab, then Delete in danger style', async ({ page }) => {
+		await page.goto('/library');
+		await page.locator('[data-library-card]').filter({ hasText: 'harbour.png' }).locator('.media-zoom').click();
+
+		const more = await openBarMenu(page, 'More');
+		expect(await rowLabels(more)).toEqual(['Open in new tab', 'Delete']);
+		await expect(more.locator('[data-bar-row="delete"]')).toHaveClass(/text-danger/);
 		await screenshot(page, JOURNEY, 'library-details-more-1440');
 	});
 
-	test('History details: the same Edit and Effects, the generation actions in their own group', async ({ page }) => {
+	test('History details: the same Edit and Effects, and the generation actions in the bar', async ({ page }) => {
 		await page.goto('/history');
 		await page.locator('[data-generation-card]').first().locator('.media-zoom').click();
 
 		const dialog = page.getByRole('dialog', { name: 'Generation Details' });
-		const row = dialog.locator('[data-media-tool-row]');
-		await expect(row).toBeVisible();
-		await expect(row.locator('[data-row-group="edit"] button')).toHaveText([
-			'Crop',
-			'Resize',
-			'Edit image',
-			'More tools'
-		]);
-		await expect(row.locator('[data-row-group="effects"] button')).toHaveText(['Apply a look…']);
-		await expect(row.locator('[data-row-group="page"]')).toHaveAttribute('aria-label', 'Generation actions');
-		await expect(row.locator('[data-row-group="page"] button')).toHaveText([
+		await expect(bar(dialog)).toBeVisible();
+		await expect(barItems(dialog)).toHaveText([
+			/^\s*Edit/,
+			/^\s*Effects/,
+			/^\s*Favorite/,
+			/^\s*Tags/,
 			'Reuse settings',
 			'Copy to Library',
-			'Download'
+			/^\s*Download/,
+			/^\s*More/
 		]);
-		const corner = dialog.locator('[data-stage-toolbar]');
-		await expect(corner.getByRole('button', { name: 'Add to favorites' })).toBeAttached();
-		await expect(corner.getByRole('button', { name: 'Publish to Inspirations' })).toBeAttached();
-		await expect(corner.getByRole('button', { name: 'Display in new tab' })).toBeAttached();
-		await expect(corner.getByRole('button', { name: 'Download' })).toHaveCount(0);
+		const edit = await openBarMenu(page, 'Edit');
+		expect((await rowLabels(edit)).slice(0, 2)).toEqual(['Crop', 'Resize']);
+		await page.keyboard.press('Escape');
+		await expect(dialog.locator('[data-stage-toolbar]')).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'history-details-1440');
 	});
 
-	test('History details: a video generation can be trimmed, cropped and resized', async ({ page }) => {
+	test('History details: Download holds the file and the bundle, More holds Publish and Open in new tab', async ({
+		page
+	}) => {
+		await page.goto('/history');
+		await page.locator('[data-generation-card]').first().locator('.media-zoom').click();
+
+		const download = await openBarMenu(page, 'Download');
+		expect(await rowLabels(download)).toEqual(['Download file', 'Export bundle']);
+		await page.keyboard.press('Escape');
+
+		const more = await openBarMenu(page, 'More');
+		expect(await rowLabels(more)).toEqual(['Publish to Inspirations', 'Open in new tab']);
+	});
+
+	test('History details: a video generation can be trimmed, cropped and resized, with no Effects', async ({ page }) => {
 		await page.goto('/history');
 		await page.locator('[data-generation-card]').nth(1).locator('.media-zoom').click();
 
-		const row = page.getByRole('dialog', { name: 'Generation Details' }).locator('[data-media-tool-row]');
-		await expect(row.locator('[data-row-group="edit"] button')).toHaveText([
-			'Trim',
-			'Crop',
-			'Resize',
-			'Frame',
-			'More tools'
+		const dialog = page.getByRole('dialog', { name: 'Generation Details' });
+		await expect(barItems(dialog)).not.toContainText([/^\s*Effects/]);
+		const edit = await openBarMenu(page, 'Edit');
+		expect(await rowLabels(edit)).toEqual(['Trim', 'Crop', 'Resize', 'Rotate', 'Flip', 'Speed', 'Frame']);
+	});
+
+	test('History details: on a narrow window Download, Copy to Library and Reuse settings fold into More', async ({
+		page
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		await page.goto('/history');
+		await page.locator('[data-generation-card]').first().locator('.media-zoom').click();
+
+		const dialog = page.getByRole('dialog', { name: 'Generation Details' });
+		await expect(barItems(dialog)).toHaveText([/^\s*Edit/, /^\s*Effects/, /^\s*Favorite/, /^\s*Tags/, /^\s*More/]);
+		const more = await openBarMenu(page, 'More');
+		expect(await rowLabels(more)).toEqual([
+			'Reuse settings',
+			'Copy to Library',
+			'Download file',
+			'Export bundle',
+			'Publish to Inspirations',
+			'Open in new tab'
 		]);
-		await expect(row.locator('[data-row-group="effects"]')).toHaveCount(0);
+		await screenshot(page, JOURNEY, 'history-details-narrow-more-1024');
 	});
 });
 

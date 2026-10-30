@@ -7,6 +7,7 @@ import { registerEntryTools } from './entryTools';
 import { syncCatalogTools } from './catalogTools';
 import { buildRowContext, buildRowModel, type RowTool } from './rowModel';
 import type { LibraryItem } from '$lib/services/api/library';
+import type { GenerationHistoryItem } from '$lib/types/history';
 import { A1111_TOOL, BOOMERANG_TOOL, CORE_TOOLS } from '../../../tests/component/fixtures/mediaToolCatalog';
 
 registerEntryTools();
@@ -19,28 +20,46 @@ function ids(entries: RowTool[]): string[] {
 	return entries.map((entry) => entry.id);
 }
 
+function historyContext(kind: MediaToolItem['kind']) {
+	const generation = { id: 'g', files: [], status: 'completed' } as unknown as GenerationHistoryItem;
+	return {
+		...buildRowContext('history', [item(kind, { generationId: 'g' })]),
+		generations: [generation],
+		generationIds: ['g']
+	};
+}
+
 beforeEach(() => {
 	unregisterMediaTools((tool) => !!tool.catalogToolId);
 	syncCatalogTools([...CORE_TOOLS, A1111_TOOL, BOOMERANG_TOOL]);
 });
 
 describe('buildRowModel', () => {
-	it('puts tools with a built-in editor on buttons and the rest under More tools, for a video', () => {
+	it('lists the core Edit tools of a video in catalog order, then plugin tools last', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(ids(model.editButtons)).toEqual(['trim', 'crop', 'resize', 'frame']);
-		expect(ids(model.moreTools)).toEqual(['rotate', 'flip', 'speed', 'boomerang.loop']);
+		expect(ids(model.edit)).toEqual(['trim', 'crop', 'resize', 'rotate', 'flip', 'speed', 'frame', 'boomerang.loop']);
+		expect(model.edit.map((entry) => entry.plugin ?? false)).toEqual([
+			false, false, false, false, false, false, false, true
+		]);
 	});
 
-	it('adds Edit image after the editor tools for an image', () => {
+	it('adds Edit image after the core tools for an image', () => {
 		const model = buildRowModel(buildRowContext('library', [item('image')]));
-		expect(ids(model.editButtons)).toEqual(['crop', 'resize', 'edit-image']);
-		expect(ids(model.moreTools)).toEqual(['rotate', 'flip', 'fit_canvas', 'color_key', 'crop_subject']);
+		expect(ids(model.edit)).toEqual([
+			'crop',
+			'resize',
+			'rotate',
+			'flip',
+			'fit_canvas',
+			'color_key',
+			'crop_subject',
+			'edit-image'
+		]);
 	});
 
-	it('offers audio trim and split as buttons and speed under More tools', () => {
+	it('offers audio trim, speed and split', () => {
 		const model = buildRowModel(buildRowContext('library', [item('audio')]));
-		expect(ids(model.editButtons)).toEqual(['trim', 'split']);
-		expect(ids(model.moreTools)).toEqual(['speed']);
+		expect(ids(model.edit)).toEqual(['trim', 'speed', 'split']);
 	});
 
 	it('shows Effects for an image only', () => {
@@ -51,38 +70,56 @@ describe('buildRowModel', () => {
 
 	it('hides a tool that needs more than one item instead of showing it disabled', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(ids([...model.editButtons, ...model.moreTools])).not.toContain('concat');
+		expect(ids(model.edit)).not.toContain('concat');
 	});
 
 	it('keeps a tool the item cannot take visible, disabled, with its reason', () => {
 		const model = buildRowModel(buildRowContext('library', [item('image', { filename: 'photo.jpg' })]));
-		const subject = model.moreTools.find((entry) => entry.id === 'crop_subject');
+		const subject = model.edit.find((entry) => entry.id === 'crop_subject');
 		expect(subject).toMatchObject({ enabled: false, reason: 'Needs a transparent image' });
 	});
 
-	it('leaves out the A1111 export, which stays in the media corner', () => {
-		const model = buildRowModel(buildRowContext('history', [item('image', { generationId: 'g' })]));
-		expect(ids([...model.editButtons, ...model.moreTools, ...model.effects])).not.toContain(A1111_TOOL.id);
+	it('enables Crop to subject for an image known to have transparency, disables it for one known to be opaque', () => {
+		const transparent = buildRowModel(buildRowContext('library', [item('image', { hasAlpha: true })]));
+		const opaque = buildRowModel(buildRowContext('library', [item('image', { hasAlpha: false })]));
+		const unknown = buildRowModel(buildRowContext('library', [item('image', { hasAlpha: null })]));
+		expect(transparent.edit.find((entry) => entry.id === 'crop_subject')?.enabled).toBe(true);
+		expect(opaque.edit.find((entry) => entry.id === 'crop_subject')).toMatchObject({
+			enabled: false,
+			reason: 'Needs a transparent image'
+		});
+		expect(unknown.edit.find((entry) => entry.id === 'crop_subject')?.enabled).toBe(true);
+	});
+
+	it('puts the A1111 export in downloads with its plugin id, only on History', () => {
+		const history = buildRowModel(historyContext('image'));
+		expect(ids(history.downloads)).toEqual([A1111_TOOL.id]);
+		expect(history.downloads[0]).toMatchObject({ plugin: true, pluginId: A1111_TOOL.source });
+		expect(ids([...history.edit, ...history.effects, ...history.plugins])).not.toContain(A1111_TOOL.id);
+		expect(buildRowModel(buildRowContext('library', [item('image')])).downloads).toEqual([]);
+	});
+
+	it('leaves a plugin tool out of downloads when the media is not one it accepts', () => {
+		expect(buildRowModel(historyContext('video')).downloads).toEqual([]);
 	});
 
 	it('gives both pages the same Edit and Effects for the same kind of media', () => {
 		for (const kind of ['image', 'video', 'audio'] as const) {
 			const library = buildRowModel(buildRowContext('library', [item(kind)]));
 			const history = buildRowModel(buildRowContext('history', [item(kind, { generationId: 'g' })]));
-			expect(ids(history.editButtons)).toEqual(ids(library.editButtons));
-			expect(ids(history.moreTools)).toEqual(ids(library.moreTools));
+			expect(ids(history.edit)).toEqual(ids(library.edit));
 			expect(ids(history.effects)).toEqual(ids(library.effects));
 		}
 	});
 
 	it('is empty for media nothing edits', () => {
 		const model = buildRowModel(buildRowContext('history', [item('mesh')]));
-		expect(model).toEqual({ editButtons: [], moreTools: [], effects: [] });
+		expect(model).toEqual({ edit: [], effects: [], downloads: [], plugins: [] });
 	});
 
 	it('carries the note a tool shows under its label', () => {
 		const model = buildRowModel(buildRowContext('library', [item('video')]));
-		expect(model.editButtons.find((entry) => entry.id === 'frame')?.note).toBe('Saves one image');
+		expect(model.edit.find((entry) => entry.id === 'frame')?.note).toBe('Saves one image');
 	});
 });
 

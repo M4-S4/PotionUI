@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
+	default: (await import('./fixtures/PluginSlotStub.svelte')).default
+}));
 import { BOOMERANG_TOOL, CORE_TOOLS } from './fixtures/mediaToolCatalog';
 
 class StubResizeObserver {
@@ -43,12 +46,21 @@ function mount(item: Record<string, unknown>, props: Record<string, unknown> = {
 	libraryStore.setSelectedItem(item as never);
 	const target = document.createElement('div');
 	document.body.appendChild(target);
-	createClassComponent({
-		component: LibraryItemModal as any,
-		target,
-		props: { item, onClose: vi.fn(), onDeleteRequest: vi.fn(), ...props }
-	});
+	mounted.push(
+		createClassComponent({
+			component: LibraryItemModal as any,
+			target,
+			props: { item, onClose: vi.fn(), onDeleteRequest: vi.fn(), ...props }
+		})
+	);
 	return document.body;
+}
+
+const mounted: Array<{ $destroy: () => void }> = [];
+
+function resetDom() {
+	for (const instance of mounted.splice(0)) instance.$destroy();
+	document.body.innerHTML = '';
 }
 
 function buttonByText(target: HTMLElement, text: string): HTMLButtonElement | undefined {
@@ -70,10 +82,29 @@ const state = () => {
 	return value;
 };
 
-const rowButtons = (group: string) =>
-	Array.from(document.body.querySelectorAll(`[data-row-group="${group}"] button`)).map((button) =>
-		(button.textContent || '').trim()
+const barIds = () =>
+	Array.from(document.body.querySelectorAll<HTMLElement>('[data-details-action-bar] [data-bar-item]')).map(
+		(node) => node.dataset.barItem
 	);
+
+async function menuLabels(id: string) {
+	document.body.querySelector<HTMLElement>(`[data-bar-item="${id}"]`)!.click();
+	await settle();
+	return Array.from(document.body.querySelectorAll<HTMLElement>('[data-bar-menu] [role="menuitem"] [data-bar-row-label]')).map(
+		(node) => (node.textContent || '').trim()
+	);
+}
+
+async function pickMenu(id: string, label: string) {
+	await menuLabels(id);
+	const row = Array.from(document.body.querySelectorAll<HTMLElement>('[data-bar-menu] [role="menuitem"]')).find(
+		(node) => (node.querySelector('[data-bar-row-label]')?.textContent || '').trim() === label
+	)!;
+	row.click();
+	await settle();
+}
+
+const pickTool = (label: string) => pickMenu('edit', label);
 
 const image = {
 	id: 'row-1',
@@ -112,7 +143,7 @@ const track = {
 };
 
 beforeEach(() => {
-	document.body.innerHTML = '';
+	resetDom();
 	libraryStore.reset();
 	openMediaTool.mockReset();
 	startRuleFrom.mockReset();
@@ -122,77 +153,103 @@ beforeEach(() => {
 	unregisterMediaTools((tool) => !!tool.catalogToolId);
 });
 
-describe('LibraryItemModal edit row', () => {
+describe('LibraryItemModal action bar', () => {
 	it('offers only the tools the medium has', async () => {
 		mount(image);
 		await settle();
-		expect(rowButtons('edit')).toEqual(['Crop', 'Resize', 'Edit image', 'More tools']);
+		expect(await menuLabels('edit')).toEqual([
+			'Crop',
+			'Resize',
+			'Rotate',
+			'Flip',
+			'Fit canvas',
+			'Color key',
+			'Crop to subject',
+			'Edit image'
+		]);
 
-		document.body.innerHTML = '';
+		resetDom();
 		mount(clip);
 		await settle();
-		expect(rowButtons('edit')).toEqual(['Trim', 'Crop', 'Resize', 'Frame', 'More tools']);
+		expect(await menuLabels('edit')).toEqual([
+			'Trim',
+			'Crop',
+			'Resize',
+			'Rotate',
+			'Flip',
+			'Speed',
+			'Frame',
+			'Boomerang'
+		]);
 
-		document.body.innerHTML = '';
+		resetDom();
 		mount(track);
 		await settle();
-		expect(rowButtons('edit')).toEqual(['Trim', 'Split', 'More tools']);
+		expect(await menuLabels('edit')).toEqual(['Trim', 'Speed', 'Split']);
 	});
 
-	it('keeps the old row of Crop, Trim, Split, Resize, Frame and Edit buttons out of the modal', async () => {
+	it('has no stacked rows of tool buttons', async () => {
 		mount(image);
 		await settle();
 
-		const row = document.body.querySelector('[data-media-tool-row]')!;
-		expect(buttonByText(row as HTMLElement, 'Split')).toBeUndefined();
-		expect(buttonByText(row as HTMLElement, 'Trim')).toBeUndefined();
-		expect(document.body.querySelectorAll('[data-media-tool-row]')).toHaveLength(1);
+		expect(document.body.querySelector('[data-media-tool-row]')).toBeNull();
+		expect(document.body.querySelector('[data-row-group]')).toBeNull();
+		expect(document.body.querySelectorAll('[data-details-action-bar]')).toHaveLength(1);
 	});
 
-	it('shows the Effects row for an image and not for a clip or a track', async () => {
+	it('shows Effects for an image and not for a clip or a track', async () => {
 		mount(image);
 		await settle();
-		expect(rowButtons('effects')).toEqual(['Apply a look…']);
+		expect(await menuLabels('effects')).toEqual(['Apply a look…']);
 
-		document.body.innerHTML = '';
+		resetDom();
 		mount(clip);
 		await settle();
-		expect(document.body.querySelector('[data-row-group="effects"]')).toBeNull();
+		expect(barIds()).not.toContain('effects');
 
-		document.body.innerHTML = '';
+		resetDom();
 		mount(track);
 		await settle();
-		expect(document.body.querySelector('[data-row-group="effects"]')).toBeNull();
+		expect(barIds()).not.toContain('effects');
 	});
 
-	it('keeps the library actions in their own group, in order', async () => {
+	it('keeps the library actions in the bar, in order, with Delete last in More', async () => {
 		mount(image);
 		await settle();
 
-		const page = document.body.querySelector('[data-row-group="page"]')!;
-		expect(page.getAttribute('aria-label')).toBe('Library actions');
-		expect(rowButtons('page')).toEqual(['Auto-file items like this…', 'Delete', 'Download']);
+		expect(barIds()).toEqual(['edit', 'effects', 'favorite', 'tags', 'auto-file', 'download', 'more']);
+		expect(await menuLabels('more')).toEqual(['Open in new tab', 'Delete']);
 	});
 
-	it('places the row between the media and the tag line', async () => {
+	it('offers the file as a plain Download button', async () => {
+		const target = mount(image);
+		await settle();
+
+		expect(buttonByText(target, 'Download')).toBeDefined();
+	});
+
+	it('places the bar above the media', async () => {
 		mount(image);
 		await settle();
 
-		const row = document.body.querySelector('[data-media-tool-row]')!;
+		const bar = document.body.querySelector('[data-details-action-bar]')!;
 		const media = document.body.querySelector('img[alt="portrait.png"]')!;
-		const tags = Array.from(document.body.querySelectorAll('button')).find((button) =>
-			(button.textContent ?? '').includes('Add tags')
-		);
-		expect(media.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-		if (tags) expect(row.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(bar.compareDocumentPosition(media) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('shows the selected tags as chips under the media', async () => {
+		mount({ ...image, tags: [{ id: 't1', name: 'keepers' }] });
+		await settle();
+
+		expect(document.body.querySelector('[data-library-item-tags]')?.textContent).toContain('keepers');
 	});
 
 	it('asks the page to delete the item it shows', async () => {
 		const onDeleteRequest = vi.fn();
-		const target = mount(image, { onDeleteRequest });
+		mount(image, { onDeleteRequest });
 		await settle();
 
-		buttonByText(target, 'Delete')!.click();
+		await pickMenu('more', 'Delete');
 
 		expect(onDeleteRequest).toHaveBeenCalledWith(expect.objectContaining({ id: 'row-1' }));
 	});
@@ -201,7 +258,7 @@ describe('LibraryItemModal edit row', () => {
 		const target = mount(image);
 		await settle();
 
-		buttonByText(target, 'Auto-file items like this…')!.click();
+		buttonByText(target, 'Auto-file…')!.click();
 
 		expect(startRuleFrom).toHaveBeenCalledTimes(1);
 	});
@@ -212,7 +269,7 @@ describe('LibraryItemModal running a tool', () => {
 		const target = mount(image);
 		await settle();
 
-		buttonByText(target, 'Crop')!.click();
+		await pickTool('Crop');
 
 		const call = openMediaTool.mock.calls[0][0];
 		expect(call.toolId).toBe('crop');
@@ -225,7 +282,7 @@ describe('LibraryItemModal running a tool', () => {
 		await libraryStoreLoad([image, clip]);
 		const target = mount(image);
 		await settle();
-		buttonByText(target, 'Resize')!.click();
+		await pickTool('Resize');
 
 		await openMediaTool.mock.calls[0][0].onResult(
 			[
@@ -248,7 +305,7 @@ describe('LibraryItemModal running a tool', () => {
 		const tagged = { ...image, tags: [{ id: 'tag-1', name: 'keepers' }] };
 		const target = mount(tagged);
 		await settle();
-		buttonByText(target, 'Resize')!.click();
+		await pickTool('Resize');
 
 		await openMediaTool.mock.calls[0][0].onResult(
 			[
@@ -274,7 +331,7 @@ describe('LibraryItemModal running a tool', () => {
 		const apply = vi.spyOn(libraryStore, 'applyToolResult');
 		const target = mount(image);
 		await settle();
-		buttonByText(target, 'Resize')!.click();
+		await pickTool('Resize');
 		const produced = [{ id: 'row-1', filename: 'x.png', media_type: 'image', url: '/x.png' }];
 
 		await openMediaTool.mock.calls[0][0].onResult(produced, { toolId: 'resize', replaced: true });
@@ -289,7 +346,7 @@ describe('LibraryItemModal running a tool', () => {
 		const target = mount(image);
 		await settle();
 
-		buttonByText(target, 'Edit image')!.click();
+		await pickTool('Edit image');
 		await settle();
 
 		expect(document.body.querySelector('[data-editor-stub]')?.getAttribute('data-kind')).toBe('paint');
@@ -305,7 +362,7 @@ describe('LibraryItemModal closing', () => {
 		const escape = () =>
 			window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 
-		buttonByText(target, 'Edit image')!.click();
+		await pickTool('Edit image');
 		await settle();
 		escape();
 		await settle();

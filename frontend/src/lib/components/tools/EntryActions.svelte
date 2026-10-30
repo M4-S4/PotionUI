@@ -1,27 +1,27 @@
 <script lang="ts">
-	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import type { EntryMenuModel } from '$lib/tools/entryMenu';
 	import type { MediaTool, MediaToolContext, MediaToolScope, ToolRunExtra } from '$lib/tools/tools';
+	import { getIconPath } from '$lib/utils/IconLibrary';
+
+	const starPath = getIconPath('star') as string;
 
 	let {
 		scope,
 		getModel,
 		onPick,
-		onDelete,
-		deleteLabel,
-		showDelete = true,
-		deleteInRow = true,
+		favorite = null,
+		onFavorite,
+		favoriteInRow = true,
 		chipSize = 26
 	}: {
 		scope: MediaToolScope;
 		getModel: () => EntryMenuModel;
 		onPick: (tool: MediaTool, ctx: MediaToolContext, extra?: ToolRunExtra) => void;
-		onDelete: () => void;
-		deleteLabel: string;
-		showDelete?: boolean;
-		deleteInRow?: boolean;
+		favorite?: boolean | null;
+		onFavorite?: () => void;
+		favoriteInRow?: boolean;
 		chipSize?: number;
 	} = $props();
 
@@ -73,20 +73,33 @@
 </script>
 
 <div class="absolute top-2 right-2 z-30 flex items-center gap-1" data-entry-actions>
-	{#if showDelete && deleteInRow}
-		<Tooltip text={deleteLabel} position="bottom" delay={150}>
+	{#if favorite !== null && favoriteInRow}
+		<Tooltip text={favorite ? 'Remove favorite' : 'Favorite'} position="bottom" delay={150}>
 			<button
 				type="button"
-				class="inline-flex items-center justify-center rounded border border-line-strong bg-surface-2 text-fg shadow-raised hover:border-transparent hover:bg-danger-solid hover:text-white transition-[opacity,background-color,border-color,color] duration-100 [@media(hover:none)]:hidden {revealClass}"
+				class="inline-flex items-center justify-center rounded border border-line-strong bg-surface-2 shadow-raised hover:border-line-hover hover:bg-surface-3 transition-[opacity,background-color,border-color,color] duration-100 {favorite
+					? 'text-signal opacity-100'
+					: `text-fg ${revealClass}`}"
 				onclick={(event) => {
 					event.stopPropagation();
 					event.preventDefault();
-					onDelete();
+					onFavorite?.();
 				}}
-				aria-label={deleteLabel}
+				aria-label={favorite ? 'Remove favorite' : 'Favorite'}
+				aria-pressed={favorite}
+				data-entry-favorite
 				style="width: {chipSize}px; height: {chipSize}px"
 			>
-				<Icon name="trash" className="h-3.5 w-3.5" />
+				<svg
+					class="h-3.5 w-3.5"
+					viewBox="0 0 24 24"
+					fill={favorite ? 'currentColor' : 'none'}
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" d={starPath} />
+				</svg>
 			</button>
 		</Tooltip>
 	{/if}

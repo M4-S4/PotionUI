@@ -3,6 +3,7 @@ import { applyLookAvailability, editImageAvailability } from './editImage';
 import {
 	listToolGroups,
 	type MediaTool,
+	type MediaToolAvailability,
 	type MediaToolContext,
 	type MediaToolItem,
 	type MediaToolScope
@@ -18,14 +19,17 @@ export interface RowTool {
 	enabled: boolean;
 	reason: string;
 	note: string;
+	plugin?: boolean;
+	pluginId?: string;
 	lookId?: string;
 	tool?: MediaTool;
 }
 
 export interface RowModel {
-	editButtons: RowTool[];
-	moreTools: RowTool[];
+	edit: RowTool[];
 	effects: RowTool[];
+	downloads: RowTool[];
+	plugins: RowTool[];
 }
 
 export function buildRowContext(
@@ -44,29 +48,44 @@ export function buildRowContext(
 	};
 }
 
+function catalogEntry(tool: MediaTool, availability: MediaToolAvailability): RowTool {
+	return {
+		id: tool.id,
+		label: tool.label,
+		icon: tool.icon,
+		action: 'catalog',
+		enabled: availability.enabled,
+		reason: availability.reason ?? '',
+		note: tool.note ?? '',
+		plugin: tool.source === 'plugin',
+		pluginId: tool.pluginId,
+		tool
+	};
+}
+
+export const DOWNLOAD_ICON = 'download';
+
 export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[] = []): RowModel {
-	const catalog: RowTool[] = [];
+	const core: RowTool[] = [];
+	const pluginEdit: RowTool[] = [];
+	const downloads: RowTool[] = [];
+	const plugins: RowTool[] = [];
+
 	for (const group of listToolGroups(ctx)) {
-		if (group.category.id !== 'edit') continue;
+		if (group.category.id !== 'edit' && group.category.id !== 'plugins') continue;
 		for (const { tool, availability } of group.tools) {
 			if (availability.hidden) continue;
-			catalog.push({
-				id: tool.id,
-				label: tool.label,
-				icon: tool.icon,
-				action: 'catalog',
-				enabled: availability.enabled,
-				reason: availability.reason ?? '',
-				note: tool.note ?? '',
-				tool
-			});
+			const entry = catalogEntry(tool, availability);
+			if (group.category.id === 'edit') (entry.plugin ? pluginEdit : core).push(entry);
+			else if (tool.icon === DOWNLOAD_ICON && tool.catalogToolId) downloads.push(entry);
+			else if (tool.catalogToolId) plugins.push(entry);
 		}
 	}
 
-	const editButtons = catalog.filter((entry) => entry.tool?.builtInEditor);
+	const edit = [...core];
 	const editImage = editImageAvailability(ctx);
 	if (ctx.items.length > 0 && ctx.items.every((item) => item.kind === 'image')) {
-		editButtons.push({
+		edit.push({
 			id: 'edit-image',
 			label: 'Edit image',
 			icon: 'paint-brush',
@@ -76,6 +95,7 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 			note: ''
 		});
 	}
+	edit.push(...pluginEdit);
 
 	const look = applyLookAvailability(ctx);
 	const effects: RowTool[] = look.hidden
@@ -104,9 +124,5 @@ export function buildRowModel(ctx: MediaToolContext, looks: readonly RecentLook[
 				)
 			];
 
-	return {
-		editButtons,
-		moreTools: catalog.filter((entry) => !entry.tool?.builtInEditor),
-		effects
-	};
+	return { edit, effects, downloads, plugins };
 }

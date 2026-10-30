@@ -119,16 +119,17 @@ test.describe('Library favorite', () => {
 		);
 	});
 
-	test('favorites from the details corner and shows the heart filled', async ({ page }) => {
+	test('favorites from the details action bar and shows it on', async ({ page }) => {
 		const backend = await mockLibrary(page);
 		await page.goto('/library');
 		await page.locator('[data-library-card]').filter({ hasText: 'dunes.png' }).locator('.media-zoom').click();
 
-		const corner = page.locator('[data-library-favorite]');
-		await expect(corner).toBeVisible();
-		await corner.getByRole('button', { name: 'Add to favorites' }).click();
+		const favorite = page.locator('[data-library-favorite]');
+		await expect(favorite).toBeVisible();
+		await expect(favorite).toHaveAttribute('aria-pressed', 'false');
+		await favorite.click();
 
-		await expect(corner.getByRole('button', { name: 'Remove from favorites' })).toBeVisible();
+		await expect(favorite).toHaveAttribute('aria-pressed', 'true');
 		await expect.poll(() => backend.writes).toEqual([{ id: 'lib-2', is_favorite: true }]);
 		await screenshot(page, JOURNEY, 'details-corner-1440');
 	});
@@ -138,7 +139,7 @@ test.describe('Library favorite', () => {
 		await page.goto('/library');
 		await expect(page.locator('[data-library-card]')).toHaveCount(3);
 
-		const favorites = page.getByRole('button', { name: /Favorites/ });
+		const favorites = page.getByRole('option', { name: /Favorites/ });
 		await expect(favorites).toContainText('1');
 
 		const card = page.locator('[data-library-card]').filter({ hasText: 'harbour.png' });

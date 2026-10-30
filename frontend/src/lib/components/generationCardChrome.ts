@@ -23,7 +23,7 @@ export interface ChromeBucket {
 	durationIcon: boolean;
 	starSize: number;
 	menuChipSize: number;
-	deleteInRow: boolean;
+	favoriteInRow: boolean;
 	checkboxSize: number;
 	showHoverMeta: boolean;
 	showMediaChip: boolean;
@@ -43,7 +43,7 @@ const FULL: ChromeBucket = {
 	durationIcon: true,
 	starSize: 13,
 	menuChipSize: 26,
-	deleteInRow: true,
+	favoriteInRow: true,
 	checkboxSize: 20,
 	showHoverMeta: true,
 	showMediaChip: true,
@@ -61,7 +61,7 @@ const REGULAR: ChromeBucket = {
 	durationIcon: true,
 	starSize: 12,
 	menuChipSize: 26,
-	deleteInRow: true,
+	favoriteInRow: true,
 	checkboxSize: 20,
 	showHoverMeta: true,
 	showMediaChip: true,
@@ -79,7 +79,7 @@ const COMPACT: ChromeBucket = {
 	durationIcon: true,
 	starSize: 11,
 	menuChipSize: 24,
-	deleteInRow: true,
+	favoriteInRow: true,
 	checkboxSize: 18,
 	showHoverMeta: false,
 	showMediaChip: true,
@@ -97,7 +97,7 @@ const MICRO: ChromeBucket = {
 	durationIcon: false,
 	starSize: 11,
 	menuChipSize: 22,
-	deleteInRow: false,
+	favoriteInRow: false,
 	checkboxSize: 16,
 	showHoverMeta: false,
 	showMediaChip: false,
@@ -115,7 +115,7 @@ const NANO: ChromeBucket = {
 	durationIcon: false,
 	starSize: 11,
 	menuChipSize: 20,
-	deleteInRow: false,
+	favoriteInRow: false,
 	checkboxSize: 14,
 	showHoverMeta: false,
 	showMediaChip: false,

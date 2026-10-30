@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
+	default: (await import('./fixtures/PluginSlotStub.svelte')).default
+}));
 
 class StubResizeObserver {
 	observe() {}
@@ -70,7 +73,7 @@ function mountModal(row: Record<string, unknown>) {
 }
 
 function favoriteButton(): HTMLButtonElement | null {
-	return document.body.querySelector<HTMLButtonElement>('[data-library-favorite] button');
+	return document.body.querySelector<HTMLButtonElement>('button[data-library-favorite]');
 }
 
 beforeEach(() => {
@@ -81,22 +84,23 @@ beforeEach(() => {
 });
 
 describe('Library details favorite', () => {
-	it('sits over the media and offers to add an item that is not a favorite', async () => {
+	it('sits in the details action bar, labelled, and is off for an item that is not a favorite', async () => {
 		mountModal(item());
 		await settle();
 
 		const button = favoriteButton();
 		expect(button).toBeTruthy();
-		expect(button!.getAttribute('aria-label')).toBe('Add to favorites');
+		expect(button!.closest('[data-details-action-bar]')).toBeTruthy();
+		expect(button!.textContent).toContain('Favorite');
 		expect(button!.getAttribute('aria-pressed')).toBe('false');
 	});
 
-	it('offers to remove an item that already is one', async () => {
+	it('shows an item that already is one as on', async () => {
 		mountModal(item({ is_favorite: true }));
 		await settle();
 
-		expect(favoriteButton()!.getAttribute('aria-label')).toBe('Remove from favorites');
 		expect(favoriteButton()!.getAttribute('aria-pressed')).toBe('true');
+		expect(favoriteButton()!.className).toContain('text-signal');
 	});
 
 	it('writes the favorite for the row it is showing', async () => {

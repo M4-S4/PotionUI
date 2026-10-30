@@ -21,6 +21,8 @@
 		ariaExpanded,
 		ariaHaspopup,
 		ariaLabel,
+		tabindex,
+		attrs,
 		children
 	}: {
 		variant?: Variant;
@@ -38,6 +40,8 @@
 		ariaExpanded?: boolean;
 		ariaHaspopup?: 'dialog' | 'menu' | 'listbox' | 'true';
 		ariaLabel?: string;
+		tabindex?: number;
+		attrs?: Record<string, string | number | boolean | undefined>;
 		children?: Snippet;
 	} = $props();
 
@@ -82,7 +86,9 @@
 		aria-expanded={ariaExpanded}
 		aria-haspopup={ariaHaspopup}
 		aria-label={ariaLabel}
+		{tabindex}
 		data-autofocus={initialFocus ? '' : undefined}
+		{...attrs}
 	>
 		{#if loading}
 			<span

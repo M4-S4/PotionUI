@@ -645,10 +645,9 @@
 					scope="history"
 					getModel={menuModel}
 					onPick={handleMenuPick}
-					onDelete={() => dispatch('deleteClick', generation)}
-					deleteLabel="Delete generation"
-					showDelete={showActions && !selectable}
-					deleteInRow={chromeBucket.deleteInRow}
+					favorite={showActions && !selectable && !stackEntry ? !!generation.is_favorite : null}
+					onFavorite={handleFavoriteToggle}
+					favoriteInRow={chromeBucket.favoriteInRow}
 					chipSize={chromeBucket.menuChipSize}
 				/>
 		{/if}

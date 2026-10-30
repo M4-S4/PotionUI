@@ -192,9 +192,27 @@ async function settle() {
 }
 
 describe('card hover row', () => {
-	it('holds exactly Delete and the more-actions menu button', () => {
+	it('holds exactly the Favorite toggle and the more-actions menu button', () => {
 		mounted = mountCard(generation('g1'));
-		expect(mounted.rowLabels()).toEqual(['Delete generation', 'Item actions']);
+		expect(mounted.rowLabels()).toEqual(['Favorite', 'Item actions']);
+	});
+
+	it('shows the Favorite toggle pressed and signal blue for a favorite, and removes it on press', () => {
+		const gen = generation('g1', { is_favorite: true });
+		mounted = mountCard(gen);
+		const toggle = mounted.target.querySelector<HTMLButtonElement>('[data-entry-favorite]')!;
+
+		expect(toggle.getAttribute('aria-label')).toBe('Remove favorite');
+		expect(toggle.getAttribute('aria-pressed')).toBe('true');
+		expect(toggle.className).toContain('text-signal');
+	});
+
+	it('leaves the Favorite toggle off for a generation that is not a favorite', () => {
+		mounted = mountCard(generation('g1'));
+		const toggle = mounted.target.querySelector<HTMLButtonElement>('[data-entry-favorite]')!;
+
+		expect(toggle.getAttribute('aria-pressed')).toBe('false');
+		expect(toggle.className).not.toContain('text-signal');
 	});
 
 	it('no longer renders the favorite, details, download or reuse buttons', () => {
@@ -205,14 +223,18 @@ describe('card hover row', () => {
 		}
 	});
 
-	it('Delete asks the page for the confirmed delete with the generation', () => {
-		const gen = generation('g1');
-		mounted = mountCard(gen);
-		mounted.target.querySelector<HTMLButtonElement>('[aria-label="Delete generation"]')!.click();
-		expect(mounted.deleted).toHaveBeenCalledWith(gen);
+	it('has no Delete or details icon on the card, only in the menu', async () => {
+		mounted = mountCard(generation('g1'));
+		const labels = Array.from(mounted.target.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'));
+		expect(labels).not.toContain('Delete generation');
+		expect(labels).not.toContain('View generation details');
+
+		mounted.trigger().click();
+		await settle();
+		expect(document.body.querySelector('[data-tool="delete"]')).not.toBeNull();
 	});
 
-	it('folds Delete into the menu on a narrow tile but keeps the menu button', () => {
+	it('folds the Favorite toggle into the menu on a narrow tile but keeps the menu button', () => {
 		mounted = mountCard(generation('g1'), { width: 120 });
 		expect(mounted.rowLabels()).toEqual(['Item actions']);
 		mounted.destroy();

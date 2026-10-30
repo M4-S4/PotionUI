@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
+	default: (await import('./fixtures/PluginSlotStub.svelte')).default
+}));
 import { mount, unmount, flushSync } from 'svelte';
 import { createClassComponent } from 'svelte/legacy';
 import { CORE_TOOLS } from './fixtures/mediaToolCatalog';
@@ -98,7 +101,7 @@ async function seedLibrary() {
 	libraryStore.setSelectedItem(SERVER[1] as never);
 }
 
-async function throughDetailsRow(result: 'new' | 'replace') {
+async function throughDetailsBar(result: 'new' | 'replace') {
 	await seedLibrary();
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -112,9 +115,9 @@ async function throughDetailsRow(result: 'new' | 'replace') {
 		target.remove();
 	};
 	await settle();
-	Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-media-tool-row] button'))
-		.find((button) => (button.textContent ?? '').trim() === 'Edit image')!
-		.click();
+	document.body.querySelector<HTMLElement>('[data-bar-item="edit"]')!.click();
+	await settle();
+	document.body.querySelector<HTMLElement>('[data-bar-row="edit-image"]')!.click();
 	flushSync();
 	document.body.querySelector<HTMLButtonElement>(`[data-paint-${result}]`)!.click();
 	await settle();
@@ -163,9 +166,9 @@ afterEach(() => {
 	libraryStore.reset();
 });
 
-describe('Edit image on the Library, from the details row or from the Tools and card menus', () => {
+describe('Edit image on the Library, from the details bar or from the Tools and card menus', () => {
 	it('adds the new image next to its source tagged New, the same either way', async () => {
-		const fromRow = await throughDetailsRow('new');
+		const fromRow = await throughDetailsBar('new');
 		const fromMenu = await throughMenu('new');
 
 		expect(fromMenu).toEqual(fromRow);
@@ -174,7 +177,7 @@ describe('Edit image on the Library, from the details row or from the Tools and 
 	});
 
 	it('stays on the page the user is on instead of jumping to page 1', async () => {
-		const fromRow = await throughDetailsRow('new');
+		const fromRow = await throughDetailsBar('new');
 		const fromMenu = await throughMenu('new');
 
 		expect(fromMenu.page).toBe(1);
@@ -182,7 +185,7 @@ describe('Edit image on the Library, from the details row or from the Tools and 
 	});
 
 	it('says it with the same toast either way', async () => {
-		const fromRow = await throughDetailsRow('new');
+		const fromRow = await throughDetailsBar('new');
 		const fromMenu = await throughMenu('new');
 
 		expect(fromMenu.toasts).toEqual(['Saved to your library as a new image']);
@@ -190,7 +193,7 @@ describe('Edit image on the Library, from the details row or from the Tools and 
 	});
 
 	it('patches a replaced image in place with its new file, keeping its tags, the same either way', async () => {
-		const fromRow = await throughDetailsRow('replace');
+		const fromRow = await throughDetailsBar('replace');
 		const fromMenu = await throughMenu('replace');
 
 		expect(fromMenu).toEqual(fromRow);
@@ -201,7 +204,7 @@ describe('Edit image on the Library, from the details row or from the Tools and 
 	});
 
 	it('does not leave the replaced card on the thumbnail of the file it replaced', async () => {
-		const fromRow = await throughDetailsRow('replace');
+		const fromRow = await throughDetailsBar('replace');
 		const fromMenu = await throughMenu('replace');
 
 		expect(fromMenu.thumbs[1]).toBeNull();
@@ -210,7 +213,7 @@ describe('Edit image on the Library, from the details row or from the Tools and 
 	});
 
 	it('says a replace with the same toast either way', async () => {
-		const fromRow = await throughDetailsRow('replace');
+		const fromRow = await throughDetailsBar('replace');
 		const fromMenu = await throughMenu('replace');
 
 		expect(fromMenu.toasts).toEqual(['Replaced — tags and collections kept']);
