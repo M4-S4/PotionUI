@@ -9,7 +9,7 @@ This controller delegates all business logic to `src.features.models.operations`
 """
 
 import asyncio
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Optional, List, TYPE_CHECKING
 
 from fastapi import APIRouter, BackgroundTasks, Query, Depends
@@ -72,7 +72,6 @@ from src.features.models.catalog import ListModelsParams
 from src.features.models.search_filter import InvalidModelSearch, parse_model_search
 from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
 from src.platform.security.user import User, AccountType
-from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS
 from src.features.content_safety.restrict import provider_flags_nsfw, restrict_model_list, strip_model_media
 
 if TYPE_CHECKING:
@@ -810,20 +809,12 @@ class ModelController(BaseController):
             url=url,
             filename=self._recommendation_filename(request.name),
             model_type=request.model_type,
-            filename=self._recommendation_filename(request.name),
             checksum_sha256=request.sha256,
             provider_id=request.provider,
             created_by=current_user.id,
         )
 
         return self.success_response(data={"download_id": download.id})
-
-    @staticmethod
-    def _recommendation_filename(name: Optional[str]) -> Optional[str]:
-        """The recommendation's name when it is a bare model file name, so the file lands where the field looks for it; None keeps the URL's name."""
-        if not name or "\\" in name or PurePosixPath(name).name != name:
-            return None
-        return name if PurePosixPath(name).suffix.lower() in SUPPORTED_MODEL_EXTENSIONS else None
 
     # The download queue's own DownloadStatus is richer (pending/downloading/
     # paused/completed/failed/cancelled) than this endpoint's documented contract
