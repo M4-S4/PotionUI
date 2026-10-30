@@ -16,6 +16,7 @@ from src.features.recipes.variants import (
     resolve_selection,
     validate_selections,
 )
+from src.platform.runtime import gpu_profile
 from src.platform.runtime.gpu_profile import GpuProfile, build_gpu_profile
 
 GB = 1024 ** 3
@@ -163,6 +164,8 @@ def test_assessment_notes():
     nvfp4 = _dit().get_variant("dit_nvfp4")
     note = assess_variant(nvfp4, _gpu("ada", 24)).note
     assert note == "nvfp4 needs an RTX 50-series (Blackwell) GPU"
+    blackwell = assess_variant(nvfp4, _gpu("blackwell", 24))
+    assert blackwell.supported is True and blackwell.note is None
     bf16 = _dit().get_variant("dit_bf16")
     assert assess_variant(bf16, _gpu("ada", 24)).note == "Best with 40 GB of VRAM or more"
     fp8 = _dit().get_variant("dit_fp8")
@@ -173,6 +176,14 @@ def test_assessment_notes():
     assert slow.recommended is True and slow.fast is False
     assert "isn't hardware-accelerated" in slow.note
     assert assess_variant(fp8, _gpu("ada", 24)).note is None
+
+
+def test_unsupported_note_names_the_generation_from_the_label_table(monkeypatch):
+    monkeypatch.setitem(gpu_profile.GENERATION_LABELS, gpu_profile.GENERATION_BLACKWELL, "RTX 60-series (Rubin)")
+
+    note = assess_variant(_dit().get_variant("dit_nvfp4"), _gpu("ada", 24)).note
+
+    assert note == "nvfp4 needs an RTX 60-series (Rubin) GPU"
 
 
 def test_resolve_selection_swaps_the_file_fields():

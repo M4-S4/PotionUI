@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { flushSync } from 'svelte';
 import { settle } from './helpers/settle';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -202,7 +203,7 @@ describe('Reload from last snapshot', () => {
 		expect(get(tabSessionDirty)[tabId]).toBe(false);
 		expect(reloadButton(target)?.getAttribute('aria-disabled')).toBe('true');
 		expect(target.querySelector('[data-testid="context-bar"] button[aria-label="Session saved"]')).not.toBeNull();
-		reloadButton(target)!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(reloadButton(target)!);
 		await Promise.resolve();
 		expect(document.body.querySelector('[role="tooltip"]')?.textContent?.trim()).toBe('No unsaved changes to discard');
 		reloadButton(target)!.click();

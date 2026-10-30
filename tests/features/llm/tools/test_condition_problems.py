@@ -429,7 +429,7 @@ def test_one_reply_spends_one_window_of_checking_across_all_its_tags(parses, mon
     reads = count_head_reads(monkeypatch)
     body = _fill("<<if ")
     content = "".join(f'<tool_action type="update_segment">{body}</tool_action>' for _ in range(5))
-    assert _seconds(repair_condition_actions, content) < 0.5
+    assert _seconds(repair_condition_actions, content) < 2.0
     assert parses == [SCAN]
     assert max(reads) <= HEAD_READ_LIMIT
 

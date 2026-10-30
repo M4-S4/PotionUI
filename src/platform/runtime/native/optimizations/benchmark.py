@@ -1,7 +1,7 @@
 """Attention-backend micro-benchmark for the Optimizations panel.
 
 Answers "did that install actually help?" by timing the real dispatcher
-(:func:`attention.attention`) against every available backend with the same
+(:func:`kernels.attention`) against every available backend with the same
 q/k/v tensors, so a user can compare sdpa vs sage2 etc. on their own GPU
 without leaving the admin UI. One benchmark at a time (an ``asyncio.Lock``,
 mirroring ``OptimizationInstaller``): the CUDA work runs in a worker thread via
@@ -16,7 +16,13 @@ from typing import Optional
 
 import torch
 
-from src.platform.runtime.native import attention
+from src.platform.runtime.native.kernels import (
+    BACKEND_PRIORITY,
+    SDPA,
+    attention,
+    available_backends,
+    get_attention_backend,
+)
 
 _DEFAULT_SHAPE = (1, 48, 8192, 128)
 _DEFAULT_ITERATIONS = 20
@@ -49,9 +55,7 @@ def benchmark_attention(
         # sdpa is the baseline every speedup is measured against; benchmark it
         # first regardless of BACKEND_PRIORITY order, then the rest in
         # priority order (skipping sdpa, already done).
-        backends = [attention.SDPA] + [
-            b for b in attention.BACKEND_PRIORITY if b != attention.SDPA and b in attention.available_backends()
-        ]
+        backends = [SDPA] + [b for b in BACKEND_PRIORITY if b != SDPA and b in available_backends()]
 
         raw: dict[str, Optional[float]] = {}
         errors: dict[str, str] = {}
@@ -59,12 +63,12 @@ def benchmark_attention(
         for name in backends:
             try:
                 for _ in range(_WARMUP_ITERATIONS):
-                    attention.attention(q, k, v, backend=name)
+                    attention(q, k, v, backend=name)
                 torch.cuda.synchronize()
 
                 start = time.perf_counter()
                 for _ in range(iterations):
-                    attention.attention(q, k, v, backend=name)
+                    attention(q, k, v, backend=name)
                 torch.cuda.synchronize()
                 elapsed = time.perf_counter() - start
 
@@ -73,14 +77,14 @@ def benchmark_attention(
                 raw[name] = None
                 errors[name] = str(e)
 
-        sdpa_ms = raw.get(attention.SDPA)
+        sdpa_ms = raw.get(SDPA)
         results = []
         for name in backends:
             ms = raw.get(name)
             ok = ms is not None
             speedup = None
             if ok and sdpa_ms:
-                speedup = 1.0 if name == attention.SDPA else sdpa_ms / ms
+                speedup = 1.0 if name == SDPA else sdpa_ms / ms
             results.append({
                 "backend": name,
                 "ms": ms,
@@ -93,7 +97,7 @@ def benchmark_attention(
             "dtype": str(dtype).rsplit(".", maxsplit=1)[-1],
             "shape": list(shape),
             "iterations": iterations,
-            "active_backend": attention.get_attention_backend(),
+            "active_backend": get_attention_backend(),
             "results": results,
         }
     finally:

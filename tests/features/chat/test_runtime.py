@@ -1,5 +1,6 @@
 """Tests for ChatRuntime."""
 
+from src.features.llm.harness.replay import policy_replay
 from dataclasses import replace
 import pytest
 from types import SimpleNamespace
@@ -7,6 +8,11 @@ from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from src.features.chat.runtime import ChatRuntime
+from tests.fixtures.chat_engine import ScriptedTurnEngine, buffered_reply, seed_history, typed_history, llm_service_mock
+from tests.fixtures.chat_engine import ScriptedTurnEngine
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.profile import CapabilityProfile
+from src.features.llm.harness.turn_state import DecisionKind, PendingCall, TurnSnapshot, TurnState, TurnStatus
 from src.features.llm.tools.base import ToolServices
 
 from tests.fixtures.chat_modes import mode_registry
@@ -28,13 +34,16 @@ class TestValidationHelpers:
     """Tests for validation helper methods."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -98,9 +107,10 @@ class TestCreateSession:
     """Tests for create_session method."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -110,6 +120,8 @@ class TestCreateSession:
         self.mock_plugins.execute_hook.return_value = (mock_context, [])
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -194,13 +206,16 @@ class TestGetSession:
     """Tests for get_session method."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
         self.mock_plugins = Mock()
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -238,6 +253,7 @@ class TestDeleteSession:
     """Tests for delete_session method."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
         self.mock_plugins = Mock()
@@ -248,8 +264,10 @@ class TestDeleteSession:
         self.mock_plugins.execute_hook.return_value = (mock_context, [])
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -287,11 +305,14 @@ class TestUpdateSession:
     """Tests for update_session method."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=Mock(),
@@ -334,9 +355,10 @@ class TestSendMessage:
     """Tests for send_message method."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -346,6 +368,8 @@ class TestSendMessage:
         self.mock_plugins.execute_hook.return_value = (mock_context, [])
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -366,7 +390,6 @@ class TestSendMessage:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         # Set up messages as actual DTOs
         user_msg = MessageResponse(
@@ -391,7 +414,7 @@ class TestSendMessage:
         mock_llm_response.tokens_used = 100
         mock_llm_response.prompt_tokens = 50
         mock_llm_response.completion_tokens = 50
-        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
 
         # Set up processor
         self.mock_processor.process.return_value = ("Cleaned response", {"raw": "Cleaned response"})
@@ -419,7 +442,6 @@ class TestSendMessage:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(
@@ -434,7 +456,7 @@ class TestSendMessage:
         mock_llm_response.tokens_used = 1
         mock_llm_response.prompt_tokens = 1
         mock_llm_response.completion_tokens = 1
-        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
         self.mock_processor.process.return_value = ("ok", {"raw": "ok"})
 
         await self.manager.send_message(
@@ -462,7 +484,6 @@ class TestSendMessage:
         mock_session.mode = "lora-dataset"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(
@@ -477,7 +498,7 @@ class TestSendMessage:
         mock_llm_response.tokens_used = 1
         mock_llm_response.prompt_tokens = 1
         mock_llm_response.completion_tokens = 1
-        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
         self.mock_processor.process.return_value = ("ok", {"raw": "ok"})
 
         await self.manager.send_message(
@@ -585,7 +606,6 @@ class TestSendMessage:
         mock_session.mode = "admin-mode"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(
@@ -600,7 +620,7 @@ class TestSendMessage:
         mock_llm_response.tokens_used = 100
         mock_llm_response.prompt_tokens = 50
         mock_llm_response.completion_tokens = 50
-        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
         self.mock_processor.process.return_value = ("Cleaned response", {"raw": "Cleaned response"})
 
         result = await self.manager.send_message(
@@ -646,7 +666,6 @@ class TestSendMessage:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = []
 
         # Use actual DTOs instead of mocks
         user_msg = MessageResponse(
@@ -669,7 +688,7 @@ class TestSendMessage:
         mock_llm_response.tokens_used = 10
         mock_llm_response.prompt_tokens = 5
         mock_llm_response.completion_tokens = 5
-        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
 
         self.mock_processor.process.return_value = ("Response", {"raw": "Response"})
 
@@ -686,7 +705,7 @@ class TestSendMessage:
 
             mock_convert.assert_called_once_with("/path/to/image.jpg")
             # Verify base64 was passed to LLM
-            call_kwargs = self.mock_llm.generate_with_history.call_args[1]
+            call_kwargs = self.engine.call_kwargs
             assert call_kwargs['image_data'] == "base64data"
 
 
@@ -694,8 +713,9 @@ class TestSendMessageBehaviorTrace:
     """Tests for the persisted `behavior_trace` manifest on the buffered (non-stream) path."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -705,6 +725,8 @@ class TestSendMessageBehaviorTrace:
         self.mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -732,7 +754,6 @@ class TestSendMessageBehaviorTrace:
         session.mode = "generation"
         session.metadata = None
         self.mock_repo.get_session.return_value = session
-        self.mock_repo.get_conversation_history.return_value = []
 
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
         assistant_msg = MessageResponse(id="msg-2", session_id="session-123", role="assistant", content="Response")
@@ -747,7 +768,8 @@ class TestSendMessageBehaviorTrace:
         mock_llm_response.rescues = None
         mock_llm_response.tool_failures = None
         mock_llm_response.thinking_mode = None
-        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.reply = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
 
         note = Mock()
         note.id = "note-1"
@@ -789,7 +811,7 @@ class TestSendMessageBehaviorTrace:
         assert trace["thinking_mode"] is None
         assert "context_ledger" in trace
         step_names = [s["step"] for s in trace["steps"]]
-        assert step_names == ["loading_memory", "thinking"]
+        assert step_names == ["loading_memory", "thinking", "answering"]
         assert all(s["duration_ms"] >= 0 for s in trace["steps"])
 
     @pytest.mark.asyncio
@@ -798,7 +820,7 @@ class TestSendMessageBehaviorTrace:
 
         self._setup_session_and_messages()
         primed = []
-        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.profiles.ensure = AsyncMock(side_effect=lambda config: primed.append(config))
 
         def profile(*args, **kwargs):
             capacity = (
@@ -822,7 +844,7 @@ class TestSendMessageBehaviorTrace:
 
         self._setup_session_and_messages()
         primed = []
-        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.profiles.ensure = AsyncMock(side_effect=lambda config: primed.append(config))
         self.mock_llm.repository = Mock()
         self.mock_llm.context_capacity_for = Mock(side_effect=lambda config: (
             context_budget.CapacityInfo(131072, "discovered") if primed
@@ -837,12 +859,12 @@ class TestSendMessageBehaviorTrace:
     @pytest.mark.asyncio
     async def test_thinking_mode_persisted_from_the_llm_response(self):
         """`LLMResponse.thinking_mode` (the native provider's explicit
-        thinking-mode outcome — see `NativeLLMClient._chat_template_kwargs`)
+        thinking-mode outcome — see `NativeRuntime._chat_template_kwargs`)
         is forwarded into the persisted behavior trace exactly like
         `rescues`/`tool_failures`, so an admin can see which mode actually
         applied to a turn."""
         self._setup_session_and_messages()
-        self.mock_llm.generate_with_history.return_value.thinking_mode = {
+        self.reply.thinking_mode = {
             "requested": True, "effective": True,
         }
 
@@ -861,7 +883,7 @@ class TestSendMessageBehaviorTrace:
         trace exactly like `thinking_mode` — it is what the frontend's
         output-limit note reads."""
         self._setup_session_and_messages()
-        self.mock_llm.generate_with_history.return_value.completion = {
+        self.reply.completion = {
             "reason": "length", "raw": "length",
         }
 
@@ -880,7 +902,7 @@ class TestSendMessageBehaviorTrace:
         `None` default) must never be turned into a guessed "stop" — the
         trace stays `None` rather than defaulting."""
         self._setup_session_and_messages()
-        self.mock_llm.generate_with_history.return_value.completion = None
+        self.reply.completion = None
 
         await self.manager.send_message(
             session_id="session-123", user_id="user-123", content="Hello",
@@ -924,8 +946,9 @@ class TestMemoryCountedInHistoryBudget:
     first."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
@@ -952,6 +975,8 @@ class TestMemoryCountedInHistoryBudget:
         )
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -974,9 +999,7 @@ class TestMemoryCountedInHistoryBudget:
             {"role": "user" if i % 2 == 0 else "assistant", "content": f"old turn {i} " + "x" * 60}
             for i in range(6)
         ]
-        self.mock_repo.get_conversation_history.return_value = old_turns + [
-            {"role": "user", "content": "current question"},
-        ]
+        seed_history(self.engine.store, "session-123", old_turns)
 
         from src.features.chat.dto import MessageResponse
         user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="current question")
@@ -991,7 +1014,7 @@ class TestMemoryCountedInHistoryBudget:
         mock_llm_response.completion_tokens = 5
         mock_llm_response.rescues = None
         mock_llm_response.tool_failures = None
-        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
 
     def teardown_method(self):
         self._memory_ops_patcher.stop()
@@ -1002,7 +1025,7 @@ class TestMemoryCountedInHistoryBudget:
             session_id="session-123", user_id="user-123", content="current question",
         )
 
-        sent = self.mock_llm.generate_with_history.call_args.kwargs["messages"]
+        sent = self.engine.call_kwargs["messages"]
 
         # All six old turns were dropped -- the memory block alone already
         # exceeds the 40-char budget, so nothing before it fits.
@@ -1038,12 +1061,15 @@ class TestMemoryCountedInHistoryBudget:
 class TestResolveToolExecutionPreservesBehaviorTrace:
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1067,10 +1093,23 @@ class TestResolveToolExecutionPreservesBehaviorTrace:
         }
         message = Mock()
         message.session_id = "session-123"
+        message.turn_id = "turn-1"
         message.metadata = {
             "behavior_trace": behavior_trace,
-            "tool_executions": [{"tool_name": "get_data", "arguments": {}, "approval_status": "pending", "result": {}}],
+            "tool_executions": [{
+                "tool_name": "get_data", "arguments": {}, "approval_status": "pending", "result": {},
+                "tool_call_id": "c1",
+            }],
         }
+        self.engine.store.save_state(TurnState(
+            turn_id="turn-1", session_id="session-123", status=TurnStatus.AWAITING_DECISION,
+            snapshot=TurnSnapshot(
+                llm_config_id="llm-1", system="", tools=(), settings=Settings(),
+                profile=CapabilityProfile(adapter="scripted", model="m"),
+            ),
+            first_seq=0,
+            pending=(PendingCall(call_id="c1", name="get_data", decision=DecisionKind.APPROVAL),),
+        ))
         self.mock_repo.get_message.return_value = message
         self.mock_repo.transition_tool_execution.return_value = True
 
@@ -1090,6 +1129,7 @@ class TestAcceptSession:
     """Tests for accept_session method."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
         self.mock_plugins = Mock()
@@ -1100,8 +1140,10 @@ class TestAcceptSession:
         self.mock_plugins.execute_hook.return_value = (mock_context, [])
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -1141,6 +1183,7 @@ class TestRejectSession:
     """Tests for reject_session method."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
         self.mock_plugins = Mock()
@@ -1151,8 +1194,10 @@ class TestRejectSession:
         self.mock_plugins.execute_hook.return_value = (mock_context, [])
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -1190,13 +1235,16 @@ class TestHookExecution:
     """Tests for hook execution behavior."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         """Set up test fixtures."""
         self.mock_repo = Mock()
         self.mock_plugins = Mock()
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
@@ -1234,6 +1282,7 @@ class TestSendMessageResources:
     """Tests for @resource snapshot resolution in send_message."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         from src.platform.resources import ResourceRegistry
         from src.platform.resources.base import (
             BaseResourceProvider, ResolvedResource, ResourceSuggestion,
@@ -1257,7 +1306,7 @@ class TestSendMessageResources:
                 return [ResourceSuggestion(uri="fake.known", label="Known Thing")]
 
         self.mock_repo = Mock()
-        self.mock_llm = AsyncMock()
+        self.mock_llm = llm_service_mock(AsyncMock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
         mock_context = Mock()
@@ -1267,6 +1316,8 @@ class TestSendMessageResources:
         registry = ResourceRegistry()
         registry.register(FakeProvider())
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1283,11 +1334,6 @@ class TestSendMessageResources:
         mock_session.mode = "generation"
         mock_session.metadata = None
         self.mock_repo.get_session.return_value = mock_session
-        self.mock_repo.get_conversation_history.return_value = [
-            {"role": "user", "content": "earlier"},
-            {"role": "assistant", "content": "earlier reply"},
-            {"role": "user", "content": "check @fake.known"},
-        ]
         user_msg = MessageResponse(id="m1", session_id="s1", role="user", content="check @fake.known")
         assistant_msg = MessageResponse(id="m2", session_id="s1", role="assistant", content="ok")
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
@@ -1298,7 +1344,7 @@ class TestSendMessageResources:
         llm_response.tokens_used = 1
         llm_response.prompt_tokens = 1
         llm_response.completion_tokens = 1
-        self.mock_llm.generate_with_history.return_value = llm_response
+        self.engine.script(buffered_reply(llm_response))
         self.mock_processor.process.return_value = ("ok", {"raw": "ok"})
 
     @pytest.mark.asyncio
@@ -1320,7 +1366,7 @@ class TestSendMessageResources:
             session_id="s1", user_id="user-123",
             content="check @fake.known", resources=["fake.known"],
         )
-        history = self.mock_llm.generate_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert history[-1]["role"] == "user"
         content = history[-1]["content"]
         assert content.startswith("check @fake.known\n\n<context>\n")
@@ -1339,7 +1385,7 @@ class TestSendMessageResources:
         user_call = self.mock_repo.add_message.call_args_list[0]
         metadata = user_call.kwargs["metadata"]
         assert metadata["resources"][0]["kind"] == "error"
-        history = self.mock_llm.generate_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         assert "could not be resolved" in history[-1]["content"]
 
     @pytest.mark.asyncio
@@ -1349,7 +1395,7 @@ class TestSendMessageResources:
         )
         user_call = self.mock_repo.add_message.call_args_list[0]
         assert user_call.kwargs["metadata"] is None
-        history = self.mock_llm.generate_with_history.call_args.kwargs["messages"]
+        history = self.engine.call_kwargs["messages"]
         # The only system message is the per-send reply-contract reminder --
         # no resource snapshot was attached, so no resource block exists.
         assert not any("snapshot at send time" in (m.get("content") or "") for m in history)
@@ -1370,8 +1416,9 @@ class TestInjectMemoryBlock:
         return note
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
         self.mock_model_index = Mock()
@@ -1384,6 +1431,8 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops = self._memory_ops_patcher.start()
 
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1399,7 +1448,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         assert len(history) == 1
         assert history[0]["role"] == "user"
@@ -1411,7 +1460,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = []
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1433,7 +1482,7 @@ class TestInjectMemoryBlock:
             }
         }
 
-        self.manager._context.inject_memory_block(history, context_metadata, user_id="user-1")
+        typed_history(self.manager._context.inject_memory_block)(history, context_metadata, user_id="user-1")
 
         block = history[0]["content"]
         assert "[global]" in block
@@ -1445,6 +1494,8 @@ class TestInjectMemoryBlock:
 
     def test_no_manager_does_nothing(self):
         manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
@@ -1453,7 +1504,7 @@ class TestInjectMemoryBlock:
         )
         history = [{"role": "user", "content": "hello"}]
 
-        manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        typed_history(manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1461,7 +1512,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._context.inject_memory_block(
+        typed_history(self.manager._context.inject_memory_block)(
             history, context_metadata=None, user_id="user-1", write_memory_available=True,
         )
 
@@ -1472,7 +1523,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._context.inject_memory_block(
+        typed_history(self.manager._context.inject_memory_block)(
             history, context_metadata=None, user_id="user-1", write_memory_available=False,
         )
 
@@ -1483,7 +1534,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.side_effect = RuntimeError("db down")
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1492,7 +1543,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = notes
         history = [{"role": "user", "content": "hello"}]
 
-        result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        result = typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         block = history[0]["content"]
         assert "(+5 older notes not shown — consolidate or prune in the memory panel)" in block
@@ -1504,7 +1555,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
-        result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        result = typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         assert result["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0}
         assert "not shown" not in history[0]["content"]
@@ -1514,7 +1565,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note(content=long_content)]
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         block = history[0]["content"]
         assert ("y" * 500 + "…") in block
@@ -1524,7 +1575,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
-        result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        result = typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         prefix, suffix = "hello\n\n<context>\n", "\n</context>"
         content = history[0]["content"]
@@ -1536,7 +1587,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = []
         history = [{"role": "user", "content": "hello"}]
 
-        result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
+        result = typed_history(self.manager._context.inject_memory_block)(history, context_metadata=None, user_id="user-1")
 
         assert result["injected_chars"] == 0
         assert result["by_scope_dropped"] == {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0}
@@ -1564,12 +1615,15 @@ class TestInjectWorkspaceBlock:
     """Tests for ChatContextBuilder.inject_workspace_block."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_model_index = Mock()
         # preset_collaborators=None → build_model_field_metadata returns {}, so the
         # checkpoint/LoRA split relies on each model's own DB model_type.
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -1607,7 +1661,7 @@ class TestInjectWorkspaceBlock:
             }
         }
 
-        summary = self.manager._context.inject_workspace_block(history, context_metadata)
+        summary = typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         assert len(history) == 1
         assert history[0]["role"] == "user"
@@ -1643,7 +1697,7 @@ class TestInjectWorkspaceBlock:
             }
         }
 
-        summary = self.manager._context.inject_workspace_block(history, context_metadata)
+        summary = typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "call get_model_info for the full guidance" in block
@@ -1654,7 +1708,7 @@ class TestInjectWorkspaceBlock:
     def test_absent_form_state_injects_nothing(self):
         history = [{"role": "user", "content": "hello"}]
 
-        summary = self.manager._context.inject_workspace_block(history, context_metadata=None)
+        summary = typed_history(self.manager._context.inject_workspace_block)(history, context_metadata=None)
 
         assert history == [{"role": "user", "content": "hello"}]
         assert summary == {
@@ -1664,7 +1718,7 @@ class TestInjectWorkspaceBlock:
     def test_empty_form_state_injects_nothing(self):
         history = [{"role": "user", "content": "hello"}]
 
-        summary = self.manager._context.inject_workspace_block(
+        summary = typed_history(self.manager._context.inject_workspace_block)(
             history, {"form_state": {}},
         )
 
@@ -1681,7 +1735,7 @@ class TestInjectWorkspaceBlock:
             }
         }
 
-        summary = self.manager._context.inject_workspace_block(history, context_metadata)
+        summary = typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         # A preset with no resolvable models still yields the preset line, and the
         # per-lookup failure is swallowed inside lookup_model — never raised here.
@@ -1699,7 +1753,7 @@ class TestInjectWorkspaceBlock:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Preset: native/LTX-2 · Mode: video · Variant: img2vid" in block
@@ -1710,7 +1764,7 @@ class TestInjectWorkspaceBlock:
             "form_state": {"preset": "native/LTX-2", "mode": "video", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Preset: native/LTX-2 · Mode: video" in block
@@ -1727,7 +1781,7 @@ class TestInjectWorkspaceBlock:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Video Director: active" in block
@@ -1745,7 +1799,7 @@ class TestInjectWorkspaceBlock:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "update_form_settings" in block
@@ -1757,7 +1811,7 @@ class TestInjectWorkspaceBlock:
             "form_state": {"preset": "native/LTX-2", "mode": "video", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "update_form_settings" in block
@@ -1770,9 +1824,12 @@ class TestInjectWorkspaceBlockMusicDirector:
     Director coverage above."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -1802,7 +1859,7 @@ class TestInjectWorkspaceBlockMusicDirector:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Music Director: active" in block
@@ -1827,7 +1884,7 @@ class TestInjectWorkspaceBlockMusicDirector:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Music Director" not in block
@@ -1838,7 +1895,7 @@ class TestInjectWorkspaceBlockMusicDirector:
             "form_state": {"preset": "native/Music3", "mode": "song", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Music Director" not in block
@@ -1851,13 +1908,16 @@ class TestInjectWorkspaceBlockVideoDirector:
     above."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_preset_collaborators = Mock()
         # No `llm:` block resolution needed for these tests -- unwired, a bare
         # Mock() stands in for `preset_template.llm` and blows up _cap_text.
         self.mock_preset_collaborators.file_repo.find_preset_by_id.return_value = None
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -1905,7 +1965,7 @@ class TestInjectWorkspaceBlockVideoDirector:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Video Director: active" in block
@@ -1936,7 +1996,7 @@ class TestInjectWorkspaceBlockVideoDirector:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Shots (35):" in block
@@ -1955,7 +2015,7 @@ class TestInjectWorkspaceBlockVideoDirector:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Shots (" not in block
@@ -1988,11 +2048,14 @@ class TestInjectWorkspaceBlockLLMContext:
     See docs/presets.md "LLM context"."""
 
     def setup_method(self):
+        self.engine = ScriptedTurnEngine()
         self.mock_model_index = Mock()
         self.mock_preset_collaborators = Mock()
         self.manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=Mock(),
-            llm_service=Mock(),
+            llm_service=llm_service_mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=mode_registry(),
@@ -2021,7 +2084,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "01K0W24A3RADXXABH16YQ7KF00", "mode": "txt2img", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Preset: Qwen Image · Mode: txt2img" in block
@@ -2047,7 +2110,7 @@ class TestInjectWorkspaceBlockLLMContext:
             }
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Prompt resources" in block
@@ -2064,7 +2127,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "MiniMax-H3", "mode": "t2v", "form_data": {"references": ["uploads/a.png"]}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         assert "Prompt resources" not in history[0]["content"]
 
@@ -2077,7 +2140,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "mode": "image", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Preset: native/SDXL · Mode: image" in block
@@ -2090,7 +2153,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "mode": "image", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Prompting guide:" not in block
@@ -2106,13 +2169,39 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "mode": "image", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Prompting guide:" in block
         assert "Prefer comma-separated tags over full sentences." in block
         # form: off - the guide still shows, but no form-field listing.
         assert "Form fields" not in block
+
+    def test_mode_prompt_label_tells_the_model_what_the_prompt_box_is_for(self):
+        template = _make_preset_template(llm=None)
+        template.vars = {"prompt": {"modes": {"text": {
+            "label": "Placement and style", "placeholder": "in white capitals at the top",
+        }}}}
+        self._wire_preset(template)
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {"form_state": {"preset": "QwenImage-2.1", "mode": "text", "form_data": {}}}
+
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
+
+        block = history[0]["content"]
+        assert "The prompt box in this mode is for: Placement and style" in block
+        assert "in white capitals at the top" in block
+
+    def test_a_mode_without_a_prompt_label_adds_no_prompt_purpose_line(self):
+        template = _make_preset_template(llm=None)
+        template.vars = {"prompt": {"modes": {"text": {"label": "Placement and style"}}}}
+        self._wire_preset(template)
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {"form_state": {"preset": "QwenImage-2.1", "mode": "restyle", "form_data": {}}}
+
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
+
+        assert "The prompt box in this mode" not in history[0]["content"]
 
     def test_guide_is_capped(self):
         long_guide = "G" * 4000
@@ -2122,7 +2211,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "mode": "image", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "G" * 3000 in block
@@ -2143,7 +2232,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "mode": "txt2img", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Form fields (mode: txt2img):" in block
@@ -2163,7 +2252,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "mode": "txt2img", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "range 1-50" in block
@@ -2179,7 +2268,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "mode": "txt2img", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Form fields" not in block
@@ -2196,7 +2285,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/SDXL", "form_data": {"checkpoint": "sdxl.safetensors"}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "G" * 350 in block
@@ -2222,7 +2311,7 @@ class TestInjectWorkspaceBlockLLMContext:
             }
         }
 
-        summary = self.manager._context.inject_workspace_block(history, context_metadata)
+        summary = typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         # checkpoint is in `fields:` - its guidance is included.
@@ -2247,7 +2336,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/H3", "mode": "refs", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Refs guide: six-section brief." in block
@@ -2266,7 +2355,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/H3", "mode": "video", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "Base guide: plain description." in block
@@ -2284,7 +2373,7 @@ class TestInjectWorkspaceBlockLLMContext:
             "form_state": {"preset": "native/H3", "mode": "refs", "form_data": {}}
         }
 
-        self.manager._context.inject_workspace_block(history, context_metadata)
+        typed_history(self.manager._context.inject_workspace_block)(history, context_metadata)
 
         block = history[0]["content"]
         assert "R" * 3000 in block
@@ -2318,12 +2407,14 @@ class TestToolCallFormatGuidance:
         assert "{{" not in rendered
 
     def test_native_client_injects_concrete_tool_call_example(self):
-        from src.features.llm.clients.native import NativeLLMClient
+        from src.features.llm.harness.adapters.native import render_chat
+        from src.features.llm.harness.adapter import ToolSpec
 
-        injected = NativeLLMClient._inject_tools_into_system_message(
+        injected = render_chat(
             "sys",
-            [{"function": {"name": "get_form_state", "description": "d", "parameters": {}}}],
-        )
+            [],
+            [ToolSpec.from_schema({"function": {"name": "get_form_state", "description": "d", "parameters": {}}})],
+        )[0]["content"]
 
         assert '<tool_call>{"name": "get_form_state", "arguments": {}}</tool_call>' in injected
         assert "<tool_action>" in injected  # names the format NOT to use
@@ -2419,8 +2510,9 @@ class TestBehaviorTraceToolFailures:
         """Mirrors how execute_with_tools's return value carries tool_failures
         through to the trace -- getattr on the final LLM response object, same
         pattern already used for rescues."""
+        self.engine = ScriptedTurnEngine()
         mock_repo = Mock()
-        mock_llm = AsyncMock()
+        mock_llm = llm_service_mock(AsyncMock())
         mock_processor = Mock()
         mock_plugins = Mock()
         mock_context = Mock()
@@ -2429,6 +2521,8 @@ class TestBehaviorTraceToolFailures:
         mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
         manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,
@@ -2443,7 +2537,6 @@ class TestBehaviorTraceToolFailures:
         session.mode = "generation"
         session.metadata = None
         mock_repo.get_session.return_value = session
-        mock_repo.get_conversation_history.return_value = []
 
         from src.features.chat.dto import MessageResponse
         user_msg = MessageResponse(id="msg-1", session_id="s", role="user", content="Hello")
@@ -2458,7 +2551,7 @@ class TestBehaviorTraceToolFailures:
         mock_llm_response.completion_tokens = 5
         mock_llm_response.rescues = None
         mock_llm_response.tool_failures = [{"tool_name": "run_generation", "error": "boom"}]
-        mock_llm.generate_with_history.return_value = mock_llm_response
+        self.engine.script(buffered_reply(mock_llm_response))
 
         await manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
 
@@ -2473,8 +2566,9 @@ class TestSendMessageToolsPathIterationNudge:
     that opt out (their own prompt already governs the reply shape)."""
 
     def _setup_tools_session(self, structured_reply: bool):
+        self.engine = ScriptedTurnEngine()
         mock_repo = Mock()
-        mock_llm = AsyncMock()
+        mock_llm = llm_service_mock(AsyncMock())
         mock_processor = Mock()
         mock_plugins = Mock()
         mock_context = Mock()
@@ -2499,9 +2593,11 @@ class TestSendMessageToolsPathIterationNudge:
         response.tokens_used = 1
         response.prompt_tokens = 1
         response.completion_tokens = 1
-        mock_tool_executor.execute_with_tools = AsyncMock(return_value=(response, []))
+        self.engine.script(buffered_reply(response))
 
         manager = ChatRuntime(
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
             chat_repository=mock_repo,
             llm_service=mock_llm,
             response_processor=mock_processor,
@@ -2517,7 +2613,6 @@ class TestSendMessageToolsPathIterationNudge:
         session.mode = "generation"
         session.metadata = {"enable_tools": True}
         mock_repo.get_session.return_value = session
-        mock_repo.get_conversation_history.return_value = []
 
         from src.features.chat.dto import MessageResponse
         user_msg = MessageResponse(id="msg-1", session_id="s", role="user", content="Hello")
@@ -2533,13 +2628,15 @@ class TestSendMessageToolsPathIterationNudge:
         manager, mock_tool_executor = self._setup_tools_session(structured_reply=True)
         await manager.send_message(session_id="session-123", user_id="user-123", content="hi")
 
-        kwargs = mock_tool_executor.execute_with_tools.call_args.kwargs
+        kwargs = self.engine.call_kwargs
         assert kwargs["iteration_nudge"] == TOOL_LOOP_CONTINUATION_NUDGE
 
     @pytest.mark.asyncio
-    async def test_non_structured_reply_mode_omits_nudge(self):
+    async def test_non_structured_reply_mode_passes_the_action_continuation_nudge(self):
+        from src.features.chat.reply_contract import ACTION_CONTINUATION_NUDGE
+
         manager, mock_tool_executor = self._setup_tools_session(structured_reply=False)
         await manager.send_message(session_id="session-123", user_id="user-123", content="hi")
 
-        kwargs = mock_tool_executor.execute_with_tools.call_args.kwargs
-        assert kwargs["iteration_nudge"] is None
+        kwargs = self.engine.call_kwargs
+        assert kwargs["iteration_nudge"] == ACTION_CONTINUATION_NUDGE

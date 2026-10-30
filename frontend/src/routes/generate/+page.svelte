@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { modeDescription } from '$lib/utils/modeDescription';
+	import { modeUnavailableReason } from '$lib/utils/modeRequirements';
+	import { createModeRequirementsRecheck } from '$lib/utils/modeRequirementsRecheck';
+	import { onModelInstalled } from '$lib/stores/modelInstalls';
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
@@ -48,7 +51,9 @@
 	import GenerationPanels from './components/GenerationPanels.svelte';
 	import DesktopWorkspace from './components/DesktopWorkspace.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
-	import { isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { promptModeCopy } from '$lib/utils/promptModeCopy';
+	import { createDisconnectBanner } from '$lib/utils/disconnectBanner';
 	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
@@ -124,7 +129,8 @@
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	let ws: WebSocketService | null = null;
-	let isConnected = false;
+	let showDisconnected = false;
+	const disconnectBanner = createDisconnectBanner((visible) => (showDisconnected = visible));
 	let presets: any[] = [];
 	let unregisterChatRunGeneration: (() => void) | null = null;
 
@@ -570,6 +576,7 @@
 	let readiness: ReadinessReport | null = null;
 	let readinessLoading = false;
 	let readinessFetched = false;
+	let presetsSettled = false;
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
 	$: presetsEmptyState = describePresetsEmptyState(readiness, isAdmin);
 	// An admin staring at an empty preset list can install what a recipe brings
@@ -836,6 +843,12 @@
 	$: promptlessActive =
 		requestContext.promptlessActive ||
 		isPromptlessMode(currentPresetVars, currentTab.selectedMode, currentTab.formData);
+	$: promptOptionalActive =
+		!promptlessActive &&
+		(requestContext.promptOptionalActive ||
+			isOptionalPromptMode(currentPresetVars, currentTab.selectedMode, currentTab.formData));
+
+	$: promptCopy = promptModeCopy(currentPresetVars, currentTab.selectedMode, promptOptionalActive);
 
 	// Load preset vars when preset changes
 	$: if (currentTab.selectedPreset && mounted) {
@@ -876,6 +889,7 @@
 
 	onMount(async () => {
 		mounted = true;
+		unsubscribeModelInstalled = onModelInstalled(() => void modeRequirementsRecheck.run());
 
 		// One-time migration: Clear selectedMode for all tabs if no preset selected
 		tabs.forEach(tab => {
@@ -894,7 +908,7 @@
 		setGenerationUnsubscribeHandler(unsubscribeGeneration);
 		setGridRunHandlers({ enrolled: subscribeGridCells, cancelled: retireGridCells });
 		ws.onConnectionChange((connected) => {
-			isConnected = connected;
+			disconnectBanner.changed(connected);
 			if (connected && !restoreInFlight) {
 				restoreInFlight = true;
 				restoreGenerations().finally(() => {
@@ -903,6 +917,7 @@
 				});
 			}
 		});
+		disconnectBanner.connecting();
 		ws.connect();
 		unregisterChatRunGeneration = onToolApplied('run_generation', handleChatRunGeneration);
 
@@ -953,6 +968,7 @@
 			isLoading = false;
 		}
 		await loadReadinessIfPresetsEmpty();
+		presetsSettled = true;
 
 		// Restore sessions for tabs that have selectedSessionId
 		await restoreTabSessions();
@@ -1133,7 +1149,11 @@
 	}
 
 	onDestroy(() => {
+		disconnectBanner.destroy();
 		overlayTracker.destroy();
+		unsubscribeModelInstalled?.();
+		unsubscribeModelInstalled = null;
+		modeRequirementsRecheck.dispose();
 		clearTimeout(estimateTimer);
 		restoreController.abort();
 		unregisterChatRunGeneration?.();
@@ -1207,7 +1227,7 @@
 		}
 	}
 
-	async function loadModesForTab(tabId: string, presetId: string) {
+	async function loadModesForTab(tabId: string, presetId: string, options: { background?: boolean } = {}) {
 		const requestKey = `${tabId}:${presetId}`;
 		const existing = modesInFlight.get(requestKey);
 		if (existing) return existing;
@@ -1241,6 +1261,7 @@
 				}
 			} catch (error) {
 				console.error('Failed to load modes:', error);
+				if (options.background) return;
 				if (!modesErrorShown.has(requestKey)) {
 					modesErrorShown.add(requestKey);
 					toasts.error("Couldn't load this preset's modes. Try reselecting the preset.");
@@ -1265,6 +1286,16 @@
 		modesInFlight.set(requestKey, request);
 		return request;
 	}
+
+	const modeRequirementsRecheck = createModeRequirementsRecheck({
+		target: () =>
+			currentTab?.selectedPreset && currentTab.selectedMode
+				? { tabId: currentTab.id, presetId: currentTab.selectedPreset, mode: currentTab.selectedMode }
+				: null,
+		isBlocked: (target) => !!modeUnavailableReason(modesPerTab[target.tabId], target.mode),
+		reload: (target) => loadModesForTab(target.tabId, target.presetId, { background: true })
+	});
+	let unsubscribeModelInstalled: (() => void) | null = null;
 
 	// The preset-declared separator between enabled prompt segments
 	// (`vars.prompt.segment_join` in preset.yml — `paragraph` for song-section-style
@@ -1414,6 +1445,7 @@
 			segmentJoin: segmentJoinForPreset(currentTab.selectedPreset),
 			promptRelayActive,
 			promptlessActive,
+			promptOptionalActive,
 			videoDirector:
 				videoDirectorActive && videoDirectorCaps
 					? {
@@ -1784,7 +1816,7 @@
 		} else {
 			const sentPrompts = canBatch ? promptList(currentTab) : promptList(currentTab).slice(0, 1);
 			const emptyAt = firstEmptyPrompt(sentPrompts);
-			hasPrompt = emptyAt < 0;
+			hasPrompt = promptOptionalActive || emptyAt < 0;
 			if (!hasPrompt && sentPrompts.length > 1) noPromptReason = `Prompt ${emptyAt + 1} is empty`;
 		}
 
@@ -1808,7 +1840,9 @@
 				)
 			: null;
 		const batchBlocked = standardPromptActive && batch.overCap;
-		const unavailable = presetUnavailableReason(presets.find((preset: any) => preset.id === currentTab.selectedPreset));
+		const unavailable =
+			presetUnavailableReason(presets.find((preset: any) => preset.id === currentTab.selectedPreset)) ||
+			modeUnavailableReason(modesPerTab[currentTab.id], currentTab.selectedMode);
 		canGenerate = !!currentTab.selectedPreset && !unavailable && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
 		generateDisabledReason = canGenerate
 			? undefined
@@ -1903,7 +1937,9 @@
 					Desktop-only since StudioView replaced the mobile carousel — mobile
 					handles "nothing selected" inline (disabled shutter + reason). -->
 				<div class="w-full max-w-md text-center">
-					{#if presets.length === 0}
+					{#if presets.length === 0 && !presetsSettled}
+						<div class="h-24"></div>
+					{:else if presets.length === 0}
 						<EmptyState
 							icon={presetsEmptyState.showSetupLink ? 'settings' : 'cube'}
 							title={presetsEmptyState.title}
@@ -1966,6 +2002,7 @@
 						{musicDirectorActive}
 						{musicDirectorCaps}
 						{presetSegmentTemplates}
+						{promptCopy}
 						{presetStyles}
 						{canBatch}
 						{negativePromptSupported}
@@ -1983,7 +2020,7 @@
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
-						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
+						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon, requirementsMissing: m.requirements_missing }))}
 						onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 						onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 						onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
@@ -2009,6 +2046,7 @@
 								{negativePromptSupported}
 								{negativeInert}
 								{presetSegmentTemplates}
+								{promptCopy}
 								{presetStyles}
 								promptless={promptlessActive}
 								{isActive}
@@ -2027,7 +2065,7 @@
 			</div>
 
 			<!-- Connection Status Warning -->
-			{#if !isConnected}
+			{#if showDisconnected}
 				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25 md:mb-[var(--deck-height)]">
 					<div class="flex items-center gap-3">
 						<svg class="w-5 h-5 text-warning flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">

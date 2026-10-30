@@ -119,7 +119,7 @@
 		loadDisabledTools,
 		saveDisabledTools
 	} from '$lib/utils/chatConfig';
-	import { startersForMode } from '$lib/chat/modeStarters';
+	import { introForMode, startersForMode } from '$lib/chat/modeStarters';
 	import { loadHistoryRailCollapsed, saveHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 	import { getPresetPromptResources, type PresetPromptResourcesResult } from '$lib/utils/presetPromptResourcesCache';
 	import type { ResourceTokenContext } from '$lib/utils/promptResourceTokens';
@@ -143,6 +143,7 @@
 	$: messages = $chatSession.messages;
 	$: currentMode = $chatSession.mode;
 	$: starters = startersForMode(currentMode);
+	$: intro = introForMode(currentMode);
 	$: isGenerating = $chatSession.isGenerating;
 	// What a brand-new conversation would resolve to right now — used only to
 	// tell the user a locked conversation's mode has fallen behind the page
@@ -1984,7 +1985,7 @@
 					</div>
 				{/if}
 				{#each messages as message, idx (message.id ?? message.clientKey ?? idx)}
-					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && !message.thinking?.length && idx === messages.length - 1}
+					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && !message.reasoning?.length && !message.notices?.length && idx === messages.length - 1}
 						<!-- Nothing has happened for this turn yet (no content, no tool call, no
 						     trace step) — a bare "thinking" placeholder covers that brief gap
 						     for a tool called with no preceding narration. Once any of those
@@ -2019,7 +2020,8 @@
 								: undefined}
 							toolExecutions={message.tool_executions || []}
 							traceSteps={message.trace_steps || []}
-							thinking={message.thinking || []}
+							reasoning={message.reasoning || []}
+							notices={message.notices || []}
 							sources={message.sources || []}
 							sessionId={sessionId || ''}
 							messageId={message.id || ''}
@@ -2063,8 +2065,8 @@
 			<div class="empty-state" class:hidden={messages.length > 0}>
 				<div class="empty-content">
 					<span class="empty-orb"><Logo size={27} /></span>
-					<h2>What are we making?</h2>
-					<p>I can see your active workspace and help shape prompts, settings, and creative direction.</p>
+					<h2>{intro.heading}</h2>
+					<p>{intro.body}</p>
 					<div class="suggestions">
 						{#each starters as suggestion (suggestion.title)}
 							<button

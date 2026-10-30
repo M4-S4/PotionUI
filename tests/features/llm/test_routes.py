@@ -84,6 +84,7 @@ def controller(mock_operations, mock_repo, mock_llm_service, mock_settings, mock
         llm_service=mock_llm_service,
         settings=mock_settings,
         plugin_registry=mock_plugins,
+        profile_resolver=Mock(),
     )
 
 
@@ -101,6 +102,7 @@ def controller_with_downloads(mock_operations, mock_repo, mock_llm_service, mock
         llm_service=mock_llm_service,
         settings=mock_settings,
         plugin_registry=mock_plugins,
+        profile_resolver=Mock(),
         download_queue=mock_download_manager,
     )
 
@@ -148,10 +150,9 @@ class TestLLMConfigRequestNativeThinkingValidation:
         with pytest.raises(pydantic.ValidationError, match="provider_options.thinking"):
             self._request(provider_options={"thinking": value})
 
-    def test_invalid_value_on_non_native_type_is_not_checked(self):
-        """The key is native-specific; other providers' free-form
-        provider_options are left alone regardless of what's in them."""
-        self._request(type="ollama", provider_options={"thinking": "not-a-bool"})
+    def test_an_invalid_value_is_refused_whatever_the_type(self):
+        with pytest.raises(pydantic.ValidationError, match="provider_options.thinking"):
+            self._request(type="ollama", provider_options={"thinking": "not-a-bool"})
 
 
 class TestLLMController:

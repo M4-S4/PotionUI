@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import importlib
 import logging
 import math
 import os
-import sys
 from dataclasses import dataclass
-from types import ModuleType
 from typing import Any, Literal, Mapping, Optional
 
 logger = logging.getLogger(__name__)
@@ -131,12 +128,9 @@ APP_FLAGS: tuple[RuntimeFlag, ...] = tuple(flag for flag in RUNTIME_FLAGS if fla
 ENGINE_FLAG_KEYS = frozenset(flag.key for flag in ENGINE_FLAGS)
 APP_FLAG_KEYS = frozenset(flag.key for flag in APP_FLAGS)
 
-_VENDOR_OPS = "vendor.gpl.comfyui.ops"
-
 _values: dict[str, Any] = {flag.key: flag.default for flag in RUNTIME_FLAGS}
 _settings: Any = None
 _warned_env: set[str] = set()
-_vendor_bound = False
 
 
 def runtime_flag(key: str) -> Any:
@@ -236,7 +230,6 @@ def engine_flag_values(stored: Optional[Mapping[str, Any]]) -> dict[str, Any]:
 def activate_engine_flags(stored: Optional[Mapping[str, Any]]) -> dict[str, Any]:
     resolved = engine_flag_values(stored)
     _values.update(resolved)
-    bind_vendor_runtime_flags(import_if_missing=False)
     return resolved
 
 
@@ -274,28 +267,6 @@ def configure_runtime_flags(settings: Any) -> None:
     global _settings
     _settings = settings
     reload_runtime_flags()
-    bind_vendor_runtime_flags(import_if_missing=False)
-
-
-def bind_runtime_flags(module: ModuleType) -> None:
-    module.RUNTIME_FLAGS = _values
-
-
-def bind_vendor_runtime_flags(import_if_missing: bool = True) -> None:
-    global _vendor_bound
-    if _vendor_bound:
-        return
-    ops = sys.modules.get(_VENDOR_OPS)
-    if ops is None and import_if_missing:
-        try:
-            ops = importlib.import_module(_VENDOR_OPS)
-        except Exception:
-            logger.debug("runtime settings: vendor ops not importable; not bound", exc_info=True)
-            return
-    if ops is None:
-        return
-    bind_runtime_flags(ops)
-    _vendor_bound = True
 
 
 def reset_runtime_flags() -> None:

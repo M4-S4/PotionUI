@@ -37,7 +37,8 @@ def snap_ltx_geometry(width: int, height: int, frames: int) -> tuple[int, int, i
     return snapped_w, snapped_h, snapped_frames
 
 
-def decode_ltx_video(vae: Any, device: str, latent: torch.Tensor, seed: int) -> np.ndarray:
+def decode_ltx_video(vae: Any, device: str, latent: torch.Tensor, seed: int,
+                     keep_resident: tuple = ()) -> np.ndarray:
     vae.move_to(device)
     z = latent.to(device=device, dtype=vae.compute_dtype)
     with torch.no_grad():
@@ -53,6 +54,7 @@ def decode_ltx_video(vae: Any, device: str, latent: torch.Tensor, seed: int) -> 
                     int(seed) + DECODE_NOISE_SEED_OFFSET
                 ),
                 profiler_mark="ltx.decode", log_prefix="[GENERATOR LTX]",
+                keep_resident=keep_resident,
             )
     vae.offload()
 

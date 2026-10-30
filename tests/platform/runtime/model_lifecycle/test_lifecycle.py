@@ -931,10 +931,6 @@ class TestPostLoadFootprintRecording:
 
 
 class TestEntrySizeGb:
-    """A read-only lookup of an already-cached entry's recorded size
-    estimate, for a caller (NativeLLMClient._note_resident, handing a size to
-    GpuResidencyRegistry.note_resident) that needs the number without
-    re-deriving it or pretending to be a real acquire()."""
 
     def test_entry_size_gb_returns_the_recorded_estimate(self, manager):
         manager.acquire("k", "fp", lambda: FakeModel("a"), estimated_vram_gb=4.5)

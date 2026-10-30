@@ -284,7 +284,7 @@ class ReadinessAggregator:
                 code="NO_PRESETS_ASSIGNED",
                 admin_message="No presets are installed and assigned to this user, so there is nothing to generate.",
                 user_message="You don't have any presets yet. Ask your administrator to assign one.",
-                admin_action="Open Administration -> Presets, install a preset and assign it to this user.",
+                admin_action="Open Admin → Presets, install a preset and assign it to this user.",
             )
 
         if self._any_preset_has_models(presets, user, is_admin):

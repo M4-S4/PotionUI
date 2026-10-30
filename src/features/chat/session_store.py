@@ -17,7 +17,8 @@ from src.features.chat.exceptions import (
     SessionCreationFailedException,
 )
 from src.features.chat.hooks import CHAT_SESSION_HOOKS
-from src.features.chat.thinking import apply_thinking_visibility, config_shows_thinking, hide_thinking_stream
+from src.features.chat import projection
+from src.features.chat.thinking import config_shows_thinking, hide_thinking_stream
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,16 @@ class ChatSessionStore:
         return self._visible_messages(session, messages), has_earlier
 
     def _visible_messages(self, session: SessionResponse, messages: List[MessageResponse]) -> List[MessageResponse]:
-        return apply_thinking_visibility(messages, self._m.llm_service, session.llm_config_id)
+        show_thinking = config_shows_thinking(self._m.llm_service, session.llm_config_id)
+        engine = self._m.turn_engine
+        turn_ids = [item.turn_id for item in messages if item.role == "assistant" and item.turn_id]
+        store = engine.store if engine is not None and turn_ids else None
+        return projection.present(
+            messages,
+            store.steps_by_turn(turn_ids) if store is not None else {},
+            store.states(turn_ids) if store is not None else {},
+            show_thinking=show_thinking,
+        )
 
     def visible_turn_events(self, session: SessionResponse, events):
         if config_shows_thinking(self._m.llm_service, session.llm_config_id):

@@ -131,13 +131,10 @@ count of individual tool calls) so the two are never conflated.
 ``actual_rounds`` is the exact count of real tool-loop decision rounds
 (one LLM call that may dispatch one or more tool calls) — computable and
 ``unverified: false`` for a ``replay`` canned transcript (authored with one
-assistant tool-calls message per real round), but ALWAYS ``unverified: true``
-for a ``run`` live capture: the live SSE wire protocol emits exactly one
-``status: thinking`` event per TURN, not per round (see
-``src/features/chat/conversation.py``), so there is no reliable signal to
-recover real intra-turn round boundaries from — reporting "unverified" beats
-silently deriving a value from the folded per-turn tool-call grouping that
-might read as a pass when the real round count was actually higher. A
+assistant tool-calls message per real round), and for a ``run`` live capture
+counted from the ``step`` events the backend emits once per model call (a
+step whose ``tool_calls`` is non-zero is a tool round). A live capture where
+any turn carries no ``step`` event at all stays ``unverified: true``. A
 scenario's ``max_tool_rounds`` check is likewise reported ``unverified``
 (see ``evaluate_transcript``'s ``round_boundaries_known``) rather than scored
 against that same unreliable grouping when evaluating a live capture.
@@ -147,8 +144,8 @@ carries (from its last turn, when there is more than one) — labeled
 ``measured: true`` because, unlike ``latency_ms``/``memory_mb`` below, this
 is an actual number the backend reported, not something this script inferred.
 
-``completion`` (the normalized `{"reason", "raw"}` shape from
-``src.features.llm.clients.completion`` — see LLM-08) is read from the same
+``completion`` (the normalized `{"reason", "raw"}` shape of the turn outcome)
+is read from the same
 persisted ``behavior_trace`` as ``thinking_mode`` and follows the identical
 rule: always ``null`` in ``replay`` mode (an authored canned fixture was never
 a real ``done`` event and so never carried one), the real persisted value in
@@ -234,6 +231,14 @@ def _unverified_tokens_block() -> Dict[str, Any]:
 
 def _unverified_actual_rounds() -> Dict[str, Any]:
     return {"value": None, "unverified": True}
+
+
+def _live_actual_rounds(turns_evidence: List[Dict[str, Any]]) -> Dict[str, Any]:
+    steps = [[e for e in (turn.get("events") or []) if e["event"] == "step"] for turn in turns_evidence]
+    if not steps or not all(steps):
+        return _unverified_actual_rounds()
+    rounds = sum(1 for turn_steps in steps for e in turn_steps if (e.get("data") or {}).get("tool_calls"))
+    return {"value": rounds, "unverified": False}
 
 
 def _unverified_behavior_trace_steps() -> Dict[str, Any]:
@@ -528,19 +533,6 @@ def _resolve_config(base_url: str, token: Optional[str], config_ref: str) -> Dic
 
 
 def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Dict[str, Any]:
-    """A full ``LLMConfigRequest`` body (see ``src/features/llm/dto.py``) cloning
-    ``config`` with an explicit ``provider_options.context_window`` test-budget
-    override. ``api_key`` is deliberately absent: ``LLMConfigResponse`` never
-    returns a stored key (``api_key_set`` only), so a clone of a config that
-    needs one will not authenticate — use ``--variant-config`` for those.
-
-    ``memory_reflection`` is always forced to ``False`` regardless of the
-    source config's own setting — see ``_MEMORY_POLICY_NOTE``: a generated
-    clone exists only for this evaluation run and must never leave a
-    background-reflection artifact behind in the user's durable memory.
-    """
-    provider_options = dict(config.get("provider_options") or {})
-    provider_options["context_window"] = context_window
     return {
         "name": f"{config.get('name', config.get('id'))} [chat-eval {context_window}-token test budget]",
         "type": config["type"],
@@ -554,8 +546,12 @@ def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Di
         "supports_vision": config.get("supports_vision", False),
         "disable_system_prompt": config.get("disable_system_prompt", False),
         "memory_reflection": False,
-        "provider_options": provider_options,
+        "provider_options": dict(config.get("provider_options") or {}),
     }
+
+
+def clone_profile_overrides(context_window: int) -> Dict[str, Any]:
+    return {"overrides": {"context_window": context_window}}
 
 
 # Evaluation memory policy: every configuration this script actually drives a
@@ -836,10 +832,7 @@ def _run_scenario_live(
         },
         "turns_with_tools": _turns_with_tools_count(all_messages),
         "tool_executions": len(all_executions),
-        # Never derived from the folded per-turn tool_calls grouping - see
-        # evaluate_transcript's round_boundaries_known and this script's
-        # module docstring.
-        "actual_rounds": _unverified_actual_rounds(),
+        "actual_rounds": _live_actual_rounds(turns_evidence) if http_completed else _unverified_actual_rounds(),
         "tool_durations_ms": [
             {"tool": te.get("tool_name"), "duration_ms": te.get("duration_ms"), "measured": True}
             for te in all_executions if te.get("duration_ms") is not None
@@ -930,6 +923,11 @@ def cmd_run(args: argparse.Namespace) -> int:
                 create_result = _http_json("POST", f"{args.base_url}/api/llm/configurations", args.token, body)
                 _check_success(create_result, "POST /api/llm/configurations (variant clone)")
                 created_variant_id = create_result["data"]["id"]
+                profile_result = _http_json(
+                    "PUT", f"{args.base_url}/api/llm/configurations/{created_variant_id}/profile", args.token,
+                    clone_profile_overrides(window),
+                )
+                _check_success(profile_result, "PUT /api/llm/configurations/{id}/profile (variant clone budget)")
                 variant_config = _resolve_config(args.base_url, args.token, created_variant_id)
                 print(
                     f"Created temporary comparison config '{created_variant_id}' ({body['name']!r}) - "

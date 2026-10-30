@@ -17,7 +17,7 @@ from src.platform.runtime.native.lora import (
     restore_lora_state,
     snapshot_lora_state,
 )
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 IN, OUT, RANK = 16, 24, 4
 ROW_MASK = torch.tensor([True, True, False, True, False, False, True])

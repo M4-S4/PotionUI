@@ -17,7 +17,9 @@
 	export let iconOnly: boolean = false; // shorthand for triggerStyle="icon"
 	/** How the closed trigger renders. 'pills' shows the current selection inline, replacing the
 	 * icon/text button - this is the former AutoTagSelector presentation. */
-	export let triggerStyle: 'button' | 'icon' | 'pills' = iconOnly ? 'icon' : 'button';
+	export let triggerStyle: 'button' | 'icon' | 'pills' | 'bar' | 'none' = iconOnly ? 'icon' : 'button';
+	export let triggerTabindex: number | undefined = undefined;
+	export let panelAlign: 'left' | 'right' | undefined = undefined;
 	/** 'remove-on-select' (default) pulls a picked tag out of the list into a chips row above it.
 	 * 'checklist' leaves it in place with an inline checkmark instead - the former AutoTagSelector
 	 * selection model, better suited to picking from a small fixed set. */
@@ -41,6 +43,7 @@
 	$: availableTags = $catalogTags as Tag[];
 	let searchQuery: string = '';
 	let isOpen: boolean = false;
+	export { isOpen as open };
 	let isLoading: boolean = false;
 	let isCreating: boolean = false;
 	let tagsLoaded: boolean = false;
@@ -158,7 +161,7 @@
 <SearchableMultiSelectPopover
 	bind:open={isOpen}
 	bind:searchValue={searchQuery}
-	align={triggerStyle === 'icon' ? 'right' : 'left'}
+	align={panelAlign ?? (triggerStyle === 'icon' ? 'right' : 'left')}
 	panelClass={compact ? 'w-72 max-h-96' : 'w-80 max-h-96'}
 	searchPlaceholder={allowCreate ? 'Search or create tags...' : 'Search tags...'}
 	{optionIds}
@@ -166,7 +169,25 @@
 	onSelect={selectOption}
 >
 	{#snippet trigger({ open, toggle })}
-		{#if triggerStyle === 'icon'}
+		{#if triggerStyle === 'none'}
+			<span></span>
+		{:else if triggerStyle === 'bar'}
+			<button
+				type="button"
+				on:click={toggle}
+				tabindex={triggerTabindex}
+				data-bar-item="tags"
+				class="{className} inline-flex h-8 items-center gap-1 rounded px-2 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-3/50 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal max-sm:h-9 {open ? 'bg-surface-3/50 text-fg' : ''}"
+				aria-expanded={open}
+				aria-haspopup="listbox"
+			>
+				<Icon name="tag" className="h-4 w-4" />
+				Tags
+				{#if selectedTags.length > 0}
+					<span class="font-mono text-[12px] leading-4 tabular-nums text-fg-subtle" data-tags-count>{selectedTags.length}</span>
+				{/if}
+			</button>
+		{:else if triggerStyle === 'icon'}
 			<button
 				type="button"
 				on:click={toggle}

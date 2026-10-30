@@ -655,9 +655,9 @@ def _quantize_tensor_nvfp4(weight: torch.Tensor) -> tuple[torch.Tensor, torch.Te
     layout/dtypes a real checkpoint's nvfp4 weight uses (see its own
     docstring), so it doubles as a synthetic-fixture builder — the exact
     inverse of `dequantize_nvfp4`."""
-    from vendor.gpl.comfyui.ops import _quantize_nvfp4_dynamic
+    from src.platform.runtime.native.io.quant_formats import quantize_nvfp4_dynamic
 
-    return _quantize_nvfp4_dynamic(weight.to(torch.float32))
+    return quantize_nvfp4_dynamic(weight.to(torch.float32))
 
 
 def test_detect_quantization_flags_nvfp4_not_fp8_despite_f8_scale_dtype():
@@ -701,7 +701,7 @@ def test_dequantize_nvfp4_state_dict_matches_reference_dequant():
     assert out["model.layers.5.mlp.down_proj.weight"].shape == (8, 64)
     assert out["model.layers.5.mlp.down_proj.weight"].dtype == torch.bfloat16
 
-    from vendor.gpl.comfyui.ops import dequantize_nvfp4
+    from src.platform.runtime.native.io.quant_formats import dequantize_nvfp4
 
     expected = dequantize_nvfp4(packed, block_scale, tensor_scale.reshape(()), 8, 64).to(torch.bfloat16)
     assert torch.equal(out["model.layers.5.mlp.down_proj.weight"], expected)
@@ -825,9 +825,6 @@ def test_native_checkpoints_listing_includes_adopted_te_flagged(tmp_path):
     assert len(te) == 1
     assert te[0].name == "text_encoders/qwen3-te.safetensors"
     assert te[0].supported is True
-    # An adoptable single-file checkpoint can also be bnb-quantized in
-    # place (NativeLLMClient._quantize_adopted_module), same modes as an
-    # HF-directory checkpoint.
     from src.features.llm.native_library import NATIVE_LLM_QUANT_MODES
 
     assert te[0].quant_modes == list(NATIVE_LLM_QUANT_MODES)

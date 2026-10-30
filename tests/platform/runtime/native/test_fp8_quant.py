@@ -16,17 +16,13 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from src.platform.runtime.native.ops.fp8_quant import (  # noqa: E402
-    _E4M3_MAX,
     estimate_fp8_gb,
     quantize_state_dict_to_fp8,
     quantize_tensor_to_fp8_scaled,
     should_quantize_fp8,
 )
-from vendor.gpl.comfyui.ops import (  # noqa: E402
-    _parse_comfy_quant,
-    detect_quant_format,
-    fp8_ops,
-)
+from src.platform.runtime.native.io.quant_formats import E4M3_MAX
+from src.platform.runtime.native.kernels import detect_quant_format, fp8_ops
 
 
 def _dequant(q: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
@@ -55,8 +51,18 @@ def test_scale_maps_amax_near_e4m3_max():
     w = torch.randn(64, 64) * 5.0
     q, scale = quantize_tensor_to_fp8_scaled(w)
     # The largest-magnitude element should sit near (not above) the e4m3 ceiling.
-    assert q.to(torch.float32).abs().max() <= _E4M3_MAX
-    assert (w.abs().amax() / scale) <= _E4M3_MAX + 1e-3
+    assert q.to(torch.float32).abs().max() <= E4M3_MAX
+    assert (w.abs().amax() / scale) <= E4M3_MAX + 1e-3
+
+
+@pytest.mark.parametrize("fp8", [torch.float8_e4m3fn, torch.float8_e5m2], ids=["e4m3", "e5m2"])
+def test_weights_already_stored_as_fp8_are_not_quantised_again(fp8):
+    weight = torch.randn(8, 8).to(fp8)
+
+    out, count = quantize_state_dict_to_fp8({"a.weight": weight})
+
+    assert count == 0
+    assert out == {"a.weight": weight}
 
 
 def test_state_dict_quantises_only_big_2d_weights():
@@ -198,19 +204,6 @@ def test_estimate_fp8_gb_roughly_halves_bf16():
 
 def _blob(conf: dict) -> torch.Tensor:
     return torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
-
-
-def test_parse_comfy_quant_none_for_missing_blob():
-    assert _parse_comfy_quant(None) is None
-
-
-def test_parse_comfy_quant_none_for_corrupt_blob():
-    garbage = torch.tensor([0xFF, 0xFE, 0x00, 0x01], dtype=torch.uint8)
-    assert _parse_comfy_quant(garbage) is None
-
-
-def test_parse_comfy_quant_decodes_json():
-    assert _parse_comfy_quant(_blob({"format": "float8_e4m3fn"})) == {"format": "float8_e4m3fn"}
 
 
 def test_fp8_layer_with_comfy_quant_blob_loads_unchanged():

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 import torch.nn as nn
@@ -91,6 +92,24 @@ def test_t2va_encode_prompt_is_all_text_tagged():
     assert result.embeds["context"].shape == (1, expected_len, _TEXT_HIDDEN)
     assert torch.equal(result.embeds["token_tags"], torch.ones(expected_len, dtype=torch.long))
     assert result.n_embeds == {}  # guidance-distilled: never a negative branch
+
+
+@pytest.mark.parametrize("references", [None, []])
+def test_an_empty_prompt_reaches_the_dit_as_one_pad_token_not_a_zero_token_context(references):
+    from src.platform.runtime.native.text_encoders.qwen3 import MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID
+
+    module = _FakeQwen3Module()
+    te = MiniMaxH3TextEncoder(module, MiniMaxH3Tokenizer(), device="cpu")
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    request = {"prompt": "", "negative_prompt": ""}
+    if references is not None:
+        request["references"] = references
+    (result,) = encoder.encode_prompts([request])
+
+    assert result.embeds["context"].shape == (1, 1, _TEXT_HIDDEN)
+    assert torch.equal(result.embeds["token_tags"], torch.ones(1, dtype=torch.long))
+    (input_ids, _), = module.calls
+    assert input_ids.tolist() == [[MINIMAX_H3_EMPTY_PRESENTATION_TOKEN_ID]]
 
 
 # -- fl2va: label + vision block per keyframe, through the REAL encode_request --
@@ -591,6 +610,21 @@ def test_an_unknown_reference_kind_raises():
         encoder.encode_prompts([request])
 
 
+def test_a_long_reference_video_is_decoded_only_as_far_as_the_clip_reaches(monkeypatch):
+    from src.pipelines.pipes.model_loader.minimax_h3 import clip as clip_module
+
+    seen = {}
+
+    def fake_read(path, *, max_seconds=None):
+        seen["max_seconds"] = max_seconds
+        return [Image.new("RGB", (64, 64)) for _ in range(30)], 30.0
+
+    monkeypatch.setattr(clip_module, "read_video_frames", fake_read)
+    clip_module._to_fhwc_float01("/media/clip.mp4", 22)
+    assert seen["max_seconds"] is not None
+    assert seen["max_seconds"] < 2.0
+
+
 def test_a_reference_video_without_a_frame_count_raises():
     """Truncating the encoder's view and the generator's condition-encode at
     different frames conditions on two different videos, so a missing
@@ -803,3 +837,87 @@ def test_gpu_encode_actually_moves_the_te_off_the_cpu_it_loaded_on():
     assert cuda_moves, f"expected a move to cuda, got {devices_requested}"
     assert cpu_moves and cpu_moves[-1] > cuda_moves[0], f"expected a move back to cpu after cuda, got {devices_requested}"
     assert module._probe.device.type == "cpu"  # left resting on CPU, not GPU-resident after the encode
+
+
+def _transparent_red() -> Image.Image:
+    pixels = np.zeros((48, 64, 4), dtype=np.uint8)
+    pixels[..., 0] = 255
+    return Image.fromarray(pixels, mode="RGBA")
+
+
+def test_a_transparent_reference_reaches_the_vision_path_as_white_not_its_hidden_red():
+    te = _RecordingEncodeReferenceRequest()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    encoder.encode_prompts([{
+        "prompt": "a prompt", "negative_prompt": "", "references": _image_references(_transparent_red()),
+    }])
+    assert torch.equal(te.calls[0][2][0].media, torch.ones(48, 64, 3))
+
+
+def test_a_transparent_keyframe_reaches_the_vision_path_as_white():
+    te = _RecordingEncodeReferenceRequest()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    encoder.encode_prompts([{"prompt": "a prompt", "negative_prompt": "", "images": [_transparent_red()]}])
+    assert torch.equal(te.calls[0][2][0], torch.ones(48, 64, 3))
+
+
+@pytest.mark.parametrize("mode", ["RGB", "L", "P", "RGBA"])
+def test_an_opaque_image_reaches_the_vision_path_exactly_as_before(mode):
+    from src.pipelines.pipes.model_loader.minimax_h3.clip import _to_hwc_float01
+
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 256, (48, 64, 3), dtype=np.uint8)).convert(mode)
+    expected = torch.from_numpy(np.array(image.convert("RGB"))).float() / 255.0
+    assert torch.equal(_to_hwc_float01(image), expected)
+
+
+def test_the_reference_conditioning_key_follows_the_flattened_pixels():
+    te = _real_text_encoder()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu", model_fingerprint="fp")
+
+    def key(image):
+        return encoder._encode_fn_and_key({
+            "prompt": "a prompt", "negative_prompt": "", "references": _image_references(image),
+        })[1]
+
+    assert key(_transparent_red()) == key(Image.new("RGB", (64, 48), (255, 255, 255)))
+    assert key(_transparent_red()) != key(Image.new("RGB", (64, 48), (255, 0, 0)))
+
+
+def _tall_cutout() -> Image.Image:
+    pixels = np.zeros((120, 24, 4), dtype=np.uint8)
+    pixels[..., 0] = 255
+    pixels[40:80, 6:18, :3] = (0, 0, 255)
+    pixels[40:80, 6:18, 3] = 255
+    return Image.fromarray(pixels, mode="RGBA")
+
+
+def _reference_media(image) -> torch.Tensor:
+    te = _RecordingEncodeReferenceRequest()
+    encoder = MiniMaxH3ClipTextEncoder(lambda: te, device="cpu")
+    encoder.encode_prompts([{"prompt": "a prompt", "negative_prompt": "", "references": _image_references(image)}])
+    return te.calls[0][2][0].media
+
+
+def test_a_reference_outside_one_to_four_reaches_the_vision_path_padded_with_white():
+    expected = np.ones((120, 30, 3), dtype=np.float32)
+    expected[40:80, 9:21] = (0.0, 0.0, 1.0)
+    assert torch.equal(_reference_media(_tall_cutout()), torch.from_numpy(expected))
+
+
+def test_the_text_encoder_and_the_generator_read_the_same_padded_reference():
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_reference_image
+
+    generator_view = normalize_reference_image(_tall_cutout(), canvas_multiple=1, short_edge=30)
+    assert torch.equal(_reference_media(_tall_cutout()), torch.from_numpy(np.array(generator_view)).float() / 255.0)
+
+
+def test_a_reference_within_one_to_four_reaches_the_vision_path_at_its_own_size():
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 256, (120, 48, 3), dtype=np.uint8))
+    assert torch.equal(_reference_media(image), torch.from_numpy(np.array(image)).float() / 255.0)
+
+
+def test_a_decoded_reference_array_outside_one_to_four_is_not_padded():
+    pixels = np.full((120, 24, 3), 128, dtype=np.uint8)
+    assert _reference_media(pixels).shape == (120, 24, 3)

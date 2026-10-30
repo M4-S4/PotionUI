@@ -87,7 +87,7 @@ pipeline:
         - ["positive_prompt", "{{ generation.prompts.positives }}"]
         - ["target_size", "{{ form.target_size | default('hd') }}"]
         - ["refine_denoise", "{{ form.refine_denoise | default('0.45') }}"]
-        - ["refine_steps", "{{ form.refine_steps | default(4) }}"]
+        - ["refine_steps", "{{ form.steps | default(generation.profile.steps) }}"]
 
   - name: "latent_upscaler/minimax_h3"
     id: "latent_upscaler"
@@ -119,7 +119,7 @@ pipeline:
       audio_refine: "{{ form.audio_refine | default('lock') }}"
       denoise: "{{ form.refine_denoise | default('0.45') | float }}"
       video_sigma_shift: "{{ form.refine_video_sigma_shift | default(9.0) }}"
-      steps: "{{ form.refine_steps | default(4) }}"
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
       sampler: "{{ form.refine_sampler | default('euler') }}"
       scheduler: "{{ form.scheduler | default('simple') }}"
       manual_sigmas: "{{ form.refine_manual_sigmas | default('') }}"

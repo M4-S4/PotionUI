@@ -10,8 +10,8 @@ vi.mock('$lib/services/api/index', () => ({
 			success: true,
 			data: {
 				types: [
-					{ type: 'openai', label: null, default_base_url: null, supports_model_listing: true },
-					{ type: 'deepseek', label: 'DeepSeek', default_base_url: DEEPSEEK_URL, supports_model_listing: true }
+					{ type: 'openai', label: null, adapter: 'openai-responses', default_base_url: null, supports_model_listing: true, source: 'core' },
+					{ type: 'deepseek', label: 'DeepSeek', adapter: 'openai-chat', default_base_url: DEEPSEEK_URL, supports_model_listing: true, source: 'deepseek-provider' }
 				]
 			}
 		})),
@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 describe('LLMConfigForm — a type contributed by a plugin', () => {
-	it('lists the contributed type under its label after the built-in ones', async () => {
+	it('lists the contributed type under its label after the core ones', async () => {
 		const select = await mount(makeDraft());
 
 		const options = [...select.options].map((option) => [option.value, option.textContent?.trim()]);
@@ -90,6 +90,19 @@ describe('LLMConfigForm — a type contributed by a plugin', () => {
 
 		expect(draft.type).toBe('deepseek');
 		expect(draft.base_url).toBe(DEEPSEEK_URL);
+	});
+
+	it('clears the DeepSeek URL when the admin switches back to OpenAI', async () => {
+		const draft = makeDraft();
+		const select = await mount(draft);
+
+		choose(select, 'deepseek');
+		await settle();
+		choose(select, 'openai');
+		await settle();
+
+		expect(draft.type).toBe('openai');
+		expect(draft.base_url).toBe('');
 	});
 
 	it('keeps a base URL the admin already typed', async () => {

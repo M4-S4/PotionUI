@@ -23,6 +23,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     fit_keyframe_to_canvas,
     normalize_reference_image,
     normalize_references,
+    pad_reference_to_aspect_range,
     reference_image_max_pixels,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
@@ -258,11 +259,40 @@ def test_reference_image_rounds_to_canvas_multiple():
     assert fitted.size[1] % 32 == 0
 
 
+@pytest.mark.parametrize("size, padded", [
+    ((500, 100), (500, 125)),
+    ((100, 500), (125, 500)),
+    ((601, 100), (601, 151)),
+    ((100, 501), (126, 501)),
+    ((24, 120), (30, 120)),
+])
+def test_reference_image_outside_1_to_4_is_padded_out_to_the_limit(size, padded):
+    assert pad_reference_to_aspect_range(Image.new("RGB", size)).size == padded
+
+
 @pytest.mark.parametrize("size", [(500, 100), (100, 500)])
-def test_reference_image_aspect_ratio_outside_1_to_4_rejected(size):
-    image = Image.new("RGB", size)
+def test_reference_image_outside_1_to_4_normalizes_to_exactly_1_to_4(size):
+    fitted = normalize_reference_image(Image.new("RGB", size), canvas_multiple=32, short_edge=256)
+    assert sorted(fitted.size) == [256, 1024]
+
+
+@pytest.mark.parametrize("size", [(400, 100), (100, 400), (300, 100), (100, 100), (64, 48)])
+def test_reference_image_within_1_to_4_is_not_padded(size):
+    image = Image.new("RGBA", size)
+    assert pad_reference_to_aspect_range(image) is image
+
+
+def test_reference_image_within_1_to_4_resizes_exactly_as_before():
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 256, (60, 40, 4), dtype=np.uint8), mode="RGBA")
+    fitted = normalize_reference_image(image, canvas_multiple=16, short_edge=80)
+    assert fitted.mode == "RGBA"
+    assert fitted.tobytes() == image.resize((80, 128), Image.Resampling.LANCZOS).tobytes()
+
+
+def test_reference_image_without_pixels_is_rejected():
     with pytest.raises(ValueError):
-        normalize_reference_image(image, canvas_multiple=32)
+        normalize_reference_image(Image.new("RGB", (0, 10)), canvas_multiple=32)
 
 
 def test_reference_image_aspect_ratio_exactly_4_to_1_accepted():

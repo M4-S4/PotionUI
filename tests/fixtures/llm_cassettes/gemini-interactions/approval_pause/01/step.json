@@ -1,0 +1,103 @@
+{
+  "message": {
+    "id": "a1",
+    "role": "assistant",
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "",
+        "summary": "**Looking before deleting**\n\nI should list the backups first.",
+        "redacted": false,
+        "opaque": {
+          "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+          "summary": [
+            {
+              "type": "text",
+              "text": "**Looking before deleting**\n\nI should list the backups first."
+            }
+          ]
+        },
+        "duration_ms": null
+      },
+      {
+        "type": "tool_call",
+        "call_id": "k3p8w2ud",
+        "name": "list_backups",
+        "args": {},
+        "args_raw": null,
+        "wire_id": "k3p8w2ud",
+        "opaque": null
+      }
+    ],
+    "origin": {
+      "adapter": "gemini-interactions",
+      "provider": "gemini",
+      "model": "gemini-3.8-flash",
+      "credential": "a974a864522332e8"
+    },
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Looking before deleting**\n\nI should list the backups first."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "k3p8w2ud",
+        "name": "list_backups",
+        "arguments": {}
+      }
+    ]
+  },
+  "usage": {
+    "input_tokens": 88,
+    "output_tokens": 63,
+    "total_tokens": 151,
+    "reasoning_tokens": 54,
+    "cached_input_tokens": 0,
+    "cache_write_tokens": null,
+    "cost": null,
+    "raw": {
+      "total_input_tokens": 88,
+      "input_tokens_by_modality": [
+        {
+          "modality": "text",
+          "tokens": 88
+        }
+      ],
+      "total_cached_tokens": 0,
+      "total_output_tokens": 9,
+      "total_thought_tokens": 54,
+      "total_tool_use_tokens": 0,
+      "total_tokens": 151
+    }
+  },
+  "finish": {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "requires_action",
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Looking before deleting**\n\nI should list the backups first."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "k3p8w2ud",
+        "name": "list_backups",
+        "arguments": {}
+      }
+    ]
+  }
+}

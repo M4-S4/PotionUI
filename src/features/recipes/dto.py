@@ -293,6 +293,14 @@ def recipe_total_download_bytes(recipe: Recipe) -> Optional[int]:
     return sum(sizes) if sizes and len(sizes) == len(recipe.artifacts) else None
 
 
+def recipe_source_hosts(recipe: Recipe) -> List[str]:
+    hosts: List[str] = []
+    for artifact in recipe.artifacts:
+        host = artifact.source_host
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
 class RecipeLinkedPresetView(BaseModel):
     id: str
     name: str
@@ -323,6 +331,11 @@ class RecipeSummary(BaseModel):
     source: str
     plugin_id: Optional[str] = None
     total_download_bytes: Optional[int] = None
+    blurb: Optional[str] = None
+    min_vram_gb: Optional[int] = None
+    recommended_vram_gb: Optional[int] = None
+    sources: List[str] = Field(default_factory=list)
+    first_run: bool = False
     # When set, a run of this recipe has already completed - the catalog
     # marks it "Installed" (with a "Run again" action) instead of offering
     # "Start" as if nothing had happened yet.
@@ -335,6 +348,8 @@ class RecipeSummary(BaseModel):
         *,
         presets: Optional[List[RecipeLinkedPresetView]] = None,
         last_completed_at: Optional[datetime] = None,
+        min_vram_gb: Optional[int] = None,
+        recommended_vram_gb: Optional[int] = None,
     ) -> "RecipeSummary":
         return cls(
             id=recipe.id,
@@ -349,6 +364,11 @@ class RecipeSummary(BaseModel):
             source=recipe.source,
             plugin_id=recipe.plugin_id,
             total_download_bytes=recipe_total_download_bytes(recipe),
+            blurb=recipe.blurb,
+            min_vram_gb=min_vram_gb,
+            recommended_vram_gb=recommended_vram_gb,
+            sources=recipe_source_hosts(recipe),
+            first_run=recipe.first_run,
             last_completed_at=last_completed_at,
         )
 
@@ -423,9 +443,15 @@ class RecipeDetail(RecipeSummary):
         presets: Optional[List[RecipeLinkedPresetView]] = None,
         last_completed_at: Optional[datetime] = None,
         load_errors: Optional[List[str]] = None,
+        min_vram_gb: Optional[int] = None,
+        recommended_vram_gb: Optional[int] = None,
     ) -> "RecipeDetail":
         summary = RecipeSummary.from_recipe(
-            recipe, presets=presets, last_completed_at=last_completed_at
+            recipe,
+            presets=presets,
+            last_completed_at=last_completed_at,
+            min_vram_gb=min_vram_gb,
+            recommended_vram_gb=recommended_vram_gb,
         )
         return cls(
             **summary.model_dump(),

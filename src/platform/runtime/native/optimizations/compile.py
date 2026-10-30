@@ -8,14 +8,8 @@ from typing import Any, Iterator
 import torch
 import torch.nn as nn
 
+from src.platform.runtime.native.kernels import FastPath, FastPathKind, Fp8ScaledLinear, QuantFormat, fast_path
 from src.platform.settings.runtime_flags import runtime_flag
-from vendor.gpl.comfyui.ops import (
-    _FP8_DTYPES,
-    QUANT_FP8_SCALED,
-    CastWeightBiasOp,
-    Fp8ScaledLinear,
-    _fp8_matmul_enabled,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -79,21 +73,9 @@ def _block_modules(module: nn.Module) -> Iterator[nn.Module]:
         yield from module_list
 
 
-def _has_nvfp4(blocks: list[nn.Module]) -> bool:
-    return any(getattr(m, "_is_nvfp4", False) for block in blocks for m in block.modules())
-
-
-def _uses_scaled_mm(blocks: list[nn.Module]) -> bool:
-    if not _fp8_matmul_enabled():
-        return False
-    return any(
-        isinstance(m, Fp8ScaledLinear)
-        and m.weight_scale is not None
-        and m.weight is not None
-        and m.weight.dtype in _FP8_DTYPES
-        for block in blocks
-        for m in block.modules()
-    )
+def _block_fast_paths(blocks: list[nn.Module]) -> list[FastPath]:
+    paths = (fast_path(m) for block in blocks for m in block.modules())
+    return [path for path in paths if path is not None]
 
 
 def _has_leaf_hooks(blocks: list[nn.Module]) -> bool:
@@ -115,8 +97,7 @@ def _triton_available() -> bool:
 
 def _has_runtime_lora(module: nn.Module) -> bool:
     return any(
-        (isinstance(m, CastWeightBiasOp) and getattr(m, "lora_deltas", None))
-        or getattr(m, "lora_masked_deltas", None)
+        getattr(m, "lora_deltas", None) or getattr(m, "lora_masked_deltas", None)
         for m in module.modules()
     )
 
@@ -137,8 +118,6 @@ def compile_gate(native_model, *, resident: bool, is_cuda: bool) -> tuple[bool, 
         return False, "no-triton"
     if not resident and not getattr(native_model, "is_streaming", False):
         return False, "not-resident"
-    if getattr(native_model, "quant_format", None) not in (None, QUANT_FP8_SCALED):
-        return False, "quantized"
     module = native_model.module
     if module is None:
         return False, "no-module"
@@ -147,9 +126,10 @@ def compile_gate(native_model, *, resident: bool, is_cuda: bool) -> tuple[bool, 
     if not find_block_lists(module):
         return False, "no-block-lists"
     blocks = list(_block_modules(module))
-    if _has_nvfp4(blocks):
+    paths = _block_fast_paths(blocks)
+    if any(path.quant_format is QuantFormat.NVFP4 for path in paths):
         return False, "nvfp4"
-    if _uses_scaled_mm(blocks):
+    if any(path.kind is FastPathKind.FP8_SCALED_MM for path in paths):
         return False, "fp8-scaled-mm"
     if not resident and _has_leaf_hooks(blocks):
         return False, "streaming-hooks"

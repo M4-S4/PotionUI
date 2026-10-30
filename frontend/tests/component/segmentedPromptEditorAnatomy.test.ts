@@ -16,12 +16,17 @@ const { default: SegmentedPromptEditor } = await import(
 	'../../src/lib/components/SegmentedPromptEditor.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
-const { tick } = await import('svelte');
+const { tick, createRawSnippet } = await import('svelte');
+const { settle } = await import('./helpers/settle');
 const { isNegativeInert } = await import('../../src/lib/generation/negativeApplied');
 
 function segment(id: string, content: string, partial: Record<string, unknown> = {}) {
 	return { id, content, type: 'content', chips: {}, enabled: true, ...partial };
 }
+
+const tabStrip = createRawSnippet(() => ({
+	render: () => '<div class="prompt-tabs" data-header-lead><div data-header-strip role="tablist"></div></div>'
+}));
 
 function mount(props: Record<string, unknown> = {}) {
 	const target = document.createElement('div');
@@ -62,11 +67,14 @@ describe('the negative region', () => {
 		expect(editor.buttons().filter((b) => (b.textContent || '').includes('Add segment'))).toHaveLength(2);
 	});
 
-	it('counts its own segments, singular and plural', () => {
-		expect(mount({ negativeSegments: [segment('n1', 'blurry')] }).text()).toContain('1 segment');
-		expect(
-			mount({ negativeSegments: [segment('n1', 'blurry'), segment('n2', 'watermark')] }).text()
-		).toContain('2 segments');
+	it('gives its header the title and the Library menu, with no segment count', () => {
+		const editor = mount({ negativeSegments: [segment('n1', 'blurry'), segment('n2', 'watermark')] });
+
+		const header = editor.target.querySelector('header.negative-header') as HTMLElement;
+		expect(header.querySelector('.composer-title')!.textContent).toBe('Negative');
+		expect(header.querySelector('button[aria-label="Library"]')).toBeTruthy();
+		expect(editor.target.querySelector('.composer-count')).toBeNull();
+		expect(editor.text()).not.toMatch(/\d+ segments?/);
 	});
 
 	it('hides the whole negative section while guidance makes it inert', () => {
@@ -182,13 +190,12 @@ describe('the Styles toolbar button', () => {
 		expect(editor.byText('Styles')).toBeUndefined();
 	});
 
-	it('appears first in the main toolbar, before Prompts, when the call site sets onOpenStyles', () => {
-		const editor = mount({ onOpenStyles: () => {} });
-		const styles = editor.byText('Styles');
-		const prompts = editor.byText('Prompts');
-		expect(styles).toBeTruthy();
-		expect(prompts).toBeTruthy();
-		expect(styles!.compareDocumentPosition(prompts!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	it('appears first in the main header, before Variables and Library, when the call site sets onOpenStyles', () => {
+		const editor = mount({ onOpenStyles: () => {}, onOpenVariableManager: () => {} });
+		const names = Array.from(editor.target.querySelectorAll('header.composer-toolbar:not(.negative-header) [data-toolbar-action] button')).map(
+			(button) => button.getAttribute('aria-label')
+		);
+		expect(names).toEqual(['Styles', 'Variables', 'Library']);
 	});
 
 	it('shows the applied style name instead of the bare label', () => {
@@ -197,36 +204,103 @@ describe('the Styles toolbar button', () => {
 	});
 });
 
-describe('the library actions', () => {
-	function order(editor: ReturnType<typeof mount>, labels: string[]) {
-		const buttons = labels.map((label) => editor.byText(label));
-		buttons.forEach((button) => expect(button).toBeTruthy());
-		return buttons.map((button) => editor.buttons().indexOf(button!));
+describe('the Library menu', () => {
+	const items = () =>
+		Array.from(document.body.querySelectorAll('[role="menu"] [role="menuitem"]')).map(
+			(el) => el.querySelector('span span')?.textContent?.trim() ?? (el.textContent || '').trim()
+		);
+
+	async function openLibrary(editor: ReturnType<typeof mount>, scope = 'header:not(.negative-header)') {
+		(editor.target.querySelector(`${scope} button[aria-label="Library"]`) as HTMLButtonElement).click();
+		await settle();
 	}
 
-	it('renders Prompts, Segments and Templates as visible buttons, in that order', () => {
+	it('replaces the row of Prompts, Segments and Templates buttons with one menu', () => {
 		const editor = mount();
-		const positions = order(editor, ['Prompts', 'Segments', 'Templates']);
-		expect(positions).toEqual([...positions].sort((a, b) => a - b));
-	});
-
-	it('keeps Apply Prompt out of the more menu now that Prompts is a button', async () => {
-		const editor = mount();
-		(editor.target.querySelector('button[aria-label="More prompt actions"]') as HTMLButtonElement).click();
-		await Promise.resolve();
-		const items = Array.from(editor.target.querySelectorAll('[role="menuitem"]')).map((el) =>
-			(el.textContent || '').trim()
-		);
-		expect(items).toContain('Save as Prompt');
-		expect(items).not.toContain('Apply Prompt');
-	});
-
-	it('collapses to icon buttons that keep their names in compact mode', () => {
-		const editor = mount({ compact: true });
 		expect(editor.byText('Prompts')).toBeUndefined();
-		for (const label of ['Prompts', 'Segments', 'Templates']) {
-			expect(editor.target.querySelector(`button[aria-label="${label}"]`)).toBeTruthy();
-		}
+		expect(editor.byText('Segments')).toBeUndefined();
+		expect(editor.byText('Templates')).toBeUndefined();
+		expect(editor.target.querySelector('button[aria-label="Library"]')!.getAttribute('aria-haspopup')).toBe('menu');
+		expect(editor.target.querySelector('button[aria-label="More prompt actions"]')).toBeNull();
+	});
+
+	it('lists Insert then Save, in that order', async () => {
+		const editor = mount();
+		await openLibrary(editor);
+
+		expect(items()).toEqual(['Prompts', 'Segments', 'Templates', 'Save as Prompt', 'Save as Segment Template', 'Copy prompt']);
+		const groups = Array.from(document.body.querySelectorAll('[role="menu"] [role="group"] > div[aria-hidden="true"]')).map(
+			(el) => el.textContent
+		);
+		expect(groups).toEqual(['Insert', 'Save']);
+	});
+
+	it('keeps Apply Prompt out of the menu', async () => {
+		const editor = mount();
+		await openLibrary(editor);
+		expect(items()).toContain('Save as Prompt');
+		expect(items()).not.toContain('Apply Prompt');
+	});
+
+	it('hides Save as Segment Template and Copy prompt while the prompt is empty', async () => {
+		const editor = mount({ segments: [segment('a', '')] });
+		await openLibrary(editor);
+
+		expect(items()).toEqual(['Prompts', 'Segments', 'Templates', 'Save as Prompt']);
+	});
+
+	it('has its own menu on the negative header, labelled for it', async () => {
+		const editor = mount({ negativeSegments: [segment('n1', 'blurry')] });
+		await openLibrary(editor, 'header.negative-header');
+
+		expect(items()).toEqual(['Prompts', 'Segments', 'Templates', 'Save as Prompt', 'Save as Segment Template', 'Copy prompt']);
+		expect(document.body.querySelector('[role="menu"]')!.getAttribute('aria-label')).toBe('Library (negative)');
+	});
+
+	it('offers only Copy under a plain more-actions button when the call site has no library', async () => {
+		const editor = mount({ showLibraryActions: false });
+		(editor.target.querySelector('button[aria-label="More prompt actions"]') as HTMLButtonElement).click();
+		await settle();
+
+		expect(editor.target.querySelector('button[aria-label="Library"]')).toBeNull();
+		expect(items()).toEqual(['Copy prompt']);
+	});
+
+	it('drops the menu button altogether when there is nothing to put in it', () => {
+		const editor = mount({ showLibraryActions: false, segments: [segment('a', '')] });
+		expect(editor.target.querySelector('button[aria-label="Library"]')).toBeNull();
+		expect(editor.target.querySelector('button[aria-label="More prompt actions"]')).toBeNull();
+	});
+
+	it('writes no title attribute on any header control', () => {
+		const editor = mount({ onOpenStyles: () => {}, onOpenVariableManager: () => {}, negativeSegments: [segment('n1', 'blurry')] });
+		expect(editor.target.querySelectorAll('header.composer-toolbar [title]')).toHaveLength(0);
+	});
+});
+
+describe('the header title', () => {
+	it('is a plain Prompt title with no tab strip when the call site injects none', () => {
+		const editor = mount();
+		const header = editor.target.querySelector('header.composer-toolbar') as HTMLElement;
+
+		expect(header.querySelector('.composer-title')!.textContent).toBe('Prompt');
+		expect(header.classList.contains('has-tabs')).toBe(false);
+		expect(editor.target.querySelector('[data-header-strip]')).toBeNull();
+	});
+
+	it('uses the label the call site passes', () => {
+		const editor = mount({ label: 'Template slots' });
+		expect(editor.target.querySelector('header.composer-toolbar .composer-title')!.textContent).toBe('Template slots');
+	});
+
+	it('hands the title over to an injected tab strip and wraps the header around it', () => {
+		const editor = mount({ titleExtra: tabStrip });
+		const header = editor.target.querySelector('header.composer-toolbar') as HTMLElement;
+
+		expect(header.classList.contains('has-tabs')).toBe(true);
+		expect(header.querySelector('.composer-title')).toBeNull();
+		expect(header.querySelector('[data-header-strip]')).toBeTruthy();
+		expect(header.querySelector('button[aria-label="Library"]')).toBeTruthy();
 	});
 });
 

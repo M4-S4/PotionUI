@@ -165,9 +165,9 @@ describe('LLMConfigTab — zero-valued temperature survives the real draft/save 
 		expect(payload.name).toBe('Zero-temp config (copy)');
 	});
 
-	it('defaults a missing temperature to 0.7 and leaves an explicit 0.3 untouched', async () => {
+	it('shows a missing temperature as the model default and leaves an explicit 0.3 untouched', async () => {
 		stubLoad([
-			config({ id: 'cfg-missing', name: 'Missing temp', temperature: undefined as unknown as number }),
+			config({ id: 'cfg-missing', name: 'Missing temp', temperature: null }),
 			config({ id: 'cfg-point-three', name: 'Point-three temp', temperature: 0.3 })
 		]);
 
@@ -179,7 +179,9 @@ describe('LLMConfigTab — zero-valued temperature survives the real draft/save 
 
 		(rows[0] as HTMLElement).click();
 		await settle();
-		expect((mounted.target.querySelector('#edit-config-temperature') as HTMLInputElement).value).toBe('0.7');
+		const missing = mounted.target.querySelector('#edit-config-temperature') as HTMLInputElement;
+		expect(missing.value).toBe('');
+		expect(missing.placeholder).toBe('Model default');
 
 		const backButton = mounted.target.querySelector('[data-detail-back]') as HTMLButtonElement;
 		expect(backButton).toBeTruthy();
@@ -191,5 +193,43 @@ describe('LLMConfigTab — zero-valued temperature survives the real draft/save 
 		(rows[1] as HTMLElement).click();
 		await settle();
 		expect((mounted.target.querySelector('#edit-config-temperature') as HTMLInputElement).value).toBe('0.3');
+	});
+
+	it('sends null for a temperature and a max token limit the admin cleared', async () => {
+		stubLoad([config({ temperature: 0.3, max_tokens: 2000 })]);
+		mockUpdateLLMConfiguration.mockResolvedValue({ success: true, data: config() });
+
+		mounted = mount();
+		await settle();
+		selectFirstRow(mounted.target);
+		await settle();
+
+		for (const id of ['#edit-config-temperature', '#edit-config-max-tokens']) {
+			const input = mounted.target.querySelector(id) as HTMLInputElement;
+			input.value = '';
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+		}
+		await settle();
+		clickButtonNamed(mounted.target, 'Save');
+		await settle();
+
+		const [, payload] = mockUpdateLLMConfiguration.mock.calls[0];
+		expect(payload.temperature).toBeNull();
+		expect(payload.max_tokens).toBeNull();
+	});
+
+	it('starts a new configuration with both left to the model default', async () => {
+		stubLoad([]);
+
+		mounted = mount();
+		await settle();
+		const add = Array.from(mounted.target.querySelectorAll('button')).find((b) => b.textContent?.includes('Add configuration'));
+		(add as HTMLButtonElement).click();
+		await settle();
+
+		const temperature = document.querySelector('#create-config-temperature') as HTMLInputElement;
+		const maxTokens = document.querySelector('#create-config-max-tokens') as HTMLInputElement;
+		expect([temperature.value, temperature.placeholder]).toEqual(['', 'Model default']);
+		expect([maxTokens.value, maxTokens.placeholder]).toEqual(['', 'Model default']);
 	});
 });

@@ -95,16 +95,44 @@ def _peek_requirements_summary(collaborators: PresetCollaborators, preset_id: st
     if preset_template is None:
         return None
 
+    cache = collaborators.requirements_cache
+    peek = _peek_with_fallback(collaborators, preset_template, cache.peek_summary, cache.peek_host_summary)
+    return peek['summary'] if peek else None
+
+
+def _peek_with_fallback(collaborators: PresetCollaborators, preset_template, peek_backend, peek_host):
     default_backend_id = resolve_backend_id(collaborators.backend_registry, preset_template.engine)
-    peek = collaborators.requirements_cache.peek_summary(preset_template, default_backend_id)
+    peek = peek_backend(preset_template, default_backend_id)
     if peek is None:
         for info in backend_infos_for_engine(collaborators.backend_registry, preset_template.engine):
-            peek = collaborators.requirements_cache.peek_summary(preset_template, info.id)
+            peek = peek_backend(preset_template, info.id)
             if peek is not None:
                 break
     if peek is None:
-        peek = collaborators.requirements_cache.peek_host_summary(requirement_checker_registry, preset_template)
-    return peek['summary'] if peek else None
+        peek = peek_host(requirement_checker_registry, preset_template)
+    return peek
+
+
+def _mode_requirements_missing(
+    preset_template, mode_name: str, mode_missing: Optional[Dict[str, List[str]]]
+) -> Optional[List[str]]:
+    if not any(spec.get('mode') == mode_name for spec in preset_template.requirements or []):
+        return []
+    if mode_missing is None:
+        return None
+    return mode_missing.get(mode_name, [])
+
+
+def _peek_mode_requirements_missing(collaborators: PresetCollaborators, preset_template) -> Optional[Dict[str, List[str]]]:
+    if collaborators.requirements_cache is None:
+        return None
+    cache = collaborators.requirements_cache
+    return _peek_with_fallback(
+        collaborators,
+        preset_template,
+        lambda preset, backend_id: cache.peek_mode_missing(requirement_checker_registry, preset, backend_id),
+        cache.peek_host_mode_missing,
+    )
 
 
 def get_preset(collaborators: PresetCollaborators, preset_id: str) -> Dict[str, Any]:
@@ -158,9 +186,11 @@ def get_available_modes(collaborators: PresetCollaborators, preset_id: str) -> D
         raise PresetNotFoundException(preset_id)
 
     # Get available modes (modes are always plain string keys)
+    mode_missing = _peek_mode_requirements_missing(collaborators, found_preset)
     available_modes = [
         {
             'name': mode_name,
+            'requirements_missing': _mode_requirements_missing(found_preset, mode_name, mode_missing),
             'label': mode_display_name(mode_name, mode_data.mode_label),
             'icon': mode_display_icon(mode_name, mode_data.mode_icon),
             'short_description': _mode_short_description(mode_data),

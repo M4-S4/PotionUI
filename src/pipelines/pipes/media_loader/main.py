@@ -258,7 +258,6 @@ class MediaLoaderPipe(BasePipe):
             ))
 
             # For videos, we typically just return the path
-            # The actual video processing is handled by other pipes like video_frame_extractor
             logger.info(f"[MEDIA_LOADER] Loaded video path: {file_path}")
             return file_path
 

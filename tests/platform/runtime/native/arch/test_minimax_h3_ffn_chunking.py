@@ -7,18 +7,20 @@ import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
 import src.platform.runtime.native.arch.minimax_h3.model as model_module
-import vendor.gpl.comfyui.ops as wo
+from src.platform.runtime.native.kernels import lora_math
 from src.platform.runtime.native.arch.minimax_h3.model import (
     MiniMaxH3MLP,
     default_ffn_chunk_rows,
     effective_mlp_chunk_rows,
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui.ops import disable_weight_init, fp8_ops
+from src.platform.runtime.native.kernels import disable_weight_init, fp8_ops
+from tests.fixtures.kernel_ops import patch_ops_name
 
 from .._quant_layouts import int8_state_dict
 from .test_minimax_h3_model import TINY_FULL, _build_ready, _fbcache_forward, _fbcache_inputs, _tiny_layout
 from .test_minimax_h3_prepared_linear import _load_fp8
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 _H3_HIDDEN = 5376
 _H3_FFN = 14336
@@ -95,7 +97,7 @@ def _run(mlp: MiniMaxH3MLP, x: torch.Tensor, rows: int) -> torch.Tensor:
 
 @pytest.fixture
 def dequant_only(monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
 
 
 def test_default_rows_split_the_h3_ffn_into_six_chunks_on_long_sequences():
@@ -187,13 +189,13 @@ def test_lora_deltas_ride_the_activation_side_of_every_chunk(dequant_only, monke
     mlp.fc1.lora_deltas = [_plain_delta(2 * _FFN, _HIDDEN, seed=41)]
     mlp.fc2.lora_deltas = [_plain_delta(_HIDDEN, _FFN, seed=42)]
     folded: list[int] = []
-    real_apply = wo.apply_lora_deltas
+    real_apply = lora_math.apply_lora_deltas
 
     def recording_apply(weight, deltas):
         folded.append(len(deltas or []))
         return real_apply(weight, deltas)
 
-    monkeypatch.setattr(wo, "apply_lora_deltas", recording_apply)
+    patch_ops_name(monkeypatch, "apply_lora_deltas", recording_apply)
 
     whole = _run(mlp, x, 0)
     chunked = _run(mlp, x, 5)
@@ -204,18 +206,18 @@ def test_lora_deltas_ride_the_activation_side_of_every_chunk(dequant_only, monke
 
 
 def test_a_delta_with_no_activation_side_form_is_still_folded_into_the_prepared_weight(dequant_only, monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_lora_fused", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_lora_fused", False)
     mlp = _fp8_mlp()
     x = _x()
     mlp.fc1.lora_deltas = [_plain_delta(2 * _FFN, _HIDDEN, seed=43), _lokr_delta(seed=44)]
     folded: list[int] = []
-    real_apply = wo.apply_lora_deltas
+    real_apply = lora_math.apply_lora_deltas
 
     def recording_apply(weight, deltas):
         folded.append(len(deltas or []))
         return real_apply(weight, deltas)
 
-    monkeypatch.setattr(wo, "apply_lora_deltas", recording_apply)
+    patch_ops_name(monkeypatch, "apply_lora_deltas", recording_apply)
 
     whole = _run(mlp, x, 0)
     folded_whole = list(folded)

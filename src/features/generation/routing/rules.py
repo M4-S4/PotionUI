@@ -129,7 +129,7 @@ class RequirementsEligibility:
 
         for c in [c for c in candidates if not c.dropped]:
             missing = ctx.requirements_cache.peek_backend_missing(
-                requirement_checker_registry, preset, c.backend_id
+                requirement_checker_registry, preset, c.backend_id, request.mode
             )
             if missing is None:
                 c.annotate("requirements not yet checked")

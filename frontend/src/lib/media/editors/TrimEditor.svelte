@@ -24,6 +24,7 @@
 	import {
 		fractionOfTime,
 		fullTrim,
+		clampTrimPoints,
 		isFullClip,
 		safeDuration,
 		setTrimEnd,
@@ -40,6 +41,7 @@
 
 	export let source: MediaEditorSource;
 	export let busy: boolean = false;
+	export let allowReplace: boolean = true;
 	export let blockedReason: string | null = null;
 	/** What the editors had to do to give this media a resource, if anything. */
 	export let resourceNote: string | null = null;
@@ -147,7 +149,12 @@
 	function handleMetadata() {
 		if (!mediaElement) return;
 		const reported = mediaElement.duration;
-		if (Number.isFinite(reported) && reported > 0) probedDuration = reported;
+		if (!Number.isFinite(reported) || reported <= 0 || reported === duration) return;
+		const previous = duration;
+		probedDuration = reported;
+		if (initialised) {
+			points = isFullClip(points, previous) ? fullTrim(reported) : clampTrimPoints(points, reported);
+		}
 	}
 
 	function handleTimeUpdate() {
@@ -447,11 +454,7 @@
 				</button>
 			</div>
 
-			{#if resourceNote}
-				<p class="min-w-0 flex-1 text-2xs text-fg-muted">{resourceNote}</p>
-			{:else}
-				<div class="flex-1"></div>
-			{/if}
+			<div class="flex-1"></div>
 
 			{#if !isAudio && onExtractFrame}
 				<button
@@ -476,6 +479,8 @@
 	<svelte:fragment slot="footer">
 		<EditorSaveControls
 			{busy}
+			{allowReplace}
+			note={resourceNote}
 			blockedReason={rejection}
 			{failureMessage}
 			onCancel={onClose}

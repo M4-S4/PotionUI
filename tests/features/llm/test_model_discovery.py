@@ -8,12 +8,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.features.llm import routes as llm_mod
-from src.features.llm.clients.ollama import OllamaClient
-from src.features.llm.clients.openai import OpenAIClient
+from src.features.llm.harness.adapters.ollama_chat import OllamaChatAdapter
+from src.features.llm.harness.adapters.openai_chat import OpenAIChatAdapter
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.model_listing import DiscoveredModel, ModelListingError
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
+from tests.fixtures.llm_engine import core_gateway
 
 _REAL_ASYNC_CLIENT = httpx.AsyncClient
 
@@ -47,7 +48,7 @@ class TestOllamaLister:
             {"name": "Llama3.2:latest", "size": 2000000000, "details": {}},
         ]}))
 
-        models = await OllamaClient().list_models("http://ollama.local:11434/")
+        models = await OllamaChatAdapter().list_models("http://ollama.local:11434/")
 
         assert str(calls[0].url) == "http://ollama.local:11434/api/tags"
         assert "authorization" not in calls[0].headers
@@ -65,7 +66,7 @@ class TestOllamaLister:
 
         http(refuse)
         with pytest.raises(ModelListingError) as exc_info:
-            await OllamaClient().list_models("http://127.0.0.1:11434")
+            await OllamaChatAdapter().list_models("http://127.0.0.1:11434")
         assert str(exc_info.value) == "Couldn't reach Ollama at http://127.0.0.1:11434: connection refused."
 
     @pytest.mark.asyncio
@@ -75,14 +76,14 @@ class TestOllamaLister:
 
         http(slow)
         with pytest.raises(ModelListingError, match="timed out after 8s"):
-            await OllamaClient().list_models("http://127.0.0.1:11434")
+            await OllamaChatAdapter().list_models("http://127.0.0.1:11434")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("url", ["file:///etc/passwd", "ftp://host/x", "localhost:11434", ""])
     async def test_rejects_non_http_schemes_without_a_request(self, http, url):
         calls = http(lambda request: httpx.Response(200, json={"models": []}))
         with pytest.raises(ModelListingError, match="http:// or https://"):
-            await OllamaClient().list_models(url)
+            await OllamaChatAdapter().list_models(url)
         assert calls == []
 
 
@@ -95,7 +96,7 @@ class TestOpenAICompatibleLister:
             {"object": "model"},
         ]}))
 
-        models = await OpenAIClient().list_models("https://api.example.com/v1", "sk-secret")
+        models = await OpenAIChatAdapter().list_models("https://api.example.com/v1", "sk-secret")
 
         assert str(calls[0].url) == "https://api.example.com/v1/models"
         assert calls[0].headers["authorization"] == "Bearer sk-secret"
@@ -106,7 +107,7 @@ class TestOpenAICompatibleLister:
     async def test_unauthorized_points_at_the_key(self, http):
         http(lambda request: httpx.Response(401, json={"error": "bad key"}))
         with pytest.raises(ModelListingError) as exc_info:
-            await OpenAIClient().list_models("https://api.example.com/v1", "sk-wrong")
+            await OpenAIChatAdapter().list_models("https://api.example.com/v1", "sk-wrong")
         message = str(exc_info.value)
         assert "HTTP 401" in message and "API key" in message
         assert "sk-wrong" not in message
@@ -115,18 +116,18 @@ class TestOpenAICompatibleLister:
     async def test_non_json_body(self, http):
         http(lambda request: httpx.Response(200, text="<html>"))
         with pytest.raises(ModelListingError, match="isn't JSON"):
-            await OpenAIClient().list_models("https://api.example.com/v1")
+            await OpenAIChatAdapter().list_models("https://api.example.com/v1")
 
 
 class TestGatewayCapability:
     def test_types_report_listing_support(self):
-        types = {t["type"]: t["supports_model_listing"] for t in LLMGateway(Mock()).provider_types()}
-        assert types == {"ollama": True, "openai": True, "native": False}
+        types = {t["type"]: t["supports_model_listing"] for t in core_gateway(Mock()).provider_types()}
+        assert types == {"ollama": True, "openai": True, "openai-compatible": True}
 
     @pytest.mark.asyncio
     async def test_unsupported_type_raises(self):
         with pytest.raises(ValueError):
-            await LLMGateway(Mock()).list_models("native", "http://x")
+            await core_gateway(Mock()).list_models("native", "http://x")
 
 
 def _user(account_type: AccountType) -> User:
@@ -139,6 +140,7 @@ def _app(user: User, repository=None, gateway=None) -> TestClient:
         llm_service=gateway or Mock(),
         settings=Mock(),
         plugin_registry=Mock(),
+        profile_resolver=Mock(),
     )
     app = FastAPI()
     app.include_router(llm_mod.build_router(SimpleNamespace(llm_controller=controller)))

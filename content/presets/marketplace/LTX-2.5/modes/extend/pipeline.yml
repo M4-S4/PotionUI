@@ -1,0 +1,167 @@
+pipeline:
+  - name: "media_loader"
+    id: "source"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 524288000
+      auto_detect_type: true
+      media:
+        - type: "video"
+          path: "{{ form.input_video }}"
+
+  - name: "video_trim"
+    id: "context"
+    input:
+      - ["video", "source", "video"]
+    enabled: true
+    configuration:
+      keep: "{{ 'tail' if form.direction == 'forward' else 'head' }}"
+      seconds: "{{ form.context_seconds }}"
+      frame_step: 8
+      fps: "{{ 0 if form.match_source else form.fps }}"
+      keep_audio: false
+
+  - name: "model_loader/ltx"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio: "{{ form.generate_audio }}"
+      audio_model:
+        file_path: "{{ form.audio_vae | default('') }}"
+        name: "{{ form.audio_vae | default('') }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/ltx", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+      guidance_scale: "{{ form.cfg | default(generation.profile.guidance) }}"
+      negative_applied: "{{ generation.negative_applied }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae | default('') }}"]
+        - "@loop":
+            items: "{{ form.loras | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(generation.profile.guidance) }}"]
+        - ["steps", "{{ form.steps | default(generation.profile.steps) }}"]
+        - ["sampler", "{{ form.sampler | default(generation.profile.sampler) }}"]
+        - ["schedule", "{{ form.schedule }}"]
+        - ["resolution", "{{ 'source' if form.match_source else form.resolution }}"]
+        - ["fps", "{{ 'source' if form.match_source else form.fps }}"]
+        - ["direction", "{{ form.direction }}"]
+        - ["duration", "{{ form.duration }}"]
+
+  - name: "generator/video_ltx"
+    id: "generator"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["video", "context", "video"]
+    enabled: true
+    configuration:
+      steps: "{{ form.steps | default(generation.profile.steps) }}"
+      cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      sampler: "{{ form.sampler | default(generation.profile.sampler) }}"
+      schedule: "{{ form.schedule }}"
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile == 'distilled') else ('' if (form.speed_profile == 'quality') else (form.manual_sigmas)) }}"
+      quality_mode: "{{ (form.speed_profile) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(generation.profile.guidance) }}"
+      quality_stg: "{{ preset.vars.quality_stg }}"
+      quality_rescale: "{{ preset.vars.quality_rescale }}"
+      quality_modality: "{{ preset.vars.quality_modality }}"
+      quality_stg_blocks: "{{ preset.vars.quality_stg_blocks }}"
+      step_cache_threshold: "{{ form.step_cache_threshold }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips }}"
+      resolution: "{{ form.resolution }}"
+      fps: "{{ form.fps }}"
+      match_video: "{{ form.match_source }}"
+      max_pixels: 921600
+      extend_seconds: "{{ form.duration }}"
+      quantity: "{{ form.quantity }}"
+      media_placements:
+        - source: "video"
+          index: 0
+          frame: "{{ 'first' if form.direction == 'forward' else 'end' }}"
+          strength: 1.0
+          role: "keyframe"
+      audio: "{{ form.generate_audio }}"
+      audio_source: "generate"
+      decode: true
+
+  - name: "video_concat"
+    id: "joined"
+    input:
+      - ["video", "source", "video"]
+      - ["extension", "generator", "video"]
+      - ["overlap", "context", "video"]
+    enabled: true
+    configuration:
+      extension_position: "{{ 'after' if form.direction == 'forward' else 'before' }}"
+      overlap: "crossfade"
+      fit: "cover"
+      keep_audio: true
+
+  - name: "gallery"
+    input:
+      - ["video", "joined", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true

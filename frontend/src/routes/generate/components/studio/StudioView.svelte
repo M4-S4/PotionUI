@@ -7,6 +7,7 @@
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
+	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetStyle } from '$lib/services/api/index';
 	import { representativeDirectorPrompt } from '$lib/utils/videoDirector';
 	import StudioCanvas from './StudioCanvas.svelte';
@@ -39,6 +40,7 @@
 	export let musicDirectorActive: boolean;
 	export let musicDirectorCaps: MusicDirectorCapabilities | null;
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	export let promptCopy: PromptCopy = NO_PROMPT_COPY;
 	export let presetStyles: PresetStyle[] = [];
 	export let canBatch: boolean;
 	export let negativePromptSupported: boolean;
@@ -72,7 +74,8 @@
 		variants: m.variants,
 		sourcePlugin: m.source_plugin,
 		description: modeDescription(m),
-		icon: m.icon
+		icon: m.icon,
+		requirementsMissing: m.requirements_missing
 	}));
 	$: presetName = presets.find((p: any) => p.id === tab.selectedPreset)?.name;
 	$: modeLabel = resolveModeLabel(tab.selectedMode, availableModes.find((m) => m.id === tab.selectedMode)?.label) || undefined;
@@ -100,6 +103,7 @@
 		{tab}
 		promptPreviewText={dockPromptPreview}
 		{promptlessActive}
+		{promptCopy}
 		onOpenPrompt={() => (openSheet = 'prompt')}
 		onOpenSettings={() => (openSheet = 'settings')}
 		{onMoveToWorkbench}
@@ -116,6 +120,7 @@
 		{musicDirectorActive}
 		{musicDirectorCaps}
 		{presetSegmentTemplates}
+		{promptCopy}
 		{presetStyles}
 		{canBatch}
 		{negativePromptSupported}

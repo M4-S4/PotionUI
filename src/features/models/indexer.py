@@ -36,7 +36,14 @@ from src.platform.filesystem.model_types import (
     SUPPORTED_MODEL_EXTENSIONS,
     UNDEFINED_MODEL_TYPE,
 )
-from src.platform.runtime.model_headers import HeaderStatus, classify_header, model_classifier_registry, read_header
+from src.platform.runtime.model_headers import (
+    HeaderStatus,
+    classify_header,
+    header_hash,
+    invalid_header_hash,
+    model_classifier_registry,
+    read_header,
+)
 from src.platform.runtime.model_headers.reader import HeaderTap
 from src.platform.runtime.thread_priority import set_current_thread_priority
 
@@ -89,6 +96,12 @@ class IndexOutcome:
     contested: bool = False
     location_id: Optional[str] = None
 
+
+@dataclass(frozen=True)
+class HeaderVerdict:
+    header_hash: str
+    row: Dict[str, Any]
+    written: bool
 
 class HeaderUnreadable(Exception):
     pass
@@ -374,20 +387,21 @@ class ModelScanner:
         self, found: FoundFile, filename: str, sha256: str, prefix: Optional[bytes], quick_sig: Optional[str] = None
     ) -> IndexOutcome:
         header_error = None
+        verdict = None
         if found.classifiable:
             try:
-                self._ensure_verdict(found.abs_path, sha256, prefix)
+                verdict = self._header_verdict(found.abs_path, prefix)
             except HeaderUnreadable as e:
                 header_error = str(e)
 
         with self._write_lock:
-            outcome = self._commit_indexed_file(found, filename, sha256, quick_sig)
+            outcome = self._commit_indexed_file(found, filename, sha256, quick_sig, verdict)
             self._recompute_availability_flags(outcome.touched)
             outcome = self._retype(outcome)
 
         try:
             reclassified = outcome.model is not None and self._reconcile_disagreeing_copies(
-                found, sha256, outcome.model.id
+                found, outcome.model.id
             )
         except HeaderUnreadable as e:
             reclassified = False
@@ -410,7 +424,7 @@ class ModelScanner:
         moved = self._moved_from(found, signatures)
         if moved is not None:
             return self._finish_with_digest(found, filename, moved['sha256'], None, moved['quick_sig'])
-        resolution, header_error = self._pending_resolution(found)
+        resolution, header_error, header_hash_value = self._pending_resolution(found)
         twins = self._size_twins(found, pass_twins, signatures)
         gate = evaluate(signatures.of(found.abs_path, found.size) if twins else None, twins)
         if gate.contested:
@@ -418,7 +432,7 @@ class ModelScanner:
             return IndexOutcome(None, set(), contested=True, header_error=header_error)
 
         with self._write_lock:
-            outcome = self._commit_pending_file(found, filename, resolution)
+            outcome = self._commit_pending_file(found, filename, resolution, header_hash_value)
             self._recompute_availability_flags(outcome.touched)
         if outcome.location_id is not None:
             self.digests.retry_failed([outcome.location_id])
@@ -443,22 +457,18 @@ class ModelScanner:
             return None
         return matching[0]
 
-    def _pending_resolution(self, found: FoundFile) -> Tuple[Any, Optional[str]]:
+    def _pending_resolution(self, found: FoundFile) -> Tuple[Any, Optional[str], Optional[str]]:
         verdict = None
         header_error = None
         if found.classifiable:
-            result = read_header(found.abs_path)
-            if result.status is HeaderStatus.IO_ERROR:
-                header_error = f"Could not read the file header: {result.error}"
-            elif result.status is HeaderStatus.INVALID:
-                verdict = {'status': 'invalid', 'model_type': None}
-            else:
-                classified = classify_header(result.view)
-                verdict = {
-                    'status': 'decided' if classified.decided else 'undecided',
-                    'model_type': classified.model_type,
-                }
-        return resolve_type(None, [Copy(found.model_type, found.classifiable)], verdict), header_error
+            try:
+                verdict = self._header_verdict(found.abs_path)
+            except HeaderUnreadable as e:
+                header_error = str(e)
+        resolution = resolve_type(
+            None, [Copy(found.model_type, found.classifiable)], verdict.row if verdict is not None else None
+        )
+        return resolution, header_error, verdict.header_hash if verdict is not None else None
 
     def _size_twins(
         self, found: FoundFile, pass_twins: Dict[int, List[FoundFile]], signatures: SignatureCache
@@ -552,10 +562,10 @@ class ModelScanner:
 
     def ensure_verdict_for_location(self, location: Dict[str, Any]) -> None:
         path = self.location_path(location)
-        if path is None or not location['sha256'] or not _has_header_extension(location['rel_path']):
+        if path is None or not _has_header_extension(location['rel_path']):
             return
         try:
-            self._ensure_verdict(str(path), location['sha256'], None)
+            self._ensure_location_verdict(location, path)
         except HeaderUnreadable as e:
             logger.warning(f"[MODEL_SCAN] {location['rel_path']}: {e}")
 
@@ -572,7 +582,7 @@ class ModelScanner:
                 continue
             path = self.location_path(location)
             if path is not None and path.is_file():
-                self._ensure_verdict(str(path), model['sha256'], None)
+                self._ensure_location_verdict(location, path)
                 return
 
     def _retype(self, outcome: IndexOutcome, force_ids: Optional[Set[str]] = None) -> IndexOutcome:
@@ -614,43 +624,58 @@ class ModelScanner:
         found = self.found_file_for(loc, path, size, stat.st_mtime_ns, is_dir)
         return self.index_file(found, cancel_check=cancel_check)
 
-    def _ensure_verdict(self, abs_path: str, sha256: str, prefix: Optional[bytes]) -> bool:
-        fingerprint = model_classifier_registry.fingerprint()
-        existing = self.types.get_verdicts([sha256]).get(sha256)
-        if existing is not None and verdict_is_current(existing, fingerprint):
-            return False
+    def _ensure_location_verdict(self, location: Dict[str, Any], path: Path) -> bool:
+        known = location.get('header_hash')
+        if known:
+            existing = self.types.get_header_verdicts([known]).get(known)
+            if existing is not None and verdict_is_current(existing, model_classifier_registry.fingerprint()):
+                return False
+        verdict = self._header_verdict(str(path))
+        if verdict.header_hash != known:
+            self.locations.set_header_hash([location['id']], verdict.header_hash)
+        return verdict.written or verdict.header_hash != known
 
+    def _header_verdict(self, abs_path: str, prefix: Optional[bytes] = None) -> HeaderVerdict:
+        fingerprint = model_classifier_registry.fingerprint()
         result = read_header(abs_path, prefix=prefix or None)
         if result.status is HeaderStatus.IO_ERROR:
             raise HeaderUnreadable(f"Could not read the file header: {result.error}")
 
-        classified_at = now_iso()
         if result.status is HeaderStatus.INVALID:
-            self.types.upsert_verdict(
-                sha256=sha256, format='unknown', status='invalid', model_type=None, family=None, variant=None,
+            key = invalid_header_hash(result.error)
+        else:
+            key = header_hash(result.view)
+        existing = self.types.get_header_verdicts([key]).get(key)
+        if existing is not None and verdict_is_current(existing, fingerprint):
+            return HeaderVerdict(key, existing, False)
+
+        if result.status is HeaderStatus.INVALID:
+            fields = dict(
+                format='unknown', status='invalid', model_type=None, family=None, variant=None,
                 components=[], transformer_extractable=False, classifier=None,
-                registry_fingerprint=fingerprint, reason=result.error, classified_at=classified_at,
+                registry_fingerprint=fingerprint, reason=result.error,
             )
-            return True
+        else:
+            classified = classify_header(result.view)
+            fields = dict(
+                format=result.view.format, status='decided' if classified.decided else 'undecided',
+                model_type=classified.model_type, family=classified.family, variant=classified.variant,
+                components=[
+                    name for name, present in (
+                        ('denoiser', classified.components.denoiser),
+                        ('vae', classified.components.vae),
+                        ('text_encoder', classified.components.text_encoder),
+                    ) if present
+                ],
+                transformer_extractable=classified.transformer_extractable, classifier=classified.classifier,
+                registry_fingerprint=classified.fingerprint or fingerprint, reason=None,
+            )
+        classified_at = now_iso()
+        self.types.upsert_verdict(header_hash=key, classified_at=classified_at, **fields)
+        row = {**fields, 'header_hash': key, 'classified_at': classified_at}
+        return HeaderVerdict(key, row, True)
 
-        verdict = classify_header(result.view)
-        components = [
-            name for name, present in (
-                ('denoiser', verdict.components.denoiser),
-                ('vae', verdict.components.vae),
-                ('text_encoder', verdict.components.text_encoder),
-            ) if present
-        ]
-        self.types.upsert_verdict(
-            sha256=sha256, format=result.view.format, status='decided' if verdict.decided else 'undecided',
-            model_type=verdict.model_type, family=verdict.family, variant=verdict.variant,
-            components=components, transformer_extractable=verdict.transformer_extractable,
-            classifier=verdict.classifier, registry_fingerprint=verdict.fingerprint or fingerprint,
-            reason=None, classified_at=classified_at,
-        )
-        return True
-
-    def _reconcile_disagreeing_copies(self, found: FoundFile, sha256: str, model_id: str) -> bool:
+    def _reconcile_disagreeing_copies(self, found: FoundFile, model_id: str) -> bool:
         if found.classifiable or found.is_directory or not _has_header_extension(found.abs_path):
             return False
         copies = self.types.present_copies([model_id])
@@ -659,16 +684,19 @@ class ModelScanner:
         }
         if len(unscanned_types) < 2:
             return False
-        return self._ensure_verdict(found.abs_path, sha256, None)
+        root = self._root_by_id(found.root_id)
+        location = self.locations.get(found.binding_id, self._rel_key(root, found.rel_path)) if root is not None else None
+        if location is None:
+            return False
+        return self._ensure_location_verdict(location, Path(found.abs_path))
 
     def _recompute_types(self, model_ids: Set[str]) -> Tuple[Set[str], List[Dict[str, Any]]]:
-        models = [m for m in self.types.models_by_ids(model_ids) if m['sha256'] and not m['is_directory']]
+        models = [m for m in self.types.models_by_ids(model_ids) if not m['is_directory']]
         if not models:
             return set(), []
         ids = [m['id'] for m in models]
-        shas = [m['sha256'] for m in models]
-        assertions = self.types.get_assertions(shas)
-        verdicts = self.types.get_verdicts(shas)
+        assertions = self.types.get_assertions(m['sha256'] for m in models)
+        verdicts = self.types.get_verdicts(ids)
         copies_by_model: Dict[str, List[Copy]] = {}
         for row in self.types.present_copies(ids):
             copies_by_model.setdefault(row['model_id'], []).append(
@@ -678,7 +706,7 @@ class ModelScanner:
         changes = []
         for model in models:
             resolution = resolve_type(
-                assertions.get(model['sha256']), copies_by_model.get(model['id'], []), verdicts.get(model['sha256'])
+                assertions.get(model['sha256']), copies_by_model.get(model['id'], []), verdicts.get(model['id'])
             )
             if resolution is None:
                 continue
@@ -725,17 +753,22 @@ class ModelScanner:
             _, conflicts = self._recompute_types(set(model_ids))
         return conflicts
 
-    def _initial_resolution(self, found: FoundFile, sha256: str):
-        resolution = resolve_type(
+    def _initial_resolution(self, found: FoundFile, sha256: str, verdict: Optional[HeaderVerdict]):
+        return resolve_type(
             self.types.get_assertions([sha256]).get(sha256),
             [Copy(found.model_type, found.classifiable)],
-            self.types.get_verdicts([sha256]).get(sha256),
+            verdict.row if verdict is not None else None,
         )
-        return resolution
 
     def _commit_indexed_file(
-        self, found: FoundFile, filename: str, sha256: str, quick_sig: Optional[str] = None
+        self,
+        found: FoundFile,
+        filename: str,
+        sha256: str,
+        quick_sig: Optional[str] = None,
+        verdict: Optional[HeaderVerdict] = None,
     ) -> IndexOutcome:
+        header_hash_value = verdict.header_hash if verdict is not None else None
         root = self._root_by_id(found.root_id)
         if root is None:
             return IndexOutcome(None, set())
@@ -761,7 +794,7 @@ class ModelScanner:
             location_model.is_available = True
             location_model.unavailable_at = None
             model_repo.update(location_model)
-            self._write_location(found, rel_key, model_id=location_model.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig)
+            self._write_location(found, rel_key, model_id=location_model.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig, header_hash=header_hash_value)
             touched.add(location_model.id)
             return IndexOutcome(location_model, touched)
 
@@ -770,18 +803,18 @@ class ModelScanner:
             identity_type = existing_by_hash.model_type
             resolution = None
         else:
-            resolution = self._initial_resolution(found, sha256)
+            resolution = self._initial_resolution(found, sha256, verdict)
             identity_type = resolution.model_type
         existing_by_identity = model_repo.get_by_identity(identity_type, filename, include_providers=False)
 
         if existing_by_identity is not None and existing_by_identity.sha256 and existing_by_identity.sha256 != sha256:
-            self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='conflict', seen_at=seen_at, quick_sig=quick_sig)
+            self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='conflict', seen_at=seen_at, quick_sig=quick_sig, header_hash=header_hash_value)
             touched.add(existing_by_identity.id)
             return IndexOutcome(existing_by_identity, touched)
 
         if existing_by_hash is not None:
             if existing_by_hash.filename == filename:
-                self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig)
+                self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig, header_hash=header_hash_value)
                 self._revive(existing_by_hash)
                 touched.add(existing_by_hash.id)
                 return IndexOutcome(existing_by_hash, touched)
@@ -796,7 +829,7 @@ class ModelScanner:
                 existing_by_hash.is_available = True
                 existing_by_hash.unavailable_at = None
                 model_repo.update(existing_by_hash)
-                self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig)
+                self._write_location(found, rel_key, model_id=existing_by_hash.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig, header_hash=header_hash_value)
                 touched.add(existing_by_hash.id)
                 return IndexOutcome(existing_by_hash, touched)
 
@@ -815,7 +848,7 @@ class ModelScanner:
                 existing_by_identity.is_available = True
                 existing_by_identity.unavailable_at = None
                 model_repo.update(existing_by_identity)
-            self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig)
+            self._write_location(found, rel_key, model_id=existing_by_identity.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig, header_hash=header_hash_value)
             touched.add(existing_by_identity.id)
             return IndexOutcome(existing_by_identity, touched)
 
@@ -834,11 +867,13 @@ class ModelScanner:
                 return IndexOutcome(None, touched)
             model = existing
 
-        self._write_location(found, rel_key, model_id=model.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig)
+        self._write_location(found, rel_key, model_id=model.id, sha256=sha256, status='present', seen_at=seen_at, quick_sig=quick_sig, header_hash=header_hash_value)
         touched.add(model.id)
         return IndexOutcome(model, touched)
 
-    def _commit_pending_file(self, found: FoundFile, filename: str, resolution: Any) -> IndexOutcome:
+    def _commit_pending_file(
+        self, found: FoundFile, filename: str, resolution: Any, header_hash_value: Optional[str] = None
+    ) -> IndexOutcome:
         root = self._root_by_id(found.root_id)
         if root is None:
             return IndexOutcome(None, set())
@@ -864,21 +899,21 @@ class ModelScanner:
             if existing_location['sha256'] and not others_hold_digest:
                 location_model.sha256 = None
             self._refresh_model(location_model, found)
-            location_id = self._write_location(found, rel_key, model_id=location_model.id, sha256=None, status='present', seen_at=seen_at)
+            location_id = self._write_location(found, rel_key, model_id=location_model.id, sha256=None, status='present', seen_at=seen_at, header_hash=header_hash_value)
             touched.add(location_model.id)
             return IndexOutcome(location_model, touched, location_id=location_id)
 
         identity_model = model_repo.get_by_identity(resolution.model_type, filename, include_providers=False)
         if identity_model is not None:
             if self._differs_from_identity(identity_model, found, rel_key):
-                location_id = self._write_location(found, rel_key, model_id=identity_model.id, sha256=None, status='conflict', seen_at=seen_at)
+                location_id = self._write_location(found, rel_key, model_id=identity_model.id, sha256=None, status='conflict', seen_at=seen_at, header_hash=header_hash_value)
                 touched.add(identity_model.id)
                 return IndexOutcome(identity_model, touched, location_id=location_id)
             if not identity_model.sha256:
                 self._refresh_model(identity_model, found)
             else:
                 self._revive(identity_model)
-            location_id = self._write_location(found, rel_key, model_id=identity_model.id, sha256=None, status='present', seen_at=seen_at)
+            location_id = self._write_location(found, rel_key, model_id=identity_model.id, sha256=None, status='present', seen_at=seen_at, header_hash=header_hash_value)
             touched.add(identity_model.id)
             return IndexOutcome(identity_model, touched, location_id=location_id)
 
@@ -887,7 +922,7 @@ class ModelScanner:
             model_type=resolution.model_type, type_source=resolution.source,
             is_directory=found.is_directory, indexed_at=now_utc(),
         ))
-        location_id = self._write_location(found, rel_key, model_id=model.id, sha256=None, status='present', seen_at=seen_at)
+        location_id = self._write_location(found, rel_key, model_id=model.id, sha256=None, status='present', seen_at=seen_at, header_hash=header_hash_value)
         touched.add(model.id)
         return IndexOutcome(model, touched, location_id=location_id)
 
@@ -909,10 +944,14 @@ class ModelScanner:
         model.unavailable_at = None
         model_repo.update(model)
 
-    def _classify_only(self, sha256: str, found: FoundFile, cancel_check: Optional[Any] = None) -> None:
+    def _classify_group(
+        self, entries: List[Tuple[FoundFile, Dict[str, Any]]], cancel_check: Optional[Any] = None
+    ) -> None:
+        found = entries[0][0]
         if cancel_check is not None and cancel_check():
             raise ScanCancelled(found.abs_path)
-        self._ensure_verdict(found.abs_path, sha256, None)
+        verdict = self._header_verdict(found.abs_path)
+        self.locations.set_header_hash([row['id'] for _, row in entries], verdict.header_hash)
 
     def _first_present_location(self, locations: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         for loc in locations:
@@ -953,11 +992,12 @@ class ModelScanner:
         status: str,
         seen_at: str,
         quick_sig: Optional[str] = None,
+        header_hash: Optional[str] = None,
     ) -> str:
         return self.locations.upsert(
             model_id=model_id, binding_id=found.binding_id, root_id=found.root_id, model_type=found.model_type,
             rel_path=found.rel_path, rel_key=rel_key, size=found.size, mtime_ns=found.mtime_ns,
-            sha256=sha256, status=status, seen_at=seen_at, quick_sig=quick_sig,
+            sha256=sha256, status=status, seen_at=seen_at, quick_sig=quick_sig, header_hash=header_hash,
         )
 
     def _revive(self, model: Model) -> None:
@@ -1004,7 +1044,7 @@ class ModelScanner:
             if f.classifiable:
                 by_binding.setdefault(f.binding_id, []).append(f)
 
-        by_sha: Dict[str, List[Tuple[FoundFile, Dict[str, Any]]]] = {}
+        by_model: Dict[str, List[Tuple[FoundFile, Dict[str, Any]]]] = {}
         for binding_id, files in by_binding.items():
             root = roots_by_id.get(files[0].root_id)
             if root is None:
@@ -1012,11 +1052,11 @@ class ModelScanner:
             existing = {row['rel_key']: row for row in self.locations.list_for_binding(binding_id)}
             for f in files:
                 row = existing.get(self._rel_key(root, f.rel_path))
-                if self._row_matches(row, f) and row['sha256']:
-                    by_sha.setdefault(row['sha256'], []).append((f, row))
+                if self._row_matches(row, f):
+                    by_model.setdefault(row['model_id'], []).append((f, row))
 
-        settled = self.types.settled_shas(by_sha.keys(), model_classifier_registry.fingerprint())
-        return {sha: entries for sha, entries in by_sha.items() if sha not in settled}
+        settled = self.types.settled_models(by_model.keys(), model_classifier_registry.fingerprint())
+        return {model_id: entries for model_id, entries in by_model.items() if model_id not in settled}
 
     def _unindexed_files(self) -> List[FoundFile]:
         found = self.scan_roots()
@@ -1142,8 +1182,8 @@ class ModelScanner:
                 max_workers=workers, initializer=partial(set_current_thread_priority, profile.priority)
             ) as executor:
                 future_to_job: Dict[Any, Tuple[str, Any]] = {}
-                for sha, entries in classify_jobs:
-                    future_to_job[executor.submit(self._classify_only, sha, entries[0][0], cancel_check)] = ('classify', entries)
+                for _, entries in classify_jobs:
+                    future_to_job[executor.submit(self._classify_group, entries, cancel_check)] = ('classify', entries)
                 for f in new_or_changed:
                     future_to_job[executor.submit(
                         self.index_file, f, cancel_check, pacing, pass_twins=pass_twins, signatures=signatures

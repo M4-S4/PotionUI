@@ -1,0 +1,6 @@
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Input Video"
+    required: true
+    ai_hint: "An existing video to upscale, for example a clip generated in the Text to Video or Director modes. Upscaled in latent space and refined at the new resolution. Any frame count or resolution works; the output can end with up to ~0.3s of a frozen final frame due to grid alignment."

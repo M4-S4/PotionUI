@@ -7,6 +7,7 @@ from src.features.chat.modes import builtin
 from src.features.llm.tools.tool_conditionals import render_tool_conditionals
 from src.features.llm.tools.governance import ToolGovernanceRepository
 from src.features.llm.tools.errors import unavailable_tool_error
+from tests.fixtures.chat_engine import typed_history
 from tests.features.chat.test_tool_availability_transparency import (
     _make_builder,
     _session,
@@ -32,10 +33,10 @@ def _model_facing_text(builder, session):
     offered = set(allowed or ()).union(*(deferred or {}).values())
     history = [{"role": "user", "content": "improve my prompt"}]
     metadata = {"form_state": form_state, "segments": _segments(30)}
-    builder.inject_workspace_block(history, metadata, offered_tools=offered)
-    builder.inject_prompt_state_block(history, metadata, offered_tools=offered)
-    builder.inject_reply_contract_reminder_block(history, mode, "large")
-    builder.inject_tool_availability_block(history, allowed, withheld)
+    typed_history(builder.inject_workspace_block)(history, metadata, offered_tools=offered)
+    typed_history(builder.inject_prompt_state_block)(history, metadata, offered_tools=offered)
+    typed_history(builder.inject_reply_contract_reminder_block)(history, mode, "large")
+    typed_history(builder.inject_tool_availability_block)(history, allowed, withheld)
     text = system_prompt + "\n" + "\n".join(m["content"] for m in history)
     return text, withheld, allowed
 
@@ -91,7 +92,7 @@ def test_withheld_tool_names_never_reach_the_model(governance_db, case, reason):
 
 def test_partial_block_is_one_fixed_line_without_names():
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_tool_availability_block(
+    typed_history(ChatContextBuilder.inject_tool_availability_block)(
         history, ["get_form_state"], {"get_active_models": "disabled_in_mode", "list_models": "opted_out"}
     )
     assert PARTIAL_TOOLS_BLOCK in history[0]["content"]
@@ -110,11 +111,11 @@ def test_ungated_hints_follow_offered_tools():
     metadata = {"segments": segments}
 
     with_tool = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(with_tool, metadata, offered_tools={"get_current_segments"})
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(with_tool, metadata, offered_tools={"get_current_segments"})
     assert "get_current_segments" in with_tool[0]["content"]
 
     without_tool = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(without_tool, metadata, offered_tools={"get_form_state"})
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(without_tool, metadata, offered_tools={"get_form_state"})
     assert "get_current_segments" not in without_tool[0]["content"]
     assert "more segments" in without_tool[0]["content"]
 
@@ -134,7 +135,7 @@ def _workspace_text(offered):
     )
     history = [{"role": "user", "content": "hello"}]
     metadata = {"form_state": {"preset": "native/SDXL", "mode": "image", "form_data": {}, "video_director": {"active": False}}}
-    manager._context.inject_workspace_block(history, metadata, offered_tools=offered)
+    typed_history(manager._context.inject_workspace_block)(history, metadata, offered_tools=offered)
     return history[0]["content"]
 
 

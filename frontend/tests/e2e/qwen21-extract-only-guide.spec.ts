@@ -93,7 +93,7 @@ async function openControlTab(page: Page, name: string): Promise<Locator> {
 	await presetOption(page, name).click();
 	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await page.getByTestId('preset-header-mode').getByRole('button').first().click();
-	await page.getByRole('option', { name: /^Control/ }).first().click();
+	await page.getByRole('option', { name: /^Structure/ }).first().click();
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();
 	await expect(tab).toBeVisible({ timeout: 20000 });
 	await tab.click();

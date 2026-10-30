@@ -92,6 +92,7 @@ from __future__ import annotations
 
 import tempfile
 from dataclasses import dataclass, field, replace
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -104,13 +105,19 @@ from src.platform.runtime.native.sampling import (
     denoise_prenoised,
     make_preview_hook,
 )
+from src.platform.runtime.native.sampling.step_profile import StepPlanHook
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
-from src.pipelines.outputs import Icon
+from src.pipelines.outputs import Icon, ProgressGenerationOutput
 from src.platform.runtime.device import clear_gpu_memory
+from src.platform.runtime.native.memory.residency import effective_free_vram_gb
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.dit_placement import (
-    guard_sampling_oom, ltx_reserve_terms, place_dit_for_sequence,
+    dit_is_fully_resident,
+    guard_sampling_oom,
+    ltx_reserve_terms,
+    place_dit_for_sequence,
+    sequence_fit,
 )
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
@@ -129,9 +136,11 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_overrides,
 )
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
+from src.pipelines.pipes._shared.vae.ltx_tiled_decode import decode_fits_beside
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
 from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
-from src.pipelines.pipes._shared.video.frames import load_video_frames, to_frames_tensor
+from src.pipelines.pipes._shared.media.inputs import as_flag
+from src.pipelines.pipes._shared.video.frames import load_video_frames, probe_video_stream, to_frames_tensor
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (
     decode_ltx_video,
@@ -147,6 +156,13 @@ from src.pipelines.pipes._shared.video.ltx_constants import (
 from src.pipelines.pipes._shared.video.video_common import build_video_output, emit_video_results, to_device
 from src.pipelines.pipes.generator.video_ltx.audio import audio_token_count, decode_generated_audio
 from src.pipelines.pipes.generator.video_ltx.ic_lora import resolve_reference_scales
+from src.pipelines.pipes.generator.video_ltx.windows import (
+    crossfade_windows,
+    largest_fitting_frames,
+    min_window_frames,
+    plan_windows,
+    snap_frames_up,
+)
 from src.pipelines.pipes.generator.video_ltx.conditioning import (
     pack_tokens,
     LTXMediaCondition,
@@ -154,6 +170,7 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     mix_initial_noise,
     prepare_ltx_conditions,
     PreparedConditioning,
+    reference_token_count,
 )
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
@@ -185,6 +202,31 @@ def _resolve_latent_index(frame: Any, frames: int) -> int:
         return f  # negative latent indices resolve modulo t_lat downstream
     f = min(f, frames - 1)
     return (f - 1) // LTX_TEMPORAL_DOWNSCALE + 1
+
+
+MAX_FRAMES = 1001
+
+
+def _fit_pixel_budget(width: int, height: int, max_pixels: int, grid: int = LTX_SPATIAL_DOWNSCALE) -> Tuple[int, int]:
+    if max_pixels <= 0 or width * height <= max_pixels:
+        if grid <= LTX_SPATIAL_DOWNSCALE:
+            return width, height
+        return max(grid, round(width / grid) * grid), max(grid, round(height / grid) * grid)
+    scale = math.sqrt(max_pixels / float(width * height))
+    return max(grid, int(width * scale) // grid * grid), max(grid, int(height * scale) // grid * grid)
+
+
+def _end_anchored_latent_index(clip_frames: int, frames: int) -> int:
+    t_lat = (frames - 1) // LTX_TEMPORAL_DOWNSCALE + 1
+    used = max(1, min(clip_frames, frames))
+    span = (used - 1) // LTX_TEMPORAL_DOWNSCALE
+    return max(0, t_lat - 1 - span)
+
+
+def _matched_clip_index(placements: List[dict]) -> Optional[int]:
+    clips = [p for p in placements if p.get("source") == "video"]
+    clip = next((p for p in clips if p.get("role", "keyframe") == "keyframe"), clips[0] if clips else None)
+    return int(clip.get("index", 0)) if clip is not None else None
 
 
 @dataclass
@@ -225,6 +267,8 @@ class _VideoLtxCtx:
     # resolution) or wholesale REPLACES it (plain refine, prior
     # behavior). See generate_one and build_context.
     has_conditions: bool = False
+    windows: list = field(default_factory=list)
+    total_frames: int = 0
 
     def release_gpu(self) -> None:
         """Best-effort GPU cleanup on a failed generation: offload whichever
@@ -288,14 +332,41 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            choices=["euler", "euler_ancestral", "euler_ancestral_cfg_pp", "euler_cfg_pp"]),
             PipeConfigSpec("resolution", str, "768x512", "Resolution (WxH)", required=False),
             PipeConfigSpec("frames", int, 49, "Number of video frames (must be 1 + 8*k; up to ~40s at 25fps)",
-                           required=False, min_value=1, max_value=1001),
+                           required=False, min_value=1, max_value=MAX_FRAMES),
             PipeConfigSpec("fps", float, 25.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
+            PipeConfigSpec("match_video", bool, False,
+                           "Take the resolution and frame rate from the first video clip in 'media_placements' "
+                           "(a keyframe clip, else an IC-LoRA reference). With no 'extend_seconds', the frame "
+                           "count is the clip's own, up to the frame limit and what one pass fits in free VRAM "
+                           "('frames' is ignored). On a refine call ('initial_latent' connected) the size comes "
+                           "from the latent and only the frame rate from the clip",
+                           required=False),
+            PipeConfigSpec("match_scale", float, 1.0,
+                           "With match_video, multiply the clip's size by this before the pixel budget "
+                           "(2.0 for a 2x upscaler)", required=False, min_value=0.25, max_value=4.0),
+            PipeConfigSpec("max_pixels", int, 0,
+                           "With match_video, scale the clip's size down to at most this many pixels; 0 = no cap",
+                           required=False, min_value=0),
+            PipeConfigSpec("windows", bool, False,
+                           "With match_video and only IC-LoRA reference clips, a clip that one pass cannot fit "
+                           "in free VRAM is processed in the fewest equal overlapping windows that do and "
+                           "crossfaded, up to the frame limit, instead of being cut", required=False),
+            PipeConfigSpec("refine_scale", float, 1.0,
+                           "With match_video on a decode=false pass, the spatial scale of the refine pass its latent "
+                           "feeds (2.0 behind a 2x latent upscaler): the clip length is chosen so that pass fits in "
+                           "free VRAM too", required=False, min_value=1.0, max_value=4.0),
+            PipeConfigSpec("window_overlap", int, 16,
+                           "With windows, frames shared by neighbouring windows and crossfaded",
+                           required=False, min_value=0, max_value=200),
+            PipeConfigSpec("extend_seconds", float, 0.0,
+                           "When above 0, frames = the first video keyframe clip's frames plus this many seconds",
+                           required=False, min_value=0.0),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews during sampling"),
             PipeConfigSpec("media_placements", list, [],
-                           "Media conditioning placements: [{source: image|video, index, frame: int|first|last, "
+                           "Media conditioning placements: [{source: image|video, index, frame: int|first|last|end, "
                            "strength, role: keyframe|reference}]. Empty with image inputs present = image[0] as "
                            "first frame (i2v) and image[1] (if any) as last frame (FLF).", required=False),
             PipeConfigSpec("audio", bool, False, "Produce an audio track", required=False),
@@ -353,7 +424,8 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
     # -- context -----------------------------------------------------------
 
     def _build_conditions(self, placements: List[dict], images: List[Any], videos: List[Any],
-                          frames: int, reference_scales: Tuple[int, int] = (1, 1)) -> List[LTXMediaCondition]:
+                          frames: int, reference_scales: Tuple[int, int] = (1, 1),
+                          video_start: int = 0, pad_video: Optional[int] = None) -> List[LTXMediaCondition]:
         if not placements:
             # Convenience defaults: image[0] -> first frame (i2v), image[1] -> last (FLF).
             placements = []
@@ -375,7 +447,10 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             elif source == "video":
                 if idx >= len(videos):
                     raise ValueError(f"media placement references video[{idx}] but only {len(videos)} provided")
-                media_frames = load_video_frames(videos[idx], frames)
+                media_frames = load_video_frames(videos[idx], frames, start=video_start)
+                missing = frames - int(media_frames.shape[0])
+                if idx == pad_video and missing > 0:
+                    media_frames = torch.cat([media_frames, media_frames[-1:].expand(missing, *media_frames.shape[1:])])
             else:
                 raise ValueError(f"unknown media placement source {source!r}")
             if role == "reference":
@@ -383,10 +458,87 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     frames=media_frames, latent_index=0, strength=strength, role=role,
                     downscale_factor=reference_scales[0], temporal_scale_factor=reference_scales[1]))
                 continue
-            latent_index = _resolve_latent_index(p.get("frame", "first"), frames)
+            frame = p.get("frame", "first")
+            if frame == "end":
+                latent_index = _end_anchored_latent_index(int(media_frames.shape[0]), frames)
+            else:
+                latent_index = _resolve_latent_index(frame, frames)
             conditions.append(LTXMediaCondition(
                 frames=media_frames, latent_index=latent_index, strength=strength, role=role))
         return conditions
+
+    def _geometry_from_clip(self, placements: List[dict], videos: List[Any], width: int, height: int,
+                            fps: float, frames: int, grid: int = LTX_SPATIAL_DOWNSCALE,
+                            latent: Optional[Any] = None) -> Tuple[int, int, float, int, int]:
+        match = as_flag(self.config.get("match_video", False))
+        extend = float(self.config.get("extend_seconds") or 0.0)
+        if not match and extend <= 0:
+            return width, height, fps, frames, 0
+        index = _matched_clip_index(placements)
+        if index is None or index >= len(videos):
+            raise ValueError("generator/video_ltx: 'match_video'/'extend_seconds' need a video clip in 'media_placements'")
+        clip_width, clip_height, clip_fps, clip_frames = probe_video_stream(videos[index])
+        if match:
+            fps = min(max(clip_fps, 1.0), 60.0) if clip_fps > 0 else fps
+            if latent is not None:
+                return (int(latent.shape[-1]) * LTX_SPATIAL_DOWNSCALE, int(latent.shape[-2]) * LTX_SPATIAL_DOWNSCALE,
+                        fps, frames, clip_frames)
+            scale = float(self.config.get("match_scale", 1.0))
+            width, height = _fit_pixel_budget(
+                round(clip_width * scale), round(clip_height * scale), int(self.config.get("max_pixels") or 0), grid)
+        if extend > 0:
+            frames = clip_frames + round(extend * fps)
+            if frames > MAX_FRAMES:
+                logger.warning(
+                    "[GENERATOR VIDEO-LTX] extension needs %d frames; clamped to the %d-frame limit", frames, MAX_FRAMES)
+                frames = MAX_FRAMES
+        return width, height, fps, frames, clip_frames
+
+    def _sequence_tokens(self, placements: List[dict], frames: int, width: int, height: int,
+                         reference_scales: Tuple[int, int]) -> int:
+        t_lat = (frames - 1) // LTX_TEMPORAL_DOWNSCALE + 1
+        frame_tokens = (height // LTX_SPATIAL_DOWNSCALE) * (width // LTX_SPATIAL_DOWNSCALE)
+        tokens = t_lat * frame_tokens
+        for p in placements:
+            video = p.get("source") == "video"
+            if p.get("role", "keyframe") == "reference":
+                tokens += reference_token_count(frames if video else 1, height, width, *reference_scales)
+            elif p.get("frame", "first") not in ("first", 0, "0", None):
+                tokens += (t_lat if video else 1) * frame_tokens
+        return tokens
+
+    def _plan_clip(self, dit: Any, device: str, clip_frames: int, width: int, height: int, fps: float,
+                   placements: List[dict], reference_scales: Tuple[int, int], audio_mode: str,
+                   overlap: Optional[int], refine_scale: float = 1.0) -> Tuple[int, List[int]]:
+        total = max(1, min(clip_frames, MAX_FRAMES))
+        one = snap_frames_up(total)
+        fit = sequence_fit(dit, device)
+        if fit is None:
+            return one, [0]
+        sizes = [(width, height)]
+        if refine_scale != 1.0:
+            grid = LTX_SPATIAL_DOWNSCALE
+            sizes.append((max(grid, round(width * refine_scale / grid) * grid),
+                          max(grid, round(height * refine_scale / grid) * grid)))
+
+        def tokens(frames: int, size: Tuple[int, int]) -> Tuple[int, int]:
+            audio = audio_token_count(frames, fps) if audio_mode == "generate" else 0
+            return self._sequence_tokens(placements, frames, size[0], size[1], reference_scales), audio
+
+        floor = min_window_frames(overlap) if overlap is not None else 1
+        checks = (fit.resident, fit.activations_fit) if overlap is not None else (fit.activations_fit,)
+        frames = None
+        for check in checks:
+            frames = largest_fitting_frames(
+                one, lambda f, check=check: all(check(*tokens(f, size)) for size in sizes), floor)
+            if frames is not None:
+                break
+        if frames is None:
+            frames = one if overlap is None else min(one, floor)
+        length, starts = (frames, [0]) if overlap is None else plan_windows(total, frames, overlap)
+        logger.info("[GENERATOR VIDEO-LTX] clip of %d frame(s): %d pass(es) of %d frame(s), %d tokens each",
+                    clip_frames, len(starts), length, sum(tokens(length, sizes[0])))
+        return length, starts
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
         bundle = pipe_input.input["model"]
@@ -415,12 +567,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     "the reference only steers the first pass, the refine runs on the upscaled latent",
                     len(dropped))
                 placements = [p for p in placements if p.get("role") != "reference"]
-            if any(p.get("source") == "video" and p.get("role") != "reference" for p in placements):
-                raise ValueError(
-                    "generator/video_ltx: 'initial_latent' (stage-2 refine) cannot be combined with "
-                    "video-sourced keyframe conditioning -- use image-sourced keyframes for a "
-                    "stage-2 refine instead"
-                )
             if dropped and not placements:
                 images = []
 
@@ -443,6 +589,16 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         resolution = str(self.config.get("resolution", "768x512")).split("x")
         width, height = int(resolution[0]), int(resolution[1])
+        stage2_loras_cfg = _active_loras(self.config.get("stage2_loras"))
+        scoped_loras_cfg = _active_loras(self.config.get("scoped_loras"))
+        reference_scales = (1, 1)
+        if any(p.get("role") == "reference" for p in placements):
+            reference_scales = resolve_reference_scales(
+                [lora["file_path"] for lora in (*scoped_loras_cfg, *stage2_loras_cfg)])
+        width, height, fps, frames, clip_frames = self._geometry_from_clip(
+            placements, videos, width, height, fps, frames,
+            grid=LTX_SPATIAL_DOWNSCALE * reference_scales[0],
+            latent=initial_latents[0] if initial_latents else None)
         width, height, frames = snap_ltx_geometry(width, height, frames)
 
         # A stage-2 refine's temporal geometry comes from the latent it was
@@ -499,13 +655,32 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                     "config 'audio: true') so it loads the checkpoint's audio components."
                 )
 
-        stage2_loras_cfg = _active_loras(self.config.get("stage2_loras"))
-        scoped_loras_cfg = _active_loras(self.config.get("scoped_loras"))
-        reference_scales = (1, 1)
-        if any(p.get("role") == "reference" for p in placements):
-            reference_scales = resolve_reference_scales(
-                [lora["file_path"] for lora in (*scoped_loras_cfg, *stage2_loras_cfg)])
-        conditions = self._build_conditions(placements, images, videos, frames, reference_scales)
+        window_starts = [0]
+        total_frames = frames
+        clip_length = (as_flag(self.config.get("match_video", False))
+                       and float(self.config.get("extend_seconds") or 0.0) <= 0)
+        from_clip = clip_length and not initial_latents
+        if clip_length and initial_latents:
+            total_frames = min(frames, clip_frames)
+        if from_clip:
+            if clip_frames > MAX_FRAMES:
+                logger.warning("[GENERATOR VIDEO-LTX] input clip has %d frames; only the first %d are used",
+                               clip_frames, MAX_FRAMES)
+            windowed = (as_flag(self.config.get("windows", False)) and bool(self.config.get("decode", True))
+                        and placements and audio_mode != "generate"
+                        and all(p.get("source") == "video" and p.get("role") == "reference" for p in placements))
+            frames, window_starts = self._plan_clip(
+                bundle.dit, device, clip_frames, width, height, fps, placements, reference_scales, audio_mode,
+                int(self.config.get("window_overlap", 16)) if windowed else None,
+                float(self.config.get("refine_scale") or 1.0))
+            total_frames = min(clip_frames, MAX_FRAMES, window_starts[-1] + frames)
+        pad_video = _matched_clip_index(placements) if clip_length else None
+        conditions = self._build_conditions(placements, images, videos, frames, reference_scales,
+                                            pad_video=pad_video)
+        windows: List[Tuple[int, PreparedConditioning]] = []
+        self._trim_notice = None
+        if clip_length and clip_frames > total_frames:
+            self._trim_notice = f"Only the first {total_frames / fps:.1f} seconds of the input clip were used."
 
         # `frames` was already reconciled to the latent above (when present),
         # so this recompute would land on the same value by construction --
@@ -531,6 +706,12 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             prepared = prepare_ltx_conditions(
                 conditions, vae_encode, frames=frames, height=height, width=width,
                 device=device, dtype=dtype, latent_channels=LTX_LATENT_CHANNELS, causal_fix=causal_fix)
+            for start in window_starts[1:]:
+                window_conditions = self._build_conditions(
+                    placements, images, videos, frames, reference_scales, video_start=start, pad_video=pad_video)
+                windows.append((start, prepare_ltx_conditions(
+                    window_conditions, vae_encode, frames=frames, height=height, width=width,
+                    device=device, dtype=dtype, latent_channels=LTX_LATENT_CHANNELS, causal_fix=causal_fix)))
             bundle.vae.offload()
         else:
             s_base = t_lat * h_lat * w_lat
@@ -591,6 +772,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 t_lat=t_lat, h_lat=h_lat, w_lat=w_lat,
                 initial_latents=initial_latents, has_conditions=bool(conditions),
                 stage2_lora_stack=stage2_lora_stack, scoped_lora_stack=scoped_lora_stack,
+                windows=[(0, prepared), *windows] if windows else [], total_frames=total_frames,
             ),
         )
 
@@ -598,6 +780,29 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress) -> Any:
         c: _VideoLtxCtx = ctx.extra
+        if not c.windows:
+            return self._generate(ctx, c, index, seed, progress)
+        chunks = [
+            (start, self._generate(ctx, replace(c, prepared=prepared), index, seed, progress, frames_only=True,
+                                   window=(i, len(c.windows))))
+            for i, (start, prepared) in enumerate(c.windows)
+        ]
+        frames_np = crossfade_windows(chunks, c.total_frames)
+        audio_track = c.audio_file if c.audio_mode in ("file", "passthrough") else None
+        self._audio_results.append(audio_track)
+        out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+        encode_frames_to_mp4(frames_np, out_path, fps=c.fps, audio=audio_track)
+        if index == ctx.quantity - 1:
+            restore_dit_best_effort(c.bundle.dit, c.device)
+        return out_path
+
+    def _decode_fits_beside_dit(self, c: _VideoLtxCtx, video_latent: Tensor) -> bool:
+        if c.audio_mode == "generate" or not dit_is_fully_resident(c.bundle.dit, c.device):
+            return False
+        return decode_fits_beside(c.bundle.vae, video_latent, effective_free_vram_gb(c.device))
+
+    def _generate(self, ctx: GeneratorContext, c: _VideoLtxCtx, index: int, seed: int, progress,
+                  frames_only: bool = False, window: Tuple[int, int] = (0, 1)) -> Any:
         cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
         cond = to_device(cond_model.embeds, c.device, c.dtype)
         uncond = to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
@@ -707,12 +912,14 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                         video_params.stg_blocks)
 
         def on_progress(_frac, step_index, total):
-            progress.step(step_index + 1, total, state="VIDEO", icon=Icon(name="film", effect="pulse"))
+            done, count = window
+            progress.step(done * total + step_index + 1, count * total, state="VIDEO",
+                          icon=Icon(name="film", effect="pulse"))
 
         logger.debug("[GENERATOR VIDEO-LTX] video %d/%d, seed %d, state tokens %s (base %d + extra %d + audio %d)",
                     index + 1, ctx.quantity, seed, tuple(x.shape),
                     prepared.base_tokens, prepared.n_extra, c.audio_tokens)
-        hooks = [ProgressHook(on_progress)]
+        hooks = [ProgressHook(on_progress), StepPlanHook(lambda i, n: {"attn": "dense"})]
         if self.config.get("preview", True):
             preview_hook = make_preview_hook(c.spec, progress.preview, latent_transform=forward.unpack_base)
             if preview_hook is not None:
@@ -756,10 +963,13 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 # a reproducible per-seed stream.
                 **sampler_step_cache_kwargs(self.config, sampler=c.sampler, generator=sampler_gen),
             )
-        c.bundle.dit.offload()
-        clear_gpu_memory()
-
         video_latent = forward.unpack_base(x)
+        decode = bool(self.config.get("decode", True))
+        keep_dit = (frames_only or decode) and self._decode_fits_beside_dit(c, video_latent)
+        if not keep_dit:
+            c.bundle.dit.offload()
+        clear_gpu_memory()
+        keep_resident = (c.bundle.dit,) if keep_dit else ()
 
         # Audio is decoded independently of the video `decode` flag below --
         # the audio VAE + vocoder round trip has no dependency on the video
@@ -775,9 +985,10 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             audio_track = decode_generated_audio(c.bundle, audio_slice, c.device)
         elif c.audio_mode in ("file", "passthrough") and c.audio_file:
             audio_track = c.audio_file
+        if frames_only:
+            return decode_ltx_video(c.bundle.vae, c.device, video_latent, seed, keep_resident=keep_resident)
         self._audio_results.append(audio_track)
 
-        decode = bool(self.config.get("decode", True))
         if not decode:
             # Hand the raw latent to a downstream latent_upscaler/refine stage --
             # no VAE decode/mp4-encode round trip (audio, above, already ran).
@@ -787,7 +998,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 restore_dit_best_effort(c.bundle.dit, c.device)
             return video_latent
 
-        frames_np = decode_ltx_video(c.bundle.vae, c.device, video_latent, seed)
+        frames_np = decode_ltx_video(c.bundle.vae, c.device, video_latent, seed, keep_resident=keep_resident)
+        if 0 < c.total_frames < frames_np.shape[0]:
+            frames_np = frames_np[:c.total_frames]
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames_np, out_path, fps=c.fps, audio=audio_track)
 
@@ -804,6 +1017,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         if not bool(self.config.get("decode", True)):
             return  # an internal latent hand-off, no gallery/seed emission here
         emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
+        notice = getattr(self, "_trim_notice", None)
+        if notice:
+            generation_outputs(ProgressGenerationOutput(state=notice, icon=Icon("warning"), bar=False))
 
     def build_output(self, results: List[Any]) -> Dict[str, Any]:
         audio = list(getattr(self, "_audio_results", []))

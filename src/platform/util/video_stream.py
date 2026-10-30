@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -16,6 +17,9 @@ _ABORT_WAIT_TIMEOUT = 10
 _STDERR_TAIL_BYTES = 8192
 _MUX_TIMEOUT = 600
 _PROBE_TIMEOUT = 10
+
+_BANNER_AUDIO_RE = re.compile(r"Stream #\d+:\d+[^:\n]*:\s*Audio:")
+_BANNER_STREAM_RE = re.compile(r"Stream #\d+:\d+")
 
 AUDIO_PROBE_PRESENT = "present"
 AUDIO_PROBE_SILENT = "silent"
@@ -44,6 +48,33 @@ class AudioProbeResult:
 
 
 def probe_audio_stream(path: Union[str, Path]) -> AudioProbeResult:
+    result = _ffprobe_audio_stream(path)
+    if result.status != AUDIO_PROBE_FAILED:
+        return result
+    fallback = _banner_audio_stream(path)
+    return fallback if fallback.status != AUDIO_PROBE_FAILED else result
+
+def _banner_audio_stream(path: Union[str, Path]) -> AudioProbeResult:
+    ffmpeg = find_ffmpeg()
+    if ffmpeg is None:
+        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffmpeg not found")
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-hide_banner", "-nostdin", "-i", str(path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_PROBE_TIMEOUT,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return AudioProbeResult(AUDIO_PROBE_FAILED, f"ffmpeg banner probe failed: {exc}")
+    banner = getattr(result, "stderr", None) or ""
+    if not isinstance(banner, str):
+        return AudioProbeResult(AUDIO_PROBE_FAILED, "ffmpeg banner unreadable")
+    if _BANNER_AUDIO_RE.search(banner):
+        return AudioProbeResult(AUDIO_PROBE_PRESENT)
+    if _BANNER_STREAM_RE.search(banner):
+        return AudioProbeResult(AUDIO_PROBE_SILENT)
+    return AudioProbeResult(AUDIO_PROBE_FAILED, "ffmpeg listed no streams")
+
+def _ffprobe_audio_stream(path: Union[str, Path]) -> AudioProbeResult:
     ffprobe = find_ffprobe()
     if ffprobe is None:
         return AudioProbeResult(AUDIO_PROBE_FAILED, "ffprobe not found on PATH")

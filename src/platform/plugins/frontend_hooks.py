@@ -73,12 +73,12 @@ RENDERER_HOOKS = hooks_registry.declare(
     "history.artifact", "workbench.file", "generation.output", "model.view",
     specs={
         "history.artifact": {
-            "description": "Registered via manifest `renderers: [{kind: 'history.artifact', key: <artifact_type>, component}]`. Dispatched by `artifactRendererRegistry` and mounted by `GenerationPanelHistory.svelte` for the matching `artifact_type` (one component per type, not additive).",
+            "description": "Registered via manifest `renderers: [{kind: 'history.artifact', key: <artifact_type>, component}]`. Dispatched by `artifactRendererRegistry` and mounted by the Admin → Generations run report (`GenerationArtifactsGrid.svelte`) for the matching `artifact_type` (one component per type, not additive). Artifacts are admin diagnostics: no user-facing surface renders them.",
             "payload": {
-                "artifact": {"type": "object", "description": "The pipe artifact object for this history entry (artifact_type-specific shape, e.g. seed/compare_images/models - see the pipe_artifact WebSocket message in CLAUDE.md)"},
+                "artifact": {"type": "object", "description": "The run report artifact entry (artifact_type-specific shape, e.g. seed/compare_images/models), recorded from the pipe_artifact output"},
                 "onSeedClick": {"type": "function | undefined", "description": "Optional callback, only meaningful for the built-in 'seed' artifact type"},
             },
-            "use_when": ["Rendering a custom artifact type produced by a plugin's own pipe (a pipe_artifact WebSocket message with a plugin-defined artifact_type)"],
+            "use_when": ["Rendering, in the admin run report, a custom artifact type produced by a plugin's own pipe (a pipe_artifact output with a plugin-defined artifact_type)"],
         },
         "workbench.file": {
             "description": "Registered via manifest `renderers: [{kind: 'workbench.file', key: <file_type>, component}]`. Resolved by `workbenchFileRendererRegistry` and mounted by `Workbench.svelte` as a fallback for a `file_type` it has no dedicated branch for (falls back to the 'image' entry if unregistered).",

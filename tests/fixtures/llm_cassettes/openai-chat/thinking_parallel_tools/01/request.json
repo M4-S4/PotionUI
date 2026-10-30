@@ -1,0 +1,47 @@
+{
+  "method": "POST",
+  "url": "http://vllm.local:8000/v1/chat/completions",
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": "[scrubbed]"
+  },
+  "body": {
+    "model": "Qwen/Qwen3-30B-A3B",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a preset assistant."
+      },
+      {
+        "role": "user",
+        "content": "Which preset is faster, fast or slow?"
+      }
+    ],
+    "temperature": 0.7,
+    "max_completion_tokens": 2000,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    },
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_preset",
+          "description": "Read one preset by name",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

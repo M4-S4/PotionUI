@@ -19,8 +19,8 @@
 	import QuickActions from './QuickActions.svelte';
 	import UserMenu from './UserMenu.svelte';
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
-	import { api } from '$lib/services/api/index';
 	import { setupCompletionPing } from '$lib/stores/setupCompletion';
+	import { refreshResumeSetup, showResumeSetup as showResumeSetupStore } from '$lib/stores/resumeSetup';
 
 	// `nav.primary` extension slot contributions, merged into the core nav
 	// list below by `order` (core items get implicit orders 10, 20, 30... so
@@ -32,34 +32,16 @@
 	// Reactively check if user is admin
 	$: showAdminSection = $authStore.user?.account_type === 'ADMIN';
 
-	// "Resume setup" - fetched once per session, the moment we know the user
-	// is an admin (not in onMount, since `$authStore.user` populates async
-	// after the sidebar mounts). Deliberately a single fetch, not a poll: this
-	// is a nudge to finish setup, not a live health monitor.
 	let readinessChecked = false;
-	let showResumeSetup = false;
-
-	function checkReadiness() {
-		api
-			.getReadiness()
-			.then((report) => {
-				showResumeSetup = report.overall !== 'ready';
-			})
-			.catch(() => {
-				// Fail-soft: a readiness-check failure must never break the sidebar.
-				showResumeSetup = false;
-			});
-	}
 
 	$: if (showAdminSection && !readinessChecked) {
 		readinessChecked = true;
-		checkReadiness();
+		refreshResumeSetup();
 	}
 
-	// Re-check the instant a guided setup run completes (see
-	// `notifySetupCompleted`), rather than waiting on the next full page
-	// load, so the nudge clears itself as soon as it's stale.
-	$: if (showAdminSection && readinessChecked && $setupCompletionPing > 0) checkReadiness();
+	$: if (showAdminSection && readinessChecked && $setupCompletionPing > 0) refreshResumeSetup();
+
+	$: showResumeSetup = $showResumeSetupStore;
 
 	$: bell = bellIndicator($notifications);
 

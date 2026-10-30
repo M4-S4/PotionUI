@@ -1,0 +1,18 @@
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Input Video"
+    required: true
+    ai_hint: "An existing MiniMax-H3 video to upscale and refine (the 'HD detailer' pass), for example a Text to Video or References mode output. Latent-space upscale followed by a short partial-denoise refine at the new resolution. Any frame count or resolution works; frame count is padded up to the video VAE's own lattice, which can add up to ~0.7s of a frozen final frame."
+
+  - name: "refine_denoise"
+    type: "select"
+    formula: "enhance"
+    label: "Refine denoise"
+    default: "0.45"
+    ai_hint: "Fraction of the refine schedule actually walked. Balanced (0.45) is the recommended default. Light (0.30) stays closer to the upsampled source as-is (less fixing of upsampling softness, less risk of drifting from the source); Strong (0.60) gives the refine more freedom to add detail at the cost of drifting further from the source."
+    configuration:
+      options:
+        - { label: "Light (0.30)", value: "0.30" }
+        - { label: "Balanced (0.45, recommended)", value: "0.45" }
+        - { label: "Strong (0.60)", value: "0.60" }

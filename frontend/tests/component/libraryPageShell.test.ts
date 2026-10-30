@@ -5,6 +5,9 @@
 // the load sequence (items + facets + tags + collections) exists nowhere else
 // to be tested.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+vi.mock('$lib/components/plugins/PluginSlot.svelte', async () => ({
+	default: (await import('./fixtures/PluginSlotStub.svelte')).default
+}));
 import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -143,7 +146,9 @@ describe('library page', () => {
 		expect(mounted.text()).toContain('sunset.png');
 		expect(mounted.text()).toContain('1024×512');
 
-		mounted.buttonWithText('Delete')!.click();
+		document.body.querySelector<HTMLElement>('[data-bar-item="more"]')!.click();
+		await settle();
+		document.body.querySelector<HTMLElement>('[data-bar-row="delete"]')!.click();
 		await settle();
 
 		// Confirmation first - the file is removed from disk.

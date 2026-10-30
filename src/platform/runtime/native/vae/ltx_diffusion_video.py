@@ -69,7 +69,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..attention import attention
+from ..kernels import attention
 from ..base import NativeArchModule
 from ..errors import NativeEngineUnsupportedError
 from .ltx_causal_video import (

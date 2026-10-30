@@ -123,7 +123,7 @@ test('a tag picker dropdown opened from inside the Generation Details modal stac
 	const modal = page.getByRole('dialog', { name: 'Generation Details' });
 	await expect(modal).toBeVisible({ timeout: 10000 });
 
-	const tagButton = page.getByRole('button', { name: 'Manage tags' });
+	const tagButton = page.getByRole('toolbar', { name: 'Actions' }).getByRole('button', { name: /^Tags/ });
 	await expect(tagButton).toBeVisible({ timeout: 20000 });
 	await tagButton.click();
 

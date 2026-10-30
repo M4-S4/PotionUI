@@ -75,9 +75,22 @@ def list_items(
     )
 
 
-def get_facets(collaborators: LibraryCollaborators, user_id: str) -> LibraryFacets:
-    """Per-media-type counts for the user's whole library."""
-    return LibraryFacets(media_types=collaborators.repository.media_type_counts(user_id))
+def get_facets(
+    collaborators: LibraryCollaborators,
+    user_id: str,
+    collection_id: Optional[str] = None,
+    include_descendants: bool = True,
+    unsorted: bool = False,
+    favorites_only: bool = False,
+) -> LibraryFacets:
+    """Per-media-type counts for the user's library view."""
+    return LibraryFacets(media_types=collaborators.repository.media_type_counts(
+        user_id,
+        collection_id=collection_id,
+        include_descendants=include_descendants,
+        unsorted=unsorted,
+        favorites_only=favorites_only,
+    ))
 
 
 def get_item(collaborators: LibraryCollaborators, item_id: str, user_id: str) -> LibraryItem:

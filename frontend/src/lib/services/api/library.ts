@@ -27,6 +27,9 @@ export interface LibraryItem {
 	size?: number;
 	created_at?: string;
 	tags: LibraryItemTag[];
+	is_favorite?: boolean;
+	has_alpha?: boolean | null;
+	source_generation_id?: string | null;
 }
 
 export interface LibraryItemTag {
@@ -45,6 +48,13 @@ export interface LibraryListResult {
 }
 
 /** Mirrors `LibraryFacets` (src/features/library/dto.py). */
+export interface LibraryFacetScope {
+	collection_id?: string;
+	include_descendants?: boolean;
+	unsorted?: boolean;
+	favorites_only?: boolean;
+}
+
 export interface LibraryFacets {
 	media_types: Record<string, number>;
 }
@@ -70,8 +80,13 @@ export function createLibraryApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getLibraryFacets(): Promise<APIResponse<LibraryFacets>> {
-			const response = await client.get('/api/library/facets');
+		async getLibraryItem(itemId: string): Promise<APIResponse<LibraryItem>> {
+			const response = await client.get(`/api/library/items/${encodeURIComponent(itemId)}`);
+			return response.data;
+		},
+
+		async getLibraryFacets(scope: LibraryFacetScope = {}): Promise<APIResponse<LibraryFacets>> {
+			const response = await client.get('/api/library/facets', { params: scope });
 			return response.data;
 		},
 
@@ -107,6 +122,16 @@ export function createLibraryApi(client: AxiosInstance) {
 			tagIds: string[]
 		): Promise<APIResponse<{ tags: LibraryItemTag[] }>> {
 			const response = await client.put(`/api/library/items/${itemId}/tags`, { tag_ids: tagIds });
+			return response.data;
+		},
+
+		async setLibraryFavorite(
+			itemId: string,
+			isFavorite: boolean
+		): Promise<APIResponse<{ id: string; is_favorite: boolean }>> {
+			const response = await client.put(`/api/library/items/${itemId}/favorite`, {
+				is_favorite: isFavorite
+			});
 			return response.data;
 		},
 

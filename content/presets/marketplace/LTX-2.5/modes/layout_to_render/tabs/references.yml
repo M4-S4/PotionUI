@@ -1,0 +1,19 @@
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Input Video"
+    required: true
+    description: "A 3D layout, playblast or blockout clip with the camera and motion you want. Only about the first 5 seconds are used."
+
+  - name: "style_image"
+    type: "image"
+    label: "First Frame"
+    required: true
+    description: "How the finished first frame should look, for example made with an image model."
+
+  - name: "effect_strength"
+    type: "slider"
+    label: "Strength"
+    default: 1.0
+    description: "How closely the result follows the layout."
+    configuration: {min: 0.5, max: 1.5, step: 0.05}

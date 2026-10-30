@@ -37,7 +37,7 @@ def _config_response(config_id="cfg-1", name="My Ollama", **overrides):
         "base_url": "http://localhost:11434", "api_key_set": False, "model": "llama3",
         "system_message": "You are a helpful assistant.", "temperature": 0.7, "max_tokens": 1000,
         "timeout": 30, "supports_vision": False, "disable_system_prompt": False,
-        "memory_reflection": False, "provider_options": {"context_window": 8192}, "is_default": False,
+        "memory_reflection": False, "provider_options": {"keep_alive": "5m"}, "is_default": False,
     }
     base.update(overrides)
     return base
@@ -126,7 +126,8 @@ class TestCloneConfigRequestBody:
         # LLMConfigRequest required fields (src/features/llm/dto.py)
         for field in ("name", "type", "enabled", "base_url", "model", "system_message"):
             assert field in body, f"missing required LLMConfigRequest field: {field}"
-        assert body["provider_options"]["context_window"] == 4096
+        assert body["provider_options"] == {"keep_alive": "5m"}
+        assert chat_eval.clone_profile_overrides(4096) == {"overrides": {"context_window": 4096}}
         assert "api_key" not in body, "a clone must never carry an api_key - LLMConfigResponse never returns one"
         assert body["name"] != config["name"], "the clone must not silently collide with the original's name"
 
@@ -143,6 +144,9 @@ class TestRunVariantNeverMutatesUserConfig:
                 return json.dumps({"success": True, "data": clone})
             if method == "POST" and url.endswith("/api/llm/configurations"):
                 return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
+            if method == "PUT" and url.endswith("/api/llm/configurations/cfg-clone/profile"):
+                assert payload == {"overrides": {"context_window": 4096}}
+                return json.dumps({"success": True, "data": {"config_id": "cfg-clone"}})
             if method == "DELETE" and url.endswith("/api/llm/configurations/cfg-clone"):
                 return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
             raise AssertionError(f"unexpected call: {method} {url}")
@@ -162,7 +166,8 @@ class TestRunVariantNeverMutatesUserConfig:
         methods_and_urls = [(m, u) for m, u, _ in calls]
         assert ("POST", "http://localhost:26730/api/llm/configurations") in methods_and_urls
         assert ("DELETE", "http://localhost:26730/api/llm/configurations/cfg-clone") in methods_and_urls
-        assert all(m != "PUT" for m, _, _ in calls), "a variant run must never PUT the user's own config"
+        assert ("PUT", "http://localhost:26730/api/llm/configurations/cfg-clone/profile") in methods_and_urls
+        assert all(m != "PUT" or "/cfg-clone/" in u for m, u, _ in calls)
 
         report = json.loads((tmp_path / "report.json").read_text())
         variants_seen = {r["variant"] for r in report["results"]}
@@ -204,6 +209,8 @@ class TestBaseAndVariantProduceDistinctArtifacts:
                 return json.dumps({"success": True, "data": clone})
             if method == "POST" and url.endswith("/api/llm/configurations"):
                 return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
+            if method == "PUT" and url.endswith("/api/llm/configurations/cfg-clone/profile"):
+                return json.dumps({"success": True, "data": {"config_id": "cfg-clone"}})
             if method == "DELETE" and url.endswith("/api/llm/configurations/cfg-clone"):
                 return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
             if method == "POST" and url.endswith("/api/chat/sessions"):
@@ -600,6 +607,8 @@ class TestMemoryReflectionPolicy:
             if method == "POST" and url.endswith("/api/llm/configurations"):
                 create_bodies.append(payload)
                 return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
+            if method == "PUT" and url.endswith("/api/llm/configurations/cfg-clone/profile"):
+                return json.dumps({"success": True, "data": {"config_id": "cfg-clone"}})
             if method == "GET" and url.endswith("/api/llm/configurations/cfg-clone"):
                 return json.dumps({"success": True, "data": _config_response(config_id="cfg-clone", memory_reflection=False)})
             if method == "DELETE" and url.endswith("/api/llm/configurations/cfg-clone"):
@@ -699,3 +708,40 @@ class TestBudgetPressureProvenance:
         assert pressure_check.unverified is False
         assert "real backend" in pressure_check.detail
         assert "live capture" in pressure_check.detail
+
+
+class TestLiveActualRounds:
+    def _run(self, monkeypatch, tmp_path, stream_body):
+        config = _config_response(config_id="cfg-1", memory_reflection=False)
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                return json.dumps({"success": True, "data": {"id": "sess-1"}})
+            if method == "POST" and "/messages/stream" in url:
+                return stream_body
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--scenario", "factual_answer_context",
+            "--transcripts-dir", str(tmp_path / "transcripts"), "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+        return json.loads((tmp_path / "report.json").read_text())["results"][0]["actual_rounds"]
+
+    def test_step_events_make_the_live_round_count_verified(self, monkeypatch, tmp_path):
+        body = (
+            'event: step\ndata: {"seq": 1, "finish": "tool_calls", "tool_calls": 2, "usage": null}\n\n'
+            'event: step\ndata: {"seq": 3, "finish": "stop", "tool_calls": 1, "usage": null}\n\n'
+            'event: step\ndata: {"seq": 5, "finish": "stop", "tool_calls": 0, "usage": null}\n\n'
+            'event: done\ndata: {"assistant_message": {"content": "30 steps with dpmpp_2m"}}\n\n'
+        )
+
+        assert self._run(monkeypatch, tmp_path, body) == {"value": 2, "unverified": False}
+
+    def test_a_turn_without_step_events_stays_unverified(self, monkeypatch, tmp_path):
+        body = 'event: done\ndata: {"assistant_message": {"content": "30 steps with dpmpp_2m"}}\n\n'
+
+        assert self._run(monkeypatch, tmp_path, body) == {"value": None, "unverified": True}

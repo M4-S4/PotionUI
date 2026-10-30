@@ -268,6 +268,8 @@ class WorkerPipelineExecutor:
                 pipe_input[spec.name] = self._system_monitor
             elif service_name == "MODELS":
                 pipe_input[spec.name] = self._model_lifecycle
+            elif service_name == "MEDIA_TOOLS":
+                pipe_input[spec.name] = None
             else:
                 logger.warning(
                     "[WORKER] pipe '%s' requests service '%s', which this worker does not "

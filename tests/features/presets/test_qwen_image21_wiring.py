@@ -38,7 +38,7 @@ def _process(qwen_image21_template, form_over: dict | None = None, mode: str = "
         "resolution": "1024x1024",
     }
     if mode == "edit":
-        form_data["source_image"] = ["/uploads/source.png"]
+        form_data["source_image"] = "/uploads/source.png"
     if mode == "control":
         form_data["control_model"] = "/models/fun_control.safetensors"
         form_data["source_image"] = "/uploads/room.png"
@@ -75,8 +75,8 @@ def test_default_speed_profile_reaches_steps_and_guidance(qwen_image21_template)
     assert float(cfg["guidance"]) == 4.0
 
 
-def test_txt2img_edit_and_control_modes_are_declared(qwen_image21_template):
-    assert list(qwen_image21_template.modes.keys()) == ["txt2img", "edit", "control"]
+def test_txt2img_edit_combine_and_control_modes_are_declared(qwen_image21_template):
+    assert list(qwen_image21_template.modes.keys()) == ["txt2img", "edit", "combine", "text", "restyle", "control"]
 
 
 def test_edit_mode_loader_wires_vision_true(qwen_image21_template):
@@ -441,3 +441,13 @@ def test_the_new_switches_join_the_control_formula_group(qwen_image21_template):
     assert _field(qwen_image21_template, "guide_save").formula == "control"
     assert _field(qwen_image21_template, "guide_save").default is False
     assert _field(qwen_image21_template, "guide_only").default is False
+
+
+def test_control_mode_keeps_its_id_and_is_named_structure():
+    from src.features.presets.loader import read_mode_naming
+    from src.features.presets.mode_labels import mode_display_name
+
+    assert (PRESET_DIR / "modes" / "control" / "pipeline.yml").is_file()
+    naming = read_mode_naming(PRESET_DIR / "modes" / "control")
+    assert mode_display_name("control", naming["mode_label"]) == "Structure"
+    assert mode_display_name("control") == "Control"

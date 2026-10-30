@@ -1,23 +1,23 @@
 # Video Director mode -- the director editor (form_data.video_director, a
-# separate document submitted outside this dynamic form) owns prompts, frames,
-# document does NOT carry: model-run parameters for the one generation this
-# preset always makes (t2v/i2v/flf/director all route through the same
-# generator/video_ltx call). The file pickers live on the Models tab -- LTX-2.5
-# needs four of them, enough to crowd this tab out on its own. Steps/Sampler/
-# CFG live on the Advanced tab's Sampling section (Krea-2 layout) -- the Speed
-# profile below still bakes their actual values via reactions.
+# separate document submitted outside this dynamic form) owns prompts, frames
+# and media. This tab holds what that document does NOT carry: model-run
+# parameters for the one generation this mode always makes (t2v/i2v/flf/director
+# all route through the same generator/video_ltx call at quantity 1), so there
+# is no Quantity. Steps/Sampler/CFG live on the Advanced tab's
+# Sampling section (Krea-2 layout) -- the Speed profile below still bakes their
+# actual values via reactions.
 fields:
   - name: "speed_profile"
     type: "select"
     formula: "speed"
-    label: "Speed"
-    default: "balanced"
+    label: "Speed profile"
+    default: "distilled"
     configuration:
       options:
-        - { label: "Balanced (24 steps)", value: "balanced" }
-        - { label: "Distilled (fast, 8 steps)", value: "distilled" }
-        - { label: "Quality (slow, 30 steps)", value: "quality" }
-        - { label: "Custom (set steps/CFG freely)", value: "custom" }
+        - { label: "Distilled", value: "distilled", sub_label: "8 steps · CFG off · distilled sigma recipe" }
+        - { label: "Balanced", value: "balanced", sub_label: "24 steps · CFG 4 · needs the dev checkpoint" }
+        - { label: "Quality", value: "quality", sub_label: "30 steps · CFG 3 · multimodal guidance · needs the dev checkpoint" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps · sampler · CFG, left alone" }
 
   - type: "section"
     label: "Video"
@@ -44,14 +44,13 @@ fields:
         default: 25
         configuration: {min: 1, max: 60, step: 1}
 
-      # Every profile bakes euler_ancestral, the first-party LTX-2.5 stage-1
-      # sampler (see preset.yml's speed_profiles comment for exactly how far the
-      # diffusers evidence goes), unlike 2.0/2.3 where the base pass is
-      # deterministic -- so Sampler's own default/reactions (Advanced tab) all
-      # pin euler_ancestral, not euler.
-
       - name: "generate_audio"
         type: "checkbox"
         label: "Generate Audio"
-        ai_hint: "Needs the Audio VAE picker (Models tab) filled -- LTX-2.5 ships the audio VAE and vocoder as a separate file, so a request with this on and that picker empty is rejected before generation starts."
+        ai_hint: "Needs the Audio VAE picker (Models section) filled -- LTX-2.5 ships the audio VAE and vocoder as a separate file, so a request with this on and that picker empty is rejected before generation starts."
         default: false
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children: "{{ paths.preset }}/files/form/models_av.yml"

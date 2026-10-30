@@ -2,6 +2,7 @@
 as a background task after a turn, never awaited by the response path, and
 only actually calls the LLM once its own gating conditions are met."""
 
+from src.features.llm.harness.replay import policy_replay
 from dataclasses import replace
 import asyncio
 import pytest
@@ -11,6 +12,8 @@ from src.features.chat.dto import MessageResponse
 from src.features.chat.runtime import ChatRuntime
 from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.reflection import MIN_UNREFLECTED_USER_MESSAGES
+from tests.fixtures.chat_engine import ScriptedTurnEngine, llm_service_mock
+from src.features.chat.title_generator import TITLE_PROMPT
 
 
 def _message(role: str, content: str, msg_id: str) -> Mock:
@@ -36,7 +39,7 @@ def _transcript(user_count: int) -> list:
 class TestReflectionFiresOnSend:
     def setup_method(self):
         self.mock_repo = Mock()
-        self.mock_llm = Mock()
+        self.mock_llm = llm_service_mock(Mock())
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
         self.mock_memory = Mock()
@@ -46,12 +49,16 @@ class TestReflectionFiresOnSend:
         self.mock_plugins.execute_hook.return_value = (no_block_ctx, [])
         self.mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
+        self.engine = ScriptedTurnEngine()
+        self.engine.script(["ack"])
         self.manager = ChatRuntime(
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
             chat_mode_registry=mode_registry(),
+            turn_engine=self.engine,
+            replay_selector=policy_replay,
         )
         # Late-bound the same way the composition root does.
         self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=self.mock_memory)
@@ -76,7 +83,6 @@ class TestReflectionFiresOnSend:
             id="msg-1", session_id="session-1", role=kwargs.get("role", "assistant"),
             content=kwargs.get("content", ""),
         )
-        self.mock_repo.get_conversation_history.return_value = [{"role": "user", "content": "hi"}]
         self.mock_repo.count_messages.return_value = 2
         # title_generator needs >=2 messages; irrelevant to this test beyond not erroring.
         self.mock_repo.get_messages.return_value = _transcript(MIN_UNREFLECTED_USER_MESSAGES)
@@ -88,15 +94,18 @@ class TestReflectionFiresOnSend:
         self.mock_llm.repository = Mock()
         self.mock_llm.repository.get_configuration.return_value = config
 
-        self.mock_llm.generate_response = AsyncMock(return_value=Mock(content="ack", tokens_used=1))
         title_response = Mock()
-        title_response.content = "A Title"
+        title_response.text = "A Title"
         reflection_response = Mock()
-        reflection_response.content = (
+        reflection_response.text = (
             '[{"scope": "global", "key": "k", "content": "prefers moody lighting over bright scenes", '
             '"kind": "recurring", "evidence": [1, 2]}]'
         )
-        self.mock_llm.generate_with_history = AsyncMock(side_effect=[title_response, reflection_response])
+        self.mock_llm.complete = AsyncMock(
+            side_effect=lambda target, messages, **kwargs: (
+                title_response if messages[0].text().startswith(TITLE_PROMPT) else reflection_response
+            )
+        )
 
         saved_note = Mock()
         saved_note.to_dict.return_value = {"key": "k"}
@@ -112,13 +121,11 @@ class TestReflectionFiresOnSend:
 
     @pytest.mark.asyncio
     async def test_response_returns_without_waiting_for_reflection(self):
-        # generate_with_history is used by BOTH title generation and reflection;
-        # make it hang so a response that waited on it would never return.
         hang = asyncio.Event()
 
         async def _hanging_call(*args, **kwargs):
             await hang.wait()
-            return Mock(content="[]")
+            return Mock(text="[]")
 
         # Title still needs to resolve for send_message to complete; only block
         # the SECOND call (reflection) so a real block there would timeout us.
@@ -127,10 +134,10 @@ class TestReflectionFiresOnSend:
         async def _side_effect(*args, **kwargs):
             calls["n"] += 1
             if calls["n"] == 1:
-                return Mock(content="A Title")
+                return Mock(text="A Title")
             return await _hanging_call()
 
-        self.mock_llm.generate_with_history = AsyncMock(side_effect=_side_effect)
+        self.mock_llm.complete = AsyncMock(side_effect=_side_effect)
 
         response = await asyncio.wait_for(
             self.manager.send_message("session-1", "user-1", "hello"),

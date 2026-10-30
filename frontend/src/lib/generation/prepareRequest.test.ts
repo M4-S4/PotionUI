@@ -6,16 +6,22 @@ function sequence(...values: number[]) {
 	return () => values[index++ % values.length];
 }
 
+function seg(id: string, content: string) {
+	return content.trim() ? [{ id, type: 'content', content, chips: {}, enabled: true }] : [];
+}
+
 function baseTab(overrides: Record<string, unknown> = {}) {
+	const prompt = (overrides.prompt as string | undefined) ?? '  a lighthouse at dusk  ';
+	const negativePrompt = (overrides.negativePrompt as string | undefined) ?? ' blur ';
 	return {
 		selectedPreset: 'preset-1',
 		selectedMode: 'txt2img',
 		selectedVariant: null,
 		formData: { seed: 7, quantity: 1 },
-		prompt: '  a lighthouse at dusk  ',
-		negativePrompt: ' blur ',
-		promptSegments: [],
-		negativePromptSegments: [],
+		prompt,
+		negativePrompt,
+		promptSegments: seg('p', prompt),
+		negativePromptSegments: seg('n', negativePrompt),
 		promptTabs: undefined,
 		activePromptTab: 0,
 		promptRelay: undefined,
@@ -38,6 +44,7 @@ function prepare(tab: any, extra: Record<string, unknown> = {}) {
 		segmentJoin: 'space',
 		promptRelayActive: false,
 		promptlessActive: false,
+		promptOptionalActive: false,
 		videoDirector: null,
 		musicDirector: null,
 		random: () => 0,
@@ -48,9 +55,9 @@ function prepare(tab: any, extra: Record<string, unknown> = {}) {
 
 function batchTab({ active }: { active: number }) {
 	const entries = [
-		{ prompt: 'first', negativePrompt: 'neg one', promptSegments: [], negativePromptSegments: [] },
+		{ prompt: 'first', negativePrompt: 'neg one', promptSegments: seg('a', 'first'), negativePromptSegments: seg('an', 'neg one') },
 		{ prompt: 'unused', negativePrompt: '', promptSegments: [{ id: 'x', content: 'second from segments' }], negativePromptSegments: [] },
-		{ prompt: 'third', negativePrompt: '', promptSegments: [], negativePromptSegments: [] }
+		{ prompt: 'third', negativePrompt: '', promptSegments: seg('c', 'third'), negativePromptSegments: [] }
 	];
 	const current = entries[active];
 	return baseTab({
@@ -97,15 +104,18 @@ describe('prepareRequest', () => {
 			prompt_state: {
 				prompt: '  a lighthouse at dusk  ',
 				negativePrompt: ' blur ',
-				promptSegments: [],
-				negativePromptSegments: [],
+				promptSegments: seg('p', '  a lighthouse at dusk  '),
+				negativePromptSegments: seg('n', ' blur '),
 				variables: undefined,
 				promptTabs: undefined,
 				activePromptTab: 0,
 				promptRelay: undefined,
 				videoDirector: undefined
 			},
-			segments: []
+			segments: [
+				expect.objectContaining({ channel: 'positive', text: '  a lighthouse at dusk  ' }),
+				expect.objectContaining({ channel: 'negative', text: ' blur ' })
+			]
 		});
 		expect(Object.keys(result.request)).toEqual([
 			'preset_id', 'prompts', 'mode', 'form_name', 'form_data', 'tag_ids', 'collection_ids',
@@ -157,7 +167,10 @@ describe('prepareRequest', () => {
 			{ positive: 'third', negative: '' }
 		]);
 		expect(result.request.segments).toEqual([
-			expect.objectContaining({ channel: 'positive', prompt_index: 1, text: 'second from segments' })
+			expect.objectContaining({ channel: 'positive', prompt_index: 0, text: 'first' }),
+			expect.objectContaining({ channel: 'negative', prompt_index: 0, text: 'neg one' }),
+			expect.objectContaining({ channel: 'positive', prompt_index: 1, text: 'second from segments' }),
+			expect.objectContaining({ channel: 'positive', prompt_index: 2, text: 'third' })
 		]);
 		const state = result.request.prompt_state as Record<string, any>;
 		expect(state.prompts).toHaveLength(3);
@@ -178,13 +191,16 @@ describe('prepareRequest', () => {
 		if (!result.ok) return;
 		expect('batch_prompts' in result.request).toBe(false);
 		expect(result.request.prompts).toEqual([{ positive: 'first', negative: 'neg one' }]);
-		expect(result.request.segments).toEqual([]);
+		expect(result.request.segments).toEqual([
+			expect.objectContaining({ channel: 'positive', text: 'first' }),
+			expect.objectContaining({ channel: 'negative', text: 'neg one' })
+		]);
 		expect(result.shuffled.changed).toBe(false);
 	});
 
 	it('refuses a batch that contains an empty prompt', () => {
 		const tab = batchTab({ active: 0 });
-		tab.promptTabs[2] = { ...tab.promptTabs[2], prompt: '' };
+		tab.promptTabs[2] = { ...tab.promptTabs[2], prompt: '', promptSegments: [] };
 
 		expect(prepare(tab, { canBatch: true })).toEqual({ ok: false, code: 'no_prompt', reason: null });
 	});
@@ -238,6 +254,40 @@ describe('prepareRequest', () => {
 		expect(prepare(baseTab({ prompt: '   ' }))).toEqual({ ok: false, code: 'no_prompt', reason: null });
 		const promptless = prepare(baseTab({ prompt: '' }), { promptlessActive: true });
 		expect(promptless.ok).toBe(true);
+	});
+
+	it('lets an optional-prompt mode generate without a prompt but still sends one when written', () => {
+		const empty = prepare(baseTab({ prompt: '   ' }), { promptOptionalActive: true });
+		expect(empty.ok).toBe(true);
+		if (empty.ok) expect(empty.request.prompts).toEqual([{ positive: '', negative: 'blur' }]);
+
+		const written = prepare(baseTab(), { promptOptionalActive: true });
+		expect(written.ok).toBe(true);
+		if (written.ok) expect(written.request.prompts?.[0].positive).toBe('a lighthouse at dusk');
+	});
+
+	it('still needs a preset in an optional-prompt mode', () => {
+		expect(prepare(baseTab({ selectedPreset: null, prompt: '' }), { promptOptionalActive: true })).toEqual({
+			ok: false,
+			code: 'no_preset',
+			reason: null
+		});
+	});
+
+	it('accepts an empty prompt in a batch only in an optional-prompt mode', () => {
+		const tab = baseTab({
+			promptTabs: [
+				{ prompt: 'first', negativePrompt: '', promptSegments: seg('f', 'first'), negativePromptSegments: [] },
+				{ prompt: '', negativePrompt: '', promptSegments: [], negativePromptSegments: [] }
+			],
+			activePromptTab: 0
+		});
+
+		expect(prepare(tab, { canBatch: true })).toEqual({ ok: false, code: 'no_prompt', reason: null });
+
+		const optional = prepare(tab, { canBatch: true, promptOptionalActive: true });
+		expect(optional.ok).toBe(true);
+		if (optional.ok) expect(optional.request.prompts?.map((p) => p.positive)).toEqual(['first', '']);
 	});
 });
 
@@ -306,6 +356,53 @@ describe('prepareRequestFromSession', () => {
 			mode: 'upscale',
 			session: { formData: { input_image: 'uploads/a.png' } },
 			presetVars: { promptless_modes: ['upscale'] },
+			random: () => 0,
+			now: () => 1
+		});
+
+		expect(result.ok).toBe(true);
+	});
+
+	it('treats an optional-prompt mode as ready without a prompt', () => {
+		const result = prepareRequestFromSession({
+			presetId: 'preset-1',
+			mode: 'recast',
+			session: { prompt: '', formData: { video: 'uploads/a.mp4' } },
+			presetVars: { optional_prompt_modes: ['recast'] },
+			random: () => 0,
+			now: () => 1
+		});
+
+		expect(result.ok).toBe(true);
+		if (result.ok) expect(result.request.prompts).toEqual([{ positive: '', negative: '' }]);
+	});
+
+	it('needs no prompt only while a conditional optional-prompt entry holds', () => {
+		const run = (task: string) =>
+			prepareRequestFromSession({
+				presetId: 'preset-1',
+				mode: 'restyle',
+				session: { prompt: '', formData: { restyle_task: task } },
+				presetVars: {
+					optional_prompt_modes: [
+						{ mode: 'restyle', when: { field: 'restyle_task', in: ['colourise', 'restore'] } }
+					]
+				},
+				random: () => 0,
+				now: () => 1
+			});
+
+		expect(run('colourise').ok).toBe(true);
+		expect(run('restore').ok).toBe(true);
+		expect(run('custom')).toEqual({ ok: false, code: 'no_prompt', reason: null });
+	});
+
+	it('keeps a promptless mode promptless when it is also listed as optional', () => {
+		const result = prepareRequestFromSession({
+			presetId: 'preset-1',
+			mode: 'upscale',
+			session: { formData: {} },
+			presetVars: { promptless_modes: ['upscale'], optional_prompt_modes: ['upscale'] },
 			random: () => 0,
 			now: () => 1
 		});

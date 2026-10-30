@@ -158,7 +158,7 @@ def _generator_kinds(images, videos, audios):
     })
     with (
         patch.object(main_module, "_load_reference_video",
-                     lambda path: ReferenceMedia(kind="video", frames=_frames(), fps=24.0)),
+                     lambda path, max_seconds=None: ReferenceMedia(kind="video", frames=_frames(), fps=24.0)),
         patch.object(main_module, "_load_reference_audio",
                      lambda path: ReferenceMedia(kind="audio", audio=torch.zeros(2, 32000), sample_rate=32000)),
     ):

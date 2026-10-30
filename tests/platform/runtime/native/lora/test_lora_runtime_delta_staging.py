@@ -3,7 +3,7 @@
 A LoRA state dict is read to CPU (``load_torch_file(..., device="cpu")``, mmapped
 from the safetensors file) and ``map_lora_keys`` leaves it there. A delta
 attached to a quantised Linear in that state makes
-``vendor.gpl.comfyui.ops.apply_lora_deltas`` copy both rank factors
+``src.platform.runtime.native.kernels.lora_math.apply_lora_deltas`` copy both rank factors
 host-to-device AND cast them to fp32 on EVERY forward of that Linear, which on
 an fp8 checkpoint is every patched linear on every sampling step.
 """
@@ -24,7 +24,7 @@ from src.platform.runtime.native.lora.apply import (
     remove_loras,
 )
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
 

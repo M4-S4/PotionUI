@@ -38,6 +38,17 @@ def test_model_indexing_and_the_digest_pool_are_stopped_before_the_database_pool
     assert stop_indexing < stop_digests < close
 
 
+def test_media_tool_runs_are_shut_down_off_the_event_loop_before_the_database_pool_is_closed():
+    statements = [ast.unparse(stmt) for stmt in _shutdown_statements()]
+    stop_media_tools = next(
+        i for i, text in enumerate(statements)
+        if text == "await asyncio.to_thread(container.media_tool_service.shutdown)"
+    )
+    close = next(i for i, text in enumerate(statements) if "Database.close_pool" in text)
+
+    assert stop_media_tools < close
+
+
 def test_startup_starts_the_digest_pool_before_it_resumes_indexing():
     body = [ast.unparse(stmt) for stmt in lifespan().body]
     start = next(i for i, text in enumerate(body) if "digests.start()" in text)

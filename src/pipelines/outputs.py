@@ -160,6 +160,11 @@ class ProgressGenerationOutput(GenerationOutput):
     current_step_num: int = None
     total_steps: int = None
     bar: bool = True
+    item_index: int = None
+    item_count: int = None
+    item_progress: float = None
+    prompt_index: int = None
+    prompt_count: int = None
 
 
 @dataclass

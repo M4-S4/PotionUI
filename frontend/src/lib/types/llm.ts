@@ -1,15 +1,15 @@
 export interface LLMConfig {
 	id: string;
 	name: string;
-	type: 'ollama' | 'openai' | 'native';
+	type: string;
 	enabled: boolean;
 	base_url: string;
 	/** Whether a key is stored server-side. The key itself is never returned. */
 	api_key_set?: boolean;
 	model: string;
 	system_message: string;
-	temperature: number;
-	max_tokens: number;
+	temperature: number | null;
+	max_tokens: number | null;
 	timeout: number;
 	supports_vision?: boolean;
 	/** Extracts durable user facts from the transcript into memory notes. Default true. */
@@ -55,9 +55,6 @@ export interface OllamaOptions {
 	stop?: string[];               // Stop sequences
 
 	think?: boolean | 'low' | 'medium' | 'high';
-
-	// Tool calling
-	force_prompt_tools?: boolean;  // Inject tool schemas into system prompt instead of native tool calling (for models like Gemma 4 where native tools don't work)
 }
 
 /**
@@ -79,8 +76,6 @@ export interface NativeOptions {
 	/** null/unset = the loaded chat template's own default. */
 	thinking?: boolean | null;
 	quantization?: 'none' | 'int8' | 'nf4';
-	/** Context-window capacity (tokens) the budget preflight is told to use — see docs/user/admin.md. */
-	context_window?: number;
 	// Sampling — unset leaves the knob to the model's own generation_config;
 	// see docs/user/admin.md and LLM-E01 for later effectiveness comparisons.
 	top_k?: number;                // Limits token selection to the top K candidates
@@ -98,9 +93,63 @@ export interface NativeOptions {
 export interface LLMProviderType {
 	type: string;
 	label: string | null;
+	adapter: string;
 	default_base_url: string | null;
 	supports_model_listing: boolean;
+	source: string;
 }
+
+export type LLMProfileSource = 'seed' | 'discovered' | 'override';
+
+export interface LLMProfileField {
+	value: unknown;
+	source: LLMProfileSource;
+	seed: unknown;
+	discovered: unknown;
+	override: unknown;
+}
+
+export interface LLMProfileVerification {
+	suite: string;
+	passed_at: string;
+	runtime?: string | null;
+	gpu_tier?: string | null;
+}
+
+export interface LLMProfileSeedRow {
+	id: string;
+	root: string;
+	file: string;
+}
+
+export interface LLMProfile {
+	config_id: string;
+	adapter: string;
+	model: string;
+	discovered_at: string | null;
+	discovery_error: string | null;
+	fields: Record<string, LLMProfileField>;
+	verified?: LLMProfileVerification | null;
+	seed_rows?: LLMProfileSeedRow[];
+}
+
+export type LLMProfileFieldKind = 'enum' | 'set' | 'int' | 'float' | 'bool' | 'string';
+
+export interface LLMProfileSchemaField {
+	name: string;
+	kind: LLMProfileFieldKind | (string & {});
+	label?: string;
+	group?: string;
+	options?: string[];
+	min?: number;
+	max?: number;
+}
+
+export interface LLMProfileSchema {
+	fields: LLMProfileSchemaField[];
+}
+
+export type LLMProfileOverrides = Record<string, unknown>;
 
 export interface DiscoveredLLMModel {
 	id: string;
@@ -113,15 +162,6 @@ export interface DiscoveredLLMModel {
 export interface LLMModelDiscovery {
 	supported: boolean;
 	models: DiscoveredLLMModel[];
-	error: string | null;
-}
-
-export interface LLMContextWindowDiscovery {
-	supported: boolean;
-	detected: number | null;
-	detected_kind: 'runtime' | 'trained' | null;
-	effective: number | null;
-	discovered_at: string | null;
 	error: string | null;
 }
 

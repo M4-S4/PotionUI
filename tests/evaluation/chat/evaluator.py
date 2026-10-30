@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.features.llm import context_budget
+from src.features.llm.harness.legacy import messages_from_dicts
 
 
 @dataclass
@@ -545,7 +546,7 @@ def _check_budget_pressure_observed(transcript: Dict[str, Any], params: Dict[str
             capacity_source="test",
             reserve_tokens=params["reserve_tokens"],
             system_message=None,
-            messages=history,
+            messages=messages_from_dicts(history)[0],
             tool_schemas=None,
         )
         dropped = outcome.ledger["messages_dropped"]

@@ -7,10 +7,11 @@ import { conditionReadersFor } from '$lib/utils/conditionTags';
 import type { PredecessorOutputLike } from '$lib/utils/directorContinuation';
 import type { SegmentJoin } from '$lib/utils/richSegments';
 import { applyIndependentUsages, type VariableRoll } from '$lib/utils/variableDefs';
-import { isPromptlessMode } from '$lib/utils/promptlessMode';
+import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMode';
 import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
 import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
+import { seedPromptTabs, seedSegmentsFromText } from '$lib/utils/promptTextSeed';
 import { resolveRequestContext } from '$lib/generation/requestContext';
 import { activePromptIndex, firstEmptyPrompt, promptList } from '$lib/generation/promptBatch';
 import type { DirectorModelOverlay } from '$lib/utils/cloudDirector';
@@ -155,6 +156,7 @@ export interface PrepareRequestOptions extends RandomSources {
 	segmentJoin: SegmentJoin;
 	promptRelayActive: boolean;
 	promptlessActive: boolean;
+	promptOptionalActive: boolean;
 	videoDirector: DirectorContext | null;
 	musicDirector: { caps: MusicDirectorCapabilities } | null;
 }
@@ -241,21 +243,15 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 	} else {
 		batchPrompts = options.canBatch && list.length > 1;
 		const sent = batchPrompts ? list : list.slice(0, 1);
-		if (batchPrompts && firstEmptyPrompt(sent) >= 0) return { ok: false, code: 'no_prompt', reason: null };
+		if (batchPrompts && !options.promptOptionalActive && firstEmptyPrompt(sent) >= 0) return { ok: false, code: 'no_prompt', reason: null };
 		promptsArray = sent.map((entry, index) => {
 			const entryPositive =
 				index === active ? positive.segments : shuffleSegmentChips(entry.promptSegments, random).segments;
 			const entryNegative =
 				index === active ? negative.segments : shuffleSegmentChips(entry.negativePromptSegments, random).segments;
 			return {
-				positive: (entryPositive.length > 0
-					? resolvePromptSegments(entryPositive, options.segmentJoin)
-					: entry.prompt || ''
-				).trim(),
-				negative: (entryNegative.length > 0
-					? resolvePromptSegments(entryNegative, options.segmentJoin)
-					: entry.negativePrompt || ''
-				).trim()
+				positive: resolvePromptSegments(entryPositive, options.segmentJoin).trim(),
+				negative: resolvePromptSegments(entryNegative, options.segmentJoin).trim()
 			};
 		});
 		activeSent = active < sent.length;
@@ -263,7 +259,7 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 
 	const hasValidPrompt = promptsArray.some((p) => p.positive.trim().length > 0);
 	if (!tab.selectedPreset) return { ok: false, code: 'no_preset', reason: null };
-	if (!hasValidPrompt && !options.promptlessActive) return { ok: false, code: 'no_prompt', reason: null };
+	if (!hasValidPrompt && !options.promptlessActive && !options.promptOptionalActive) return { ok: false, code: 'no_prompt', reason: null };
 
 	const readers = conditionReadersFor(promptsArray.flatMap((p) => [p.positive, p.negative]));
 	const independent = applyIndependentUsages(promptsArray, tab.variables, readers);
@@ -311,7 +307,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 		merged.formData = { ...((session.formData as Record<string, unknown>) || {}), ...(overrides.formData as Record<string, unknown>) };
 	}
 	const vars = input.presetVars ?? {};
-	const tab = {
+	const raw = {
 		promptSegments: [],
 		negativePromptSegments: [],
 		...merged,
@@ -322,6 +318,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 		prompt: (merged.prompt as string) ?? '',
 		negativePrompt: (merged.negativePrompt as string) ?? ''
 	} as RequestTab;
+	const tab = { ...seedSegmentsFromText(raw), promptTabs: seedPromptTabs(raw.promptTabs) } as RequestTab;
 	const context = resolveRequestContext(vars, input.mode, input.directorOverlay ?? null);
 	return prepareRequest({
 		tab,
@@ -330,6 +327,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 		segmentJoin: context.segmentJoin,
 		promptRelayActive: context.promptRelayActive,
 		promptlessActive: context.promptlessActive || isPromptlessMode(vars, input.mode, tab.formData),
+		promptOptionalActive: context.promptOptionalActive || isOptionalPromptMode(vars, input.mode, tab.formData),
 		videoDirector:
 			context.videoDirectorActive && context.videoDirectorCaps
 				? { caps: context.videoDirectorCaps, checked: new Set(), predecessorOutputs: null }

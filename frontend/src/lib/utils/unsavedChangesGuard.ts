@@ -2,6 +2,7 @@ import type { ModeBasedSessionData, SessionData } from '$lib/types/api';
 import { jsonEqual } from '$lib/utils/equal';
 import type { ModeState, Tab } from '$lib/types/tabs';
 import { captureModeState } from '$lib/utils/modeState';
+import { seedPromptTabs, seedSegmentsFromText } from '$lib/utils/promptTextSeed';
 
 interface ModeContentSnapshot {
 	prompt: string;
@@ -17,12 +18,18 @@ interface ModeContentSnapshot {
 
 function normalizeModeContent(data: Partial<SessionData & ModeState> | undefined): ModeContentSnapshot {
 	const d = data ?? {};
-	return {
+	const seeded = seedSegmentsFromText({
 		prompt: d.prompt ?? '',
 		negativePrompt: d.negativePrompt ?? '',
 		promptSegments: d.segments ?? d.promptSegments ?? [],
-		negativePromptSegments: d.negativeSegments ?? d.negativePromptSegments ?? [],
-		promptTabs: d.promptTabs ?? null,
+		negativePromptSegments: d.negativeSegments ?? d.negativePromptSegments ?? []
+	});
+	return {
+		prompt: seeded.prompt,
+		negativePrompt: seeded.negativePrompt,
+		promptSegments: seeded.promptSegments,
+		negativePromptSegments: seeded.negativePromptSegments,
+		promptTabs: seedPromptTabs(d.promptTabs) ?? null,
 		activePromptTab: d.activePromptTab ?? null,
 		formData: d.formData ?? {},
 		videoDirector: d.videoDirector ?? null,

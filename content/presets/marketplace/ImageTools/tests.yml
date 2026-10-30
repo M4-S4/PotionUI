@@ -40,10 +40,6 @@ cases:
       resolution: "832x480"
       not_black: true
 
-  # Same chain with both upstream gates off: the toggles must reroute
-  # canvas_fit straight to media_loader instead of leaving it starved of an
-  # input. A regression in the templated `input:` provider shows up here as
-  # zero outputs. No matting model is referenced, on purpose.
   - name: "imagetools-prepare-no-matte-no-crop"
     mode: "prepare"
     kind: "image"

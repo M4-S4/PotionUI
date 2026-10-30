@@ -113,6 +113,43 @@ weight-side Kronecker delta. The setting replaces the old
 `NATIVE_LORA_FUSED` environment variable, which is no longer read after the first boot seeds each
 existing native backend from it.
 
+## Implementation contracts
+
+The layers live in `src/platform/runtime/native/kernels/` (`fp8_linear.py`, `nvfp4_linear.py`,
+`operations.py`); `fast_path(layer)` in `linear.py` reports which branch a layer takes.
+
+- **fp8 `_scaled_mm` preconditions** (any miss falls back to dequantize, and the first miss for each
+  distinct reason is logged once per process): the live flag is on and the probe passes; every LoRA
+  delta has an output-side form; the weight is `float8_e4m3fn` with a `weight_scale` (int8, ConvRot
+  and e5m2 always dequantize); the activation is CUDA float16/bfloat16; both dimensions are
+  multiples of 16. A CPU weight is allowed because the call stages it.
+- **Kernel-level fallbacks** (the call returns `None` and the caller dequantizes): a weight or input
+  scale that is not a single finite positive value, a failed on-demand staging, or a runtime
+  `RuntimeError`/out-of-memory from `_scaled_mm`. Scale validity is memoized per tensor identity and
+  version, so an unchanged scale is read from the device once, not every forward.
+- **Layout:** the activation is row-major `(M, K)` and the weight is passed as its column-major
+  transpose, which is free only when the weight is contiguous, so the call enforces that.
+- **Staging:** a weight that is not CUDA-resident is copied to the activation's device for one call
+  through the same cast the dequantize path uses; the temporary is a local reference and is dropped
+  when the call returns, including on failure.
+- **`prepared_linear(sample)`:** prepares the effective operand once for a caller-driven chunk loop
+  that shares `sample`'s dtype and device, and nothing outlives the `with` block. Layers without a
+  scale, nvfp4 layers and leaves carrying forward hooks (a streaming prefetcher's) pass through to
+  ordinary per-chunk dispatch, because the prepared path never goes through `nn.Module.__call__`. A
+  kernel rejection on one chunk releases the staged weight first, then downgrades the rest of the
+  context to one dequantized operand and never retries the fast path inside it.
+- **AWQ `pre_quant_scale`** multiplies the activation first on every path, once per call, never
+  doubled by a downgrade.
+- **nvfp4 GEMM** runs through `torch.nn.functional.scaled_mm` (`torch._scaled_mm_v2`) with the
+  two-level recipe: a block-wise 1x16 e4m3 scale in the swizzled layout plus a per-tensor float32
+  scale for each operand. The checkpoint's block scale is passed as stored, with no unblocking.
+  Alignment is checked on the packed shapes, so `in_features` must be a multiple of 32 and
+  `out_features` a multiple of 16. The packed weight must already be on the GPU (it is not staged),
+  and the bias is added after the GEMM rather than passed to the kernel.
+- **What `fast_path` does not see:** activation dtype and device, scale values, kernel rejection,
+  forward hooks and grad mode. It answers the static question for a layer; the forward decides per
+  call.
+
 ## Tradeoffs and limitations
 
 - Requires specific hardware: CUDA with compute capability `(8, 9)` or higher (Ada/Hopper/Blackwell)

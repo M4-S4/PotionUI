@@ -1,12 +1,12 @@
 """Pins the interaction the team lead flagged: a chat turn
-(NativeLLMClient) and a native diffusion generation share ONE
+(NativeDriver) and a native diffusion generation share ONE
 ModelLifecycle, and each has its own end-of-turn/end-of-generation
 sweep (`end_lease` -> `_sweep_unused_owned`, gated on
 `model_cache_scope=preset`, the default). Both directions must hold:
 
 1. A chat turn's own `end_lease()` must never run the generation-end sweep at
    all - a chat turn's `_cache_owner` stays at its ContextVar default (None)
-   for the whole call (NativeLLMClient._leased() deliberately never calls
+   for the whole call (NativeDriver._leased() deliberately never calls
    `begin_generation()`), and `_sweep_unused_owned` only fires when
    `owner is not None`. So a chat turn ending must leave OTHER presets'
    entries completely untouched.
@@ -20,7 +20,7 @@ sweep (`end_lease` -> `_sweep_unused_owned`, gated on
 `tests/platform/runtime/model_lifecycle/test_manager.py::TestPresetScopedCache::
 test_ownerless_entry_survives_generation_sweep` already pins the generic
 manager-level mechanism with a synthetic FakeModel; these tests pin it through
-the ACTUAL NativeLLMClient code path with a real tiny checkpoint, so a future
+the ACTUAL NativeDriver code path with a real tiny checkpoint, so a future
 change to `_leased()` (e.g. someone "helpfully" adding a `begin_generation()`
 call) gets caught here even if the generic mechanism test still passes.
 """
@@ -30,7 +30,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.features.llm.clients.native import NativeLLMClient
+from tests.fixtures.native_runtime import NativeDriver
 from src.features.llm.repository import LLMConfig
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from tests.fixtures.model_roots import make_roots
@@ -80,7 +80,7 @@ def models_manager():
 
 @pytest.fixture
 def client(models_manager):
-    return NativeLLMClient(models_manager)
+    return NativeDriver(models_manager)
 
 
 @pytest.fixture
@@ -144,11 +144,6 @@ async def test_chat_turn_end_lease_never_sweeps_other_presets_entries(client, mo
     # A chat turn runs on the SAME manager.
     await client.generate_with_history([{"role": "user", "content": "hi"}], _chat_config(name), "sys")
 
-    # If NativeLLMClient ever started calling begin_generation(), this chat
-    # turn's end_lease would stamp owner=None and (with owner is not None
-    # required for the sweep) still be safe — but if someone "fixed" it to
-    # tag chat turns with a real owner, a mismatched sweep could fire and
-    # this would catch it either way.
     assert "dit" in models_manager._entries
 
 

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
+import { keyboardFocus } from './helpers/keyboardFocus';
 
 const { default: IconButton } = await import('$lib/components/ui/IconButton.svelte');
 const { mount, unmount, flushSync } = await import('svelte');
@@ -37,10 +38,10 @@ describe('IconButton', () => {
 
 	it('shows its label as a tooltip on focus, outside a Tooltip', async () => {
 		const btn = render({});
-		btn.dispatchEvent(new FocusEvent('focusin'));
+		keyboardFocus(btn);
 		await Promise.resolve();
 		expect(document.body.querySelector('[role="tooltip"]')?.textContent?.trim()).toBe('Close');
-		btn.dispatchEvent(new FocusEvent('focusout'));
+		btn.blur();
 		expect(document.body.querySelector('[role="tooltip"]')).toBeNull();
 	});
 
@@ -51,7 +52,7 @@ describe('IconButton', () => {
 		const { createClassComponent } = await import('svelte/legacy');
 		const h = createClassComponent({ component: Fixture as never, target: target2, props: {} });
 		const btn = target2.querySelector('button')!;
-		btn.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		keyboardFocus(btn);
 		await new Promise((r) => setTimeout(r, 0));
 		expect(document.body.querySelectorAll('[role="tooltip"]').length).toBe(1);
 		h.$destroy();

@@ -60,6 +60,9 @@ speed_profiles:
     steps: 24
     guidance: 4.0
     sampler: "euler"
+  refine:
+    guidance: 1.0
+    sampler: "euler"
 
 # Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
 # these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
@@ -82,13 +85,6 @@ configuration:
     description: "Only models with any of these tags appear in the Spatial Upscaler picker."
 
 vars:
-  # Distilled recipe: Lightricks' own DISTILLED_SIGMA_VALUES
-  # constant (packages/ltx-pipelines in github.com/Lightricks/LTX-2,
-  # Apache-2.0) -- a digit-for-digit match to the maintainer's validated
-  # ComfyUI distilled-refine recipe. Single source of truth: read by both
-  # modes' pipeline.yml for the "Distilled" speed profile above (see
-  # modes/*/tabs/generation.yml for the profile selector, docs/models/ltx.md
-  # for the full recipe).
   distilled_sigma_recipe: "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
   default_frames: 49
   default_fps: 25
@@ -169,6 +165,7 @@ vars:
         audio: true
         ic_lora: true
         max_keyframes: 8
+        video_keyframes: true
     limits:
       default_duration: 5
       default_fps: 25

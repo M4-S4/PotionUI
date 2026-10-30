@@ -55,7 +55,7 @@ from vendor.seedvr2.cache import Cache
 from vendor.seedvr2.layers import AdaSingle, NaMMSRTransformerBlock, NaPatchIn, NaPatchOut, TimeEmbedding
 from vendor.seedvr2 import na
 
-from ...attention import attention as _dispatch_attention
+from ...kernels import attention as _dispatch_attention
 from ...base import NativeArchModule
 from .config import SeedVR2Config
 

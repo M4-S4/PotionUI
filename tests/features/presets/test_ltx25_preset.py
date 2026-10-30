@@ -24,12 +24,22 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
+from scripts.preset_render import (
+    ROOT,
+    build_fixture_form_data,
+    build_processor,
+    load_all_presets,
+    render_preset_mode,
+)
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
+from src.features.prompt_enhancement.operations import _gather_preset_guide
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
 
@@ -175,7 +185,7 @@ def test_audio_vae_is_optional(ltx25_template):
     ("balanced", 24, 4.0),
     ("distilled", 8, 1.0),
     ("quality", 30, 3.0),
-    ("custom", 24, 4.0),
+    ("custom", 8, 1.0),
 ])
 def test_every_profile_bakes_euler_ancestral_stage1(ltx25_template, profile, steps, cfg):
     gen = _pipe(_process_video(ltx25_template, form_over={"speed_profile": profile}),
@@ -256,3 +266,162 @@ def test_no_pipe_receives_a_sampler_v25_key(ltx25_template, mode):
     pipes = _process_video(ltx25_template) if mode == "video" else _process_upscale(ltx25_template)
     for pipe in pipes:
         assert "sampler_v25" not in pipe["config"], pipe.get("id") or pipe["name"]
+
+
+def test_no_mode_caps_clip_frames_with_a_preset_number():
+    root = Path("content/presets/marketplace/LTX-2.5")
+    files = [root / "preset.yml", *sorted(root.glob("modes/*/*.yml"))]
+    assert [f for f in files if "edit_max_frames" in f.read_text(encoding="utf-8")] == []
+
+
+def test_every_windowed_edit_mode_takes_its_frames_from_the_clip():
+    windowed = 0
+    for path in sorted(Path("content/presets/marketplace/LTX-2.5/modes").glob("*/pipeline.yml")):
+        for pipe in yaml.safe_load(path.read_text(encoding="utf-8"))["pipeline"]:
+            config = pipe.get("configuration") or {}
+            if pipe.get("name") == "generator/video_ltx" and config.get("match_video"):
+                assert "frames" not in config, path
+                windowed += bool(config.get("windows"))
+    assert windowed >= 6
+
+
+OPTIONAL_PROMPT_MODES = [
+    "restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "cinemagraph",
+]
+PROMPT_PASS_THROUGH_MODES = ["extend", "refine_faces"]
+
+
+def _prompt_built_from_an_empty_prompt(template, mode):
+    generation = {
+        "mode": mode, "form_data": build_fixture_form_data(template, mode),
+        "prompts": [{"positive": "", "negative": ""}],
+    }
+    pipes = build_processor().process(template, generation)
+    return next(p for p in pipes if p["name"] == "prompt_encoder")["config"]["p_prompt"]["output"]
+
+
+def test_the_modes_with_a_built_in_sentence_take_an_optional_prompt(ltx25_template):
+    assert ltx25_template.vars["optional_prompt_modes"] == OPTIONAL_PROMPT_MODES
+    assert "promptless_modes" not in ltx25_template.vars
+    assert set(OPTIONAL_PROMPT_MODES) <= set(ltx25_template.modes)
+
+
+@pytest.mark.parametrize("mode", OPTIONAL_PROMPT_MODES)
+def test_each_optional_prompt_mode_builds_a_prompt_when_none_is_written(ltx25_template, mode):
+    assert _prompt_built_from_an_empty_prompt(ltx25_template, mode).strip()
+
+
+@pytest.mark.parametrize("mode", PROMPT_PASS_THROUGH_MODES)
+def test_the_modes_that_pass_the_prompt_straight_through_keep_requiring_it(ltx25_template, mode):
+    assert mode not in ltx25_template.vars["optional_prompt_modes"]
+    assert not _prompt_built_from_an_empty_prompt(ltx25_template, mode).strip()
+
+
+TRIGGER_WORDS = "ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION"
+MODE_GUIDE_RULES = {
+    "restore": ["The Fix field picks the task", "describe the period, place, light, materials and clothing"],
+    "colorize": ["one or two plain sentences describing the scene"],
+    "day_to_night": ["Describe the night look"],
+    "add_water": ["Write only the water: its type, its motion and how it touches the subject"],
+    "remove_object": ["Describe the empty scene and name what must not appear"],
+    "layout_to_render": [
+        "one or two sentences describing the finished shot, matching the First Frame",
+        "Never use the words clay, 3D or Unreal",
+    ],
+    "cinemagraph": ["Name exactly what moves", "everything else stays still", "there are no camera moves"],
+}
+
+
+def _guide(template, mode):
+    return " ".join(template.llm["modes"][mode]["guide"].split())
+
+
+def _prompt_writer_guide(template, mode):
+    collaborators = SimpleNamespace(
+        preset_collaborators=SimpleNamespace(file_repo=Mock(find_preset_by_id=Mock(return_value=template))),
+    )
+    return _gather_preset_guide(collaborators, {"preset": template.id, "mode": mode})
+
+
+def test_only_the_reference_video_modes_override_the_video_guide(ltx25_template):
+    assert set(ltx25_template.llm["modes"]) == set(MODE_GUIDE_RULES) == set(OPTIONAL_PROMPT_MODES)
+    assert ltx25_template.llm["guide"].startswith("Write ONE chronological paragraph")
+
+
+@pytest.mark.parametrize("mode", MODE_GUIDE_RULES)
+def test_each_reference_video_mode_tells_the_prompt_writer_what_that_mode_wants(ltx25_template, mode):
+    guide = _guide(ltx25_template, mode)
+
+    for rule in MODE_GUIDE_RULES[mode]:
+        assert rule in guide
+    assert "The prompt is optional, and the mode adds the caption and trigger word itself" in guide
+    assert f"never type {TRIGGER_WORDS}" in guide
+    assert guide != " ".join(ltx25_template.llm["guide"].split())
+
+
+def test_the_restore_guide_names_the_fixes_by_the_labels_the_form_shows(ltx25_template):
+    path = Path("content/presets/marketplace/LTX-2.5/modes/restore/tabs/references.yml")
+    fields = yaml.safe_load(path.read_text(encoding="utf-8"))["fields"]
+    task = next(field for field in fields if field["name"] == "restore_task")
+    labels = [option["label"] for option in task["configuration"]["options"]]
+    guide = _guide(ltx25_template, "restore")
+
+    assert f"The {task['label']} field" in guide
+    assert labels == ["Restore old footage", "Remove blur", "Remove compression"]
+    assert all(label in guide for label in labels)
+
+
+@pytest.mark.parametrize("mode", [*MODE_GUIDE_RULES, "video", "upscale", "extend", "refine_faces"])
+def test_the_prompt_writer_gets_the_guide_of_the_active_mode(ltx25_template, mode):
+    expected = ltx25_template.llm["modes"][mode]["guide"] if mode in MODE_GUIDE_RULES else ltx25_template.llm["guide"]
+
+    assert _prompt_writer_guide(ltx25_template, mode) == expected
+
+
+# -- default profile: distilled on every mode -------------------------------
+
+def _generator_configs(record):
+    return [
+        p["config"] for p in record["pipes"]
+        if p["name"] == "generator/video_ltx" and "steps" in p["config"]
+    ]
+
+
+def _rendered(ltx25_template, mode, speed_profile=None):
+    form_data = build_fixture_form_data(ltx25_template, mode)
+    if speed_profile is not None:
+        form_data["speed_profile"] = speed_profile
+    return render_preset_mode(build_processor(), ltx25_template, mode, form_data)
+
+
+@pytest.fixture(scope="module")
+def ltx25_preset():
+    presets, _errors = load_all_presets(presets_root=ROOT / "content" / "presets" / "marketplace", include_plugins=False)
+    return next(p for p in presets if Path(p.path).as_posix().endswith("marketplace/LTX-2.5"))
+
+
+def _speed_modes(preset):
+    return sorted(
+        mode for mode in preset.modes
+        if _generator_configs(render_preset_mode(build_processor(), preset, mode))
+    )
+
+
+def test_every_generating_mode_defaults_to_the_distilled_profile(ltx25_preset):
+    modes = _speed_modes(ltx25_preset)
+    assert {"video", "extend", "cinemagraph", "day_to_night"} <= set(modes)
+    for mode in modes:
+        for config in _generator_configs(_rendered(ltx25_preset, mode)):
+            assert config["steps"]["value"] == 8, mode
+            assert config["cfg"]["value"] == 1.0, mode
+            assert config["quality_mode"]["value"] is False, mode
+            assert config["manual_sigmas"]["value"] == DISTILLED_RECIPE, mode
+
+
+@pytest.mark.parametrize("mode", ["cinemagraph", "day_to_night"])
+def test_distilled_run_ignores_the_modes_quality_cfg(ltx25_preset, mode):
+    distilled = _generator_configs(_rendered(ltx25_preset, mode, "distilled"))[0]
+    assert distilled["quality_mode"]["value"] is False
+    assert distilled["cfg"]["value"] == 1.0
+    quality = _generator_configs(_rendered(ltx25_preset, mode, "quality"))[0]
+    assert quality["quality_mode"]["value"] is True

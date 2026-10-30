@@ -10,7 +10,9 @@ from safetensors.torch import save_file
 from src.platform.runtime.native.arch.moss_image.model import MossImage, convert_moss_image_state_dict
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
+from src.platform.runtime.native.io import quant_formats
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file, unpack_int4
+from src.platform.runtime.native.kernels import fp8_ops, pick_operations
 from src.platform.runtime.native.ops.model_tools import formats
 from src.platform.runtime.native.ops.model_tools.errors import UnsupportedFormatError
 from src.platform.runtime.native.ops.model_tools.formats import QUANT_FORMATS, get_format, pack_int4
@@ -22,7 +24,6 @@ from tests.platform.runtime.native._quant_layouts import (
     reference_quantize_convrot,
     reference_rotate,
 )
-from vendor.gpl.comfyui import ops as comfy_ops
 
 COMFY_QUANT_ALGOS = {
     "float8_e4m3fn": (torch.float8_e4m3fn, {"weight_scale", "input_scale"}),
@@ -83,7 +84,7 @@ def write_source(path, seed=0):
 def loaded_linear(path):
     sd, _ = load_torch_file(path)
     layer = {k[len(LAYER) + 1:]: v for k, v in sd.items() if k.startswith(LAYER + ".")}
-    linear = comfy_ops.fp8_ops.Linear(IN_F, OUT_F, bias=False, dtype=torch.float32)
+    linear = fp8_ops.Linear(IN_F, OUT_F, bias=False, dtype=torch.float32)
     linear.load_state_dict(layer, strict=True)
     return linear
 
@@ -136,9 +137,8 @@ def test_the_convrot_descriptor_is_the_canonical_published_form():
     assert len(get_format("int8_convrot").descriptor_bytes) == canonical_length
 
 
-def test_the_convrot_writer_uses_the_loader_hadamard_not_a_copy():
-    assert formats._build_convrot_hadamard is comfy_ops._build_convrot_hadamard
-    assert formats._convrot_unrotate_weight is comfy_ops._convrot_unrotate_weight
+def test_the_convrot_writer_uses_the_loader_unrotation_not_a_copy():
+    assert formats.convrot_unrotate_weight is quant_formats.convrot_unrotate_weight
 
 
 def test_int8_convrot_codes_match_the_independent_reference():
@@ -222,7 +222,7 @@ def test_an_unknown_format_is_refused():
 
 def moss_float_model():
     torch.manual_seed(0)
-    model = MossImage.from_config(MOSS_CONFIG, comfy_ops.pick_operations(torch.float32, torch.float32))
+    model = MossImage.from_config(MOSS_CONFIG, pick_operations(torch.float32, torch.float32))
     for name, param in model.named_parameters():
         param.data = torch.randn_like(param) * (0.05 if param.ndim > 1 else 0.1)
         if name.endswith(("norm.weight", "norm1.weight", "norm2.weight")):
@@ -244,7 +244,7 @@ def test_a_quantized_moss_dit_loads_into_the_real_arch_and_tracks_the_float_mode
     dst = tmp_path / "moss-q.safetensors"
     quantize_file(source, dst, family="moss_image", quant_format=key)
     sd, _ = load_torch_file(dst)
-    quantised = MossImage.from_config(MOSS_CONFIG, comfy_ops.fp8_ops)
+    quantised = MossImage.from_config(MOSS_CONFIG, fp8_ops)
     load_into_module(quantised, convert_moss_image_state_dict(sd), match_model_spec(MOSS_CONFIG))
     quantised.eval()
     qkv = quantised.layers[0].proj["qkv"]

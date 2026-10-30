@@ -376,7 +376,9 @@ for (const viewport of [
 			await page.route('**/api/readiness', (route) => fulfillJson(route, READINESS));
 			await page.goto('/setup');
 
-			await expect(page.getByRole('heading', { name: 'Models location' })).toBeVisible({ timeout: 15000 });
+			await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 15000 });
+			await page.getByRole('button', { name: 'Continue' }).click();
+			await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
 			await expect(
 				page.getByText("487 models found. They're usable now; you'll choose how to index them after setup.")
 			).toBeVisible();

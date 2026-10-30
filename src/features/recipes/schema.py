@@ -145,6 +145,10 @@ class RecipeArtifact:
     gated: bool = False
     #: Where to go accept that licence, shown alongside the `gated` warning.
     license_url: Optional[str] = None
+    #: Hostname the file downloads from, shown on the wizard's starter card
+    #: ("Downloads from huggingface.co"). Purely informational: the actual
+    #: source is still resolved through the artifact's `capability`.
+    source_host: Optional[str] = None
     variants: Tuple[RecipeArtifactVariant, ...] = ()
 
     def get_variant(self, variant_id: Optional[str]) -> Optional[RecipeArtifactVariant]:
@@ -236,6 +240,10 @@ class Recipe:
     summary: str = ""
     description: str = ""
     category: str = ""
+    #: Plain one-line pitch for the first-run starter card.
+    blurb: Optional[str] = None
+    #: Offered by the first-run setup wizard's starter list.
+    first_run: bool = False
     plugins: List[RecipePluginRequirement] = field(default_factory=list)
     backend: Optional[RecipeBackendRequirement] = None
     artifacts: List[RecipeArtifact] = field(default_factory=list)
@@ -335,6 +343,9 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
 
     _require_str(data, "name", "name", issues)
     engine = _require_str(data, "engine", "engine", issues)
+    _require_str(data, "blurb", "blurb", issues, required=False)
+    if "first_run" in data and not isinstance(data["first_run"], bool):
+        _err(issues, "first_run", "must be true or false")
 
     category = data.get("category")
     if category not in CATEGORIES:
@@ -385,6 +396,7 @@ def validate_recipe_dict(data: Any, extra_kinds: Optional[Iterable[str]] = None)
         aid = _require_str(entry, "id", path, issues)
         _require_str(entry, "kind", path, issues)
         _require_str(entry, "model_type", path, issues)
+        _require_str(entry, "source_host", path, issues, required=False)
         if aid:
             if aid in artifact_ids:
                 _err(issues, path, f"duplicate artifact id '{aid}'")
@@ -714,6 +726,7 @@ def _parse_artifact(a: Dict[str, Any]) -> RecipeArtifact:
         provider_hint=dict(a.get("provider_hint") or {}),
         gated=bool(a.get("gated", False)),
         license_url=a.get("license_url"),
+        source_host=a.get("source_host"),
         variants=variants,
     )
     if not variants:
@@ -796,6 +809,8 @@ def parse_recipe(
         summary=data.get("summary", ""),
         description=data.get("description", ""),
         category=data["category"],
+        blurb=data.get("blurb"),
+        first_run=bool(data.get("first_run", False)),
         plugins=plugins,
         backend=backend,
         artifacts=artifacts,

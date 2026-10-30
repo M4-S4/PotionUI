@@ -14,7 +14,7 @@ import re
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
 class PluginCategory(str, Enum):
@@ -255,6 +255,9 @@ class ModelLayoutsRootSpec(PluginRelativePathSpec):
 
 
 class FiltersRootSpec(PluginRelativePathSpec):
+    pass
+
+class LLMProfilesRootSpec(PluginRelativePathSpec):
     pass
 
 
@@ -536,51 +539,118 @@ class PhrasebookOpSpec(BaseModel):
     component: Optional[str] = None
 
 
-class HistoryToolAppliesTo(BaseModel):
-    """Selection constraints on a history tool: `history_tools[].applies_to`.
-    Every key is optional; an unset bound doesn't constrain the selection."""
+MEDIA_TOOL_KINDS = ("image", "video", "audio")
+MEDIA_TOOL_SCOPES = ("library", "history", "field")
+MEDIA_TOOL_PARAM_TYPES = ("integer", "float", "select", "checkbox", "color", "string", "anchor")
 
+
+class MediaToolParamSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    min_selection: Optional[int] = Field(default=None, ge=1)
-    max_selection: Optional[int] = None
-    media_kinds: List[Literal["image", "video", "audio", "mesh"]] = Field(default_factory=list)
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    type: Literal[MEDIA_TOOL_PARAM_TYPES]
+    label: Optional[str] = None
+    default: Any = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+    step: Optional[float] = None
+    unit: Optional[str] = None
+    options: List[Union[Dict[str, Any], str, int, float]] = Field(default_factory=list)
+    allow_transparent: bool = False
+    when: Optional[Union[Dict[str, Any], List[Any]]] = None
+    description: Optional[str] = None
 
     @model_validator(mode="after")
-    def _validate_selection_bounds(self) -> "HistoryToolAppliesTo":
-        if (
-            self.min_selection is not None
-            and self.max_selection is not None
-            and self.max_selection < self.min_selection
-        ):
-            raise ValueError("max_selection must be >= min_selection")
+    def _select_needs_options(self) -> "MediaToolParamSpec":
+        if self.type == "select" and not self.options:
+            raise ValueError(f"select param '{self.name}' needs options")
+        for option in self.options:
+            if isinstance(option, dict) and "value" not in option:
+                raise ValueError(f"param '{self.name}' option {option!r} needs a 'value'")
+        if self.min is not None and self.max is not None and self.max < self.min:
+            raise ValueError(f"param '{self.name}' max must be >= min")
         return self
 
+    @model_serializer(mode="wrap")
+    def _only_declared_keys(self, handler):
+        data = handler(self)
+        declared = self.model_fields_set | {"name", "type"}
+        return {key: value for key, value in data.items() if key in declared}
 
-class HistoryToolSpec(BaseModel):
-    """A plugin-provided media tool: `history_tools[]` (the manifest key
-    stayed `history_tools` even though a tool can now also run on the
-    Library page - renaming it would break every plugin already shipping one).
 
-    Served as `<plugin_id>:<id>` by `GET /api/plugins/history-tools`.
-    `component` is the plugin frontend asset mounted in a modal over the
-    selected media, the same convention as `phrasebook_ops[].component`.
-    `category` groups the tool alongside core's own `analyze`/`compose`/`export`
-    groups, or creates a new plugin-owned group under any other value.
-    """
-
+class MediaToolRequires(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    has_audio: Optional[bool] = None
+    has_alpha: Optional[bool] = None
+    min_duration: Optional[float] = Field(default=None, ge=0)
+
+    @model_serializer(mode="wrap")
+    def _only_declared_keys(self, handler):
+        data = handler(self)
+        return {key: value for key, value in data.items() if value is not None}
+
+
+class MediaToolSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min: Optional[int] = Field(default=None, ge=1)
+    max: Optional[int] = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_bounds(self) -> "MediaToolSelection":
+        if self.min is not None and self.max is not None and self.max < self.min:
+            raise ValueError("selection max must be >= min")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _only_declared_keys(self, handler):
+        data = handler(self)
+        return {key: value for key, value in data.items() if value is not None}
+
+
+class MediaToolSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[a-z0-9-]+\.[a-z0-9][a-z0-9_-]*$")
     label: str = Field(min_length=1)
     description: str = ""
     icon: str = "extension"
-    category: str = Field(min_length=1, pattern=r"^[a-z0-9][a-z0-9_-]*$")
-    component: str = Field(min_length=1)
-    applies_to: HistoryToolAppliesTo = Field(default_factory=HistoryToolAppliesTo)
-    # Which page's Tools menu offers this tool. Absent/omitted keeps every
-    # tool shipped before scopes existed on the History page only.
-    scopes: List[Literal["history", "library", "field"]] = Field(default_factory=lambda: ["history"])
+    accepts: List[Literal[MEDIA_TOOL_KINDS]] = Field(min_length=1)
+    produces: Literal["same", "image", "video", "audio"] = "same"
+    cardinality: Literal["one_to_one", "one_to_many", "many_to_one"] = "one_to_one"
+    params: List[MediaToolParamSpec] = Field(default_factory=list)
+    requires: MediaToolRequires = Field(default_factory=MediaToolRequires)
+    selection: Optional[MediaToolSelection] = None
+    scopes: List[Literal[MEDIA_TOOL_SCOPES]] = Field(default_factory=lambda: list(MEDIA_TOOL_SCOPES), min_length=1)
+    preview: bool = False
+    python: Optional[str] = Field(
+        default=None, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_/-]*\.py:[A-Za-z_][A-Za-z0-9_]*$"
+    )
+    component: Optional[str] = Field(default=None, min_length=1)
+
+    @field_validator("params")
+    @classmethod
+    def _unique_params(cls, value: List[MediaToolParamSpec]) -> List[MediaToolParamSpec]:
+        names = [param.name for param in value]
+        if len(names) != len(set(names)):
+            raise ValueError("param names must be unique")
+        return value
+
+    @field_validator("python")
+    @classmethod
+    def _contained_python_path(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and ".." in value.split(":", 1)[0].split("/"):
+            raise ValueError("must not contain '..' segments")
+        return value
+
+    @model_validator(mode="after")
+    def _has_an_implementation(self) -> "MediaToolSpec":
+        if not self.python and not self.component:
+            raise ValueError("a media tool needs 'python', 'component', or both")
+        if self.preview and not self.python:
+            raise ValueError("'preview' needs a 'python' implementation")
+        return self
 
 
 class DocEntry(BaseModel):
@@ -805,6 +875,7 @@ class PluginManifestSchema(BaseModel):
     # Optional metadata
     category: PluginCategory = PluginCategory.OTHER
     capabilities: List[str] = Field(default_factory=list)
+    default_enabled: bool = False
     homepage: Optional[str] = None
     repository: Optional[str] = None
     license: Optional[str] = None
@@ -827,6 +898,7 @@ class PluginManifestSchema(BaseModel):
     # content/recipes/ tree - see RecipesRootSpec.
     recipes: List[RecipesRootSpec] = Field(default_factory=list)
     model_layouts: List[ModelLayoutsRootSpec] = Field(default_factory=list)
+    llm_profiles: List[LLMProfilesRootSpec] = Field(default_factory=list)
     filters: List[FiltersRootSpec] = Field(default_factory=list)
     filter_ops: List[FilterOpSpec] = Field(default_factory=list)
     # Recipe step kinds this plugin contributes - see RecipeStepSpec.
@@ -877,8 +949,7 @@ class PluginManifestSchema(BaseModel):
     # Phrasebook batch tools
     phrasebook_ops: List[PhrasebookOpSpec] = Field(default_factory=list)
 
-    # History page selection-bar tools
-    history_tools: List[HistoryToolSpec] = Field(default_factory=list)
+    media_tools: List[MediaToolSpec] = Field(default_factory=list)
 
     # Preset requirement checkers (see docs/presets.md "Requirements")
     requirement_checkers: List[RequirementCheckerSpec] = Field(default_factory=list)
@@ -894,4 +965,15 @@ class PluginManifestSchema(BaseModel):
             if op.id in seen:
                 raise ValueError(f"filter_ops id '{op.id}' is declared twice")
             seen.add(op.id)
+        return self
+
+    @model_validator(mode="after")
+    def _media_tools_belong_to_this_plugin(self) -> "PluginManifestSchema":
+        seen = set()
+        for tool in self.media_tools:
+            if not tool.id.startswith(f"{self.id}."):
+                raise ValueError(f"media_tools id '{tool.id}' must start with '{self.id}.'")
+            if tool.id in seen:
+                raise ValueError(f"media_tools id '{tool.id}' is declared twice")
+            seen.add(tool.id)
         return self

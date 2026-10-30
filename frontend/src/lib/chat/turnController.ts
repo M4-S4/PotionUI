@@ -17,7 +17,7 @@
  */
 import { get } from 'svelte/store';
 import { parseServerDate } from '$lib/utils/relativeTime';
-import type { UnifiedChatMessageData } from '$lib/types/chat';
+import type { ReasoningKind, UnifiedChatMessageData } from '$lib/types/chat';
 import type { APIResponse, ChatSessionResponse, ChatSessionWithMessagesResponse, SendChatMessageResponse } from '$lib/types/api';
 import {
 	ownSession,
@@ -25,6 +25,7 @@ import {
 	isRecoveryStillCurrent,
 	findTurnAssistantMessage,
 	applyDurableRecovery,
+	applyStepDiscarded,
 	settleUnrecoverable,
 	needsDurableRecovery,
 	mapPersistedMessage,
@@ -241,13 +242,30 @@ export function createStreamEventHandler(
 	const tokenCoalescer = createStreamCoalescer((accumulated) => {
 		if (owned.applyStreamEvent({ type: 'token', data: {} }, { accumulated })) d.scrollToBottomIfPinned();
 	});
-	let thinkingSegment = 0;
-	let thinkingText = '';
-	const thinkingCoalescer = createStreamCoalescer((accumulated) => {
-		if (owned.applyStreamEvent({ type: 'thinking', data: { segment: thinkingSegment } }, { accumulated })) {
+	let stepEpoch = 0;
+	const reasoningIndex = new Map<string, number>();
+	let reasoningBlock = 0;
+	let reasoningKind: ReasoningKind = 'raw';
+	let reasoningText = '';
+	const reasoningCoalescer = createStreamCoalescer((accumulated) => {
+		if (
+			owned.applyStreamEvent(
+				{ type: 'reasoning', data: { block: reasoningBlock, kind: reasoningKind } },
+				{ accumulated }
+			)
+		) {
 			d.scrollToBottomIfPinned();
 		}
 	});
+	const clientBlock = (serverBlock: unknown): number => {
+		const key = `${stepEpoch}:${typeof serverBlock === 'number' ? serverBlock : 0}`;
+		let index = reasoningIndex.get(key);
+		if (index === undefined) {
+			index = reasoningIndex.size;
+			reasoningIndex.set(key, index);
+		}
+		return index;
+	};
 	// The identity of the turn we're recovering FOR — the user message it
 	// answers. Seeded when already known (reattaching to a turn whose user
 	// message was already visible in the loaded session); otherwise learned
@@ -273,7 +291,7 @@ export function createStreamEventHandler(
 		// "whatever content is already showing" doesn't discard a token that
 		// really did arrive just because it hadn't been batch-applied yet.
 		tokenCoalescer.flush();
-		thinkingCoalescer.flush();
+		reasoningCoalescer.flush();
 		if (!owned.isCurrent()) return; // don't even bother with a doomed fetch
 
 		let matched: ChatSessionWithMessagesResponse['messages'][number] | null = null;
@@ -328,7 +346,7 @@ export function createStreamEventHandler(
 		// applied for a turn control no longer owns.
 		if (!owned.isCurrent()) {
 			tokenCoalescer.cancel();
-			thinkingCoalescer.cancel();
+			reasoningCoalescer.cancel();
 			return;
 		}
 
@@ -336,22 +354,44 @@ export function createStreamEventHandler(
 		// first, so a tool_start/status/replay_snapshot/done/error reducer
 		// never runs ahead of text that arrived before it on the wire.
 		if (event.type !== 'token') tokenCoalescer.flush();
-		if (event.type !== 'thinking') thinkingCoalescer.flush();
+		if (event.type !== 'reasoning') reasoningCoalescer.flush();
 
 		if (event.type === 'message_created') {
 			userMessageId = event.data?.user_message_id || userMessageId;
 		} else if (event.type === 'token') {
 			streamedContent += event.data.content;
 			tokenCoalescer.push(streamedContent);
-		} else if (event.type === 'thinking') {
-			const segment = typeof event.data?.segment === 'number' ? event.data.segment : thinkingSegment;
-			if (segment !== thinkingSegment) {
-				thinkingCoalescer.flush();
-				thinkingSegment = segment;
-				thinkingText = '';
+		} else if (event.type === 'reasoning') {
+			const block = clientBlock(event.data?.block);
+			if (block !== reasoningBlock) {
+				reasoningCoalescer.flush();
+				reasoningBlock = block;
+				reasoningText = '';
 			}
-			thinkingText += event.data?.content ?? '';
-			thinkingCoalescer.push(thinkingText);
+			reasoningKind = event.data?.kind === 'summary' || event.data?.kind === 'omitted' ? event.data.kind : 'raw';
+			reasoningText += event.data?.text ?? '';
+			reasoningCoalescer.push(reasoningText);
+		} else if (event.type === 'reasoning_end') {
+			owned.applyStreamEvent({
+				type: 'reasoning_end',
+				data: { block: clientBlock(event.data?.block), duration_ms: event.data?.duration_ms }
+			});
+		} else if (event.type === 'step') {
+			stepEpoch += 1;
+			owned.applyStreamEvent(event);
+		} else if (event.type === 'step_discarded') {
+			owned.updateMessages((msgs) => {
+				const next = applyStepDiscarded(msgs);
+				const kept = next.at(-1);
+				const keptBlocks = kept?.reasoning?.length ?? 0;
+				streamedContent = kept?.content ?? '';
+				for (const [key, index] of reasoningIndex) if (index >= keptBlocks) reasoningIndex.delete(key);
+				reasoningBlock = keptBlocks;
+				reasoningText = '';
+				return next;
+			});
+		} else if (event.type === 'notice') {
+			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'tool_start') {
 			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'tool_end') {

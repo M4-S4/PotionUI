@@ -1,0 +1,179 @@
+[
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together.",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "signature",
+    "value": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp"
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "summary",
+    "value": [
+      {
+        "type": "text",
+        "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together."
+      }
+    ]
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Setting the",
+    "phase": null
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": " mood now.",
+    "phase": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 2,
+    "call_id": "7b1x4s0q",
+    "name": "power_disco_ball",
+    "wire_id": "7b1x4s0q"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 2,
+    "text": "{\"power\": true}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 2,
+    "args": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 3,
+    "call_id": "m2k9c1pe",
+    "name": "start_music",
+    "wire_id": "m2k9c1pe"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "{\"energetic\": true, "
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 3,
+    "text": "\"loud\": false, \"bpm\": 128}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 3,
+    "args": null
+  },
+  {
+    "type": "tool_call_start",
+    "block": 4,
+    "call_id": "d8v3n6ra",
+    "name": "dim_lights",
+    "wire_id": "d8v3n6ra"
+  },
+  {
+    "type": "tool_args_delta",
+    "block": 4,
+    "text": "{\"brightness\": 0.2}"
+  },
+  {
+    "type": "tool_call_end",
+    "block": 4,
+    "args": null
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 212,
+      "output_tokens": 204,
+      "total_tokens": 416,
+      "reasoning_tokens": 143,
+      "cached_input_tokens": 0,
+      "cache_write_tokens": null,
+      "cost": null,
+      "raw": {
+        "total_input_tokens": 212,
+        "input_tokens_by_modality": [
+          {
+            "modality": "text",
+            "tokens": 212
+          }
+        ],
+        "total_cached_tokens": 0,
+        "total_output_tokens": 61,
+        "total_thought_tokens": 143,
+        "total_tool_use_tokens": 0,
+        "total_tokens": 416
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "tool_calls",
+    "raw_reason": "requires_action",
+    "raw": [
+      {
+        "type": "thought",
+        "signature": "EpoGCpcGAXLI2nx/Qw0ZpZ3dZsU8vJ1kT5mXoRy4bNfH7LcWqDgE9aPzS2uVtYiKhMjOe6BnC0AlFrGdXw1sQv3TyUp",
+        "summary": [
+          {
+            "type": "text",
+            "text": "**Planning the party setup**\n\nThe user wants the disco ball on, music playing and the lights dimmed. The three actions are independent, so I can request them together."
+          }
+        ]
+      },
+      {
+        "type": "model_output",
+        "content": [
+          {
+            "type": "text",
+            "text": "Setting the mood now."
+          }
+        ]
+      },
+      {
+        "type": "function_call",
+        "id": "7b1x4s0q",
+        "name": "power_disco_ball",
+        "arguments": {
+          "power": true
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "m2k9c1pe",
+        "name": "start_music",
+        "arguments": {
+          "energetic": true,
+          "loud": false,
+          "bpm": 128
+        }
+      },
+      {
+        "type": "function_call",
+        "id": "d8v3n6ra",
+        "name": "dim_lights",
+        "arguments": {
+          "brightness": 0.2
+        }
+      }
+    ]
+  }
+]

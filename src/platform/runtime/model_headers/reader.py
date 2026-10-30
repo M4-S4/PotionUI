@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -339,6 +340,20 @@ def read_header(path: str | os.PathLike[str], *, prefix: bytes | None = None) ->
     except OSError as exc:
         return HeaderResult(HeaderStatus.IO_ERROR, error=str(exc))
     return HeaderResult(HeaderStatus.OK, view)
+
+
+def header_hash(view: HeaderView) -> str:
+    digest = hashlib.sha256(b"header-hash-1\n")
+    digest.update(view.format.encode("utf-8"))
+    for name in sorted(view.tensors):
+        info = view.tensors[name]
+        digest.update(json.dumps([name, info.dtype, list(info.shape)], separators=(",", ":")).encode("utf-8"))
+    digest.update(json.dumps(sorted(view.metadata.items()), separators=(",", ":")).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def invalid_header_hash(error: str | None) -> str:
+    return hashlib.sha256(b"invalid-header-1\n" + (error or "").encode("utf-8")).hexdigest()
 
 
 def read_safetensors_header(path: str | os.PathLike[str]) -> dict[str, Any]:

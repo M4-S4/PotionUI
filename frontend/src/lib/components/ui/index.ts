@@ -20,3 +20,4 @@ export { default as UserPicker } from './UserPicker.svelte';
 export { default as AdminOnlyMark } from './AdminOnlyMark.svelte';
 export { default as ModelPickTrigger } from './ModelPickTrigger.svelte';
 export { default as Menu } from './Menu.svelte';
+export { default as ChoiceCard } from './ChoiceCard.svelte';

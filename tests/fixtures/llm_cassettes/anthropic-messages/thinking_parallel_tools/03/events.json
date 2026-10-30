@@ -1,0 +1,83 @@
+[
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 2328,
+      "output_tokens": 1,
+      "total_tokens": 2329,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 2150,
+      "cache_write_tokens": 120,
+      "cost": null,
+      "raw": {
+        "input_tokens": 58,
+        "cache_creation_input_tokens": 120,
+        "cache_read_input_tokens": 2150,
+        "output_tokens": 1
+      }
+    }
+  },
+  {
+    "type": "reasoning_delta",
+    "block": 0,
+    "text": "",
+    "summary": true,
+    "redacted": false
+  },
+  {
+    "type": "opaque_delta",
+    "block": 0,
+    "key": "signature",
+    "value": "ErUBCkYIARgCIkB-hand-built-signature-3"
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Paris is overcast at 14 °C, ",
+    "phase": null
+  },
+  {
+    "type": "text_delta",
+    "block": 1,
+    "text": "Tokyo is clear at 22 °C and it is 21:42 there.",
+    "phase": null
+  },
+  {
+    "type": "usage",
+    "usage": {
+      "input_tokens": 2328,
+      "output_tokens": 41,
+      "total_tokens": 2369,
+      "reasoning_tokens": null,
+      "cached_input_tokens": 2150,
+      "cache_write_tokens": 120,
+      "cost": null,
+      "raw": {
+        "input_tokens": 58,
+        "cache_creation_input_tokens": 120,
+        "cache_read_input_tokens": 2150,
+        "output_tokens": 41
+      }
+    }
+  },
+  {
+    "type": "finish",
+    "reason": "stop",
+    "raw_reason": "end_turn",
+    "raw": {
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "ErUBCkYIARgCIkB-hand-built-signature-3"
+        },
+        {
+          "type": "text",
+          "text": "Paris is overcast at 14 °C, Tokyo is clear at 22 °C and it is 21:42 there."
+        }
+      ],
+      "sha256": "bab5f8099426596167a578ff8c0d24e494045a6c9fd84e1b4379249e4ba3dea8",
+      "prefix": "f56f0fe81ca95cd913f01cc064800a96c31550a0a295b67795ab75b23ef3066d"
+    }
+  }
+]

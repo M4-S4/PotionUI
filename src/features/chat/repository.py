@@ -4,7 +4,6 @@ import json
 import logging
 from src.features.chat.records import ChatSession, ChatMessage
 from src.features.chat.dto import SessionResponse, MessageResponse
-from src.features.chat.tool_transcript import replay_messages
 from src.platform.database.rows import dt_iso, now_utc
 from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
@@ -27,6 +26,7 @@ def _message_to_dto(message: ChatMessage) -> MessageResponse:
         completion_tokens=metadata.get('completion_tokens'),
         tool_executions=metadata.get('tool_executions'),
         metadata=message.metadata,
+        turn_id=message.turn_id,
     )
 
 
@@ -179,11 +179,11 @@ class ChatMessageRepository:
             with get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO chat_messages
-                    (id, session_id, role, content, parsed_content, metadata, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (id, session_id, role, content, parsed_content, metadata, created_at, turn_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     message.id, message.session_id, message.role, message.content,
-                    parsed_content_json, metadata_json, now.isoformat()
+                    parsed_content_json, metadata_json, now.isoformat(), message.turn_id
                 ))
             return _message_to_dto(message)
         except Exception:
@@ -537,7 +537,8 @@ class ChatRepository:
         role: str,
         content: str,
         parsed_content: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        turn_id: Optional[str] = None
     ) -> Optional[MessageResponse]:
         """Add a message to a session"""
         if not self.session_repo.exists(session_id):
@@ -549,7 +550,8 @@ class ChatRepository:
             role=role,
             content=content,
             parsed_content=parsed_content,
-            metadata=metadata
+            metadata=metadata,
+            turn_id=turn_id
         )
 
         return self.message_repo.create(message)
@@ -561,29 +563,6 @@ class ChatRepository:
     def count_messages(self, session_id: str) -> int:
         """Count messages in a session"""
         return self.message_repo.count_by_session(session_id)
-
-    def get_conversation_history(
-        self, session_id: str, include_tool_transcript: bool = False
-    ) -> List[Dict[str, Any]]:
-        """Get conversation history in format suitable for LLM API"""
-        messages = self.message_repo._get_by_session_internal(session_id)
-        history: List[Dict[str, Any]] = []
-        for msg in messages:
-            if include_tool_transcript and msg.role == 'assistant':
-                history.extend(replay_messages(msg.content, msg.metadata))
-            else:
-                history.append({'role': msg.role, 'content': msg.content})
-        return history
-
-    def get_turn_chain(self, session_id: str, message_id: str) -> List[ChatMessage]:
-        messages = self.message_repo._get_by_session_internal(session_id)
-        index = next((i for i, msg in enumerate(messages) if msg.id == message_id), None)
-        if index is None:
-            return []
-        start = index
-        while start > 0 and messages[start - 1].role != 'user':
-            start -= 1
-        return messages[start:index + 1]
 
     def get_latest_message(self, session_id: str) -> Optional[MessageResponse]:
         messages, _ = self.message_repo.get_tail(session_id, 1)

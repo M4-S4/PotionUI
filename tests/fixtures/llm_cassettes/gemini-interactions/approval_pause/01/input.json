@@ -1,0 +1,77 @@
+{
+  "config": {
+    "id": "cassette",
+    "name": "cassette",
+    "type": "gemini",
+    "enabled": true,
+    "base_url": "https://generativelanguage.googleapis.com",
+    "api_key": "cassette-key",
+    "model": "gemini-3.8-flash",
+    "system_message": "",
+    "temperature": 1.0,
+    "max_tokens": 4096,
+    "timeout": 30,
+    "supports_vision": false,
+    "disable_system_prompt": false,
+    "memory_reflection": true,
+    "show_thinking": true,
+    "provider_options": null,
+    "api_key_unreadable": false
+  },
+  "system": "You help manage backups. Ask before destructive actions.",
+  "tools": [
+    {
+      "name": "list_backups",
+      "description": "List the stored backups.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "strict": false
+    },
+    {
+      "name": "delete_backup",
+      "description": "Delete one stored backup permanently.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "strict": false
+    }
+  ],
+  "settings": {
+    "temperature": null,
+    "top_p": null,
+    "top_k": null,
+    "min_p": null,
+    "max_tokens": null,
+    "reasoning": null,
+    "tool_choice": null,
+    "response_schema": null,
+    "cache_key": null,
+    "keep_model_loaded": false
+  },
+  "messages": [
+    {
+      "id": "u1",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Remove my stale backups.",
+          "phase": null
+        }
+      ],
+      "origin": null,
+      "raw": null
+    }
+  ]
+}

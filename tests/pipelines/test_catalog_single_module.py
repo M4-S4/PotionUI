@@ -9,7 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_PIPES = REPO_ROOT / "src" / "pipelines" / "pipes"
 
 
-@pytest.mark.parametrize("name", ["output_skipper", "crop_subject"])
+@pytest.mark.parametrize("name", ["output_skipper", "media_tool"])
 def test_core_pipe_loaded_through_catalog_is_the_importable_module_object(name):
     catalog = PipeCatalog(str(CORE_PIPES), str(REPO_ROOT / "pipes" / "custom"))
 

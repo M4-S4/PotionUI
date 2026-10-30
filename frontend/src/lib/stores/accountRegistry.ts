@@ -148,8 +148,8 @@ export function parseRegistry(raw: string | null, now: number = Date.now()): Acc
 }
 
 export function saveRegistry(registry: AccountRegistry): void {
-	if (typeof localStorage === 'undefined') return;
 	try {
+		if (typeof localStorage === 'undefined') return;
 		if (registry.accounts.length === 0 && registry.activeId === null) {
 			localStorage.removeItem(ACCOUNTS_STORAGE_KEY);
 		} else {

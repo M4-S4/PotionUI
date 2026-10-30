@@ -44,8 +44,16 @@ function positiveSegments(page: Page): Locator {
 	return positiveList(page).locator('[role="listitem"]');
 }
 
-function picker(page: Page): Locator {
-	return page.locator('[data-prompt-picker]');
+function promptTabs(page: Page): Locator {
+	return page.getByRole('tablist', { name: 'Prompts' }).getByRole('tab');
+}
+
+function activePromptTab(page: Page): Locator {
+	return page.getByRole('tablist', { name: 'Prompts' }).getByRole('tab', { selected: true });
+}
+
+function addPromptButton(page: Page): Locator {
+	return page.locator('[data-header-lead]').getByRole('button', { name: 'Add prompt' });
 }
 
 async function typeIntoSegment(page: Page, index: number, text: string) {
@@ -55,19 +63,24 @@ async function typeIntoSegment(page: Page, index: number, text: string) {
 }
 
 async function addPrompt(page: Page) {
-	await picker(page).click();
-	await page.getByRole('dialog', { name: 'Prompts' }).getByRole('button', { name: 'Add prompt' }).click();
-	await expect(page.getByRole('dialog', { name: 'Prompts' })).toBeHidden();
+	const before = await promptTabs(page).count();
+	await addPromptButton(page).click();
+	await expect(promptTabs(page)).toHaveCount(before + 1);
 }
 
 async function selectPrompt(page: Page, row: number) {
-	await picker(page).click();
+	await promptTabs(page).nth(row).click();
+	await expect(promptTabs(page).nth(row)).toHaveAttribute('aria-selected', 'true');
+}
+
+async function selectPromptFromList(page: Page, row: number) {
+	await page.getByRole('button', { name: 'All prompts' }).click();
 	await page.getByRole('dialog', { name: 'Prompts' }).locator('[data-row-main]').nth(row).click();
 	await expect(page.getByRole('dialog', { name: 'Prompts' })).toBeHidden();
 }
 
 async function setQuantity(page: Page, target: number) {
-	await page.locator('[role="tab"]').first().click();
+	await page.locator('[role="tablist"]:not([aria-label="Prompts"]) [role="tab"]').first().click();
 	const label = page.getByText('Quantity', { exact: true }).first();
 	await expect(label).toBeVisible({ timeout: 10000 });
 	const card = label.locator('xpath=ancestor::*[contains(@class, "field-card")][1]');
@@ -79,7 +92,7 @@ async function setQuantity(page: Page, target: number) {
 async function authorTwoPrompts(page: Page) {
 	await typeIntoSegment(page, 0, 'a lighthouse on a basalt cliff');
 	await addPrompt(page);
-	await expect(picker(page)).toContainText('Prompt 2 of 2');
+	await expect(activePromptTab(page)).toHaveText('Prompt 2');
 	await expect(positiveSegments(page).first()).toBeVisible();
 	await typeIntoSegment(page, 0, 'red fox in autumn leaves');
 	await page.locator('section.composer').first().getByRole('button', { name: 'Add segment' }).click();
@@ -95,18 +108,18 @@ test('picker keeps every prompt and its segments when switching', async ({ page 
 		return;
 	}
 
-	await expect(picker(page)).toContainText('1 prompt');
+	await expect(promptTabs(page)).toHaveCount(1);
 	await authorTwoPrompts(page);
 	await screenshot(page, JOURNEY, '00-two-prompts');
 
 	await selectPrompt(page, 0);
-	await expect(picker(page)).toContainText('Prompt 1 of 2');
+	await expect(activePromptTab(page)).toHaveText('Prompt 1');
 	await expect(positiveList(page)).toContainText('a lighthouse on a basalt cliff');
 	await expect(positiveList(page)).not.toContainText('red fox');
 	await expect(positiveSegments(page)).toHaveCount(1);
 
-	await selectPrompt(page, 1);
-	await expect(picker(page)).toContainText('Prompt 2 of 2');
+	await selectPromptFromList(page, 1);
+	await expect(activePromptTab(page)).toHaveText('Prompt 2');
 	await expect(positiveSegments(page)).toHaveCount(2);
 	await expect(positiveList(page)).toContainText('red fox in autumn leaves');
 	await expect(positiveList(page)).toContainText('golden hour');
@@ -155,7 +168,7 @@ test('count line follows quantity and blocks Generate above 20 images', async ({
 	await expect(page.locator('[data-batch-line]')).toContainText('2 prompts × 1 image = 2 images');
 
 	for (let count = 3; count <= 7; count++) await addPrompt(page);
-	await expect(picker(page)).toContainText('of 7');
+	await expect(promptTabs(page)).toHaveCount(7);
 	await setQuantity(page, 3);
 	await expect(page.locator('[data-batch-line]')).toContainText('7 prompts × 3 images = 21 images');
 	await expect(page.getByText('Up to 20 images per run.').first()).toBeVisible();
@@ -196,14 +209,15 @@ test('a saved session brings back every prompt and the current one', async ({ pa
 	await presetOption(page, presetName).click();
 	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await expect(positiveList(page)).toBeVisible({ timeout: 20000 });
-	await expect(picker(page)).toContainText('1 prompt');
+	await expect(promptTabs(page)).toHaveCount(1);
 
 	await page.getByTestId('session-trigger').first().click();
 	const drawer = page.getByRole('dialog', { name: 'Sessions' });
 	await drawer.locator('[data-session-row]', { hasText: name }).first().click();
 
 	await expect(positiveList(page)).toBeVisible({ timeout: 20000 });
-	await expect(picker(page)).toContainText('Prompt 1 of 2', { timeout: 20000 });
+	await expect(promptTabs(page)).toHaveCount(2, { timeout: 20000 });
+	await expect(activePromptTab(page)).toHaveText('Prompt 1');
 	await expect(positiveList(page)).toContainText('a lighthouse on a basalt cliff');
 
 	await selectPrompt(page, 1);
@@ -220,9 +234,9 @@ test('a preset that cannot batch locks Add prompt and explains why', async ({ pa
 		return;
 	}
 
-	await picker(page).click();
-	const menu = page.getByRole('dialog', { name: 'Prompts' });
-	await expect(menu.getByRole('button', { name: 'Add prompt' })).toBeDisabled();
-	await expect(menu.getByText('This preset runs one prompt at a time.')).toBeVisible();
+	await expect(promptTabs(page)).toHaveCount(1);
+	await expect(addPromptButton(page)).toBeDisabled();
+	await addPromptButton(page).hover();
+	await expect(page.getByRole('tooltip')).toContainText('This preset runs one prompt at a time.');
 	await screenshot(page, JOURNEY, '02-unsupported');
 });

@@ -1,3 +1,4 @@
+import importlib
 from decimal import Decimal
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from PIL import Image
 pytest.importorskip("cv2", reason="cv2 is needed to write and read the tiny test clips", exc_type=ImportError)
 
 from src.features.cloud.testing.fake import fake_video_bytes, image_colour
+from tests.platform.media_tools.media_factory import video_frame_count
 from src.pipelines.cloud import CloudRunArtifact, CloudRunCancelled, CloudRunCost, CloudRunError, CloudRunOutcome, CloudRunProgress
 from src.pipelines.contracts import PipeInput
 from src.pipelines.outputs import (
@@ -159,12 +161,7 @@ def test_each_shot_is_saved_when_it_finishes_and_the_joined_film_comes_out_last(
     galleries = [item for item in emitted if isinstance(item, GalleryGenerationOutput)]
     assert len(galleries) == 2 and all(video.temporary is False for item in galleries for video in item.videos)
     (joined,) = output["video"]
-    import cv2
-
-    capture = cv2.VideoCapture(joined)
-    frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    capture.release()
-    assert frames == 16 + 32
+    assert video_frame_count(Path(joined)) == 16 + 32
     assert output["seed"] == [100]
 
 
@@ -309,12 +306,12 @@ def test_a_single_text_shot_sends_no_frames_and_a_failure_is_not_relabelled(tmp_
 
 
 def test_a_joining_failure_keeps_every_shot_and_says_so(tmp_path, monkeypatch):
-    from src.pipelines.pipes.cloud_generate.stitch import StitchError
+    from src.platform.media_tools import ToolFailed
 
     def broken(clips, out_path, **kwargs):
-        raise StitchError("no frames")
+        raise ToolFailed("Failed to encode the media")
 
-    monkeypatch.setattr(pipe_module, "stitch_clips", broken)
+    monkeypatch.setattr(pipe_module, "join_video_files", broken)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 
@@ -322,27 +319,23 @@ def test_a_joining_failure_keeps_every_shot_and_says_so(tmp_path, monkeypatch):
     assert any("could not be joined" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
 
 
-def test_a_join_without_sound_says_so(tmp_path, monkeypatch):
-    real = pipe_module.stitch_clips
-
-    def without_ffmpeg(clips, out_path, **kwargs):
-        return real(clips, out_path, find=lambda: None, **kwargs)
-
-    monkeypatch.setattr(pipe_module, "stitch_clips", without_ffmpeg)
+def test_without_ffmpeg_every_shot_is_kept_and_the_film_is_not_joined(tmp_path, monkeypatch):
+    for name in ("probe", "ffmpeg"):
+        monkeypatch.setattr(importlib.import_module(f"src.platform.media_tools.{name}"), "find_ffmpeg", lambda: None)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 
-    assert len(output["video"]) == 1
-    assert any("no sound" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
+    assert output["video"] == [] and len(saved_shots(emitted)) == 2
+    assert any("could not be joined" in item.state for item in emitted if isinstance(item, ProgressGenerationOutput))
 
 
 def test_cancelling_while_the_shots_are_joined_keeps_the_shots_and_makes_no_film(tmp_path, monkeypatch):
-    from src.pipelines.pipes.cloud_generate.stitch import StitchCancelled
+    from src.platform.media_tools import ToolCancelled
 
     def cancelled(clips, out_path, **kwargs):
-        raise StitchCancelled()
+        raise ToolCancelled()
 
-    monkeypatch.setattr(pipe_module, "stitch_clips", cancelled)
+    monkeypatch.setattr(pipe_module, "join_video_files", cancelled)
 
     output, emitted = direct(ClipRunner(tmp_path), film(segment("a", 48, "t2v"), segment("b", 48, "t2v")))
 

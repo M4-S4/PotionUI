@@ -33,7 +33,7 @@ from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.lora import apply_loras
 from src.platform.runtime.native.lora.step_window import LoraStepWindow
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _FLOW = "src.pipelines.pipes._shared.generation.flow_generator_pipe"
 

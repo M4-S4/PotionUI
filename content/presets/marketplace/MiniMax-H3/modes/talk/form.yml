@@ -1,0 +1,25 @@
+prompt_label: "Scene"
+prompt_placeholder: "a newsroom, soft window light"
+name: "custom"
+mode_label: "Talking video"
+short_description: "Make a portrait speak a voice clip."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration: {icon: "generation", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/talk/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration: {icon: "image", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/talk/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration: {icon: "lora", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/video/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration: {icon: "settings", icon_display: "icon_only"}
+        children: "{{ paths.preset }}/modes/refs/tabs/advanced.yml"

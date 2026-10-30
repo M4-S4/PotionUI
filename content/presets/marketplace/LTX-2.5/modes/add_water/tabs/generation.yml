@@ -1,0 +1,41 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    formula: "speed"
+    label: "Speed profile"
+    default: "distilled"
+    configuration:
+      options:
+        - { label: "Distilled", value: "distilled", sub_label: "8 steps · CFG off · distilled sigma recipe" }
+        - { label: "Balanced", value: "balanced", sub_label: "24 steps · CFG 4 · needs the dev checkpoint" }
+        - { label: "Quality", value: "quality", sub_label: "30 steps · CFG 3 · multimodal guidance · needs the dev checkpoint" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps · sampler · CFG, left alone" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - type: "row"
+        children: "{{ paths.preset }}/files/form/seed_quantity.yml"
+
+      - name: "output_size"
+        type: "select"
+        formula: "size"
+        label: "Size"
+        default: "1080p"
+        description: "Pick 720p if you run out of memory."
+        configuration:
+          options:
+            - { label: "720p", value: "720p" }
+            - { label: "1080p", value: "1080p" }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      file: "{{ paths.preset }}/files/form/models_effect.yml"
+      vars:
+        lora_label: "Add water LoRA"
+        lora_file: "ltx-2.5-22b-ic-lora-water-simulation-0.9.safetensors"
+        lora_repo: "Lightricks/LTX-2.5-22b-IC-LoRA-Water-Simulation"
+        lora_size: "906.1 MB"
+        lora_description: "LTX-2.5 Water-Simulation IC-LoRA. Gated repo: accept the license on Hugging Face and set a token in Admin - Plugins."

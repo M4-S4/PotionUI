@@ -145,6 +145,7 @@ def test_enable_stages_run_in_dependency_order(tmp_path, monkeypatch):
         "_register_plugin_field_types",
         "_register_plugin_model_metadata_fields",
         "_register_plugin_tools",
+        "_register_plugin_media_tools",
         "_register_plugin_chat_modes",
         "_register_plugin_resources",
         "_register_plugin_automation_nodes",

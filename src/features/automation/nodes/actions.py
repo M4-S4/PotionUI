@@ -7,6 +7,7 @@ action calls into its backing manager/repository/service.
 """
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from time import monotonic
@@ -603,6 +604,121 @@ async def _execute_add_to_collection(ctx: NodeExecutionContext) -> NodeResult:
     })
 
 
+MEDIA_TOOL_MODES = ("new", "replace")
+MEDIA_TOOL_DEFAULT_ITEM = "{{ event.upload_id }}"
+MEDIA_TOOL_DEFAULT_USER = "{{ event.user_id }}"
+MEDIA_TOOL_DEFAULT_TIMEOUT_S = 300
+
+
+_media_tool_catalog: Dict[str, Any] = {"registry": None}
+
+
+def bind_media_tool_registry(registry) -> None:
+    _media_tool_catalog["registry"] = registry
+
+
+def _media_tool_options() -> List[Dict[str, str]]:
+    registry = _media_tool_catalog["registry"]
+    if registry is None:
+        raise RuntimeError("action.media_tool: no media tool registry bound; the composition root must call bind_media_tool_registry")
+    return [
+        {"value": spec.id, "label": f"{spec.label} ({', '.join(spec.accepts)})"}
+        for spec in registry.list()
+        if spec.impl is not None
+    ]
+
+
+def _media_tool_params(ctx: NodeExecutionContext) -> Dict[str, Any]:
+    raw = ctx.config.get("params")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return {}
+    if isinstance(raw, dict):
+        return {key: _render(value, ctx) for key, value in raw.items()}
+    if not isinstance(raw, str):
+        raise RuntimeError("action.media_tool: params must be a JSON object")
+    try:
+        params = json.loads(_render(raw, ctx))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"action.media_tool: params is not valid JSON ({exc.msg} at position {exc.pos})") from exc
+    if not isinstance(params, dict):
+        raise RuntimeError("action.media_tool: params must be a JSON object")
+    return params
+
+
+def _media_tool_failure(code: str, message: str, extra: Optional[Dict[str, Any]] = None) -> RuntimeError:
+    extra = extra or {}
+    where = []
+    if extra.get("step_index") is not None:
+        where.append(f"step {int(extra['step_index']) + 1}")
+    if extra.get("field"):
+        where.append(f"'{extra['field']}'")
+    head = f"{code} ({', '.join(where)})" if where else code
+    return RuntimeError(f"action.media_tool: {head}: {message.rstrip('.')}")
+
+
+def _media_tool_item(item) -> Dict[str, Any]:
+    entry = {
+        "id": item.id,
+        "filename": item.original_filename or item.filename,
+        "media_type": item.media_type,
+        "url": item.url,
+        "size": item.size,
+        "width": item.width,
+        "height": item.height,
+        "duration_seconds": item.duration_seconds,
+    }
+    return {key: value for key, value in entry.items() if value is not None}
+
+
+async def _execute_media_tool(ctx: NodeExecutionContext) -> NodeResult:
+    from src.features.plans.errors import LimitExceeded
+    from src.platform.http.errors import DomainError
+
+    service = ctx.services.media_tool_service
+    if service is None:
+        raise RuntimeError("action.media_tool: no MediaToolService configured on AutomationServices")
+
+    tool = str(ctx.config.get("tool") or "").strip()
+    if not tool:
+        raise RuntimeError("action.media_tool: no tool selected")
+    mode = str(ctx.config.get("mode") or "new").strip().lower()
+    if mode not in MEDIA_TOOL_MODES:
+        raise RuntimeError(f"action.media_tool: mode must be one of {', '.join(MEDIA_TOOL_MODES)}, got '{mode}'")
+    item_id = str(_render(ctx.config.get("item_id", MEDIA_TOOL_DEFAULT_ITEM), ctx) or "").strip()
+    if not item_id:
+        raise RuntimeError("action.media_tool: no library item id - the event carries none for Item ID")
+    user_id = str(_render(ctx.config.get("user_id", MEDIA_TOOL_DEFAULT_USER), ctx) or "").strip()
+    if not user_id:
+        raise RuntimeError("action.media_tool: no user to run as - the event carries none for User ID")
+
+    steps = [{"tool": tool, "params": _media_tool_params(ctx)}]
+    options = {}
+    if ctx.config.get("timeout_s"):
+        options["timeout"] = float(ctx.config["timeout_s"])
+    try:
+        result = await service.run_sync(user_id, steps, [{"item_id": item_id}], {"mode": mode}, **options)
+    except DomainError as exc:
+        raise _media_tool_failure(exc.code, exc.message, exc.extra) from exc
+    except LimitExceeded as exc:
+        raise RuntimeError(f"action.media_tool: limit_exceeded: {exc}") from exc
+    if not result.ok:
+        error = result.error
+        raise _media_tool_failure(
+            error.code if error else result.status,
+            error.message if error else "the run did not finish",
+        )
+
+    items = [_media_tool_item(item) for item in result.items]
+    return NodeResult(output={
+        "item_id": items[0]["id"] if items else "",
+        "item_ids": [entry["id"] for entry in items],
+        "items": items,
+        "count": len(items),
+        "replaced": result.replaced,
+        "tool": tool,
+    })
+
+
 # Action ids this node knows how to *perform*. The dropdown enumerates every
 # backend's declared quick actions (see `_backend_action_options`); execution
 # binds the three the native engine declares to the same call paths their admin
@@ -1049,6 +1165,51 @@ def register(registry=node_type_registry) -> None:
             NodeField("reason", "string", "Reason", "Why nothing was added; null on success.", "no model_id"),
         ),
         execute=_execute_add_to_collection,
+    ))
+
+    registry.register(NodeTypeSpec(
+        key="action.media_tool",
+        kind="action",
+        title="Media Tool",
+        description=(
+            "Runs a media tool (trim, resize, rotate, speed, a plugin's own...) on a library item, "
+            "for example to resize every new upload. Acts as the item's owner."
+        ),
+        icon="scissors",
+        category="media",
+        config_schema=[
+            {"name": "tool", "type": "select", "title": "Tool", "options_provider": _media_tool_options},
+            {"name": "params", "type": "textbox", "title": "Parameters (JSON)", "default": "{}",
+             "templatable": True, "input_type": "textarea", "mono": True,
+             "description": 'Parameters of the tool, e.g. {"width": 1920}. Omitted ones use the tool defaults.'},
+            {"name": "mode", "type": "select", "title": "Result", "default": "new",
+             "options": [
+                 {"label": "Save as a new library item", "value": "new"},
+                 {"label": "Replace the original", "value": "replace"},
+             ]},
+            {"name": "item_id", "type": "string", "title": "Library Item ID", "default": MEDIA_TOOL_DEFAULT_ITEM,
+             "templatable": True,
+             "description": "The library item to edit, e.g. {{ upstream.<media_tool_node_id>.item_id }} to chain."},
+            {"name": "user_id", "type": "string", "title": "Run As User ID", "default": MEDIA_TOOL_DEFAULT_USER,
+             "templatable": True,
+             "description": "The item's owner. A tool only ever sees that user's own library."},
+            {"name": "timeout_s", "type": "number", "title": "Timeout (seconds)",
+             "default": MEDIA_TOOL_DEFAULT_TIMEOUT_S, "min": 1, "max": 3600,
+             "description": "Long videos need longer than the usual 60 seconds."},
+        ],
+        outputs=(
+            NodeField("item_id", "string", "Item ID", "First resulting library item; the original's id when replaced.",
+                      "01J9ZX3Q4K8M2N6P7R5T0V1W2Y"),
+            NodeField("item_ids", "array", "Item IDs", "Every resulting library item id (a split makes several).",
+                      ["01J9ZX3Q4K8M2N6P7R5T0V1W2Y"]),
+            NodeField("items", "array", "Items",
+                      "Resulting items with id, filename, media_type, url, size, width, height, duration_seconds."),
+            NodeField("count", "number", "Count", "How many items the tool produced.", 1),
+            NodeField("replaced", "boolean", "Replaced", "True when the original was overwritten.", False),
+            NodeField("tool", "string", "Tool", "The tool that ran.", "resize"),
+        ),
+        execute=_execute_media_tool,
+        requires_admin=True,
     ))
 
     registry.register(NodeTypeSpec(

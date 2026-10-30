@@ -3,7 +3,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
-	import CustomSelect from '$lib/components/CustomSelect.svelte';
+	import PickerSelect from '$lib/components/preset/PickerSelect.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
@@ -22,6 +22,7 @@
 		sourcePlugin?: string | null;
 		description?: string | null;
 		icon?: string | null;
+		requirementsMissing?: string[] | null;
 	}> = [
 		{ id: 'txt2img', label: 'Text to Image' },
 		{ id: 'img2img', label: 'Image to Image' },
@@ -86,19 +87,17 @@
 
 		{#if hasModeSelect}
 			<div
-				class="flex {narrow ? 'order-3 basis-full' : 'w-[148px] flex-shrink-0'}"
+				class="flex {narrow ? 'order-3 basis-full' : 'w-[168px] flex-shrink-0'}"
 				data-testid="preset-header-mode"
 			>
-				<CustomSelect
+				<PickerSelect
 					value={selectedMode}
 					options={modeOptions}
-					size="sm"
-					fill
-					menuMinWidth={276}
-					descriptionLines={2}
-					triggerDescription={narrow}
+					label="Choose mode"
 					placeholder="Mode"
-					on:change={(e) => handleModeChange(e.detail)}
+					width={400}
+					triggerDescription={narrow}
+					onchange={handleModeChange}
 				/>
 			</div>
 		{/if}
@@ -141,13 +140,15 @@
 				{/each}
 			</div>
 		{:else}
-			<CustomSelect
-				value={selectedVariant}
-				options={variantOptions}
-				size="sm"
-				placeholder="Select variant..."
-				on:change={(e) => handleVariantChange(e.detail)}
-			/>
+			<div class="flex">
+				<PickerSelect
+					value={selectedVariant}
+					options={variantOptions}
+					label="Choose variant"
+					placeholder="Select variant..."
+					onchange={handleVariantChange}
+				/>
+			</div>
 		{/if}
 	{/if}
 </div>

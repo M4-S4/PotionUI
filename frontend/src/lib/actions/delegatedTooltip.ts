@@ -1,5 +1,6 @@
 import { mount, unmount } from 'svelte';
 import TooltipBubble from '$lib/components/TooltipBubble.svelte';
+import { focusIsUserDriven } from './tooltipTrigger';
 
 const attribute = 'data-tooltip';
 const delay = 200;
@@ -64,7 +65,7 @@ export default function delegatedTooltip(node: HTMLElement) {
 	};
 	const onFocusIn = (e: FocusEvent) => {
 		const anchor = resolve(e);
-		if (anchor) schedule(anchor, 0);
+		if (anchor && focusIsUserDriven(e)) schedule(anchor, 0);
 	};
 	const onFocusOut = (e: FocusEvent) => {
 		if (resolve(e)) hide();
@@ -73,11 +74,18 @@ export default function delegatedTooltip(node: HTMLElement) {
 		if (e.key === 'Escape') hide();
 	};
 
+	const onWindowBlur = () => hide();
+	const onVisibility = () => {
+		if (document.visibilityState === 'hidden') hide();
+	};
+
 	const observer = new MutationObserver(() => {
 		if (current && !current.isConnected) hide();
 	});
 	observer.observe(node, { childList: true, subtree: true });
 
+	window.addEventListener('blur', onWindowBlur);
+	document.addEventListener('visibilitychange', onVisibility);
 	node.addEventListener('mouseover', onOver);
 	node.addEventListener('mouseout', onOut);
 	node.addEventListener('focusin', onFocusIn);
@@ -88,6 +96,8 @@ export default function delegatedTooltip(node: HTMLElement) {
 		destroy() {
 			hide();
 			observer.disconnect();
+			window.removeEventListener('blur', onWindowBlur);
+			document.removeEventListener('visibilitychange', onVisibility);
 			node.removeEventListener('mouseover', onOver);
 			node.removeEventListener('mouseout', onOut);
 			node.removeEventListener('focusin', onFocusIn);

@@ -79,6 +79,7 @@ from torch import Tensor
 
 from ...base import NativeArchModule
 from ...cancellation import raise_if_cancelled
+from ...io.quant_formats import FP8_DTYPES
 from .config import Krea2Config
 from .layers import (
     Attention,
@@ -181,11 +182,10 @@ class Krea2(NativeArchModule):
         handles it); raw params are upcast back to their declared f32 here.
         Plain cast is the correct dequant: these files carry no per-tensor
         scales for them."""
-        fp8 = (torch.float8_e4m3fn, torch.float8_e5m2)
         for mod in self.modules():
             if isinstance(mod, (RMSNorm, SimpleModulation, DoubleSharedModulation)):
                 for p in mod.parameters(recurse=False):
-                    if p.dtype in fp8:
+                    if p.dtype in FP8_DTYPES:
                         p.data = p.data.to(torch.float32)
 
     # -- generator-facing helpers -------------------------------------------

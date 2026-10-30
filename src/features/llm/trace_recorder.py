@@ -57,10 +57,7 @@ _MARKER_ALLOWANCE_BYTES = 256
 MAX_TRACE_NODES = 4096
 MAX_TRACE_DEPTH = 32
 
-# Ceiling on a whole record. The six capped fields account for at most six
-# field budgets; the rest is what identity metadata may add before the record
-# is refused, since session ids and model names are stored verbatim.
-MAX_TRACE_RECORD_BYTES = 7 * MAX_TRACE_FIELD_BYTES
+MAX_TRACE_RECORD_BYTES = 10 * MAX_TRACE_FIELD_BYTES
 
 # The writer waits on the queue in slices rather than on a stop token: a token
 # cannot be delivered through a queue that is already full, which is exactly
@@ -254,13 +251,14 @@ def _record_bytes(item: "_QueuedTrace") -> int:
     total = 0
     for value in (
         item.session_id, item.user_id, item.purpose, item.provider, item.model,
-        item.request_system, item.response_text,
+        item.request_system, item.response_text, item.adapter, item.response_raw,
     ):
         if value is not None:
             total += _utf8_len(value)
     for text in (
         item.request_messages, item.request_params,
         item.request_tools, item.response_tool_calls,
+        item.request_body, item.usage, item.error,
     ):
         if text is not None:
             total += len(text)
@@ -286,6 +284,12 @@ class _QueuedTrace:
     prompt_tokens: Optional[int]
     completion_tokens: Optional[int]
     duration_ms: int
+    adapter: Optional[str]
+    request_body: Optional[str]
+    response_raw: Optional[str]
+    usage: Optional[str]
+    cost: Optional[float]
+    error: Optional[str]
 
 
 class ChatCallTraceRecorder:
@@ -353,6 +357,12 @@ class ChatCallTraceRecorder:
         prompt_tokens: Optional[int],
         completion_tokens: Optional[int],
         duration_ms: int,
+        adapter: Optional[str] = None,
+        request_body: Optional[Any] = None,
+        response_raw: Optional[str] = None,
+        usage: Optional[Dict[str, Any]] = None,
+        cost: Optional[float] = None,
+        error: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not self._enabled():
             return
@@ -363,6 +373,10 @@ class ChatCallTraceRecorder:
         tool_calls_json, tool_calls_cut = _cap_json(response_tool_calls)
         system_text, system_cut = _cap_text(request_system)
         response_text_capped, response_cut = _cap_text(response_text)
+        body_json, body_cut = _cap_json(request_body)
+        raw_capped, raw_cut = _cap_text(response_raw)
+        usage_json, usage_cut = _cap_json(usage)
+        error_json, error_cut = _cap_json(error)
 
         item = _QueuedTrace(
             session_id=session_id,
@@ -380,9 +394,18 @@ class ChatCallTraceRecorder:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             duration_ms=duration_ms,
+            adapter=adapter,
+            request_body=body_json,
+            response_raw=raw_capped,
+            usage=usage_json,
+            cost=cost,
+            error=error_json,
         )
         truncated = any(
-            (messages_cut, params_cut, tools_cut, tool_calls_cut, system_cut, response_cut)
+            (
+                messages_cut, params_cut, tools_cut, tool_calls_cut, system_cut, response_cut,
+                body_cut, raw_cut, usage_cut, error_cut,
+            )
         )
 
         if _record_bytes(item) > MAX_TRACE_RECORD_BYTES:
@@ -465,6 +488,12 @@ class ChatCallTraceRecorder:
             prompt_tokens=item.prompt_tokens,
             completion_tokens=item.completion_tokens,
             duration_ms=item.duration_ms,
+            adapter=item.adapter,
+            request_body=json.loads(item.request_body) if item.request_body else None,
+            response_raw=item.response_raw,
+            usage=json.loads(item.usage) if item.usage else None,
+            cost=item.cost,
+            error=json.loads(item.error) if item.error else None,
         )
         self._bump("written")
 

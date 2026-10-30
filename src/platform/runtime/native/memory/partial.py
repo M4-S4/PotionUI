@@ -51,7 +51,7 @@ from typing import Iterable, Iterator, Sequence
 import torch
 import torch.nn as nn
 
-from vendor.gpl.comfyui.ops import CastWeightBiasOp
+from src.platform.runtime.native.kernels import CastWeightBiasOp, stream_wait
 from src.platform.observability.profiling import add_pinned_bytes, get_profiler
 from src.platform.settings.runtime_flags import runtime_flag
 
@@ -709,12 +709,12 @@ class LayerPrefetcher:
     """Overlaps a streamed leaf's H2D weight copy with the previous leaf's compute.
 
     Under partial residency each streamed leaf copies its weight from pinned CPU
-    RAM to the GPU *inside* its own forward (``cast_bias_weight`` in ops), so the
-    PCIe transfer serialises with compute. This stages leaf N+1's weight on a
+    RAM to the GPU *inside* its own forward (``cast_bias_weight`` in
+    ``kernels/casting.py``), so the PCIe transfer serialises with compute. This stages leaf N+1's weight on a
     dedicated copy stream while leaf N runs, then hands the already-resident copy
     to N+1's forward — turning a PCIe-bound stream into a mostly compute-bound one.
 
-    **No ops/arch changes.** The staged GPU weight is swapped into
+    **No kernels/arch changes.** The staged GPU weight is swapped into
     ``module.weight.data`` in a forward-pre-hook; the leaf's existing
     ``cast_to(module.weight, dtype, input.device)`` then sees a tensor *already on
     the device* and skips the copy (a plain bf16 leaf becomes a true no-op; an fp8
@@ -869,7 +869,11 @@ class LayerPrefetcher:
             return  # not prefetched (first leaf, or its predecessor was skipped) -> on-demand copy
         gpu_w, event = entry
         compute = _current_cuda_stream(self._device)
+        recorder = stream_wait.recorder
+        waited_from = recorder.mark(compute) if recorder is not None else None
         compute.wait_event(event)          # compute must not read the weight until the copy is done
+        if waited_from is not None:
+            recorder.span(waited_from, recorder.mark(compute))
         _record_stream_on(gpu_w, compute)  # defer allocator reuse until compute passes this point
         self._orig_weight[id(leaf)] = leaf.weight.data
         leaf.weight.data = gpu_w
@@ -889,6 +893,8 @@ class LayerPrefetcher:
             event.record(self._copy_stream)
         self._staged[id(nxt)] = (gpu_w, event)
         self._max_staged = max(self._max_staged, len(self._staged))
+        if stream_wait.recorder is not None:
+            stream_wait.recorder.add_bytes(weight.numel() * weight.element_size())
 
     # -- failure / cleanup -------------------------------------------------
 

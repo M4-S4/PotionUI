@@ -1,5 +1,6 @@
 name: "custom"
-short_description: "Generate an image guided by a control image."
+mode_label: "Structure"
+short_description: "ControlNet-style: keep a pose, edges or depth from a guide image and generate a new image on it."
 fields:
   - type: "tabs"
     children:

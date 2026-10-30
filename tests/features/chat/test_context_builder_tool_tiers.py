@@ -52,16 +52,17 @@ class TestGenerationTiers:
         assert deferred == {}
         assert {"list_segment_categories", "read_memory", "create_phrasebook_values"} <= set(allowed)
 
-    def test_standard_defers_only_the_library(self):
+    def test_standard_defers_the_library_and_media_editing(self):
         _prompt, allowed, _mode, deferred = _resolve(_builder(), _STANDARD)
-        assert set(deferred) == {"library"}
+        assert set(deferred) == {"library", "media"}
         assert {"list_segment_categories", "list_presets", "start_generation"} <= set(deferred["library"])
-        assert not set(deferred["library"]) & set(allowed)
+        assert deferred["media"] == ["run_media_tool"]
+        assert not (set(deferred["library"]) | set(deferred["media"])) & set(allowed)
         assert {"read_memory", "create_phrasebook_values", "set_prompt_relay_timeline"} <= set(allowed)
 
     def test_compact_keeps_only_the_core(self):
         _prompt, allowed, _mode, deferred = _resolve(_builder(), _COMPACT)
-        assert set(deferred) == {"library", "memory_maintenance", "phrasebook_write", "director"}
+        assert set(deferred) == {"library", "media", "memory_maintenance", "phrasebook_write", "director"}
         assert {"write_memory", "get_form_state", "search_gallery", "get_phrasebook_values"} <= set(allowed)
         assert "update_memory" not in allowed
 

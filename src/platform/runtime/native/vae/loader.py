@@ -61,7 +61,7 @@ from .ltx_diffusion_video import LTXDiffusionVideoVAE
 from .ltx_latent_upsampler import LTXLatentUpsampler
 from .minimax_h3_audio import MiniMaxH3AudioVAE
 from .minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
-from .minimax_h3_video import MiniMaxH3VideoVAE
+from .minimax_h3_video import ENCODER_KEY_PREFIXES, MiniMaxH3VideoVAE
 from .minimax_music3_dav import MiniMaxMusic3DAV, fold_weight_norm_conv
 from .seedvr2_causal_video import SeedVR2CausalVideoVAE
 
@@ -475,6 +475,7 @@ def load_minimax_h3_latent_upsampler(
     module = MiniMaxH3LatentUpsampler.from_config(config, operations)
     spec = _VaeSpec(family="vae", variant="minimax_h3_latent_upsampler")
     load_into_module(module, sd, spec)
+    module.eval()
 
     logger.debug(
         "loaded MiniMax-H3 latent upsampler from %s (channels=%d, num_res_blocks=%d)",
@@ -511,12 +512,23 @@ def load_minimax_h3_video_vae(
         )
 
     module = MiniMaxH3VideoVAE.from_config(config, operations)
+    expected = {k: tuple(v.shape) for k, v in module.state_dict().items()}
+    encoder_expected = [k for k in expected if k.startswith(ENCODER_KEY_PREFIXES)]
+    encoder_loaded = [k for k in encoder_expected if k in sd and tuple(sd[k].shape) == expected[k]]
+    decoder_expected = [k for k in expected if not k.startswith(ENCODER_KEY_PREFIXES)]
+    decoder_loaded = [k for k in decoder_expected if k in sd]
+    if len(encoder_loaded) < len(encoder_expected):
+        module.drop_encoder()
+        sd = {k: v for k, v in sd.items() if not k.startswith(ENCODER_KEY_PREFIXES)}
     spec = _VaeSpec(family="vae", variant="minimax_h3_video")
     load_into_module(module, sd, spec)
 
-    logger.debug(
-        "loaded MiniMax-H3 video VAE from %s (latent_channels=%d, decoder_layers=%d)",
-        path.name, config["latent_channels"], config["decoder_num_layers"],
+    log = logger.info if module.can_encode else logger.warning
+    log(
+        "loaded MiniMax-H3 video VAE from %s: encoder keys %d/%d, decoder keys %d/%d, can_encode=%s "
+        "(latent_channels=%d, decoder_layers=%d)",
+        path.name, len(encoder_loaded), len(encoder_expected), len(decoder_loaded), len(decoder_expected),
+        module.can_encode, config["latent_channels"], config["decoder_num_layers"],
     )
     return module
 

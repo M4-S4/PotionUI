@@ -65,10 +65,39 @@ async function render(count: number, formData: Record<string, unknown>, canBatch
 }
 
 describe('PromptSection with several prompts', () => {
-	it('shows the picker chip inside the editor title', async () => {
+	it('shows one tab per prompt inside the editor title, with the active one selected', async () => {
 		const { target } = await render(3, { quantity: 1 }, true);
 
-		expect(target.querySelector('[data-editor-title] [data-prompt-picker]')!.textContent).toContain('Prompt 3 of 3');
+		const tabs = [...target.querySelectorAll<HTMLElement>('[data-editor-title] [role="tab"]')];
+		expect(tabs.map((tab) => tab.textContent!.trim())).toEqual(['Prompt 1', 'Prompt 2', 'Prompt 3']);
+		expect(tabs.map((tab) => tab.getAttribute('aria-selected'))).toEqual(['false', 'false', 'true']);
+		expect(target.querySelector('[data-editor-title] [data-prompt-picker]')!.getAttribute('aria-label')).toBe('All prompts');
+	});
+
+	it('selects another prompt from its tab', async () => {
+		const { target, id } = await render(3, { quantity: 1 }, true);
+
+		target.querySelectorAll<HTMLElement>('[data-editor-title] [role="tab"]')[0].click();
+		flushSync();
+
+		expect(get(tabsStore).tabs.find((t) => t.id === id)!.activePromptTab).toBe(0);
+	});
+
+	it('adds a prompt from the plus button', async () => {
+		const { target, id } = await render(3, { quantity: 1 }, true);
+
+		target.querySelector<HTMLButtonElement>('[data-editor-title] button[aria-label="Add prompt"]')!.click();
+		flushSync();
+
+		expect(get(tabsStore).tabs.find((t) => t.id === id)!.promptTabs).toHaveLength(4);
+	});
+
+	it('shows a single Prompt tab and no list for one prompt', async () => {
+		const { target } = await render(1, { quantity: 1 }, true);
+
+		const tabs = [...target.querySelectorAll<HTMLElement>('[data-editor-title] [role="tab"]')];
+		expect(tabs.map((tab) => tab.textContent!.trim())).toEqual(['Prompt']);
+		expect(target.querySelector('[data-editor-title] [data-prompt-picker]')).toBeNull();
 	});
 
 	it('shows the over-limit alert and removes the last prompt from it', async () => {

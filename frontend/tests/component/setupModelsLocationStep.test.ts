@@ -99,3 +99,73 @@ describe('setup models step', () => {
 		expect(text()).not.toContain("you'll choose");
 	});
 });
+
+describe('setup models step choice', () => {
+	const radio = (title: string) =>
+		Array.from(document.body.querySelectorAll<HTMLElement>('[role="radio"]')).find((r) =>
+			r.textContent?.includes(title)
+		)!;
+	const button = (label: string) =>
+		Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
+
+	it('starts on Start fresh with the path box and a Continue button, no folder form', async () => {
+		seed(status());
+		mountComponent(ModelsLocationStep, {});
+		await settle();
+
+		expect(radio('Start fresh').getAttribute('aria-checked')).toBe('true');
+		expect(radio('Use an existing folder').getAttribute('aria-checked')).toBe('false');
+		expect(text()).toContain('Models will be saved to');
+		expect(document.body.querySelector('#model-root-path')).toBeNull();
+		expect(button('Continue')).toBeDefined();
+	});
+
+	it('shows the free disk line when it is known', async () => {
+		seed(status());
+		mountComponent(ModelsLocationStep, { freeDiskBytes: 412 * 1024 ** 3 });
+		await settle();
+
+		expect(text()).toContain('412 GB free on that drive.');
+	});
+
+	it('reveals the folder form under Use an existing folder and can go back', async () => {
+		seed(status());
+		mountComponent(ModelsLocationStep, {});
+		await settle();
+
+		radio('Use an existing folder').click();
+		await settle();
+		expect(document.body.querySelector('#model-root-path')).not.toBeNull();
+		expect(text()).toContain('It does not copy or move your files.');
+		expect(button('Continue')).toBeUndefined();
+
+		button('Back to start fresh')!.click();
+		await settle();
+		expect(document.body.querySelector('#model-root-path')).toBeNull();
+		expect(radio('Start fresh').getAttribute('aria-checked')).toBe('true');
+	});
+
+	it('Continue stores the choice and tells the guide to move on', async () => {
+		seed(status());
+		const onContinue = vi.fn();
+		mountComponent(ModelsLocationStep, { onContinue });
+		await settle();
+
+		button('Continue')!.click();
+		await settle();
+		expect(localStorage.getItem(DISMISSED_KEY)).toBe('1');
+		expect(onContinue).toHaveBeenCalledTimes(1);
+	});
+
+	it('Change on the summary returns to the choice', async () => {
+		localStorage.setItem(DISMISSED_KEY, '1');
+		seed(status());
+		mountComponent(ModelsLocationStep, {});
+		await settle();
+
+		button('Change')!.click();
+		await settle();
+		expect(radio('Start fresh')).toBeDefined();
+		expect(localStorage.getItem(DISMISSED_KEY)).toBeNull();
+	});
+});

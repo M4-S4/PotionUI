@@ -1,6 +1,7 @@
 """Tests for the per-turn PROMPT STATE context block."""
 
 from src.features.chat.context_builder import ChatContextBuilder
+from tests.fixtures.chat_engine import typed_history
 
 _PREFIX = "hi\n\n<context>\n"
 _SUFFIX = "\n</context>"
@@ -8,7 +9,7 @@ _SUFFIX = "\n</context>"
 
 def _inject(segments):
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(history, {"segments": segments})
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(history, {"segments": segments})
     return history
 
 
@@ -107,9 +108,9 @@ def test_overflow_cap():
 def test_absent_or_empty_segments_injects_nothing():
     assert _block([]) is None
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(history, {})
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(history, {})
     assert history == [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(history, None)
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(history, None)
     assert history == [{"role": "user", "content": "hi"}]
 
 
@@ -130,7 +131,7 @@ def test_folded_into_last_user_message():
         {"role": "assistant", "content": "reply"},
         {"role": "user", "content": "current"},
     ]
-    ChatContextBuilder.inject_prompt_state_block(
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(
         history, {"segments": [{"index": 0, "id": "a", "type": "content", "enabled": True, "content": "x"}]}
     )
     assert len(history) == 3
@@ -162,7 +163,7 @@ def test_not_skipped_when_video_director_inactive():
 
 def _inject_with_form_state(segments, form_state):
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(
         history, {"segments": segments, "form_state": form_state}
     )
     return history

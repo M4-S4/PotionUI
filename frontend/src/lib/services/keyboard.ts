@@ -84,7 +84,7 @@ function normalizeKey(e: KeyboardEvent): { key: string; modifiers: string } {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-	if (isKeyboardSuppressed()) return;
+	if (isKeyboardSuppressed() || e.defaultPrevented) return;
 	if (shouldIgnoreEvent(e)) return;
 
 	const { key, modifiers } = normalizeKey(e);

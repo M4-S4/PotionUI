@@ -1,12 +1,14 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, untrack } from 'svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
+	import { resetScrollOnChange } from '$lib/utils/scrollToTop';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { tabsStore } from '$lib/stores/tabs';
+	import { toasts } from '$lib/stores/toast';
 	import { api } from '$lib/services/api/index';
-	import type { ReadinessReport, SetupRecipe, SetupRun } from '$lib/services/api/setup';
+	import type { ReadinessReport, SetupMachine, SetupRecipe, SetupRun } from '$lib/services/api/setup';
 	import {
 		readinessCheckBadgeVariant,
 		readinessCheckStatusLabel,
@@ -19,21 +21,108 @@
 		extractGenerationHandoff,
 		extractSmokeGeneration
 	} from '$lib/utils/setupRunDisplay';
-	import { formatBytes } from '$lib/utils/format';
+	import {
+		SKIP_TOAST_DURATION_MS,
+		deriveCurrentStep,
+		showsSkipGuide,
+		skipToastMessage,
+		type SetupStepId
+	} from '$lib/utils/setupGuide';
+	import {
+		COMPUTER_SEEN_KEY,
+		MODELS_LOCATION_DONE_KEY,
+		readGuideFlag,
+		writeGuideFlag
+	} from '$lib/utils/setupGuideFlags';
 	import { notifySetupCompleted } from '$lib/stores/setupCompletion';
-	import { Badge, Button, Card, EmptyState, PageContainer, PageHeader, Spinner } from '$lib/components/ui';
+	import { Badge, Button, Card, EmptyState, PageHeader, Spinner } from '$lib/components/ui';
 	import { RecipeRunSession } from '$lib/components/recipes/recipeRunSession.svelte';
 	import { createSetupRunHooks } from '$lib/components/recipes/setupRunHooks';
-	import RecipeRunProgress from '$lib/components/recipes/RecipeRunProgress.svelte';
-	import { setupRunActions } from '$lib/components/recipes/runActions';
+	import SetupStepper from '$lib/components/setup/SetupStepper.svelte';
+	import TrustFooter from '$lib/components/setup/TrustFooter.svelte';
 	import ModelsLocationStep from './components/ModelsLocationStep.svelte';
+	import StepHeader from '$lib/components/setup/StepHeader.svelte';
+	import ComputerStep from './components/ComputerStep.svelte';
+	import StarterStep from './components/StarterStep.svelte';
+	import InstallStep from './components/InstallStep.svelte';
+	import ReadyStep from './components/ReadyStep.svelte';
 
-	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
+	const RUN_STORAGE_KEY = 'potionui:setup:activeRunId';
+	const DEFAULT_MODELS_PATH = 'models/ (default location in this install)';
 
-	let report: ReadinessReport | null = null;
-	let loading = true;
-	let refreshing = false;
-	let loadError = '';
+	const isAdmin = $derived($authStore.user?.account_type === 'ADMIN');
+
+	let report = $state<ReadinessReport | null>(null);
+	let loading = $state(true);
+	let refreshing = $state(false);
+	let loadError = $state('');
+
+	let run = $state<SetupRun | null>(null);
+	let runChecked = $state(false);
+	let runFetchError = $state('');
+
+	let recipes = $state<SetupRecipe[] | null>(null);
+	let recipesLoading = $state(false);
+	let recipesAttempted = false;
+	let recipesError = $state('');
+	let starting = $state(false);
+	let startError = $state('');
+
+	let machine = $state<SetupMachine | null>(null);
+	let machineLoading = $state(true);
+
+	let flagsRead = $state(false);
+	let computerSeen = $state(false);
+	let modelsDone = $state(false);
+	let override = $state<SetupStepId | null>(null);
+
+	const session = new RecipeRunSession({
+		api: { get: (runId) => api.getSetupRun(runId) },
+		...createSetupRunHooks({
+			setRun: (next) => (run = next),
+			setFetchError: (message) => (runFetchError = message),
+			remember: rememberRunId,
+			forget: forgetRunId
+		})
+	});
+
+	const derivedStep = $derived(
+		deriveCurrentStep({
+			ownerExists: true,
+			welcomeSeen: true,
+			computerSeen,
+			modelsDone,
+			run,
+			instanceReady: report?.overall === 'ready'
+		})
+	);
+	const step = $derived(override ?? derivedStep);
+	const guideReady = $derived(isAdmin && flagsRead && runChecked && !loading);
+	const recipe = $derived(recipes?.find((r) => r.id === run?.recipe_id) ?? null);
+	const modelsPath = $derived(machine?.models_disk?.path ?? DEFAULT_MODELS_PATH);
+	const generationHandoff = $derived(run ? extractGenerationHandoff(run) : null);
+	const smokeResult = $derived(run ? extractSmokeGeneration(run) : null);
+	const smokeThumbnailUrl = $derived(
+		smokeResult?.filename && smokeResult.generationId
+			? api.getGenerationThumbnailURL(smokeResult.generationId, smokeResult.filename, 'medium')
+			: null
+	);
+	const installedName = $derived(
+		run?.status === 'completed' && recipe ? (recipe.presets[0]?.name ?? recipe.name) : null
+	);
+
+	let notifiedCompletion = false;
+	$effect(() => {
+		if (run?.status === 'completed' && !notifiedCompletion) {
+			notifiedCompletion = true;
+			notifySetupCompleted();
+			untrack(() => void load(true));
+		}
+	});
+
+	$effect(() => {
+		if (isAdmin && runChecked && !recipesAttempted) untrack(() => void loadRecipes());
+	});
 
 	async function load(isRefresh = false) {
 		if (isRefresh) refreshing = true;
@@ -48,44 +137,28 @@
 		}
 	}
 
-	// --- guided setup run --------------------------------------------------
-	//
-	// The server is the source of truth for "is there an active run" — this
-	// page always calls `GET /api/setup/runs/active` on load, so a run
-	// started in another browser/session still shows up here. The last-seen
-	// run id is still kept in localStorage, but only as an optimistic
-	// fast-path (paint whatever was last seen immediately, while the real
-	// check is in flight) — a 404 from the server always wins and clears it.
-	const RUN_STORAGE_KEY = 'potionui:setup:activeRunId';
-
-	let run: SetupRun | null = null;
-	let runChecked = false;
-	let runFetchError = '';
-
-	const session = new RecipeRunSession({
-		api: { get: (runId) => api.getSetupRun(runId) },
-		...createSetupRunHooks({
-			setRun: (next) => (run = next),
-			setFetchError: (message) => (runFetchError = message),
-			remember: rememberRunId,
-			forget: forgetRunId
-		})
-	});
-
-	// Pokes the sidebar's "Resume setup" nudge to re-check the instant this
-	// run finishes, instead of it lingering until the next full page load —
-	// once per page lifetime is enough (the sidebar itself de-dupes further).
-	let notifiedCompletion = false;
-	$: if (run?.status === 'completed' && !notifiedCompletion) {
-		notifiedCompletion = true;
-		notifySetupCompleted();
+	async function loadMachine() {
+		try {
+			machine = await api.getSetupMachine();
+		} catch {
+			machine = null;
+		} finally {
+			machineLoading = false;
+		}
 	}
-	$: generationHandoff = run ? extractGenerationHandoff(run) : null;
-	$: smokeResult = run ? extractSmokeGeneration(run) : null;
-	$: smokeThumbnailUrl =
-		smokeResult?.filename && smokeResult.generationId
-			? api.getGenerationThumbnailURL(smokeResult.generationId, smokeResult.filename, 'medium')
-			: null;
+
+	async function loadRecipes() {
+		recipesAttempted = true;
+		recipesLoading = true;
+		recipesError = '';
+		try {
+			recipes = (await api.getSetupRecipes()).recipes;
+		} catch (err: any) {
+			recipesError = getApiErrorMessage(err, "Couldn't load the starter models.");
+		} finally {
+			recipesLoading = false;
+		}
+	}
 
 	function storedRunId(): string | null {
 		if (!browser) return null;
@@ -101,8 +174,7 @@
 		try {
 			localStorage.setItem(RUN_STORAGE_KEY, runId);
 		} catch {
-			// localStorage may be unavailable — the panel still works for this
-			// page load, it just won't survive a refresh.
+			return;
 		}
 	}
 
@@ -111,7 +183,7 @@
 		try {
 			localStorage.removeItem(RUN_STORAGE_KEY);
 		} catch {
-			// ignore
+			return;
 		}
 	}
 
@@ -119,16 +191,11 @@
 		const cachedId = storedRunId();
 		let cachedRun: SetupRun | null = null;
 		if (cachedId) {
-			// Optimistic fast path: paint whatever this browser last saw for
-			// this run id immediately, while the authoritative check below is
-			// still in flight. Best-effort only — any failure here is ignored,
-			// the authoritative call settles the real state.
 			try {
 				cachedRun = await api.getSetupRun(cachedId);
 				session.adopt(cachedRun);
 			} catch {
-				// ignore — a 404/network error here just means there's nothing to
-				// fall back on below.
+				cachedRun = null;
 			}
 		}
 
@@ -136,10 +203,6 @@
 			session.adopt(await api.getSetupActiveRun());
 		} catch (err: any) {
 			if (err?.response?.status === 404) {
-				// Authoritative: nothing is active right now. A failed stored run
-				// still gets one more look (it's deliberately excluded from
-				// "active" — see decideRunDiscovery) so "Try again" survives a
-				// reload; anything else (completed/cancelled/no stored run) clears.
 				const decision = decideRunDiscovery('not_found', cachedRun);
 				if (decision.show === 'stored-failed' && cachedRun) {
 					session.adopt(cachedRun);
@@ -154,51 +217,35 @@
 		}
 	}
 
-	// --- start-a-recipe -----------------------------------------------------
-
-	let recipes: SetupRecipe[] | null = null;
-	let recipesLoading = false;
-	let recipesError = '';
-	let startingRecipeId: string | null = null;
-	let startError = '';
-
-	async function loadRecipes() {
-		recipesLoading = true;
-		recipesError = '';
-		try {
-			const result = await api.getSetupRecipes();
-			recipes = result.recipes;
-		} catch (err: any) {
-			recipesError = getApiErrorMessage(err, "Couldn't load the setup recipes.");
-		} finally {
-			recipesLoading = false;
-		}
-	}
-
-	// Load the catalog once we know there's no active run to show instead.
-	$: if (isAdmin && runChecked && !run && recipes === null && !recipesLoading) loadRecipes();
-
-	async function startRecipe(recipe: SetupRecipe) {
-		if (startingRecipeId) return;
-		startingRecipeId = recipe.id;
+	async function startRecipe(selected: SetupRecipe) {
+		if (starting) return;
+		starting = true;
 		startError = '';
 		try {
-			const created = await api.createSetupRun(recipe.id);
-			session.adopt(created);
+			session.adopt(await api.createSetupRun(selected.id));
+			override = null;
 		} catch (err: any) {
-			startError = getApiErrorMessage(err, "Couldn't start this recipe.");
+			startError = getApiErrorMessage(err, "Couldn't start this starter.");
 		} finally {
-			startingRecipeId = null;
+			starting = false;
 		}
 	}
 
-	// --- first-generation handoff --------------------------------------
+	function continueFromComputer() {
+		writeGuideFlag(COMPUTER_SEEN_KEY, true);
+		computerSeen = true;
+		override = null;
+	}
+
+	function continueFromModels() {
+		modelsDone = true;
+		override = null;
+		void loadMachine();
+	}
 
 	function goToFirstGeneration() {
 		if (generationHandoff) {
-			const recipe = recipes?.find((r) => r.id === run?.recipe_id);
-			const tabName = recipe ? recipe.name : 'First generation';
-			tabsStore.addTabWithData(tabName, {
+			tabsStore.addTabWithData(recipe ? recipe.name : 'First generation', {
 				selectedPreset: generationHandoff.presetId,
 				selectedMode: generationHandoff.mode
 			});
@@ -206,10 +253,27 @@
 		goto('/generate');
 	}
 
+	function skipGuide() {
+		const mobile = browser && window.matchMedia('(max-width: 767px)').matches;
+		toasts.info(
+			skipToastMessage({ mobile, step, runStatus: run?.status ?? null }),
+			SKIP_TOAST_DURATION_MS
+		);
+		goto('/generate');
+	}
+
 	onMount(() => {
+		computerSeen = readGuideFlag(COMPUTER_SEEN_KEY);
+		modelsDone = readGuideFlag(MODELS_LOCATION_DONE_KEY);
+		flagsRead = true;
 		load();
-		if (isAdmin) discoverRun();
-		else runChecked = true;
+		if (isAdmin) {
+			discoverRun();
+			loadMachine();
+		} else {
+			runChecked = true;
+			machineLoading = false;
+		}
 	});
 
 	onDestroy(() => session.dispose());
@@ -219,184 +283,170 @@
 	<title>Setup - PotionUI</title>
 </svelte:head>
 
-<div class="min-h-screen bg-canvas text-fg">
+{#snippet readinessList(current: ReadinessReport)}
+	<div class="space-y-3">
+		{#each current.checks as check (check.area)}
+			{@const adminLink = readinessAdminLink(check.area)}
+			<Card>
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0">
+						<div class="mb-1 flex items-center gap-2">
+							<h2 class="text-sm font-semibold text-fg">{readinessAreaLabel(check.area)}</h2>
+							<Badge variant={readinessCheckBadgeVariant(check)}>
+								{readinessCheckStatusLabel(check)}
+							</Badge>
+						</div>
+						<p class="text-sm text-fg-muted">{check.message}</p>
+					</div>
+				</div>
+				{#if isAdmin && check.action}
+					<div class="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
+						<p class="text-xs text-fg-subtle">{check.action}</p>
+						{#if adminLink}
+							<Button size="sm" variant="secondary" href={adminLink}>Open</Button>
+						{/if}
+					</div>
+				{/if}
+			</Card>
+		{/each}
+	</div>
+{/snippet}
+
+<div use:resetScrollOnChange={step} class="flex min-h-screen flex-col bg-canvas text-fg">
 	<PageHeader title="Setup" description="Is this instance ready to generate?" sticky={false}>
 		{#snippet actions()}
-			<Button variant="secondary" icon="refresh" loading={refreshing} onclick={() => load(true)}>
-				Refresh
-			</Button>
+			{#if guideReady && showsSkipGuide(step)}
+				<Button variant="secondary" ariaLabel="Skip the guide, go to the app" onclick={skipGuide}>
+					<span class="max-sm:hidden">Skip the guide, go to the app</span>
+					<span class="sm:hidden">Skip guide</span>
+				</Button>
+			{/if}
+			{#if !isAdmin}
+				<Button variant="secondary" icon="refresh" loading={refreshing} onclick={() => load(true)}>
+					Refresh
+				</Button>
+			{/if}
 		{/snippet}
 	</PageHeader>
 
-	<PageContainer width="sm" class="space-y-6">
-		{#if loading}
-			<div class="flex justify-center py-16">
-				<Spinner size="lg" />
-			</div>
-		{:else if loadError}
-			<EmptyState
-				title="Couldn't load readiness"
-				description={loadError}
-				icon="warning"
+	{#if isAdmin}
+		{#if guideReady}
+			<SetupStepper
+				current={step}
+				ownerExists={true}
+				onnavigate={(id) => (override = id)}
+			/>
+
+			<main
+				class="mx-auto flex w-full max-w-[720px] flex-1 flex-col gap-5 px-6 pb-12 pt-8 max-sm:gap-4 max-sm:px-4 max-sm:pb-10 max-sm:pt-5"
 			>
-				{#snippet actions()}
-					<Button variant="secondary" onclick={() => load()}>Try again</Button>
-				{/snippet}
-			</EmptyState>
-		{:else if report}
-			<div>
-				<h1 class="text-xl font-semibold text-fg">{readinessHeadline(report)}</h1>
-			</div>
-
-			{#if isAdmin && runChecked && run}
-				<!-- A snippet is hoisted out of this block, so it neither inherits the
-				     null-narrowing above nor may be declared inside <Card> (that would
-				     make it a Card prop). Both are settled by naming the run here. -->
-				{@const currentRun = run}
-				{#snippet completedHandoff()}
-					{#if currentRun.status === 'completed'}
-						<!-- first-generation handoff -->
-						<div class="rounded-lg border border-success/25 bg-success/5 px-4 py-5 text-center">
-							<p class="text-sm font-semibold text-success">You're all set</p>
-							<p class="text-sm text-fg-muted mt-1">
-								This instance is ready to generate. Your recipe installed everything it needed.
-							</p>
-
-							{#if smokeThumbnailUrl}
-								<div class="mt-4 flex flex-col items-center gap-2">
-									<img
-										src={smokeThumbnailUrl}
-										alt="Output from your setup's test generation"
-										class="max-h-56 rounded-lg border border-line shadow-raised"
-									/>
-									<p class="text-xs text-fg-subtle">Here's the test image your setup produced.</p>
-								</div>
-							{/if}
-
-							<div class="mt-4">
-								<Button variant="primary" icon="sparkles" onclick={goToFirstGeneration}>
-									Create your first image
-								</Button>
-							</div>
-						</div>
-					{/if}
-				{/snippet}
-				<Card>
-					<RecipeRunProgress
-						run={currentRun}
+				{#if step === 'computer'}
+					<ComputerStep
+						{machine}
+						loading={machineLoading}
+						recipes={recipes ?? []}
+						onContinue={continueFromComputer}
+					/>
+				{:else if step === 'models'}
+					<section class="flex flex-col gap-5" aria-labelledby="h-models">
+						<StepHeader
+							step="models"
+							titleId="h-models"
+							title="Where should PotionUI keep your models?"
+							lede="Models are large files (checkpoints, LoRAs and so on) that live in one folder on your disk."
+							status={{ text: 'Default is fine, change any time', tone: 'signal' }}
+						/>
+						<ModelsLocationStep
+							freeDiskBytes={machine?.models_disk?.free_bytes ?? null}
+							onContinue={continueFromModels}
+							onBack={() => (override = 'computer')}
+						/>
+					</section>
+				{:else if step === 'starter'}
+					<StarterStep
+						{recipes}
+						loading={recipesLoading}
+						error={recipesError}
+						{machine}
+						{modelsPath}
+						{starting}
+						{startError}
+						onStart={startRecipe}
+						onSkip={() => (override = 'ready')}
+						onBack={() => (override = 'models')}
+						onRetry={loadRecipes}
+					/>
+				{:else if step === 'install' && run}
+					<InstallStep
+						{run}
+						{recipe}
 						fetchError={runFetchError}
-						actions={setupRunActions}
+						{modelsPath}
 						onRunUpdated={session.adopt}
 						onStartOver={() => session.reset()}
-						completed={completedHandoff}
 					/>
-				</Card>
-			{:else if isAdmin && runChecked && !run}
-				<!-- Models location: before offering recipes (which download models),
-				     let the admin point at an external directory. Skippable. -->
-				<ModelsLocationStep />
+				{:else if step === 'ready'}
+					<ReadyStep
+						{installedName}
+						thumbnailUrl={smokeThumbnailUrl}
+						{modelsPath}
+						onCreate={goToFirstGeneration}
+					/>
+				{/if}
 
-				<!-- Start-a-recipe: no active run, offer the recipe catalog. -->
-				<div class="space-y-3">
-					<h2 class="text-sm font-semibold text-fg">Start guided setup</h2>
-
-					{#if recipesLoading}
-						<div class="flex justify-center py-10">
-							<Spinner size="md" />
-						</div>
-					{:else if recipesError}
-						<EmptyState title="Couldn't load setup recipes" description={recipesError} icon="warning">
-							{#snippet actions()}
-								<Button variant="secondary" onclick={loadRecipes}>Try again</Button>
-							{/snippet}
-						</EmptyState>
-					{:else if recipes && recipes.length === 0}
-						<EmptyState
-							title="No setup recipes available"
-							description="There's nothing to guide you through right now — check back after this instance is updated."
-							icon="box"
-						/>
-					{:else if recipes}
-						{#if startError}
-							<p class="text-sm text-danger">{startError}</p>
-						{/if}
-						<div class="space-y-3">
-							{#each recipes as recipe (recipe.id)}
-								<Card class="space-y-2">
-									<div class="flex items-start justify-between gap-3">
-										<div class="min-w-0">
-											<h3 class="text-sm font-semibold text-fg">{recipe.name}</h3>
-											<p class="text-sm text-fg-muted mt-0.5">{recipe.summary}</p>
-											{#if recipe.description}
-												<p class="text-xs text-fg-subtle mt-1 line-clamp-3">{recipe.description}</p>
-											{/if}
-										</div>
-										<Button
-											size="sm"
-											variant={recipe.last_completed_at ? 'secondary' : 'primary'}
-											loading={startingRecipeId === recipe.id}
-											disabled={startingRecipeId !== null && startingRecipeId !== recipe.id}
-											onclick={() => startRecipe(recipe)}
-										>
-											{recipe.last_completed_at ? 'Run again' : 'Start'}
-										</Button>
-									</div>
-									<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-subtle">
-										{#if recipe.last_completed_at}
-											<Badge size="sm" variant="success">Installed</Badge>
-										{/if}
-										<span class="font-mono">{recipe.engine}</span>
-										{#each recipe.presets ?? [] as linkedPreset (linkedPreset.id)}
-											<span>{linkedPreset.name}</span>
-										{/each}
-										{#if recipe.total_download_bytes != null}
-											<span class="font-mono tabular-nums">
-												~{formatBytes(recipe.total_download_bytes)} to download
-											</span>
-										{/if}
-									</div>
-								</Card>
-							{/each}
-						</div>
-					{/if}
-				</div>
-			{/if}
-
-			{#if report.overall === 'ready'}
-				<Card padding="none" class="text-center py-10 px-6">
-					<p class="text-sm text-fg-muted mb-4">
-						This instance is generating successfully. You're all set.
-					</p>
-					<Button variant="primary" href="/generate">Go to Generate</Button>
-				</Card>
-			{:else}
-				<div class="space-y-3">
-					{#each report.checks as check (check.area)}
-						{@const adminLink = readinessAdminLink(check.area)}
-						<Card>
-							<div class="flex items-start justify-between gap-3">
-								<div class="min-w-0">
-									<div class="flex items-center gap-2 mb-1">
-										<h2 class="text-sm font-semibold text-fg">{readinessAreaLabel(check.area)}</h2>
-										<Badge variant={readinessCheckBadgeVariant(check)}>
-											{readinessCheckStatusLabel(check)}
-										</Badge>
-									</div>
-									<p class="text-sm text-fg-muted">{check.message}</p>
-								</div>
+				{#if report || loadError}
+					<details class="pt-2">
+						<summary class="cursor-pointer list-none rounded-sm font-medium text-signal hover:underline">
+							Readiness checks
+						</summary>
+						<div class="mt-3 space-y-3">
+							<div class="flex items-center justify-between gap-3">
+								<p class="text-sm text-fg-muted">
+									{report ? readinessHeadline(report) : loadError}
+								</p>
+								<Button size="sm" variant="secondary" icon="refresh" loading={refreshing} onclick={() => load(true)}>
+									Refresh
+								</Button>
 							</div>
-							{#if isAdmin && check.action}
-								<div class="mt-3 pt-3 border-t border-line flex items-center justify-between gap-3">
-									<p class="text-xs text-fg-subtle">{check.action}</p>
-									{#if adminLink}
-										<Button size="sm" variant="secondary" href={adminLink}>Open</Button>
-									{/if}
-								</div>
+							{#if report}
+								{@render readinessList(report)}
 							{/if}
-						</Card>
-					{/each}
-				</div>
-			{/if}
+						</div>
+					</details>
+				{/if}
+			</main>
+
+			<TrustFooter />
+		{:else}
+			<div class="flex flex-1 justify-center py-16">
+				<Spinner size="lg" />
+			</div>
 		{/if}
-	</PageContainer>
+	{:else}
+		<main class="mx-auto w-full max-w-2xl space-y-6 px-4 py-4 sm:px-6 sm:py-6">
+			{#if loading}
+				<div class="flex justify-center py-16">
+					<Spinner size="lg" />
+				</div>
+			{:else if loadError}
+				<EmptyState title="Couldn't load readiness" description={loadError} icon="warning">
+					{#snippet actions()}
+						<Button variant="secondary" onclick={() => load()}>Try again</Button>
+					{/snippet}
+				</EmptyState>
+			{:else if report}
+				<h1 class="text-xl font-semibold text-fg">{readinessHeadline(report)}</h1>
+				{#if report.overall === 'ready'}
+					<Card padding="none" class="px-6 py-10 text-center">
+						<p class="mb-4 text-sm text-fg-muted">
+							This instance is generating successfully. You're all set.
+						</p>
+						<Button variant="primary" href="/generate">Go to Generate</Button>
+					</Card>
+				{:else}
+					{@render readinessList(report)}
+				{/if}
+			{/if}
+		</main>
+	{/if}
 </div>

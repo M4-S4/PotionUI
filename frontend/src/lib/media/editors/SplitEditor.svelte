@@ -164,10 +164,6 @@
 				</p>
 			</div>
 		</div>
-
-		{#if resourceNote}
-			<p class="text-2xs text-fg-muted">{resourceNote}</p>
-		{/if}
 	</div>
 
 	<svelte:fragment slot="footer">
@@ -176,6 +172,7 @@
 			blockedReason={rejection}
 			{failureMessage}
 			allowReplace={false}
+			note={resourceNote}
 			applyLabel="Split"
 			onCancel={onClose}
 			onSave={save}

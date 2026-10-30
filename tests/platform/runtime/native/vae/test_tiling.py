@@ -7,7 +7,7 @@ from unittest import mock
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.detect.registry import arch_registry
 from src.platform.runtime.native.memory.tiering import activation_headroom_gb
 from src.platform.runtime.native.vae import ae_2d

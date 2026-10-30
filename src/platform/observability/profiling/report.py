@@ -194,6 +194,76 @@ def render_summary(rows: list[dict[str, Any]]) -> str:
     return _section(lines)
 
 
+_STEP_EVENT = "sampler.step"
+
+
+def _step_loops(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    loops: list[list[dict[str, Any]]] = []
+    prev_step = None
+    for row in rows:
+        if row.get("kind") != "event" or row.get("event") != _STEP_EVENT:
+            continue
+        step = row.get("step")
+        if (
+            not loops or not isinstance(step, int) or not isinstance(prev_step, int)
+            or step <= prev_step or row.get("steps") != loops[-1][-1].get("steps")
+        ):
+            loops.append([])
+        loops[-1].append(row)
+        prev_step = step
+    return loops
+
+
+def _fmt_flag(v: Any) -> str:
+    return "yes" if v is True else ("no" if v is False else "-")
+
+
+def _numbers(rows: list[dict[str, Any]], field: str) -> list[float]:
+    return [r[field] for r in rows if isinstance(r.get(field), (int, float))]
+
+
+def render_step_table(rows: list[dict[str, Any]]) -> str:
+    loops = _step_loops(rows)
+    if not loops:
+        return ""
+    lines = [
+        "=" * 100,
+        "STEP TABLE (sampler.step events, one row per sampling step)",
+        "=" * 100,
+    ]
+    header = (
+        f"{'loop':>5}{'step':>9}  {'mode':<10}{'step_s':>10}{'stream_wait_s':>15}"
+        f"{'streamed_gb':>13}  cache_skip"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+    by_mode: dict[str, list[dict[str, Any]]] = {}
+    for loop_index, loop in enumerate(loops, 1):
+        for row in loop:
+            mode = str(row.get("attn") or "-")
+            step = f"{row.get('step', '?')}/{row.get('steps', '?')}"
+            lines.append(
+                f"{loop_index:>5}{step:>9}  {mode:<10}{_fmt(row.get('step_s')):>10}"
+                f"{_fmt(row.get('stream_wait_s')):>15}{_fmt(row.get('streamed_gb')):>13}"
+                f"  {_fmt_flag(row.get('cache_skip'))}"
+            )
+            by_mode.setdefault(mode, []).append(row)
+    lines.append("")
+    summary = f"{'mode':<10}{'count':>7}{'mean_s':>10}{'total_s':>10}{'stream_wait_s':>15}"
+    lines.append(summary)
+    lines.append("-" * len(summary))
+    for mode, mode_rows in by_mode.items():
+        seconds = _numbers(mode_rows, "step_s")
+        waits = _numbers(mode_rows, "stream_wait_s")
+        total = sum(seconds) if seconds else None
+        mean = total / len(seconds) if seconds else None
+        lines.append(
+            f"{mode:<10}{len(mode_rows):>7}{_fmt(mean):>10}{_fmt(total):>10}"
+            f"{_fmt(sum(waits) if waits else None):>15}"
+        )
+    return _section(lines)
+
+
 def _render_tensor_census(
     rows: list[dict[str, Any]], *, device_kind: str, title: str, top_n: int = 15,
 ) -> str:
@@ -394,6 +464,7 @@ def render_report(rows: list[dict[str, Any]], jsonl_path: Optional[Path] = None)
         render_stage_table(rows),
         render_top_jumps(rows),
         render_summary(rows),
+        render_step_table(rows),
         render_cpu_tensor_census_groups(rows),
         render_cuda_tensor_census_groups(rows),
         render_cpu_tensor_census(rows),

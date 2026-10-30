@@ -3,7 +3,7 @@ import { loginAsOwner, screenshot } from './helpers';
 import { chooseLayout, installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'prompt-header-overflow';
-const LABELS = ['Styles', 'Prompts', 'Segments', 'Templates', 'Variables'];
+const LABELS = ['Styles', 'Variables'];
 
 async function expectNothingCutOff(page: Page) {
 	const header = page.locator('header.composer-toolbar').first();
@@ -13,6 +13,7 @@ async function expectNothingCutOff(page: Page) {
 	const slots = header.locator('[data-toolbar-action]');
 	const count = await slots.count();
 	for (let i = 0; i < count; i++) {
+		if (!(await slots.nth(i).isVisible())) continue;
 		const slot = await slots.nth(i).boundingBox();
 		expect(slot).not.toBeNull();
 		expect(slot!.x).toBeGreaterThanOrEqual(box!.x - 1);
@@ -20,36 +21,25 @@ async function expectNothingCutOff(page: Page) {
 	}
 	const overflowing = await header.evaluate((el) => el.scrollWidth > el.clientWidth + 1);
 	expect(overflowing).toBe(false);
-}
-
-async function fullRowWidth(page: Page): Promise<number> {
-	const header = page.locator('header.composer-toolbar').first();
-	return header.evaluate((el) => {
-		const style = getComputedStyle(el);
-		const gap = parseFloat(style.columnGap) || 0;
-		const items = (Array.from(el.children) as HTMLElement[]).filter(
-			(child) => !child.classList.contains('toolbar-spacer')
-		);
-		const content = items.reduce((sum, child) => sum + child.offsetWidth, 0);
-		return Math.ceil(
-			content + gap * items.length + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
-		);
-	});
+	const truncatedTitles = await header.evaluate((el) =>
+		Array.from(el.querySelectorAll<HTMLElement>('[role="tab"] .truncate, .prompt-title')).filter(
+			(title) => title.scrollWidth > title.clientWidth + 1
+		).length
+	);
+	expect(truncatedTitles).toBe(0);
 }
 
 async function reachable(page: Page, label: string): Promise<boolean> {
 	const header = page.locator('header.composer-toolbar').first();
-	if ((await header.locator('[data-toolbar-action]').filter({ hasText: label }).count()) > 0) return true;
-	const more = header.getByRole('button', { name: 'More prompt actions' });
-	if ((await more.count()) === 0) return false;
-	await more.click();
-	const item = page.getByRole('menuitem', { name: new RegExp(`^${label}`) });
-	const found = (await item.count()) > 0;
+	const slot = header.locator('[data-toolbar-action]').filter({ has: page.getByRole('button', { name: new RegExp(`^${label}`) }) });
+	if ((await slot.count()) > 0 && (await slot.first().isVisible())) return true;
+	await header.getByRole('button', { name: 'Library' }).click();
+	const found = (await page.getByRole('menuitem', { name: new RegExp(`^${label}`) }).count()) > 0;
 	await page.keyboard.press('Escape');
 	return found;
 }
 
-test('prompt header actions collapse into the more menu as the prompts pane is dragged narrow', async ({ page }) => {
+test('prompt header steps down its ladder as the prompts pane is dragged narrow', async ({ page }) => {
 	test.setTimeout(90000);
 	await loginAsOwner(page);
 	await page.setViewportSize({ width: 1600, height: 900 });
@@ -64,6 +54,7 @@ test('prompt header actions collapse into the more menu as the prompts pane is d
 	await screenshot(page, JOURNEY, 'wide');
 
 	const header = page.locator('header.composer-toolbar').first();
+	await expect(header).toHaveAttribute('data-icons', '');
 	const startWidth = (await header.boundingBox())!.width;
 	const handleBox = (await handle.boundingBox())!;
 
@@ -75,21 +66,17 @@ test('prompt header actions collapse into the more menu as the prompts pane is d
 	await expect.poll(async () => (await header.boundingBox())!.width, { timeout: 5000 }).toBeLessThan(startWidth);
 	await expectNothingCutOff(page);
 
-	if ((await header.locator('[data-toolbar-action]').count()) === LABELS.length) {
-		const needed = await fullRowWidth(page);
-		await header.evaluate((el, width) => {
-			(el as HTMLElement).style.maxWidth = `${width}px`;
-		}, Math.round(needed * 0.75));
-	}
+	await header.evaluate((el) => {
+		(el as HTMLElement).style.maxWidth = '80px';
+	});
 
-	await expect
-		.poll(async () => header.locator('[data-toolbar-action]').count(), { timeout: 5000 })
-		.toBeLessThan(LABELS.length);
-	await expect(header.getByRole('button', { name: 'More prompt actions' })).toBeVisible();
+	await expect(header).toHaveAttribute('data-icons', /library/, { timeout: 5000 });
+	await expect(header).toHaveAttribute('data-folded', /\S/, { timeout: 5000 });
+	await expect(header.getByRole('button', { name: 'Library' })).toBeVisible();
 	await expectNothingCutOff(page);
 	await screenshot(page, JOURNEY, 'narrow');
 
 	for (const label of LABELS) {
-		expect(await reachable(page, label), `${label} is visible or in the more menu`).toBe(true);
+		expect(await reachable(page, label), `${label} is visible or in the Library menu`).toBe(true);
 	}
 });

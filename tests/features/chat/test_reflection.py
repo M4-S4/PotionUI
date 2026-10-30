@@ -192,8 +192,8 @@ class TestReflect:
         manager.chat_repository.record_memory_reflection.return_value = True
 
         response = Mock()
-        response.content = response_content
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        response.text = response_content
+        manager.llm_service.complete = AsyncMock(return_value=response)
 
         saved_note = Mock()
         saved_note.to_dict.return_value = {"key": "saved"}
@@ -205,7 +205,7 @@ class TestReflect:
     async def test_context_window_is_ensured_before_the_span_budget_is_resolved(self, monkeypatch):
         manager, generator, messages = self._setup(monkeypatch, "[]")
         order = []
-        manager.llm_service.ensure_context_window = AsyncMock(side_effect=lambda config: order.append("ensure"))
+        manager.llm_service.profiles.ensure = AsyncMock(side_effect=lambda config: order.append("ensure"))
         original = generator._resolve_span_budget
 
         def spy(prompt, config):
@@ -217,7 +217,7 @@ class TestReflect:
         await generator.reflect("session-1")
 
         assert order == ["ensure", "budget"]
-        manager.llm_service.ensure_context_window.assert_awaited_once_with(
+        manager.llm_service.profiles.ensure.assert_awaited_once_with(
             manager.llm_service.repository.get_configuration.return_value,
         )
 
@@ -302,7 +302,7 @@ class TestReflect:
         saved = await generator.reflect("session-1")
 
         assert saved == []
-        manager.llm_service.generate_with_history.assert_not_called()
+        manager.llm_service.complete.assert_not_called()
         manager.chat_repository.record_memory_reflection.assert_not_called()
 
     @pytest.mark.asyncio
@@ -316,12 +316,12 @@ class TestReflect:
         saved = await generator.reflect("session-1")
 
         assert saved == []
-        manager.llm_service.generate_with_history.assert_not_called()
+        manager.llm_service.complete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_llm_failure_returns_empty_and_does_not_raise(self, monkeypatch):
         manager, generator, messages = self._setup(monkeypatch, "irrelevant")
-        manager.llm_service.generate_with_history = AsyncMock(side_effect=RuntimeError("provider down"))
+        manager.llm_service.complete = AsyncMock(side_effect=RuntimeError("provider down"))
 
         saved = await generator.reflect("session-1")
 
@@ -337,7 +337,7 @@ class TestReflect:
         saved = await generator.reflect("session-1")
 
         assert saved == []
-        manager.llm_service.generate_with_history.assert_not_called()
+        manager.llm_service.complete.assert_not_called()
 
 
 class TestReflectExtractionQuality:
@@ -354,8 +354,8 @@ class TestReflectExtractionQuality:
         manager.chat_repository.record_memory_reflection.return_value = True
 
         response = Mock()
-        response.content = response_content
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        response.text = response_content
+        manager.llm_service.complete = AsyncMock(return_value=response)
 
         saved_note = Mock()
         saved_note.to_dict.return_value = {"key": "saved"}
@@ -527,8 +527,8 @@ class TestReflectScoping:
         manager.chat_repository.record_memory_reflection.return_value = True
 
         response = Mock()
-        response.content = response_content
-        manager.llm_service.generate_with_history = AsyncMock(return_value=response)
+        response.text = response_content
+        manager.llm_service.complete = AsyncMock(return_value=response)
 
         _wire_preset_lookup(manager, "My Preset")
         model = Mock()
@@ -582,7 +582,7 @@ class TestReflectScoping:
 
         await generator.reflect("session-1", form_state={"preset": "preset-new", "form_data": {}})
 
-        sent = manager.llm_service.generate_with_history.await_args.kwargs["messages"][0]["content"]
+        sent = manager.llm_service.complete.await_args.args[1][0].text()
         assert "preset-old" in sent and "preset-new" in sent
         manager.memory_ops.write_note.assert_called_once_with(
             manager.tool_services.llm_memory_repository,

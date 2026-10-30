@@ -25,7 +25,7 @@ and the developer lint endpoint.
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 from src.platform.observability.logger import logger
@@ -154,6 +154,14 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
     return variants
 
 
+def _mode_scoped_requirements(mode_name: str, mode_template: ModeTemplate) -> List[Dict[str, Any]]:
+    return [
+        {**spec, "mode": mode_name}
+        for form in mode_template.forms
+        for spec in form.requirements
+    ]
+
+
 def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
     try:
         data = load_yaml_file(mode_dir / 'form.yml') or {}
@@ -166,6 +174,53 @@ def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
         value = data.get(key)
         naming[key] = (value.strip() or None) if isinstance(value, str) else None
     return naming
+
+
+def read_mode_prompting(mode_dir: Path) -> Dict[str, Any]:
+    try:
+        data = load_yaml_file(mode_dir / 'form.yml') or {}
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    prompting: Dict[str, Any] = {}
+    prompt = data.get('prompt')
+    prompting['prompt'] = prompt if prompt in ('required', 'optional', 'none') else None
+    for key in ('prompt_label', 'prompt_placeholder'):
+        value = data.get(key)
+        prompting[key] = (value.strip() or None) if isinstance(value, str) else None
+    guide = data.get('llm_guide')
+    prompting['llm_guide'] = guide.strip() or None if isinstance(guide, str) else None
+    templates = data.get('segment_templates')
+    prompting['segment_templates'] = templates if isinstance(templates, list) else None
+    return prompting
+
+
+def _apply_mode_prompting(target: PresetTemplate, mode_name: str, mode: ModeTemplate) -> None:
+    template_vars = dict(target.vars or {})
+    for key, requirement in (('optional_prompt_modes', 'optional'), ('promptless_modes', 'none')):
+        if mode.prompt == requirement:
+            template_vars[key] = [*(template_vars.get(key) or []), mode_name]
+    mode_prompt_vars: Dict[str, Any] = {}
+    if mode.segment_templates is not None:
+        mode_prompt_vars['segment_templates'] = mode.segment_templates
+    if mode.prompt_label:
+        mode_prompt_vars['label'] = mode.prompt_label
+    if mode.prompt_placeholder:
+        mode_prompt_vars['placeholder'] = mode.prompt_placeholder
+    if mode_prompt_vars:
+        prompt_vars = dict(template_vars.get('prompt') or {})
+        existing_modes = prompt_vars.get('modes') or {}
+        prompt_vars['modes'] = {
+            **existing_modes,
+            mode_name: {**(existing_modes.get(mode_name) or {}), **mode_prompt_vars},
+        }
+        template_vars['prompt'] = prompt_vars
+    target.vars = template_vars
+    if mode.llm_guide:
+        llm = dict(target.llm or {})
+        llm['modes'] = {**(llm.get('modes') or {}), mode_name: {'guide': mode.llm_guide}}
+        target.llm = llm
 
 
 def _known_field_types() -> set:
@@ -323,6 +378,8 @@ class PresetTemplateLoader:
         llm = manifest.llm.model_dump(exclude_none=True) if manifest.llm else None
         requires = manifest.requires.model_dump(exclude_none=True) if manifest.requires else None
         requirements = [entry.model_dump(exclude_none=True) for entry in manifest.requirements]
+        for mode_name, mode_template in modes_dict.items():
+            requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
         prompt_resources = {
             mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
             for mode_name, entries in (manifest.prompt_resources or {}).items()
@@ -333,7 +390,7 @@ class PresetTemplateLoader:
         }
         styles, styles_preview = self._load_styles(preset_path)
 
-        return PresetTemplate(
+        template = PresetTemplate(
             id=manifest.id,
             name=manifest.name,
             version=manifest.version,
@@ -359,6 +416,9 @@ class PresetTemplateLoader:
             formulas=manifest.formulas.model_dump() if manifest.formulas else None,
             negative_prompt=manifest.negative_prompt.model_dump() if manifest.negative_prompt else None,
         )
+        for mode_name, mode_template in modes_dict.items():
+            _apply_mode_prompting(template, mode_name, mode_template)
+        return template
 
     _NO_STYLES_PREVIEW: Dict[str, str] = {"prompt_prefix": "", "negative": "", "example_prompt": ""}
 
@@ -428,7 +488,9 @@ class PresetTemplateLoader:
         if errors:
             return None, errors
 
-        return ModeTemplate(forms=forms, pipes=pipes, **read_mode_naming(mode_dir)), []
+        return ModeTemplate(
+            forms=forms, pipes=pipes, **read_mode_naming(mode_dir), **read_mode_prompting(mode_dir)
+        ), []
 
     def _load_forms_from_mode_dir(self, mode_dir: Path, mode_name: str) -> Tuple[List[FormTemplate], List[str]]:
         """Load and validate a mode's form variants (flattened layout).
@@ -489,6 +551,10 @@ class PresetTemplateLoader:
                 default=form_data.get('default', False),
                 order=form_data.get('order', 0),
                 negative_prompt=validated.negative_prompt.model_dump() if validated.negative_prompt else None,
+                requirements=(
+                    [entry.model_dump(exclude_none=True) for entry in validated.requirements]
+                    if form_dir == mode_dir else []
+                ),
             ))
 
         return forms, errors
@@ -878,6 +944,8 @@ class PresetTemplateLoader:
 
                 mode_template.source_plugin = contribution.plugin_id
                 target.modes[mode_name] = mode_template
+                _apply_mode_prompting(target, mode_name, mode_template)
+                target.requirements.extend(_mode_scoped_requirements(mode_name, mode_template))
                 claimed[claim_key] = contribution.plugin_id
 
     def load_presets(self):

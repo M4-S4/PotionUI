@@ -131,7 +131,7 @@
 		{:else}
 			<div
 				bind:this={gridEl}
-				class="grid grid-cols-[repeat(auto-fill,minmax(460px,1fr))] gap-3"
+				class="grid grid-cols-[repeat(auto-fill,minmax(min(460px,100%),1fr))] gap-3"
 				role="toolbar"
 				aria-label="Prompt cards"
 				aria-orientation="horizontal"

@@ -1,0 +1,42 @@
+fields:
+  - name: "sparse_attn"
+    type: "select"
+    label: "Sparse attention"
+    default: "off"
+    ai_hint: "A speed-for-fidelity trade on long MiniMax-H3 sequences, never a quality improvement. Offer it only when the user explicitly asks for a faster render and accepts some loss of fine detail and texture stability, and prefer it over the step cache when the run is long (many frames) rather than many-stepped. Sol-Attn scores every KV block against a threshold; SLA instead keeps a fixed top-k fraction of blocks and pairs with the lightx2v SLA turbo LoRA, distilled against ~85% sparsity (0.85-0.90 is the sensible range once that LoRA is loaded). SLA's extra VRAM need is far smaller than Sol-Attn's. Neither does anything on machines without a recent CUDA GPU -- do not promise a speedup, and do not enable either for a final render."
+    configuration:
+      options:
+        - { label: "Off", value: "off" }
+        - { label: "Sol-Attn (threshold)", value: "sol" }
+        - { label: "SLA (top-k, pairs with SLA turbo LoRA)", value: "sla" }
+  - type: "row"
+    children:
+      - name: "sol_attn_tau"
+        type: "slider"
+        label: "Sol-Attn sparsity"
+        default: 1.0
+        ai_hint: "Only has an effect when Sparse attention is Sol-Attn. Higher skips more attention work: faster and less faithful. Stay in 0.8-1.5; leave at 1.0 unless the user asks for more speed (raise) or reports lost detail and wants to keep the feature on (lower)."
+        configuration: {min: 0.0, max: 3.0, step: 0.1}
+      - name: "sla_sparsity"
+        type: "slider"
+        label: "SLA sparsity"
+        default: 0.9
+        ai_hint: "Only has an effect when Sparse attention is SLA. Fraction of key blocks skipped -- higher is faster and less faithful. The SLA turbo LoRA is distilled against ~85% sparsity, so 0.85-0.90 is the sensible range once it is loaded; below roughly 0.6 SLA is slower than dense attention, not faster."
+        configuration: {min: 0.0, max: 0.95, step: 0.05}
+  - type: "row"
+    children:
+      - name: "sla_block_size"
+        type: "select"
+        label: "SLA block size"
+        default: "64"
+        ai_hint: "Only has an effect when Sparse attention is SLA. 64 is the audio-safe choice. 128 forces roughly 1.6s of audio through one attention pattern and made speech robotic in upstream testing -- use it only for runs where the audio track does not matter."
+        configuration:
+          options:
+            - { label: "64 (audio-safe)", value: "64" }
+            - { label: "128", value: "128" }
+      - name: "sparse_attn_dense_last_steps"
+        type: "slider"
+        label: "Exact final steps"
+        default: 2
+        ai_hint: "Only has an effect when Sparse attention is not Off. The last steps of a trajectory carry the least noise, so an approximation there is the most visible -- these run on the normal exact path. Raise to 3-4 if a sparse run looks soft or shimmery at the end; that gives back some of the speed. At or above the step count the feature is effectively off."
+        configuration: {min: 0, max: 10, step: 1}

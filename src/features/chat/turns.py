@@ -31,11 +31,10 @@ compacted away *by choice*, but every event, compactable or not, is still
 bounded by a per-event byte budget (``max_essential_event_bytes``) so the cap
 holds for every event class: a "compactable" type is only exempt from the
 *aggregate* buffer cap by being droppable in bulk once the buffer is over
-budget, which says nothing about any ONE event's own size — the buffered
-prompt-tools path can hand back an entire reply as a single ``token`` event
-(see ``execute_with_tools_stream`` in ``src/features/llm/tools/executor.py``),
-so a long ordinary answer must be bounded the same way an oversized tool
-result is. A single event over that budget is bounded once into a small
+budget, which says nothing about any ONE event's own size — text the
+tool-call filter held back is released as a single ``token`` event, so a
+long ordinary answer must be bounded the same way an oversized tool result
+is. A single event over that budget is bounded once into a small
 truncated reference (same type/seq, a short preview, a ``content_bytes``
 hint, ``truncated: True``) and that same bounded copy goes to every live
 subscriber as well as the replay buffer — a live subscriber's queue is only
@@ -125,7 +124,7 @@ _ESSENTIAL_PREVIEW_KEYS = (
 # title events, and anything not recognized here) is essential and is never
 # compacted, on the assumption that an unrecognized event type is more likely
 # to matter than not.
-_COMPACTABLE_EVENT_TYPES = frozenset({"token", "status", "thinking"})
+_COMPACTABLE_EVENT_TYPES = frozenset({"token", "status", "reasoning", "reasoning_end", "step"})
 
 StreamFactory = Callable[[], AsyncGenerator[dict, None]]
 
@@ -245,10 +244,8 @@ class ChatTurn:
         live delivery (see ``_emit``).
 
         The per-event byte budget (``max_essential_event_bytes``) applies to
-        EVERY event type, not just essential ones: the buffered prompt-tools
-        path can emit an entire completion as a single ``token`` event (see
-        ``execute_with_tools_stream`` in
-        ``src/features/llm/tools/executor.py``), so "compactable" and
+        EVERY event type, not just essential ones: text the tool-call filter
+        held back is released as a single ``token`` event, so "compactable" and
         "individually small" are not the same guarantee — a long ordinary
         reply must not bypass the slow-subscriber byte bound just because
         it's one big token instead of a big tool result. Compaction's OWN
@@ -353,7 +350,7 @@ class ChatTurn:
         if event_type == "token":
             content = ev.get("data", {}).get("content", "")
             text = (text + content)[-_MAX_SNAPSHOT_TEXT_CHARS:]
-        elif event_type not in ("status", "thinking"):
+        elif event_type not in _COMPACTABLE_EVENT_TYPES:
             # Not a compactable type at all — this is the essential-fallback
             # path folding away an essential event as a last resort.
             dropped_essential += 1

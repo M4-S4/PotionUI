@@ -340,9 +340,10 @@ test('offers Edit in the library item view', async ({ page }) => {
 	await openEditField(page, false, 128);
 	await page.goto('/library');
 	await page.locator('[data-library-card]').first().click();
-	const edit = page.getByRole('button', { name: /^Edit$/ }).first();
-	await expect(edit).toBeVisible({ timeout: 15000 });
-	await edit.click();
+	const bar = page.getByRole('toolbar', { name: 'Actions' });
+	await expect(bar).toBeVisible({ timeout: 15000 });
+	await bar.getByRole('button', { name: 'Edit' }).click();
+	await page.getByRole('menuitem', { name: /Edit image/ }).click();
 	await expect(page.getByRole('dialog', { name: 'Edit image' })).toBeVisible();
 	await screenshot(page, JOURNEY, 'library-edit');
 });

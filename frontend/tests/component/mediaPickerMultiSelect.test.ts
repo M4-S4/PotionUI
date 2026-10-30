@@ -242,11 +242,26 @@ describe('GenerationHistoryModal multi-select', () => {
 		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
 		await settle();
 
-		document.querySelector<HTMLElement>('[role="button"][aria-label="Preview a.png (Preset)"]')!.click();
+		document.querySelector<HTMLElement>('button[aria-label="Preview a.png (Preset)"]')!.click();
 		await tick();
 
 		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
 		expect(onSelectionChange).not.toHaveBeenCalled();
+	});
+
+	it('clicking the tile image toggles the selection', async () => {
+		const onSelectionChange = vi.fn();
+		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
+		await settle();
+
+		const tileButton = historyCheckbox('a.png').closest('[data-testid="history-file-tile"]')!.querySelector<HTMLElement>('button[aria-hidden="true"]')!;
+		tileButton.click();
+		await tick();
+		expect(historyCheckbox('a.png').checked).toBe(true);
+		expect(document.querySelector('[data-testid="picker-preview"]')).toBeNull();
+		tileButton.click();
+		await tick();
+		expect(historyCheckbox('a.png').checked).toBe(false);
 	});
 
 	it('single-select keeps the card flow without checkboxes or selection bar', async () => {
@@ -296,6 +311,22 @@ describe('GenerationHistoryModal multi-select', () => {
 });
 
 describe('UploadLibraryModal multi-select', () => {
+	it('clicking the tile image toggles the selection and the preview button only previews', async () => {
+		const onSelectionChange = vi.fn();
+		mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
+		await settle();
+
+		document.querySelector<HTMLElement>('button[aria-hidden="true"][data-file="one.png"]')!.click();
+		await tick();
+		expect(checkbox('one.png').checked).toBe(true);
+		expect(document.querySelector('[data-testid="picker-preview"]')).toBeNull();
+
+		document.querySelector<HTMLElement>('button[aria-label="Preview one.png"]')!.click();
+		await tick();
+		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
+		expect(checkbox('one.png').checked).toBe(true);
+	});
+
 	it('reports typed keys and items for library selections', async () => {
 		const onSelectionChange = vi.fn();
 		mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });

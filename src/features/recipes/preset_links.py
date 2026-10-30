@@ -1,4 +1,5 @@
-from typing import Dict, Iterable, List, Optional, Set
+import math
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 from src.features.recipes.dto import (
     PresetLinkedRecipeView,
@@ -63,27 +64,52 @@ class RecipePresetLinks:
                 views.append(view)
         return views
 
+    def vram_requirements(self, recipe: Recipe) -> Tuple[Optional[int], Optional[int]]:
+        if self.preset_loader is None:
+            return None, None
+        minimums: List[float] = []
+        recommended: List[float] = []
+        for preset_id in {ref.preset_id for ref in recipe.presets}:
+            template = self.preset_loader.load_preset_by_id(preset_id)
+            requires = getattr(template, "requires", None) or {}
+            if requires.get("min_vram_gb") is not None:
+                minimums.append(requires["min_vram_gb"])
+            if requires.get("recommended_vram_gb") is not None:
+                recommended.append(requires["recommended_vram_gb"])
+        return (
+            math.ceil(max(minimums)) if minimums else None,
+            math.ceil(max(recommended)) if recommended else None,
+        )
+
     def _last_completed_at(self, recipe_id: str):
         completed = self.recipe_runner.get_latest_completed_run(recipe_id)
         return completed.completed_at if completed else None
 
     def summaries(self, recipes: Iterable[Recipe]) -> List[RecipeSummary]:
         installed = self._installed_preset_ids()
-        return [
-            RecipeSummary.from_recipe(
-                recipe,
-                presets=self.presets_for_recipe(recipe, installed),
-                last_completed_at=self._last_completed_at(recipe.id),
+        summaries: List[RecipeSummary] = []
+        for recipe in recipes:
+            min_vram_gb, recommended_vram_gb = self.vram_requirements(recipe)
+            summaries.append(
+                RecipeSummary.from_recipe(
+                    recipe,
+                    presets=self.presets_for_recipe(recipe, installed),
+                    last_completed_at=self._last_completed_at(recipe.id),
+                    min_vram_gb=min_vram_gb,
+                    recommended_vram_gb=recommended_vram_gb,
+                )
             )
-            for recipe in recipes
-        ]
+        return summaries
 
     def detail(self, recipe: Recipe, load_errors: Optional[List[str]] = None) -> RecipeDetail:
+        min_vram_gb, recommended_vram_gb = self.vram_requirements(recipe)
         return RecipeDetail.from_recipe(
             recipe,
             presets=self.presets_for_recipe(recipe),
             last_completed_at=self._last_completed_at(recipe.id),
             load_errors=load_errors,
+            min_vram_gb=min_vram_gb,
+            recommended_vram_gb=recommended_vram_gb,
         )
 
     def _recipe_view(self, recipe: Recipe, cache: Dict[str, PresetLinkedRecipeView]) -> PresetLinkedRecipeView:

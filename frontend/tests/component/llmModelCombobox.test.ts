@@ -203,9 +203,9 @@ describe('LLMConfigForm model field', () => {
 			success: true,
 			data: {
 				types: [
-					{ type: 'ollama', label: null, default_base_url: null, supports_model_listing: true },
-					{ type: 'openai', label: null, default_base_url: null, supports_model_listing: true },
-					{ type: 'native', label: null, default_base_url: null, supports_model_listing: false }
+					{ type: 'ollama', label: null, adapter: 'ollama-chat', default_base_url: null, supports_model_listing: true, source: 'core' },
+					{ type: 'openai', label: null, adapter: 'openai-responses', default_base_url: null, supports_model_listing: true, source: 'core' },
+					{ type: 'native', label: null, adapter: 'native', default_base_url: null, supports_model_listing: false, source: 'core' }
 				]
 			}
 		});

@@ -514,6 +514,8 @@ class PresetLinter:
 
         issues.extend(self._lint_mode_labels(preset_file, manifest))
 
+        issues.extend(self._lint_prompt_copy(preset_file, manifest))
+
         issues.extend(self._lint_formulas(preset_file, manifest))
 
         issues.extend(self._lint_segment_templates(preset_file, manifest))
@@ -2211,6 +2213,53 @@ class PresetLinter:
                 )
         return issues
 
+    def _lint_prompt_copy(self, preset_file: Path, manifest) -> List[LintIssue]:
+        issues: List[LintIssue] = []
+        promptless = {
+            entry for entry in ((manifest.vars or {}).get("promptless_modes") or []) if isinstance(entry, str)
+        }
+        for mode_name in manifest.modes:
+            mode_dir = preset_file.parent / "modes" / mode_name
+            try:
+                raw = load_yaml_file(mode_dir / "form.yml") or {}
+            except Exception:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            requirement = raw.get("prompt")
+            if requirement is not None and requirement not in ("required", "optional", "none"):
+                issues.append(
+                    LintIssue(
+                        "error",
+                        str(preset_file),
+                        f"modes/{mode_name}/form.yml: prompt must be required, optional or none, "
+                        f"not \"{requirement}\"",
+                    )
+                )
+                continue
+            for key in ("prompt_label", "prompt_placeholder"):
+                value = raw.get(key)
+                if value is None:
+                    continue
+                if not isinstance(value, str) or not value.strip():
+                    issues.append(
+                        LintIssue(
+                            "error",
+                            str(preset_file),
+                            f"modes/{mode_name}/form.yml: {key} must be a non-empty string",
+                        )
+                    )
+                elif requirement == "none" or mode_name in promptless:
+                    issues.append(
+                        LintIssue(
+                            "warning",
+                            str(preset_file),
+                            f"modes/{mode_name}/form.yml: {key} is set but this mode has no prompt, "
+                            f"so it is never shown",
+                        )
+                    )
+        return issues
+
     def _lint_mode_labels(self, preset_file: Path, manifest) -> List[LintIssue]:
         issues: List[LintIssue] = []
         icons = known_icon_names()
@@ -2273,6 +2322,20 @@ class PresetLinter:
                 issues.append(LintIssue("error", preset_str, err))
             if form is None:
                 continue
+
+            if form_dir == mode_dir:
+                issues.extend(
+                    self._lint_requirement_entries(preset_file, form.requirements, f"{loc}/form.yml requirements")
+                )
+            elif form.requirements:
+                issues.append(
+                    LintIssue(
+                        "error",
+                        preset_str,
+                        f"{loc}/form.yml: requirements are only read from modes/{mode_name}/form.yml, "
+                        f"not from a variant",
+                    )
+                )
 
             if form.default:
                 default_forms.append(variant_name)
@@ -2967,8 +3030,12 @@ class PresetLinter:
         "Requirements"): an unregistered `type:` is an error, and an entry
         whose own arguments fail its checker's `schema` is an error citing
         the pydantic message."""
+        return self._lint_requirement_entries(
+            preset_file, getattr(manifest, "requirements", None) or [], "requirements"
+        )
+
+    def _lint_requirement_entries(self, preset_file: Path, requirements, label: str) -> List[LintIssue]:
         issues: List[LintIssue] = []
-        requirements = getattr(manifest, "requirements", None)
         if not requirements:
             return issues
 
@@ -2983,7 +3050,7 @@ class PresetLinter:
                     LintIssue(
                         "error",
                         preset_str,
-                        f"requirements[{index}]: unknown type '{type_name}' - no checker "
+                        f"{label}[{index}]: unknown type '{type_name}' - no checker "
                         f"is registered for it (core types: binary, python_package, model, "
                         f"vram_min_gb, platform)",
                     )
@@ -2995,8 +3062,8 @@ class PresetLinter:
                 registration.checker.schema.model_validate(entry_dict)
             except ValidationError as exc:
                 issues.extend(
-                    LintIssue("error", preset_str, f"requirements[{index}] ({type_name}): {msg}")
-                    for msg in _format_errors("requirements", exc)
+                    LintIssue("error", preset_str, f"{label}[{index}] ({type_name}): {msg}")
+                    for msg in _format_errors(label, exc)
                 )
 
         return issues

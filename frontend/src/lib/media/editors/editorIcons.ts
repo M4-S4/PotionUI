@@ -18,6 +18,7 @@ export const EDITOR_ICONS = {
 	rotateRight: 'M21 10H11a5 5 0 00-5 5v1M21 10l-5 5M21 10l-5-5',
 	flipHorizontal: 'M12 3v18M8 7L4 12l4 5M16 7l4 5-4 5',
 	flipVertical: 'M3 12h18M7 8l5-4 5 4M7 16l5 4 5-4',
+	resize: 'M15 15l6 6m-6-6v4.8m0-4.8h4.8M9 19.8V15m0 0H4.2M9 15l-6 6M15 4.2V9m0 0h4.8M15 9l6-6M9 4.2V9m0 0H4.2M9 9L3 3',
 	check: 'M5 13l4 4L19 7',
 	stepBack: 'M15 19l-7-7 7-7M6 5v14',
 	stepForward: 'M9 5l7 7-7 7M18 5v14',

@@ -102,7 +102,7 @@ class FakeTypesRepo:
     def get_assertions(self, shas):
         return {sha: self.assertions[sha] for sha in shas if sha in self.assertions}
 
-    def get_verdicts(self, shas):
+    def get_verdicts_by_sha(self, shas):
         return {sha: self.verdicts[sha] for sha in shas if sha in self.verdicts}
 
 

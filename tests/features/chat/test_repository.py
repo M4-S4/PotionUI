@@ -629,22 +629,6 @@ class TestChatRepository(PersistenceTestBase):
 
         self.assertIsNone(message)
 
-    def test_get_conversation_history(self):
-        """Test getting conversation history for LLM"""
-        session = self.repo.create_session(user_id=self.test_user_id)
-
-        self.repo.add_message(session.id, 'user', 'Hello')
-        self.repo.add_message(session.id, 'assistant', 'Hi there!')
-        self.repo.add_message(session.id, 'user', 'How are you?')
-
-        history = self.repo.get_conversation_history(session.id)
-
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0]['role'], 'user')
-        self.assertEqual(history[0]['content'], 'Hello')
-        self.assertEqual(history[1]['role'], 'assistant')
-        self.assertEqual(history[2]['role'], 'user')
-
     def test_accept_session(self):
         """Test accepting a session"""
         session = self.repo.create_session(user_id=self.test_user_id)

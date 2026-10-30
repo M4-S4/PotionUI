@@ -15,8 +15,11 @@ import type {
 	TraceStep,
 	TraceStepName,
 	BehaviorTraceManifest,
+	ChatNotice,
 	ContextLedger,
-	ThinkingSegment
+	MessageUsage,
+	ReasoningBlock,
+	ReasoningKind
 } from '$lib/types/chat';
 import type { ChatMessageResponse } from '$lib/types/api';
 
@@ -57,55 +60,196 @@ export function applyToken(messages: Messages, accumulated: string): Messages {
 	msgs[lastIdx] = {
 		...msgs[lastIdx],
 		content: accumulated,
-		...(accumulated.trim() ? closedThinking(msgs[lastIdx]) : {})
+		...(accumulated.trim() ? closedReasoning(msgs[lastIdx]) : {})
 	};
 	return msgs;
 }
 
-function closedSegment(segment: ThinkingSegment, now: number): ThinkingSegment {
-	if (!segment.open) return segment;
+function closedBlock(block: ReasoningBlock, now: number): ReasoningBlock {
+	if (!block.open) return block;
 	return {
-		text: segment.text,
-		started_at: segment.started_at,
-		duration_ms: segment.started_at ? now - segment.started_at : segment.duration_ms
+		kind: block.kind,
+		text: block.text,
+		started_at: block.started_at,
+		duration_ms: block.started_at ? now - block.started_at : block.duration_ms
 	};
 }
 
-function closedThinking(message: UnifiedChatMessageData): { thinking?: ThinkingSegment[] } {
-	if (!message.thinking?.some((segment) => segment.open)) return {};
+function closedReasoning(message: UnifiedChatMessageData): { reasoning?: ReasoningBlock[] } {
+	if (!message.reasoning?.some((block) => block.open)) return {};
 	const now = Date.now();
-	return { thinking: message.thinking.map((segment) => closedSegment(segment, now)) };
+	return { reasoning: message.reasoning.map((block) => closedBlock(block, now)) };
 }
 
-export function applyThinking(messages: Messages, segment: number, accumulated: string): Messages {
+export function applyReasoning(
+	messages: Messages,
+	block: number,
+	kind: ReasoningKind,
+	accumulated: string
+): Messages {
 	const lastIdx = messages.length - 1;
 	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
 	const now = Date.now();
-	const existing = messages[lastIdx].thinking ?? [];
-	const index = Math.max(0, Math.min(segment, existing.length));
-	const next = existing.map((entry, i) => (i < index ? closedSegment(entry, now) : entry));
+	const existing = messages[lastIdx].reasoning ?? [];
+	const index = Math.max(0, Math.min(block, existing.length));
+	const next = existing.map((entry, i) => (i < index ? closedBlock(entry, now) : entry));
 	next[index] = {
+		kind,
 		text: accumulated,
 		started_at: existing[index]?.started_at ?? now,
 		open: true
 	};
 	const msgs = [...messages];
-	msgs[lastIdx] = { ...msgs[lastIdx], thinking: next };
+	msgs[lastIdx] = { ...msgs[lastIdx], reasoning: next };
 	return msgs;
 }
 
-export function thinkingFromMetadata(
-	metadata: Record<string, any> | undefined | null
-): ThinkingSegment[] | undefined {
-	const segments = metadata?.thinking?.segments;
-	if (!Array.isArray(segments)) return undefined;
-	const mapped = segments
-		.filter((segment) => typeof segment?.text === 'string' && segment.text.trim())
-		.map((segment) => ({
-			text: segment.text as string,
-			duration_ms: typeof segment.duration_ms === 'number' ? segment.duration_ms : undefined
-		}));
-	return mapped.length ? mapped : undefined;
+export function applyReasoningEnd(
+	messages: Messages,
+	block: number,
+	durationMs?: number | null
+): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	const now = Date.now();
+	const existing = messages[lastIdx].reasoning ?? [];
+	const index = Math.max(0, Math.min(block, existing.length));
+	const current = existing[index];
+	const next = [...existing];
+	next[index] = current
+		? {
+				kind: current.kind,
+				text: current.text,
+				started_at: current.started_at,
+				duration_ms:
+					typeof durationMs === 'number'
+						? durationMs
+						: current.started_at
+							? now - current.started_at
+							: current.duration_ms
+			}
+		: { kind: 'omitted', text: '', duration_ms: typeof durationMs === 'number' ? durationMs : null };
+	const msgs = [...messages];
+	msgs[lastIdx] = { ...msgs[lastIdx], reasoning: next };
+	return msgs;
+}
+
+const REASONING_KINDS: readonly string[] = ['raw', 'summary', 'omitted'];
+
+export function reasoningFromMessage(
+	message: { reasoning?: unknown } | null | undefined
+): ReasoningBlock[] | undefined {
+	const entries = message?.reasoning;
+	if (!Array.isArray(entries)) return undefined;
+	const blocks = entries.flatMap((entry): ReasoningBlock[] => {
+		if (!entry || typeof entry !== 'object') return [];
+		const text = typeof entry.text === 'string' ? entry.text : '';
+		const kind: ReasoningKind =
+			entry.redacted || !text.trim() || entry.kind === 'omitted'
+				? 'omitted'
+				: REASONING_KINDS.includes(entry.kind)
+					? entry.kind
+					: 'raw';
+		return [
+			{
+				kind,
+				text: kind === 'omitted' ? '' : text,
+				duration_ms: typeof entry.duration_ms === 'number' ? entry.duration_ms : null
+			}
+		];
+	});
+	return blocks.length ? blocks : undefined;
+}
+
+export function noticesFromMessage(
+	message: { notices?: unknown } | null | undefined
+): ChatNotice[] | undefined {
+	const entries = message?.notices;
+	if (!Array.isArray(entries)) return undefined;
+	const notices = entries.flatMap((entry): ChatNotice[] =>
+		entry && typeof entry.kind === 'string' && typeof entry.message === 'string'
+			? [
+					{
+						kind: entry.kind,
+						message: entry.message,
+						detail: entry.detail ?? null,
+						step_seq: typeof entry.step_seq === 'number' ? entry.step_seq : null
+					}
+				]
+			: []
+	);
+	return notices.length ? notices : undefined;
+}
+
+function sumOptional(a: number | undefined, b: number | undefined): number | undefined {
+	return a === undefined && b === undefined ? undefined : (a ?? 0) + (b ?? 0);
+}
+
+export function mergeUsage(a: MessageUsage | undefined, b: MessageUsage): MessageUsage {
+	if (!a) return { ...b };
+	const cost =
+		typeof a.cost === 'number' || typeof b.cost === 'number' ? (a.cost ?? 0) + (b.cost ?? 0) : (b.cost ?? a.cost);
+	return {
+		input_tokens: sumOptional(a.input_tokens, b.input_tokens),
+		output_tokens: sumOptional(a.output_tokens, b.output_tokens),
+		reasoning_tokens: sumOptional(a.reasoning_tokens, b.reasoning_tokens),
+		cached_input_tokens: sumOptional(a.cached_input_tokens, b.cached_input_tokens),
+		cache_write_tokens: sumOptional(a.cache_write_tokens, b.cache_write_tokens),
+		cost
+	};
+}
+
+export function applyStep(messages: Messages, data: { usage?: MessageUsage | null }): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	const message = messages[lastIdx];
+	const usage = data?.usage ? mergeUsage(message.usage, data.usage) : message.usage;
+	const closed = closedReasoning(message);
+	const msgs = [...messages];
+	msgs[lastIdx] = {
+		...message,
+		...closed,
+		stepMark: { content: message.content.length, reasoning: (closed.reasoning ?? message.reasoning)?.length ?? 0 },
+		...(usage ? { usage } : {})
+	};
+	return msgs;
+}
+
+export function applyStepDiscarded(messages: Messages): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	const message = messages[lastIdx];
+	const mark = message.stepMark ?? { content: 0, reasoning: 0 };
+	const kept = message.reasoning?.slice(0, mark.reasoning);
+	const msgs = [...messages];
+	msgs[lastIdx] = {
+		...message,
+		content: message.content.slice(0, mark.content),
+		reasoning: kept?.length ? kept : undefined
+	};
+	return msgs;
+}
+
+export function applyNotice(
+	messages: Messages,
+	data: { kind?: string; message?: string; detail?: Record<string, unknown> | null; step_seq?: number | null }
+): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	if (typeof data?.kind !== 'string' || typeof data.message !== 'string') return messages;
+	const message = messages[lastIdx];
+	const existing = message.notices ?? [];
+	if (existing.some((notice) => notice.kind === data.kind && notice.message === data.message)) return messages;
+	const kept = data.kind === 'retrying' ? existing.filter((notice) => notice.kind !== 'retrying') : existing;
+	const notice: ChatNotice = {
+		kind: data.kind,
+		message: data.message,
+		detail: data.detail ?? null,
+		step_seq: typeof data.step_seq === 'number' ? data.step_seq : null
+	};
+	const msgs = [...messages];
+	msgs[lastIdx] = { ...message, notices: [...kept, notice] };
+	return msgs;
 }
 
 /** `tool_start` event: append a running execution to the streaming assistant message. */
@@ -127,7 +271,7 @@ export function applyToolStart(
 	msgs[lastIdx] = {
 		...msgs[lastIdx],
 		tool_executions: [...(msgs[lastIdx].tool_executions || []), execution],
-		...closedThinking(msgs[lastIdx]),
+		...closedReasoning(msgs[lastIdx]),
 		isStreaming: true
 	};
 	return msgs;
@@ -391,7 +535,10 @@ export function applyDone(
 			const traceSteps = manifest
 				? hydrateTraceSteps(manifest, toolExecutions.length)
 				: m.trace_steps || [];
-			const thinking = thinkingFromMetadata(assistantMsg?.metadata) ?? closedThinking(m).thinking ?? m.thinking;
+			const reasoning = Array.isArray(assistantMsg?.reasoning)
+				? reasoningFromMessage(assistantMsg)
+				: (closedReasoning(m).reasoning ?? m.reasoning);
+			const notices = Array.isArray(assistantMsg?.notices) ? noticesFromMessage(assistantMsg) : m.notices;
 			return {
 				id: assistantMsg?.id,
 				clientKey: m.clientKey,
@@ -405,7 +552,9 @@ export function applyDone(
 				completion_tokens: assistantMsg?.completion_tokens,
 				tool_executions: toolExecutions,
 				trace_steps: traceSteps,
-				thinking,
+				reasoning,
+				usage: assistantMsg?.usage ?? m.usage,
+				notices,
 				sources: allSources.length > 0 ? allSources : m.sources || [],
 				isStreaming: false,
 				metadata: assistantMsg?.metadata || undefined,
@@ -510,7 +659,9 @@ export function mapPersistedMessage(msg: ChatMessageResponse): UnifiedChatMessag
 		prompt_tokens: msg.prompt_tokens,
 		completion_tokens: msg.completion_tokens,
 		tool_executions: toolExecs,
-		thinking: thinkingFromMetadata(metadata),
+		reasoning: reasoningFromMessage(msg),
+		usage: msg.usage ?? undefined,
+		notices: noticesFromMessage(msg),
 		sources: toolExecs.flatMap((te: any) => te.result?.sources || []),
 		metadata
 	};

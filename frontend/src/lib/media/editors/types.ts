@@ -21,15 +21,9 @@
  * the replace-in-place the API deliberately supports.
  */
 
-import type { EditedMediaItem } from '$lib/services/api/media';
+import type { MediaToolItem } from '$lib/media-tools/types';
 import type { DrawConfig } from '$lib/components/imageEditor/drawConfig';
 
-/**
- * Every editor there is.
- *
- * A runtime list rather than a bare union so the surfaces that offer editors
- * can be checked for completeness against it — see `RESOURCE_EDIT_TOOLS`.
- */
 export const MEDIA_EDITOR_KINDS = [
 	/** Crop & frame — images. */
 	'crop',
@@ -41,10 +35,33 @@ export const MEDIA_EDITOR_KINDS = [
 	'mask',
 	/** Cut audio into consecutive parts of a given length. */
 	'split',
+	'resize',
 	'paint'
 ] as const;
 
-export type MediaEditorKind = (typeof MEDIA_EDITOR_KINDS)[number];
+export const SURFACE_EDITOR_KINDS: readonly string[] = MEDIA_EDITOR_KINDS.filter(
+	(kind) => kind !== 'mask' && kind !== 'paint'
+);
+
+export function isSurfaceEditorKind(name: string | null | undefined): boolean {
+	return !!name && SURFACE_EDITOR_KINDS.includes(name);
+}
+
+export type ToolDialogKind = `tool:${string}`;
+
+export type MediaEditorKind = (typeof MEDIA_EDITOR_KINDS)[number] | ToolDialogKind;
+
+export function toolDialogKind(toolId: string): ToolDialogKind {
+	return `tool:${toolId}`;
+}
+
+export function isToolDialogKind(kind: MediaEditorKind): kind is ToolDialogKind {
+	return kind.startsWith('tool:');
+}
+
+export function toolIdOfKind(kind: ToolDialogKind): string {
+	return kind.slice('tool:'.length);
+}
 
 export type EditorMediaKind = 'image' | 'video' | 'audio';
 
@@ -58,10 +75,11 @@ export interface MediaEditorSource {
 	/**
 	 * The `uploads` row id, when the caller already knows it. Absent for a
 	 * MediaLoader value, which carries a path rather than a row id; the editors
-	 * resolve it themselves, copying a generated file into the library first
-	 * when that is the only way to give the edit something to work on.
+	 * resolve it themselves.
 	 */
 	itemId?: string | null;
+	generationFileId?: string | null;
+	key?: string | null;
 	/** The stored path, e.g. `uploads/<uuid>.png` - how the row is resolved. */
 	storedPath?: string | null;
 	width?: number | null;
@@ -81,6 +99,8 @@ export interface MediaEditorRequest {
 	 * tile as soon as the user reorders while the editor is open.
 	 */
 	itemIndex: number | null;
+	initialTool?: string;
+	initialFilter?: string;
 }
 
 /**
@@ -94,8 +114,8 @@ export interface MediaEditorRequest {
  * `${name}_inpaint_mask` sibling channel, which is not a value at all.
  */
 export type MediaEditorResult =
-	| { type: 'item'; item: EditedMediaItem; replaced: boolean; keepMask?: boolean }
-	| { type: 'items'; items: EditedMediaItem[] }
+	| { type: 'item'; item: MediaToolItem; replaced: boolean; keepMask?: boolean }
+	| { type: 'items'; items: MediaToolItem[] }
 	| { type: 'mask'; maskPath: string };
 
 /** Whether the edit takes the resource's place or sits beside it. */
@@ -123,45 +143,13 @@ export type EditorCommitFn = (request: EditorCommitRequest) => void | Promise<vo
 /** True when this kind of item has an editor to open at all. */
 export function hasEditor(kind: MediaEditorKind, mediaKind: EditorMediaKind | null): boolean {
 	if (!mediaKind) return false;
-	if (kind === 'crop' || kind === 'mask' || kind === 'paint') return mediaKind === 'image';
+	if (isToolDialogKind(kind)) return true;
+	if (kind === 'crop') return mediaKind === 'image' || mediaKind === 'video';
+	if (kind === 'mask' || kind === 'paint') return mediaKind === 'image';
 	if (kind === 'frame') return mediaKind === 'video';
 	if (kind === 'split') return mediaKind === 'audio';
+	if (kind === 'resize') return mediaKind === 'image' || mediaKind === 'video';
 	return mediaKind === 'video' || mediaKind === 'audio';
-}
-
-/**
- * The editors a stored library resource offers, in the order they are shown.
- *
- * `mask` is deliberately absent: a mask is a generation input bound to a form
- * field, not a property of a stored resource. Every OTHER editor kind must
- * appear here, and `types.test.ts` pins that — this list was once written out
- * by hand at its call site, and a new editor reached the media-loader field
- * while staying invisible in the library for exactly as long as nobody looked.
- */
-export const RESOURCE_EDIT_TOOLS: { key: MediaEditorKind; label: string; icon: string }[] = [
-	{ key: 'crop', label: 'Crop', icon: 'pencil-square' },
-	{ key: 'trim', label: 'Trim', icon: 'sliders' },
-	{ key: 'split', label: 'Split', icon: 'split' },
-	{ key: 'frame', label: 'Frame', icon: 'photo' },
-	{ key: 'paint', label: 'Edit', icon: 'paint-brush' }
-];
-
-/** Title bar copy, and the label the button carries. */
-export function editorTitle(kind: MediaEditorKind, mediaKind: EditorMediaKind | null): string {
-	switch (kind) {
-		case 'crop':
-			return 'Crop & frame';
-		case 'frame':
-			return 'Extract a frame';
-		case 'mask':
-			return 'Create inpainting mask';
-		case 'split':
-			return 'Split into parts';
-		case 'paint':
-			return 'Edit image';
-		case 'trim':
-			return mediaKind === 'audio' ? 'Trim on waveform' : 'Trim in / out';
-	}
 }
 
 /**

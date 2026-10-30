@@ -18,6 +18,7 @@ enable_plugin`), never from a submodule directly.
 """
 from src.features.plugins.operations.lifecycle import (
     enable_plugin,
+    enable_default_plugins,
     disable_plugin,
     delete_plugin,
 )
@@ -29,7 +30,6 @@ from src.features.plugins.operations.settings import (
 )
 from src.features.plugins.operations.frontend import (
     get_active_quick_actions,
-    get_active_history_tools,
     get_active_sidebar_widgets,
     role_gate_open,
     get_frontend_extensions,
@@ -38,6 +38,7 @@ from src.features.plugins.operations.frontend import (
 
 __all__ = [
     "enable_plugin",
+    "enable_default_plugins",
     "disable_plugin",
     "delete_plugin",
     "scan_plugins",
@@ -46,7 +47,6 @@ __all__ = [
     "update_plugin_settings",
     "encrypt_declared_secrets",
     "get_active_quick_actions",
-    "get_active_history_tools",
     "get_active_sidebar_widgets",
     "role_gate_open",
     "get_frontend_extensions",

@@ -3,6 +3,21 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from src.pipelines.pipes.prompt_expander.main import PromptExpanderPipe
 from src.pipelines.contracts import PipeInput, PipeOutput, IOType
+from tests.fixtures.llm_engine import scripted_gateway
+from tests.fixtures.llm_harness import ScriptedAdapter, text_step
+
+
+async def test_the_expander_reaches_a_real_gateway_and_returns_its_text():
+    adapter = ScriptedAdapter(text_step("  a fluffy cat on a windowsill  "))
+    config = PromptExpanderPipe.get_default_config()
+    config["llm_id"] = "cfg-scripted"
+    config["prompt"] = "Make it detailed"
+    pipe = PromptExpanderPipe(config)
+
+    result = await pipe._expand_prompt_async(scripted_gateway(adapter), "Make it detailed", "[[keep]] a cat")
+
+    assert result == "keep a fluffy cat on a windowsill"
+    assert [message.text() for message in adapter.requests[0].messages] == ["Make it detailed: a cat"]
 
 
 class TestPromptExpanderPipe:
@@ -19,7 +34,7 @@ class TestPromptExpanderPipe:
         result = await pipe._expand_prompt_async(mock_llm_service, "Test instruction", "")
 
         assert result == ""
-        mock_llm_service.generate_with_config_id.assert_not_called()
+        mock_llm_service.complete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_expand_prompt_async_whitespace_only(self):
@@ -32,7 +47,7 @@ class TestPromptExpanderPipe:
         result = await pipe._expand_prompt_async(mock_llm_service, "Test instruction", "   ")
 
         assert result == ""
-        mock_llm_service.generate_with_config_id.assert_not_called()
+        mock_llm_service.complete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_expand_prompt_async_no_llm_id(self):
@@ -45,31 +60,26 @@ class TestPromptExpanderPipe:
         result = await pipe._expand_prompt_async(mock_llm_service, "Test instruction", "a cat")
 
         assert result == "a cat"  # Should return original prompt
-        mock_llm_service.generate_with_config_id.assert_not_called()
+        mock_llm_service.complete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_expand_prompt_async_success(self):
         """Test successful prompt expansion"""
         config = PromptExpanderPipe.get_default_config()
         config["llm_id"] = "test_llm"
-        config["style_id"] = "creative"
         config["prompt"] = "Make it detailed"
         pipe = PromptExpanderPipe(config)
 
         mock_response = Mock()
-        mock_response.content = "  a beautiful cat with detailed fur  "
+        mock_response.text = "  a beautiful cat with detailed fur  "
 
         mock_llm_service = AsyncMock()
-        mock_llm_service.generate_with_config_id.return_value = mock_response
+        mock_llm_service.complete.return_value = mock_response
 
         result = await pipe._expand_prompt_async(mock_llm_service, "Make it detailed", "a cat")
 
         assert result == "a beautiful cat with detailed fur"
-        mock_llm_service.generate_with_config_id.assert_called_once_with(
-            prompt="Make it detailed: a cat",
-            llm_id="test_llm",
-            style_id="creative"
-        )
+        mock_llm_service.complete.assert_called_once_with("test_llm", "Make it detailed: a cat")
 
     @pytest.mark.asyncio
     async def test_expand_prompt_async_llm_error(self):
@@ -79,7 +89,7 @@ class TestPromptExpanderPipe:
         pipe = PromptExpanderPipe(config)
 
         mock_llm_service = AsyncMock()
-        mock_llm_service.generate_with_config_id.side_effect = Exception("LLM service error")
+        mock_llm_service.complete.side_effect = Exception("LLM service error")
 
         result = await pipe._expand_prompt_async(mock_llm_service, "Expand", "a cat")
 
@@ -108,10 +118,10 @@ class TestPromptExpanderPipe:
         pipe = PromptExpanderPipe(config)
 
         mock_response = Mock()
-        mock_response.content = "a beautiful cat"
+        mock_response.text = "a beautiful cat"
 
         mock_llm_service = AsyncMock()
-        mock_llm_service.generate_with_config_id.return_value = mock_response
+        mock_llm_service.complete.return_value = mock_response
 
         pipe_input = PipeInput(input={"LLM": mock_llm_service})
         generation_outputs = Mock()
@@ -360,10 +370,10 @@ class TestPromptExpanderPipe:
         pipe = PromptExpanderPipe(config)
 
         mock_response = Mock()
-        mock_response.content = "expanded beautiful sunset"
+        mock_response.text = "expanded beautiful sunset"
 
         mock_llm_service = AsyncMock()
-        mock_llm_service.generate_with_config_id.return_value = mock_response
+        mock_llm_service.complete.return_value = mock_response
 
         result = await pipe._expand_prompt_async(
             mock_llm_service,
@@ -372,10 +382,10 @@ class TestPromptExpanderPipe:
         )
 
         # Should have sent only "a sunset" to LLM
-        mock_llm_service.generate_with_config_id.assert_called_once()
-        call_args = mock_llm_service.generate_with_config_id.call_args
-        assert "a sunset" in call_args.kwargs["prompt"]
-        assert "masterpiece" not in call_args.kwargs["prompt"]
+        mock_llm_service.complete.assert_called_once()
+        call_args = mock_llm_service.complete.call_args
+        assert "a sunset" in call_args.args[1]
+        assert "masterpiece" not in call_args.args[1]
 
         # Result should have preserved text prepended
         assert result == "masterpiece, best quality expanded beautiful sunset"
@@ -396,7 +406,7 @@ class TestPromptExpanderPipe:
         )
 
         # Should not call LLM if there's nothing to expand
-        mock_llm_service.generate_with_config_id.assert_not_called()
+        mock_llm_service.complete.assert_not_called()
         # Should return just the preserved text
         assert result == "masterpiece"
 

@@ -61,7 +61,7 @@ class ResponseProcessor:
         from src.features.llm.tools.builtin.condition_text import repair_condition_actions
 
         # Step 1: Built-in transformations
-        cleaned = repair_condition_actions(self._remove_thinking_tags(content))
+        cleaned = repair_condition_actions(self._tidy(content))
 
         # Step 2: Split the structured reply contract (## improved / ##
         # questions) out of the prose, before hooks run, so plugin
@@ -94,30 +94,6 @@ class ResponseProcessor:
 
         return cleaned, parsed_content
 
-    def _remove_thinking_tags(self, content: str) -> str:
-        """Remove thinking/thought tags and their content.
-
-        Removes common LLM "thinking" tags that should not be shown to users:
-        - <think>...</think>
-        - <thinking>...</thinking>
-        - <thought>...</thought>
-
-        Args:
-            content: Raw content string
-
-        Returns:
-            Content with thinking tags removed
-        """
-        patterns = [
-            r'<think[^>]*>.*?</think>',
-            r'<thinking[^>]*>.*?</thinking>',
-            r'<thought[^>]*>.*?</thought>'
-        ]
-
-        cleaned = content
-        for pattern in patterns:
-            cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL | re.IGNORECASE)
-
-        # Clean up extra whitespace (no more than 2 consecutive newlines)
-        cleaned = re.sub(r'\n\s*\n\s*\n', '\n\n', cleaned)
-        return cleaned.strip()
+    @staticmethod
+    def _tidy(content: str) -> str:
+        return re.sub(r'\n\s*\n\s*\n', '\n\n', content or "").strip()

@@ -14,7 +14,8 @@
 	import { appliedStyleTag, applyStyleToPrompt, clearStyle } from '$lib/prompt/styleSegments';
 	import { countUsagesInSegments } from '$lib/utils/promptVariables';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
-	import PromptPicker from '$lib/components/PromptPicker.svelte';
+	import PromptTabs from '$lib/components/PromptTabs.svelte';
+	import { DEFAULT_PROMPT_PLACEHOLDER, NO_PROMPT_COPY, promptTitle, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import { Alert, Button } from '$lib/components/ui';
 	import {
 		BATCH_CAP_MESSAGE,
@@ -74,6 +75,7 @@
 		negativeInert = false,
 		presetSegmentTemplates = [],
 		presetStyles = [],
+		promptCopy = NO_PROMPT_COPY,
 		spacingClass = 'mt-4'
 	}: {
 		tab: Tab;
@@ -91,6 +93,7 @@
 		negativeInert?: boolean;
 		presetSegmentTemplates?: PresetSegmentTemplate[];
 		presetStyles?: PresetStyle[];
+		promptCopy?: PromptCopy;
 		spacingClass?: string;
 	} = $props();
 
@@ -276,6 +279,7 @@
 				negativePromptUnavailable={!negativePromptSupported}
 				negativeInert={negativeInert}
 				showPreview={false}
+				placeholder={promptCopy.placeholder ?? DEFAULT_PROMPT_PLACEHOLDER}
 				variables={variables}
 				variableRolls={variableRolls}
 				onVariableDefChange={handleVariableDefChange}
@@ -295,8 +299,9 @@
 				on:negativeSegmentsChange={(e) => tabHandlers.handleNegativePromptSegmentsChange(e.detail)}
 			>
 				{#snippet titleExtra()}
-					<PromptPicker
+					<PromptTabs
 						{prompts}
+						singleLabel={promptTitle(promptCopy)}
 						active={activePrompt}
 						perPrompt={summary.perPrompt}
 						{canBatch}

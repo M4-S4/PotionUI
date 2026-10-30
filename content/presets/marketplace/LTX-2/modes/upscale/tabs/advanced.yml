@@ -1,0 +1,50 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      - name: "sampler"
+        type: "sampler"
+        label: "Sampler"
+        audience: "advanced"
+        default: "euler"
+        configuration:
+          family: "ltx"
+          exclude: ["lcm"]
+        reactions:
+          - when: { field: "speed_profile", equals: "refine" }
+            then: { set_value: "euler", set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 1.0
+        ai_hint: "Refine-pass guidance. 1.0 is Lightricks' recipe (no negative pass); above 1.0 runs true CFG with the negative prompt on every refine step and costs a second forward per step."
+        configuration: {min: 1.0, max: 20.0, step: 0.5}
+        reactions:
+          - when: { field: "speed_profile", equals: "refine" }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+  - type: "section"
+    label: "Refine"
+    children:
+      - name: "apply_quality_prompt"
+        type: "checkbox"
+        label: "Add Quality Prompt"
+        audience: "advanced"
+        ai_hint: "Escape hatch for the automatic quality-prompt suffix on the refine pass. Leave on (default) unless the user explicitly wants the raw prompt sent to the text encoder untouched."
+        default: true
+
+      - name: "refine_sigmas"
+        type: "textbox"
+        label: "Refine Sigmas"
+        audience: "advanced"
+        ai_hint: "Expert-only override for the standalone upscale mode's refine pass -- prefer suggesting the Refine Strength select (Generation tab) instead. Its value count minus one is the step count. Only suggest hand-typing this for a deliberate custom schedule no Refine Strength option covers (lower first value = less noise re-injected = more faithful to the upsampled source video; higher = more freedom to fix upsampling artifacts, closer to a fresh generation)."
+        configuration:
+          placeholder: "Comma-separated sigma values, first value < 1.0, e.g. 0.909375, 0.725, 0.421875, 0.0"
+        default: ""

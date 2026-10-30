@@ -1,12 +1,13 @@
 <script lang="ts">
 	import tooltip from '$lib/actions/tooltip';
+	import { keyboardFocus } from '../helpers/keyboardFocus';
 	export let open = true;
 	let trigger: HTMLButtonElement;
 
 	function restoreFocus(_node: HTMLElement) {
 		return {
 			destroy() {
-				trigger.focus();
+				keyboardFocus(trigger);
 			}
 		};
 	}

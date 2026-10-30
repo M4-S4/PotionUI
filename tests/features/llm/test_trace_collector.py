@@ -1,12 +1,3 @@
-"""Tests for the chat LLM call-trace collector (trace_collector.py).
-
-Covers the ContextVar-based no-op-unless-active contract that
-src.features.llm.clients.openai / ollama rely on: record() must be silent
-with no active context or no installed recorder, must forward the active
-purpose/session/user and an incrementing iteration counter when active, and
-must restore the outer context on exit (nesting, e.g. title generation inside
-a chat turn).
-"""
 import asyncio
 from unittest.mock import Mock
 
@@ -76,6 +67,23 @@ class TestTraceCollectorActive:
         assert kwargs["model"] == "llama3"
         assert kwargs["request_messages"] == [{"role": "user", "content": "hi"}]
         assert kwargs["duration_ms"] == 123
+
+    def test_record_forwards_the_wire_fields(self):
+        recorder = Mock()
+        trace_collector.set_recorder(recorder)
+        with trace_collector.activate("session-1", "user-1", purpose="chat"):
+            trace_collector.record(
+                provider="anthropic", model="m", request_system=None, request_messages=[], request_params={},
+                adapter="anthropic-messages", request_body={"model": "m"}, response_raw="raw",
+                usage={"input_tokens": 1}, cost=0.25, error={"kind": "cancelled"},
+            )
+        kwargs = recorder.record.call_args.kwargs
+        assert kwargs["adapter"] == "anthropic-messages"
+        assert kwargs["request_body"] == {"model": "m"}
+        assert kwargs["response_raw"] == "raw"
+        assert kwargs["usage"] == {"input_tokens": 1}
+        assert kwargs["cost"] == 0.25
+        assert kwargs["error"] == {"kind": "cancelled"}
 
     def test_iteration_increments_within_one_activation(self):
         recorder = Mock()

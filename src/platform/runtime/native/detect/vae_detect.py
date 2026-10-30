@@ -689,7 +689,7 @@ def detect_minimax_h3_video_vae_config(
     if "decoder.mask_token" not in sd or "decoder.register_tokens" not in sd:
         return None
     conv_in = sd.get("encoder.conv_in.weight")
-    if conv_in is None or conv_in.ndim != 5:
+    if conv_in is not None and conv_in.ndim != 5:
         return None
 
     latent_channels = (

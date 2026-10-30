@@ -60,7 +60,7 @@ Two sequential passes per song, both driven by the same seed:
 
 ## Editing the score
 
-With Chain of thought on Melody or Full, the model writes an ABC score before it samples any audio. That score is shown as soon as it exists: `generator/audio_yue2` emits it as a `text` pipe artifact (`TextGenerationOutput`, serialized as `artifact_type: "text"`) titled `ABC transcription · melody` or `ABC transcription · full`. It appears under the Workbench in the live workspace and in the generation's Artifacts section in history, rendered in mono with a copy button. When you supplied your own ABC, the pipe emits that text instead, titled `ABC (yours) · <mode>`, so every run records the score it actually performed.
+With Chain of thought on Melody or Full, the model writes an ABC score before it samples any audio. That score is shown as soon as it exists: `generator/audio_yue2` emits it as a `text` pipe artifact (`TextGenerationOutput`, serialized as `artifact_type: "text"`) titled `ABC transcription · melody` or `ABC transcription · full`. It appears under the Workbench in the live workspace, rendered in mono with a copy button, and in the generation's run report under Admin → Generations. When you supplied your own ABC, the pipe emits that text instead, titled `ABC (yours) · <mode>`, so every run records the score it actually performed.
 
 To edit the model's score and play it again:
 

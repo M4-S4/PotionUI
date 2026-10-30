@@ -5,7 +5,7 @@ import torch
 from src.platform.runtime.native.arch.flux3.model import Flux3
 from src.platform.runtime.native.lora import map_lora_keys
 from src.platform.runtime.native.lora.key_mapping import _select_key_map
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 HIDDEN, RANK = 64, 4
 

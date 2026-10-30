@@ -40,6 +40,7 @@ from .base import load_into_module, release_derived_caches, release_module_stora
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
 from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError, retry_after_cuda_oom
+from .io.quant_formats import FP8_DTYPES
 from .io.safetensors_loader import load_torch_file, load_torch_file_prefixed, load_torch_file_stripped
 from .io.state_dict_utils import weight_dtype
 from .memory.device_plan import DevicePlan, make_device_plan
@@ -71,14 +72,14 @@ from .memory.tiering import (
 )
 from .ops.dtype import is_mixed_precision, pick_dtypes
 from .ops.fp8_quant import estimate_fp8_gb, quantize_state_dict_to_fp8, should_quantize_fp8
-from vendor.gpl.comfyui.ops import (
+from .kernels import (
     QUANT_FP8_SCALED,
     detect_quant_format,
-    disable_weight_init,
     fp8_ops,
     log_lora_path_summary,
     manual_cast,
     pick_operations,
+    sync_nvfp4_dequant_tables,
 )
 from .sampling.denoise_loop import denoise, ensure_sampler_generator
 from .text_encoders.base import NativeTextEncoder
@@ -615,6 +616,8 @@ class NativeModel:
             pinned_gb = self._streamer.pinned_gb
             self._streamer.teardown()
             self._reclaim_host_after_teardown(pinned_gb)
+        if str(device).startswith("cuda"):
+            sync_nvfp4_dequant_tables(self.module)
         self.module.to(device)
         self.device = str(device)
         get_profiler().mark(
@@ -693,6 +696,7 @@ class NativeModel:
         # the new pin. `stream_to` only runs when ENTERING partial residency
         # (never per forward step), so this is a rare, coarse-grained call.
         self._reclaim_with_marks("stream_to", "empty_pinned_host_cache", empty_pinned_host_cache)
+        sync_nvfp4_dequant_tables(self.module)
         plan = plan_residency_split(self.module, resident_budget_gb, stream_nvfp4=self.stream_nvfp4)
         # Refuse the placement outright if pinning this streamed set would leave
         # host RAM unable to survive it (and its teardown) — a clean generation
@@ -1177,7 +1181,7 @@ class NativeEngineLoader:
         peripheral weights); streaming tier (when a VRAM budget is configured)
         -> manual_cast; otherwise dtype-driven via pick_operations.
         """
-        if quant_format == QUANT_FP8_SCALED or storage_dtype in {torch.float8_e4m3fn, torch.float8_e5m2}:
+        if quant_format == QUANT_FP8_SCALED or storage_dtype in FP8_DTYPES:
             return fp8_ops
         if is_mixed_precision(sd):
             return manual_cast

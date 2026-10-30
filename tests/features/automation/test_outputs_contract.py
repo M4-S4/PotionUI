@@ -142,6 +142,15 @@ def _media_index_manager() -> MagicMock:
     return manager
 
 
+def _media_tool_service() -> MagicMock:
+    from src.features.media_tools.dto import MediaToolItem, RunResult
+    from src.features.media_tools.service import MediaToolService
+
+    item = MediaToolItem(id="i2", filename="a.png", media_type="image", url="/api/media/uploads/a.png")
+    service = MagicMock(spec=MediaToolService)
+    service.run_sync = AsyncMock(return_value=RunResult(items=[item], run_id="r1"))
+    return service
+
 def _index_models_services() -> AutomationServices:
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.backends.base_backend import BaseBackend
@@ -187,6 +196,8 @@ EXECUTABLE_CASES = {
                                   backend_config_store=_backend_config_store(),
                                   model_lifecycle=_model_lifecycle())),
     "action.index_models": ({"backends": ["native"]}, {}, _index_models_services),
+    "action.media_tool": ({"tool": "resize", "params": '{"width": 100}', "item_id": "i1", "user_id": "u1"}, {},
+                          lambda: AutomationServices(media_tool_service=_media_tool_service())),
     "action.index_media_queue": ({"pass_types": ["tags", "clip_embed"], "batch_size": 8, "max_items": 32}, {},
                                  lambda: AutomationServices(media_indexer=_media_index_manager())),
 }

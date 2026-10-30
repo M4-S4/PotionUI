@@ -1,19 +1,3 @@
-"""The native client's own generated `<tool_call>` example must never name
-a tool that wasn't actually offered for THIS request, and must never claim
-empty arguments for a tool that requires some.
-
-`_inject_tools_into_system_message`/`_example_tool_call` (unit-level,
-independent of any real send) are covered in `test_native_client.py`. This
-file exercises the REAL entry points instead — `generate_with_tools`,
-`stream_with_tools`, and `messages_token_counter` (the prepared-request
-accounting seam `LLMGateway` uses for budgeting) — with a tokenizer double
-that records the actual `chat` list handed to `apply_chat_template`, so
-assertions inspect the real prepared system message, not a re-derived
-string. All three call sites go through the SAME
-`_inject_tools_into_system_message`, so this also proves the accounting
-count and the real send can never disagree about what was offered.
-"""
-
 from __future__ import annotations
 
 import json
@@ -24,9 +8,13 @@ import jsonschema
 import pytest
 import torch
 
-from src.features.llm.clients.native import NativeLLMClient, _LoadedCheckpoint
+from src.features.llm.native.runtime import _LoadedCheckpoint
+from src.features.llm.harness.adapter import RenderRequest, ToolSpec
+from src.features.llm.harness.adapters.native import NativeAdapter
+from src.features.llm.harness.profile import CapabilityProfile
+from tests.fixtures.native_runtime import NativeDriver
 from src.features.llm.tools.builtin.manage_prompts_tool import AddPromptTool
-from tests.features.llm.test_native_client import _config, client, fake_native_model, models_manager
+from tests.features.llm.test_native_client import _config, _user, client, fake_native_model, models_manager
 
 
 @pytest.fixture(autouse=True)
@@ -157,13 +145,28 @@ def wired_checkpoint(client, fake_native_model, monkeypatch):
     path, is_te = client._resolve_model(fake_native_model)
     checkpoint = _recording_checkpoint()
     client._checkpoint_refs[client._cache_key(path, is_te)] = weakref.ref(checkpoint)
-    monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+    monkeypatch.setattr(NativeDriver, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
     return checkpoint
 
 
-async def _drain_stream_with_tools(client, messages, config, tools):
-    async for _event in client.stream_with_tools(messages, config, config.system_message, tools=tools):
+async def _send(client, config, tools):
+    adapter = NativeAdapter()
+    adapter.runtime = client
+    request = RenderRequest(
+        config=config,
+        system=config.system_message,
+        messages=(_user("hi"),),
+        tools=tuple(ToolSpec.from_schema(schema) for schema in tools or ()),
+    )
+    wire = adapter.render(request, CapabilityProfile(adapter="native", model=config.model, prompt_tools=True))
+    async for _chunk in adapter.send(wire, request):
         pass
+
+
+def _adapter_counter(client, config):
+    adapter = NativeAdapter()
+    adapter.runtime = client
+    return adapter.messages_token_counter(config)
 
 
 class TestPromptCoherenceExcludingGetFormState:
@@ -172,29 +175,20 @@ class TestPromptCoherenceExcludingGetFormState:
 
     TOOLS = [DO_THING]
 
-    @pytest.mark.asyncio
-    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
-        config = _config(fake_native_model)
-        await client.generate_with_tools(
-            [{"role": "user", "content": "hi"}], config, config.system_message, tools=self.TOOLS,
-        )
-        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
-        assert "get_form_state" not in text
-        _assert_example_names_are_offered_or_generic(text, self.TOOLS)
 
     @pytest.mark.asyncio
-    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+    async def test_send(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, self.TOOLS)
+        await _send(client, config, self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         assert "get_form_state" not in text
         _assert_example_names_are_offered_or_generic(text, self.TOOLS)
 
     def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        counter = client.messages_token_counter(config)
+        counter = _adapter_counter(client, config)
         assert counter is not None
-        counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
+        counter(config.system_message, [_user("hi")], self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         assert "get_form_state" not in text
         _assert_example_names_are_offered_or_generic(text, self.TOOLS)
@@ -206,26 +200,18 @@ class TestPromptCoherenceIncludingGetFormState:
 
     TOOLS = [DO_THING, GET_FORM_STATE]
 
-    @pytest.mark.asyncio
-    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
-        config = _config(fake_native_model)
-        await client.generate_with_tools(
-            [{"role": "user", "content": "hi"}], config, config.system_message, tools=self.TOOLS,
-        )
-        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
-        _assert_example_names_are_offered_or_generic(text, self.TOOLS)
 
     @pytest.mark.asyncio
-    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+    async def test_send(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, self.TOOLS)
+        await _send(client, config, self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         _assert_example_names_are_offered_or_generic(text, self.TOOLS)
 
     def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        counter = client.messages_token_counter(config)
-        counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
+        counter = _adapter_counter(client, config)
+        counter(config.system_message, [_user("hi")], self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         _assert_example_names_are_offered_or_generic(text, self.TOOLS)
 
@@ -238,22 +224,11 @@ class TestPromptCoherenceWithRequiredArguments:
 
     TOOLS = [SET_VALUE_REQUIRED]
 
-    @pytest.mark.asyncio
-    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
-        config = _config(fake_native_model)
-        await client.generate_with_tools(
-            [{"role": "user", "content": "hi"}], config, config.system_message, tools=self.TOOLS,
-        )
-        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
-        _assert_example_names_are_offered_or_generic(text, self.TOOLS)
-        example = _example_block(text)
-        assert '"name": "set_value"' in example
-        assert '"arguments": {}' not in example
 
     @pytest.mark.asyncio
-    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+    async def test_send(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, self.TOOLS)
+        await _send(client, config, self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         example = _example_block(text)
         assert '"name": "set_value"' in example
@@ -261,8 +236,8 @@ class TestPromptCoherenceWithRequiredArguments:
 
     def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        counter = client.messages_token_counter(config)
-        counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
+        counter = _adapter_counter(client, config)
+        counter(config.system_message, [_user("hi")], self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         example = _example_block(text)
         assert '"name": "set_value"' in example
@@ -292,27 +267,18 @@ class TestPromptCoherenceWithEnumAndUnionArguments:
 
     TOOLS = [MANAGE_SCOPED_REQUIRED]
 
-    @pytest.mark.asyncio
-    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
-        config = _config(fake_native_model)
-        await client.generate_with_tools(
-            [{"role": "user", "content": "hi"}], config, config.system_message, tools=self.TOOLS,
-        )
-        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
-        _assert_example_names_are_offered_or_generic(text, self.TOOLS)
-        _assert_scoped_arguments_satisfy_their_schema(_example_arguments(text))
 
     @pytest.mark.asyncio
-    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+    async def test_send(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, self.TOOLS)
+        await _send(client, config, self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         _assert_scoped_arguments_satisfy_their_schema(_example_arguments(text))
 
     def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        counter = client.messages_token_counter(config)
-        counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
+        counter = _adapter_counter(client, config)
+        counter(config.system_message, [_user("hi")], self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         _assert_scoped_arguments_satisfy_their_schema(_example_arguments(text))
 
@@ -326,27 +292,18 @@ class TestPromptCoherenceWithRealAddPromptTool:
 
     TOOLS = [AddPromptTool().to_schema()]
 
-    @pytest.mark.asyncio
-    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
-        config = _config(fake_native_model)
-        await client.generate_with_tools(
-            [{"role": "user", "content": "hi"}], config, config.system_message, tools=self.TOOLS,
-        )
-        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
-        _assert_example_names_are_offered_or_generic(text, self.TOOLS)
-        jsonschema.validate(instance=_example_arguments(text), schema=self.TOOLS[0]["function"]["parameters"])
 
     @pytest.mark.asyncio
-    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+    async def test_send(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, self.TOOLS)
+        await _send(client, config, self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         jsonschema.validate(instance=_example_arguments(text), schema=self.TOOLS[0]["function"]["parameters"])
 
     def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        counter = client.messages_token_counter(config)
-        counter(config.system_message, [{"role": "user", "content": "hi"}], self.TOOLS)
+        counter = _adapter_counter(client, config)
+        counter(config.system_message, [_user("hi")], self.TOOLS)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         jsonschema.validate(instance=_example_arguments(text), schema=self.TOOLS[0]["function"]["parameters"])
 
@@ -355,28 +312,19 @@ class TestPromptCoherenceWithNoTools:
     """No tools offered at all — the system message must carry no tool
     guidance whatsoever, on every entry point."""
 
-    @pytest.mark.asyncio
-    async def test_generate_with_tools(self, client, fake_native_model, wired_checkpoint):
-        config = _config(fake_native_model)
-        await client.generate_with_tools(
-            [{"role": "user", "content": "hi"}], config, config.system_message, tools=None,
-        )
-        text = _system_text(wired_checkpoint.tokenizer.calls[-1])
-        assert "<tool_call>" not in text
-        assert text == config.system_message
 
     @pytest.mark.asyncio
-    async def test_stream_with_tools(self, client, fake_native_model, wired_checkpoint):
+    async def test_send(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        await _drain_stream_with_tools(client, [{"role": "user", "content": "hi"}], config, None)
+        await _send(client, config, None)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         assert "<tool_call>" not in text
         assert text == config.system_message
 
     def test_prepared_request_accounting(self, client, fake_native_model, wired_checkpoint):
         config = _config(fake_native_model)
-        counter = client.messages_token_counter(config)
-        counter(config.system_message, [{"role": "user", "content": "hi"}], None)
+        counter = _adapter_counter(client, config)
+        counter(config.system_message, [_user("hi")], None)
         text = _system_text(wired_checkpoint.tokenizer.calls[-1])
         assert "<tool_call>" not in text
         assert text == config.system_message

@@ -50,7 +50,6 @@ export function registerEntryTools(): void {
 		id: 'open-details',
 		label: 'Open details',
 		icon: 'eyes',
-		shortcut: 'Enter',
 		category: 'open',
 		source: 'core',
 		scopes: ['history', 'library'],
@@ -202,10 +201,11 @@ export function registerEntryTools(): void {
 		shortcut: 'F',
 		category: 'organize',
 		source: 'core',
-		scopes: ['history'],
+		scopes: ['history', 'library'],
 		surfaces: ['entry'],
 		requires: 'favorite',
-		labelFor: (ctx) => (ctx.generations[0]?.is_favorite ? 'Remove favorite' : 'Favorite'),
+		labelFor: (ctx) =>
+			(ctx.entry?.favorite ?? ctx.generations[0]?.is_favorite) ? 'Remove favorite' : 'Favorite',
 		applies: (ctx) => ({ enabled: true, hidden: isStack(ctx) }),
 		run: (ctx, host) => host.favorite?.(ctx)
 	});

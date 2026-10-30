@@ -118,7 +118,7 @@ describe('history picker mosaic', () => {
 		await mount({ multiple: true });
 		expect(tile(1).textContent).toContain('harbour at dusk');
 		expect(document.querySelector('input[aria-label="Select wide.png (harbour at dusk)"]')).not.toBeNull();
-		expect(document.querySelector('[role="button"][aria-label="Preview wide.png (harbour at dusk)"]')).not.toBeNull();
+		expect(document.querySelector('button[aria-label="Preview wide.png (harbour at dusk)"]')).not.toBeNull();
 	});
 
 	it('keeps audio pickable in a square box', async () => {
@@ -158,10 +158,30 @@ describe('history picker mosaic', () => {
 		expect(box.disabled).toBe(true);
 		expect(tile(5).textContent).toContain('Only image files can be selected here');
 		box.click();
-		tile(5)
-			.querySelector<HTMLElement>('[role="button"]')!
-			.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+		tile(5).querySelector<HTMLButtonElement>('button[aria-hidden="true"]')!.click();
 		expect(onSelectionChange).not.toHaveBeenCalled();
 		expect(document.querySelector<HTMLInputElement>('input[aria-label^="Select wide.png"]')!.disabled).toBe(false);
+	});
+
+	it('toggles selection when the tile image is clicked and keeps the checkbox in sync', async () => {
+		const onSelectionChange = vi.fn();
+		await mount({ multiple: true, onSelectionChange });
+		const image = tile(4).querySelector<HTMLButtonElement>('button[aria-hidden="true"]')!;
+		image.click();
+		await tick();
+		expect(onSelectionChange).toHaveBeenLastCalledWith(['pair:4'], expect.any(Array));
+		expect(document.querySelector<HTMLInputElement>('input[aria-label^="Select pair-b.png"]')!.checked).toBe(true);
+		image.click();
+		await tick();
+		expect(onSelectionChange).toHaveBeenLastCalledWith([], expect.any(Array));
+	});
+
+	it('opens the preview from the preview button without selecting', async () => {
+		const onSelectionChange = vi.fn();
+		await mount({ multiple: true, onSelectionChange });
+		tile(1).querySelector<HTMLButtonElement>('button[aria-label^="Preview wide.png"]')!.click();
+		await tick();
+		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
+		expect(onSelectionChange).not.toHaveBeenCalled();
 	});
 });

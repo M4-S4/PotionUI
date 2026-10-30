@@ -5,7 +5,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.features.llm import context_budget
-from src.features.llm.clients.base import LLMResponse
+from src.features.llm.harness.build import user_message
+from src.features.llm.harness.engine import TurnInput, TurnOutcome
+from src.features.llm.harness.events import Finish, FinishReason, TextDelta
+from tests.fixtures.llm_engine import drain, scripted_engine
+from tests.fixtures.llm_harness import ScriptedAdapter, text_step, tool_step
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.executor import ToolExecutor
 from src.features.llm.tools.registry import ToolRegistry
@@ -36,26 +40,6 @@ class _NamedTool(BaseTool):
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         return ToolResult(success=True, data=f"{self._name} ran")
-
-
-def _call(name: str, arguments: Dict[str, Any], call_id: str) -> Dict[str, Any]:
-    return {"id": call_id, "function": {"name": name, "arguments": json.dumps(arguments)}}
-
-
-def _response(content: str = "", tool_calls=None) -> LLMResponse:
-    return LLMResponse(content=content, model="m", provider_id="p", tool_calls=tool_calls or [])
-
-
-def _executor(config_type: str = "openai"):
-    registry = ToolRegistry()
-    registry.register(_NamedTool("echo"))
-    registry.register(_NamedTool("shout", "extra"))
-    llm_service = AsyncMock()
-    config = MagicMock()
-    config.type = config_type
-    config.provider_options = {}
-    llm_service.repository.get_configuration = MagicMock(return_value=config)
-    return ToolExecutor(tool_registry=registry, llm_service=llm_service), llm_service
 
 
 def _context() -> ToolContext:
@@ -115,108 +99,50 @@ class TestLoadToolGroup:
 
 
 class TestUseToolsInTheLoop:
-    @pytest.mark.asyncio
-    async def test_buffered_loop_adds_the_group_to_the_next_request(self):
-        executor, llm_service = _executor()
-        llm_service.generate_with_tools.side_effect = [
-            _response(tool_calls=[_call(USE_TOOLS_NAME, {"group": "extra"}, "c1")]),
-            _response(tool_calls=[_call("shout", {}, "c2")]),
-            _response("done"),
-        ]
-        allowed, deferred = ["echo"], {"extra": ["shout"]}
+    async def _run(self, *steps, allowed=("echo",), deferred=None):
+        adapter = ScriptedAdapter(*steps)
+        rig = scripted_engine(adapter, [_NamedTool("echo"), _NamedTool("shout", "extra")])
+        events = await drain(rig.engine.run(TurnInput(
+            session_id="s1", llm_id="cfg-scripted", system="sys", history=(),
+            new_messages=(user_message("shout"),), tool_context=_context(),
+            allowed_tools=allowed, deferred_tools=deferred if deferred is not None else {"extra": ("shout",)},
+        )))
+        outcome = next(event for event in events if isinstance(event, TurnOutcome))
+        return adapter, outcome
 
-        response, executions = await executor.execute_with_tools(
-            messages=[{"role": "user", "content": "shout"}], llm_id="m", system_message="sys",
-            tool_context=_context(), allowed_tools=allowed, deferred_tools=deferred,
+    async def test_loading_a_group_grows_the_next_requests_tool_set(self):
+        adapter, outcome = await self._run(
+            tool_step({"id": "c1", "name": USE_TOOLS_NAME, "args": {"group": "extra"}}),
+            tool_step({"id": "c2", "name": "shout", "args": {}}),
+            text_step("done"),
         )
 
-        sent = [call.kwargs["tools"] for call in llm_service.generate_with_tools.call_args_list]
-        assert _tool_names(sent[0]) == ["echo", USE_TOOLS_NAME]
-        assert _tool_names(sent[1]) == ["echo", "shout"]
-        assert [e.tool_name for e in executions] == [USE_TOOLS_NAME, "shout"]
-        assert all(e.result.success for e in executions)
-        assert response.content == "done"
-        assert allowed == ["echo"]
-        assert deferred == {"extra": ["shout"]}
+        sent = [[tool.name for tool in request.tools] for request in adapter.requests]
+        assert sent[0] == ["echo", USE_TOOLS_NAME]
+        assert sent[1] == ["echo", USE_TOOLS_NAME, "shout"]
+        assert [e.tool_name for e in outcome.executions] == [USE_TOOLS_NAME, "shout"]
+        assert all(e.result.success for e in outcome.executions)
+        assert outcome.content == "done"
+        assert outcome.state.loaded_tool_groups == ("extra",)
 
-    @pytest.mark.asyncio
-    async def test_live_stream_sends_the_grown_tool_set(self):
-        executor, llm_service = _executor()
-        rounds = [
-            [{"type": "tool_calls", "tool_calls": [_call(USE_TOOLS_NAME, {"group": "extra"}, "c1")]}],
-            [{"type": "token", "content": "done"}],
-        ]
-        sent = []
+    async def test_an_xml_use_tools_call_grows_the_tool_set_too(self):
+        adapter, _ = await self._run(
+            [TextDelta(block=1, text='<tool_call>{"name": "use_tools", "arguments": {"group": "extra"}}</tool_call>'), Finish(reason=FinishReason.STOP)],
+            text_step("done"),
+        )
 
-        def _stream(**kwargs):
-            sent.append(kwargs["tools"])
-            events = rounds[len(sent) - 1]
+        assert [tool.name for tool in adapter.requests[1].tools] == ["echo", USE_TOOLS_NAME, "shout"]
 
-            async def _gen():
-                for event in events:
-                    yield event
-
-            return _gen()
-
-        llm_service.stream_with_tools = _stream
-
-        events = await _drain(executor.execute_with_tools_stream(
-            messages=[{"role": "user", "content": "shout"}], llm_id="m", system_message="sys",
-            tool_context=_context(), allowed_tools=["echo"], deferred_tools={"extra": ["shout"]},
-        ))
-
-        assert _tool_names(sent[0]) == ["echo", USE_TOOLS_NAME]
-        assert _tool_names(sent[1]) == ["echo", "shout"]
-        done = next(e for e in events if e["type"] == "done")
-        assert done["data"]["full_content"] == "done"
-
-    @pytest.mark.asyncio
-    async def test_prompt_tools_path_sends_the_grown_tool_set(self):
-        executor, llm_service = _executor(config_type="native")
-        llm_service.generate_with_tools.side_effect = [
-            _response(content='<tool_call>{"name": "use_tools", "arguments": {"group": "extra"}}</tool_call>'),
-            _response("done"),
-        ]
-
-        await _drain(executor.execute_with_tools_stream(
-            messages=[{"role": "user", "content": "shout"}], llm_id="m", system_message="sys",
-            tool_context=_context(), allowed_tools=["echo"], deferred_tools={"extra": ["shout"]},
-        ))
-
-        sent = [call.kwargs["tools"] for call in llm_service.generate_with_tools.call_args_list]
-        assert _tool_names(sent[0]) == ["echo", USE_TOOLS_NAME]
-        assert _tool_names(sent[1]) == ["echo", "shout"]
-
-    @pytest.mark.asyncio
     async def test_calling_a_deferred_tool_directly_loads_its_group_and_runs_it(self):
-        executor, llm_service = _executor()
-        llm_service.generate_with_tools.side_effect = [
-            _response(tool_calls=[_call("shout", {}, "c1")]),
-            _response("done"),
-        ]
+        adapter, outcome = await self._run(tool_step({"id": "c1", "name": "shout", "args": {}}), text_step("done"))
 
-        _response_obj, executions = await executor.execute_with_tools(
-            messages=[{"role": "user", "content": "shout"}], llm_id="m", system_message="sys",
-            tool_context=_context(), allowed_tools=["echo"], deferred_tools={"extra": ["shout"]},
-        )
+        assert outcome.executions[0].result.success
+        assert outcome.executions[0].result.data == "shout ran"
+        assert [tool.name for tool in adapter.requests[1].tools] == ["echo", USE_TOOLS_NAME, "shout"]
 
-        assert executions[0].result.success
-        assert executions[0].result.data == "shout ran"
-        second = llm_service.generate_with_tools.call_args_list[1].kwargs["tools"]
-        assert _tool_names(second) == ["echo", "shout"]
-
-    @pytest.mark.asyncio
     async def test_a_tool_outside_every_group_is_still_refused(self):
-        executor, llm_service = _executor()
-        llm_service.generate_with_tools.side_effect = [
-            _response(tool_calls=[_call("ghost", {}, "c1")]),
-            _response("done"),
-        ]
+        _, outcome = await self._run(tool_step({"id": "c1", "name": "ghost", "args": {}}), text_step("done"))
 
-        _response_obj, executions = await executor.execute_with_tools(
-            messages=[{"role": "user", "content": "go"}], llm_id="m", system_message="sys",
-            tool_context=_context(), allowed_tools=["echo"], deferred_tools={"extra": ["shout"]},
-        )
+        assert not outcome.executions[0].result.success
+        assert "do not call it again" in outcome.executions[0].result.error
 
-        assert not executions[0].result.success
-        assert "do not call it again" in executions[0].result.error

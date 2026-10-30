@@ -88,6 +88,28 @@ class TestChatCallTraceRepository(PersistenceTestBase):
         assert row["provider"] == "openai"
         assert row["prompt_tokens"] == 10
 
+    def test_the_wire_fields_round_trip_and_default_to_nothing(self):
+        self._create_trace()
+        self._create_trace(
+            iteration=2,
+            adapter="anthropic-messages",
+            request_body={"model": "m", "messages": [{"role": "user", "content": "hi"}]},
+            response_raw="event: message_stop\n\n",
+            usage={"input_tokens": 10, "output_tokens": 5, "cost": 0.5},
+            cost=0.5,
+            error={"kind": "overloaded", "status": 529},
+        )
+
+        plain, wired = self.repo.list_for_session(self.session.id)
+
+        assert [plain[key] for key in ("adapter", "request_body", "response_raw", "usage", "cost", "error")] == [None] * 6
+        assert wired["adapter"] == "anthropic-messages"
+        assert wired["request_body"] == {"model": "m", "messages": [{"role": "user", "content": "hi"}]}
+        assert wired["response_raw"] == "event: message_stop\n\n"
+        assert wired["usage"] == {"input_tokens": 10, "output_tokens": 5, "cost": 0.5}
+        assert wired["cost"] == 0.5
+        assert wired["error"] == {"kind": "overloaded", "status": 529}
+
     def test_list_for_session_orders_by_created_then_iteration(self):
         self._create_trace(iteration=1)
         self._create_trace(iteration=2)

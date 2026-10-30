@@ -5,7 +5,7 @@
 ## preset instead of another branch inside `LTX-2 / 2.3`: the `model` file is
 ## the transformer alone, the video VAE and the audio VAE(+vocoder) are
 ## standalone files, and the text-embedding projection has moved off the DiT
-## onto a Gemma4-12B text encoder. Four pickers instead of two (Models tab),
+## onto a Gemma4-12B text encoder. Four pickers instead of two (Models section),
 ## and a base pass that samples ancestrally where 2.0/2.3's is deterministic.
 ##
 ## For the 2.0/2.3 all-in-one checkpoints (ltx-2-19b-dev, ltx-2.3-22b-dev),
@@ -37,7 +37,10 @@ media:
 # Selectable speed profiles (docs/presets.md "Speed profiles"), same pattern as
 # presets/native/LTX-2 and presets/native/Krea2. Each profile bakes the ACTUAL
 # steps/guidance/sampler the recipe runs at, so the visible Steps/CFG/Sampler
-# fields (modes/*/tabs/generation.yml reactions) always match what executes.
+# fields (files/form/sampling.yml reactions, on every mode's Advanced tab)
+# always match what executes. A mode may run its Quality profile at another
+# CFG (Day to night 3.5, Cinemagraph 4.0) -- that mode's Advanced tab passes
+# it to sampling.yml as `quality_cfg`, and its speed picker's sub-label says so.
 #
 # `sampler` is euler_ancestral on every profile, including Distilled -- the one
 # recipe knob that genuinely changed generation-over-generation. The
@@ -114,13 +117,14 @@ vars:
   # Distilled recipe: Lightricks' own DISTILLED_SIGMA_VALUES constant
   # (packages/ltx-pipelines in github.com/Lightricks/LTX-2, Apache-2.0) --
   # unchanged from 2.3 to 2.5, so this list is byte-identical to
-  # presets/native/LTX-2's var of the same name. Read by modes/video/
-  # pipeline.yml for the "Distilled" speed profile above; a non-empty
+  # presets/native/LTX-2's var of the same name. Read by the pipeline.yml of
+  # every mode with a Speed profile, for its "Distilled" profile; a non-empty
   # manual_sigmas takes priority over the `ltx_dynamic` schedule stage 1
   # otherwise runs (see guidance_options.py's schedule_settings_overrides).
   distilled_sigma_recipe: "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
   default_frames: 49
   default_fps: 25
+  edit_window_overlap: 24
   # Quality recipe MultiModalGuider-only knobs: Lightricks' first-party
   # LTX_2_3_PARAMS (packages/ltx-pipelines/src/ltx_pipelines/utils/
   # constants.py, Apache-2.0), carried forward to 2.5 unchanged. The recipe's
@@ -164,6 +168,7 @@ vars:
   # NOT applied to the video mode's in-flow upscale stage-2 refine -- see that
   # pipeline.yml's stage-2 comment for why (shared conditioning with stage 1).
   refine_quality_prompt: "the video is sharp and richly detailed, with clean well-defined edges, natural skin and material texture, smooth coherent motion, and free of compression artifacts, noise, or blurring"
+  optional_prompt_modes: ["restore", "colorize", "day_to_night", "add_water", "remove_object", "layout_to_render", "cinemagraph"]
 
   # Video Director capabilities for the `video` mode. Read by
   # normalize_video_director() (src/features/video_director/normalize.py) via
@@ -188,6 +193,7 @@ vars:
         audio: true
         ic_lora: true
         max_keyframes: 8
+        video_keyframes: true
     limits:
       default_duration: 5
       default_fps: 25
@@ -221,6 +227,70 @@ llm:
     motion artifacts, fused fingers, bad anatomy, weird hand, ugly, transition,
     static." Trim items that don't apply and add what the shot risks.
 
+  modes:
+    restore:
+      guide: |
+        Restore mode: an IC-LoRA repairs the reference clip, so never write a shot list,
+        camera language or the 4-8 sentence video paragraph. The Fix field picks the
+        task. For Remove blur and Remove compression write one or two plain sentences
+        describing the scene in the clip ("a man walks a dog down a street"), nothing
+        about the fault itself. For Restore old footage describe the period, place,
+        light, materials and clothing of the footage, as the Restore LoRA card asks
+        ("a 1950s market street at midday in soft sunlight, wool coats and straw
+        baskets").
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    colorize:
+      guide: |
+        Colorize mode: an IC-LoRA adds natural colour to a black and white clip, so
+        never write a shot list, camera language or the 4-8 sentence video paragraph.
+        Write one or two plain sentences describing the scene in the clip ("a man walks
+        a dog down a street"), not the colouring itself.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    day_to_night:
+      guide: |
+        Day to night mode: an IC-LoRA relights the reference clip as night, so never
+        write a shot list, camera language or the 4-8 sentence video paragraph. Describe
+        the night look: the moonlight or lamplight, the shadows and the sky ("a moonlit
+        street with warm lamplight in the windows and deep blue shadows"). Only the
+        lighting changes, so add no new action.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    add_water:
+      guide: |
+        Add water mode: an IC-LoRA adds water to the reference clip, so never write a
+        shot list, camera language or the 4-8 sentence video paragraph. Write only the
+        water: its type, its motion and how it touches the subject ("a clear shallow
+        stream flowing across the ground and splashing around the dog's paws"). Never
+        re-describe the scene.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    remove_object:
+      guide: |
+        Remove object mode: an IC-LoRA returns a clean plate of the reference clip, so
+        never write a shot list, camera language or the 4-8 sentence video paragraph.
+        Describe the empty scene and name what must not appear ("an empty street at
+        dusk, with no people, no dog and no cars").
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    layout_to_render:
+      guide: |
+        Layout to render mode: an IC-LoRA turns a layout or blockout clip into a
+        finished shot, so never write a shot list or the 4-8 sentence video paragraph.
+        Write one or two sentences describing the finished shot, matching the First
+        Frame picture. Never use the words clay, 3D or Unreal.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+    cinemagraph:
+      guide: |
+        Cinemagraph mode: an IC-LoRA turns a still image into a seamless loop, so never
+        write a shot list or the 4-8 sentence video paragraph. Name exactly what moves
+        ("the flag ripples and the candle flame flickers"); everything else stays
+        still, and there are no camera moves.
+        The prompt is optional, and the mode adds the caption and trigger word itself,
+        so never type ADD WATER, COLORIZE, DEBLUR, ENHANCE QUALITY or CINEMAGRAPH_MOTION.
+
 formulas:
   groups:
     speed:    { label: "Speed and sampling" }
@@ -235,3 +305,12 @@ formulas:
 modes:
   - video
   - upscale
+  - extend
+  - refine_faces
+  - restore
+  - colorize
+  - day_to_night
+  - add_water
+  - remove_object
+  - layout_to_render
+  - cinemagraph

@@ -1,0 +1,35 @@
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Input Video"
+    required: true
+    ai_hint: "An existing video to upscale, for example a clip generated in the Video mode. Upscaled in latent space and refined at the new resolution. Any frame count or resolution works; the output can end with up to ~0.3s of a frozen final frame due to grid alignment."
+
+  - name: "upscale_method"
+    type: "select"
+    formula: "enhance"
+    label: "Method"
+    default: "latent"
+    description: "Generative 2x and Refine details go up to 1080p and need their own LoRA."
+    configuration:
+      options:
+        - { label: "Standard", value: "latent" }
+        - { label: "Generative 2x", value: "pixel_spatial" }
+        - { label: "Refine details", value: "refine_details" }
+
+  - name: "refine_strength"
+    type: "select"
+    formula: "enhance"
+    label: "Refine Strength"
+    ai_hint: "Friendly control for the standalone upscale mode's refine pass. Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled source video as-is. The Advanced tab's Refine Sigmas field is an expert override of this same knob -- prefer this select."
+    default: "strong"
+    configuration:
+      options:
+        - { label: "Strong (recommended)", value: "strong" }
+        - { label: "Balanced", value: "balanced" }
+        - { label: "Light", value: "light" }
+    reactions:
+      - when: { field: "upscale_method", not_equals: "latent" }
+        then: { set_visibility: false }
+      - when: { field: "upscale_method", equals: "latent" }
+        then: { set_visibility: true }

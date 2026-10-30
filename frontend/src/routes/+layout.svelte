@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto, afterNavigate } from '$app/navigation';
 	import { browser } from '$app/environment';
+	import { storage } from '$lib/utils/storage';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
 	import { installLimitsWatcher, refreshLimits, resetLimitsState } from '$lib/plans/store';
@@ -16,6 +17,8 @@
 	import { loadModeLabels } from '$lib/utils/modeLabel.svelte';
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
+	import LibraryModalHost from '$lib/components/library/LibraryModalHost.svelte';
+	import ToolRunChip from '$lib/components/tools/ToolRunChip.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
 	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
@@ -51,7 +54,7 @@
 		printStartupBanner();
 		themeStore.init();
 		initPwaInstall();
-		installDismissed = localStorage.getItem('potionui-install-dismissed') === '1';
+		installDismissed = storage.get('potionui-install-dismissed') === '1';
 		return () => {
 			stopCrossTab();
 			stopInputModality();
@@ -60,7 +63,7 @@
 
 	function dismissInstallPrompt() {
 		installDismissed = true;
-		localStorage.setItem('potionui-install-dismissed', '1');
+		storage.set('potionui-install-dismissed', '1');
 	}
 
 	async function initializeAuthenticatedRuntime() {
@@ -316,6 +319,8 @@
 		{#if $isMobile && $isChatPanelOpen && ChatSheetComponent}<svelte:component this={ChatSheetComponent} />{/if}
 		{#if KeyboardShortcutsModalComponent}<svelte:component this={KeyboardShortcutsModalComponent} />{/if}
 		{#if NotificationPanelComponent}<svelte:component this={NotificationPanelComponent} />{/if}
+		<LibraryModalHost />
+		<ToolRunChip />
 		<ToastContainer />
 		<ConfirmHost />
 		<IndexingChoiceModal />

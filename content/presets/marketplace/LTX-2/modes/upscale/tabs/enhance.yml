@@ -1,0 +1,33 @@
+fields:
+  - type: "gate"
+    name: "enhance_faces_hands"
+    formula: "detailer"
+    label: "Enhance faces and hands"
+    default: false
+    configuration:
+      summary: "Detects and refines faces and hands on the refined video"
+    children:
+      - name: "enhancement_strength"
+        type: "select"
+        label: "Enhancement strength"
+        ai_hint: "Only used when Enhance faces and hands is on. Balanced is the safe default; suggest Light when the user worries the enhancement changes a face's identity, Strong only when they explicitly want maximum detail and accept more deviation."
+        default: "balanced"
+        configuration:
+          options:
+            - { label: "Light", value: "light" }
+            - { label: "Balanced", value: "balanced" }
+            - { label: "Strong", value: "strong" }
+
+      - name: "face_detector_model"
+        type: "model"
+        formula: "models"
+        label: "Face Detection Model"
+        configuration:
+          model_type: "mediapipe"
+
+      - name: "hand_detector_model"
+        type: "model"
+        formula: "models"
+        label: "Hand Detection Model"
+        configuration:
+          model_type: "mediapipe"

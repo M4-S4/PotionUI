@@ -7,7 +7,8 @@ from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
 
 _LOCATION_COLUMNS = (
-    "id, model_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256, status, seen_at, binding_id"
+    "id, model_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256, status, seen_at, binding_id, "
+    "header_hash"
 )
 
 _MODEL_CHUNK = 500
@@ -105,6 +106,7 @@ class ModelLocationsRepository:
         status: str,
         seen_at: str,
         quick_sig: Optional[str] = None,
+        header_hash: Optional[str] = None,
     ) -> str:
         location_id = generate_ulid()
         with get_cursor() as cursor:
@@ -112,8 +114,8 @@ class ModelLocationsRepository:
                 """
                 INSERT INTO model_locations
                     (id, model_id, binding_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256,
-                     status, seen_at, quick_sig)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, seen_at, quick_sig, header_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(binding_id, rel_key) DO UPDATE SET
                     model_id = excluded.model_id,
                     rel_path = excluded.rel_path,
@@ -121,12 +123,13 @@ class ModelLocationsRepository:
                     mtime_ns = excluded.mtime_ns,
                     sha256 = excluded.sha256,
                     quick_sig = excluded.quick_sig,
+                    header_hash = excluded.header_hash,
                     status = excluded.status,
                     seen_at = excluded.seen_at
                 """,
                 (
                     location_id, model_id, binding_id, root_id, model_type, rel_path, rel_key,
-                    size, mtime_ns, sha256, status, seen_at, quick_sig,
+                    size, mtime_ns, sha256, status, seen_at, quick_sig, header_hash,
                 ),
             )
             cursor.execute(
@@ -135,6 +138,15 @@ class ModelLocationsRepository:
             )
             row = cursor.fetchone()
             return row["id"] if row else location_id
+
+    def set_header_hash(self, location_ids: Sequence[str], header_hash: str) -> None:
+        if not location_ids:
+            return
+        with get_cursor() as cursor:
+            cursor.executemany(
+                "UPDATE model_locations SET header_hash = ? WHERE id = ?",
+                [(header_hash, location_id) for location_id in location_ids],
+            )
 
     def confirm_present(
         self,

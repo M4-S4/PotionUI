@@ -16,7 +16,7 @@ from src.platform.runtime.native.memory.pinned_arena import (
     caching_host_block_bytes,
     plan_segments,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 _GB = 1024 ** 3
 

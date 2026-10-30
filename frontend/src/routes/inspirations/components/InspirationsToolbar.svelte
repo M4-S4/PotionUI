@@ -41,7 +41,7 @@
 		<CollectionSidebarSheet label="Inspirations" collapsed={!sidebarOpen} onExpand={onOpenSidebar}>
 			<InspirationsSidebar />
 		</CollectionSidebarSheet>
-		<PageTitle title="Inspirations" count={state.totalCount} countLabel="items" />
+		<PageTitle title="Inspirations" count={state.totalCount} countLabel="items" countLabelOne="item" />
 
 		<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
 

@@ -65,10 +65,10 @@ itself exports.
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `ToolApprovalPreview`, `PreChatAction` |
-| **LLM** — contributing an LLM configuration type | `.llm` | `OpenAIClient`, `OpenAIRequest`, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
+| **LLM** — contributing an LLM configuration type | `.llm` | `Adapter`, `HttpAdapter`, `OpenAIChatAdapter`, `RenderRequest`, `WireRequest`, `CapabilityProfile`, `ProfileLayer`, `Settings`, `ToolSpec`, the message parts, stream events and provider errors, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
 | **Backends** — contributing an engine, and reading the enabled ones | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate`, `list_backends()` (every enabled backend, highest priority first: what `GET /api/backends/enabled` returns for it, plus `execution_device` (`"this_host_gpu"`, `"no_gpu"`, `"remote"` or `"unestablished"`), `max_concurrent_runs` and `vram_total_gb` / `vram_free_gb`; the VRAM is known only for a local native backend on the GPU this process monitors and is `None` otherwise; a backend that is enabled but not running reports `"unestablished"` and a `None` capacity) |
 | **Cloud** — contributing a hosted-model provider, and pricing a run | `.cloud`, `.cloud_testing` | `estimate_cloud_cost(user, model_id, shots, driver=None)` (what a run of shots on an enabled cloud model would cost, the answer of `POST /api/cloud/models/{model_id}/estimate`; administrators only, `PermissionError` for anyone else), `enabled_cloud_models(backend_id)` (the `CloudCatalogEntry` of each model turned on in a cloud backend's catalog, by slug: `model_id`, `label`, `provider_model_id`, `tasks`, `outputs` and its `spec`), `resolve_cloud_model(model_id)` (a `ResolvedCloudModel`: the `backend_id`, `driver` and catalog `entry` of an enabled cloud model, with its `spec`; `None` when no enabled cloud backend offers it), `DirectorEstimateError` (a `ValueError`: the shots it cannot price), `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
-| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
+| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `preset_template(preset_id)` (a loaded preset as its loader built it, a `PresetTemplate` with its `path`, `driver` and modes down to each form field, or `None`), `resolve_preset_path(preset_id, reference)` (a path the preset names with its `{{ paths.preset }}` and `{{ paths._shared }}` variables filled, or `None` when the preset is not loaded), `preset_install_state(preset_id)` (a `PresetInstallState`: whether the preset is `installed` and, when it is, `assigned` to a user or a group), `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`, plus its `engine`, `category` and `requires` (the `requires:` block of its `preset.yml`, e.g. `{"min_vram_gb": 12, "recommended_vram_gb": 16}`, or `None`); `None` when not installed), `list_presets(user)` (a `PresetDescription` for each preset installed by an admin that `user` may run, in the order of `GET /api/presets`: the presets assigned to them directly or through a group, every installed preset for an administrator; `PermissionError` without a user), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False, *, at=None, capabilities=None, field=None)` (puts a resolved image, from `resolve_media_ref` or `extract_frame`, into the request's Video Director document, keeping the rest of it. A single-shot document takes it as its `first` or `last` frame; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot. A `director` document needs `segment_id` and takes `first`, `last` or, when the preset's director mode allows keyframes, `keyframe` with `at` in seconds from the start of that segment. Role `reference` adds one media or a list (images, videos, audio) to the preset mode's reference pool, the form field `field` or the first of its `reference_fields`, and with `segment_id` cites them in that segment's prompt for `per_shot` references. The capabilities default to the preset's `vars.video_director` for the request's mode. Raises `DirectorBindingError` with a `code`; the codes and placement rules are in the [`media`](video-director.md#media) and [`references`](video-director.md#references-segment) sections of docs/video-director.md), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
@@ -762,32 +762,38 @@ Declare it under `llm_providers:`:
 llm_providers:
   - type: acme
     label: Acme
-    backend: backend.client:AcmeClient   # "module.path:ClassName"
+    backend: backend.adapter:AcmeAdapter   # "module.path:ClassName"
     default_base_url: https://api.acme.example/v1
 ```
 
 `backend` is loaded and instantiated once when the plugin enables, like a
 `recipe_steps[].backend`, and every configuration whose `type` is `acme` is then sent through
-that object. For a service that speaks the OpenAI chat-completions schema, subclass
-`OpenAIClient` from `src.plugin_api.llm` and adjust the request in `adapt_request`, which the
-buffered, tool-calling and streamed paths all call with the built request before it goes out:
+that object. The object is an `Adapter`: it renders a `RenderRequest` (the typed messages,
+tools and settings of one model call) into a `WireRequest`, sends it, and decodes the reply
+into stream events. For a service that speaks the OpenAI chat-completions schema, subclass
+`OpenAIChatAdapter` from `src.plugin_api.llm` and adjust the request body in `build_body`,
+which every call (streamed, buffered and tool-calling) goes through before it is sent:
 
 ```python
-from src.plugin_api.llm import LLMConfig, OpenAIClient, OpenAIRequest
+from src.plugin_api.llm import CapabilityProfile, OpenAIChatAdapter, RenderRequest
 
-class AcmeClient(OpenAIClient):
+class AcmeAdapter(OpenAIChatAdapter):
     display_name = "Acme"
 
-    def adapt_request(self, request: OpenAIRequest, config: LLMConfig) -> OpenAIRequest:
-        request.payload["max_tokens"] = request.payload.pop("max_completion_tokens")
-        return request
+    def build_body(self, request: RenderRequest, profile: CapabilityProfile) -> dict:
+        body = super().build_body(request, profile)
+        body["max_tokens"] = body.pop("max_completion_tokens")
+        return body
 ```
 
-The inherited `list_models` and `discover_context_window` read the service's `/models`
-listing, so the model picker and the context window work without more code; override them
-(they return `DiscoveredModel` and `DiscoveredWindow`) when the service lists models another
-way. The form lists `label` after the built-in types and fills an empty Base URL with
-`default_base_url` when the admin picks the type. A `type` named like a built-in one
+The inherited `list_models` and `discover` read the service's `/models` listing, so the
+model picker and the model's context window work without more code; override them (they
+return `DiscoveredModel` entries and a `ProfileLayer`) when the service lists models another
+way. A service with its own wire format subclasses `HttpAdapter` and implements `render`,
+`decoder`, `discover` and `list_models`; override `classify_error` when its error replies
+need a different mapping to the typed provider errors. The form lists `label` after the built-in types. When the admin picks a type, it puts
+that type's `default_base_url` in the Base URL if the field is empty or still holds another
+type's default, and leaves a URL the admin typed alone. A `type` named like a built-in one
 (`openai`, `ollama`, `native`) is ignored, and a type another enabled plugin already owns
 fails the enable. Disabling the plugin takes the type away: configurations saved with it
 stay, and fail with "Unsupported LLM type" until the plugin is enabled again.
@@ -1162,6 +1168,22 @@ core profile id is reported as a load error and the core profile wins, the same 
 `local` profile colliding with a `marketplace` one gets. Plugins ship YAML only: the config
 readers a profile can name are a closed set implemented in core. Check a profile with
 `python scripts/model_layout_lint.py`.
+
+## Contributing LLM profile rows
+
+A profile row tells the harness what a model can do (reasoning control, tool-choice limits,
+rejected sampling, prices). A provider plugin can ship the rows for its own models so core names
+none of them. Declare an `llm_profiles:` root in `manifest.yml`; no Python import is required:
+
+```yaml
+llm_profiles:
+  - path: "profiles"   # a dir in the plugin, relative to the plugin root
+```
+
+The dir is scanned for `*.yml` files in the format described in [LLM Capability
+Profiles](llm-profiles.md), only while the plugin is enabled. Plugin rows apply after the
+marketplace rows and before the admin's `content/llm-profiles/local/` rows; a row with the same
+`id` replaces the earlier one. A bad file or row is skipped and logged with its path.
 
 ## Contributing photo filters and filter ops
 
@@ -1590,59 +1612,232 @@ Three hooks bracket the path (full payloads in `GET /api/plugins/hooks/catalog`)
 
 Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` immediately.
 
-## Contributing a media tool
+## Media tools
 
-The History page's selection bar (and, for a tool that opts in, the Library page's) has
-a **Tools** menu that runs one action over the selected media. Core owns three groups —
-**Compare** (`analyze`), **Stitch** (`compose`) and **Download .zip** (`export`) — and a
-plugin tool joins one of them, or opens a new plugin-owned group under any other
-`category` string. Declare each tool in `manifest.yml` under the `history_tools` root —
-the key stayed `history_tools` even though a tool can now run on the Library page too,
-since renaming it would break every plugin already shipping one:
+A **media tool** is one declaration of something that edits media: trim a clip, resize an image, loop
+a video. Core ships twelve; a plugin adds its own. The Tools menu on the Library and History pages, a
+media field's toolbar, presets, PotionAI chat and automation all read the same catalog, so a plugin tool
+shows up in every one of them as soon as the plugin is enabled and disappears when it is disabled.
+Tools change shape or time (trim, crop, resize, rotate, flip, speed, split, frame, concat, fit canvas,
+crop to subject, colour key) and run deterministically with no model. Looks (grain, VHS, grades) are
+photo filters, not tools: see [Contributing photo filters and filter ops](#contributing-photo-filters-and-filter-ops).
+
+### Core tools
+
+| id | accepts | produces | params |
+|---|---|---|---|
+| `trim` | video, audio | same | `start`, `end` (seconds) |
+| `crop` | image, video | same | `x`, `y`, `width`, `height` (px) |
+| `resize` | image, video | same | `width`, `height` (one side keeps the aspect ratio), `quality` high / balanced / small |
+| `rotate` | image, video | same | `degrees` 90 / 180 / 270, clockwise |
+| `flip` | image, video | same | `axis` horizontal / vertical |
+| `speed` | video, audio | same | `speed` 0.25 to 4, `keep_pitch` |
+| `fit_canvas` | image | same | `width`, `height`, `scale_percent`, `anchor`, `fill` |
+| `color_key` | image | same | `key_mode`, `key_color`, `tolerance`, `softness`, `despill`, `feather` |
+| `crop_subject` | image with transparency | same | `margin`, `alpha_threshold` |
+| `frame` | video | image | `time` (seconds) |
+| `split` | audio | audio, many | `part_seconds` |
+| `concat` | video, 2 to 8 selected | video, one | `overlap`, `overlap_frames`, `fit`, `keep_audio` |
+
+Core ids never contain a dot. Video output keeps even dimensions and the sound; images keep their
+transparency (a JPEG that gains an alpha channel is saved as PNG).
+
+### From chat, MCP and automation
+
+PotionAI's `run_media_tool` chat tool, the same tool over MCP and the `action.media_tool` automation node run
+the catalog tools that have a Python implementation (`python:`). Component-only tools have no run API and are
+not offered. The chat tool builds its description and `tool` enum from the live catalog each turn, so a
+plugin's tools appear in the model's schema while the plugin is enabled, with each parameter written as
+`name type[min..max]unit =default`. Keep parameter names short and give a `min`, `max` and `default` where
+they make sense, because the model reads them verbatim. Every run goes through the same service as the API:
+the same ownership checks, parameter validation and Library quota. `mode: replace` is the one call that waits
+for the user's approval in chat. See [Chat Modes](chat-modes.md#tool-approval) and
+[Automation Nodes](automation-nodes.md#media-tool).
+
+### From presets
+
+A preset step runs any registered tool, a plugin's included, through the `media_tool` pipe. `tool` is the catalog id,
+`params` are the tool's parameters (the same names and the same validation as the API), and `skip_unfit: true` passes
+media the tool cannot work on, such as an image without transparency for `crop_subject`, through unchanged instead of
+failing.
 
 ```yaml
-history_tools:
-  - id: "contact-sheet"                  # unique within the plugin; served as "<plugin_id>:<id>"
-    label: "Contact sheet"
-    description: "Lay the selected images out on one sheet"   # optional
-    icon: "grid"                          # optional, an Icon name; default "extension"
-    category: "compose"                   # core: analyze | compose | export; any other string = a plugin-owned group
-    component: "ContactSheetModal.svelte" # your plugin frontend asset, same build as any other
-    scopes: ["history"]                   # optional; history | library | field (a media field's Tools menu, one selected item); default ["history"] (every tool declared before scopes existed)
-    applies_to:                           # optional; every key optional
-      min_selection: 2                    # selected generations (history) or items (library)
-      max_selection: 12
-      media_kinds: ["image"]              # image | video | audio | mesh - selection must contain at least one file of one of these kinds
+- name: "media_tool"
+  id: "crop_subject"
+  input:
+    - ["image", "matting", "image"]
+  configuration:
+    display_title: "Cropping subject"
+    tool: "crop_subject"
+    skip_unfit: true
+    params:
+      margin: "{{ form.crop_margin }}"
 ```
 
-`GET /api/plugins/history-tools` returns `{"tools": [...]}` — every enabled plugin's
-tools, in plugin order, each as:
+Images, videos and audio files go in and come out as arrays on `image`, `video` and `audio`; a tool that makes a
+different kind (`frame` turns a video into an image) fills the output of that kind. A tool that joins (`concat`) takes
+every input of one kind and makes one output. Image tools run in memory without writing the picture to disk. The pipe
+reads the plugin catalog from the `MEDIA_TOOLS` service the generation engine injects, so a plugin's tool runs while the
+plugin is enabled; a Remote Native worker has no such service and runs the core tools only. See the
+[Pipes Reference](pipes.md#pipe-media-tool).
 
-```json
-{
-  "id": "my-plugin:contact-sheet",
-  "plugin_id": "my-plugin",
-  "label": "Contact sheet",
-  "description": "Lay the selected images out on one sheet",
-  "icon": "grid",
-  "category": "compose",
-  "component": "plugin:my-plugin:ContactSheetModal.svelte",
-  "applies_to": {"min_selection": 2, "max_selection": 12, "media_kinds": ["image"]},
-  "scopes": ["history"]
-}
+### Declaring a tool
+
+A plugin declares tools in `manifest.yml` under `media_tools`. Disabling the plugin removes them from
+every surface.
+
+```yaml
+media_tools:
+  - id: boomerang.loop              # must be "<plugin-id>.<tool>"
+    label: Boomerang
+    icon: repeat                    # optional, an Icon name; default "extension"
+    description: Play the clip forward, then backward   # optional
+    accepts: [video]                # image | video | audio, at least one
+    produces: same                  # same | image | video | audio
+    cardinality: one_to_one         # one_to_one | one_to_many | many_to_one
+    params:
+      - { name: style, type: select, options: [forward, pingpong], default: pingpong }
+      - { name: repeats, type: integer, min: 1, max: 8, default: 2 }
+    requires: { has_audio: false }  # optional: has_audio, has_alpha, min_duration (seconds)
+    selection: { min: 1, max: 4 }   # optional: how many items the tool takes
+    scopes: [library, history]      # optional: library | history | field; default all three
+    preview: false                  # true needs python; the dialog then shows a before/after pane
+    python: tools/loop.py:LoopTool  # optional: a path inside the plugin dir, then :ClassName
+    component: loop-preview         # optional: a plugin frontend asset
 ```
 
-`component` is the same `plugin:<id>:<asset>` reference string a `phrasebook_ops[].component`
-resolves to. Your `component` is mounted in a modal with props `{ generationIds: string[],
-generations: GenerationHistoryItem[], onClose(), onDone() }`: it owns its own UI and runs the
-tool itself, and calls `onDone()` once it has finished successfully — the page clears the
-current selection. `onClose()` just closes the modal without touching the selection. There is
-no backend registration and no separate run endpoint — a media tool is a UI contribution
-only; if it needs to call the backend, it does so through its own plugin API route like any
-other plugin frontend component. A tool scoped to `library` still receives the same props;
-`generationIds`/`generations` are empty there since a library item carries no generation.
+At least one of `python` and `component` is required. The id must start with your plugin id and a dot,
+and a plugin cannot take an id another plugin or core already registered; an entry that breaks either
+rule keeps the plugin from enabling.
 
-Disabling the plugin removes its tools from `GET /api/plugins/history-tools` immediately.
+`params` are form fields. `type` is `integer`, `float`, `select`, `checkbox`, `color`, `string` or
+`anchor`, with these keys: `name`, `label`, `default`, `min`, `max`, `step`, `unit`, `options` (a list of
+values or of `{label, value}`), `allow_transparent` (a `color` that may also be `transparent`), `when`
+and `description`. `when` uses the preset form's `when:` grammar (`{ field: key_mode, equals: color }`),
+and a parameter whose condition is false is dropped from the validated params. A parameter without a
+`default` is required; `default: null` makes it optional. The dialog builds its controls from this
+list: a select with up to four options becomes a segmented control, a number with `min` and `max` a
+slider, a checkbox a switch.
+
+### The Python half
+
+```python
+from src.plugin_api.media_tools import FilterFragment, InvalidToolParams, MediaTool, ToolContext, ToolMedia
+
+
+class LoopTool(MediaTool):
+    def run(self, inputs: list[ToolMedia], params: dict, ctx: ToolContext) -> list[ToolMedia]:
+        source = inputs[0]
+        out = ctx.new_path(".mp4")
+        ctx.ffmpeg(["-i", str(source.path), "-filter_complex", "...", str(out)], duration=source.duration)
+        return [ctx.probe(out)]
+```
+
+`run(inputs, params, ctx)` receives the already validated `params` and returns the produced files, which
+must live under `ctx.scratch_dir`: the host publishes them to the Library and deletes the scratch
+directory afterwards, whatever happens.
+
+- **`ToolMedia`** is a frozen dataclass: `path`, `kind` (`image` | `video` | `audio`), `width`, `height`,
+  `duration`, `fps`, `has_audio`, `has_alpha`. Everything except `path` and `kind` may be `None`.
+- **`ToolContext`** gives you `scratch_dir`, `new_path(suffix)` for a fresh output path,
+  `progress(fraction, label="")`, `is_cancelled()`, `probe(path)` and `ffmpeg(args, duration=None)`.
+  `ffmpeg` is the one cancellable runner: it adds `-y`, parses `-progress` into `ctx.progress` when you
+  pass the expected output `duration`, kills the process when the run is cancelled and raises on a failure
+  without ever exposing stderr or server paths. Use it instead of `subprocess` so cancel works.
+- **`check_params(params)`** is an optional override for rules that span parameters (`end` must be greater
+  than `start`); raise `InvalidToolParams(field, message)`.
+- **`validate_params(spec, params)`** is what the API, presets and chat all call before running; it applies
+  defaults, coerces, checks ranges and options, and raises `InvalidToolParams`.
+
+#### Chains and the fast paths
+
+A request is a list of steps, and a single tool is a chain of one. The runner fuses neighbouring steps
+that offer a fast path so the media is decoded and encoded once:
+
+```python
+class Mirror(MediaTool):
+    def video_filter(self, media: ToolMedia, params: dict) -> FilterFragment | None:
+        return FilterFragment(vf=["hflip"])
+
+    def image(self, image, params):
+        return image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+```
+
+- `video_filter(media, params)` returns a `FilterFragment`: `vf` and `af` are lists of ffmpeg filters,
+  `start` and `end` a time window, `drop_audio` removes the sound. A fragment that changes the picture size,
+  the length or the quality reports it in the optional `width`, `height`, `duration` and `crf` so the next
+  step is validated against the right media. Consecutive fragments merge into one ffmpeg pass; a leading
+  `start`/`end` becomes an input seek. It is also asked about audio files, where only `af` and the window
+  apply. Return `None` to say "no fast path for this input".
+- `image(image, params)` receives and returns a PIL image. Consecutive image steps run in memory and the
+  result is saved once, with the source's EXIF orientation already applied.
+- A step with neither fast path runs `run()` on the previous step's output file.
+
+### Component-only tools
+
+An entry with a `component` and no `python` is a tool the browser runs itself, the case the old
+`history_tools` key covered. It gets no run endpoint: the catalog lists it so the Tools menu can offer it
+for the selected media, and the host mounts the component in a modal.
+
+```yaml
+media_tools:
+  - id: my-plugin.contact-sheet
+    label: Contact sheet
+    icon: grid
+    accepts: [image]
+    selection: { min: 2, max: 12 }
+    scopes: [history]
+    component: ContactSheetModal.svelte
+```
+
+The catalog serves its `component` as `plugin:<plugin-id>:<asset>`, the same reference string a
+`phrasebook_ops[].component` resolves to. The component is mounted with the props `{ items,
+generationIds, generations, onClose(), onDone() }`: `items` is the selection as
+`{ id, kind, url, filename, width, height }`, `generationIds` and `generations` are filled on the History
+page, and `onDone()` clears the selection once the tool finished. If it needs the backend it calls its own
+plugin API route.
+
+### The API
+
+Successful JSON responses use the usual `{success, data}` envelope. A refusal answers with `detail: {success: false, error, message, ...}`; the codes are listed per route.
+
+- `GET /api/media-tools?kind=&scope=` returns `{tools: [...]}`: every tool for the kind and scope, with the
+  declaration (`id`, `label`, `icon`, `accepts`, `produces`, `cardinality`, `params`, `requires`,
+  `selection`, `scopes`, `editor`, `preview`, `component`, `source`) plus `runnable` (`true` when the tool has
+  a Python implementation, `false` for a component-only tool that has no run API) and `last_params`, the
+  values this user ran the tool with last (or `null`). `source` is `core` or the plugin id. A param's `max`
+  is enforced before a run starts, so a value above it is a 400.
+- `POST /api/media-tools/runs` takes `{steps: [{tool, params}], inputs: [{item_id} | {generation_file_id}],
+  output: {mode: "new" | "replace"}}` and answers 202 `{run_id}`. A generation file is read straight from
+  storage and the result is always a new Library item; `replace` keeps the row, its tags and its
+  collections, and is only allowed for one Library item, tools that return one file per input, and a result
+  of the same kind. A run takes 1 to 8 steps and 1 to 50 inputs. A 400 before anything runs carries one of
+  `unknown_tool`, `unsupported_media`, `invalid_params` (with `field` and `step_index`), `invalid_selection`
+  or `replace_not_allowed`; an item that is missing or not the caller's answers 404 `not_found`. A user may
+  have 8 runs waiting at once (429 `too_many_queued`) and nothing starts while the server shuts down (503
+  `shutting_down`). The same upload quota the editor used applies (403 `limit_exceeded`), and a refusal
+  leaves no file behind.
+- Results look like normal uploads: each carries its content hash, images get their thumbnails before the run
+  completes, and a video's thumbnails are rendered right after (the Library card fills in a moment later). A
+  run item lists `thumbnail_small`, `thumbnail_medium` and `thumbnail_large` URLs for the sizes that exist.
+  `replace` swaps the thumbnails together with the file and deletes the old ones. If another run replaced the
+  same item first, the later run fails with `conflict` and publishes nothing. A run that would create more
+  than 500 files fails with `too_many_outputs` before anything is published.
+- `GET /api/media-tools/runs/{run_id}` returns `{run_id, status, progress, label, items, replaced, error}`.
+  `status` is `queued`, `running`, `completed`, `failed` or `cancelled`; `items` are the resulting Library
+  items; a failed run carries `error: {code, message}` (a tool's `requires` check ends the run with
+  `unsupported_media`). An unknown run id, or another user's, is a 404.
+- `DELETE /api/media-tools/runs/{run_id}` cancels: the encoder is killed and nothing is published.
+- `POST /api/media-tools/preview` takes `{tool, params, input, time_seconds?}` for a tool with
+  `preview: true` and returns `image/webp` with a long side of at most 512. Pixel params (`unit: px`) are
+  scaled down together when the largest exceeds 512, so a huge canvas renders as a small one. For a video,
+  `time_seconds` must be finite, not negative and not past the end, otherwise 400 `invalid_params` on
+  `time_seconds`. Only two previews render at once; one that cannot get a slot within a few seconds answers
+  429 `preview_busy`.
+
+Runs are in-process: at most two execute at once, the rest wait their turn, and a finished run is kept for
+ten minutes. A user only ever sees, polls and cancels their own runs. After a single-step run completes, its
+parameters are stored as that user's `last_params` for the tool.
 
 ## Reading model files and folders
 
@@ -1770,6 +1965,12 @@ with the same `pipeline.yml`/`form.yml`(`/variants`) shape a core mode has. Ever
 there is contributed to `target` — there's no separate per-mode enable list. A contributed mode
 is schema-validated through the exact same loader path a core mode is; a target that isn't
 installed, or a disabled owning plugin, means the contribution is simply absent, not an error.
+
+A contributed mode declares its own prompting in its default `form.yml`, since it cannot edit the
+target's `vars:` and `llm:`: `prompt: required | optional | none` (adds the mode to the target's
+`optional_prompt_modes` or `promptless_modes`), `prompt_label:` / `prompt_placeholder:` (what the prompt box is for, and an example), `llm_guide:` (the mode's `llm.modes.<name>.guide`) and
+`segment_templates:` (the mode's `vars.prompt.modes.<name>.segment_templates`). They are merged into the
+target preset when the contribution is accepted; see [Plugin-Contributed Presets](presets/plugins.md).
 
 Name collisions are resolved deterministically, never silently: a core mode of the target preset
 always wins over a contribution; between two contributions for the same target+mode name, the
@@ -1999,7 +2200,7 @@ would send, without a Generate tab: `window.__potionui.generation.prepareRequest
 | `presetId`, `mode` | The preset and the mode to run. |
 | `session` | One mode's saved settings, as a session stores them (`prompt`, `promptSegments`, `promptTabs`, `promptRelay`, `videoDirector`, `variables`, `formData`, `selectedVariant`, ...). |
 | `overrides` | Optional changes on top of the session: `formData` is merged field by field, every other key replaces the session's value. |
-| `presetVars` | The preset's `vars` (from `GET /api/presets/{id}`), which decide multi-prompt, Prompt Relay, promptless modes and the Video or Music Director. |
+| `presetVars` | The preset's `vars` (from `GET /api/presets/{id}`), which decide multi-prompt, Prompt Relay, promptless and optional-prompt modes and the Video or Music Director. |
 | `tabId` | Optional; becomes the request's `tab_id`. |
 | `random`, `now` | Optional sources for chip shuffles and shuffled variables, for repeatable results. |
 

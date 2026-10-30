@@ -36,7 +36,7 @@ import torch
 from src.platform.runtime.native.arch.qwen_image21.model import QwenImage21DiT, convert_qwen_image21_state_dict
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "transformer_qwenimage21_reference.py"
 

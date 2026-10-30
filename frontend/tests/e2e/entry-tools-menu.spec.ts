@@ -136,12 +136,13 @@ test.describe('per-entry tools menu', () => {
 		await expect(cards).toHaveCount(1);
 	});
 
-	test('the hover Delete button asks for the same confirmation', async ({ page }) => {
+	test('the card menu Delete asks for the same confirmation', async ({ page }) => {
 		await page.goto('/history');
 		const cards = page.locator('[data-generation-card]');
 		await expect(cards).toHaveCount(2);
 		await cards.first().hover();
-		await cards.first().getByRole('button', { name: 'Delete generation' }).click();
+		await cards.first().getByRole('button', { name: 'Item actions' }).click();
+		await page.getByRole('menuitem', { name: 'Delete' }).click();
 		const dialog = page.getByRole('alertdialog', { name: 'Delete Generation' });
 		await expect(dialog).toBeVisible();
 		await dialog.getByRole('button', { name: 'Cancel' }).click();

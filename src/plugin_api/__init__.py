@@ -11,13 +11,14 @@ Import from the package itself - every name below is available directly:
     from src.plugin_api import BaseTool, ToolContext, ToolResult
 
 The capability modules (`src.plugin_api.automation`, `.backends`, `.chat`,
-`.cloud`, `.cloud_testing`, `.compute`, `.downloads`, `.filters`, `.generation`,
-`.groups`, `.hooks`, `.identity`, `.limits`, `.llm`, `.media`, `.models`, `.native`,
-`.notifications`, `.organize`, `.phrasebook`, `.pipes`, `.presets`, `.prompts`,
-`.providers`, `.recipes`, `.sampling`, `.setup`, `.storage`, `.testing`) group the same
-names, and each one's docstring explains what it is for. Import from whichever
-reads better. A few specialised names live only in their module, the cloud
-provider kit among them; `__all__` below is the exact list available here.
+`.cloud`, `.cloud_testing`, `.compute`, `.downloads`, `.filters`, `.forms`,
+`.generation`, `.groups`, `.hooks`, `.identity`, `.limits`, `.llm`, `.media`,
+`.media_tools`, `.models`, `.native`, `.notifications`, `.organize`,
+`.phrasebook`, `.pipes`, `.presets`, `.prompts`, `.providers`, `.recipes`,
+`.sampling`, `.setup`, `.storage`, `.testing`) group the same names, and each
+one's docstring explains what it is for. Import from whichever reads better. A
+few specialised names live only in their module, the cloud provider kit among
+them; `__all__` below is the exact list available here.
 
 If you need something the application can do but this module does not expose,
 that is a gap in the API - ask for it to be added rather than importing around
@@ -90,8 +91,7 @@ from src.plugin_api.llm import (
     DiscoveredModel,
     DiscoveredWindow,
     LLMConfig,
-    OpenAIClient,
-    OpenAIRequest,
+    OpenAIChatAdapter,
 )
 
 # Contributing an engine.
@@ -423,8 +423,7 @@ __all__ = [
     "DiscoveredModel",
     "DiscoveredWindow",
     "LLMConfig",
-    "OpenAIClient",
-    "OpenAIRequest",
+    "OpenAIChatAdapter",
     # Backends and engines
     "BackendHealth",
     "BackendModel",

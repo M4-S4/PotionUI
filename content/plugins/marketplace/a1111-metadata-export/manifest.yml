@@ -20,13 +20,13 @@ hooks:
       position: "top-right"
       order: 100
 
-history_tools:
-  - id: "export-zip"
+media_tools:
+  - id: "a1111-metadata-export.export-zip"
     label: "Download with A1111 metadata"
     description: "Download the selected generations as one ZIP of PNGs, each carrying the parameters chunk A1111, Forge and CivitAI read on upload"
     icon: "download"
-    category: "export"
+    accepts: ["image"]
+    selection:
+      min: 1
+    scopes: ["history"]
     component: "A1111ExportTool.js"
-    applies_to:
-      min_selection: 1
-      media_kinds: ["image"]

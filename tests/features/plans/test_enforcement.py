@@ -1,9 +1,11 @@
+import os
+import shutil
 import threading
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from PIL import Image
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -16,26 +18,19 @@ from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation.pipeline_builder import BuiltPipeline
 from src.features.generation.routes import GenerationController
 from src.features.generation.run_report_recorder import RunReportRecorder
-from src.features.media.editing.dto import (
-    CropOperation,
-    EditMediaRequest,
-    ExtractFrameRequest,
-    SplitMediaRequest,
-    TrimOperation,
-)
-from src.features.media.editing.editor import MediaEditor
-from src.features.media.editing.operations import EditedMediaMetadata
-from src.features.media.editing.routes import MediaEditController
 from src.features.media.media_types import MediaTypeResolver
 from src.features.media.records import Upload
 from src.features.media.routes import MediaController
 from src.features.media.store import MediaStore
+from src.features.generation.file_repository import FileRepository
 from src.features.media.upload_repository import UploadRepository
+from src.features.media_tools.repository import MediaToolParamsRepository
+from src.features.media_tools.service import MediaToolService
 from src.features.plans.errors import LimitExceeded
 from src.features.user_groups.constants import ALL_USERS_GROUP_ID
 from src.platform.filesystem import FileStore
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver
-from tests.features.media.editing.test_operations import make_image
+from src.platform.media_tools import MediaTool, MediaToolRegistry, ToolSpec
 from tests.features.plans.conftest import make_plan
 
 
@@ -271,19 +266,6 @@ async def test_upload_admission_runs_off_the_event_loop_thread(seed, plans, tmp_
     assert all(thread is not threading.main_thread() for thread in threads)
 
 
-@pytest.mark.asyncio
-async def test_editor_admission_runs_off_the_event_loop_thread(editor, plans, monkeypatch):
-    manager, upload, driver, size = editor
-    threads = record_threads(plans.guard, monkeypatch, "check", "admit")
-
-    await manager.edit_item(
-        upload.id, "u1", [CropOperation(type="crop", x=0, y=0, width=150, height=90)], mode="new"
-    )
-
-    assert len(threads) == 2
-    assert all(thread is not threading.main_thread() for thread in threads)
-
-
 def test_the_upload_route_answers_403(plans):
     error = LimitExceeded([{
         "kind": "storage_bytes", "code": "storage_quota_exceeded", "label": "Storage space", "format": "bytes",
@@ -323,48 +305,126 @@ def test_an_unhandled_refusal_still_answers_403_through_the_app_handler():
     assert response.json()["detail"]["error"] == "limit_exceeded"
 
 
+class Stamp(MediaTool):
+    def __init__(self, result):
+        self.result = result
+
+    def run(self, inputs, params, ctx):
+        out = ctx.new_path(".png", stem="stamp")
+        shutil.copyfile(self.result, out)
+        return [ctx.probe(out, "image")]
+
+
 @pytest.fixture
-def editor(seed, plans, tmp_path):
+def tools(seed, plans, tmp_path):
     seed.user("u1")
     driver = LocalFileStorageDriver(str(tmp_path / "store"))
     uploads = UploadRepository()
-    scratch = tmp_path / "scratch.png"
-    make_image(scratch, 200, 100)
-    size = driver.put_file("uploads/source.png", scratch)
+    source = tmp_path / "scratch.png"
+    Image.frombytes("RGB", (32, 32), os.urandom(32 * 32 * 3)).save(source)
+    size = driver.put_file("uploads/source.png", source)
     upload = uploads.create(Upload(user_id="u1", filename="source.png", original_filename="source.png",
-                                   media_type="image", mime_type="image/png", width=200, height=100, file_size=size))
-    return MediaEditor(uploads, MediaTypeResolver(), driver, limit_guard=plans.guard), upload, driver, size
+                                   media_type="image", mime_type="image/png", width=32, height=32, file_size=size))
+    big = tmp_path / "big.png"
+    Image.frombytes("RGB", (96, 96), os.urandom(96 * 96 * 3)).save(big)
+    small = tmp_path / "small.png"
+    Image.new("RGB", (4, 4), (1, 1, 1)).save(small)
+    registry = MediaToolRegistry()
+    registry.register(ToolSpec(id="stamp", label="Stamp", accepts=("image",), produces="same", impl=Stamp(big)))
+    service = MediaToolService(
+        registry, MediaToolParamsRepository(), uploads, FileRepository(), MediaTypeResolver(), driver,
+        limit_guard=plans.guard, scratch_root=tmp_path / "tool-scratch", sweep_stale=False,
+    )
+    sizes = SimpleNamespace(source=size, big=big.stat().st_size, small=small.stat().st_size)
+    assert sizes.small < sizes.source < sizes.big
+    yield service, upload, driver, sizes, {"big": big, "small": small}
+    service.shutdown(2)
 
 
-def stored_uploads(driver):
-    return sorted(p.name for p in (driver.base_dir / "uploads").iterdir())
+def stored_files(driver):
+    return sorted(p.relative_to(driver.base_dir).as_posix() for p in driver.base_dir.rglob("*") if p.is_file())
+
+
+def upload_rows(seed):
+    return seed.rows("SELECT filename FROM uploads WHERE user_id = 'u1' ORDER BY filename")
+
+
+def stamp(service, upload, mode="new"):
+    return service.run_blocking(
+        "u1", [{"tool": "stamp", "params": {}}], [{"item_id": upload.id}], {"mode": mode}, timeout=20,
+    )
+
+
+def stamp_with(service, path):
+    service.registry.get("stamp").impl.result = path
 
 
 @pytest.mark.asyncio
-async def test_an_editor_save_that_does_not_fit_is_refused_and_leaves_no_file(editor, plans):
-    manager, upload, driver, size = editor
-    limit_storage(plans, size + 10)
-    crop = [CropOperation(type="crop", x=0, y=0, width=150, height=90)]
+async def test_media_tool_admission_runs_off_the_event_loop_thread(tools, plans, monkeypatch):
+    service, upload, driver, sizes, results = tools
+    threads = record_threads(plans.guard, monkeypatch, "check", "admit")
 
-    with pytest.raises(LimitExceeded):
-        await manager.edit_item(upload.id, "u1", crop, mode="new")
+    result = await service.run_sync(
+        "u1", [{"tool": "stamp", "params": {}}], [{"item_id": upload.id}], {"mode": "new"}, timeout=20,
+    )
 
-    assert stored_uploads(driver) == ["source.png"]
-    result = await manager.edit_item(upload.id, "u1", crop, mode="replace")
-    assert result.replaced is True
+    assert result.ok and len(threads) == 2
+    assert all(thread is not threading.main_thread() for thread in threads)
 
 
-@pytest.mark.asyncio
-async def test_a_full_account_is_refused_before_the_editor_encodes_anything(editor, plans):
-    manager, upload, driver, size = editor
-    limit_storage(plans, size)
-    manager._transform_and_publish = AsyncMock(side_effect=AssertionError("encoded while full"))
+def test_a_result_that_does_not_fit_is_refused_and_leaves_no_file_or_row(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    limit_storage(plans, sizes.source + sizes.small)
 
-    with pytest.raises(LimitExceeded):
-        await manager.edit_item(upload.id, "u1", [CropOperation(type="crop", x=0, y=0, width=5, height=5)], mode="new")
+    refused = stamp(service, upload)
 
-    manager._transform_and_publish.assert_not_awaited()
-    assert stored_uploads(driver) == ["source.png"]
+    assert (refused.status, refused.error.code) == ("failed", "limit_exceeded")
+    assert upload_rows(seed) == [{"filename": "source.png"}]
+    assert stored_files(driver) == ["uploads/source.png"]
+
+    stamp_with(service, results["small"])
+    assert stamp(service, upload).ok is True
+    assert len(upload_rows(seed)) == 2
+
+
+def test_a_full_account_is_refused_before_the_tool_runs(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    limit_storage(plans, sizes.source)
+    ran = Mock(side_effect=AssertionError("ran while full"))
+    service.registry.get("stamp").impl.run = ran
+
+    with pytest.raises(LimitExceeded) as refused:
+        service.start_run("u1", [{"tool": "stamp", "params": {}}], [{"item_id": upload.id}], {"mode": "new"})
+
+    assert refused.value.status_code == 403
+    assert refused.value.payload()["code"] == "storage_quota_exceeded"
+    ran.assert_not_called()
+    assert stored_files(driver) == ["uploads/source.png"]
+
+
+def test_a_replace_that_grows_past_the_limit_is_refused_and_keeps_the_original(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    limit_storage(plans, sizes.source + 10)
+
+    refused = stamp(service, upload, "replace")
+
+    assert (refused.status, refused.error.code) == ("failed", "limit_exceeded")
+    assert upload_rows(seed) == [{"filename": "source.png"}]
+    assert stored_files(driver) == ["uploads/source.png"]
+
+    stamp_with(service, results["small"])
+    accepted = stamp(service, upload, "replace")
+    assert accepted.ok is True and accepted.replaced is True
+
+
+def test_a_full_account_can_still_replace_with_a_smaller_result(tools, plans, seed):
+    service, upload, driver, sizes, results = tools
+    stamp_with(service, results["small"])
+    limit_storage(plans, sizes.source)
+
+    result = stamp(service, upload, "replace")
+
+    assert result.ok is True and result.replaced is True
 
 
 def test_library_copy_and_inspiration_save_are_refused_when_full(seed, plans, tmp_path):
@@ -400,157 +460,10 @@ def test_library_copy_and_inspiration_save_are_refused_when_full(seed, plans, tm
     driver.put_file.assert_not_called()
 
 
-def stored_media(driver, uploads, name, media_type, data=b"0123456789"):
-    scratch = driver.base_dir.parent / f"scratch-{name}"
-    scratch.write_bytes(data)
-    size = driver.put_file(f"uploads/{name}", scratch)
-    return uploads.create(Upload(user_id="u1", filename=name, original_filename=name, media_type=media_type,
-                                 mime_type=f"{media_type}/x", file_size=size))
-
-
-def writes(size):
-    def transform(source, dest, *_):
-        Path(dest).write_bytes(b"x" * size)
-        return EditedMediaMetadata()
-    return transform
-
-
-def upload_rows(seed):
-    return seed.rows("SELECT filename FROM uploads WHERE user_id = 'u1' ORDER BY filename")
-
-
-@pytest.mark.asyncio
-async def test_a_frame_grab_that_does_not_fit_is_refused_and_leaves_no_file(editor, plans, seed):
-    manager, image, driver, size = editor
-    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
-    limit_storage(plans, size + 10 + 50)
-
-    with patch("src.features.media.editing.editor.extract_video_frame", writes(51)):
-        with pytest.raises(LimitExceeded) as refused:
-            await manager.extract_frame(video.id, "u1", 1.0)
-
-    assert refused.value.payload()["code"] == "storage_quota_exceeded"
-    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
-    assert len(upload_rows(seed)) == 2
-
-    with patch("src.features.media.editing.editor.extract_video_frame", writes(50)):
-        await manager.extract_frame(video.id, "u1", 1.0)
-    assert len(stored_uploads(driver)) == 3
-
-
-@pytest.mark.asyncio
-async def test_a_full_account_cannot_grab_a_frame_and_nothing_is_encoded(editor, plans):
-    manager, image, driver, size = editor
-    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
-    limit_storage(plans, size + 10)
-    encode = Mock(side_effect=writes(1))
-
-    with patch("src.features.media.editing.editor.extract_video_frame", encode):
-        with pytest.raises(LimitExceeded):
-            await manager.extract_frame(video.id, "u1", 1.0)
-
-    encode.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_a_video_trim_saved_as_new_that_does_not_fit_is_refused_and_leaves_no_file(editor, plans, seed):
-    manager, image, driver, size = editor
-    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
-    limit_storage(plans, size + 10 + 8)
-    trim = [TrimOperation(type="trim", start_seconds=0, end_seconds=1)]
-
-    with patch("src.features.media.editing.editor.apply_video_operations", writes(9)):
-        with pytest.raises(LimitExceeded):
-            await manager.edit_item(video.id, "u1", trim, mode="new")
-
-    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
-    assert len(upload_rows(seed)) == 2
-
-
-@pytest.mark.asyncio
-async def test_a_replace_that_grows_past_the_limit_is_refused_and_keeps_the_original(editor, plans, seed):
-    manager, image, driver, size = editor
-    video = stored_media(driver, manager.upload_repo, "clip.mp4", "video")
-    limit_storage(plans, size + 10 + 5)
-    trim = [TrimOperation(type="trim", start_seconds=0, end_seconds=1)]
-
-    with patch("src.features.media.editing.editor.apply_video_operations", writes(16)):
-        with pytest.raises(LimitExceeded):
-            await manager.edit_item(video.id, "u1", trim, mode="replace")
-
-    assert stored_uploads(driver) == ["clip.mp4", "source.png"]
-    assert [row["filename"] for row in upload_rows(seed)] == ["clip.mp4", "source.png"]
-
-    with patch("src.features.media.editing.editor.apply_video_operations", writes(15)):
-        result = await manager.edit_item(video.id, "u1", trim, mode="replace")
-    assert result.replaced is True
-
-
-def splits_into(*sizes):
-    def split(source, dest_dir, suffix, part_seconds):
-        parts = []
-        for index, part_size in enumerate(sizes):
-            part = Path(dest_dir) / f"part{index}{suffix}"
-            part.write_bytes(b"x" * part_size)
-            parts.append((part, EditedMediaMetadata()))
-        return parts
-    return split
-
-
-@pytest.mark.asyncio
-async def test_an_audio_split_that_does_not_fit_is_refused_and_publishes_no_part(editor, plans, seed):
-    manager, image, driver, size = editor
-    audio = stored_media(driver, manager.upload_repo, "song.mp3", "audio")
-    limit_storage(plans, size + 10 + 20)
-
-    with patch("src.features.media.editing.editor.split_audio", splits_into(10, 11)):
-        with pytest.raises(LimitExceeded):
-            await manager.split_item(audio.id, "u1", 5)
-
-    assert stored_uploads(driver) == ["song.mp3", "source.png"]
-    assert len(upload_rows(seed)) == 2
-
-    with patch("src.features.media.editing.editor.split_audio", splits_into(10, 10)):
-        parts = await manager.split_item(audio.id, "u1", 5)
-    assert len(parts) == 2
-
-
-@pytest.mark.asyncio
-async def test_a_full_account_cannot_split_audio_and_nothing_is_encoded(editor, plans):
-    manager, image, driver, size = editor
-    audio = stored_media(driver, manager.upload_repo, "song.mp3", "audio")
-    limit_storage(plans, size + 10)
-    split = Mock(side_effect=splits_into(1))
-
-    with patch("src.features.media.editing.editor.split_audio", split):
-        with pytest.raises(LimitExceeded):
-            await manager.split_item(audio.id, "u1", 5)
-
-    split.assert_not_called()
-
-
 STORAGE_REFUSAL = {
     "kind": "storage_bytes", "code": "storage_quota_exceeded", "label": "Storage space", "format": "bytes",
     "used": 10, "limit": 10, "percent": 100.0, "resets_at": None, "message": "Your storage is full.",
 }
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("method,request_body", [
-    ("edit_item", EditMediaRequest(operations=[CropOperation(type="crop", x=0, y=0, width=1, height=1)])),
-    ("extract_frame", ExtractFrameRequest(time_seconds=1)),
-    ("split_item", SplitMediaRequest(part_seconds=5)),
-])
-async def test_every_editor_route_answers_403_with_the_refusal(method, request_body):
-    manager = Mock(spec=MediaEditor)
-    setattr(manager, method, AsyncMock(side_effect=LimitExceeded([STORAGE_REFUSAL], "upload", "")))
-    controller = MediaEditController(manager)
-
-    with pytest.raises(LimitExceeded) as raised:
-        await getattr(controller, method)("item", request_body, Mock(id="u1"))
-
-    assert raised.value.status_code == 403
-    assert raised.value.payload()["code"] == "storage_quota_exceeded"
 
 
 def history_archive(guard):

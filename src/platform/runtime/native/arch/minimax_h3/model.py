@@ -65,11 +65,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from ...attention import attention as _dispatch_attention
-
-# The OOM-rescue attention core (module-level so tests can stub it): plain
-# SDPA on (B, H, L, D) -- see the fallback comment in MiniMaxH3Attention.
-_fallback_sdpa = F.scaled_dot_product_attention
+from ...kernels import SDPA, attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
 from ...cancellation import raise_if_cancelled
@@ -284,19 +280,11 @@ class MiniMaxH3Attention(nn.Module):
                 # copy (~1.1GB at 78k rows), which on a real 5090 run starved
                 # this very fallback by 224MB. Past the except block those
                 # frames are freed and empty_cache() can actually reclaim them.
-                #
-                # Query-chunked SDPA, NOT the normal dispatch: sage re-quantizes
-                # the FULL key/value set per call (k_int8 + v_transposed_permutted
-                # + v_fp8, several GB at ~78k rows), so a sage retry keeps the
-                # exact transients that just OOM'd. SDPA's flash/mem-efficient
-                # kernels allocate no full-size copies, need no V-prescale guard
-                # (no fp16 quant internals), and full-key softmax per query
-                # chunk is exact.
                 chunk = seq_chunk_rows if seq_chunk_rows else 16384
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 out = torch.cat(
-                    [_fallback_sdpa(qc, kT, vT) for qc in qT.split(chunk, dim=2)],
+                    [_dispatch_attention(qc, kT, vT, heads=self.heads, backend=SDPA) for qc in qT.split(chunk, dim=2)],
                     dim=2,
                 )
             out = out.transpose(1, 2).reshape(b, s, -1)
@@ -950,21 +938,6 @@ class MiniMaxH3Model(NativeArchModule):
         video_embeds, audio_embeds = self._process_input(hidden_states, audio_hidden_states)
         prepared_context: PreparedTextContext | None = kwargs.pop("prepared_context", None)
         weight_revision = kwargs.pop("weight_revision", None)
-        # `condition_proj.weight` is RESTING storage, not the compute contract:
-        # under partial residency (memory/partial.py's ModuleStreamer) a
-        # streamed leaf's weight stays on pinned CPU for the whole placement
-        # while every forward casts an ephemeral GPU copy to match the
-        # activation (ops.py's cast_bias_weight), and a quantized leaf's
-        # weight dtype is the STORAGE format, not the dequantized output
-        # dtype -- reading either here would report every streamed/quantized
-        # call as a device/dtype mismatch and defeat the hoist precisely
-        # where it matters most. The caller (one ``_MiniMaxH3Forward`` per
-        # window) knows the real contract -- the DiT wrapper's own
-        # ``compute_dtype``/``device`` (set once at load / by the placement
-        # that just ran, unaffected by a leaf's internal streaming) -- and
-        # passes it as ``compute_dtype=``/``compute_device=``; the resting
-        # weight is only a fallback for a caller with no placement context of
-        # its own (e.g. a direct unit-level forward call).
         compute_dtype = kwargs.pop("compute_dtype", None)
         if compute_dtype is None:
             compute_dtype = self.condition_proj.weight.dtype

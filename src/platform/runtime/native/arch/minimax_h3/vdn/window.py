@@ -32,7 +32,7 @@ import math
 import torch
 from torch import Tensor, nn
 
-from ....attention import attention as _dispatch_attention
+from ....kernels import attention as _dispatch_attention
 from .layout import VdnLayout
 
 __all__ = [

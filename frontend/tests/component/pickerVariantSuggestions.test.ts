@@ -29,6 +29,7 @@ vi.mock('$lib/utils/logger', () => ({
 }));
 
 const { api } = await import('$lib/services/api/index');
+const { onModelInstalled } = await import('$lib/stores/modelInstalls');
 const { invalidatePresets } = await import('$lib/stores/presetsCatalog');
 const { default: ModelBrowserPanel } = await import('../../src/lib/components/form-fields/ModelBrowserPanel.svelte');
 const { createClassComponent } = await import('svelte/legacy');
@@ -106,6 +107,7 @@ afterEach(() => {
 	mounted?.destroy();
 	mounted = undefined;
 	vi.clearAllMocks();
+	vi.useRealTimers();
 	invalidatePresets();
 	authState.user = null;
 });
@@ -162,6 +164,34 @@ describe('model picker Suggested variants', () => {
 			artifact_id: 'krea2-diffusion-model',
 			variant_id: 'fp8'
 		});
+	});
+
+	it('announces an installed model once a variant download completes, not while it runs', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		authState.user = { account_type: 'ADMIN' };
+		setup([slot([variant('fp8', 'fp8'), variant('bf16', 'bf16')])]);
+		vi.mocked(api.downloadSlotVariant).mockResolvedValue({ download_id: 'dl-1', filename: 'fp8.safetensors' });
+		vi.mocked(api.getModelDownloadStatus)
+			.mockResolvedValueOnce({ success: true, data: { status: 'running', progress: 0.5, error: null } } as never)
+			.mockResolvedValueOnce({ success: true, data: { status: 'completed', progress: 1, error: null } } as never);
+		const installed = vi.fn();
+		const off = onModelInstalled(installed);
+		mounted = mountPanel();
+		await settle();
+
+		const row = mounted.target.querySelector('[data-slot-variant="fp8"]') as HTMLElement;
+		(row.querySelector('button') as HTMLButtonElement).click();
+		await settle();
+
+		await vi.advanceTimersByTimeAsync(2000);
+		await settle();
+		expect(installed).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(2000);
+		await settle();
+		off();
+
+		expect(installed).toHaveBeenCalledTimes(1);
 	});
 
 	it('renders nothing when every variant of the slot is installed', async () => {

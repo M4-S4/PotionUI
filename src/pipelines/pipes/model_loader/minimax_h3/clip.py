@@ -87,8 +87,13 @@ import torch
 
 from src.pipelines.pipes._shared.generation.clip_batch import SequentialWindowClipTextEncoder
 from src.pipelines.pipes._shared.generation.weak_model_ref import WeakModelRef
+from src.pipelines.pipes._shared.imaging.alpha import flatten_onto
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
-from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_reference_video
+from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
+    normalize_reference_video,
+    pad_reference_to_aspect_range,
+    reference_decode_seconds,
+)
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import align_num_frames
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from src.platform.runtime.native.text_encoders import image_content_fingerprint, prompt_embed_key
@@ -106,16 +111,22 @@ def _to_hwc_float01(image: Any) -> Tensor:
     `images` (a pipe-side concern: the TE never does PIL/CHW conversion or
     resizing beyond the vision tower's own smart-resize)."""
     if hasattr(image, "convert"):
-        return torch.from_numpy(np.array(image.convert("RGB"))).float() / 255.0
+        return torch.from_numpy(np.array(flatten_onto(image))).float() / 255.0
     tensor = torch.as_tensor(image, dtype=torch.float32)
     return tensor / 255.0 if tensor.max() > 1.5 else tensor
+
+
+def _to_reference_hwc_float01(image: Any) -> Tensor:
+    if hasattr(image, "convert"):
+        image = pad_reference_to_aspect_range(image)
+    return _to_hwc_float01(image)
 
 
 def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
     """A reference video's file path -> `(F, H, W, 3)` float32 tensor in
     `[0, 1]` on MiniMax-H3's own 24 fps and canvas.
 
-    Decodes every frame, then runs the SAME `normalize_reference_video` the
+    Decodes only the head of the clip that `num_frames` at 24 fps can reach, then runs the SAME `normalize_reference_video` the
     generator pipe's condition-encode runs, truncated to the SAME
     `num_frames` and under the SAME `native_h3_reference_upscale` engine
     setting. The conditioner reads the result far more coarsely (every
@@ -142,9 +153,10 @@ def _to_fhwc_float01(video: Any, num_frames: Optional[int]) -> Tensor:
             "then truncate it at different frames. Set prompt_encoder's 'reference_video_frames' "
             "to the generated clip's frame count"
         )
-    frames, fps = read_video_frames(video)
+    target_frames = align_num_frames(int(num_frames))
+    frames, fps = read_video_frames(video, max_seconds=reference_decode_seconds(target_frames))
     normalized = normalize_reference_video(
-        frames, fps=fps, num_frames=align_num_frames(int(num_frames)),
+        frames, fps=fps, num_frames=target_frames,
         upscale=bool(runtime_flag("native_h3_reference_upscale")),
     )
     return torch.from_numpy(normalized.copy()).float() / 255.0
@@ -170,7 +182,7 @@ def _build_references(request: Dict[str, Any]) -> List[MiniMaxH3Reference]:
         kind = entry.get("kind")
         media = entry.get("media")
         if kind == "image":
-            references.append(MiniMaxH3Reference(kind="image", media=_to_hwc_float01(media)))
+            references.append(MiniMaxH3Reference(kind="image", media=_to_reference_hwc_float01(media)))
         elif kind == "video":
             references.append(MiniMaxH3Reference(kind="video", media=_to_fhwc_float01(media, num_frames)))
         elif kind == "audio":

@@ -62,10 +62,10 @@ function buttonByText(root: ParentNode, text: string): HTMLButtonElement | undef
 		| undefined;
 }
 
-async function openMoreMenuItem(target: HTMLElement, label: string) {
-	(target.querySelector('button[aria-label="More prompt actions"]') as HTMLButtonElement).click();
+async function openLibraryMenuItem(target: HTMLElement, label: string) {
+	(target.querySelector('button[aria-label="Library"]') as HTMLButtonElement).click();
 	await settle();
-	const item = Array.from(target.querySelectorAll('[role="menuitem"]')).find((el) =>
+	const item = Array.from(document.body.querySelectorAll('[role="menu"] [role="menuitem"]')).find((el) =>
 		(el.textContent || '').includes(label)
 	) as HTMLButtonElement | undefined;
 	if (!item) throw new Error(`menu item ${label} not found`);
@@ -107,8 +107,7 @@ describe('SegmentedPromptEditor reports the library prompt behind the compositio
 	it('applying a library prompt reports its id', async () => {
 		const onSourcePromptChange = vi.fn();
 		const editor = mount({ onSourcePromptChange });
-		buttonByText(editor.target, 'Prompts')?.click();
-		await settle();
+		await openLibraryMenuItem(editor.target, 'Prompts');
 		await applyFromLibrary('append');
 
 		expect(onSourcePromptChange).toHaveBeenCalledWith('p-lib');
@@ -120,7 +119,7 @@ describe('SegmentedPromptEditor reports the library prompt behind the compositio
 			onSourcePromptChange,
 			segments: [{ id: 'a', type: 'content', content: 'a lighthouse keeper', chips: {}, enabled: true }]
 		});
-		await openMoreMenuItem(editor.target, 'Save as Prompt');
+		await openLibraryMenuItem(editor.target, 'Save as Prompt');
 		const primary = document.body.querySelector('[role="dialog"] [data-segment-modal-primary]');
 		(primary?.closest('button') as HTMLButtonElement | null)?.click();
 		await settle();
@@ -132,8 +131,7 @@ describe('SegmentedPromptEditor reports the library prompt behind the compositio
 	it('replacing the composition with a template clears the link', async () => {
 		const onSourcePromptChange = vi.fn();
 		const editor = mount({ onSourcePromptChange });
-		buttonByText(editor.target, 'Templates')?.click();
-		await settle();
+		await openLibraryMenuItem(editor.target, 'Templates');
 		await applyFromLibrary('replace');
 
 		expect(onSourcePromptChange).toHaveBeenCalledWith(null);
@@ -142,8 +140,7 @@ describe('SegmentedPromptEditor reports the library prompt behind the compositio
 	it('appending a template keeps the link untouched', async () => {
 		const onSourcePromptChange = vi.fn();
 		const editor = mount({ onSourcePromptChange });
-		buttonByText(editor.target, 'Templates')?.click();
-		await settle();
+		await openLibraryMenuItem(editor.target, 'Templates');
 		await applyFromLibrary('append');
 
 		expect(onSourcePromptChange).not.toHaveBeenCalled();

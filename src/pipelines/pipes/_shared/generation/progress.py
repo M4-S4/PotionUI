@@ -18,7 +18,33 @@ class ProgressEmitter:
         # lower-level API (e.g. a Model wrapper's txt2img/img2img) can use
         # `progress.emit` directly instead of re-threading generation_outputs.
         self.emit = generation_outputs
+        self._raw_emit = generation_outputs
         self._title = title
+
+    def scope_item(self, index: int, count: int, per_prompt: Optional[int] = None, prompt_count: int = 0) -> None:
+        if count <= 1:
+            self.emit = self._raw_emit
+            return
+
+        def emit(output) -> None:
+            if isinstance(output, ProgressGenerationOutput):
+                self._annotate(output, index, count, per_prompt, prompt_count)
+            self._raw_emit(output)
+
+        self.emit = emit
+
+    @staticmethod
+    def _annotate(output, index, count, per_prompt, prompt_count) -> None:
+        output.item_index = index
+        output.item_count = count
+        if per_prompt is not None:
+            output.prompt_index = min(index // per_prompt, prompt_count - 1)
+            output.prompt_count = prompt_count
+        if output.progress is not None and output.bar and output.progress.max > 0:
+            fraction = min(1.0, max(0.0, output.progress.current / output.progress.max))
+            within = index % per_prompt if per_prompt else 0
+            output.item_progress = (within + fraction) / per_prompt if per_prompt else fraction
+            output.progress = Progress(round((index + fraction) * 10000), count * 10000)
 
     def step(
             self,

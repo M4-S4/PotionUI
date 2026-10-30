@@ -71,7 +71,8 @@ from src.platform.runtime.native.engine import NativeEngineLoader
 from src.platform.runtime.native.errors import NativeEngineLoadIntegrityError
 from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
-from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED, _convrot_unrotate_weight, disable_weight_init
+from src.platform.runtime.native.io.quant_formats import convrot_unrotate_weight
+from src.platform.runtime.native.kernels import QUANT_FP8_SCALED, disable_weight_init
 
 from .._header_listings import load_header
 from .._quant_layouts import convrot_descriptor, descriptor_blob, reference_quantize_convrot
@@ -385,7 +386,7 @@ class TestFullEngineDispatchDryRun:
         linear = module.decoder.transformer_blocks[0].attn.to_qkv
         original = float_sd["decoder.transformer_blocks.0.attn.to_qkv.weight"].float()
         rotated = linear.weight.float() * linear.weight_scale.float()
-        recovered = _convrot_unrotate_weight(rotated, linear.convrot_hadamard.float(), linear.convrot_groupsize)
+        recovered = convrot_unrotate_weight(rotated, linear.convrot_hadamard.float(), linear.convrot_groupsize)
 
         assert _rel_err(recovered, original) < 0.05
         # Bite-check: skipping the un-rotation is not a near-miss.

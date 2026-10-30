@@ -183,7 +183,7 @@ mistake shows up as `Directory not empty` from an `rmdir`.
 
 Symptom: xdist workers die with `Windows fatal exception: code 0xc000001d`
 (STATUS_ILLEGAL_INSTRUCTION), with the top frame in `torch.nn.Linear.forward`
-(reached through `vendor/gpl/comfyui/ops.py`) in bf16 or fp8 native-engine
+(reached through the cast-on-forward layers in `src/platform/runtime/native/kernels/casting.py`) in bf16 or fp8 native-engine
 tests, across unrelated files at once. A hosted runner VM can advertise
 AVX-512 BF16 or AMX to PyTorch's CPU dispatch without being able to execute
 it, so the same commit can pass on a runner with a different CPU. When the
@@ -203,14 +203,14 @@ These are container/environment artefacts, not regressions caused by your change
 
 - `opencv-python`, `opencv-contrib-python` and `opencv-python-headless` (pulled in by `controlnet-aux`) all install `cv2`, so `constraints.txt` pins the three to one version; keep them pinned together.
 - The cv2-dependent tests (`tests/pipelines/pipes/test_detailer_sdxl.py`,
-  `video_frame_extractor/`, `video_frame_merger/`, `media_loader/`) guard their
+  `media_loader/`) guard their
   `cv2` import with
   `pytest.importorskip("cv2", reason=..., exc_type=ImportError)`, so a container
   missing `cv2`'s native deps gets clean skips instead of collection-aborting
   errors — no `--ignore` needed either way, and the tests run for real once the
-  lib is present. **They run here now** (102 tests): `libglib2.0-0` supplies the
+  lib is present. **They run here now**: `libglib2.0-0` supplies the
   `libgthread-2.0.so.0` that `import cv2` needs. It arrived as a side effect of
-  `npx playwright install-deps chromium` on 2026-07-27; before that these four
+  `npx playwright install-deps chromium` on 2026-07-27; before that these
   suites silently skipped. If you meet `ImportError: libgthread-2.0.so.0` on a
   fresh container, `sudo apt-get install -y libglib2.0-0` is the fix (run
   `sudo apt-get update` first — the container's package index goes stale after
@@ -222,7 +222,7 @@ These are container/environment artefacts, not regressions caused by your change
   loading its shared object. Without the argument the `ImportError` escapes,
   collection aborts, and the whole run reports **zero** results rather than a
   green suite. Do not drop it.
-- `tests/platform/runtime/native/test_attention.py::test_cross_backend_agreement_if_installed`
+- `tests/platform/runtime/native/kernels/test_dispatch.py::test_cross_backend_agreement_if_installed`
   skips if an accelerated attention backend is *listed* as available but its
   compiled kernel fails to import (e.g. this container's `sageattention` wheel
   needs a `libstdc++` newer than Debian bookworm's default repo carries —
@@ -318,12 +318,14 @@ These are container/environment artefacts, not regressions caused by your change
   which is unrelated and still open.
 - `tests/pipelines/pipes/generator/img2vid_wan22/*` can OOM when the GPU is busy
   (shared box — check `nvidia-smi` before assuming a regression).
-- The media-editing suite (`tests/features/media/editing/`) skips every video and
-  audio test with "ffmpeg is not installed" when the binary is absent — 23 silent
-  skips, leaving only the Pillow image path exercised. `sudo apt-get install -y
-  ffmpeg` turns them into real round-trips. The backend assumes ffmpeg in
-  production (`media_probe` shells out to ffprobe), so a container without it
-  reports a green suite for code that has never run.
+- The media tool suites (`tests/platform/media_tools/`, `tests/features/media_tools/`,
+  `tests/pipelines/pipes/media_tool/`, `tests/pipelines/pipes/video_trim/`,
+  `tests/pipelines/pipes/video_concat/`) skip every video and audio test with
+  "ffmpeg is not available" when no ffmpeg binary can be found (`find_ffmpeg`
+  also accepts the one bundled by `imageio-ffmpeg`), leaving only the Pillow
+  image path exercised. `sudo apt-get install -y ffmpeg` turns them into real
+  round-trips, so a container without ffmpeg reports a green suite for code
+  that has never run.
 - The suite should otherwise be green. Judge a change by the **set of failing
   test IDs before vs. after**, not by a raw count: capture the failing IDs on a
   clean tree first, then compare. Report the failure-ID diff honestly.

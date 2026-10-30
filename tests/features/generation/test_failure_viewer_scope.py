@@ -21,7 +21,6 @@ from src.features.generation.failure import (
     failure_from_output,
     format_hint,
     scope_generation,
-    scope_run_report,
     scope_status,
 )
 from src.features.generation.history_facade import GenerationHistoryFacade
@@ -269,30 +268,6 @@ class TestScopeHelpers:
 
         assert scope_generation(data, False) == data
 
-    def test_the_run_report_failure_text_is_plain_for_users_only(self):
-        report = {
-            "status_history": [
-                {"step": "Loading 1/2", "message": "Loading"},
-                {"step": "failed", "message": _admin_message("cuda_oom")},
-            ],
-            "plugin_outputs": {
-                "generation_error": {
-                    "plugin_id": "model_loader",
-                    "message": {"type": "generation_error", "error_code": "cuda_oom", "message": _admin_message("cuda_oom"), "hint": format_hint(_admin_hints("cuda_oom"))},
-                },
-            },
-        }
-
-        scoped = scope_run_report(report, False, "cuda_oom", video=True)
-
-        assert scoped["status_history"][0] == report["status_history"][0]
-        assert scoped["status_history"][1]["message"] == "This was too much for the server's GPU right now."
-        error = scoped["plugin_outputs"]["generation_error"]["message"]
-        assert error["message"] == "This was too much for the server's GPU right now."
-        assert error["hint"] == "- Try a lower resolution\n- Try fewer frames"
-        assert VRAM_NOTE not in json.dumps(scoped)
-        assert scope_run_report(report, True, "cuda_oom") is report
-
 
 class TestHistoryPath(PersistenceTestBase):
     def setUp(self):
@@ -388,16 +363,3 @@ class TestHistoryPath(PersistenceTestBase):
 
         self.assertEqual(stored.error_message, _admin_message("cuda_oom"))
         self.assertIn(TRACEBACK, stored.error_detail)
-
-    def test_the_run_report_is_plain_for_its_regular_owner(self):
-        generation_id = self._failed(self.owner_id, "cuda_oom")
-        self.run_report_recorder.get_report.return_value = {
-            "status_history": [{"step": "failed", "message": _admin_message("cuda_oom")}],
-            "plugin_outputs": {},
-        }
-
-        user_report = asyncio.run(self.controller.get_run_report(generation_id, self.owner)).data["run_report"]
-        admin_report = asyncio.run(self.controller.get_run_report(generation_id, self.admin)).data["run_report"]
-
-        self.assertEqual(user_report["status_history"][0]["message"], "This was too much for the server's GPU right now.")
-        self.assertEqual(admin_report["status_history"][0]["message"], _admin_message("cuda_oom"))

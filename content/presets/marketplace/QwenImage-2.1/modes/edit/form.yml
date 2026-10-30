@@ -1,5 +1,6 @@
 name: "custom"
-short_description: "Change an existing image by instruction."
+mode_label: "Edit image"
+short_description: "Change an image by instruction, optionally only inside a painted region."
 fields:
   - type: "tabs"
     children:
@@ -27,4 +28,4 @@ fields:
         configuration:
           icon: "settings"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/edit/tabs/advanced.yml"

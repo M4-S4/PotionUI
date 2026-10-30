@@ -1,6 +1,3 @@
-# The LoRA and Advanced tabs are the `video` mode's own files, read directly:
-# the DiT, its LoRA stack, FBCache, Sol-Attn and the manual sigmas are the same
-# machinery on the same checkpoint family, and a copy here would drift.
 name: "custom"
 mode_label: "References to Video"
 short_description: "Generate a video that follows reference images."
@@ -23,4 +20,4 @@ fields:
         label: "Advanced"
         audience: "advanced"
         configuration: {icon: "settings", icon_display: "icon_only"}
-        children: "{{ paths.preset }}/modes/video/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/refs/tabs/advanced.yml"

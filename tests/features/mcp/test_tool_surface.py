@@ -48,7 +48,7 @@ EXPECTED_TOOLS = {
     "get_prompt", "list_prompts", "add_prompt", "edit_prompt", "delete_prompt",
     "search_models", "list_library_items",
     "write_memory", "read_memory", "update_memory", "delete_memory",
-    "manage_collections", "organize_gallery", "start_generation",
+    "manage_collections", "organize_gallery", "start_generation", "run_media_tool",
     "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts", "write_condition",
 }
 

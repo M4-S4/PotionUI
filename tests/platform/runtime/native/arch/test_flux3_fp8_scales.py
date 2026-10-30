@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from src.platform.runtime.native.arch.flux3.model import convert_flux3_state_dict
-from vendor.gpl.comfyui.ops import fp8_ops
+from src.platform.runtime.native.kernels import fp8_ops
 
 FP8 = torch.float8_e4m3fn
 
@@ -57,6 +57,14 @@ def test_only_one_dimensional_scales_of_fp8_weights_are_reshaped():
     assert out["d.weight_scale"].shape == (8, 1)
     assert out["e.scale"].shape == (8,)
     assert sd["a.weight_scale"].shape == (8,)
+
+
+def test_scales_of_e5m2_weights_are_reshaped_like_e4m3():
+    e5m2_weight = torch.zeros(8, 16).to(torch.float8_e5m2)
+
+    out = convert_flux3_state_dict({"a.weight": e5m2_weight, "a.weight_scale": torch.ones(8)})
+
+    assert out["a.weight_scale"].shape == (8, 1)
 
 
 def test_comfy_attention_hints_are_dropped():

@@ -230,6 +230,8 @@ def test_no_presets_assigned_is_not_ready():
     assert content.status == NOT_READY
     assert content.code == "NO_PRESETS_ASSIGNED"
     assert report.overall == NOT_READY
+    assert "->" not in content.action
+    assert "Admin → Presets" in content.action
 
 
 def test_presets_without_resolvable_models_is_degraded():

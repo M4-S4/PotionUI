@@ -165,6 +165,11 @@ for (const viewport of VIEWPORTS) {
 		await expect(dialog.getByRole('checkbox', { name: 'Select rain.wav (rain on a tin roof)' })).toBeDisabled();
 		await expect(dialog.getByText('Only image files can be selected here').first()).toBeVisible();
 
+		await dialog.locator('[data-file-id="2"] button[aria-hidden="true"]').click();
+		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('3 selected');
+		await dialog.locator('[data-file-id="2"] button[aria-hidden="true"]').click();
+		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');
+		await expect(dialog.getByTestId('picker-preview')).toHaveCount(0);
 		await dialog.getByRole('button', { name: 'Preview teapot.png (ceramic teapot)' }).click();
 		await expect(dialog.getByTestId('picker-preview')).toBeVisible();
 		await expect(dialog.getByTestId('picker-selected-count')).toHaveText('2 selected');

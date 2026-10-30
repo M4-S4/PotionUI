@@ -22,7 +22,7 @@ from src.platform.runtime.native.arch.qwen_image.model import QwenImageDiT
 from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 from .._native_ops import fp32_ops
 
 _FIXTURES = Path(__file__).parent / "fixtures"
@@ -147,10 +147,9 @@ def _spy_on_sdpa():
         seen["seq_len"] = q.shape[2]
         return real_attn(q, k, v, attn_mask=attn_mask, **kw)
 
-    import src.platform.runtime.native.attention as attn_mod
-    orig = attn_mod.F.scaled_dot_product_attention
-    attn_mod.F.scaled_dot_product_attention = spy
-    return seen, lambda: setattr(attn_mod.F, "scaled_dot_product_attention", orig)
+    functional = torch.nn.functional
+    functional.scaled_dot_product_attention = spy
+    return seen, lambda: setattr(functional, "scaled_dot_product_attention", real_attn)
 
 
 def test_trim_clears_mask_for_batch1_padded_prompt_regardless_of_alignment():

@@ -97,8 +97,10 @@ async function mockIndexingStatus(page: Page, status: Record<string, unknown> = 
 async function mockReadiness(page: Page) {
 	await page.route('**/api/readiness', (route) =>
 		fulfillJson(route, {
-			overall: 'ready',
-			checks: [{ area: 'service', status: 'ready', code: 'SERVICE_OK', message: 'Service is healthy.', action: null }]
+			overall: 'not_ready',
+			checks: [
+				{ area: 'content', status: 'not_ready', code: 'NO_PRESETS', message: 'No presets are installed.', action: null }
+			]
 		})
 	);
 }
@@ -110,7 +112,15 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 async function gotoSetup(page: Page) {
 	await page.goto('/setup');
-	await expect(page.getByText('Models location')).toBeVisible({ timeout: 15000 });
+	await expect(page.getByRole('heading', { name: 'Your computer' })).toBeVisible({ timeout: 15000 });
+	await page.getByRole('button', { name: 'Continue' }).click();
+	await expect(page.getByRole('heading', { name: 'Where should PotionUI keep your models?' })).toBeVisible();
+}
+
+async function gotoSetupExisting(page: Page) {
+	await gotoSetup(page);
+	await page.getByRole('radio', { name: /Use an existing folder/ }).click();
+	await expect(page.getByLabel('Folder path')).toBeVisible();
 }
 
 async function gotoAdminFolders(page: Page) {
@@ -150,7 +160,7 @@ test.describe('model roots - setup wizard', () => {
 			);
 		});
 
-		await gotoSetup(page);
+		await gotoSetupExisting(page);
 		await page.getByLabel('Folder path').fill('/mnt/storage/ComfyUI/models');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText('Detected folders')).toBeVisible({ timeout: 10000 });
@@ -162,15 +172,26 @@ test.describe('model roots - setup wizard', () => {
 		await screenshot(page, JOURNEY, 'wizard-added');
 	});
 
-	test('skip keeps the built-in models folder', async ({ page }) => {
+	test('Start fresh keeps the built-in models folder', async ({ page }) => {
 		await loginAsOwner(page);
 		await mockRootsGet(page, overview());
 		await mockIndexingStatus(page);
 		await mockReadiness(page);
+		let created = false;
+		await page.route('**/api/models/roots', (route) => {
+			if (route.request().method() === 'POST') created = true;
+			return route.fallback();
+		});
 		await gotoSetup(page);
-		await page.getByRole('button', { name: 'Skip' }).click();
-		await expect(page.getByText('models/ (default location in this install)')).toBeVisible();
-		await screenshot(page, JOURNEY, 'wizard-skipped');
+		await expect(page.getByRole('radio', { name: /Start fresh/ })).toHaveAttribute('aria-checked', 'true');
+		await expect(page.getByText('Models will be saved to')).toBeVisible();
+		await expect(page.locator('[data-panel="fresh"]').getByText('models', { exact: true })).toBeVisible();
+		await expect(page.getByLabel('Folder path')).toHaveCount(0);
+		await screenshot(page, JOURNEY, 'wizard-start-fresh');
+		await page.getByRole('button', { name: 'Continue' }).click();
+		await expect(page.getByRole('heading', { name: 'Pick a starter model' })).toBeVisible();
+		expect(created).toBe(false);
+		await screenshot(page, JOURNEY, 'wizard-start-fresh-continued');
 	});
 
 	test('Windows server shows a drive-letter placeholder', async ({ page }) => {
@@ -178,8 +199,8 @@ test.describe('model roots - setup wizard', () => {
 		await mockRootsGet(page, overview({ server_os: 'Windows', path_style: 'windows' }));
 		await mockIndexingStatus(page);
 		await mockReadiness(page);
-		await gotoSetup(page);
-		await expect(page.getByPlaceholder('D:\\ComfyUI\\models')).toBeVisible({ timeout: 10000 });
+		await gotoSetupExisting(page);
+		await expect(page.getByPlaceholder('D:\\models')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, 'wizard-windows-placeholder');
 	});
 
@@ -203,7 +224,7 @@ test.describe('model roots - setup wizard', () => {
 			]
 		});
 
-		await gotoSetup(page);
+		await gotoSetupExisting(page);
 		await page.getByLabel('Folder path').fill('Z:\\models');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText(/mapped drive letters are per-user sessions/)).toBeVisible({ timeout: 10000 });
@@ -228,7 +249,7 @@ test.describe('model roots - setup wizard', () => {
 			warnings: []
 		});
 
-		await gotoSetup(page);
+		await gotoSetupExisting(page);
 		await page.getByLabel('Folder path').fill('/mnt/data/offline');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText("This path isn't reachable from the server.")).toBeVisible({ timeout: 10000 });
@@ -253,7 +274,7 @@ test.describe('model roots - setup wizard', () => {
 			warnings: []
 		});
 
-		await gotoSetup(page);
+		await gotoSetupExisting(page);
 		await page.getByLabel('Folder path').fill('models/loras');
 		await page.getByRole('button', { name: 'Detect' }).click();
 		await expect(page.getByText(/Overlaps a folder that's already a model root/)).toBeVisible({ timeout: 10000 });
@@ -403,6 +424,9 @@ test.describe('model roots - phone', () => {
 		await mockIndexingStatus(page);
 		await mockReadiness(page);
 		await gotoSetup(page);
+		await expectNoHorizontalOverflow(page);
+		await screenshot(page, JOURNEY, 'wizard-phone-choice');
+		await page.getByRole('radio', { name: /Use an existing folder/ }).click();
 		await expect(page.getByLabel('Folder path')).toBeVisible();
 		await expectNoHorizontalOverflow(page);
 		await screenshot(page, JOURNEY, 'wizard-phone');

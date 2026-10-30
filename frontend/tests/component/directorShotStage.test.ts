@@ -22,7 +22,6 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 		get: vi.fn().mockResolvedValue({ data: { data: {} } }),
 		put: vi.fn().mockResolvedValue({ data: { success: true } })
 	})) as never;
-	original.api.getHistoryTools = vi.fn().mockResolvedValue({ success: true, data: [] });
 	return original;
 });
 

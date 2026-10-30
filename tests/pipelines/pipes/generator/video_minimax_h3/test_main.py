@@ -13,12 +13,14 @@ import numpy as np
 import pytest
 import torch
 
+from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.outputs import GenerationExecutionError
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import AudioTrack
 from tests.pipelines.pipes.generator.video_minimax_h3.vae_stub import StubVideoVae
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
+    REFERENCE_IMAGE_SHORT_EDGE,
     ReferenceConditioning,
     ReferenceMedia,
     visual_latent_cache_key,
@@ -161,6 +163,69 @@ def test_build_context_accepts_reference_images_alone():
     assert [reference.kind for reference in ctx.extra.references] == ["image", "image"]
     assert ctx.extra.keyframe_images == []
     assert ctx.extra.keyframe_anchors == ()
+
+
+def _build_reference_context(config_overrides, image):
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(),
+        "references": [{"path": "ref1"}],
+        **config_overrides,
+    })
+    return pipe.build_context(_pipe_input(
+        model=_fake_bundle(), conditioning=[_fake_conditioning(3)], reference_images=[image],
+    ))
+
+
+def test_reference_short_edge_is_declared_with_the_released_default():
+    spec = next(spec for spec in GeneratorMinimaxH3Pipe.configuration() if spec.name == "reference_short_edge")
+    assert spec.param_type is int
+    assert spec.default == REFERENCE_IMAGE_SHORT_EDGE == 2048
+    assert spec.min_value == CANVAS_MULTIPLE
+    assert GeneratorMinimaxH3Pipe.get_default_config()["reference_short_edge"] == 2048
+
+
+@pytest.mark.parametrize("value", [0, -1, CANVAS_MULTIPLE - 1, "wide"])
+def test_reference_short_edge_below_one_canvas_tile_or_not_a_number_is_rejected(value):
+    with pytest.raises(ValueError, match="reference_short_edge"):
+        validate_pipe_configuration(
+            GeneratorMinimaxH3Pipe, {"mode": "references", "reference_short_edge": value},
+        )
+
+
+@pytest.mark.parametrize("value", [CANVAS_MULTIPLE, 1024, 2048, 4096])
+def test_reference_short_edge_of_at_least_one_canvas_tile_is_accepted(value):
+    validated = validate_pipe_configuration(
+        GeneratorMinimaxH3Pipe, {"mode": "references", "reference_short_edge": value},
+    )
+    assert validated["reference_short_edge"] == value
+
+
+def test_reference_short_edge_left_unset_validates_to_the_released_default():
+    validated = validate_pipe_configuration(GeneratorMinimaxH3Pipe, {"mode": "references"})
+    assert validated["reference_short_edge"] == 2048
+
+
+@pytest.mark.parametrize(("overrides", "expected"), [({}, 2048), ({"reference_short_edge": 1024}, 1024)])
+def test_build_context_passes_the_reference_short_edge_to_normalize_references(overrides, expected):
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_references
+
+    with patch(f"{_MAIN}.normalize_references", wraps=normalize_references) as spy:
+        _build_reference_context(overrides, _reference_image())
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs["reference_short_edge"] == expected
+
+
+@pytest.mark.parametrize(("overrides", "expected_size", "expected_tokens"), [
+    ({}, (2048, 3680), 64 * 115),
+    ({"reference_short_edge": 1024}, (1024, 1824), 32 * 57),
+])
+def test_build_context_fits_a_reference_picture_to_the_configured_short_edge(
+    overrides, expected_size, expected_tokens,
+):
+    ctx = _build_reference_context(overrides, _reference_image((1072, 1920)))
+    fitted = ctx.extra.references[0].image
+    assert fitted.size == expected_size
+    assert (fitted.width // CANVAS_MULTIPLE) * (fitted.height // CANVAS_MULTIPLE) == expected_tokens
 
 
 def test_build_context_rejects_too_many_reference_images():
@@ -1466,6 +1531,54 @@ def test_generate_one_skips_dit_restore_when_decode_is_false():
         pipe.generate_one(ctx, 0, 7, progress)
 
     mock_restore.assert_not_called()
+
+
+def _decode_false_latent(vae_module) -> torch.Tensor:
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=19.5,
+                            module=_fake_dit_module(video_patch_dim),
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=vae_module, compute_dtype=torch.float32,
+                                   move_to=Mock(), offload=Mock(), estimated_vram_gb=2.0),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=Mock(), offload=Mock(),
+                                   estimated_vram_gb=0.5),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=3,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="passthrough", audio_file="fake.mp3",
+        decode=False,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    with patch(f"{_MAIN}.restore_dit_best_effort"):
+        return pipe.generate_one(ctx, 0, 7, ProgressEmitter([].append, title="test"))
+
+
+def test_decode_false_hands_on_the_raw_vae_latent_the_initial_latent_input_expects():
+    class _ShiftedVae(StubVideoVae):
+        latents_mean = torch.linspace(-1.0, 1.0, 24)
+        latents_std = torch.linspace(0.5, 3.0, 24)
+
+    torch.manual_seed(0)
+    normalized = _decode_false_latent(StubVideoVae())
+    torch.manual_seed(0)
+    raw = _decode_false_latent(_ShiftedVae())
+
+    mean = _ShiftedVae.latents_mean.view(1, -1, 1, 1, 1)
+    std = _ShiftedVae.latents_std.view(1, -1, 1, 1, 1)
+    assert raw.dtype == torch.float32
+    assert torch.allclose(raw, normalized * std + mean, atol=1e-5)
+    assert torch.allclose(GeneratorMinimaxH3Pipe._normalized_initial_latent(
+        SimpleNamespace(initial_latents=[raw], device="cpu", num_latent_frames=2, latent_height=2, latent_width=2),
+        0, _ShiftedVae(),
+    ), normalized, atol=1e-5)
 
 
 # -- cancellation -------------------------------------------------------------
@@ -3372,7 +3485,7 @@ def test_build_context_packs_the_three_modality_inputs_in_one_order(monkeypatch)
     edges happen to be declared in."""
     import src.pipelines.pipes.generator.video_minimax_h3.main as main_module
 
-    monkeypatch.setattr(main_module, "_load_reference_video", lambda path: _ref_video())
+    monkeypatch.setattr(main_module, "_load_reference_video", lambda path, max_seconds=None: _ref_video())
     monkeypatch.setattr(main_module, "_load_reference_audio", lambda path: _ref_audio())
     pipe = GeneratorMinimaxH3Pipe({
         **GeneratorMinimaxH3Pipe.get_default_config(), "mode": "references",
@@ -3725,7 +3838,7 @@ def _decode_ctx():
     reaches for `bundle.video_vae` and `device`, and a Mock VAE would prove
     nothing about the decode this test exists to cover."""
     from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
-    from vendor.gpl.comfyui.ops import disable_weight_init
+    from src.platform.runtime.native.kernels import disable_weight_init
 
     torch.manual_seed(7)
     module = MiniMaxH3VideoVAE.from_config(_DECODE_VAE_CONFIG, disable_weight_init)
@@ -3795,15 +3908,17 @@ def test_decode_tile_px_is_a_declared_config_choice():
 
 @pytest.mark.parametrize(("upscale", "size"), [(False, (832, 480)), (True, (1888, 1088))])
 def test_reference_images_follow_the_reference_upscale_engine_setting(monkeypatch, upscale, size):
-    from PIL import Image
-
     from src.platform.settings import runtime_flags
 
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_h3_reference_upscale", upscale)
-    normalized = GeneratorMinimaxH3Pipe._normalize_reference_media(
-        [("image", Image.new("RGB", (832, 480)))], num_frames=22,
-    )
-    assert normalized[0].image.size == size
+    ctx = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(),
+        "references": [{"path": "frame"}],
+    }).build_context(_pipe_input(
+        model=_fake_bundle(), conditioning=[_fake_conditioning(3)],
+        reference_images=[_reference_image((832, 480))],
+    ))
+    assert ctx.extra.references[0].image.size == size
 
 
 def test_the_reference_image_pixel_budget_is_a_declared_config():
@@ -3847,3 +3962,60 @@ def test_the_reference_image_pixel_budget_never_enlarges_a_small_reference():
         reference_images=[_reference_image((832, 480))],
     ))
     assert ctx.extra.references[0].image.size == (832, 480)
+
+
+def _length_from_video_pipe(**overrides):
+    return GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(), "mode": "references", "length_from": "reference_video",
+        "frames": 22, **overrides,
+    })
+
+
+def _write_clip(path, fps, frame_count, size=(32, 24)):
+    import cv2
+
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), float(fps), size)
+    rng = np.random.default_rng(frame_count)
+    for _ in range(frame_count):
+        writer.write(rng.integers(0, 255, (size[1], size[0], 3), dtype=np.uint8))
+    writer.release()
+    return path
+
+
+@pytest.mark.parametrize("source_role", ["none", "continue", "precede"])
+def test_a_long_length_from_reference_video_is_decoded_as_a_bounded_head_with_the_same_result(tmp_path, source_role):
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as main_module
+    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import normalize_references
+
+    pytest.importorskip("cv2")
+    path = _write_clip(tmp_path / "long.mp4", 30, 150)
+    pipe = _length_from_video_pipe(source_video_role=source_role)
+
+    seconds = pipe._reference_decode_seconds(None, source_role, False)
+    assert seconds is not None
+    full = main_module._load_reference_video(path)
+    bounded = main_module._load_reference_video(path, seconds)
+    assert len(full.frames) == 150
+    assert len(bounded.frames) < len(full.frames)
+
+    frames_full = pipe._length_from_reference(22, [full])
+    frames_bounded = pipe._length_from_reference(22, [bounded])
+    assert frames_bounded == frames_full == 22
+    expected = normalize_references([full], num_frames=frames_full)[0]
+    actual = normalize_references([bounded], num_frames=frames_bounded)[0]
+    assert np.array_equal(actual.frames, expected.frames)
+
+
+def test_a_short_length_from_reference_video_is_decoded_whole(tmp_path):
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as main_module
+
+    pytest.importorskip("cv2")
+    path = _write_clip(tmp_path / "short.mp4", 30, 40)
+    pipe = _length_from_video_pipe()
+    loaded = main_module._load_reference_video(path, pipe._reference_decode_seconds(None, "none", False))
+    assert len(loaded.frames) == 40
+
+
+def test_length_from_reference_audio_and_initial_latents_stay_unbounded():
+    assert _length_from_video_pipe(length_from="reference_audio")._reference_decode_seconds(None, "none", False) is None
+    assert _length_from_video_pipe()._reference_decode_seconds(None, "none", True) is None

@@ -1,0 +1,14 @@
+version: 1
+sources:
+  qwen3-thinking-card: https://huggingface.co/Qwen/Qwen3-4B-Thinking-2507
+rows:
+  - id: native-engine
+    source: [qwen3-thinking-card]
+    adapters: [native]
+    fields:
+      prompt_tools: true
+      tool_id_rule: mint
+      reasoning: toggle
+      reasoning_toggle: chat_template_kwargs.enable_thinking
+      replay: drop_earlier
+      cache: local_prefix

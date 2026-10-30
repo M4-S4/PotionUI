@@ -40,7 +40,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Literal
 
-from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED
+from src.platform.runtime.native.kernels import QUANT_FP8_SCALED
 from .device_plan import DevicePlan
 
 logger = logging.getLogger(__name__)

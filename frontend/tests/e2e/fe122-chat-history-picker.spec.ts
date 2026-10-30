@@ -34,7 +34,7 @@ async function seedVisionCapableLlmConfig(page: Page, token: string, fakeUrl: st
 		data: {
 			id: configId,
 			name: 'e2e-fake-llm',
-			type: 'openai',
+			type: 'openai-compatible',
 			enabled: true,
 			base_url: fakeUrl,
 			model: 'fake',

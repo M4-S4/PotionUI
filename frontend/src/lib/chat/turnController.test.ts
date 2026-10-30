@@ -1199,7 +1199,7 @@ describe('onAssistantFinalized: every live arrival of a final assistant message'
 	});
 });
 
-describe('thinking events (createStreamEventHandler)', () => {
+describe('reasoning events (createStreamEventHandler)', () => {
 	async function openStream() {
 		chatSession.patch({ sessionId: 'A' });
 		let deliverEvent: ((e: { type: string; data: any }) => void | Promise<void>) | undefined;
@@ -1224,54 +1224,63 @@ describe('thinking events (createStreamEventHandler)', () => {
 		return messages[messages.length - 1];
 	};
 
-	it('accumulates thinking deltas into one open segment, applied once per frame', async () => {
+	const flushFrame = () => new Promise((resolve) => setTimeout(resolve, 30));
+
+	it('accumulates reasoning deltas into one open block, applied once per frame', async () => {
 		const deliver = await openStream();
 
-		await deliver({ type: 'thinking', data: { content: 'let ', segment: 0 } });
-		await deliver({ type: 'thinking', data: { content: 'me think', segment: 0 } });
-		expect(assistant().thinking).toBeUndefined();
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'let ' } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'me think' } });
+		expect(assistant().reasoning).toBeUndefined();
 
-		await new Promise((resolve) => setTimeout(resolve, 30));
+		await flushFrame();
 
-		expect(assistant().thinking).toHaveLength(1);
-		expect(assistant().thinking![0]).toMatchObject({ text: 'let me think', open: true });
+		expect(assistant().reasoning).toHaveLength(1);
+		expect(assistant().reasoning![0]).toMatchObject({ kind: 'raw', text: 'let me think', open: true });
 	});
 
-	it('an answer token folds the segment, even with no frame in between', async () => {
+	it('keeps the kind the server reported for a block', async () => {
 		const deliver = await openStream();
 
-		await deliver({ type: 'thinking', data: { content: 'plan', segment: 0 } });
-		await deliver({ type: 'token', data: { content: 'Answer' } });
-		await new Promise((resolve) => setTimeout(resolve, 30));
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'summary', text: 'Checked both tabs.' } });
+		await flushFrame();
 
-		expect(assistant().thinking![0].text).toBe('plan');
-		expect(assistant().thinking![0].open).toBeUndefined();
+		expect(assistant().reasoning![0].kind).toBe('summary');
+	});
+
+	it('an answer token folds the block, even with no frame in between', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'plan' } });
+		await deliver({ type: 'token', data: { content: 'Answer' } });
+		await flushFrame();
+
+		expect(assistant().reasoning![0].text).toBe('plan');
+		expect(assistant().reasoning![0].open).toBeUndefined();
 		expect(assistant().content).toBe('Answer');
 	});
 
-	it('flushes pending thinking before a tool call so the order holds', async () => {
+	it('flushes pending reasoning before a tool call so the order holds', async () => {
 		const deliver = await openStream();
 
-		await deliver({ type: 'thinking', data: { content: 'need a tool', segment: 0 } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'need a tool' } });
 		await deliver({ type: 'tool_start', data: { tool_name: 'list_models' } });
 
-		expect(assistant().thinking![0].text).toBe('need a tool');
-		expect(assistant().thinking![0].open).toBeUndefined();
+		expect(assistant().reasoning![0].text).toBe('need a tool');
+		expect(assistant().reasoning![0].open).toBeUndefined();
 		expect(assistant().tool_executions).toHaveLength(1);
 	});
 
-	it('keeps each model turn of a tool round as its own segment', async () => {
+	it('reasoning_end applies the pending text, then closes the block with the reported duration', async () => {
 		const deliver = await openStream();
 
-		await deliver({ type: 'thinking', data: { content: 'first', segment: 0 } });
-		await deliver({ type: 'tool_start', data: { tool_name: 'list_models' } });
-		await deliver({ type: 'tool_end', data: { tool_name: 'list_models', success: true } });
-		await deliver({ type: 'thinking', data: { content: 'second', segment: 1 } });
-		await deliver({ type: 'thinking', data: { content: ' look', segment: 1 } });
-		await new Promise((resolve) => setTimeout(resolve, 30));
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'weighing' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 1840 } });
 
-		expect(assistant().thinking!.map((s) => s.text)).toEqual(['first', 'second look']);
-		expect(assistant().thinking![1].open).toBe(true);
+		expect(assistant().reasoning).toEqual([
+			expect.objectContaining({ kind: 'raw', text: 'weighing', duration_ms: 1840 })
+		]);
+		expect(assistant().reasoning![0].open).toBeUndefined();
 	});
 
 	it('announces each tool that ends to the page before the turn is done', async () => {
@@ -1295,10 +1304,75 @@ describe('thinking events (createStreamEventHandler)', () => {
 		]);
 	});
 
-	it('done without the thinking in its payload keeps what streamed', async () => {
+	it('a reasoning_end with no streamed text records an omitted block with its duration', async () => {
 		const deliver = await openStream();
 
-		await deliver({ type: 'thinking', data: { content: 'streamed reasoning', segment: 0 } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 3100 } });
+
+		expect(assistant().reasoning).toEqual([{ kind: 'omitted', text: '', duration_ms: 3100 }]);
+	});
+
+	it('keeps each model turn of a tool round as its own block when the server numbers them globally', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'first' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 100 } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'reasoning', data: { block: 1, kind: 'raw', text: 'second' } });
+		await deliver({ type: 'reasoning', data: { block: 1, kind: 'raw', text: ' look' } });
+		await flushFrame();
+
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['first', 'second look']);
+		expect(assistant().reasoning![1].open).toBe(true);
+	});
+
+	it('keeps each model turn of a tool round as its own block when the server restarts numbering per step', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'first' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 100 } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'summary', text: 'second' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 200 } });
+		await flushFrame();
+
+		expect(assistant().reasoning!.map((block) => [block.kind, block.text, block.duration_ms])).toEqual([
+			['raw', 'first', 100],
+			['summary', 'second', 200]
+		]);
+	});
+
+	it('a new block index applies the old block text before starting the next', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'first turn' } });
+		await deliver({ type: 'reasoning', data: { block: 1, kind: 'raw', text: 'second turn' } });
+
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['first turn']);
+
+		await flushFrame();
+
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['first turn', 'second turn']);
+		expect(assistant().reasoning![0].open).toBeUndefined();
+	});
+
+	it('step and notice events land on the streaming message', async () => {
+		const deliver = await openStream();
+
+		await deliver({
+			type: 'notice',
+			data: { kind: 'retrying', message: 'Rate limited; retrying in 4 s.', detail: { retry_after: 4 } }
+		});
+		await deliver({ type: 'step', data: { seq: 2, finish: 'stop', usage: { input_tokens: 12, output_tokens: 3 } } });
+
+		expect(assistant().notices!.map((notice) => notice.message)).toEqual(['Rate limited; retrying in 4 s.']);
+		expect(assistant().usage).toEqual({ input_tokens: 12, output_tokens: 3 });
+	});
+
+	it('done without reasoning in its payload keeps what streamed', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'streamed reasoning' } });
 		await deliver({ type: 'token', data: { content: 'answer' } });
 		await deliver({
 			type: 'done',
@@ -1311,51 +1385,118 @@ describe('thinking events (createStreamEventHandler)', () => {
 			}
 		});
 
-		expect(assistant().thinking!.map((s) => s.text)).toEqual(['streamed reasoning']);
-		expect(assistant().thinking![0].open).toBeUndefined();
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['streamed reasoning']);
+		expect(assistant().reasoning![0].open).toBeUndefined();
 		expect(assistant().isStreaming).toBe(false);
 	});
 
-	it('a new segment index applies the old segment text before starting the next', async () => {
+	it('done replaces the live blocks with the persisted ones', async () => {
 		const deliver = await openStream();
 
-		await deliver({ type: 'thinking', data: { content: 'first turn', segment: 0 } });
-		await deliver({ type: 'thinking', data: { content: 'second turn', segment: 1 } });
-
-		expect(assistant().thinking!.map((s) => s.text)).toEqual(['first turn']);
-
-		await new Promise((resolve) => setTimeout(resolve, 30));
-
-		expect(assistant().thinking!.map((s) => s.text)).toEqual(['first turn', 'second turn']);
-		expect(assistant().thinking![0].open).toBeUndefined();
-	});
-
-	it('done replaces the live segments with the persisted ones', async () => {
-		const deliver = await openStream();
-
-		await deliver({ type: 'thinking', data: { content: 'live text', segment: 0 } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'live text' } });
 		await deliver({
 			type: 'done',
 			data: {
 				assistant_message: {
 					id: 'a1',
 					content: 'answer',
-					metadata: { thinking: { segments: [{ text: 'stored text', duration_ms: 7000 }] } }
+					reasoning: [{ kind: 'summary', text: 'stored text', redacted: false, duration_ms: 7000 }]
 				}
 			}
 		});
 
-		expect(assistant().thinking).toEqual([{ text: 'stored text', duration_ms: 7000 }]);
+		expect(assistant().reasoning).toEqual([{ kind: 'summary', text: 'stored text', duration_ms: 7000 }]);
 		expect(assistant().isStreaming).toBe(false);
 	});
 
-	it('a truncated thinking reference does not break the stream', async () => {
+	it('a truncated reasoning reference does not break the stream', async () => {
 		const deliver = await openStream();
 
-		await deliver({ type: 'thinking', data: { truncated: true, preview: 'xx', content_bytes: 9000 } });
+		await deliver({ type: 'reasoning', data: { truncated: true, preview: 'xx', content_bytes: 9000 } });
 		await deliver({ type: 'token', data: { content: 'ok' } });
-		await new Promise((resolve) => setTimeout(resolve, 30));
+		await flushFrame();
 
 		expect(assistant().content).toBe('ok');
+	});
+
+	it('step_discarded removes the discarded step text so the retried step continues from the boundary', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'token', data: { content: 'First step. ' } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'token', data: { content: 'Second step, cut' } });
+		await deliver({ type: 'step_discarded', data: { seq: 2 } });
+		expect(assistant().content).toBe('First step. ');
+
+		await deliver({ type: 'token', data: { content: 'Retried.' } });
+		await flushFrame();
+
+		expect(assistant().content).toBe('First step. Retried.');
+	});
+
+	it('step_discarded drops text that was still waiting for the next frame', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'token', data: { content: 'never applied' } });
+		await deliver({ type: 'step_discarded', data: { seq: 1 } });
+		await flushFrame();
+
+		expect(assistant().content).toBe('');
+	});
+
+	it('step_discarded removes the reasoning of the discarded step and lets the retry reuse its block numbers', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'first' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 100 } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'doomed' } });
+		await deliver({ type: 'step_discarded', data: { seq: 2 } });
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['first']);
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'retry' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 50 } });
+		await flushFrame();
+
+		expect(assistant().reasoning!.map((block) => [block.text, block.duration_ms])).toEqual([
+			['first', 100],
+			['retry', 50]
+		]);
+	});
+
+	it('step_discarded keeps block indexes exact when the retry numbers its blocks past the discarded ones', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'first' } });
+		await deliver({ type: 'reasoning_end', data: { block: 0, duration_ms: 100 } });
+		await deliver({ type: 'step', data: { seq: 1, finish: 'tool_calls' } });
+		await deliver({ type: 'reasoning', data: { block: 1, kind: 'raw', text: 'doomed one' } });
+		await deliver({ type: 'reasoning', data: { block: 2, kind: 'raw', text: 'doomed two' } });
+		await deliver({ type: 'step_discarded', data: { seq: 2 } });
+
+		await deliver({ type: 'reasoning', data: { block: 3, kind: 'raw', text: 'retry one' } });
+		await deliver({ type: 'reasoning', data: { block: 4, kind: 'raw', text: 'retry two' } });
+		await deliver({ type: 'reasoning_end', data: { block: 3, duration_ms: 30 } });
+		await deliver({ type: 'reasoning_end', data: { block: 4, duration_ms: 40 } });
+		await flushFrame();
+
+		expect(assistant().reasoning!.map((block) => [block.text, block.duration_ms])).toEqual([
+			['first', 100],
+			['retry one', 30],
+			['retry two', 40]
+		]);
+	});
+
+	it('step_discarded before any step clears the whole attempt', async () => {
+		const deliver = await openStream();
+
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'doomed' } });
+		await deliver({ type: 'token', data: { content: 'cut' } });
+		await deliver({ type: 'step_discarded', data: { seq: 1 } });
+		await deliver({ type: 'reasoning', data: { block: 0, kind: 'raw', text: 'fresh' } });
+		await flushFrame();
+
+		expect(assistant().content).toBe('');
+		expect(assistant().reasoning!.map((block) => block.text)).toEqual(['fresh']);
 	});
 });

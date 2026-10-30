@@ -23,10 +23,10 @@ describe('resolveAuthLayoutMode', () => {
 		);
 	});
 
-	it('never falls back to app before mount even if authenticated', () => {
+	it('holds the neutral boot state before mount for an authenticated user, so the page is never rendered in the public branch and then again in the app branch', () => {
 		expect(
 			resolveAuthLayoutMode(state({ mounted: false, isAuthenticated: true, isPublicRoute: false }))
-		).toBe('public');
+		).toBe('boot');
 	});
 
 	it('shows a neutral redirecting state for an authenticated user still on a public route', () => {

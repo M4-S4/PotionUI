@@ -1,5 +1,50 @@
 fields:
   - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        formula: "speed"
+        label: "Steps"
+        audience: "advanced"
+        default: 4
+        ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. The released recipe runs 4 -- raise only if the refine looks under-cooked at Strong denoise, or the user explicitly asks for more steps."
+        configuration: {min: 2, max: 24, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 24, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 4, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+      - type: "row"
+        children:
+          - name: "refine_sampler"
+            type: "select"
+            formula: "enhance"
+            label: "Refine sampler"
+            default: "euler"
+            ai_hint: "How each step advances between two sigmas. Euler is the reference solver and what the model was distilled against -- leave it there for an ordinary refine. Res multistep, DPM++ 2M and SA-Solver are deterministic second-order solvers that cost no extra time and mostly buy sharpness at this mode's low step counts. ER-SDE is stochastic instead, trading exact reproducibility for more variety."
+            configuration:
+              options:
+                - { label: "Euler (reference)", value: "euler" }
+                - { label: "Res multistep", value: "res_multistep" }
+                - { label: "DPM++ 2M", value: "dpmpp_2m" }
+                - { label: "ER-SDE (stochastic)", value: "er_sde" }
+                - { label: "SA-Solver", value: "sa_solver" }
+
+          - name: "scheduler"
+            type: "select"
+            label: "Scheduler"
+            audience: "advanced"
+            default: "simple"
+            ai_hint: "Where the steps land on the noise curve. Simple is the model's own uniform grid and the right answer unless asked otherwise. Beta pulls knots toward both ends, which tends to help short runs. Cannot be combined with this tab's manual sigmas."
+            configuration:
+              options:
+                - { label: "Simple (reference)", value: "simple" }
+                - { label: "Beta", value: "beta" }
+
+  - type: "section"
     label: "Refine"
     audience: "advanced"
     children:
@@ -11,22 +56,11 @@ fields:
         ai_hint: "The video stream's exponential-shift constant for this refine pass (the audio stream's own shift, 3.0, is unaffected and not exposed here). The released recipe uses 9 -- lower than a fresh generation's 12, since a refine starts from the upsampled source rather than pure noise. Only change this for a deliberate custom refine schedule."
         configuration: {min: 0.1, max: 50.0, step: 0.5}
 
-      - name: "scheduler"
-        type: "select"
-        label: "Scheduler"
-        audience: "advanced"
-        default: "simple"
-        ai_hint: "Where the steps land on the noise curve. Simple is the model's own uniform grid and the right answer unless asked otherwise. Beta pulls knots toward both ends, which tends to help short runs. Cannot be combined with this tab's manual sigmas."
-        configuration:
-          options:
-            - { label: "Simple (reference)", value: "simple" }
-            - { label: "Beta", value: "beta" }
-
       - name: "refine_manual_sigmas"
         type: "textbox"
         label: "Refine manual sigmas (video)"
         default: ""
-        ai_hint: "An expert escape hatch for reshaping the refine's own schedule -- prefer Refine denoise/Refine steps (Generation tab) for ordinary use. Only reach for this when the user explicitly asks for a custom or non-uniform sigma schedule. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps."
+        ai_hint: "An expert escape hatch for reshaping the refine's own schedule -- prefer Refine denoise (References tab) and Steps for ordinary use. Only reach for this when the user explicitly asks for a custom or non-uniform sigma schedule. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps."
         configuration:
           placeholder: "e.g. 1.0, 0.93, 0.8, 0.55, 0.0"
 
@@ -120,7 +154,7 @@ fields:
             type: "slider"
             label: "Cache threshold"
             default: 0.0
-            ai_hint: "A speed-for-fidelity trade, never a quality improvement. This mode's refine already runs few steps (4 by default), so there is little left to skip -- keep at 0.0 unless the user explicitly raised Refine steps and wants the extra length faster."
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement. This mode's refine already runs few steps (4 by default), so there is little left to skip -- keep at 0.0 unless the user explicitly raised Steps and wants the extra length faster."
             configuration: {min: 0.0, max: 0.3, step: 0.01}
           - name: "step_cache_warmup_steps"
             type: "slider"

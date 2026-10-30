@@ -1,9 +1,9 @@
 """Tests for MiniMaxH3Attention's chunked qkv/out_proj projection loops reusing
 ONE prepared weight/bias operand per projection call (see
-``CastWeightBiasOp.prepared_linear`` / ``Fp8ScaledLinear.prepared_linear`` in
-``vendor/gpl/comfyui/ops.py``), instead of re-dequantising (or, with the
-opt-in fp8 GEMM gate on, re-staging) the same unchanged weight on every chunk
-of ``seq_chunk_rows`` low-VRAM sequence chunking.
+``CastWeightBiasOp.prepared_linear`` in ``kernels/casting.py`` and
+``Fp8ScaledLinear.prepared_linear`` in ``kernels/fp8_linear.py``), instead of
+re-dequantising (or, with the opt-in fp8 GEMM gate on, re-staging) the same
+unchanged weight on every chunk of ``seq_chunk_rows`` low-VRAM sequence chunking.
 """
 
 from __future__ import annotations
@@ -18,14 +18,16 @@ import torch
 import torch.nn.functional as F
 
 import src.platform.runtime.native.arch.minimax_h3.model as model_module
-import vendor.gpl.comfyui.ops as wo
 from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Attention
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
-from vendor.gpl.comfyui.ops import disable_weight_init, fp8_ops
+from tests.fixtures.kernel_gemm import install_gemm_verdicts, installed_gemm_verdicts
+from tests.fixtures.kernel_ops import patch_ops_name
+from src.platform.runtime.native.kernels import Fp8ScaledLinear, disable_weight_init, fp8_linear, fp8_ops
 
 from .._quant_layouts import int8_state_dict
 from ..memory.test_partial_prefetch import _install_fake_cuda
+from src.platform.settings.runtime_flags import runtime_flag_values
 
 
 def _stub_attention_core(monkeypatch) -> None:
@@ -112,7 +114,7 @@ def _install_fake_cuda_residency(monkeypatch, *, streamed: list[torch.Tensor]):
         return tensor.detach().to(dtype=dtype).clone()
 
     monkeypatch.setattr(torch.Tensor, "is_cuda", property(lambda self: id(self) not in streamed_ids))
-    monkeypatch.setattr(wo, "cast_to", _fake_cast_to)
+    patch_ops_name(monkeypatch, "cast_to", _fake_cast_to)
 
     def stage_calls_for(tensor):
         return [c for c in calls if c[0] == id(tensor)]
@@ -139,7 +141,7 @@ def _spy(monkeypatch, instance, method_name: str) -> list:
 # --- dequant path (gate off / ineligible): prepared once per projection -----
 
 def test_dequant_operand_prepared_once_per_projection_regardless_of_chunk_count(monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     x = torch.randn(1, 9, 16)
 
     unchunked_attn = _fp8_attn()
@@ -161,7 +163,7 @@ def test_dequant_operand_prepared_once_per_projection_regardless_of_chunk_count(
 
 
 def test_dequant_preparation_failure_propagates_and_subsequent_call_recovers(monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     attn = _fp8_attn()
     x = torch.randn(1, 9, 16)
     reference = attn(x, None, None, 0)
@@ -183,7 +185,7 @@ def test_dequant_preparation_failure_propagates_and_subsequent_call_recovers(mon
 
 
 def test_changed_weight_between_calls_is_never_stale_cached(monkeypatch):
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     attn = _fp8_attn()
     x = torch.randn(1, 9, 16)
     first = attn(x, None, None, seq_chunk_rows=4)
@@ -232,7 +234,7 @@ def test_fp8_fast_path_stages_weight_once_but_kernel_runs_once_per_chunk(monkeyp
     stage_calls_for = _install_fake_cuda_residency(
         monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight],
     )
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     # bf16: the fast path's dtype precondition (float16/bfloat16 only) -- the
     # layer itself stays fp32-registered, only the activation dtype matters.
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
@@ -243,7 +245,7 @@ def test_fp8_fast_path_stages_weight_once_but_kernel_runs_once_per_chunk(monkeyp
         kernel_calls.append(1)
         return torch.zeros(a.shape[0], b.shape[1], dtype=out_dtype)
 
-    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+    with installed_gemm_verdicts(fp8=True), \
          patch("torch._scaled_mm", side_effect=_fake_scaled_mm):
         attn(x, None, None, seq_chunk_rows=4)  # chunks of 4, 4, 1
 
@@ -282,7 +284,7 @@ def test_fp8_fast_path_kernel_rejection_downgrades_whole_projection_to_dequant(m
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     qkv_dequant_prep_calls = _spy(monkeypatch, attn.qkv_proj, "_prepare_dequant_operand")
@@ -296,7 +298,7 @@ def test_fp8_fast_path_kernel_rejection_downgrades_whole_projection_to_dequant(m
             raise RuntimeError("simulated kernel-level rejection")
         return real_kernel(a, b, scale_a=scale_a, scale_b=scale_b, out_dtype=out_dtype, bias=bias)
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", _flaky_scaled_mm)
     with torch.no_grad():
         out = attn(x, None, None, seq_chunk_rows=4)
@@ -313,7 +315,7 @@ def test_fp8_fast_path_kernel_rejection_downgrades_whole_projection_to_dequant(m
     # fully-dequantised (gate off) reference exactly (dequant math is
     # deterministic and identical either way); rebuild the model with the
     # SAME weights since the one under test now carries fast-path mock state.
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", False)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", False)
     ref_attn = _fp8_attn()
     with torch.no_grad():
         dense_reference = ref_attn(x, None, None, seq_chunk_rows=4)
@@ -324,10 +326,7 @@ def test_fp8_fast_path_staging_failure_falls_back_to_dequant_for_the_whole_proje
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    # bf16 and _scaled_mm_supported patched below, so every OTHER fast-path
-    # precondition holds -- isolates the staging failure itself as the reason
-    # dequant runs, not an unrelated ineligibility (dtype, device).
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     # Simulate an on-demand-staging OOM for BOTH projections: the fast path is
@@ -338,7 +337,7 @@ def test_fp8_fast_path_staging_failure_falls_back_to_dequant_for_the_whole_proje
     monkeypatch.setattr(attn.out_proj, "_stage_scaled_mm_weight", lambda device: None)
     dequant_calls = _spy(monkeypatch, attn.qkv_proj, "_prepare_dequant_operand")
 
-    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
+    with installed_gemm_verdicts(fp8=True), \
          patch("torch._scaled_mm", side_effect=AssertionError("kernel must not run when staging failed")):
         attn(x, None, None, seq_chunk_rows=4)
 
@@ -364,7 +363,7 @@ def test_prepared_linear_bails_to_passthrough_when_leaf_has_forward_hooks(monkey
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     hook_calls: list = []
@@ -379,7 +378,7 @@ def test_prepared_linear_bails_to_passthrough_when_leaf_has_forward_hooks(monkey
         kernel_calls.append(1)
         return torch.zeros(a.shape[0], b.shape[1], dtype=out_dtype)
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", _fake_scaled_mm)
     with torch.no_grad():
         attn(x, None, None, seq_chunk_rows=4)  # 3 chunks
@@ -406,14 +405,14 @@ def test_prepared_linear_resumes_amortising_once_hooks_are_removed(monkeypatch):
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     handle = attn.qkv_proj.register_forward_pre_hook(lambda mod, args: None)
     handle.remove()  # hooks gone before the forward even runs
 
     stage_calls = _spy(monkeypatch, attn.qkv_proj, "_stage_scaled_mm_weight")
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", lambda a, b, **kw: torch.zeros(a.shape[0], b.shape[1], dtype=kw["out_dtype"]))
     with torch.no_grad():
         attn(x, None, None, seq_chunk_rows=4)
@@ -432,11 +431,11 @@ def test_fp8_fast_path_prepared_chunked_matches_original_per_chunk_dispatch_by_v
     would show up as a real numeric mismatch, not just a shape match."""
     attn = _fp8_attn()
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
     chunks = list(x.split(4, dim=1))  # 4, 4, 1 -- ragged tail
 
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
 
     original_calls: list = []
     monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm(original_calls))
@@ -459,7 +458,7 @@ def _spy_stage_with_weakrefs(monkeypatch, leaf) -> list:
     """Wrap `leaf`'s `_stage_scaled_mm_weight` to record a weakref (never the
     tensor itself) of every genuinely-staged (non-resident) result."""
     refs: list[weakref.ReferenceType] = []
-    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+    real_stage = Fp8ScaledLinear._stage_scaled_mm_weight
 
     def _spy(self, device):
         result = real_stage(self, device)
@@ -467,7 +466,7 @@ def _spy_stage_with_weakrefs(monkeypatch, leaf) -> list:
             refs.append(weakref.ref(result))
         return result
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy)
+    monkeypatch.setattr(Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy)
     return refs
 
 
@@ -479,7 +478,7 @@ def test_staged_operand_weakref_dies_at_the_attention_core_boundary(monkeypatch)
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
     refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
@@ -491,7 +490,7 @@ def test_staged_operand_weakref_dies_at_the_attention_core_boundary(monkeypatch)
         return None  # dense fallback, same as the real seam on this CPU box
 
     monkeypatch.setattr(model_module, "sparse_attention", _recording_dispatch)
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm([]))
     with torch.no_grad():
         attn(x, None, None, seq_chunk_rows=4)
@@ -503,12 +502,12 @@ def test_staged_operand_weakref_dies_at_the_attention_core_boundary(monkeypatch)
 def test_staged_operand_weakref_dies_at_context_exit(monkeypatch):
     attn = _fp8_attn()
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
     chunks = list(x.split(4, dim=1))
 
     refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm([]))
 
     with torch.no_grad(), attn.qkv_proj.prepared_linear(x) as proj:
@@ -524,21 +523,21 @@ def test_staged_operand_weakref_dies_at_context_exit(monkeypatch):
 def test_staged_operand_weakref_dies_before_dense_fallback_on_kernel_rejection(monkeypatch):
     attn = _fp8_attn()
     _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
     chunks = list(x.split(4, dim=1))
 
     refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
     dead_before_dequant: list[bool] = []
-    real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
+    real_prepare = Fp8ScaledLinear._prepare_dequant_operand
 
     def _spy_prepare(self, dtype, device, **kwargs):
         gc.collect()
         dead_before_dequant.append(all(r() is None for r in refs))
         return real_prepare(self, dtype, device, **kwargs)
 
-    monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     monkeypatch.setattr(
         torch, "_scaled_mm",
         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("simulated kernel-level rejection")),
@@ -560,14 +559,14 @@ def test_prepared_linear_logs_why_the_fast_path_was_skipped(monkeypatch, caplog)
     upstream has and this file's single-call site closes with a one-shot,
     per-reason log. prepared_linear decides eligibility ONCE per loop, so a
     silent decision here hides a whole projection, not one call."""
-    wo.reset_scaled_mm_fast_path_rejection_log()
+    fp8_linear.reset_scaled_mm_fast_path_rejection_log()
     attn = _fp8_attn()
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     # float32 activation: the fast path takes float16/bfloat16 only.
     x = torch.randn(1, 9, 16)
 
-    with caplog.at_level(logging.WARNING, logger=wo.logger.name):
+    with caplog.at_level(logging.WARNING, logger=fp8_linear.logger.name):
         with torch.no_grad(), attn.qkv_proj.prepared_linear(x) as proj:
             for c in x.split(4, dim=1):
                 proj(c)
@@ -576,7 +575,7 @@ def test_prepared_linear_logs_why_the_fast_path_was_skipped(monkeypatch, caplog)
     assert any(
         "fast path unavailable" in m and "input_dtype=torch.float32" in m for m in messages
     ), messages
-    wo.reset_scaled_mm_fast_path_rejection_log()
+    fp8_linear.reset_scaled_mm_fast_path_rejection_log()
 
 
 # --- ground-truth parity: bias, ConvRot rotation, adapter deltas ------------
@@ -710,8 +709,8 @@ def test_fp8_fast_path_prepared_chunked_matches_the_ground_truth_dense_reference
     scale is non-scalar, which the fast path rejects by construction."""
     leaf, dense_weight, bias = _PARITY_LEAVES[leaf_kind][0]()
     _install_fake_cuda_residency(monkeypatch, streamed=[leaf.weight])
-    monkeypatch.setitem(wo.RUNTIME_FLAGS, "native_fp8_matmul", True)
-    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setitem(runtime_flag_values(), "native_fp8_matmul", True)
+    install_gemm_verdicts(monkeypatch, fp8=True)
     kernel_calls: list = []
     monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm(kernel_calls))
     x = torch.randn(1, 9, 16, generator=torch.Generator().manual_seed(5)).to(torch.bfloat16)

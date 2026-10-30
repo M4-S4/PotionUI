@@ -3,6 +3,7 @@ import pytest
 from src.features.chat.context_builder import ChatContextBuilder
 from src.features.llm.tools.governance import ToolGovernanceRepository
 from src.features.llm.tools.tool_conditionals import render_tool_conditionals
+from tests.fixtures.chat_engine import typed_history
 from tests.features.chat.test_tool_availability_transparency import (
     _make_builder,
     _session,
@@ -39,7 +40,7 @@ def _form_state(supported=True):
 
 def _state_block(metadata, offered=("get_current_segments",)):
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(history, metadata, offered_tools=set(offered))
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(history, metadata, offered_tools=set(offered))
     return history[0]["content"]
 
 
@@ -123,8 +124,8 @@ def test_batch_action_names_never_reach_the_model_when_unavailable(governance_db
     offered = set(allowed or ()).union(*(deferred or {}).values())
     history = [{"role": "user", "content": "hi"}]
     metadata = {"form_state": form_state, "segments": [_seg(0, "x")], "prompt_batch": _batch()}
-    builder.inject_prompt_state_block(history, metadata, offered_tools=offered)
-    builder.inject_tool_availability_block(history, allowed, withheld)
+    typed_history(builder.inject_prompt_state_block)(history, metadata, offered_tools=offered)
+    typed_history(builder.inject_tool_availability_block)(history, allowed, withheld)
     text = system_prompt + "\n" + "\n".join(m["content"] for m in history)
 
     for name in BATCH_ACTION_NAMES:

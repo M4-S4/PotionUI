@@ -15,7 +15,8 @@ vi.mock('$lib/services/api/index', () => ({
 const { default: GenerationCard } = await import('$lib/components/GenerationCard.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { registerEntryTools } = await import('$lib/tools/entryTools');
-const { registerMediaTool, pluginMediaToolFromManifest } = await import('$lib/tools/tools');
+const { registerMediaTool } = await import('$lib/tools/tools');
+const { mediaToolFromCatalog } = await import('$lib/tools/catalogTools');
 const { createHistoryEntryMenu } = await import('$lib/tools/entryMenu');
 
 import type { GenerationHistoryItem } from '$lib/types/history';
@@ -51,13 +52,23 @@ beforeAll(() => {
 		component: {} as never
 	});
 	registerMediaTool(
-		pluginMediaToolFromManifest({
-			id: 'upscale',
-			plugin_id: 'upscaler',
+		mediaToolFromCatalog({
+			id: 'upscaler.upscale',
 			label: 'Upscale',
-			category: 'compose',
-			component: 'Upscale.js',
-			applies_to: { max_selection: 1, media_kinds: ['image'] }
+			icon: 'extension',
+			accepts: ['image'],
+			produces: 'same',
+			cardinality: 'one_to_one',
+			params: [],
+			requires: {},
+			selection: { max: 1 },
+			scopes: ['history', 'library'],
+			editor: null,
+			preview: false,
+			component: 'plugin:upscaler:Upscale.js',
+			runnable: false,
+			source: 'upscaler',
+			last_params: null
 		})
 	);
 });
@@ -181,9 +192,27 @@ async function settle() {
 }
 
 describe('card hover row', () => {
-	it('holds exactly Delete and the more-actions menu button', () => {
+	it('holds exactly the Favorite toggle and the more-actions menu button', () => {
 		mounted = mountCard(generation('g1'));
-		expect(mounted.rowLabels()).toEqual(['Delete generation', 'Item actions']);
+		expect(mounted.rowLabels()).toEqual(['Favorite', 'Item actions']);
+	});
+
+	it('shows the Favorite toggle pressed and signal blue for a favorite, and removes it on press', () => {
+		const gen = generation('g1', { is_favorite: true });
+		mounted = mountCard(gen);
+		const toggle = mounted.target.querySelector<HTMLButtonElement>('[data-entry-favorite]')!;
+
+		expect(toggle.getAttribute('aria-label')).toBe('Remove favorite');
+		expect(toggle.getAttribute('aria-pressed')).toBe('true');
+		expect(toggle.className).toContain('text-signal');
+	});
+
+	it('leaves the Favorite toggle off for a generation that is not a favorite', () => {
+		mounted = mountCard(generation('g1'));
+		const toggle = mounted.target.querySelector<HTMLButtonElement>('[data-entry-favorite]')!;
+
+		expect(toggle.getAttribute('aria-pressed')).toBe('false');
+		expect(toggle.className).not.toContain('text-signal');
 	});
 
 	it('no longer renders the favorite, details, download or reuse buttons', () => {
@@ -194,19 +223,23 @@ describe('card hover row', () => {
 		}
 	});
 
-	it('Delete asks the page for the confirmed delete with the generation', () => {
-		const gen = generation('g1');
-		mounted = mountCard(gen);
-		mounted.target.querySelector<HTMLButtonElement>('[aria-label="Delete generation"]')!.click();
-		expect(mounted.deleted).toHaveBeenCalledWith(gen);
+	it('has no Delete or details icon on the card, only in the menu', async () => {
+		mounted = mountCard(generation('g1'));
+		const labels = Array.from(mounted.target.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'));
+		expect(labels).not.toContain('Delete generation');
+		expect(labels).not.toContain('View generation details');
+
+		mounted.trigger().click();
+		await settle();
+		expect(document.body.querySelector('[data-tool="delete"]')).not.toBeNull();
 	});
 
-	it('folds Delete into the menu on a narrow tile but keeps the menu button', () => {
+	it('keeps the Favorite toggle and the menu button on a narrow tile', () => {
 		mounted = mountCard(generation('g1'), { width: 120 });
-		expect(mounted.rowLabels()).toEqual(['Item actions']);
+		expect(mounted.rowLabels()).toEqual(['Favorite', 'Item actions']);
 		mounted.destroy();
 		mounted = mountCard(generation('g1'), { width: 90 });
-		expect(mounted.rowLabels()).toEqual(['Item actions']);
+		expect(mounted.rowLabels()).toEqual(['Favorite', 'Item actions']);
 		expect(mounted.trigger().style.width).toBe('20px');
 	});
 
@@ -246,13 +279,13 @@ describe('menu contents per variant', () => {
 		return mounted;
 	}
 
-	it('image: grouped Open, Compose, Export, Organize and a red Delete last', async () => {
+	it('image: grouped Plugins, Open, Compose, Export, Organize and a red Delete last', async () => {
 		await open(generation('g1'));
 		expect(toolIds()).toEqual([
+			'upscaler.upscale',
 			'open-details',
 			'reuse-settings',
 			'edit-image',
-			'upscale',
 			'download',
 			'copy-image',
 			'copy-prompt',
@@ -263,7 +296,7 @@ describe('menu contents per variant', () => {
 			'delete'
 		]);
 		const groups = Array.from(menu()!.querySelectorAll('[role="group"]')).map((el) => el.getAttribute('aria-label'));
-		expect(groups).toEqual(['Open', 'Compose', 'Export', 'Organize', 'Danger']);
+		expect(groups).toEqual(['Plugins', 'Open', 'Compose', 'Export', 'Organize', 'Danger']);
 		expect(document.body.querySelector('[data-tool="delete"]')!.className).toContain('text-danger');
 	});
 
@@ -280,13 +313,15 @@ describe('menu contents per variant', () => {
 		expect(labelOf('download')).toContain('D');
 		expect(labelOf('favorite')).toContain('F');
 		expect(labelOf('delete')).toContain('⌫');
-		expect(labelOf('open-details')).toContain('↵');
+		expect(labelOf('open-details')).not.toContain('↵');
 	});
 
-	it('plugin tools carry a PLUGIN tag, core tools do not', async () => {
+	it('a plugin tool names its plugin on a second line, a core tool does not', async () => {
 		await open(generation('g1'));
-		expect(labelOf('upscale').toLowerCase()).toContain('plugin');
-		expect(labelOf('edit-image').toLowerCase()).not.toContain('plugin');
+		expect(menu()!.querySelector('[data-tool="upscaler.upscale"] [data-tool-sub]')!.textContent).toBe(
+			'Upscaler'
+		);
+		expect(menu()!.querySelector('[data-tool="edit-image"] [data-tool-sub]')).toBeNull();
 	});
 
 	it('video: no image-only tools', async () => {
@@ -294,7 +329,7 @@ describe('menu contents per variant', () => {
 		expect(toolIds()).toContain('download');
 		expect(toolIds()).not.toContain('edit-image');
 		expect(toolIds()).not.toContain('copy-image');
-		expect(toolIds()).not.toContain('upscale');
+		expect(toolIds()).not.toContain('upscaler.upscale');
 	});
 
 	it('audio: details and export without image tools', async () => {

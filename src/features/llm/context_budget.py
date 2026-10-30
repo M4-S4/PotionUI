@@ -1,85 +1,19 @@
-"""Model-aware request budgeting shared by every ``LLMGateway`` send path.
-
-The chat history token budget (``conversation._apply_history_budget``) trims
-*displayed* history against an operator-configured setting before any of the
-per-turn context blocks (contributor, resource, memory, workspace, prompt
-state, reply-contract reminder) or tool schemas are added, and it never looks
-at what the target model can actually hold. That leaves the request the model
-receives unbounded: a tool loop resends the whole growing message list every
-round with no re-check, so a long tool conversation can silently exceed the
-model's real context window.
-
-This module is the one place request size is measured and enforced against
-that real capacity. ``LLMGateway`` calls ``enforce_budget`` immediately before
-every wire call (the first turn AND every tool-loop round AND the final
-wrap-up — see ``LLMGateway._budgeted``), so no provider path can bypass it.
-``ChatContextBuilder``/``ConversationRunner`` also call it once, before the
-first call, purely to report an honest pre-flight number into the persisted
-context ledger (see ``ConversationRunner._build_context_ledger``) — same
-function, same numbers, not a second heuristic.
-
-Capacity comes from explicit configuration (``provider_options`` — either the
-generic ``context_window`` key or, for an Ollama config, the existing
-``num_ctx`` knob already wired into the request), else from what the provider
-itself reported (``capacity_source="discovered"``). Nothing here ever
-infers a model's window from its name or parameter count: an unknown
-capacity is reported honestly as ``capacity_source="unknown"`` with a
-conservative, clearly-labelled default (see ``UNKNOWN_CAPACITY_TOKENS``)
-rather than a guess dressed up as a fact.
-
-Token counting has three tiers, reported per turn as ``accounting`` in the
-ledger:
-
-- ``"chat_template"`` / ``"chat_template_shrunk"`` — a whole-request count via
-  a warm native checkpoint's own tokenizer, applying its chat template (and,
-  when tools are given, the SAME prompt-injected tool text the real send
-  folds into the system message — see ``MessagesCounter``) to the
-  actually-kept system + history exactly as ``NativeLLMClient`` would before
-  generating (see ``NativeLLMClient.messages_token_counter``). The only tiers
-  that report ``measured=True`` (and only when no image is attached — a
-  successful exact count already includes the tools, so nothing else is
-  estimated) — everything else is honestly an estimate, never presented as
-  exact. The fragment-based trim below decides an initial candidate; when a
-  whole-request counter is available, ``enforce_budget`` then RECOUNTS that
-  candidate exactly and, if it's over budget, drops the next-oldest eligible
-  unit and recounts again (bounded by how many eligible units remain) —
-  ``"chat_template"`` means the first recount already fit,
-  ``"chat_template_shrunk"`` means one or more extra units had to go (see
-  ``chat_template_extra_dropped`` in the ledger). This can go either way
-  relative to the fragment estimate: the exact count may fit a candidate the
-  fragment/framing estimate thought didn't (framing is deliberately
-  conservative), or it may need to drop more than the fragment estimate
-  alone would have.
-- ``"fragments+framing"`` — a real per-fragment tokenizer (``counter``, e.g.
-  ``NativeLLMClient.token_counter``) summed message-by-message, plus
-  ``FRAMING_TOKENS_PER_MESSAGE`` per message. A per-fragment sum never sees
-  the chat template's role/special-token wrapping, so even with a real
-  tokenizer behind it this tier is always ``measured=False`` — it is what
-  drives the incremental per-unit trimming decision (a whole-request
-  chat-template count can't tell you what ONE candidate message costs). Also
-  the tier a whole-request counter falls back to if it raises partway
-  through the recount loop (``"chat_template_fallback"``, in the ledger's
-  ``accounting``) — continuing whole-unit trimming from wherever the exact
-  recount had already shrunk to, never resurrecting a larger candidate an
-  earlier exact recount already proved over capacity.
-- ``"estimate"`` — no tokenizer at all (Ollama/OpenAI never have one
-  in-process): the labelled chars-per-token heuristic throughout.
-
-An attached image always forces ``measured=False`` (its cost is inherently an
-estimate — see ``multimodal_allowance``) regardless of which tier text
-accounting used.
-"""
-
 from __future__ import annotations
 
 import json
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Literal, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Sequence, TYPE_CHECKING
+
+from src.features.llm.harness.context import user_text
+from src.features.llm.harness.messages import ContextPart, ImagePart, Message, Role
+
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.profile import CapabilityProfile, ProfileSource, ReasoningKind
+from src.features.llm.harness.tool_choice import REASONING_OFF
 
 if TYPE_CHECKING:
-    from src.features.llm.model_listing import DiscoveredWindow
     from src.features.llm.repository import LLMConfig
 
 logger = logging.getLogger(__name__)
@@ -108,8 +42,6 @@ FRAMING_TOKENS_PER_MESSAGE = 4
 # from the model.
 UNKNOWN_CAPACITY_TOKENS = 8192
 
-OLLAMA_TRAINED_WINDOW_CAP_TOKENS = 32768
-
 # Per-image allowance used when the provider has no known per-image token
 # cost of its own — deliberately conservative (near OpenAI's documented
 # low-detail image cost) since undercounting here is what lets a request
@@ -127,8 +59,6 @@ MIN_RESERVE_TOKENS = 1024
 THINKING_ALLOWANCE_FRACTION = 0.10
 THINKING_ALLOWANCE_CAP_TOKENS = 4096
 
-_OLLAMA_THINK_LEVELS = ("low", "medium", "high")
-
 TOOL_TIER_COMPACT = "compact"
 TOOL_TIER_STANDARD = "standard"
 TOOL_TIER_LARGE = "large"
@@ -136,20 +66,7 @@ COMPACT_TOOL_TIER_BELOW_TOKENS = 24576
 LARGE_TOOL_TIER_ABOVE_TOKENS = 65536
 
 TokenCounter = Callable[[str], int]
-# A whole-request counter: (system_message, kept_messages, tool_schemas) ->
-# exact token count of the ACTUALLY PREPARED request via a real chat template
-# (see `NativeLLMClient.messages_token_counter`) — when tool_schemas is given
-# and the provider is prompt-injected-tools, the count already includes the
-# tool text folded into the system message exactly as the real send builds
-# it, so `enforce_budget` never adds a separate tool-schema estimate on top
-# of a count this counter produced. Unlike `TokenCounter` this can't price a
-# single candidate message in isolation, so it is only used on the final kept
-# set `fit_messages` already decided on (and its shrink-loop candidates —
-# see `enforce_budget`), never inside the incremental per-unit trimming walk
-# itself. A provider that can't reproduce its own prepared tool-request shape
-# should raise rather than approximate — `enforce_budget` then falls back to
-# the fragment/framing tier exactly as it does for any other counter failure.
-MessagesCounter = Callable[[Optional[str], List[Dict[str, Any]], Optional[List[Dict[str, Any]]]], int]
+MessagesCounter = Callable[[Optional[str], List[Message], Optional[List[Dict[str, Any]]]], int]
 
 
 @dataclass(frozen=True)
@@ -157,7 +74,7 @@ class CapacityInfo:
     """The effective context-window size for one call, and where it came from."""
 
     capacity_tokens: int
-    source: Literal["config", "discovered", "unknown"]
+    source: str
 
 
 @dataclass(frozen=True)
@@ -168,7 +85,7 @@ class TokenCount:
 
 @dataclass(frozen=True)
 class TrimResult:
-    messages: List[Dict[str, Any]]
+    messages: List[Message]
     dropped_messages: int
     dropped_groups: int
     fits: bool
@@ -178,7 +95,7 @@ class TrimResult:
     # (oldest-first) instead of flattened — what `enforce_budget`'s exact
     # whole-request recount loop shrinks from, one unit at a time, without
     # having to re-derive grouping from the flat list.
-    kept_units: List[List[Dict[str, Any]]]
+    kept_units: List[List[Message]]
     # How many of the trailing `kept_units` are protected (the current-turn
     # stack — see `_protected_unit_count`) and therefore never eligible for
     # the recount loop to drop either.
@@ -189,7 +106,7 @@ class TrimResult:
 class BudgetOutcome:
     """What a caller needs after a successful ``enforce_budget`` call."""
 
-    messages: List[Dict[str, Any]]
+    messages: List[Message]
     ledger: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -200,7 +117,7 @@ class ContextProfile:
     counter: Optional[TokenCounter] = None
     messages_counter: Optional[MessagesCounter] = None
     image_tokens_override: Optional[int] = None
-    max_tokens: int = 0
+    max_tokens: Optional[int] = 0
     thinking_enabled: bool = False
     thinking_allowance_tokens: int = 0
 
@@ -241,41 +158,15 @@ class ContextBudgetExceededError(Exception):
         )
 
 
-def effective_discovered_tokens(config_type: Optional[str], discovered: "DiscoveredWindow") -> int:
-    if config_type == "ollama" and discovered.kind == "trained":
-        return min(discovered.tokens, OLLAMA_TRAINED_WINDOW_CAP_TOKENS)
-    return discovered.tokens
-
-
-def resolve_capacity(config: "LLMConfig", discovered: Optional["DiscoveredWindow"] = None) -> CapacityInfo:
-    """The effective context-window size for *config*.
-
-    Reads configuration first, then the window the provider reported
-    (*discovered*), in order:
-    1. ``provider_options.context_window`` — generic, any provider type.
-    2. ``provider_options.num_ctx`` — the existing Ollama context-size knob
-       (see ``ollama_wire.OLLAMA_OPTION_KEYS``), honoured here too so setting
-       it continues to mean the same thing it already does on the wire.
-    3. *discovered* — labelled ``capacity_source="discovered"``; for Ollama a
-       trained window is capped at ``OLLAMA_TRAINED_WINDOW_CAP_TOKENS``.
-    4. ``UNKNOWN_CAPACITY_TOKENS``, labelled ``capacity_source="unknown"`` —
-       never a guess derived from the model's name or parameter count.
-    """
-    provider_opts = getattr(config, "provider_options", None) or {}
-
-    explicit = provider_opts.get("context_window")
-    if _is_positive_number(explicit):
-        return CapacityInfo(int(explicit), "config")
-
-    if getattr(config, "type", None) == "ollama":
-        num_ctx = provider_opts.get("num_ctx")
-        if _is_positive_number(num_ctx):
-            return CapacityInfo(int(num_ctx), "config")
-
-    if discovered is not None:
-        return CapacityInfo(effective_discovered_tokens(getattr(config, "type", None), discovered), "discovered")
-
-    return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
+def resolve_capacity(profile: CapabilityProfile) -> CapacityInfo:
+    sized = [
+        (tokens, name) for name, tokens in (("context_window", profile.context_window), ("context_request", profile.context_request))
+        if tokens
+    ]
+    if not sized:
+        return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
+    tokens, name = min(sized)
+    return CapacityInfo(tokens, ProfileSource(profile.sources.get(name, ProfileSource.SEED)).value)
 
 
 def tool_tier(capacity: CapacityInfo) -> str:
@@ -300,35 +191,13 @@ def resolve_image_token_override(config: "LLMConfig") -> Optional[int]:
     return int(value) if _is_positive_number(value) else None
 
 
-def resolve_native_tools(tools: Optional[List[Dict[str, Any]]], *, force_prompt_tools: bool) -> bool:
-    return bool(tools) and not force_prompt_tools
-
-
-def resolve_thinking_enabled(
-    config: "LLMConfig", options_override: Optional[Dict[str, Any]] = None,
-) -> bool:
-    provider_type = getattr(config, "type", None)
-    provider_opts = getattr(config, "provider_options", None) or {}
-    options_override = options_override or {}
-
-    if provider_type == "ollama":
-        value = options_override.get("think")
-        if value is None:
-            value = provider_opts.get("think")
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value in _OLLAMA_THINK_LEVELS
-        return False
-
-    if provider_type == "native":
-        return provider_opts.get("thinking") is True
-
-    if provider_type == "openai":
-        value = provider_opts.get("reasoning_effort")
-        return value is not None and value != "none"
-
-    return False
+def resolve_thinking_enabled(settings: Settings, profile: CapabilityProfile) -> bool:
+    value = settings.reasoning
+    if value is None:
+        return profile.reasoning is ReasoningKind.ALWAYS_ON
+    if isinstance(value, str):
+        return value.strip().lower() not in REASONING_OFF
+    return value is not False
 
 
 @dataclass(frozen=True)
@@ -340,7 +209,8 @@ class ReserveInfo:
 
 
 def resolve_reserve(*, max_tokens: Any, window_tokens: int, thinking_enabled: bool) -> ReserveInfo:
-    base = min(max(0, int(max_tokens)), max(MIN_RESERVE_TOKENS, math.ceil(RESERVE_WINDOW_FRACTION * window_tokens)))
+    standard = max(MIN_RESERVE_TOKENS, math.ceil(RESERVE_WINDOW_FRACTION * window_tokens))
+    base = standard if max_tokens is None else min(max(0, int(max_tokens)), standard)
     allowance = (
         min(THINKING_ALLOWANCE_CAP_TOKENS, math.ceil(THINKING_ALLOWANCE_FRACTION * window_tokens))
         if thinking_enabled else 0
@@ -355,13 +225,13 @@ def resolve_reserve(*, max_tokens: Any, window_tokens: int, thinking_enabled: bo
 
 def resolve_sent_max_tokens(
     *,
-    max_tokens: int,
+    max_tokens: Optional[int],
     reserve_tokens: int,
     capacity_tokens: int,
     capacity_source: str,
     estimated_prompt_tokens: int,
-) -> int:
-    if capacity_source == "unknown":
+) -> Optional[int]:
+    if max_tokens is None or capacity_source == "unknown":
         return max_tokens
     return min(max_tokens, max(reserve_tokens, capacity_tokens - estimated_prompt_tokens))
 
@@ -382,39 +252,58 @@ def count_text(text: Optional[str], counter: Optional[TokenCounter]) -> TokenCou
     return TokenCount(math.ceil(len(text) / DEFAULT_CHARS_PER_TOKEN), False)
 
 
-def _message_text_units(message: Dict[str, Any]) -> List[str]:
-    """Every piece of *message* that actually reaches the wire as text —
-    content, plus the serialised tool_calls a dispatching assistant turn
-    carries (real request payload, not just what's shown in the UI)."""
-    units = [message.get("content") or ""]
-    tool_calls = message.get("tool_calls")
-    if tool_calls:
-        try:
-            units.append(json.dumps(tool_calls))
-        except (TypeError, ValueError):
-            units.append(str(tool_calls))
-    return units
+def _tool_calls_json(message: Message) -> Optional[str]:
+    calls = message.tool_calls()
+    if not calls:
+        return None
+    payload = [
+        {
+            "id": call.wire_id or call.call_id,
+            "type": "function",
+            "function": {"name": call.name, "arguments": call.args if call.args is not None else (call.args_raw or "")},
+        }
+        for call in calls
+    ]
+    try:
+        return json.dumps(payload)
+    except (TypeError, ValueError):
+        return str(payload)
 
 
-def count_messages(messages: List[Dict[str, Any]], counter: Optional[TokenCounter]) -> TokenCount:
-    """Sum of per-fragment costs across *messages*, plus
-    ``FRAMING_TOKENS_PER_MESSAGE`` per message for the chat-template wrapping
-    a per-fragment sum can't see. Always ``measured=False`` — see the module
-    docstring's "fragments+framing" tier: the framing allowance is itself an
-    estimate no matter how the fragments themselves were counted, so this is
-    never presented as an exact count. (``enforce_budget`` uses a real
-    whole-request chat-template count instead, when one is available, for
-    the number it actually reports/enforces; this function only drives the
-    incremental per-unit trimming decision, which needs a per-candidate
-    cost a whole-request count can't give.)
-    """
+def wire_fragments(message: Message) -> List[List[str]]:
+    if message.role is Role.TOOL:
+        return [[result.text()] for result in message.tool_results()]
+    if message.role is Role.USER:
+        return [[user_text(message)]]
+    units = [message.text()]
+    reasoning = "".join(part.text or part.summary for part in message.reasoning())
+    if reasoning:
+        units.append(reasoning)
+    calls = _tool_calls_json(message)
+    if calls:
+        units.append(calls)
+    return [units]
+
+
+def count_messages(messages: Sequence[Message], counter: Optional[TokenCounter]) -> TokenCount:
     total = 0
+    wire_messages = 0
     for message in messages:
-        for unit in _message_text_units(message):
-            total += count_text(unit, counter).tokens
-    if messages:
-        total += FRAMING_TOKENS_PER_MESSAGE * len(messages)
+        for fragments in wire_fragments(message):
+            wire_messages += 1
+            for fragment in fragments:
+                total += count_text(fragment, counter).tokens
+    total += FRAMING_TOKENS_PER_MESSAGE * wire_messages
     return TokenCount(total, False)
+
+
+def has_image(messages: Sequence[Message]) -> bool:
+    for message in messages:
+        if any(isinstance(part, ImagePart) for part in message.parts):
+            return True
+        if any(isinstance(item, ImagePart) for result in message.tool_results() for item in result.content):
+            return True
+    return False
 
 
 def count_tool_schemas(
@@ -429,112 +318,65 @@ def count_tool_schemas(
     return count_text(text, counter)
 
 
-def multimodal_allowance(image_data: Optional[str], *, per_image_tokens: Optional[int] = None) -> int:
-    """The extra token cost of one attached image — a provider-known cost
-    when the caller has one, else ``DEFAULT_IMAGE_TOKEN_ESTIMATE``. Zero when
-    no image is attached (the truthiness of *image_data* is all that
-    matters — it may be a raw path, not yet base64-decoded)."""
-    if not image_data:
+def multimodal_allowance(image_attached: bool, *, per_image_tokens: Optional[int] = None) -> int:
+    if not image_attached:
         return 0
     return per_image_tokens if per_image_tokens is not None else DEFAULT_IMAGE_TOKEN_ESTIMATE
 
 
-def attach_context_block(conversation_history: List[Dict[str, Any]], block: str) -> None:
-    """Append a delimited context block to the current user turn."""
-    wrapped = f"\n\n<context>\n{block}\n</context>"
-    for i in range(len(conversation_history) - 1, -1, -1):
-        message = conversation_history[i]
-        if message.get("role") == "user":
-            conversation_history[i] = {**message, "content": (message.get("content") or "") + wrapped}
-            return
-    conversation_history.append({"role": "user", "content": block})
-
-
-def atomic_units(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
-    """Group *messages* into the smallest units that must be dropped whole.
-
-    An assistant turn that dispatched tool calls is grouped with the ``tool``
-    result messages that immediately follow it — dropping only half of that
-    pair would send an assistant turn referencing tool_call_ids with no
-    matching result (invalid on every wire format) or a tool result with no
-    call to answer. Every other message is its own unit.
-    """
-    units: List[List[Dict[str, Any]]] = []
-    i, n = 0, len(messages)
-    while i < n:
-        message = messages[i]
-        if message.get("role") == "assistant" and message.get("tool_calls"):
+def atomic_units(messages: Sequence[Message]) -> List[List[Message]]:
+    units: List[List[Message]] = []
+    index, total = 0, len(messages)
+    while index < total:
+        message = messages[index]
+        if message.role is Role.ASSISTANT and message.tool_calls():
             group = [message]
-            j = i + 1
-            while j < n and messages[j].get("role") == "tool":
-                group.append(messages[j])
-                j += 1
+            follow = index + 1
+            while follow < total and messages[follow].role is Role.TOOL:
+                group.append(messages[follow])
+                follow += 1
             units.append(group)
-            i = j
+            index = follow
         else:
             units.append([message])
-            i += 1
+            index += 1
     return units
 
 
-def current_turn_anchor(units: List[List[Dict[str, Any]]]) -> Optional[int]:
-    """Index of the unit that anchors the current turn: the LAST user-role
-    unit in the list.
+def _is_turn_anchor(unit: List[Message]) -> bool:
+    if len(unit) != 1 or unit[0].role is not Role.USER:
+        return False
+    return any(not isinstance(part, ContextPart) for part in unit[0].parts) or not unit[0].parts
 
-    A user message is always its own atomic unit — `atomic_units` only ever
-    groups an assistant tool-calls message with the `tool` results that
-    follow it, never a user message with anything else — so the last unit
-    whose sole message has role "user" reliably identifies the turn every
-    later unit (its injected context blocks before it, its tool rounds and
-    any trailing nudge after it) belongs to, even across several prior
-    turns of history.
-    """
-    for i in range(len(units) - 1, -1, -1):
-        unit = units[i]
-        if len(unit) == 1 and unit[0].get("role") == "user":
-            return i
+
+def current_turn_anchor(units: List[List[Message]]) -> Optional[int]:
+    for index in range(len(units) - 1, -1, -1):
+        if _is_turn_anchor(units[index]):
+            return index
     return None
 
 
-def _protected_unit_count(units: List[List[Dict[str, Any]]]) -> int:
-    """How many trailing units belong to the current turn and are never
-    eligible for trimming.
-
-    The current turn is not simply "the last unit": once a tool loop is
-    running, the workflow appends more units AFTER the user message that
-    started the turn — the tool-call/result group(s) each round produces,
-    and a trailing nudge folded into that same user message on the
-    next/final request (see ``ToolWorkflow._next_request``/
-    ``_final_request``, ``attach_context_block``). Protecting only the
-    physically-last unit would let the budget silently trim the user's own
-    question (and its per-turn context, now folded into that same message)
-    out from under a still-running tool loop, while reporting the request as
-    fitting.
-
-    Protected, in full — everything from the current-turn anchor (see
-    ``current_turn_anchor``) to the end of the list, plus a system-role
-    message at index 0 when it directly precedes the anchor (``anchor ==
-    1``): a caller-prepended system turn (this module never produces one
-    itself — every per-turn injection instead folds into the anchor's own
-    content via ``attach_context_block``). Narrower than protecting any
-    system unit preceding the anchor — an old turn sitting between index 0
-    and the anchor must still be trimmable. No user-role unit found at all
-    (should not happen in practice) degrades to protecting just the last
-    unit.
-    """
+def _protected_unit_count(units: List[List[Message]]) -> int:
     if not units:
         return 0
     anchor = current_turn_anchor(units)
     if anchor is None:
         return 1
     protected_from = anchor
-    if anchor == 1 and len(units[0]) == 1 and units[0][0].get("role") == "system":
+    if anchor == 1 and len(units[0]) == 1 and units[0][0].role is Role.SYSTEM:
         protected_from = 0
     return len(units) - protected_from
 
 
+def _from_a_user_message(units: List[List[Message]], protected_count: int) -> List[List[Message]]:
+    start = 0
+    while len(units) - start > protected_count and units[start][0].role is not Role.USER:
+        start += 1
+    return units[start:]
+
+
 def fit_messages(
-    messages: List[Dict[str, Any]],
+    messages: Sequence[Message],
     *,
     available_tokens: int,
     counter: Optional[TokenCounter],
@@ -563,7 +405,9 @@ def fit_messages(
         used += c.tokens
         measured = measured and c.measured
 
-    kept_units = list(reversed(kept_units_reversed))
+    fitted = list(reversed(kept_units_reversed))
+    kept_units = _from_a_user_message(fitted, protected_count)
+    used -= sum(count_messages(unit, counter).tokens for unit in fitted[: len(fitted) - len(kept_units)])
     kept_messages = [m for unit in kept_units for m in unit]
     total_messages = sum(len(u) for u in units)
     kept_message_count = sum(len(u) for u in kept_units)
@@ -586,9 +430,9 @@ def enforce_budget(
     capacity_source: str,
     reserve_tokens: int,
     system_message: Optional[str],
-    messages: List[Dict[str, Any]],
+    messages: Sequence[Message],
     tool_schemas: Optional[List[Dict[str, Any]]] = None,
-    image_data: Optional[str] = None,
+    image_attached: bool = False,
     image_tokens: Optional[int] = None,
     counter: Optional[TokenCounter] = None,
     messages_counter: Optional[MessagesCounter] = None,
@@ -627,7 +471,7 @@ def enforce_budget(
     reserve = max(0, int(reserve_tokens))
     system_count = count_text(system_message, counter)
     tools_count = count_tool_schemas(tool_schemas, counter)
-    image_count = multimodal_allowance(image_data, per_image_tokens=image_tokens)
+    image_count = multimodal_allowance(image_attached, per_image_tokens=image_tokens)
 
     fixed_tokens = system_count.tokens + tools_count.tokens + image_count
     available_for_messages = capacity_tokens - reserve - fixed_tokens
@@ -662,8 +506,9 @@ def enforce_budget(
                 break
             if len(kept_units) <= trim.protected_count:
                 break
-            kept_units.pop(0)
-            chat_template_extra_dropped += 1
+            shrunk = _from_a_user_message(kept_units[1:], trim.protected_count)
+            chat_template_extra_dropped += len(kept_units) - len(shrunk)
+            kept_units = shrunk
 
         if counter_ok:
             accounting = "chat_template_shrunk" if chat_template_extra_dropped else "chat_template"
@@ -757,9 +602,8 @@ def budget_with_profile(
     profile: Optional[ContextProfile],
     *,
     system_message: Optional[str],
-    messages: List[Dict[str, Any]],
+    messages: Sequence[Message],
     tool_schemas: Optional[List[Dict[str, Any]]] = None,
-    image_data: Optional[str] = None,
 ) -> BudgetOutcome:
     p = profile or ContextProfile(
         capacity=CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown"),
@@ -772,7 +616,7 @@ def budget_with_profile(
         system_message=system_message,
         messages=messages,
         tool_schemas=tool_schemas,
-        image_data=image_data,
+        image_attached=has_image(messages),
         image_tokens=p.image_tokens_override,
         counter=p.counter,
         messages_counter=p.messages_counter,

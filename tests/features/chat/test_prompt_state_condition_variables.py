@@ -1,3 +1,4 @@
+from src.features.llm.harness.replay import policy_replay
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -7,6 +8,7 @@ from src.features.chat.runtime import ChatRuntime
 from src.features.llm.tools.base import ToolServices
 from tests.fixtures.chat_modes import mode_registry
 from tests.fixtures.fake_tab_drafts import TAB_ID, make_manager, seed
+from tests.fixtures.chat_engine import ScriptedTurnEngine, llm_service_mock
 
 CONTEXT = {
     "form_state": {"tab_id": TAB_ID, "preset": "sdxl/base"},
@@ -26,21 +28,23 @@ def _runtime(owner="user-1"):
     repo = Mock()
     session = Mock(id="session-1", user_id="user-1", status="active", llm_config_id="llm-1", mode="generation", metadata=None)
     repo.get_session.return_value = session
-    repo.get_conversation_history.return_value = []
     repo.add_message.side_effect = [
         MessageResponse(id="m-user", session_id="session-1", role="user", content="hi"),
         MessageResponse(id="m-asst", session_id="session-1", role="assistant", content="ok"),
     ]
-    llm = Mock()
+    engine = ScriptedTurnEngine()
+    engine.script(["ok"])
     runtime = ChatRuntime(
         chat_repository=repo,
-        llm_service=llm,
+        llm_service=llm_service_mock(),
         response_processor=processor,
         plugin_registry=plugins,
         chat_mode_registry=mode_registry(),
         tool_services=ToolServices(tab_drafts=drafts),
+        turn_engine=engine,
+        replay_selector=policy_replay,
     )
-    return runtime, llm
+    return runtime, engine
 
 
 def _assert_prompt_state_carries_the_tab_variables(messages):
@@ -51,46 +55,29 @@ def _assert_prompt_state_carries_the_tab_variables(messages):
 
 @pytest.mark.asyncio
 async def test_the_streaming_send_shows_the_tab_variables_in_prompt_state():
-    runtime, llm = _runtime()
-    seen = {}
-
-    async def _stream(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        yield {"type": "token", "content": "ok"}
-
-    llm.stream_with_history = Mock(side_effect=_stream)
+    runtime, engine = _runtime()
     async for _ in runtime.send_message_stream(
         session_id="session-1", user_id="user-1", content="explain my condition", context_metadata=CONTEXT,
     ):
         pass
-    _assert_prompt_state_carries_the_tab_variables(seen["messages"])
+    _assert_prompt_state_carries_the_tab_variables(engine.call_kwargs["messages"])
 
 
 @pytest.mark.asyncio
 async def test_the_buffered_send_shows_the_tab_variables_in_prompt_state():
-    runtime, llm = _runtime()
-    llm.generate_with_history = AsyncMock(return_value=Mock(
-        content="ok", model="m", tokens_used=1, prompt_tokens=1, completion_tokens=1,
-    ))
+    runtime, engine = _runtime()
     await runtime.send_message(
         session_id="session-1", user_id="user-1", content="explain my condition", context_metadata=CONTEXT,
     )
-    _assert_prompt_state_carries_the_tab_variables(llm.generate_with_history.call_args.kwargs["messages"])
+    _assert_prompt_state_carries_the_tab_variables(engine.call_kwargs["messages"])
 
 
-async def _prompt_state_turn(runtime, llm, form_state):
-    seen = {}
-
-    async def _stream(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        yield {"type": "token", "content": "ok"}
-
-    llm.stream_with_history = Mock(side_effect=_stream)
+async def _prompt_state_turn(runtime, engine, form_state):
     async for _ in runtime.send_message_stream(
         session_id="session-1", user_id="user-1", content="hi", context_metadata={**CONTEXT, "form_state": form_state},
     ):
         pass
-    return seen["messages"][-1]["content"]
+    return engine.call_kwargs["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio

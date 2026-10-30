@@ -206,6 +206,11 @@ export interface ProgressData {
 	current_step?: string;
 	pipe_id?: number;
 	pipe_name?: string;
+	item_index?: number;
+	item_count?: number;
+	item_progress?: number;
+	prompt_index?: number;
+	prompt_count?: number;
 }
 
 /** Shape of a running/completed generation object from the WebSocket or API. */

@@ -25,7 +25,9 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
     context_token_count,
     decode_bytes_per_context_token,
     decode_bytes_per_latent_cell,
+    decode_fits_beside,
     decode_with_oom_retry,
+    min_decode_gb,
     estimate_stages_1_to_3_gb,
     estimate_whole_clip_decode_gb,
     supports_diffusion_tiled_decode,
@@ -33,7 +35,7 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
 from src.platform.runtime.native.vae.ltx_diffusion_video import LTXDiffusionVideoVAE
 from src.platform.settings import runtime_flags
 from tests.platform.runtime.native.vae.test_ltx_diffusion_video import _TINY_CONFIG, _randomize_weights
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 
 _MOD = "src.pipelines.pipes._shared.vae.ltx_tiled_decode"
 
@@ -606,3 +608,90 @@ class TestAutoTileSizes:
         with _tile_override(0, 0):
             sizes = auto_decode_tile_sizes(vae.module, torch.zeros(*_LATENT_SHAPE), None)
         assert sizes["tile_sample_min_height"] == 768
+
+
+def _smallest_tile_gb(module):
+    patch_size = module.decoder.patch_size
+    ratio_t, ratio_hw = module.temporal_compression_ratio, module.spatial_compression_ratio
+    tile_px, tile_frames = 256, 16
+    tokens = tile_frames * (tile_px // patch_size) ** 2
+    latent_cells = (tile_frames // ratio_t) * (tile_px // ratio_hw) ** 2
+    return (tokens * decode_bytes_per_context_token(module)
+            + latent_cells * decode_bytes_per_latent_cell(module)) / (1024 ** 3)
+
+
+class TestDecodeFitsBeside:
+    def test_the_need_is_the_cheaper_of_the_whole_clip_and_the_smallest_tile(self):
+        vae = _build_vae()
+        small = torch.zeros(1, 8, 2, 2, 2)
+        large = torch.zeros(1, 8, 40, 64, 64)
+        smallest_tile = _smallest_tile_gb(vae.module)
+        assert estimate_whole_clip_decode_gb(vae.module, small) < smallest_tile
+        assert min_decode_gb(vae.module, small) == pytest.approx(estimate_whole_clip_decode_gb(vae.module, small))
+        assert estimate_whole_clip_decode_gb(vae.module, large) > smallest_tile
+        assert min_decode_gb(vae.module, large) == pytest.approx(smallest_tile)
+
+    def test_fits_when_the_budget_left_beside_the_resident_models_holds_the_smallest_tile(self):
+        vae = _build_vae()
+        vae.device = "cuda:0"
+        latent = torch.zeros(1, 8, 40, 64, 64)
+        need = min_decode_gb(vae.module, latent)
+        assert decode_fits_beside(vae, latent, need / 0.75 + 1e-6) is True
+        assert decode_fits_beside(vae, latent, need / 0.75 - 1e-6) is False
+
+    def test_an_offloaded_vae_needs_room_for_its_own_weights_too(self):
+        vae = _build_vae()
+        vae.device = "cpu"
+        vae.estimated_vram_gb = 1.5
+        latent = torch.zeros(1, 8, 40, 64, 64)
+        need = min_decode_gb(vae.module, latent)
+        assert decode_fits_beside(vae, latent, 1.5 + need / 0.75 + 1e-6) is True
+        assert decode_fits_beside(vae, latent, need / 0.75 + 1e-6) is False
+
+    def test_unknown_free_vram_or_a_conv_vae_never_fits(self):
+        vae = _build_vae()
+        assert decode_fits_beside(vae, torch.zeros(*_LATENT_SHAPE), None) is False
+        conv = SimpleNamespace(module=SimpleNamespace(decode=lambda z: z), compute_dtype=torch.float32)
+        assert decode_fits_beside(conv, torch.zeros(*_LATENT_SHAPE), 1000.0) is False
+
+
+class TestKeepResident:
+    def test_the_tiled_route_keeps_the_named_models_resident(self):
+        vae = _build_vae()
+        dit = object()
+        manager = _FakeResidencyRegistry()
+        with _tile_override(128, 16), \
+             patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+             patch(f"{_MOD}.clear_gpu_memory"), \
+             patch(f"{_MOD}.free_vram_gb", return_value=0.001):
+            pixels = decode_with_oom_retry(vae, torch.randn(*_LATENT_SHAPE), "cuda",
+                                           profiler_mark="caller.decode", keep_resident=(dit,))
+
+        assert manager.offload_all_calls == [("cuda", (vae, dit))]
+        assert pixels.shape == (1, 3, 17, 256, 256)
+
+    def test_a_tiled_oom_beside_a_kept_model_evicts_it_and_retries_once(self):
+        vae = _build_vae()
+        dit = object()
+        tiled = _OomOnFirstCalls(vae.module.tiled_decode, times=1)
+        vae.module.tiled_decode = tiled
+        manager = _FakeResidencyRegistry()
+        with _tile_override(128, 16), \
+             patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+             patch(f"{_MOD}.clear_gpu_memory"), \
+             patch(f"{_MOD}.free_vram_gb", return_value=0.001):
+            pixels = decode_with_oom_retry(vae, torch.randn(*_LATENT_SHAPE), "cuda",
+                                           profiler_mark="caller.decode", keep_resident=(dit,))
+
+        assert tiled.calls == 2
+        assert manager.offload_all_calls == [("cuda", (vae, dit)), ("cuda", (vae,))]
+        assert pixels.shape == (1, 3, 17, 256, 256)
+        assert vae.module.use_tiling is False
+
+    def test_without_kept_models_a_tiled_oom_still_raises_without_a_retry(self):
+        vae = _build_vae()
+        tiled = _OomOnFirstCalls(vae.module.tiled_decode, times=1)
+        vae.module.tiled_decode = tiled
+        with _tile_override(128, 16), pytest.raises(torch.cuda.OutOfMemoryError, match="even with tiled"):
+            _run(vae, torch.randn(*_LATENT_SHAPE), free_vram=0.001)
+        assert tiled.calls == 1

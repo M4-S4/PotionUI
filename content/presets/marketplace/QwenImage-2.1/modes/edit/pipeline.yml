@@ -1,18 +1,3 @@
-# Edit pipeline for the native Qwen-Image-2.1 family.
-#
-#   model_loader/qwen_image21 (vision: true) -> media_loader -> prompt_encoder (+image)
-#     -> seed_generator -> generator/qwen_image21 (mode=edit) -> gallery
-#
-# Same checkpoint as txt2img, run with the vision tower loaded: the text
-# conditioning is vision-grounded on the source image(s) (the Qwen3-VL-8B text
-# encoder's vision tower, loaded here via `vision: true`) AND the DiT call
-# receives each source's clean VAE latent as `ref_latents`, spliced into the
-# text run at the `image_slots` the text encoder recorded (see
-# generator/qwen_image21's GeneratorQwenImage21Pipe.maybe_edit and
-# QwenImage21DiT.build_sequence). The source images are wired into BOTH
-# prompt_encoder (vision-conditions the text) and generator/qwen_image21
-# (VAE-encoded into ref_latents) -- the same media_loader output, two
-# consumers.
 pipeline:
   #############
   ## Model loader (MMDiT + Qwen3-VL-8B TE + RGBA 16x VAE, per-component cached)
@@ -40,30 +25,40 @@ pipeline:
       vision: true
 
   #############
-  ## Media Loader (Reference Images, up to 10, upload order preserved)
-  ##
-  ## `form.source_image` is a multi-item media field (`multi: true`,
-  ## max_items 10), so an entry is a media reference (`{path, relative_path,
-  ## url, name, type, label}`); `item.path | default(item)` also accepts the
-  ## bare path string the field's validator still allows -- same `@loop`
-  ## idiom as Qwen-Image 1.0's edit mode. The order here IS the contract:
-  ## item 1 is the edit target/sizing anchor (generator/qwen_image21's
-  ## GeneratorQwenImage21Pipe.maybe_edit), the rest are additional
-  ## references -- both `prompt_encoder` (vision-grounding) and
-  ## `generator/qwen_image21` (VAE-encoded ref_latents) read this SAME
-  ## loader output, so the order the model is told about matches what the
-  ## user picked.
+  ## Media Loader (target image)
   ############
   - name: "media_loader"
     id: "media_loader"
     enabled: true
     configuration:
       media:
-        "@loop":
-          items: "{{ form.source_image }}"
-          template:
-            type: "image"
-            path: "{{ item.path | default(item) }}"
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  #############
+  ## Region mask (optional)
+  ############
+  - name: "media_loader"
+    id: "mask_loader"
+    enabled: "{{ (form.source_image_inpaint_mask | default('', true)) != '' }}"
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image_inpaint_mask | default('', true) }}"
+
+  #############
+  ## Region crop (context scales with the region, resampled to the working size)
+  ############
+  - name: "inpaint_region_crop"
+    id: "inpaint_region_crop"
+    enabled: "{{ (form.source_image_inpaint_mask | default('', true)) != '' }}"
+    input:
+      - ["image", "media_loader", "image"]
+      - ["mask", "mask_loader", "image"]
+    configuration:
+      strategy: "scaled"
+      context: "{{ form.region_context }}"
+      multiple: 16
 
   #############
   ## Prompt encoder (shared pipe; produces the vision-grounded conditioning)
@@ -71,7 +66,7 @@ pipeline:
   - name: "prompt_encoder"
     input:
       - ["text_encoder", "model_loader/qwen_image21", "text_encoder"]
-      - ["image", "media_loader", "image"]
+      - ["image", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}inpaint_region_crop{% else %}media_loader{% endif %}", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}images{% else %}image{% endif %}"]
     enabled: true
     configuration:
       p_prompt:
@@ -154,7 +149,7 @@ pipeline:
       - ["model", "model_loader/qwen_image21", "model"]
       - ["conditioning", "prompt_encoder", "conditioning"]
       - ["seed", "seed_generator", "seed"]
-      - ["image", "media_loader", "image"]
+      - ["image", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}inpaint_region_crop{% else %}media_loader{% endif %}", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}images{% else %}image{% endif %}"]
     enabled: true
     configuration:
       mode: "edit"
@@ -178,10 +173,24 @@ pipeline:
         max_consecutive_skips: "{{ form.step_cache_max_skips }}"
 
   #############
+  ## Region restore (feathered pixel composite, colour matched to the surroundings)
+  ############
+  - name: "inpaint_region_restore"
+    id: "inpaint_region_restore"
+    enabled: "{{ (form.source_image_inpaint_mask | default('', true)) != '' }}"
+    input:
+      - ["inpainted_image", "generator/qwen_image21", "image"]
+      - ["crop_region", "inpaint_region_crop", "crop_region"]
+      - ["original_image", "inpaint_region_crop", "original_image"]
+      - ["original_mask", "inpaint_region_crop", "original_mask"]
+    configuration:
+      strategy: "composite"
+
+  #############
   ## Gallery
   ############
   - name: "gallery"
     input:
-      - ["image", "generator/qwen_image21", "image"]
+      - ["image", "{% if (form.source_image_inpaint_mask | default('', true)) != '' %}inpaint_region_restore{% else %}generator/qwen_image21{% endif %}", "image"]
       - ["seed", "seed_generator", "seed"]
     enabled: true

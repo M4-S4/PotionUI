@@ -1,0 +1,15 @@
+fields:
+  - name: "source_video"
+    type: "video"
+    label: "Video"
+    required: true
+    description: "The video to extend."
+    ai_hint: "The clip to extend. It is fitted onto MiniMax-H3's canvas at its own aspect ratio and joined with the new footage. When extending after it, its last 17 frames and the sound leading up to them carry the motion and audio into the new part. When adding a lead-in, only its first frame is used, so the new footage ends exactly where the video begins."
+  - name: "direction"
+    type: "select"
+    label: "Add footage"
+    default: "after"
+    configuration:
+      options:
+        - { label: "After the video", value: "after" }
+        - { label: "Before the video", value: "before" }

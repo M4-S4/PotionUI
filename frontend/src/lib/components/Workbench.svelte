@@ -25,6 +25,8 @@
 	import { pluginStore } from '$lib/stores/plugins';
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
+	import { createImageHandoff, preloadImage } from '$lib/generation/imageHandoff';
+	import { createPreviewKeeper, createVideoHandoff } from '$lib/generation/videoHandoff';
 	import { batchCaption } from '$lib/components/workbench/promptGroups';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
@@ -203,7 +205,25 @@
 		? entryFileType(currentGalleryEntry)
 		: normalizeFileType(currentGeneration?.file_type);
 
-	$: displayImage = isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image;
+	let videoPending = false;
+	const keepPreview = createPreviewKeeper();
+	$: heldPreview = keepPreview(
+		currentGeneration?.generation_id ?? currentGeneration?.id,
+		currentGeneration?.current_image
+	);
+	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
+	$: videoHandoff.want(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+	$: stageKey = displayFileType === 'video' && displayVideo ? displayVideo : displayImage || displayVideo || displayAudio || displayMesh;
+
+	let displayImage: string | null | undefined;
+	const handoffImage = createImageHandoff(
+		(url) => (displayImage = url),
+		preloadImage,
+		(url) => getDisplayUrl(url)
+	);
+	$: handoffImage(
+		isGalleryMode && currentGalleryItem ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_image
+	);
 	$: displayVideo = isGalleryMode && isVideoFileType(displayFileType) ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_video;
 	$: displayAudio = isGalleryMode && isAudioFileType(displayFileType) ? currentGalleryItem : currentGeneration?.current_audio;
 	// `mesh` has no dedicated display* wiring beyond this gate - it renders
@@ -230,8 +250,15 @@
 	$: actions = workbenchActionsFor(displayFileType);
 
 	$: ambientBlocked = previewSuppressed || isNsfwFile(((isGalleryMode ? currentGalleryItem : currentGeneration) ?? {}) as ContentFlagged);
-	$: ambientKind = displayFileType === 'video' && displayVideo ? ('video' as const) : ('image' as const);
-	$: ambientSrc = ambientKind === 'video' && displayVideo ? getDisplayUrl(displayVideo) : displayImage ? getDisplayUrl(displayImage) : null;
+	$: holdingPreview = videoPending && !!heldPreview;
+	$: ambientKind = !holdingPreview && displayFileType === 'video' && displayVideo ? ('video' as const) : ('image' as const);
+	$: ambientSrc = holdingPreview
+		? heldPreview
+		: ambientKind === 'video' && displayVideo
+			? getDisplayUrl(displayVideo)
+			: displayImage
+				? getDisplayUrl(displayImage)
+				: null;
 	$: showAmbient =
 		hasDisplayMedia &&
 		displayFileType !== 'audio' &&
@@ -773,8 +800,8 @@
 			{/if}
 
 			<!-- Media Display -->
-			{#key displayImage || displayVideo || displayAudio || displayMesh}
-				<div in:fade={{ duration: 200 }} class="contents">
+			{#key stageKey}
+				<div in:fade={{ duration: videoPending ? 0 : 200 }} class="contents">
 					{#if displayFileType === 'audio' && audioTracks.length > 0}
 						<!-- Audio Player -->
 						<AudioPreview
@@ -784,6 +811,17 @@
 							className="shadow-lg"
 						/>
 					{:else if displayFileType === 'video' && displayVideo}
+						{#if holdingPreview && heldPreview}
+							<ImagePreview imageUrl={heldPreview} />
+						{/if}
+						<div
+							class={holdingPreview
+								? 'pointer-events-none absolute inset-0 flex items-center justify-center opacity-0'
+								: 'contents'}
+							data-video-stage
+							on:loadeddata|capture={videoHandoff.ready}
+							on:error|capture={videoHandoff.ready}
+						>
 						<VideoPreview
 							bind:this={videoPlayerRef}
 							bind:isRegularVideoPlaying={vpRegularPlaying}
@@ -796,6 +834,7 @@
 							on:exitComparison={exitComparisonMode}
 							on:muteChange={handleVideoMuteChange}
 						/>
+						</div>
 					{:else if isFallbackFileType && resolvedFallbackRenderer}
 						<!-- A registered `workbench.file` renderer for a file_type with no
 						     dedicated branch above - mesh, and whatever registers next.
@@ -1126,7 +1165,7 @@
 		</div>
 
 		<!-- Video controls bar for regular (non-comparison) video - rendered outside media area -->
-		{#if displayFileType === 'video' && displayVideo && !isComparing}
+		{#if displayFileType === 'video' && displayVideo && !isComparing && !holdingPreview}
 			<div class="flex-shrink-0 bg-canvas border-t border-line-strong px-4 py-2 flex items-center gap-3">
 				<!-- Play/Pause button -->
 				<Tooltip text={vpRegularPlaying ? 'Pause video' : 'Play video'} position="top" delay={150}>

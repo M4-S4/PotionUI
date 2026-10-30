@@ -94,6 +94,14 @@ import torch
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.errors import retry_after_cuda_oom
+from src.platform.runtime.native.kernels import (
+    FastPathKind,
+    QuantFormat,
+    fast_path,
+    nvfp4_dequant_table_bytes,
+    nvfp4_path_summary,
+    partition_output_branch_deltas,
+)
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -101,12 +109,6 @@ from src.platform.runtime.native.memory.residency import (
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
-from vendor.gpl.comfyui.ops import (
-    _fp8_matmul_enabled,
-    _lora_fused_enabled,
-    _nvfp4_matmul_enabled,
-    partition_output_branch_deltas,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -286,43 +288,6 @@ def ltx_reserve_terms(dit_module: Any, *, per_token_timestep: bool) -> dict[str,
         rows = _LTX_PROMPT_ADALN_MODULATION_ROWS if prompt_adaln else _LTX_MODULATION_ROWS
     return {"gelu_ffn_dim": _LTX_FFN_DIM, "modulation_rows": rows}
 
-# LoRA cost terms. A resident runtime LoRA delta (quantized-storage Linears
-# -- lora/apply.py's ``_needs_runtime_deltas``) is applied per forward by
-# ``vendor/gpl/comfyui/ops.py`` on one of two sides, and the two cost
-# completely different shapes of memory:
-#
-#   * ACTIVATION side, the default for every plain (non-LoKr) delta:
-#     ``linear_with_lora_deltas`` -> ``_add_lora_output_branch`` accumulates
-#     ``(x @ down.T) @ up.T`` straight INTO the layer's own ``F.linear``
-#     output, walking the token rows in chunks bounded by
-#     ``_NVFP4_LORA_BRANCH_CHUNK_BYTES`` (32MiB). Nothing here scales with
-#     ``S``: the live intermediates are ``(chunk_rows, rank)`` and
-#     ``(chunk_rows, out_features)``, tens of MB whatever the token count,
-#     already covered by :data:`_ACTIVATION_RESERVE_FLOOR_GB`. Per-token
-#     cost: ZERO.
-#   * ACTIVATION side through a native GEMM fast path
-#     (``Fp8ScaledLinear._forward_scaled_mm`` /
-#     ``Nvfp4Linear._forward_nvfp4_scaled_mm``, each behind its own env gate
-#     and hardware probe, both ``off`` by default): those add
-#     ``_lora_output_branch``'s RETURN VALUE to the raw GEMM output, and
-#     that function does still preallocate a full ``(S, out_features)``
-#     ``total`` at compute dtype -- with the ``out + total`` sum a second
-#     buffer of the same shape alive at the same moment, hence
-#     :data:`_LORA_OUTPUT_BUFFER_ALLOCATIONS`. Per-token cost: that, for the
-#     WIDEST Linear that can actually reach the fast path
-#     (:func:`_linear_takes_gemm_fast_path`).
-#   * WEIGHT side, the fallback for a delta with no output-side form (LoKr,
-#     which ``_deltas_output_branch_ok`` rejects): ``apply_lora_deltas``
-#     clones the materialised ``(out, in)`` weight and builds an
-#     ``(out, in)`` delta beside it. Weight-shaped, NOT token-shaped -- a
-#     flat reserve of twice the widest such Linear's weight, independent of
-#     ``S``, and only one Linear's forward is alive at a time.
-#
-# The estimate used to charge a flat ``4 * inner_dim * 2`` bytes/token
-# whenever ANY runtime LoRA was resident, back when every quantized-Linear
-# delta went through the weight-side path and only the GEMM fast paths had
-# an output branch. On an 8s MiniMax-H3 clip (S~61.5k, inner_dim 7168) that
-# stale term alone was ~3.8GB, enough to refuse a clip that fits.
 _COMPUTE_DTYPE_BYTES = 2
 # ``total`` inside ``_lora_output_branch`` plus the ``out + total`` result at
 # its call site -- both ``(S, out_features)``, both alive at once.
@@ -369,6 +334,10 @@ _NO_LORA = DitLoraProfile()
 
 _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT = 12
 _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT = 5
+_ACTIVATION_QUANT_BYTES_PER_ELEMENT = {
+    QuantFormat.NVFP4: _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+    QuantFormat.FP8: _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+}
 
 # Multiplicative safety margin over the raw per-token estimate -- covers
 # allocator fragmentation, cuBLAS/cuDNN workspace, and any minor uncounted
@@ -428,41 +397,16 @@ def estimate_activation_reserve_gb(
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
-def _linear_takes_gemm_fast_path(linear: Any) -> bool:
-    """True iff ``linear``'s forward can reach ``vendor/gpl/comfyui/ops.py``'s
-    ``_lora_output_branch`` -- the one LoRA path that still preallocates an
-    ``(S, out_features)`` buffer.
-
-    Only the two native ``_scaled_mm`` GEMM fast paths call it, and each is
-    reached solely when its own env gate plus hardware probe say so; every
-    other quantized Linear takes the dequant path, whose plain deltas ride
-    the chunked ``_add_lora_output_branch`` and allocate nothing
-    S-proportional. The gates are asked through the vendored predicates
-    rather than re-read here, so the policy has one source of truth. A layer
-    is nvfp4 or fp8-scaled by the same state its own forward branches on
-    (``_is_nvfp4``, ``weight_scale``), never by family or class name.
-    """
-    if getattr(linear, "_is_nvfp4", False):
-        return _nvfp4_matmul_enabled()
-    if getattr(linear, "weight_scale", None) is not None:
-        return _fp8_matmul_enabled()
-    return False
-
-
 def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
     walk = getattr(getattr(dit, "module", None), "modules", None)
     if not callable(walk):
         return 0
     widest = 0
     for m in walk():
-        in_features = int(getattr(m, "in_features", 0) or 0)
-        if not in_features:
+        path = fast_path(m)
+        if path is None or path.kind is FastPathKind.DEQUANT:
             continue
-        if getattr(m, "_is_nvfp4", False):
-            if _nvfp4_matmul_enabled():
-                widest = max(widest, _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT * in_features)
-        elif getattr(m, "weight_scale", None) is not None and _fp8_matmul_enabled():
-            widest = max(widest, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT * in_features)
+        widest = max(widest, _ACTIVATION_QUANT_BYTES_PER_ELEMENT[path.quant_format] * m.in_features)
     return widest
 
 
@@ -529,8 +473,9 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
         in_features = int(getattr(m, "in_features", 0) or 0)
         if not out_features:
             continue
-        output_side, weight_side = partition_output_branch_deltas(deltas, out_features)
-        if output_side and not _lora_fused_enabled() and _linear_takes_gemm_fast_path(m):
+        _, weight_side = partition_output_branch_deltas(deltas, out_features)
+        path = fast_path(m) if deltas else None
+        if path is not None and path.kind is not FastPathKind.DEQUANT and not path.lora_fused:
             output_buffer_out_features = max(output_buffer_out_features, out_features)
         if (weight_side or any(getattr(d, "kron", False) for d in masked)) and in_features:
             weight_side_bytes = max(
@@ -538,6 +483,10 @@ def _dit_lora_profile(dit: Any) -> DitLoraProfile:
                 _LORA_WEIGHT_SIDE_ALLOCATIONS * out_features * in_features * _COMPUTE_DTYPE_BYTES,
             )
     return DitLoraProfile(output_buffer_out_features, weight_side_bytes, delta_bytes, active)
+
+
+def _dit_dequant_table_gb(dit: Any) -> float:
+    return nvfp4_dequant_table_bytes(getattr(dit, "module", None)) / _BYTES_PER_GB
 
 
 def _dit_lora_delta_gb(dit: Any) -> float:
@@ -550,7 +499,7 @@ def _dit_lora_delta_gb(dit: Any) -> float:
     return _dit_lora_profile(dit).delta_gb
 
 
-def _dit_is_fully_resident(dit: Any, device: str) -> bool:
+def dit_is_fully_resident(dit: Any, device: str) -> bool:
     """True iff ``dit`` is ALREADY placed with FULL residency on ``device`` --
     typically a warm-start restore from a prior generation
     (``dit_restore.restore_dit_best_effort``), not this call's own doing.
@@ -572,6 +521,36 @@ def _dit_is_fully_resident(dit: Any, device: str) -> bool:
     streaming = bool(streamer is not None and getattr(streamer, "active", False))
     return same_type and not streaming
 
+
+@dataclass(frozen=True)
+class SequenceFit:
+    weight_gb: float
+    free_gb: float
+    lora: DitLoraProfile
+    quant_activation_bytes_per_token: int
+
+    def reserve_gb(self, video_tokens: int, audio_tokens: int = 0) -> float:
+        return estimate_activation_reserve_gb(
+            video_tokens, audio_tokens, lora=self.lora,
+            quant_activation_bytes_per_token=self.quant_activation_bytes_per_token,
+        )
+
+    def resident(self, video_tokens: int, audio_tokens: int = 0) -> bool:
+        return self.weight_gb <= 0.0 or self.weight_gb <= self.free_gb - self.reserve_gb(video_tokens, audio_tokens)
+
+    def activations_fit(self, video_tokens: int, audio_tokens: int = 0) -> bool:
+        return self.reserve_gb(video_tokens, audio_tokens) <= self.free_gb
+
+
+def sequence_fit(dit: Any, device: str) -> "SequenceFit | None":
+    free = effective_free_vram_gb(device)
+    if free is None:
+        return None
+    lora = _dit_lora_profile(dit)
+    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora.delta_gb + _dit_dequant_table_gb(dit)
+    if dit_is_fully_resident(dit, device):
+        free += weight_gb
+    return SequenceFit(weight_gb, free, lora, _dit_quant_activation_bytes_per_token(dit))
 
 @dataclass(frozen=True)
 class DitPlacementDecision:
@@ -646,7 +625,7 @@ def place_dit_for_sequence(
     sampling step of a run that could have started instantly (observed: a
     ~5s warm generation whose sampling alone took 147s of a 196s total,
     ``weight_budget_gb=0.0`` logged on a card with ~31GB genuinely free).
-    :func:`_dit_is_fully_resident` checks for exactly this state and, when
+    :func:`dit_is_fully_resident` checks for exactly this state and, when
     the DiT's OWN footprint is credited back before judging whether it still
     fits, the fast path below returns WITHOUT calling ``move_to`` or
     ``stream_to`` at all -- the warm path is the fast path. When it does NOT
@@ -659,7 +638,7 @@ def place_dit_for_sequence(
     lora = _dit_lora_profile(dit)
     lora_active = lora.active
     lora_weight_gb = lora.delta_gb
-    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora_weight_gb
+    weight_gb = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + lora_weight_gb + _dit_dequant_table_gb(dit)
 
     if not str(device).startswith("cuda"):
         dit.move_to(device)
@@ -668,6 +647,10 @@ def place_dit_for_sequence(
         )
         _log_decision(decision, device)
         return decision
+
+    linear_summary = nvfp4_path_summary(getattr(dit, "module", None))
+    if linear_summary:
+        logger.info("[LTX PLACEMENT] %s", linear_summary)
 
     activation_reserve = estimate_activation_reserve_gb(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
@@ -698,7 +681,7 @@ def place_dit_for_sequence(
     # report both in the over-commit warning.
     free_raw = free_vram_gb(device) or 0.0
     free_if_dit_unloaded = effective_free_vram_gb(device) or 0.0
-    if _dit_is_fully_resident(dit, device):
+    if dit_is_fully_resident(dit, device):
         free_raw += weight_gb
         free_if_dit_unloaded += weight_gb
     if total_reserve > free_if_dit_unloaded:
@@ -711,7 +694,7 @@ def place_dit_for_sequence(
             ),
         )
 
-    if _dit_is_fully_resident(dit, device):
+    if dit_is_fully_resident(dit, device):
         free_crediting_self = (effective_free_vram_gb(device) or 0.0) + weight_gb
         credited_budget = max(0.0, free_crediting_self - total_reserve)
         if weight_gb <= 0.0 or weight_gb <= credited_budget:

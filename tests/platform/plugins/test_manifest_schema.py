@@ -311,104 +311,170 @@ class TestPluginManifestSchema(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 PluginManifestSchema.model_validate(self._minimal(phrasebook_ops=[entry]))
 
-    def test_history_tool_accepted_with_applies_to(self):
-        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
-            {
-                'id': 'contact-sheet',
-                'label': 'Contact sheet',
-                'description': 'Lay the selected images out on one sheet',
-                'icon': 'grid',
-                'category': 'compose',
-                'component': 'ContactSheetModal.svelte',
-                'applies_to': {'min_selection': 2, 'max_selection': 12, 'media_kinds': ['image']},
-            },
-        ]))
+    def _tool(self, **overrides):
+        entry = {
+            'id': 'test-plugin.loop',
+            'label': 'Loop',
+            'accepts': ['video'],
+            'component': 'LoopPreview.svelte',
+        }
+        entry.update(overrides)
+        return entry
 
-        tool = schema.history_tools[0]
-        self.assertEqual(tool.id, 'contact-sheet')
-        self.assertEqual(tool.category, 'compose')
-        self.assertEqual(tool.applies_to.min_selection, 2)
-        self.assertEqual(tool.applies_to.max_selection, 12)
-        self.assertEqual(tool.applies_to.media_kinds, ['image'])
+    def _validate_tool(self, **overrides):
+        return PluginManifestSchema.model_validate(self._minimal(media_tools=[self._tool(**overrides)]))
 
-    def test_history_tool_defaults_icon_and_applies_to(self):
-        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
-            {'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte'},
-        ]))
+    def test_history_tools_key_is_gone(self):
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate(self._minimal(history_tools=[
+                {'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte'},
+            ]))
 
-        tool = schema.history_tools[0]
+    def test_media_tool_component_only_entry_accepted(self):
+        schema = self._validate_tool(selection={'min': 1, 'max': 12}, scopes=['history', 'library'])
+
+        tool = schema.media_tools[0]
+        self.assertEqual(tool.id, 'test-plugin.loop')
+        self.assertEqual(tool.component, 'LoopPreview.svelte')
+        self.assertIsNone(tool.python)
+        self.assertEqual(tool.selection.min, 1)
+        self.assertEqual(tool.selection.max, 12)
+        self.assertEqual(tool.scopes, ['history', 'library'])
+
+    def test_media_tool_defaults(self):
+        tool = self._validate_tool().media_tools[0]
+
         self.assertEqual(tool.icon, 'extension')
         self.assertEqual(tool.description, '')
-        self.assertIsNone(tool.applies_to.min_selection)
-        self.assertIsNone(tool.applies_to.max_selection)
-        self.assertEqual(tool.applies_to.media_kinds, [])
+        self.assertEqual(tool.produces, 'same')
+        self.assertEqual(tool.cardinality, 'one_to_one')
+        self.assertEqual(tool.scopes, ['library', 'history', 'field'])
+        self.assertFalse(tool.preview)
+        self.assertEqual(tool.params, [])
+        self.assertIsNone(tool.selection)
 
-    def test_history_tool_requires_label_category_component(self):
-        for entry in (
-            {'id': 'thing', 'category': 'analyze', 'component': 'Thing.svelte'},
-            {'id': 'thing', 'label': 'Thing', 'component': 'Thing.svelte'},
-            {'id': 'thing', 'label': 'Thing', 'category': 'analyze'},
+    def test_media_tool_python_entry_with_params_accepted(self):
+        schema = self._validate_tool(
+            python='tools/loop.py:LoopTool',
+            component=None,
+            preview=True,
+            params=[
+                {'name': 'style', 'type': 'select', 'options': ['forward', 'pingpong'], 'default': 'pingpong'},
+                {'name': 'repeats', 'type': 'integer', 'min': 1, 'max': 8, 'default': 2},
+            ],
+        )
+
+        tool = schema.media_tools[0]
+        self.assertEqual(tool.python, 'tools/loop.py:LoopTool')
+        self.assertTrue(tool.preview)
+        self.assertEqual([p.name for p in tool.params], ['style', 'repeats'])
+
+    def test_media_tool_needs_python_or_component(self):
+        with self.assertRaises(ValidationError):
+            self._validate_tool(component=None)
+
+    def test_media_tool_id_must_carry_the_plugin_prefix(self):
+        for bad_id in ('loop', 'other-plugin.loop', 'test-plugin.'):
+            with self.assertRaises(ValidationError):
+                self._validate_tool(id=bad_id)
+
+    def test_media_tool_ids_must_be_unique(self):
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate(self._minimal(media_tools=[self._tool(), self._tool()]))
+
+    def test_media_tool_python_path_must_stay_inside_the_plugin(self):
+        for bad in ('../escape.py:Tool', 'tools/../escape.py:Tool', 'tools/loop.py', 'tools/loop:Tool'):
+            with self.assertRaises(ValidationError):
+                self._validate_tool(python=bad)
+
+    def test_media_tool_rejects_unknown_kind_scope_and_cardinality(self):
+        for override in (
+            {'accepts': ['mesh']},
+            {'accepts': []},
+            {'scopes': ['sidebar']},
+            {'scopes': []},
+            {'cardinality': 'many_to_many'},
+            {'produces': 'mesh'},
         ):
             with self.assertRaises(ValidationError):
-                PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+                self._validate_tool(**override)
 
-    def test_history_tool_rejects_invalid_id_and_category_slugs(self):
-        for entry in (
-            {'id': 'Contact Sheet', 'label': 'X', 'category': 'compose', 'component': 'X.svelte'},
-            {'id': 'contact-sheet', 'label': 'X', 'category': 'Compose!', 'component': 'X.svelte'},
+    def test_media_tool_selection_bounds_validated(self):
+        for selection in ({'min': 0}, {'min': 5, 'max': 2}):
+            with self.assertRaises(ValidationError):
+                self._validate_tool(selection=selection)
+
+    def test_media_tool_preview_needs_python(self):
+        with self.assertRaises(ValidationError):
+            self._validate_tool(preview=True)
+
+    def test_media_tool_params_validated(self):
+        for params in (
+            [{'name': 'mode', 'type': 'select'}],
+            [{'name': 'n', 'type': 'integer', 'min': 5, 'max': 1}],
+            [{'name': 'n', 'type': 'vector'}],
+            [{'name': 'n', 'type': 'integer'}, {'name': 'n', 'type': 'float'}],
+            [{'name': 'Bad Name', 'type': 'string'}],
         ):
             with self.assertRaises(ValidationError):
-                PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+                self._validate_tool(python='tools/loop.py:LoopTool', params=params)
 
-    def test_history_tool_rejects_unknown_media_kind(self):
-        entry = {
-            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
-            'applies_to': {'media_kinds': ['spreadsheet']},
-        }
-        with self.assertRaises(ValidationError):
-            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+    def test_media_tool_manifest_dump_keeps_only_declared_param_keys(self):
+        schema = self._validate_tool(
+            python='tools/loop.py:LoopTool',
+            params=[
+                {'name': 'end', 'type': 'float', 'label': 'End'},
+                {'name': 'width', 'type': 'integer', 'default': None},
+            ],
+            requires={'has_audio': True},
+        )
 
-    def test_history_tool_rejects_max_selection_below_min(self):
-        entry = {
-            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
-            'applies_to': {'min_selection': 5, 'max_selection': 2},
-        }
-        with self.assertRaises(ValidationError):
-            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+        dumped = schema.media_tools[0].model_dump()
 
-    def test_history_tool_rejects_min_selection_below_one(self):
-        entry = {
-            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
-            'applies_to': {'min_selection': 0},
-        }
-        with self.assertRaises(ValidationError):
-            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+        self.assertEqual(dumped['params'][0], {'name': 'end', 'type': 'float', 'label': 'End'})
+        self.assertEqual(dumped['params'][1], {'name': 'width', 'type': 'integer', 'default': None})
+        self.assertEqual(dumped['requires'], {'has_audio': True})
 
-    def test_history_tool_defaults_scopes_to_history_only(self):
-        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
-            {'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte'},
-        ]))
+    def test_a1111_style_component_tool_is_accepted(self):
+        schema = PluginManifestSchema.model_validate(self._minimal(
+            id='a1111-metadata-export',
+            media_tools=[{
+                'id': 'a1111-metadata-export.export-zip',
+                'label': 'Download with A1111 metadata',
+                'icon': 'download',
+                'accepts': ['image'],
+                'selection': {'min': 1},
+                'scopes': ['history'],
+                'component': 'A1111ExportTool.js',
+            }],
+        ))
 
-        self.assertEqual(schema.history_tools[0].scopes, ['history'])
-
-    def test_history_tool_accepts_explicit_scopes(self):
-        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[
-            {
-                'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
-                'scopes': ['history', 'library'],
-            },
-        ]))
-
-        self.assertEqual(schema.history_tools[0].scopes, ['history', 'library'])
-
-    def test_history_tool_rejects_unknown_scope(self):
-        entry = {
-            'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
-            'scopes': ['sidebar'],
-        }
-        with self.assertRaises(ValidationError):
-            PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
-
+        tool = schema.media_tools[0]
+        self.assertEqual(tool.component, 'A1111ExportTool.js')
+        self.assertEqual(tool.scopes, ['history'])
+        self.assertEqual(tool.selection.min, 1)
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestDefaultEnabledFlag(unittest.TestCase):
+    _base = {
+        'id': 'test-plugin',
+        'name': 'Test Plugin',
+        'version': '1.0.0',
+        'description': 'A test plugin',
+        'author': 'Test Author',
+        'type': 'backend-only',
+    }
+
+    def test_defaults_to_false(self):
+        self.assertFalse(PluginManifestSchema.model_validate(self._base).default_enabled)
+
+    def test_true_is_parsed(self):
+        schema = PluginManifestSchema.model_validate({**self._base, 'default_enabled': True})
+        self.assertTrue(schema.default_enabled)
+
+    def test_non_boolean_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            PluginManifestSchema.model_validate({**self._base, 'default_enabled': 'sometimes'})

@@ -11,7 +11,7 @@ from src.platform.runtime.native.arch.moss_image.model import MossImage, convert
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from vendor.gpl.comfyui.ops import pick_operations
+from src.platform.runtime.native.kernels import pick_operations
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "moss_image_reference_dit.py"
 

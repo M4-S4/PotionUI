@@ -109,6 +109,7 @@ what the DiT samples against during the refine itself.
 from __future__ import annotations
 
 import math
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -117,6 +118,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 import torch
+from PIL import Image
 
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
@@ -129,9 +131,10 @@ from src.platform.runtime.native.memory.residency import effective_free_vram_gb,
 from src.platform.runtime.native.sampling.hooks import ProgressHook, run_hooks
 from src.platform.runtime.native.sampling.preview import make_preview_hook
 from src.platform.runtime.native.sampling.step_cache import FirstBlockCache, normalize_options
-from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_context
+from src.platform.runtime.native.sampling.step_profile import StepPlanHook, cache_skip_probe, with_step_profile
+from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_context, sla_attn_disabled_reason
 from src.platform.runtime.native.sla_attn import estimate_transient_gb as sla_estimate_transient_gb
-from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context
+from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context, sol_attn_disabled_reason
 from src.platform.runtime.native.sol_attn import estimate_transient_gb as sol_estimate_transient_gb
 from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows, effective_mlp_chunk_rows
 from src.platform.runtime.native.arch.minimax_h3.vdn import (
@@ -162,7 +165,13 @@ from src.pipelines.pipes._shared.media.video_encode import (
     AudioTrack,
     encode_frames_to_mp4,
 )
-from src.platform.util.video_stream import FFmpegNotFoundError, require_ffmpeg
+from src.platform.util.video_stream import (
+    AUDIO_PROBE_SILENT,
+    FFmpegNotFoundError,
+    has_audio_stream,
+    probe_audio_stream,
+    require_ffmpeg,
+)
 from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
@@ -179,25 +188,32 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     MAX_IMAGE_REFERENCES,
     MAX_REFERENCES,
     MAX_VIDEO_REFERENCES,
-    REFERENCE_IMAGE_MAX_PIXELS,
+    REFERENCE_IMAGE_SHORT_EDGE,
     ReferenceMedia,
     VisualLatentCache,
-    encode_continuation_condition,
+    encode_source_video_condition,
+    fit_source_video,
     keyframes_need_encode,
     normalize_references,
     prepare_keyframe_condition_rows,
     prepare_reference_conditioning,
+    reference_decode_seconds,
     reference_image_max_pixels,
+    snap_reference_video_frames,
+    source_canvas_size,
+    source_tail_frames,
     visual_references_need_encode,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     CANVAS_MULTIPLE,
     FPS,
+    FRAMES_PER_CHUNK,
     LATENTS_PER_CHUNK,
     MAX_ASPECT_RATIO,
+    MAX_DURATION_S,
     MIN_ASPECT_RATIO,
+    align_num_frames,
     audio_latent_num_frames,
-    frames_to_encode_for_continuation,
     head_frames_for_latents,
     pixel_frames_for_latent_frames,
     resolve_request_geometry,
@@ -346,9 +362,13 @@ def _format_fit_hint(hint: Optional[_FitHint], width: int, height: int) -> str:
 VDN_ANCHOR_FRAMES = "both"
 
 _VALID_ANCHORS = ("first", "last")
-_VALID_AUDIO_SOURCES = ("generate", "file", "passthrough")
+_VALID_AUDIO_SOURCES = ("generate", "file", "passthrough", "reference_video")
 _VALID_AUDIO_REFINE_MODES = ("lock", "resample")
 _VALID_MODES = ("video", "references")
+_VALID_SOURCE_ROLES = ("none", "continue", "precede")
+_VALID_LENGTH_SOURCES = ("none", "reference_video", "reference_audio")
+AUTO_RESOLUTION = "auto"
+MAX_WINDOW_FRAMES = snap_reference_video_frames(int(MAX_DURATION_S * FPS))
 # `MiniMaxH3Ref2VASetupStep`'s own per-modality defaults (before_encoder.py),
 # re-exported from `conditioning` so the early request-shape check and the
 # late `validate_references` can never bound different numbers. Validation
@@ -358,7 +378,7 @@ _MAX_REFERENCE_VIDEOS = MAX_VIDEO_REFERENCES
 _MAX_REFERENCE_AUDIOS = MAX_AUDIO_REFERENCES
 
 
-def _load_reference_video(video_path: Any) -> ReferenceMedia:
+def _load_reference_video(video_path: Any, max_seconds: Optional[float] = None) -> ReferenceMedia:
     """One `ref2va` video reference's file path -> its raw frames and native
     frame rate.
 
@@ -366,7 +386,7 @@ def _load_reference_video(video_path: Any) -> ReferenceMedia:
     decode lands here. The frames are RAW: `normalize_references` is what puts
     them on H3's 24 fps and canvas, and it needs the source rate to do it.
     """
-    frames, fps = read_video_frames(video_path)
+    frames, fps = read_video_frames(video_path, max_seconds=max_seconds)
     return ReferenceMedia(kind="video", frames=frames, fps=float(fps))
 
 
@@ -421,6 +441,13 @@ def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
         Path(wav_path).unlink(missing_ok=True)
     return torch.from_numpy(np.ascontiguousarray(samples.T)), int(sample_rate)
 
+
+def _is_silent_media(source: Any) -> bool:
+    return isinstance(source, (str, os.PathLike)) and probe_audio_stream(source).status == AUDIO_PROBE_SILENT
+
+def _silent_audio_track(frames: int) -> AudioTrack:
+    samples = max(1, int(round(frames / FPS * AUDIO_SAMPLE_RATE)))
+    return AudioTrack(waveform=np.zeros((2, samples), dtype=np.float32), sample_rate=AUDIO_SAMPLE_RATE)
 
 def _encode_refine_audio_latent(c: "_MiniMaxH3Ctx", audio_file: Any, num_audio_latents: int) -> Tensor:
     """A refine's fallback audio target: encode `audio_file` (the
@@ -651,6 +678,16 @@ def is_dense_step(step_index: int, num_steps: int, dense_last_steps: int, dense_
     return step_index >= num_steps - dense_last_steps
 
 
+def step_attention_mode(sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext], dense: bool, vdn: bool = False) -> str:
+    if vdn:
+        return "vdn"
+    if sparse_attn_ctx is None or dense:
+        return "dense"
+    if isinstance(sparse_attn_ctx, SolAttnContext):
+        return "dense" if sol_attn_disabled_reason() is not None else "sol-attn"
+    return "dense" if sla_attn_disabled_reason() is not None else "sla"
+
+
 def build_vdn_layout(
     layout: PackedLayout, *, num_latent_frames: int, latent_height: int, latent_width: int,
 ) -> VdnLayout:
@@ -716,6 +753,12 @@ def _require_h3_video_vae(module):
             "and cannot run here."
         )
     return module
+
+
+def _raw_video_latent(latent: Tensor, vae_module: Any) -> Tensor:
+    mean = vae_module.latents_mean.to(device=latent.device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+    std = vae_module.latents_std.to(device=latent.device, dtype=torch.float32).view(1, -1, 1, 1, 1)
+    return latent.to(torch.float32) * std + mean
 
 
 def _place_vae(c: "_MiniMaxH3Ctx", vae) -> None:
@@ -789,6 +832,14 @@ def _trim_audio_head(track: AudioInput, overlap_frames: int) -> AudioInput:
         return track
     samples = int(round(overlap_frames / FPS * track.sample_rate))
     return AudioTrack(waveform=track.waveform[:, samples:], sample_rate=track.sample_rate)
+
+
+def _trim_audio_to_frames(track: AudioInput, num_frames: int) -> AudioInput:
+    """Cut a generated track to the duration of `num_frames` pixel frames."""
+    if not isinstance(track, AudioTrack):
+        return track
+    samples = int(round(num_frames / FPS * track.sample_rate))
+    return AudioTrack(waveform=track.waveform[:, :samples], sample_rate=track.sample_rate)
 
 
 def _concat_audio_tracks(tracks: List[AudioInput]) -> AudioInput:
@@ -913,6 +964,7 @@ class _MiniMaxH3Ctx:
     references: tuple = ()
     audio_source: str = "generate"
     audio_file: Optional[Any] = None
+    audio_silent: bool = False
     decode: bool = True
     manual_sigmas: str = ""
     manual_audio_sigmas: str = ""
@@ -933,6 +985,11 @@ class _MiniMaxH3Ctx:
     video_sigma_shift: float = VIDEO_SHIFT
     runtime_lora_stack: list = field(default_factory=list)
     runtime_lora_masked: list = field(default_factory=list)
+    source_role: str = "none"
+    source_frames: Optional[np.ndarray] = None
+    source_path: Optional[Any] = None
+    source_has_audio: bool = False
+    source_overlap_latents: int = 0
     # Request-local cache of clean, VAE-encoded visual keyframe/reference
     # latents (conditioning.py's `VisualLatentCache`) -- one instance per
     # request, released explicitly once every seed/window is done
@@ -967,12 +1024,37 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             PipeConfigSpec("steps", int, 24, "Denoising steps (video and audio share the count, own schedules)",
                            required=False, min_value=2, max_value=100),
             PipeConfigSpec("resolution", str, "1344x768", "Resolution (WxH); snapped to the 32px canvas "
-                           "grid and the [1:4, 4:1] aspect range", required=False),
+                           "grid and the [1:4, 4:1] aspect range. 'auto' takes the aspect ratio from the "
+                           "'source_video', else the first reference video or image, on the native canvas",
+                           required=False),
             PipeConfigSpec("frames", int, 124, "Number of frames at the fixed 24 fps, snapped up to the next "
                            "17*n+5 the video VAE can decode; a Video Director document carries the whole "
                            "timeline here and is cut into windows of at most max_frames_per_segment",
                            required=False, min_value=1),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
+            PipeConfigSpec(
+                "source_video_role", str, "none",
+                "What the 'source_video' input is to this generation. 'continue' extends it forward: "
+                "its last frames are encoded as keyframe condition rows at the head of the window "
+                "(the Director continuation recipe) and its audio leading up to them as the condition "
+                "audio prefix. 'precede' extends it backward: its first frame is the window's last "
+                "keyframe. Either way 'frames' is the length of the NEW footage, and the output is the "
+                "new footage alone, with the reproduced source frames trimmed off.",
+                required=False, choices=list(_VALID_SOURCE_ROLES),
+            ),
+            PipeConfigSpec(
+                "source_overlap_latents", int, 5,
+                "Latent frames of the source carried into a 'continue' window (5 = 17 pixel frames, "
+                "the Director default). More carries more motion and costs more sequence.",
+                required=False, min_value=1, max_value=10,
+            ),
+            PipeConfigSpec(
+                "length_from", str, "none",
+                "Shorten 'frames' to the first reference video's or audio's own length, snapped down to "
+                "the 17*n+5 the video VAE decodes, so the clip follows the reference instead of a fixed "
+                "duration. 'frames' stays the upper bound.",
+                required=False, choices=list(_VALID_LENGTH_SOURCES),
+            ),
             seed_config_spec(),
             device_config_spec(),
             preview_config_spec("Emit live latent previews during sampling"),
@@ -986,7 +1068,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                            "MiniMax-H3 always samples an audio stream, this only picks what the FINAL "
                            "muxed track is), file (mux the user-supplied audio input instead), or "
                            "passthrough (mux an already-decoded track from this pipe's own prior 'audio' "
-                           "output, e.g. a future refine stage)", required=False, choices=list(_VALID_AUDIO_SOURCES)),
+                           "output, e.g. a future refine stage), or reference_video (mux the first reference "
+                           "video's own soundtrack, e.g. keeping the original sound of a re-performed clip)",
+                           required=False, choices=list(_VALID_AUDIO_SOURCES)),
             PipeConfigSpec(
                 "audio_refine", str, "lock",
                 "How a refine ('initial_latent' connected) treats the audio stream. 'lock' (default) "
@@ -1198,6 +1282,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 required=False,
             ),
             PipeConfigSpec(
+                "reference_short_edge", int, REFERENCE_IMAGE_SHORT_EDGE,
+                "Short edge, in pixels, every reference PICTURE is resized to before it is encoded "
+                "(each axis then rounded to the 32px canvas grid, aspect ratio kept). The default is "
+                "the released checkpoint's own. An encoded picture costs one token per 32x32 block, "
+                "and every token of every reference is attended to on every step, so a lower value "
+                "shortens the sequence and speeds each step up, at the price of fine detail in the "
+                "reference. Reference videos are not affected: they follow the canvas rule.",
+                required=False, min_value=CANVAS_MULTIPLE,
+            ),
+            PipeConfigSpec(
                 "reference_mods", list, [],
                 "RefMod bundles (`_shared.generation.refmods`, ported from the community "
                 "ComfyUI-MiniMaxH3Mod project): a list of `{file_path, strength}` dicts, each a "
@@ -1278,6 +1372,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                           "mux. Absent -> no trim", is_array=False),
             PipeInputSpec("audio", IOType.AUDIO, False, "User audio track (audio_source=file/passthrough)",
                           is_array=True),
+            PipeInputSpec("source_video", IOType.VIDEO, False, "The video 'source_video_role' extends. "
+                          "Fitted onto the canvas and resampled to 24 fps; its own audio, when it has "
+                          "any, feeds a 'continue' window's condition audio", is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
             PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service, to release the idle "
                           "TE's host RAM", is_array=False),
@@ -1308,6 +1405,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         reference_videos = list(pipe_input.input.get("reference_videos") or [])
         reference_audios = list(pipe_input.input.get("reference_audios") or [])
         audio_files = pipe_input.input.get("audio") or []
+        source_videos = list(pipe_input.input.get("source_video") or [])
         # `or []` is unusable here: a bare Tensor raises on truthiness (same
         # trap `txt2vid_ltx.build_context` documents for its own
         # `initial_latent`) -- the upstream latent_upscaler may deliver a
@@ -1358,6 +1456,35 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "generator/video_minimax_h3: 'initial_latent' (a refine pass) is mutually exclusive with "
                 "'document' (Video Director), 'image'/'keyframe_anchors' (fl2va) and every reference "
                 "input (ref2va) -- a refine pass has no keyframe/reference overlay to combine it with"
+            )
+        source_role = str(self.config.get("source_video_role", "none") or "none")
+        if source_role not in _VALID_SOURCE_ROLES:
+            raise ValueError(
+                f"generator/video_minimax_h3: 'source_video_role' must be one of {_VALID_SOURCE_ROLES}, "
+                f"got {source_role!r}"
+            )
+        if source_role != "none" and not source_videos:
+            raise ValueError(
+                f"generator/video_minimax_h3: source_video_role={source_role!r} but no 'source_video' input "
+                f"was provided"
+            )
+        if source_videos and source_role == "none":
+            raise ValueError(
+                "generator/video_minimax_h3: a 'source_video' is connected but 'source_video_role' is "
+                "'none' -- set it to 'continue' or 'precede'"
+            )
+        if source_role != "none" and (
+            packed or images or configured_anchors or initial_latents or self.config.get("document")
+        ):
+            raise ValueError(
+                "generator/video_minimax_h3: 'source_video' is mutually exclusive with 'document', "
+                "'image'/'keyframe_anchors', every reference input and 'initial_latent' -- it is its own "
+                "condition layout"
+            )
+        if source_role != "none" and not bool(self.config.get("decode", True)):
+            raise ValueError(
+                "generator/video_minimax_h3: a 'source_video' run has to decode -- the reproduced source "
+                "frames are trimmed off in pixel space"
             )
         if initial_audio_latents and not initial_latents:
             raise ValueError(
@@ -1418,8 +1545,21 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     f"provided"
                 )
             audio_file = audio_files[0]
+        elif audio_source == "reference_video":
+            if not reference_videos:
+                raise ValueError(
+                    "generator/video_minimax_h3: audio_source='reference_video' but no 'reference_videos' "
+                    "input was provided"
+                )
+            audio_file = reference_videos[0]
+        audio_silent = _is_silent_media(audio_file)
+        if audio_silent:
+            audio_file = None
 
         plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
+        raw_references = self._load_reference_media(packed, self._reference_decode_seconds(plan, source_role, bool(initial_latents))) if packed else []
+        source_frames: Optional[np.ndarray] = None
+        source_overlap_latents = 0
         if initial_latents:
             # A refine pass derives width/height/frames from the SEED
             # LATENT's own shape rather than 'resolution'/'frames' config --
@@ -1470,14 +1610,32 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # keyframe here is always fit onto the CONFIGURED canvas
             # (`conditioning.fit_keyframe_to_canvas`). Documented gap, not a
             # silent behavior difference.
-            resolution = str(self.config.get("resolution", "1344x768")).split("x")
-            width, height = int(resolution[0]), int(resolution[1])
+            raw_source = self._load_source_video(source_videos[0]) if source_role != "none" else None
+            resolution = str(self.config.get("resolution", "1344x768"))
+            if resolution == AUTO_RESOLUTION:
+                height, width = self._auto_canvas(raw_source, raw_references)
+            else:
+                width, height = (int(part) for part in resolution.split("x"))
             frames = int(self.config.get("frames", 124))
             if plan is not None:
                 frames = max(window.frames for window in plan.windows)
+            frames = self._length_from_reference(frames, raw_references)
+            if source_role == "continue":
+                source_overlap_latents = int(self.config.get("source_overlap_latents", 5))
+                frames += head_frames_for_latents(source_overlap_latents)
+            elif source_role == "precede":
+                frames += 1
+            if source_role != "none" and frames > MAX_WINDOW_FRAMES:
+                logger.warning(
+                    "[GENERATOR MINIMAX-H3] source extension of %d frame(s) exceeds one %gs window; "
+                    "generating %d", frames, MAX_DURATION_S, MAX_WINDOW_FRAMES,
+                )
+                frames = MAX_WINDOW_FRAMES
             height, width, frames, num_latent_frames, latent_height, latent_width, num_audio_latents = (
                 resolve_request_geometry(height, width, frames)
             )
+            if raw_source is not None:
+                source_frames = fit_source_video(raw_source[0], fps=raw_source[1], height=height, width=width)
 
         spec = bundle.spec
         steps = int(self.config.get("steps", 24))
@@ -1570,11 +1728,30 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         reference_num_frames = frames
         if plan is not None and plan.windows:
             reference_num_frames = max(window.frames for window in plan.windows)
-        references = self._normalize_reference_media(
-            packed, num_frames=reference_num_frames, max_pixels=reference_image_max_pixels(
-                float(self.config.get("reference_image_pixel_budget") or 0), width, height,
-            ),
-        ) if packed else ()
+        references = (
+            tuple(normalize_references(
+                raw_references, num_frames=reference_num_frames,
+                reference_short_edge=int(self.config.get("reference_short_edge", REFERENCE_IMAGE_SHORT_EDGE)),
+                reference_max_pixels=reference_image_max_pixels(
+                    float(self.config.get("reference_image_pixel_budget") or 0), width, height,
+                ),
+                upscale=bool(runtime_flag("native_h3_reference_upscale")),
+            )) if packed else ()
+        )
+        source_path = source_videos[0] if source_frames is not None else None
+        source_has_audio = bool(source_path is not None and source_role == "continue" and has_audio_stream(source_path))
+        if source_frames is not None:
+            if source_role == "continue" and head_frames_for_latents(source_overlap_latents) > len(source_frames):
+                raise ValueError(
+                    f"generator/video_minimax_h3: continuing a video needs at least "
+                    f"{head_frames_for_latents(source_overlap_latents)} frames of it, the source has "
+                    f"{len(source_frames)}"
+                )
+            logger.info(
+                "[GENERATOR MINIMAX-H3] %s: source video %s, %d source frame(s) fitted to %dx%d, window of "
+                "%d frame(s), audio carry=%s",
+                spec.variant, source_role, len(source_frames), width, height, frames, source_has_audio,
+            )
 
         return GeneratorContext(
             quantity=quantity,
@@ -1586,7 +1763,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 num_audio_latents=num_audio_latents, device=device, dtype=bundle.dit.compute_dtype, spec=spec,
                 keyframe_images=keyframe_images, keyframe_anchors=anchors,
                 references=references,
-                audio_source=audio_source, audio_file=audio_file, decode=decode,
+                audio_source=audio_source, audio_file=audio_file, audio_silent=audio_silent, decode=decode,
                 manual_sigmas=manual_sigmas, manual_audio_sigmas=manual_audio_sigmas,
                 sampler=sampler, scheduler=scheduler,
                 plan=plan, director_images=director_images,
@@ -1596,6 +1773,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 denoise=denoise, video_sigma_shift=video_sigma_shift,
                 runtime_lora_stack=runtime_lora_stack,
                 runtime_lora_masked=runtime_lora_masked,
+                source_role=source_role, source_frames=source_frames, source_path=source_path,
+                source_has_audio=source_has_audio, source_overlap_latents=source_overlap_latents,
             ),
         )
 
@@ -1680,25 +1859,64 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             )
 
     @staticmethod
-    def _normalize_reference_media(
-        packed: List[tuple], *, num_frames: int, max_pixels: int = REFERENCE_IMAGE_MAX_PIXELS,
-    ) -> tuple:
-        """The packed `[(kind, media), ...]` list -> ALREADY-NORMALIZED
-        :class:`ReferenceMedia`, in the same order.
+    def _load_source_video(path: Any) -> tuple:
+        frames, fps = read_video_frames(path)
+        if not frames:
+            raise ValueError(f"generator/video_minimax_h3: the source video {path!r} has no frames")
+        return np.stack([np.asarray(frame.convert("RGB")) for frame in frames]), float(fps)
 
-        `media_loader` decodes images and hands videos and audio over as
-        PATHS, so the two file kinds are decoded here; `normalize_references`
-        then puts every one of them on H3's own resolutions and rates in ONE
-        pass, which is also where the released checkpoint's per-modality and
-        total reference rules are enforced (`validate_references`); an image
-        is capped at `max_pixels` (`reference_image_pixel_budget`), and the
-        `native_h3_reference_upscale` engine setting decides whether a small
-        image or video is enlarged there, as the released pipeline does. A packed
-        entry whose `media` is a `RefMod` (`_shared.generation.refmods`) is
-        already an encoded latent -- carried straight into `ReferenceMedia.
-        latent`, never touched by `_load_reference_video`/`_load_reference_
-        audio` or the file-decode/resample path those exist for.
-        """
+    @staticmethod
+    def _auto_canvas(raw_source: Optional[tuple], raw_references: List[ReferenceMedia]) -> tuple[int, int]:
+        if raw_source is not None:
+            frames = raw_source[0]
+            return source_canvas_size(frames.shape[2], frames.shape[1])
+        for reference in raw_references:
+            if reference.kind == "video" and reference.frames is not None and len(reference.frames):
+                first = reference.frames[0]
+                if isinstance(first, Image.Image):
+                    return source_canvas_size(*first.size)
+                first = np.asarray(first)
+                return source_canvas_size(first.shape[1], first.shape[0])
+        for reference in raw_references:
+            if reference.kind == "image" and reference.image is not None:
+                return source_canvas_size(*reference.image.size)
+        return source_canvas_size(16, 9)
+
+    def _reference_decode_seconds(self, plan: Any, source_role: str, has_initial_latents: bool) -> Optional[float]:
+        length_from = str(self.config.get("length_from", "none") or "none")
+        if has_initial_latents or length_from not in ("none", "reference_video"):
+            return None
+        frames = int(self.config.get("frames", 124))
+        if plan is not None:
+            frames = max(window.frames for window in plan.windows)
+        if source_role == "continue":
+            frames += head_frames_for_latents(int(self.config.get("source_overlap_latents", 5)))
+        elif source_role == "precede":
+            frames += 1
+        headroom = 2 * FRAMES_PER_CHUNK if length_from == "reference_video" else 0
+        return reference_decode_seconds(align_num_frames(frames) + headroom)
+
+    def _length_from_reference(self, frames: int, raw_references: List[ReferenceMedia]) -> int:
+        length_from = str(self.config.get("length_from", "none") or "none")
+        if length_from == "none":
+            return frames
+        if length_from not in _VALID_LENGTH_SOURCES:
+            raise ValueError(
+                f"generator/video_minimax_h3: 'length_from' must be one of {_VALID_LENGTH_SOURCES}, "
+                f"got {length_from!r}"
+            )
+        kind = length_from.removeprefix("reference_")
+        reference = next((r for r in raw_references if r.kind == kind and r.latent is None), None)
+        if reference is None:
+            return frames
+        if kind == "video":
+            available = int(math.floor(len(reference.frames) * FPS / float(reference.fps)))
+        else:
+            available = int(math.floor(reference.audio.shape[-1] * FPS / float(reference.sample_rate)))
+        return min(frames, snap_reference_video_frames(available))
+
+    @staticmethod
+    def _load_reference_media(packed: List[tuple], max_seconds: Optional[float] = None) -> List[ReferenceMedia]:
         loaded: List[ReferenceMedia] = []
         for kind, media in packed:
             if isinstance(media, RefMod):
@@ -1706,13 +1924,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             elif kind == "image":
                 loaded.append(ReferenceMedia(kind="image", image=media))
             elif kind == "video":
-                loaded.append(_load_reference_video(media))
+                loaded.append(_load_reference_video(media, max_seconds))
             else:
                 loaded.append(_load_reference_audio(media))
-        return tuple(normalize_references(
-            loaded, num_frames=num_frames, reference_max_pixels=max_pixels,
-            upscale=bool(runtime_flag("native_h3_reference_upscale")),
-        ))
+        return loaded
 
     @staticmethod
     def _build_ref2va_layout(
@@ -1845,6 +2060,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     f"rows for this refine's derived geometry"
                 )
             return raw.to(device=c.device, dtype=torch.float32)
+        if c.audio_source == "passthrough" and c.audio_silent:
+            return _encode_refine_audio_latent(c, _silent_audio_track(c.frames), c.num_audio_latents)
         if c.audio_source == "passthrough" and c.audio_file is not None:
             return _encode_refine_audio_latent(c, c.audio_file, c.num_audio_latents)
         raise GenerationExecutionError(
@@ -1872,7 +2089,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         ref2va_layout = None
         condition_audio_rows = None
         initial_latent: Optional[Tensor] = None
-        if c.references:
+        anchors = c.keyframe_anchors
+        if c.source_role != "none":
+            anchors, condition_rows, condition_audio_rows = self._source_condition(c, gen)
+        elif c.references:
             ref2va_layout, condition_rows, condition_audio_rows = self._build_ref2va_layout(
                 c, c.references, text_token_tags,
                 num_latent_frames=c.num_latent_frames, num_audio_latents=c.num_audio_latents,
@@ -1921,7 +2141,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         )
         video_rows, audio_rows, layout = self._sample_window(
             c, prompt_embeds=prompt_embeds, text_token_tags=text_token_tags,
-            condition_rows=condition_rows, keyframe_anchors=c.keyframe_anchors,
+            condition_rows=condition_rows, keyframe_anchors=anchors,
             num_latent_frames=c.num_latent_frames, num_audio_latents=c.num_audio_latents,
             condition_audio_rows=condition_audio_rows, steps=c.steps, generator=gen, progress=progress,
             layout=ref2va_layout, is_cancelled=ctx.is_cancelled, initial_latent=initial_latent,
@@ -1943,6 +2163,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         )
 
         audio_track = self._resolve_audio(c, audio_rows, num_condition_audio_rows=n_ca)
+        if c.source_role == "continue":
+            audio_track = _trim_audio_head(audio_track, head_frames_for_latents(c.source_overlap_latents))
+        elif c.source_role == "precede":
+            audio_track = _trim_audio_to_frames(audio_track, c.frames - 1)
         self._audio_results.append(audio_track)
         if not hasattr(self, "_audio_latent_results"):
             self._audio_latent_results = []
@@ -1951,9 +2175,13 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         if not c.decode:
             if index == ctx.quantity - 1:
                 c.reference_cache.release()
-            return video_latent
+            return _raw_video_latent(video_latent, c.bundle.video_vae.module)
 
         frames_np = self._decode_video(c, video_latent)
+        if c.source_role == "continue":
+            frames_np = frames_np[head_frames_for_latents(c.source_overlap_latents):]
+        elif c.source_role == "precede":
+            frames_np = frames_np[:-1]
         if c.source_frame_count and 0 < c.source_frame_count < frames_np.shape[0]:
             # A refine's source clip was padded (repeated tail frames) to hit
             # the video VAE's 17*n+5 alignment before it was ever encoded --
@@ -1967,6 +2195,51 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             restore_dit_best_effort(c.bundle.dit, c.device)
             c.reference_cache.release()
         return out_path
+
+    def _source_condition(
+        self, c: _MiniMaxH3Ctx, generator: torch.Generator,
+    ) -> tuple[tuple, Tensor, Optional[Tensor]]:
+        if c.source_role == "precede":
+            video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
+            _place_vae(c, c.bundle.video_vae)
+            try:
+                rows = prepare_keyframe_condition_rows(
+                    [Image.fromarray(c.source_frames[0])], ("last",), vae_module=video_vae_module,
+                    height=c.height, width=c.width, patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
+                    latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
+                    generator=generator,
+                )
+            finally:
+                c.bundle.video_vae.offload()
+            return ("last",), rows, None
+        anchors, rows = self._encode_source_condition(
+            c, source_tail_frames(c.source_frames, c.source_overlap_latents),
+            num_latents=c.source_overlap_latents, anchor_start=0, generator=generator,
+        )
+        return anchors, rows, self._source_condition_audio(c)
+
+    def _source_condition_audio(self, c: _MiniMaxH3Ctx) -> Optional[Tensor]:
+        if not c.source_has_audio:
+            return None
+        head_frames = head_frames_for_latents(c.source_overlap_latents)
+        num_latents = audio_latent_num_frames(head_frames)
+        end_seconds = (len(c.source_frames) - head_frames) / FPS
+        if num_latents <= 0 or end_seconds <= 0:
+            return None
+        waveform, sample_rate = _decode_waveform_via_ffmpeg(c.source_path)
+        waveform = waveform[:, : int(round(end_seconds * sample_rate))]
+        if waveform.shape[-1] == 0:
+            return None
+        if waveform.shape[0] > AUDIO_CHANNELS:
+            waveform = waveform.mean(dim=0, keepdim=True)
+        _place_vae(c, c.bundle.audio_vae)
+        try:
+            return encode_audio_condition(
+                c.bundle.audio_vae.module, waveform, sample_rate=sample_rate,
+                num_condition_audio_latents=num_latents, device=c.device, dtype=c.dtype,
+            )
+        finally:
+            c.bundle.audio_vae.offload()
 
     # -- the one sampling loop both paths run ------------------------------
 
@@ -2234,10 +2507,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # sequence it was primed on, and a window may differ from its
         # predecessor in frame count, condition rows or prompt length.
         step_cache = build_step_cache(self.config)
+        loop_hooks = with_step_profile(
+            hooks, cache_skip_probe(step_cache),
+            StepPlanHook(lambda i, n: {"attn": step_attention_mode(
+                sparse_attn_ctx, is_dense_step(i, n, dense_last_steps, dense_start_percent), vdn_layout is not None,
+            )}),
+        )
 
         try:
             with cancellation_scope(is_cancelled) as cancel_scope:
-                run_hooks(hooks, "on_start", num_steps)
+                run_hooks(loop_hooks, "on_start", num_steps)
                 for step_index in range(num_steps):
                     if is_cancelled is not None and is_cancelled():
                         raise SamplingCancelled(step_index=step_index)
@@ -2296,8 +2575,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                         )
                     else:
                         video_x0_5d = None
-                    run_hooks(hooks, "on_step", step_index, num_steps, video_rows, video_schedule.sigmas[step_index], video_x0_5d)
-                run_hooks(hooks, "on_end")
+                    run_hooks(loop_hooks, "on_step", step_index, num_steps, video_rows, video_schedule.sigmas[step_index], video_x0_5d)
 
             if step_cache is not None:
                 stats = step_cache.stats()
@@ -2306,6 +2584,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     stats["skipped"], stats["skipped"] + stats["computed"], step_cache.rel_threshold,
                 )
         finally:
+            run_hooks(loop_hooks, "on_end")
             forward.release()
             if lora_snapshot is not None:
                 restore_lora_state(lora_snapshot)
@@ -2523,23 +2802,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         rows: List[Tensor] = []
 
         if window.overlap_latents and previous_tail_frames is not None:
-            video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
-            _place_vae(c, c.bundle.video_vae)
-            try:
-                tail_latent = encode_continuation_condition(
-                    video_vae_module, previous_tail_frames, num_latents=window.overlap_latents,
-                    device=c.device, latents_mean=video_vae_module.latents_mean,
-                    latents_std=video_vae_module.latents_std,
-                )
-            finally:
-                c.bundle.video_vae.offload()
-            for offset in range(window.overlap_latents):
-                frame = tail_latent[:, :, offset: offset + 1].to(device=c.device, dtype=torch.float32)
-                noise = torch.randn(frame.shape, generator=generator, device=c.device, dtype=torch.float32)
-                rows.append(patchify_video_latents(
-                    scale_noise(frame, KEYFRAME_NOISE_AUG, noise).to(c.dtype), PATCH_SIZE,
-                ))
-                anchors.append(offset)
+            tail_anchors, tail_rows = self._encode_source_condition(
+                c, previous_tail_frames, num_latents=window.overlap_latents, anchor_start=0, generator=generator,
+            )
+            rows.append(tail_rows)
+            anchors.extend(tail_anchors)
 
         images = [c.director_images[kf.image_index] for kf in window.keyframes]
         image_anchors = tuple(kf.latent_index for kf in window.keyframes)
@@ -2589,11 +2856,23 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 f"window's own footage to re-encode its anchor tail, but that window only decoded "
                 f"{len(frames)} past its own overlap trim -- shorten the overlap or lengthen the segment"
             )
-        tail = frames[-real:]
-        padding = frames_to_encode_for_continuation(next_window.overlap_latents) - real
-        if padding > 0:
-            tail = np.concatenate([tail, np.repeat(tail[-1:], padding, axis=0)], axis=0)
-        return tail.copy()
+        return source_tail_frames(frames, next_window.overlap_latents)
+
+    def _encode_source_condition(
+        self, c: _MiniMaxH3Ctx, frames: np.ndarray, *, num_latents: int, anchor_start: int,
+        generator: torch.Generator,
+    ) -> tuple[tuple, Tensor]:
+        video_vae_module = _require_h3_video_vae(c.bundle.video_vae.module)
+        _place_vae(c, c.bundle.video_vae)
+        try:
+            return encode_source_video_condition(
+                video_vae_module, frames, num_latents=num_latents, anchor_start=anchor_start,
+                patch_size=PATCH_SIZE, device=c.device, dtype=c.dtype,
+                latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
+                generator=generator,
+            )
+        finally:
+            c.bundle.video_vae.offload()
 
     @staticmethod
     def _window_condition_audio(

@@ -1022,8 +1022,7 @@ class TestBackendOptimizations:
 
         with patch("src.platform.runtime.native.optimizations.probe_system", return_value=fake_probe), \
              patch("src.platform.runtime.native.optimizations.CATALOG", {"sageattention2": fake_opt}), \
-             patch("src.platform.runtime.native.attention") as mock_attention:
-            mock_attention.get_backend_override.return_value = None
+             patch("src.platform.runtime.native.kernels.get_backend_override", return_value=None):
             response = await controller.get_backend_optimizations("native-1", user=admin_user)
 
         assert response.success is True
@@ -1158,10 +1157,12 @@ class TestBackendOptimizations:
     ):
         controller.backend_config_store.get_backend.return_value = native_backend
 
-        with patch("src.platform.runtime.native.attention") as mock_attention:
-            mock_attention.known_backends.return_value = frozenset({"sage2", "sage", "flash", "sdpa"})
-            mock_attention.get_backend_override.return_value = "flash"
-            mock_attention.get_attention_backend.return_value = "flash"
+        with patch.multiple(
+            "src.platform.runtime.native.kernels",
+            known_backends=Mock(return_value=frozenset({"sage2", "sage", "flash", "sdpa"})),
+            get_backend_override=Mock(return_value="flash"),
+            get_attention_backend=Mock(return_value="flash"),
+        ):
 
             response = await controller.set_attention_backend("native-1", "flash", user=admin_user)
 
@@ -1174,10 +1175,12 @@ class TestBackendOptimizations:
     async def test_set_attention_backend_auto_persists_empty_string(self, controller, admin_user, native_backend):
         controller.backend_config_store.get_backend.return_value = native_backend
 
-        with patch("src.platform.runtime.native.attention") as mock_attention:
-            mock_attention.known_backends.return_value = frozenset({"sage2", "sage", "flash", "sdpa"})
-            mock_attention.get_backend_override.return_value = None
-            mock_attention.get_attention_backend.return_value = "sage2"
+        with patch.multiple(
+            "src.platform.runtime.native.kernels",
+            known_backends=Mock(return_value=frozenset({"sage2", "sage", "flash", "sdpa"})),
+            get_backend_override=Mock(return_value=None),
+            get_attention_backend=Mock(return_value="sage2"),
+        ):
 
             await controller.set_attention_backend("native-1", "auto", user=admin_user)
 
@@ -1188,16 +1191,14 @@ class TestBackendOptimizations:
     async def test_set_attention_backend_accepts_pin_only_backend_via_mocked_known_backends(
         self, controller, admin_user, native_backend
     ):
-        # A PIN_ONLY backend (e.g. "sparge") is never in BACKEND_PRIORITY, but
-        # IS in attention.known_backends() -- the endpoint must validate against
-        # the latter (the regression this test guards: it used to validate
-        # against BACKEND_PRIORITY alone and reject every pin-only name).
         controller.backend_config_store.get_backend.return_value = native_backend
 
-        with patch("src.platform.runtime.native.attention") as mock_attention:
-            mock_attention.known_backends.return_value = frozenset({"sage2", "sage", "flash", "sdpa", "sparge"})
-            mock_attention.get_backend_override.return_value = "sparge"
-            mock_attention.get_attention_backend.return_value = "sparge"
+        with patch.multiple(
+            "src.platform.runtime.native.kernels",
+            known_backends=Mock(return_value=frozenset({"sage2", "sage", "flash", "sdpa", "sparge"})),
+            get_backend_override=Mock(return_value="sparge"),
+            get_attention_backend=Mock(return_value="sparge"),
+        ):
 
             response = await controller.set_attention_backend("native-1", "sparge", user=admin_user)
 
@@ -1208,11 +1209,6 @@ class TestBackendOptimizations:
     async def test_set_attention_backend_accepts_sparge_against_real_dispatcher(
         self, controller, admin_user, native_backend
     ):
-        # Same regression, but exercised against the REAL src.platform.runtime.native.attention
-        # module (no mocking) -- "sparge" must be accepted as a name regardless of
-        # whether the sparge package is actually installed on this machine; pin
-        # validity is about NAME recognition, not runtime availability (an
-        # unavailable pin still falls back to sdpa with a warning at dispatch time).
         controller.backend_config_store.get_backend.return_value = native_backend
         response = await controller.set_attention_backend("native-1", "sparge", user=admin_user)
         assert response.success is True

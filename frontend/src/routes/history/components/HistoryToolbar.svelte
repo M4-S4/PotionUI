@@ -347,7 +347,7 @@
 			<CollectionSidebarSheet label="History" collapsed={!sidebarOpen} onExpand={onOpenSidebar}>
 				<HistorySidebar />
 			</CollectionSidebarSheet>
-			<PageTitle title="History" count={currentState.totalCount} countLabel="generations" />
+			<PageTitle title="History" count={currentState.totalCount} countLabel="generations" countLabelOne="generation" />
 
 			<!-- Divider -->
 			<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>

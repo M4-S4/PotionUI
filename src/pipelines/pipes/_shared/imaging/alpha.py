@@ -1,33 +1,13 @@
-"""Alpha-channel helpers shared by the image-utility pipes (``matting/birefnet``,
-``crop_subject``, ``color_key``): bounding-box extraction from an alpha
-channel, matte-strength smoothstep tightening, and Gaussian feathering. Pure
-numpy/PIL - no torch, no GPU, deterministic.
+"""Alpha-channel helpers for the generator and matting pipes: matte-strength
+smoothstep tightening, opaque-alpha dropping and flattening onto a background.
+Pure numpy/PIL - no torch, no GPU, deterministic. Bounding boxes, feathering and
+colour keying live in `src.platform.imaging.pixels`.
 """
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import numpy as np
-from PIL import Image, ImageFilter
-
-
-def alpha_bbox(image: Image.Image, threshold: int = 16) -> Optional[Tuple[int, int, int, int]]:
-    """Bounding box ``(x, y, w, h)`` of pixels whose alpha exceeds ``threshold``.
-
-    ``None`` when no pixel qualifies (a fully transparent, or fully
-    below-threshold, image) - callers must not treat that as an error, it is
-    the normal "nothing to crop to" case.
-    """
-    alpha = np.array(image.convert("RGBA"))[..., 3]
-    mask = alpha > threshold
-
-    rows = np.any(mask, axis=1)
-    cols = np.any(mask, axis=0)
-    if not rows.any() or not cols.any():
-        return None
-
-    y0, y1 = np.where(rows)[0][[0, -1]]
-    x0, x1 = np.where(cols)[0][[0, -1]]
-    return (int(x0), int(y0), int(x1 - x0 + 1), int(y1 - y0 + 1))
+from PIL import Image
 
 
 def apply_matte_strength(alpha: np.ndarray, strength: int) -> np.ndarray:
@@ -60,17 +40,6 @@ def apply_matte_strength(alpha: np.ndarray, strength: int) -> np.ndarray:
     t = np.clip((alpha.astype(np.float64) - low) / (high - low), 0.0, 1.0)
     smoothed = t * t * (3.0 - 2.0 * t)
     return np.round(smoothed * 255.0).astype(np.uint8)
-
-
-def feather_alpha(alpha: np.ndarray, feather_px: float) -> np.ndarray:
-    """Gaussian-blur ``alpha`` (uint8, any shape) by ``feather_px``. ``<= 0``
-    is the identity (a hard edge, unchanged)."""
-    if feather_px <= 0:
-        return alpha
-    blurred = Image.fromarray(alpha, mode="L").filter(
-        ImageFilter.GaussianBlur(radius=feather_px / 2.0)
-    )
-    return np.array(blurred)
 
 
 def drop_opaque_alpha(image: Image.Image) -> Image.Image:

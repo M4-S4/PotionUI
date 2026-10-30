@@ -26,6 +26,7 @@ from .denoise_loop import (
     wrap_step_cache,
 )
 from .hooks import with_numerics_watchdog
+from .step_profile import cache_skip_probe, with_step_profile
 from ..cancellation import cancellation_scope
 
 logger = logging.getLogger(__name__)
@@ -180,7 +181,9 @@ def denoise_prenoised(
     # denoise_loop.py — sampler sees fp32, model receives traj_dtype).
     model_forward_fp32 = fp32_trajectory_forward(model_forward, traj_dtype)
 
-    watched_hooks = with_numerics_watchdog(hooks, sampler_name, sampler_options)
+    watched_hooks = with_step_profile(
+        with_numerics_watchdog(hooks, sampler_name, sampler_options), cache_skip_probe(cache_set),
+    )
     with cancellation_scope(is_cancelled) as scope:
         latent = sampler(
             model_forward_fp32,

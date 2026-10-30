@@ -508,7 +508,7 @@ def _base_model_sql(operator: str, value: Any, alias: str) -> SqlResult:
     if alias != "m" or not families:
         return None
     exists = (
-        "EXISTS (SELECT 1 FROM model_header_verdicts v WHERE v.sha256 = m.sha256 "
+        "EXISTS (SELECT 1 FROM model_verdicts v WHERE v.model_id = m.id "
         f"AND LOWER(v.family) IN ({_placeholders(families)}))"
     )
     if operator in ("is", "is_any_of"):

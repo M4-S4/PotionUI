@@ -25,6 +25,7 @@
 		confirmPasswordLabel = mode === 'claim' ? 'Confirm password' : 'Confirm Password',
 		submitLabel,
 		submitLoadingLabel,
+		embedded = false,
 		onSubmit
 	}: {
 		mode: 'register' | 'claim';
@@ -34,6 +35,7 @@
 		confirmPasswordLabel?: string;
 		submitLabel: string;
 		submitLoadingLabel: string;
+		embedded?: boolean;
 		onSubmit: (values: RegistrationSubmitValues) => Promise<RegistrationSubmitResult>;
 	} = $props();
 
@@ -85,7 +87,7 @@
 {/if}
 
 <form onsubmit={handleSubmit}>
-	<div class="mt-[38px] flex flex-col gap-[22px]">
+	<div class="{embedded ? 'mt-0' : 'mt-[38px]'} flex flex-col gap-[22px]">
 		<div class="flex flex-col">
 			<label for="username" class="font-mono text-2xs uppercase tracking-[0.1em] text-fg-subtle">
 				Username
@@ -175,13 +177,13 @@
 					class="mt-1.5 h-[30px] w-full border-b border-line-strong bg-transparent font-mono text-[15px] text-fg transition-colors focus:border-signal focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 				/>
 				<p class="mt-1.5 text-2xs text-fg-subtle">
-					Shown in the terminal where PotionUI was started.
+					Saved in a file on the server. If it is wrong, the error says where to find it.
 				</p>
 			</div>
 		{/if}
 	</div>
 
-	<div class="mt-[34px]">
+	<div class="{embedded ? 'mt-6' : 'mt-[34px]'}">
 		<Button
 			type="submit"
 			variant="primary"

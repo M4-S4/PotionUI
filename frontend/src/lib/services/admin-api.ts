@@ -1,7 +1,14 @@
 import { api } from '$lib/services/api/index';
 import type { APIResponse } from '$lib/types/api';
 import type { User } from '$lib/stores/auth';
-import type { AdminToolsetEntry, LLMConfig } from '$lib/types/llm';
+import type { MessageUsage } from '$lib/types/chat';
+import type {
+	AdminToolsetEntry,
+	LLMConfig,
+	LLMProfile,
+	LLMProfileOverrides,
+	LLMProfileSchema
+} from '$lib/types/llm';
 import type { GenerationHistoryItem } from '$lib/types/history';
 import type { CostSummary, GenerationCost } from '$lib/utils/cloudCost';
 
@@ -505,6 +512,29 @@ export async function updateLLMConfiguration(
 
 export async function deleteLLMConfiguration(configId: string): Promise<APIResponse> {
 	const response = await api.getClient().delete(`/api/llm/configurations/${configId}`);
+	return response.data;
+}
+
+export async function getLLMProfile(configId: string): Promise<APIResponse<LLMProfile>> {
+	const response = await api.getClient().get(`/api/llm/configurations/${configId}/profile`);
+	return response.data;
+}
+
+export async function getLLMProfileSchema(): Promise<APIResponse<LLMProfileSchema>> {
+	const response = await api.getClient().get('/api/llm/profile/schema');
+	return response.data;
+}
+
+export async function updateLLMProfile(
+	configId: string,
+	overrides: LLMProfileOverrides
+): Promise<APIResponse<LLMProfile>> {
+	const response = await api.getClient().put(`/api/llm/configurations/${configId}/profile`, { overrides });
+	return response.data;
+}
+
+export async function refreshLLMProfile(configId: string): Promise<APIResponse<LLMProfile>> {
+	const response = await api.getClient().post(`/api/llm/configurations/${configId}/profile/refresh`);
 	return response.data;
 }
 
@@ -1170,7 +1200,7 @@ export interface AdminChatToolExecution {
 		error: string | null;
 	};
 	duration_ms: number;
-	approval_status?: 'pending' | 'approved' | 'rejected' | 'failed' | null;
+	approval_status?: 'pending' | 'approved' | 'rejected' | 'failed' | 'expired' | null;
 }
 
 /** One timed step in a `behavior_trace` manifest's `steps[]`. */
@@ -1260,6 +1290,11 @@ export interface AdminChatCallTrace {
 	response_tool_calls: unknown[] | null;
 	prompt_tokens: number | null;
 	completion_tokens: number | null;
+	adapter?: string | null;
+	request_body?: unknown;
+	response_raw?: string | null;
+	usage?: MessageUsage | null;
+	cost?: number | null;
 	duration_ms: number;
 	created_at: string;
 }

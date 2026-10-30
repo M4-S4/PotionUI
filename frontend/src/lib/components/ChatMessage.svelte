@@ -13,7 +13,7 @@
 	} from '$lib/utils/markdown';
 	import { promptActionHeading } from '$lib/chat/promptActions';
 	import { promptActionUndos } from '$lib/stores/promptActionUndos';
-	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract, ThinkingSegment } from '$lib/types/chat';
+	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract, ReasoningBlock, ChatNotice } from '$lib/types/chat';
 	import { splitResourceTokens } from '$lib/utils/resourceTokens';
 	import { splitMarkerTokens } from '$lib/chat/previewTokens';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
@@ -21,7 +21,8 @@
 	import { buildVariableChipTooltips } from '$lib/utils/variableSnapshot';
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
-	import ChatThinkingBlock from '$lib/components/chat/ChatThinkingBlock.svelte';
+	import ChatReasoningBlock from '$lib/components/chat/ChatReasoningBlock.svelte';
+	import ChatNotices from '$lib/components/chat/ChatNotices.svelte';
 	import ChatActionCard from '$lib/components/chat/ChatActionCard.svelte';
 	import ConditionChip from '$lib/components/ConditionChip.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -46,7 +47,8 @@
 	export let isPartial: boolean = false;
 	export let toolExecutions: ToolExecution[] = [];
 	export let traceSteps: TraceStep[] = [];
-	export let thinking: ThinkingSegment[] = [];
+	export let reasoning: ReasoningBlock[] = [];
+	export let notices: ChatNotice[] = [];
 	export let sources: Array<{
 		source_type: string;
 		title: string;
@@ -344,7 +346,8 @@
 					Stopped at the output limit; the reply may be incomplete.
 				</div>
 			{/if}
-			<ChatThinkingBlock segments={thinking} {isStreaming} />
+			<ChatNotices {notices} />
+			<ChatReasoningBlock blocks={reasoning} {isStreaming} />
 			<div class="assistant-copy" use:delegatedTooltip>
 				{@html renderedHtml}{#if isStreaming}<span class="inline-block w-2 h-4 ml-0.5 bg-signal animate-pulse rounded-sm"></span>{/if}
 

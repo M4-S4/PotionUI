@@ -1,11 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 
 const TABS_STORAGE_KEY = 'potionui_tabs_state';
 
 const JOURNEY = 'model-file-card';
 const WORKBENCH_ID = '01MODELFILECARDWORKBENCH01';
-const HISTORY_ID = '01MODELFILECARDHISTORY0001';
 const GB = 1024 ** 3;
 
 const VIEWPORTS = [
@@ -70,67 +69,6 @@ function artifactMessage(generationId: string, data: typeof MODEL_DATA | typeof 
 		artifact_type: 'model_file',
 		artifact_data: data
 	};
-}
-
-function historyItem() {
-	const now = new Date().toISOString();
-	return {
-		id: HISTORY_ID,
-		preset_id: 'e2e/model_tools',
-		preset_name: 'Model Tools',
-		mode: 'quantize',
-		form_data: {},
-		status: 'completed',
-		progress: 1,
-		created_at: now,
-		completed_at: now,
-		updated_at: now,
-		rating: 0,
-		is_favorite: false,
-		tags: [],
-		files: []
-	};
-}
-
-async function mockHistory(page: Page) {
-	const item = historyItem();
-	await page.route('**/api/generations/history**', async (route) => {
-		const path = new URL(route.request().url()).pathname;
-		if (path === '/api/generations/history') {
-			await route.fulfill({ json: { success: true, data: { generations: [item], total: 1 } } });
-			return;
-		}
-		if (path === `/api/generations/history/${HISTORY_ID}`) {
-			await route.fulfill({ json: { success: true, data: item } });
-			return;
-		}
-		await route.fallback();
-	});
-	await page.route(`**/api/generations/${HISTORY_ID}/run-report`, async (route) => {
-		const at = new Date().toISOString();
-		await route.fulfill({
-			json: {
-				success: true,
-				data: {
-					run_report: {
-						schema_version: 2,
-						status_history: [],
-						pipe_timers: {},
-						artifacts: [
-							{ at, pipe_id: 3, artifact_type: 'model_file', artifact_data: MODEL_DATA },
-							{ at, pipe_id: 3, artifact_type: 'model_file', artifact_data: LORA_DATA }
-						],
-						plugin_outputs: {},
-						prompt_template: null,
-						artifacts_omitted: 0,
-						plugin_outputs_omitted: 0,
-						artifacts_bytes: 0,
-						stored_bytes: 0
-					}
-				}
-			}
-		});
-	});
 }
 
 for (const viewport of VIEWPORTS) {
@@ -248,37 +186,5 @@ for (const viewport of VIEWPORTS) {
 		expect(overflow).toBeLessThanOrEqual(0);
 
 		await screenshot(page, JOURNEY, `workbench-${viewport.label}`);
-	});
-
-	test(`model and LoRA cards in History at ${viewport.label}`, async ({ page }) => {
-		await page.setViewportSize({ width: viewport.width, height: viewport.height });
-		await mockHistory(page);
-
-		await loginAsOwner(page);
-		await page.goto('/history');
-		await page.waitForLoadState('networkidle');
-
-		const card = page.locator('[data-generation-card]').first();
-		await expect(card).toBeVisible({ timeout: 15000 });
-		await card.hover();
-		const actions = card.getByRole('button', { name: 'Item actions' });
-		await expect(actions).toHaveCSS('opacity', '1');
-		await actions.click();
-		await page.getByRole('menuitem', { name: 'Open details' }).click();
-		await expect(page.getByText('Generation Details')).toBeVisible({ timeout: 15000 });
-
-		await page.getByRole('button', { name: /^Artifacts/ }).click();
-
-		const cards = page.locator('[data-model-file-card]');
-		await expect(cards).toHaveCount(2, { timeout: 10000 });
-		await expect(cards.first().locator('[data-model-file-sizes]')).toHaveText('23.8 → 11.9 GB');
-		await expect(cards.nth(1).locator('[data-model-file-rank]')).toHaveText('32');
-		await expect(cards.nth(1).locator('[data-model-file-sources]')).toContainText('ink-wash.safetensors');
-
-		await cards.first().scrollIntoViewIfNeeded();
-		await screenshot(page, JOURNEY, `history-${viewport.label}`);
-
-		await cards.first().getByRole('button', { name: 'Open in Models' }).click();
-		await page.waitForURL(/\/models\/e2e-model-id/, { timeout: 15000 });
 	});
 }

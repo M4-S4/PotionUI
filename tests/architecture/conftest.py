@@ -7,6 +7,15 @@ from pathlib import Path
 import pytest
 
 PRUNED_DIRS = frozenset({"__pycache__", "node_modules", "venv", ".git"})
+SOURCE_ROOT = Path(__file__).resolve().parents[2] / "src"
+
+
+def is_type_checking_test(test: ast.expr) -> bool:
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING"
+    return False
 
 
 class SourceIndex:
@@ -40,4 +49,7 @@ class SourceIndex:
 
 @pytest.fixture(scope="session")
 def source_index() -> SourceIndex:
-    return SourceIndex()
+    index = SourceIndex()
+    for path in index.py_files(SOURCE_ROOT):
+        index.tree(path)
+    return index

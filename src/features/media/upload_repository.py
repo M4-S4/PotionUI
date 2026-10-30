@@ -27,8 +27,8 @@ class UploadRepository:
                     id, user_id, filename, original_filename, media_type, mime_type,
                     width, height, duration_seconds, fps, file_size, purpose,
                     thumbnail_small, thumbnail_medium, thumbnail_large, thumbnail_profile,
-                    content_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    content_hash, has_alpha, source_generation_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 upload.id,
                 upload.user_id,
@@ -47,6 +47,8 @@ class UploadRepository:
                 upload.thumbnail_large,
                 upload.thumbnail_profile,
                 upload.content_hash,
+                None if upload.has_alpha is None else int(upload.has_alpha),
+                upload.source_generation_id,
             ))
 
             cursor.execute("SELECT * FROM uploads WHERE id = ?", (upload.id,))
@@ -214,6 +216,7 @@ class UploadRepository:
         duration_seconds: Optional[float],
         fps: Optional[float],
         file_size: Optional[int],
+        has_alpha: Optional[bool] = None,
     ) -> Optional[Upload]:
         """Point an existing upload row at a different file, scoped to its owner.
 
@@ -235,7 +238,8 @@ class UploadRepository:
                        height = ?,
                        duration_seconds = ?,
                        fps = ?,
-                       file_size = ?
+                       file_size = ?,
+                       has_alpha = ?
                  WHERE id = ? AND user_id = ?
             """, (
                 filename,
@@ -245,8 +249,70 @@ class UploadRepository:
                 duration_seconds,
                 fps,
                 file_size,
+                None if has_alpha is None else int(has_alpha),
                 upload_id,
                 user_id,
+            ))
+            if cursor.rowcount == 0:
+                return None
+
+            cursor.execute("SELECT * FROM uploads WHERE id = ?", (upload_id,))
+            row = cursor.fetchone()
+            return Upload.from_row(row) if row else None
+
+    def replace_file(
+        self,
+        upload_id: str,
+        user_id: str,
+        expected_filename: str,
+        filename: str,
+        mime_type: Optional[str],
+        width: Optional[int],
+        height: Optional[int],
+        duration_seconds: Optional[float],
+        fps: Optional[float],
+        file_size: Optional[int],
+        content_hash: Optional[str],
+        thumbnail_small: Optional[str],
+        thumbnail_medium: Optional[str],
+        thumbnail_large: Optional[str],
+        thumbnail_profile: Optional[str],
+        has_alpha: Optional[bool] = None,
+    ) -> Optional[Upload]:
+        with get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE uploads
+                   SET filename = ?,
+                       mime_type = ?,
+                       width = ?,
+                       height = ?,
+                       duration_seconds = ?,
+                       fps = ?,
+                       file_size = ?,
+                       content_hash = ?,
+                       thumbnail_small = ?,
+                       thumbnail_medium = ?,
+                       thumbnail_large = ?,
+                       thumbnail_profile = ?,
+                       has_alpha = ?
+                 WHERE id = ? AND user_id = ? AND filename = ?
+            """, (
+                filename,
+                mime_type,
+                width,
+                height,
+                duration_seconds,
+                fps,
+                file_size,
+                content_hash,
+                thumbnail_small,
+                thumbnail_medium,
+                thumbnail_large,
+                thumbnail_profile,
+                None if has_alpha is None else int(has_alpha),
+                upload_id,
+                user_id,
+                expected_filename,
             ))
             if cursor.rowcount == 0:
                 return None

@@ -1,20 +1,6 @@
-/**
- * The media tools system: what the Tools menu offers for the media currently
- * selected, on the History page and the Library page alike.
- *
- * Core registers its own tools here (`routes/history/tools/coreTools.ts`) and
- * plugins register theirs from the served `history_tools[]` manifest section
- * (`pluginTools.ts` - the manifest key stayed `history_tools` for existing
- * plugins, even though it now feeds both pages). Nothing in this module
- * fetches or mounts anything - a tool is data plus an `applies()` predicate,
- * so the whole catalog is decidable from a context object. A tool that
- * doesn't declare `scopes` only ever shows up on the History page, matching
- * every tool registered before scopes existed.
- */
 import type { ComponentType } from 'svelte';
 import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
-import { hasIcon } from '$lib/utils/IconLibrary';
 import {
 	isAudioFileType,
 	isImageFileType,
@@ -37,7 +23,12 @@ export interface MediaToolItem {
 	filename: string;
 	width?: number;
 	height?: number;
+	durationSeconds?: number | null;
+	fps?: number | null;
+	hasAlpha?: boolean | null;
+	itemId?: string | null;
 	generationId?: string;
+	generationFileId?: string | null;
 	paramIndex?: number;
 }
 
@@ -71,6 +62,7 @@ export interface MediaToolEntryInfo {
 	stackCells: number | null;
 	looseCell: boolean;
 	error: string | null;
+	favorite?: boolean;
 }
 
 export type MediaToolSurface = 'entry' | 'selection' | 'bar';
@@ -140,16 +132,27 @@ export interface MediaTool {
 	control?: 'rating' | 'collection';
 	tone?: 'danger';
 	labelFor?: (ctx: MediaToolContext) => string;
+	catalogToolId?: string;
+	pluginId?: string;
+	builtInEditor?: boolean;
+	lookId?: string;
+	componentProps?: Record<string, unknown>;
+	note?: string;
 }
 
 export const MEDIA_TOOL_CATEGORIES: MediaToolCategory[] = [
+	{ id: 'edit', label: 'Edit', order: -20 },
+	{ id: 'effects', label: 'Effects', order: -10 },
 	{ id: 'open', label: 'Open', order: 0 },
 	{ id: 'analyze', label: 'Analyze', order: 10 },
 	{ id: 'compose', label: 'Compose', order: 20 },
 	{ id: 'export', label: 'Export', order: 30 },
+	{ id: 'plugins', label: 'Plugins', order: 35 },
 	{ id: 'organize', label: 'Organize', order: 40 },
 	{ id: 'danger', label: 'Danger', order: 99 }
 ];
+
+const ENTRY_CATEGORY_ORDER: Record<string, number> = { plugins: -5 };
 
 const categories = new Map<string, MediaToolCategory>(
 	MEDIA_TOOL_CATEGORIES.map((category) => [category.id, category])
@@ -224,7 +227,11 @@ export function buildHistoryToolContext(
 				filename,
 				width: file.width,
 				height: file.height,
+				durationSeconds: file.duration_seconds,
+				fps: file.fps,
+				hasAlpha: file.has_alpha,
 				generationId: generation.id,
+				generationFileId: String(file.id),
 				paramIndex: index
 			});
 		});
@@ -259,7 +266,11 @@ export function buildLibraryToolContext(
 				url: item.url,
 				filename: item.original_filename ?? item.filename,
 				width: item.width,
-				height: item.height
+				height: item.height,
+				durationSeconds: item.duration_seconds,
+				fps: item.fps,
+				hasAlpha: item.has_alpha,
+				itemId: item.id
 			};
 		})
 		.filter((item): item is MediaToolItem => item !== null);
@@ -369,100 +380,16 @@ function visibleOnSurface(tool: MediaTool, ctx: MediaToolContext, options: Group
 }
 
 export function groupToolsFor(ctx: MediaToolContext, options: GroupToolsOptions): MediaToolGroup[] {
+	const orderOf = (group: MediaToolGroup) =>
+		(options.surface === 'entry' ? ENTRY_CATEGORY_ORDER[group.category.id] : undefined) ??
+		group.category.order;
 	return listToolGroups(ctx)
 		.map((group) => ({
 			...group,
 			tools: group.tools.filter(
-				({ tool, availability }) =>
-					visibleOnSurface(tool, ctx, options) &&
-					!(options.surface === 'entry' && availability.hidden)
+				({ tool, availability }) => visibleOnSurface(tool, ctx, options) && !availability.hidden
 			)
 		}))
-		.filter((group) => group.tools.length > 0);
-}
-
-export interface PluginMediaToolAppliesTo {
-	min_selection?: number | null;
-	max_selection?: number | null;
-	media_kinds?: MediaKind[];
-}
-
-/** One entry of `GET /api/plugins/history-tools`. */
-export interface PluginMediaToolEntry {
-	id: string;
-	plugin_id: string;
-	label: string;
-	description?: string;
-	icon?: string;
-	category: string;
-	component: string;
-	applies_to?: PluginMediaToolAppliesTo | null;
-	/** Absent on a manifest written before scopes existed - defaults to `['history']`. */
-	scopes?: MediaToolScope[] | null;
-}
-
-function plural(count: number, scope: MediaToolScope): string {
-	const noun = scope === 'history' ? 'generation' : 'item';
-	return count === 1 ? noun : `${noun}s`;
-}
-
-function kindList(kinds: MediaKind[]): string {
-	if (kinds.length === 1) return kinds[0];
-	return `${kinds.slice(0, -1).join(', ')} or ${kinds[kinds.length - 1]}`;
-}
-
-/** The icon a plugin tool falls back to when the served name is not drawable. */
-export const MEDIA_TOOL_FALLBACK_ICON = 'extension';
-
-/**
- * Turns a served manifest entry into a tool. The backend already composes the
- * id as `<plugin_id>:<id>` and the component as `plugin:<plugin_id>:<asset>`;
- * a bare asset is prefixed here so `parseComponentRef` can read it.
- *
- * An icon name `IconLibrary` has no path for would render as the name's first
- * letter, so an unknown one is swapped for the fallback before it reaches the
- * menu - including the manifest schema's own `tool` default.
- *
- * `applies()` only ever reads `ctx.generations`/`ctx.kinds`, so it behaves the
- * same whether `ctx` came from `buildHistoryToolContext` or
- * `buildLibraryToolContext` - a plugin tool scoped to `library` sees an empty
- * `generations` there and so must declare bounds that don't require one.
- */
-export function pluginMediaToolFromManifest(entry: PluginMediaToolEntry): MediaTool {
-	const bounds = entry.applies_to ?? {};
-	const min = bounds.min_selection ?? null;
-	const max = bounds.max_selection ?? null;
-	const kinds = bounds.media_kinds ?? [];
-	const componentRef = entry.component.startsWith('plugin:')
-		? entry.component
-		: `plugin:${entry.plugin_id}:${entry.component}`;
-
-	return {
-		id: entry.id,
-		label: entry.label,
-		description: entry.description || undefined,
-		icon: entry.icon && hasIcon(entry.icon) ? entry.icon : MEDIA_TOOL_FALLBACK_ICON,
-		category: entry.category,
-		source: 'plugin',
-		scopes: entry.scopes && entry.scopes.length > 0 ? entry.scopes : ['history'],
-		selection: {
-			...(min !== null ? { min } : {}),
-			...(max !== null ? { max } : {})
-		},
-		kinds: kinds.length > 0 ? kinds : undefined,
-		componentRef,
-		applies(ctx) {
-			const count = ctx.scope === 'history' ? ctx.generations.length : ctx.items.length;
-			if (min !== null && count < min) {
-				return { enabled: false, reason: `Select at least ${min} ${plural(min, ctx.scope)}` };
-			}
-			if (max !== null && count > max) {
-				return { enabled: false, reason: `Select at most ${max} ${plural(max, ctx.scope)}` };
-			}
-			if (kinds.length > 0 && !kinds.some((kind) => ctx.kinds.has(kind))) {
-				return { enabled: false, reason: `Select at least one ${kindList(kinds)}` };
-			}
-			return { enabled: true };
-		}
-	};
+		.filter((group) => group.tools.length > 0)
+		.sort((a, b) => orderOf(a) - orderOf(b));
 }

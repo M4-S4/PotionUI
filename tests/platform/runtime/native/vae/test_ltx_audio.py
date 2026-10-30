@@ -9,7 +9,7 @@ import torch
 
 from src.platform.runtime.native.detect.vae_detect import detect_ltx_audio_vae_config, detect_ltx_vocoder_config
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae.loader import load_ltx_audio_vae, load_ltx_vocoder
 from src.platform.runtime.native.vae.ltx_audio import (
     LTXAudioAutoencoder,

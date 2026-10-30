@@ -2,6 +2,8 @@
  * Shared chat types used across AI chat panel components.
  */
 
+import type { NoticeKind } from '$lib/chat/noticeKinds';
+
 export interface ParsedContent {
 	prompt?: string;
 	improvements?: string;
@@ -93,7 +95,7 @@ export interface ToolApprovalPreview {
 	rows?: ToolApprovalTimelineRow[] | null;
 }
 
-export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'failed';
+export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'failed' | 'expired';
 
 export type ToolResolveStatus = 'approved' | 'rejected' | 'failed' | 'stale' | 'already_resolved';
 
@@ -151,11 +153,32 @@ export interface TraceStep {
 	seq?: number;
 }
 
-export interface ThinkingSegment {
+export type ReasoningKind = 'raw' | 'summary' | 'omitted';
+
+export interface ReasoningBlock {
+	kind: ReasoningKind;
 	text: string;
 	started_at?: number;
-	duration_ms?: number;
+	duration_ms?: number | null;
 	open?: boolean;
+}
+
+export interface MessageUsage {
+	input_tokens?: number;
+	output_tokens?: number;
+	reasoning_tokens?: number;
+	cached_input_tokens?: number;
+	cache_write_tokens?: number;
+	cost?: number | null;
+}
+
+export type ChatNoticeKind = NoticeKind | (string & {});
+
+export interface ChatNotice {
+	kind: ChatNoticeKind;
+	message: string;
+	detail?: Record<string, unknown> | null;
+	step_seq?: number | null;
 }
 
 /** Per-component size accounting inside `BehaviorTraceManifest.context_ledger`. */
@@ -363,7 +386,10 @@ export interface UnifiedChatMessageData {
 	completion_tokens?: number | null;
 	tool_executions?: ToolExecution[];
 	trace_steps?: TraceStep[];
-	thinking?: ThinkingSegment[];
+	reasoning?: ReasoningBlock[];
+	stepMark?: { content: number; reasoning: number };
+	usage?: MessageUsage;
+	notices?: ChatNotice[];
 	sources?: MessageSource[];
 	isStreaming?: boolean;
 	/** Content was replaced with a bounded `replay_snapshot` (the reconnect

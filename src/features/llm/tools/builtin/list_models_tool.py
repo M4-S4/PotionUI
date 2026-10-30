@@ -47,11 +47,11 @@ def _tag_names(model: Any) -> List[str]:
 
 def _families(models: List[Any]) -> Dict[str, Optional[str]]:
     try:
-        verdicts = ModelTypeRepository().get_verdicts(model.sha256 for model in models)
+        verdicts = ModelTypeRepository().get_verdicts(model.id for model in models)
     except Exception:
         logger.warning("could not read model families", exc_info=True)
         return {}
-    return {sha: row.get("family") for sha, row in verdicts.items()}
+    return {model_id: row.get("family") for model_id, row in verdicts.items()}
 
 
 class ListModelsTool(BaseTool):
@@ -62,6 +62,7 @@ class ListModelsTool(BaseTool):
     context_group = "library"
 
     name = "list_models"
+    read_only = True
     group = "Models & presets"
     user_description = "Lists the models installed on your server."
 
@@ -142,6 +143,7 @@ class SearchModelsTool(BaseTool):
     icon = "search"
 
     name = "search_models"
+    read_only = True
     group = "Models & presets"
     user_description = "Searches the models you can use, with their trigger words."
 
@@ -189,7 +191,7 @@ class SearchModelsTool(BaseTool):
                 "filename": model.filename,
                 "name": model.display_name,
                 "type": model.model_type,
-                "base_model": families.get(model.sha256),
+                "base_model": families.get(model.id),
                 "trigger_words": metadata.get(WellKnownModelAttribute.TRIGGERS) or [],
             }
             tags = _tag_names(model)

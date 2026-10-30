@@ -285,7 +285,7 @@ def test_map_lokr_direct_and_delta_math():
     d = mapped["blocks.0.attn.wq.weight"][0]
     assert d.kron and d.alpha == 1.0          # no factorization -> no alpha/dim scaling
     # The applied delta must be exactly kron(w1, w2).
-    from vendor.gpl.comfyui.ops import apply_lora_deltas
+    from src.platform.runtime.native.kernels.lora_math import apply_lora_deltas
     w = torch.zeros(32, 32)
     out = apply_lora_deltas(w, [d])
     expected = torch.kron(

@@ -1,0 +1,111 @@
+{
+  "method": "POST",
+  "url": "https://api.openai.com/v1/responses",
+  "headers": {
+    "Content-Type": "application/json",
+    "Accept": "text/event-stream",
+    "Authorization": "[scrubbed]"
+  },
+  "body": {
+    "model": "gpt-5.6",
+    "instructions": "You are a careful assistant. Use tools when they help.",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "What is the weather in Paris and Zürich?"
+          }
+        ]
+      },
+      {
+        "id": "rs_0a1b2c3d4e5f6071",
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "Checking both cities."
+          },
+          {
+            "type": "summary_text",
+            "text": "Calling the tool twice."
+          }
+        ],
+        "encrypted_content": "gAAAAABq_weather_plan_encrypted_blob_aGVsbG8gd29ybGQ="
+      },
+      {
+        "id": "msg_0a1b2c3d4e5f6071",
+        "type": "message",
+        "status": "completed",
+        "phase": "commentary",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "text": "Let me check both."
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "id": "fc_0a1b2c3d4e5f6071",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"city\":\"Paris\"}",
+        "call_id": "call_paris_01",
+        "name": "get_weather"
+      },
+      {
+        "id": "fc_0a1b2c3d4e5f6072",
+        "type": "function_call",
+        "status": "completed",
+        "arguments": "{\"city\":\"Zürich\"}",
+        "call_id": "call_zurich_02",
+        "name": "get_weather"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_paris_01",
+        "output": "18 C, clear"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_zurich_02",
+        "output": "{\"temp_c\":14,\"sky\":\"overcast\"}"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "name": "get_weather",
+        "description": "Current weather for a city.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "description": "City name"
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    ],
+    "store": false,
+    "stream": true,
+    "include": [
+      "reasoning.encrypted_content"
+    ],
+    "reasoning": {
+      "effort": "medium",
+      "summary": "auto"
+    },
+    "max_output_tokens": 4096,
+    "prompt_cache_key": "conv-cassette"
+  }
+}

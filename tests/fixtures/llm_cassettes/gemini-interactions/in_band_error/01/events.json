@@ -1,0 +1,10 @@
+{
+  "error": {
+    "kind": "server_error",
+    "message": "Deadline expired before operation could complete.",
+    "status": null,
+    "code": "gateway_timeout",
+    "retry_after": null,
+    "detail": {}
+  }
+}

@@ -54,10 +54,10 @@ const actions = {
 
 let mounted: Record<string, any> | null = null;
 
-function render(run: SetupRun) {
+function render(run: SetupRun, extra: Record<string, unknown> = {}) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
-	mounted = mount(RecipeRunProgress, { target, props: { run, actions, onRunUpdated: () => {} } });
+	mounted = mount(RecipeRunProgress, { target, props: { run, actions, onRunUpdated: () => {}, ...extra } });
 	flushSync();
 	return target;
 }
@@ -98,5 +98,21 @@ describe('RecipeRunProgress consent gate', () => {
 		);
 		expect(target.querySelector('input[type="password"]')).toBeNull();
 		expect(target.textContent).toContain('CivitAI API key saved.');
+	});
+
+	it('stands alone with a title and status badge outside the guide', () => {
+		const target = render(consentRun([]));
+		expect(target.querySelector('h2')?.textContent).toBe('Guided setup');
+		expect(target.textContent?.match(/Needs your go-ahead/g)?.length).toBeGreaterThanOrEqual(3);
+	});
+
+	it('opens on the progress line without a repeated title, badge or callout heading in the guide', () => {
+		const target = render(consentRun([]), { guided: true });
+		expect(target.querySelector('h2')).toBeNull();
+		expect(target.textContent).toContain('waiting on you');
+		expect(target.textContent?.match(/Needs your go-ahead/g)?.length).toBe(1);
+		expect(target.textContent).toContain('needs to download the following');
+		expect(target.textContent).not.toContain('Fetch models needs');
+		expect(target.textContent).not.toContain('Fetch models wants');
 	});
 });

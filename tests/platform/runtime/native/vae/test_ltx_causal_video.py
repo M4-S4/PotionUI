@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from src.platform.runtime.native.detect.vae_detect import detect_ltx_video_vae_config
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae.loader import load_ltx_video_vae
 from src.platform.runtime.native.vae.ltx_causal_video import LTXCausalVideoVAE
 

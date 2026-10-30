@@ -5,6 +5,7 @@ description: "Marketplace provider for HuggingFace Hub - resolve repo files to d
 author: "PotionUI Team"
 type: "backend-only"
 category: "sources"
+default_enabled: true
 
 capabilities:
   - "marketplace-provider"

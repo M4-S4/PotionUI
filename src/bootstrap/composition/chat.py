@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from src.features.generation.model_repository import GenerationModelRepository
     from src.features.generation.parameter_repository import GenerationParameterRepository
     from src.features.generation.repository import GenerationRepository
+    from src.features.llm.harness.engine import TurnEngine
+    from src.features.llm.harness.ports import ReplaySelector
     from src.features.llm.tools.executor import ToolExecutor
     from src.platform.resources import ResourceRegistry
 
@@ -59,6 +61,8 @@ class ChatDeps:
     generation_repository: "GenerationRepository"
     generation_parameter_repository: "GenerationParameterRepository"
     generation_model_repository: "GenerationModelRepository"
+    turn_engine: "TurnEngine"
+    replay_selector: "ReplaySelector"
 
 
 @dataclass(frozen=True)
@@ -122,6 +126,8 @@ def build_chat(deps: ChatDeps) -> ChatComponents:
         generation_repository=deps.generation_repository,
         generation_parameter_repository=deps.generation_parameter_repository,
         generation_model_repository=deps.generation_model_repository,
+        turn_engine=deps.turn_engine,
+        replay_selector=deps.replay_selector,
     )
 
     # Turns are owned by a per-process registry so a client disconnect (page

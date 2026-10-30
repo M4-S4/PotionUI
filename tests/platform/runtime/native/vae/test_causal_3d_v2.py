@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from vendor.gpl.comfyui.ops import disable_weight_init
+from src.platform.runtime.native.kernels import disable_weight_init
 from src.platform.runtime.native.vae.causal_3d_v2 import (
     LATENT_CHANNELS,
     LATENT_SCALE_FACTOR,

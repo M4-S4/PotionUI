@@ -67,6 +67,8 @@ from src.features.chat.dto import SessionResponse
 from src.features.chat.memory_compaction import MemoryCompactor
 from src.features.chat.modes import GENERATION_MODE_ID
 from src.features.llm import context_budget, trace_collector
+from src.features.llm.harness.adapter import Settings
+from src.features.llm.harness.build import user_message
 from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.features.llm_memory import operations as memory_operations
 from src.features.llm_memory.operations import MAX_CONTENT_LENGTH
@@ -84,7 +86,7 @@ MAX_TRANSCRIPT_CHARS = 12000
 
 _LINE_SEP = "\n\n"
 
-_REFLECTION_OPTIONS_OVERRIDE = {"max_tokens": 800, "temperature": 0.2, "think": False}
+_REFLECTION_SETTINGS = Settings(max_tokens=800, temperature=0.2, reasoning=False)
 
 # Bounded halving attempts in `_fit_span_to_real_request` before giving up on
 # this pass - never an unbounded shrink loop.
@@ -97,7 +99,6 @@ _MAX_SPAN_SHRINK_STEPS = 6
 _TARGET_CONTENT_CHARS = 400
 
 _METADATA_KEY = "memory_reflection"
-_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
 
 # --- content-overlap backstop (see `_restates_single_prompt`) ---
@@ -378,7 +379,7 @@ class ChatReflectionGenerator:
 
         if config is not None:
             try:
-                await self._m.llm_service.ensure_context_window(config)
+                await self._m.llm_service.profiles.ensure(config)
             except Exception:
                 logger.debug("Could not prime LLM context window", exc_info=True)
 
@@ -422,10 +423,10 @@ class ChatReflectionGenerator:
 
         try:
             with trace_collector.activate(session_id, session.user_id, purpose="memory_reflection"):
-                response = await self._m.llm_service.generate_with_history(
-                    messages=[{"role": "user", "content": f"{prompt}\n\n---\n\n{span.transcript}"}],
-                    llm_id=session.llm_config_id,
-                    options_override=_REFLECTION_OPTIONS_OVERRIDE,
+                response = await self._m.llm_service.complete(
+                    session.llm_config_id,
+                    [user_message(f"{prompt}\n\n---\n\n{span.transcript}")],
+                    settings=_REFLECTION_SETTINGS,
                 )
         except Exception as e:
             # Failure: no coverage claimed, this span stays eligible. Not
@@ -435,7 +436,7 @@ class ChatReflectionGenerator:
             logger.warning(f"Memory reflection failed for session {session_id}: {e}")
             return []
 
-        items = self._parse_items(response.content if response else None)
+        items = self._parse_items(response.text if response else None)
         if items is None:
             # The model's output had no reasonable interpretation (missing,
             # not JSON, no array found, or a non-array top level) - distinct
@@ -530,18 +531,16 @@ class ChatReflectionGenerator:
             return _SpanBudget(MAX_TRANSCRIPT_CHARS, 0, 0, 0)
         system_message = "" if getattr(config, "disable_system_prompt", False) else getattr(config, "system_message", None)
         try:
-            inputs = self._m.llm_service.context_profile_for(config, _REFLECTION_OPTIONS_OVERRIDE)
+            inputs = self._m.llm_service.context_profile_for(config, _REFLECTION_SETTINGS)
             capacity_tokens = int(inputs.capacity.capacity_tokens)
             reserve_tokens = int(inputs.reserve_tokens)
             if inputs.messages_counter is not None:
-                prompt_tokens = int(inputs.messages_counter(
-                    system_message, [{"role": "user", "content": prompt}], None,
-                ))
+                prompt_tokens = int(inputs.messages_counter(system_message, [user_message(prompt)], None))
             else:
                 prompt_tokens = context_budget.count_text(prompt, inputs.counter).tokens
         except Exception:
-            capacity_tokens = context_budget.resolve_capacity(config).capacity_tokens
-            reserve_tokens = _REFLECTION_OPTIONS_OVERRIDE["max_tokens"]
+            capacity_tokens = context_budget.UNKNOWN_CAPACITY_TOKENS
+            reserve_tokens = _REFLECTION_SETTINGS.max_tokens
             prompt_tokens = math.ceil(len(prompt) / context_budget.DEFAULT_CHARS_PER_TOKEN)
 
         available_tokens = capacity_tokens - reserve_tokens - prompt_tokens
@@ -556,7 +555,7 @@ class ChatReflectionGenerator:
         """Validate ``span`` against the REAL whole-request budget the final
         send enforces (``LLMGateway.estimate_context_budget`` - the exact
         public method ``_budgeted`` calls before every real send, given the
-        SAME resolved system message and ``_REFLECTION_OPTIONS_OVERRIDE``
+        SAME resolved system message and ``_REFLECTION_SETTINGS``
         reserve this call will use), shrinking (halving the char budget and
         re-chunking via ``_build_span``) up to ``_MAX_SPAN_SHRINK_STEPS``
         times when it doesn't. ``_resolve_span_budget``'s estimate can still
@@ -592,11 +591,9 @@ class ChatReflectionGenerator:
         EXACT candidate request fits; ``None`` when it can't be asked at all
         (the collaborator doesn't implement ``estimate_context_budget`` - a
         bare test double, or a provider hook raising some other way)."""
-        candidate = [{"role": "user", "content": f"{prompt}\n\n---\n\n{transcript}"}]
+        candidate = [user_message(f"{prompt}\n\n---\n\n{transcript}")]
         try:
-            self._m.llm_service.estimate_context_budget(
-                config, system_message, candidate, options_override=_REFLECTION_OPTIONS_OVERRIDE,
-            )
+            self._m.llm_service.estimate_context_budget(config, system_message, candidate, settings=_REFLECTION_SETTINGS)
             return True
         except context_budget.ContextBudgetExceededError:
             return False
@@ -836,7 +833,7 @@ class ChatReflectionGenerator:
         """
         if not text:
             return None
-        stripped = _THINK_BLOCK_RE.sub("", text).strip()
+        stripped = text.strip()
         match = _JSON_ARRAY_RE.search(stripped)
         if not match:
             return None

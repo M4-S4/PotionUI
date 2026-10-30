@@ -4,12 +4,13 @@ import type { SegmentJoin } from '$lib/utils/richSegments';
 import { parseDirectorCapabilities, resolveDirectorRaw } from '$lib/utils/videoDirector';
 import { applyModelOverlay, type DirectorModelOverlay } from '$lib/utils/cloudDirector';
 import { resolveMusicDirectorCapabilities } from '$lib/utils/musicDirector';
-import { isPromptlessMode } from '$lib/utils/promptlessMode';
+import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMode';
 
 export interface RequestContext {
 	segmentJoin: SegmentJoin;
 	promptRelayActive: boolean;
 	promptlessActive: boolean;
+	promptOptionalActive: boolean;
 	videoDirectorCaps: DirectorCapabilities | null;
 	videoDirectorActive: boolean;
 	musicDirectorCaps: MusicDirectorCapabilities | null;
@@ -35,6 +36,7 @@ export function resolveRequestContext(
 		segmentJoin: vars?.prompt?.segment_join === 'paragraph' ? 'paragraph' : 'space',
 		promptRelayActive: !!mode && relayModes.includes(mode),
 		promptlessActive: isPromptlessMode(vars ?? {}, mode),
+		promptOptionalActive: isOptionalPromptMode(vars ?? {}, mode),
 		videoDirectorCaps,
 		videoDirectorActive: modeEnabled(videoDirectorCaps, mode),
 		musicDirectorCaps,
@@ -57,6 +59,7 @@ function contextKey(
 		vars?.prompt?.segment_join ?? null,
 		vars?.prompt_relay_modes ?? null,
 		vars?.promptless_modes ?? null,
+		vars?.optional_prompt_modes ?? null,
 		directorOverlay
 	]);
 }

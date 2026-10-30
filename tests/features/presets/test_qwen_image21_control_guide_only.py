@@ -82,7 +82,7 @@ def test_models_section_hides_on_the_same_condition_that_makes_the_mode_promptle
     fields = qwen21.modes["control"].forms[0].fields
     section = _models_section(fields)
     hide = [r for r in section.reactions if r["then"].get("set_visibility") is False]
-    promptless = next(entry for entry in qwen21.vars["promptless_modes"] if entry["mode"] == "control")
+    promptless = next(entry for entry in qwen21.vars["promptless_modes"] if isinstance(entry, dict) and entry["mode"] == "control")
 
     assert len(hide) == 1
     assert hide[0]["when"]["logic"] == promptless["when"]["logic"] == "AND"

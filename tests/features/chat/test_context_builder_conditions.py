@@ -1,13 +1,14 @@
 import pytest
 
 from src.features.chat.context_builder import ChatContextBuilder, _truncate_prompt_content
+from tests.fixtures.chat_engine import typed_history
 
 CONDITION = '<<if $age > 65>>grey hair, deep wrinkles<<else if $age < 25 and $mood in "calm", "serene">>youthful, soft skin<<else>>auburn hair<<end>>'
 
 
 def _block(content):
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(
         history, {"segments": [{"index": 0, "id": "s1", "type": "content", "enabled": True, "content": content}]}
     )
     return history[0]["content"]
@@ -90,7 +91,7 @@ def test_oversized_prompt_state_is_cut_on_a_line_boundary():
         for i in range(20)
     ]
     history = [{"role": "user", "content": "hi"}]
-    ChatContextBuilder.inject_prompt_state_block(history, {"segments": segments})
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(history, {"segments": segments})
     block = history[0]["content"].split("<context>\n", 1)[1].split("\n</context>")[0]
     lines = block.splitlines()
     assert lines[-1].startswith("…(truncated")
@@ -107,7 +108,7 @@ VARIABLES = {
 def _state(segments, variables=None):
     history = [{"role": "user", "content": "hi"}]
     reader = None if variables is None else (lambda: variables)
-    ChatContextBuilder.inject_prompt_state_block(history, {"segments": segments}, variable_reader=reader)
+    typed_history(ChatContextBuilder.inject_prompt_state_block)(history, {"segments": segments}, variable_reader=reader)
     return history[0]["content"].split("<context>\n", 1)[1].split("\n</context>")[0].splitlines()
 
 
@@ -189,7 +190,7 @@ def test_the_tab_draft_is_read_only_when_the_block_is_built():
 def test_no_segments_or_an_active_video_director_never_read_the_draft():
     for metadata in ({"segments": []}, {"segments": [_segment(0, BLOCK)], "form_state": {"video_director": {"active": True}}}):
         history = [{"role": "user", "content": "hi"}]
-        ChatContextBuilder.inject_prompt_state_block(
+        typed_history(ChatContextBuilder.inject_prompt_state_block)(
             history, metadata, variable_reader=lambda: pytest.fail("read the draft")
         )
 

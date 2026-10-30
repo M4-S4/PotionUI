@@ -54,6 +54,9 @@ async function openChat(page: Page) {
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
+const promptTabs = (page: Page) => page.getByRole('tablist', { name: 'Prompts' }).getByRole('tab');
+const activePromptTab = (page: Page) => page.getByRole('tablist', { name: 'Prompts' }).getByRole('tab', { selected: true });
+
 test('assistant adds a second prompt, the Prompt header shows 2 prompts, and the add can be undone', async ({ page }) => {
 	test.setTimeout(180000);
 	await enableBatch(page);
@@ -66,7 +69,7 @@ test('assistant adds a second prompt, the Prompt header shows 2 prompts, and the
 		test.skip(true, 'No native image preset available on this throwaway instance to render the prompt editor with.');
 		return;
 	}
-	await expect(page.locator('[data-prompt-picker]')).toHaveText(/1 prompt/, { timeout: 20000 });
+	await expect(promptTabs(page)).toHaveCount(1, { timeout: 20000 });
 
 	await page.getByRole('button', { name: 'AI Chat' }).click();
 	await expect(page.locator('.composer:has(button[aria-label="Send message"])')).toBeVisible({ timeout: 15000 });
@@ -86,11 +89,12 @@ test('assistant adds a second prompt, the Prompt header shows 2 prompts, and the
 
 	await applyButtons(page).click();
 	await expect(applyButtons(page)).toHaveText(/Added/);
-	await expect(page.locator('[data-prompt-picker]')).toHaveAttribute('aria-label', 'Prompt 2 of 2');
+	await expect(promptTabs(page)).toHaveCount(2);
+	await expect(activePromptTab(page)).toHaveText('Night version');
 	await expect(page.locator('.inline-chip-editor[role="textbox"]').filter({ hasText: NIGHT }).first()).toBeVisible();
 
 	await page.getByRole('button', { name: 'Close chat', exact: true }).click();
-	await page.locator('[data-prompt-picker]').click();
+	await page.getByRole('button', { name: 'All prompts' }).click();
 	const menu = page.getByRole('dialog', { name: 'Prompts' });
 	await expect(menu).toContainText('2 prompts');
 	await expect(menu).toContainText('Night version');
@@ -103,7 +107,7 @@ test('assistant adds a second prompt, the Prompt header shows 2 prompts, and the
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await openChat(page);
 	await reply.locator('[data-testid="segment-action-undo"]').click();
-	await expect(page.locator('[data-prompt-picker]')).toHaveText(/1 prompt/);
+	await expect(promptTabs(page)).toHaveCount(1);
 	await expect(applyButtons(page)).toHaveText('Add');
 	await screenshot(page, JOURNEY, 'add-undone');
 
@@ -154,6 +158,7 @@ test('prompt actions render at phone width', async ({ page }) => {
 	await applyButtons(page).nth(2).click();
 	await page.getByRole('button', { name: 'Close chat', exact: true }).click();
 	await page.getByRole('button', { name: 'Prompt', exact: true }).click();
-	await expect(page.locator('[data-prompt-picker]')).toHaveAttribute('aria-label', 'Prompt 1 of 2');
+	await expect(promptTabs(page)).toHaveCount(2);
+	await expect(activePromptTab(page)).toHaveText('Day version');
 	await screenshot(page, JOURNEY, 'prompt-actions-applied-390');
 });

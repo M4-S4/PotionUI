@@ -1,14 +1,6 @@
 """Frames -> MP4 encoding via ffmpeg, for native-engine video generators
-(Wan/LTX) and any other pipe producing an in-memory frame sequence.
-
-Design note: `video_frame_merger` (`src/pipelines/pipes/video_frame_merger/main.py`)
-already encodes video, but through OpenCV's `cv2.VideoWriter` with a
-fourcc-fallback ladder, tightly coupled to its own PIL-frame preprocessing
-(resize modes, fade in/out, loop/reverse). That logic doesn't factor cleanly
-into a generic encode helper, and OpenCV's fourcc path can't do CRF-based
-quality control the way ffmpeg can. So this helper is written fresh against
-ffmpeg (subprocess, rawvideo piped to stdin) rather than refactored out of
-`video_frame_merger` -- `video_frame_merger` is left untouched.
+(Wan/LTX) and any other pipe producing an in-memory frame sequence, written
+against ffmpeg (subprocess, rawvideo piped to stdin) for CRF-based quality control.
 """
 
 from __future__ import annotations

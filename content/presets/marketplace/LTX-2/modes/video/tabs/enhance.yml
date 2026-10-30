@@ -1,20 +1,9 @@
-# Enhancement extras split out of the Generation tab: the two-stage latent
-# upscale, negative-prompt guidance and face/hand detailing. Upscale and
-# Generate Audio (Generation tab) are independent choices -- see
-# pipeline.yml's "audio + upscale interaction" header note -- so this tab
-# carries no cross-tab reaction between them. Krea-2 layout: Upscale plays the
-# role of Krea-2's own Enhance gate (both are the "refine pass" toggle), NAG
-# comes right after it, and face/hand detailing (LTX-specific, no Krea-2
-# counterpart) is grouped last.
 fields:
-  #############
-  # Two-stage latent upscale (same recipe as the standalone Upscale mode).
-  #############
   - name: "upscale"
     type: "select"
     formula: "enhance"
     label: "Upscale"
-    ai_hint: "Two-stage latent upscale, same recipe as the standalone Upscale mode -- Requires the Spatial Upscaler selected below on this tab. The selected Resolution (Generation tab) is always stage 1's resolution; Upscale multiplies it -- 2.0x doubles your selected resolution for stage 2 and the final output (e.g. 544x960 selected + 2.0x -> 1088x1920 out), 1.5x scales it by 1.5x. 2.0x is the first-party recipe and the recommended choice (any /32-aligned resolution doubles onto the /64 grid the DiT needs, so 2.0x always works); 1.5x keeps more of stage 1's detail but only lands on a clean grid when both Resolution axes are multiples of 64px -- an off-grid pick (e.g. most of the built-in Resolution presets) is now rejected immediately at submission time with the nearest achievable resolution named in the error, rather than failing after stage 1 has already rendered. Mind VRAM: stage 1 now renders at the FULL selected resolution (heavier than before) and stage 2 at factor x that -- warn users combining a large selected resolution with 2.0x. Composes freely with audio (Generate Audio checkbox, or a Director timeline with its own audio clips): stage 1's audio track (generated or muxed from a user file) is decoded/passed through independently of the video refine and gets muxed into stage 2's refined output -- no need to disable Upscale when audio is on."
+    ai_hint: "Two-stage latent upscale, same recipe as the standalone Upscale mode -- Requires the Spatial Upscaler picked in the Generation tab's Models section. The selected Resolution (Generation tab) is always stage 1's resolution; Upscale multiplies it -- 2.0x doubles your selected resolution for stage 2 and the final output (e.g. 544x960 selected + 2.0x -> 1088x1920 out), 1.5x scales it by 1.5x. 2.0x is the first-party recipe and the recommended choice (any /32-aligned resolution doubles onto the /64 grid the DiT needs, so 2.0x always works); 1.5x keeps more of stage 1's detail but only lands on a clean grid when both Resolution axes are multiples of 64px -- an off-grid pick (e.g. most of the built-in Resolution presets) is now rejected immediately at submission time with the nearest achievable resolution named in the error, rather than failing after stage 1 has already rendered. Mind VRAM: stage 1 now renders at the FULL selected resolution (heavier than before) and stage 2 at factor x that -- warn users combining a large selected resolution with 2.0x. Composes freely with audio (Generate Audio checkbox, or a Director timeline with its own audio clips): stage 1's audio track (generated or muxed from a user file) is decoded/passed through independently of the video refine and gets muxed into stage 2's refined output -- no need to disable Upscale when audio is on."
     default: "off"
     configuration:
       options:
@@ -26,45 +15,25 @@ fields:
     type: "select"
     formula: "enhance"
     label: "Refine Strength"
-    ai_hint: "Friendly control for the two-stage upscale refine pass (Upscale field, this tab). Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled latent as-is. The Advanced tab's Upscale Refine Sigmas field is an expert override of this same knob -- prefer this select."
+    ai_hint: "Friendly control for the two-stage upscale refine pass (Upscale field, this tab), and its step count: Strong 3, Balanced 2, Light 1. Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled latent as-is. The Advanced tab's Upscale Refine Sigmas field is an expert override of this same knob -- prefer this select."
     default: "strong"
     configuration:
       options:
-        - { label: "Strong (recommended)", value: "strong" }
-        - { label: "Balanced", value: "balanced" }
-        - { label: "Light", value: "light" }
+        - { label: "Strong", value: "strong", sub_label: "3 steps · recommended" }
+        - { label: "Balanced", value: "balanced", sub_label: "2 steps" }
+        - { label: "Light", value: "light", sub_label: "1 step · closest to stage 1" }
     reactions:
       - when: { field: "upscale", equals: "off" }
         then: { set_visibility: false }
       - when: { field: "upscale", not_equals: "off" }
         then: { set_visibility: true }
 
-  - name: "upscale_model"
-    type: "model"
-    formula: "models"
-    label: "Spatial Upscaler (optional)"
-    configuration:
-      model_type: "upscaler"
-      placeholder: "Select an LTX-2.3 spatial upscaler..."
-      filter_tags: "@config:upscaler_tags"
-      recommendations:
-        - name: "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
-          link: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
-          size: "949.6 MB"
-          sha256: "5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed"
-          description: "LTX-2.3 latent spatial upscaler, x2."
-        - name: "ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors"
-          link: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors"
-          size: "1.02 GB"
-          sha256: "b2b3193e68cb04b4701e1d59bec4ed5d5e3e84506d9a42d5a129d37d39823df7"
-          description: "LTX-2.3 latent spatial upscaler, x1.5 - gentler step for tight VRAM."
-
   - name: "enhancement_loras"
     type: "lora_picker"
     formula: "loras"
     default: []
     label: "Refine LoRAs (stage 2)"
-    ai_hint: "ADDED to the generation LoRAs (Generation tab's LoRAs field) for the two-stage refine pass ONLY -- stage 1 renders with the plain generation LoRA stack, unaffected. First-party recipe: put the distilled LoRA here at strength 1.0 (stage 1 stays undistilled, full CFG/steps; stage 2 becomes Lightricks' short, low-CFG distilled refine) and keep style/character LoRAs on the Generation tab's LoRAs field, not here. Empty = the refine pass shares the generation LoRA stack exactly as before this field existed."
+    ai_hint: "ADDED to the LoRA tab's LoRAs for the two-stage refine pass ONLY -- stage 1 renders with the plain LoRA stack, unaffected. First-party recipe: put the distilled LoRA here at strength 1.0 (stage 1 stays undistilled, full CFG/steps; stage 2 becomes Lightricks' short, low-CFG distilled refine) and keep style/character LoRAs on the LoRA tab, not here. Empty = the refine pass shares the LoRA tab's stack exactly as before this field existed."
     configuration:
       model_type: "lora"
       placeholder: "Select a refine-stage LoRA..."
@@ -81,11 +50,6 @@ fields:
       - when: { field: "upscale", not_equals: "off" }
         then: { set_visibility: true }
 
-  #############
-  # Negative prompt guidance (NAG) -- Krea-2 keeps this right after its own
-  # Enhance gate on the Enhance tab; each field carries audience: advanced
-  # individually since this tab (unlike Advanced) is not audience-gated.
-  #############
   - type: "section"
     label: "Negative prompt guidance (NAG)"
     formula: "guidance"
@@ -123,10 +87,6 @@ fields:
               max: 1.0
               step: 0.05
 
-  #############
-  # Face/hand enhancement (detailer pass). LTX-specific, no Krea-2
-  # counterpart -- grouped last, after the canonical Upscale/NAG sections.
-  #############
   - type: "gate"
     name: "enhance_faces_hands"
     formula: "detailer"
@@ -146,18 +106,6 @@ fields:
             - { label: "Balanced", value: "balanced" }
             - { label: "Strong", value: "strong" }
 
-      #############
-      # Detection models: same idiom as SDXL's
-      # face_detector_model/hand_detector_model (presets/native/SDXL/modes/txt2img/
-      # tabs/face-hand-detailer.yml) -- a plain `model` field over model_type
-      # "mediapipe", no bespoke recommendations/download flow. A maintainer who has
-      # never downloaded the MediaPipe .task files fetches them the same way they
-      # fetch any other model type: Admin -> Downloader (paste the URL, pick
-      # "mediapipe" as the type) or Scan Models after placing the file by hand.
-      # Left unset, the pipe falls back to the standard models/mediapipe/*.task
-      # paths. Detection degrades independently per kind (see detection.py), so
-      # picking only one of these still enables that half of the enhancement.
-      #############
       - name: "face_detector_model"
         type: "model"
         formula: "models"

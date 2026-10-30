@@ -19,6 +19,7 @@
 	$: tooltip = config.tooltip || config.configuration?.tooltip;
 	$: disabled = config.disabled || false;
 	$: defaultValue = config.default;
+	$: unit = typeof config.unit === 'string' ? config.unit : '';
 
 	let localValue: number;
 	let previousValue: any = undefined;
@@ -120,7 +121,7 @@
 				class="text-sm font-medium font-mono tabular-nums text-fg bg-surface-3 px-2 py-0.5 rounded hover:bg-surface-3/70 active:scale-95 transition-all duration-150 ease-out cursor-text min-w-[3rem] text-center"
 				use:tooltipAction={'Click to type a value'}
 			>
-				{localValue}
+				{localValue}{unit}
 			</button>
 		{/if}
 	</div>
@@ -153,11 +154,11 @@
 		{/if}
 	</div>
 	<div class="flex items-center justify-between mt-1">
-		<span class="font-mono text-2xs tabular-nums text-fg-subtle">{min}</span>
+		<span class="font-mono text-sm tabular-nums text-fg-subtle">{min}{unit}</span>
 		{#if hasDefaultTick}
-			<span class="font-mono text-2xs text-fg-subtle">tick = default</span>
+			<span class="font-mono text-sm text-fg-subtle">tick = default</span>
 		{/if}
-		<span class="font-mono text-2xs tabular-nums text-fg-subtle">{max}</span>
+		<span class="font-mono text-sm tabular-nums text-fg-subtle">{max}{unit}</span>
 	</div>
 	{#if description}
 		<p id={name ? `${name}-desc` : undefined} class="text-xs text-fg-muted mt-1">{description}</p>

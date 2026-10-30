@@ -13,6 +13,7 @@
 	export let position: string | undefined = undefined;
 	export let context: Record<string, any> = {};
 	export let tooltips = false;
+	export let excludePlugins: string[] = [];
 
 	// State for loaded components
 	let loadedComponents: {
@@ -40,10 +41,13 @@
 	// entries - merge here, ordered together. Filter hooks by position if provided (slot
 	// contributions don't use `position`, so they're unaffected by that filter).
 	$: slotContributions = contributionsForSlot(hookName);
+	$: excludeKey = excludePlugins.join('|');
 	$: relevantHooks = [
 		...($frontendHooks[hookName]?.filter((hook) => !position || hook.position === position) || []),
 		...$slotContributions.map(contributionToHook)
-	].sort((a, b) => a.sort_order - b.sort_order);
+	]
+		.filter((hook) => !excludeKey.split('|').includes(hook.plugin_id))
+		.sort((a, b) => a.sort_order - b.sort_order);
 
 	// Dynamic component loading
 	async function loadComponent(hook: PluginHook) {

@@ -6,12 +6,16 @@
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { formatSeconds } from '$lib/utils/format';
 	import type { LibraryItem } from '$lib/services/api/library';
+	import { libraryStore } from '$lib/stores/library';
+	import { toasts } from '$lib/stores/toast';
 	import {
 		bucketForCardWidth,
 		formatBarResolution,
 		resolveCardResolution
 	} from '$lib/components/generationCardChrome';
 	import EntryActions from '$lib/components/tools/EntryActions.svelte';
+	import ToolRunBand from '$lib/components/tools/ToolRunBand.svelte';
+	import { mediaToolRuns } from '$lib/media-tools/runs';
 	import type { EntryMenuController } from '$lib/tools/entryMenu';
 	import type { MediaTool, MediaToolContext, ToolRunExtra } from '$lib/tools/tools';
 	import {
@@ -31,6 +35,7 @@
 	export let showCheckbox = true;
 	export let showActions = true;
 	export let entryMenu: EntryMenuController<LibraryItem, never> | null = null;
+	export let isNew = false;
 	/** The second argument is the originating pointer event (omitted for a
 	 *  keyboard activation), so a multi-select grid can read its modifier keys
 	 *  for shift-range / ctrl-toggle behavior. */
@@ -38,9 +43,19 @@
 
 	const dispatch = createEventDispatcher<{ open: LibraryItem; delete: LibraryItem }>();
 
-	$: bucket = bucketForCardWidth(tile.width);
-	$: displayName = libraryItemDisplayName(item);
+	let mediaEl: HTMLImageElement | HTMLVideoElement | undefined;
+	let loadedSrc: string | undefined;
 	$: gridSrc = libraryItemGridSrc(item);
+	$: if (mediaEl && gridSrc !== loadedSrc && isMediaReady(mediaEl)) loadedSrc = gridSrc;
+	$: mediaLoaded = loadedSrc !== undefined && loadedSrc === gridSrc;
+
+	function isMediaReady(el: HTMLImageElement | HTMLVideoElement): boolean {
+		return el instanceof HTMLImageElement ? el.complete && el.naturalWidth > 0 : el.readyState >= 2;
+	}
+
+	$: bucket = bucketForCardWidth(tile.width);
+	$: run = $mediaToolRuns[item.id];
+	$: displayName = libraryItemDisplayName(item);
 	$: metaParts = libraryItemMetaParts(item);
 	$: mediaIcon = libraryItemIcon(item.media_type);
 	$: isVideo = (item.media_type ?? '').toLowerCase() === 'video';
@@ -80,6 +95,11 @@
 
 	function menuModel() {
 		return entryMenu!.model(item);
+	}
+
+	async function handleFavoriteToggle() {
+		const ok = await libraryStore.setItemFavorite(item.id, !item.is_favorite);
+		if (!ok) toasts.error('Could not update the favorite');
 	}
 
 	function handleMenuPick(tool: MediaTool, ctx: MediaToolContext, extra?: ToolRunExtra) {
@@ -174,6 +194,9 @@
 				}
 			}}
 		>
+			{#if !isAudio && !mediaLoaded}
+				<div class="absolute inset-0 z-10 bg-surface-2 animate-pulse" data-card-skeleton></div>
+			{/if}
 			{#if isAudio}
 				<div
 					class="w-full h-full flex flex-col items-center justify-center gap-2"
@@ -190,11 +213,22 @@
 				<!-- A generated thumbnail is a static image, far cheaper for the grid
 				     to render than the video itself - the media-kind chip below still
 				     marks it as a video. -->
-				<img src={gridSrc} alt={displayName} class="w-full h-full object-contain" loading="lazy" />
+				<img
+					bind:this={mediaEl}
+					src={gridSrc}
+					alt={displayName}
+					class="w-full h-full object-contain"
+					loading="lazy"
+					on:load={() => (loadedSrc = gridSrc)}
+					on:error={() => (loadedSrc = gridSrc)}
+				/>
 			{:else if isVideo}
 				<!-- No thumbnail yet (row predates thumbnail generation) - fall back
 				     to the video itself, same as before. -->
 				<video
+					bind:this={mediaEl}
+					on:loadeddata={() => (loadedSrc = gridSrc)}
+					on:error={() => (loadedSrc = gridSrc)}
 					src={gridSrc}
 					class="w-full h-full object-contain"
 					muted
@@ -204,7 +238,15 @@
 					<track kind="captions" />
 				</video>
 			{:else}
-				<img src={gridSrc} alt={displayName} class="w-full h-full object-contain" loading="lazy" />
+				<img
+					bind:this={mediaEl}
+					src={gridSrc}
+					alt={displayName}
+					class="w-full h-full object-contain"
+					loading="lazy"
+					on:load={() => (loadedSrc = gridSrc)}
+					on:error={() => (loadedSrc = gridSrc)}
+				/>
 			{/if}
 
 			<!-- Media kind (+ a video's duration), bottom-left -->
@@ -228,16 +270,24 @@
 			{/if}
 		</div>
 
+		{#if run}
+			<ToolRunBand
+				label={run.label}
+				progress={run.progress}
+				cancelling={run.cancelling}
+				bottom={bucket.barHeight}
+				onCancel={() => mediaToolRuns.cancel(item.id)}
+			/>
+		{/if}
+
 		{#if entryMenu && bucket}
 			<EntryActions
 				bind:this={actions}
 				scope="library"
 				getModel={menuModel}
 				onPick={handleMenuPick}
-				onDelete={() => dispatch('delete', item)}
-				deleteLabel="Delete library item"
-				showDelete={showActions && !selectable}
-				deleteInRow={bucket.deleteInRow}
+				favorite={showActions && !selectable ? !!item.is_favorite : null}
+				onFavorite={handleFavoriteToggle}
 				chipSize={bucket.menuChipSize}
 			/>
 		{/if}
@@ -251,6 +301,12 @@
 			<div
 				class="flex items-center gap-1.5 ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em]"
 			>
+				{#if isNew}
+					<span
+						class="px-1 rounded-sm border border-signal/25 bg-signal/10 text-signal font-mono text-[12px] leading-4 uppercase tracking-[0.07em]"
+						data-new-tag>New</span
+					>
+				{/if}
 				{#if barResolutionText}
 					<span class="text-fg-muted whitespace-nowrap" use:tooltip={fullResolutionTitle}>
 						{barResolutionText}
