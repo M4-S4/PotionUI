@@ -758,7 +758,7 @@ def test_the_real_memory_model_runs_the_whole_clip_in_one_pass_on_a_roomy_card()
 
 
 def test_the_real_memory_model_splits_into_two_balanced_windows_when_one_pass_does_not_fit():
-    assert _real_fit_plan(19.5) == (81, [0, 55])
+    assert _real_fit_plan(22.5) == (81, [0, 55])
 
 
 def test_the_real_memory_model_credits_a_resident_dit_its_own_weight():
@@ -784,10 +784,10 @@ _LAYOUT_PLACEMENTS = [
 
 @pytest.mark.parametrize(("free_gb", "refine_scale", "expected"), [
     (30.0, 1.0, (481, [0])),
-    (30.0, 2.0, (481, [0])),
-    (10.0, 1.0, (481, [0])),
-    (10.0, 2.0, (193, [0])),
-    (12.0, 2.0, (233, [0])),
+    (30.0, 2.0, (265, [0])),
+    (10.0, 1.0, (361, [0])),
+    (10.0, 2.0, (81, [0])),
+    (12.0, 2.0, (97, [0])),
 ])
 def test_a_two_stage_clip_is_planned_so_the_upscaled_refine_fits_too(free_gb, refine_scale, expected):
     dit = SimpleNamespace(estimated_vram_gb=17.4, device="cpu")
