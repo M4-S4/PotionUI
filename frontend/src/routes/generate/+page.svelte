@@ -52,6 +52,7 @@
 	import DesktopWorkspace from './components/DesktopWorkspace.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { isOptionalPromptMode, isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { promptModeCopy } from '$lib/utils/promptModeCopy';
 	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
@@ -843,6 +844,8 @@
 		!promptlessActive &&
 		(requestContext.promptOptionalActive ||
 			isOptionalPromptMode(currentPresetVars, currentTab.selectedMode, currentTab.formData));
+
+	$: promptCopy = promptModeCopy(currentPresetVars, currentTab.selectedMode, promptOptionalActive);
 
 	// Load preset vars when preset changes
 	$: if (currentTab.selectedPreset && mounted) {
@@ -1991,6 +1994,7 @@
 						{musicDirectorActive}
 						{musicDirectorCaps}
 						{presetSegmentTemplates}
+						{promptCopy}
 						{presetStyles}
 						{canBatch}
 						{negativePromptSupported}
@@ -2034,6 +2038,7 @@
 								{negativePromptSupported}
 								{negativeInert}
 								{presetSegmentTemplates}
+								{promptCopy}
 								{presetStyles}
 								promptless={promptlessActive}
 								{isActive}

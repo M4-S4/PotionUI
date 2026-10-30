@@ -5,6 +5,7 @@
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
+	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import type { PresetStyle } from '$lib/services/api/index';
 
 	export let tab: Tab;
@@ -23,6 +24,7 @@
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
+	export let promptCopy: PromptCopy = NO_PROMPT_COPY;
 	export let presetStyles: PresetStyle[] = [];
 	export let onClose: () => void;
 
@@ -49,6 +51,7 @@
 			{musicDirectorActive}
 			{musicDirectorCaps}
 			{presetSegmentTemplates}
+			{promptCopy}
 			{presetStyles}
 			{canBatch}
 			{negativePromptSupported}

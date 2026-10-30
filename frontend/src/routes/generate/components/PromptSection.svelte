@@ -15,6 +15,7 @@
 	import { countUsagesInSegments } from '$lib/utils/promptVariables';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import PromptTabs from '$lib/components/PromptTabs.svelte';
+	import { DEFAULT_PROMPT_PLACEHOLDER, NO_PROMPT_COPY, promptTitle, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import { Alert, Button } from '$lib/components/ui';
 	import {
 		BATCH_CAP_MESSAGE,
@@ -74,6 +75,7 @@
 		negativeInert = false,
 		presetSegmentTemplates = [],
 		presetStyles = [],
+		promptCopy = NO_PROMPT_COPY,
 		spacingClass = 'mt-4'
 	}: {
 		tab: Tab;
@@ -91,6 +93,7 @@
 		negativeInert?: boolean;
 		presetSegmentTemplates?: PresetSegmentTemplate[];
 		presetStyles?: PresetStyle[];
+		promptCopy?: PromptCopy;
 		spacingClass?: string;
 	} = $props();
 
@@ -276,6 +279,7 @@
 				negativePromptUnavailable={!negativePromptSupported}
 				negativeInert={negativeInert}
 				showPreview={false}
+				placeholder={promptCopy.placeholder ?? DEFAULT_PROMPT_PLACEHOLDER}
 				variables={variables}
 				variableRolls={variableRolls}
 				onVariableDefChange={handleVariableDefChange}
@@ -297,6 +301,7 @@
 				{#snippet titleExtra()}
 					<PromptTabs
 						{prompts}
+						singleLabel={promptTitle(promptCopy)}
 						active={activePrompt}
 						perPrompt={summary.perPrompt}
 						{canBatch}

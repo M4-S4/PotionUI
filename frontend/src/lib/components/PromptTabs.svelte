@@ -22,7 +22,8 @@
 		onAdd,
 		onDuplicate,
 		onDelete,
-		onRename
+		onRename,
+		singleLabel = 'Prompt'
 	}: {
 		prompts: PromptTabData[];
 		active: number;
@@ -35,6 +36,7 @@
 		onDuplicate: (index: number) => void;
 		onDelete: (index: number) => void;
 		onRename: (index: number, name: string) => void;
+		singleLabel?: string;
 	} = $props();
 
 	let strip = $state<HTMLDivElement | null>(null);
@@ -55,7 +57,7 @@
 	function labelFor(entry: PromptTabData, index: number): string {
 		const name = entry.name?.trim();
 		if (name) return name;
-		return count === 1 ? 'Prompt' : `Prompt ${index + 1}`;
+		return count === 1 ? singleLabel : `Prompt ${index + 1}`;
 	}
 
 	function overflows(index: number): boolean {

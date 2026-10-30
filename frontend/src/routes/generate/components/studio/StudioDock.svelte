@@ -2,6 +2,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api';
 	import type { Tab } from '$lib/types/tabs';
+	import { NO_PROMPT_COPY, type PromptCopy } from '$lib/utils/promptModeCopy';
 	import {
 		downloadExtensionFor,
 		entryFileType,
@@ -17,6 +18,7 @@
 	export let tab: Tab;
 	export let promptPreviewText: string;
 	export let promptlessActive: boolean = false;
+	export let promptCopy: PromptCopy = NO_PROMPT_COPY;
 	export let onOpenPrompt: () => void;
 	export let onOpenSettings: () => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
@@ -145,7 +147,7 @@
 				on:click={onOpenPrompt}
 			>
 				<span class="min-w-0 flex-1 truncate text-base {promptPreviewText ? 'text-fg' : 'text-fg-subtle'}">
-					{promptPreviewText || 'Describe what you want…'}
+					{promptPreviewText || promptCopy.placeholder || 'Describe what you want…'}
 				</span>
 			</button>
 			{#if attachedMedia}
