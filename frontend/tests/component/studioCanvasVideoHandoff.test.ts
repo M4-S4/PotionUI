@@ -3,13 +3,6 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import type { GenerationState, Tab } from '$lib/types/tabs';
 
-const probes = vi.hoisted(() => ({ settle: [] as Array<() => void> }));
-
-vi.mock('$lib/generation/videoHandoff', async (importOriginal) => ({
-	...(await importOriginal<Record<string, unknown>>()),
-	preloadVideo: (_url: string, onSettled: () => void) => probes.settle.push(onSettled)
-}));
-
 const { default: StudioCanvas } = await import('../../src/routes/generate/components/studio/StudioCanvas.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
@@ -47,11 +40,10 @@ afterEach(() => {
 	component = undefined;
 	target?.remove();
 	target = undefined;
-	probes.settle = [];
 });
 
 describe('studio canvas video result landing', () => {
-	it('keeps the last preview until the final video has loaded', () => {
+	it('keeps the last preview until the visible player has a frame', () => {
 		target = document.createElement('div');
 		document.body.appendChild(target);
 		component = createClassComponent({
@@ -81,14 +73,16 @@ describe('studio canvas video result landing', () => {
 		});
 		flushSync();
 
+		const player = target.querySelector('video')!;
 		expect(target.querySelector(`img[src="${PREVIEW}"]`)).not.toBeNull();
-		expect(target.querySelector('video')).toBeNull();
-		expect(probes.settle).toHaveLength(1);
+		expect(player).not.toBeNull();
+		expect(player.className).toContain('opacity-0');
 
-		probes.settle[0]();
+		player.dispatchEvent(new Event('loadeddata'));
 		flushSync();
 
-		expect(target.querySelector('video')).not.toBeNull();
 		expect(target.querySelector(`img[src="${PREVIEW}"]`)).toBeNull();
+		expect(target.querySelector('video')).toBe(player);
+		expect(player.className).not.toContain('opacity-0');
 	});
 });

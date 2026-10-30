@@ -22,7 +22,7 @@
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 	import { createImageHandoff } from '$lib/generation/imageHandoff';
-	import { createPreviewKeeper, createVideoHandoff, preloadVideo } from '$lib/generation/videoHandoff';
+	import { createPreviewKeeper, createVideoHandoff } from '$lib/generation/videoHandoff';
 
 	export let tab: Tab;
 
@@ -70,8 +70,8 @@
 		currentGeneration?.generation_id ?? currentGeneration?.id,
 		currentGeneration?.current_image
 	);
-	const handoffVideo = createVideoHandoff((pending) => (videoPending = pending), preloadVideo);
-	$: handoffVideo(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
+	$: videoHandoff.want(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
 	$: holdingPreview = videoPending && !!heldPreview;
 	$: displayVideo =
 		isGalleryMode && isVideoFileType(displayFileType)
@@ -151,11 +151,19 @@
 				<AudioPlayer tracks={audioTracks} showWaveform={true} showDownload={false} />
 			{:else if isFallbackFileType && resolvedFallbackRenderer}
 				<svelte:component this={resolvedFallbackRenderer} file={currentGalleryItem ?? currentGeneration} />
-			{:else if holdingPreview && heldPreview}
-				<img src={heldPreview} alt="Generation preview" class="h-full w-full object-contain" />
 			{:else if displayFileType === 'video' && displayVideo}
+				{#if holdingPreview && heldPreview}
+					<img src={heldPreview} alt="Generation preview" class="absolute inset-0 z-10 h-full w-full object-contain" />
+				{/if}
 				<!-- svelte-ignore a11y-media-has-caption -->
-				<video src={displayVideo} controls playsinline class="h-full w-full object-contain"></video>
+				<video
+					src={displayVideo}
+					controls
+					playsinline
+					class="h-full w-full object-contain {holdingPreview ? 'opacity-0' : ''}"
+					on:loadeddata={videoHandoff.ready}
+					on:error={videoHandoff.ready}
+				></video>
 			{:else if displayImage}
 				<img src={displayImage} alt="Generation result" class="h-full w-full object-contain" />
 			{/if}

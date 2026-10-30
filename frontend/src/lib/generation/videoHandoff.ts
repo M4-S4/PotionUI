@@ -1,27 +1,4 @@
-export type VideoPreloader = (url: string, onSettled: () => void) => void;
-
 export const VIDEO_HANDOFF_TIMEOUT_MS = 8000;
-
-export function preloadVideo(url: string, onSettled: () => void): void {
-	if (typeof document === 'undefined') {
-		onSettled();
-		return;
-	}
-	let done = false;
-	const settle = () => {
-		if (done) return;
-		done = true;
-		clearTimeout(timer);
-		onSettled();
-	};
-	const probe = document.createElement('video');
-	probe.preload = 'auto';
-	probe.muted = true;
-	probe.onloadeddata = settle;
-	probe.onerror = settle;
-	const timer = setTimeout(settle, VIDEO_HANDOFF_TIMEOUT_MS);
-	probe.src = url;
-}
 
 export function createPreviewKeeper() {
 	let generationId: string | null | undefined;
@@ -38,28 +15,43 @@ export function createPreviewKeeper() {
 
 export function createVideoHandoff(
 	setPending: (pending: boolean) => void,
-	preload: VideoPreloader = preloadVideo,
-	resolveUrl: (url: string) => string = (url) => url
+	timeoutMs: number = VIDEO_HANDOFF_TIMEOUT_MS
 ) {
 	let settled: string | null | undefined;
-	let inflight: string | null = null;
-	let latest = 0;
-	return (wanted: string | null | undefined, previewHeld: boolean): void => {
-		if (wanted && wanted === inflight) return;
-		const ticket = ++latest;
-		inflight = null;
-		if (!wanted || wanted === settled || !previewHeld) {
+	let waiting: string | null = null;
+	let timer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearTimer() {
+		if (timer !== null) clearTimeout(timer);
+		timer = null;
+	}
+
+	function ready() {
+		if (waiting !== null) settled = waiting;
+		waiting = null;
+		clearTimer();
+		setPending(false);
+	}
+
+	function want(wanted: string | null | undefined, previewHeld: boolean) {
+		if (!wanted) {
+			clearTimer();
+			waiting = null;
+			setPending(false);
+			return;
+		}
+		if (wanted === settled || wanted === waiting) return;
+		clearTimer();
+		waiting = null;
+		if (!previewHeld) {
 			settled = wanted;
 			setPending(false);
 			return;
 		}
-		inflight = wanted;
+		waiting = wanted;
 		setPending(true);
-		preload(resolveUrl(wanted), () => {
-			if (ticket !== latest) return;
-			settled = wanted;
-			inflight = null;
-			setPending(false);
-		});
-	};
+		timer = setTimeout(ready, timeoutMs);
+	}
+
+	return { want, ready };
 }

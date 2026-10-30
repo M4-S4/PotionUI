@@ -26,7 +26,7 @@
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
 	import { createImageHandoff, preloadImage } from '$lib/generation/imageHandoff';
-	import { createPreviewKeeper, createVideoHandoff, preloadVideo } from '$lib/generation/videoHandoff';
+	import { createPreviewKeeper, createVideoHandoff } from '$lib/generation/videoHandoff';
 	import { batchCaption } from '$lib/components/workbench/promptGroups';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
@@ -211,12 +211,9 @@
 		currentGeneration?.generation_id ?? currentGeneration?.id,
 		currentGeneration?.current_image
 	);
-	const handoffVideo = createVideoHandoff(
-		(pending) => (videoPending = pending),
-		preloadVideo,
-		(url) => getDisplayUrl(url)
-	);
-	$: handoffVideo(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+	const videoHandoff = createVideoHandoff((pending) => (videoPending = pending));
+	$: videoHandoff.want(displayFileType === 'video' ? displayVideo : null, !!heldPreview);
+	$: stageKey = displayFileType === 'video' && displayVideo ? displayVideo : displayImage || displayVideo || displayAudio || displayMesh;
 
 	let displayImage: string | null | undefined;
 	const handoffImage = createImageHandoff(
@@ -803,8 +800,8 @@
 			{/if}
 
 			<!-- Media Display -->
-			{#key displayImage || displayVideo || displayAudio || displayMesh}
-				<div in:fade={{ duration: 200 }} class="contents">
+			{#key stageKey}
+				<div in:fade={{ duration: videoPending ? 0 : 200 }} class="contents">
 					{#if displayFileType === 'audio' && audioTracks.length > 0}
 						<!-- Audio Player -->
 						<AudioPreview
@@ -813,9 +810,18 @@
 							showDownload={true}
 							className="shadow-lg"
 						/>
-					{:else if holdingPreview && heldPreview}
-						<ImagePreview imageUrl={heldPreview} />
 					{:else if displayFileType === 'video' && displayVideo}
+						{#if holdingPreview && heldPreview}
+							<ImagePreview imageUrl={heldPreview} />
+						{/if}
+						<div
+							class={holdingPreview
+								? 'pointer-events-none absolute inset-0 flex items-center justify-center opacity-0'
+								: 'contents'}
+							data-video-stage
+							on:loadeddata|capture={videoHandoff.ready}
+							on:error|capture={videoHandoff.ready}
+						>
 						<VideoPreview
 							bind:this={videoPlayerRef}
 							bind:isRegularVideoPlaying={vpRegularPlaying}
@@ -828,6 +834,7 @@
 							on:exitComparison={exitComparisonMode}
 							on:muteChange={handleVideoMuteChange}
 						/>
+						</div>
 					{:else if isFallbackFileType && resolvedFallbackRenderer}
 						<!-- A registered `workbench.file` renderer for a file_type with no
 						     dedicated branch above - mesh, and whatever registers next.

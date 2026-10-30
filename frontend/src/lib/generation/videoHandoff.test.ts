@@ -1,65 +1,72 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPreviewKeeper, createVideoHandoff } from './videoHandoff';
 
 const PREVIEW = 'data:image/png;base64,last-preview';
 const FINAL = '/api/media/generations/gen-1/0.mp4';
 
-function setup() {
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+
+function setup(timeoutMs = 1000) {
 	const states: boolean[] = [];
-	const pending: Array<() => void> = [];
-	const handoff = createVideoHandoff(
-		(value) => states.push(value),
-		(_url, onSettled) => pending.push(onSettled)
-	);
-	return { states, pending, handoff };
+	const handoff = createVideoHandoff((value) => states.push(value), timeoutMs);
+	return { states, handoff };
 }
 
 describe('createVideoHandoff', () => {
-	it('holds the preview until the final video has loaded', () => {
-		const { states, pending, handoff } = setup();
-		handoff(FINAL, true);
+	it('holds the preview until the visible player reports its first frame', () => {
+		const { states, handoff } = setup();
+		handoff.want(FINAL, true);
 
 		expect(states).toEqual([true]);
 
-		pending[0]();
+		handoff.ready();
 
 		expect(states).toEqual([true, false]);
 	});
 
 	it('does not hold when there was no preview to keep', () => {
-		const { states, pending, handoff } = setup();
-		handoff(FINAL, false);
+		const { states, handoff } = setup();
+		handoff.want(FINAL, false);
 
 		expect(states).toEqual([false]);
-		expect(pending).toHaveLength(0);
 	});
 
-	it('probes a video once while it is still loading', () => {
-		const { pending, handoff } = setup();
-		handoff(FINAL, true);
-		handoff(FINAL, true);
-		handoff(FINAL, true);
+	it('keeps holding while the same video is asked for again', () => {
+		const { states, handoff } = setup();
+		handoff.want(FINAL, true);
+		handoff.want(FINAL, true);
+		handoff.want(FINAL, true);
 
-		expect(pending).toHaveLength(1);
+		expect(states).toEqual([true]);
 	});
 
-	it('releases the hold when the video goes away before it loads', () => {
-		const { states, pending, handoff } = setup();
-		handoff(FINAL, true);
-		handoff(null, true);
-		pending[0]();
+	it('releases the hold when the video goes away', () => {
+		const { states, handoff } = setup();
+		handoff.want(FINAL, true);
+		handoff.want(null, true);
 
 		expect(states).toEqual([true, false]);
 	});
 
 	it('does not hold again for a video it has already shown', () => {
-		const { states, pending, handoff } = setup();
-		handoff(FINAL, true);
-		pending[0]();
-		handoff(FINAL, true);
+		const { states, handoff } = setup();
+		handoff.want(FINAL, true);
+		handoff.ready();
+		handoff.want(FINAL, true);
 
-		expect(states).toEqual([true, false, false]);
-		expect(pending).toHaveLength(1);
+		expect(states).toEqual([true, false]);
+	});
+
+	it('gives up after the timeout so a player that never paints cannot hold the preview forever', () => {
+		const { states, handoff } = setup(1000);
+		handoff.want(FINAL, true);
+
+		vi.advanceTimersByTime(999);
+		expect(states).toEqual([true]);
+
+		vi.advanceTimersByTime(1);
+		expect(states).toEqual([true, false]);
 	});
 });
 

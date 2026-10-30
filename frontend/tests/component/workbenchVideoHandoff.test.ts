@@ -2,8 +2,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { settle } from './helpers/settle';
 
-const probes = vi.hoisted(() => ({ settle: [] as Array<() => void> }));
-
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getGenerationById: vi.fn(),
@@ -23,11 +21,6 @@ vi.mock('$app/stores', () => {
 	return { page: writable({ url: new URL('http://localhost/generate') }) };
 });
 
-vi.mock('$lib/generation/videoHandoff', async (importOriginal) => ({
-	...(await importOriginal<Record<string, unknown>>()),
-	preloadVideo: (_url: string, onSettled: () => void) => probes.settle.push(onSettled)
-}));
-
 class FakeResizeObserver {
 	observe() {}
 	unobserve() {}
@@ -45,7 +38,6 @@ let target: HTMLElement;
 let component: { $destroy: () => void; $set: (props: Record<string, unknown>) => void } | undefined;
 
 beforeEach(() => {
-	probes.settle = [];
 	originalRO = (globalThis as any).ResizeObserver;
 	(globalThis as any).ResizeObserver = FakeResizeObserver;
 	target = document.createElement('div');
@@ -60,13 +52,25 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
+const generating = {
+	id: 'gen-1',
+	generation_id: 'gen-1',
+	status: 'running',
+	file_type: 'video',
+	current_image: PREVIEW
+};
+const completed = { id: 'gen-1', generation_id: 'gen-1', status: 'completed', file_type: 'video', current_image: null };
+const previewImg = () => target.querySelector(`img[src="${PREVIEW}"]`);
+const video = () => target.querySelector('[data-video-stage] video');
+const stage = () => target.querySelector<HTMLElement>('[data-video-stage]');
+
 function mountGenerating() {
 	component = createClassComponent({
 		component: Workbench as never,
 		target,
 		props: {
 			emptyLayout: 'pane',
-			currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running', file_type: 'video', current_image: PREVIEW },
+			currentGeneration: generating,
 			isGenerating: true,
 			workbenchIndex: 0,
 			workbenchTotal: 0,
@@ -75,35 +79,55 @@ function mountGenerating() {
 			batchAudios: [],
 			batchMeshes: []
 		}
-	}) as never;
-}
-
-function land() {
-	component!.$set({
-		currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'completed', file_type: 'video', current_image: null },
-		isGenerating: false,
-		workbenchTotal: 1,
-		batchVideos: [{ url: VIDEO_URL, originalUrl: VIDEO_URL, file_type: 'video' }]
-	});
+	}) as unknown as typeof component;
 }
 
 describe('Workbench video result landing', () => {
-	it('keeps the last preview and no empty player until the final video has loaded', async () => {
+	it('keeps the preview until the visible player has a frame, in the order the live log shows', async () => {
 		mountGenerating();
 		await settle(10);
-		expect(target.querySelector(`img[src="${PREVIEW}"]`)).not.toBeNull();
+		expect(previewImg()).not.toBeNull();
 
-		land();
+		component!.$set({ currentGeneration: { ...completed, current_image: PREVIEW }, isGenerating: false });
+		await settle(10);
+		expect(previewImg()).not.toBeNull();
+		expect(video()).toBeNull();
+
+		component!.$set({
+			currentGeneration: completed,
+			workbenchTotal: 1,
+			batchVideos: [{ url: VIDEO_URL, originalUrl: VIDEO_URL, file_type: 'video' }]
+		});
 		await settle(10);
 
-		expect(target.querySelector(`img[src="${PREVIEW}"]`)).not.toBeNull();
-		expect(target.querySelector('video')).toBeNull();
-		expect(probes.settle).toHaveLength(1);
+		expect(previewImg()).not.toBeNull();
+		expect(video()).not.toBeNull();
+		expect(stage()!.className).toContain('opacity-0');
+		const player = video();
 
-		probes.settle[0]();
+		video()!.dispatchEvent(new Event('loadeddata'));
 		await settle(10);
 
-		expect(target.querySelector('video')).not.toBeNull();
-		expect(target.querySelector(`img[src="${PREVIEW}"]`)).toBeNull();
+		expect(previewImg()).toBeNull();
+		expect(stage()!.className).not.toContain('opacity-0');
+		expect(video()).toBe(player);
+	});
+
+	it('swaps to the player when it errors instead of holding the preview', async () => {
+		mountGenerating();
+		await settle(10);
+		component!.$set({
+			currentGeneration: completed,
+			isGenerating: false,
+			workbenchTotal: 1,
+			batchVideos: [{ url: VIDEO_URL, originalUrl: VIDEO_URL, file_type: 'video' }]
+		});
+		await settle(10);
+		expect(previewImg()).not.toBeNull();
+
+		video()!.dispatchEvent(new Event('error'));
+		await settle(10);
+
+		expect(previewImg()).toBeNull();
 	});
 });
