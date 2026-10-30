@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { startersForMode } from './modeStarters';
+import { introForMode, startersForMode } from './modeStarters';
 
 const BUILTIN = ['generation', 'history', 'prompts', 'models', 'phrasebook'];
 
@@ -31,5 +31,21 @@ describe('startersForMode', () => {
 		expect(startersForMode('some-plugin-mode')).toHaveLength(3);
 		expect(startersForMode(null)).toEqual(startersForMode('some-plugin-mode'));
 		expect(startersForMode('some-plugin-mode')).not.toEqual(startersForMode('generation'));
+	});
+});
+
+describe('introForMode', () => {
+	it('gives History its own copy about finding, organising and editing files', () => {
+		const intro = introForMode('history');
+		expect(intro.heading).not.toBe(introForMode('generation').heading);
+		expect(`${intro.heading} ${intro.body}`).not.toMatch(/making|shape prompts/);
+		expect(intro.body).toMatch(/find/);
+		expect(intro.body).toMatch(/edit/);
+	});
+
+	it('keeps the workspace copy for generation and unknown modes', () => {
+		expect(introForMode('generation').heading).toBe('What are we making?');
+		expect(introForMode('some-plugin-mode')).toEqual(introForMode('generation'));
+		expect(introForMode(null)).toEqual(introForMode('generation'));
 	});
 });

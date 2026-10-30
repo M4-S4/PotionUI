@@ -112,7 +112,7 @@
 		loadDisabledTools,
 		saveDisabledTools
 	} from '$lib/utils/chatConfig';
-	import { startersForMode } from '$lib/chat/modeStarters';
+	import { introForMode, startersForMode } from '$lib/chat/modeStarters';
 	import { loadHistoryRailCollapsed, saveHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 	import { getPresetPromptResources, type PresetPromptResourcesResult } from '$lib/utils/presetPromptResourcesCache';
 	import type { ResourceTokenContext } from '$lib/utils/promptResourceTokens';
@@ -136,6 +136,7 @@
 	$: messages = $chatSession.messages;
 	$: currentMode = $chatSession.mode;
 	$: starters = startersForMode(currentMode);
+	$: intro = introForMode(currentMode);
 	$: isGenerating = $chatSession.isGenerating;
 	// What a brand-new conversation would resolve to right now — used only to
 	// tell the user a locked conversation's mode has fallen behind the page
@@ -1994,8 +1995,8 @@
 			<div class="empty-state" class:hidden={messages.length > 0}>
 				<div class="empty-content">
 					<span class="empty-orb"><Logo size={27} /></span>
-					<h2>What are we making?</h2>
-					<p>I can see your active workspace and help shape prompts, settings, and creative direction.</p>
+					<h2>{intro.heading}</h2>
+					<p>{intro.body}</p>
 					<div class="suggestions">
 						{#each starters as suggestion (suggestion.title)}
 							<button

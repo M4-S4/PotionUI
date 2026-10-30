@@ -142,3 +142,24 @@ const BY_MODE: Record<string, ChatStarter[]> = {
 export function startersForMode(modeId: string | null | undefined): ChatStarter[] {
 	return (modeId && BY_MODE[modeId]) || GENERIC;
 }
+
+export interface ChatIntro {
+	heading: string;
+	body: string;
+}
+
+const DEFAULT_INTRO: ChatIntro = {
+	heading: 'What are we making?',
+	body: 'I can see your active workspace and help shape prompts, settings, and creative direction.'
+};
+
+const INTRO_BY_MODE: Record<string, ChatIntro> = {
+	history: {
+		heading: 'What are we looking for?',
+		body: 'I can find your past generations, sort them into collections and tags, and edit files for you.'
+	}
+};
+
+export function introForMode(modeId: string | null | undefined): ChatIntro {
+	return (modeId && INTRO_BY_MODE[modeId]) || DEFAULT_INTRO;
+}
