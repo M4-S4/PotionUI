@@ -333,3 +333,46 @@ async def test_a_plugin_artifact_type_is_report_only_unless_it_opts_in():
 
     assert user.sent == []
     assert recorder.record_output.call_args[0][1]["artifact_type"] == "plugin_artifact"
+
+
+@pytest.mark.asyncio
+async def test_a_progress_line_names_only_the_file_for_a_user_and_the_path_for_an_admin():
+    broadcaster, hub, recorder = _broadcaster()
+    user = await _subscribe(hub, "user", "gen-1")
+    admin = await _subscribe(hub, "admin", "gen-1", privileged=True)
+    state = f"Error loading image: cannot identify image file '{MODEL_PATH}'"
+
+    await broadcaster.handle_output("gen-1", ProgressGenerationOutput(state=state, title=f"Loading {MODEL_PATH}"))
+
+    assert user.sent[-1]["current_step"] == "Error loading image: cannot identify image file 'secret_dit_fp16.safetensors'"
+    assert user.sent[-1]["message"] == "Loading secret_dit_fp16.safetensors"
+    assert admin.sent[-1]["current_step"] == state
+    assert recorder.record_output.call_args[0][1]["current_step"] == state
+
+
+@pytest.mark.asyncio
+async def test_a_model_file_index_warning_names_only_the_file_for_a_user():
+    broadcaster, hub, _ = _broadcaster()
+    user = await _subscribe(hub, "user", "gen-1")
+    admin = await _subscribe(hub, "admin", "gen-1", privileged=True)
+    warning = f"'{MODEL_PATH}' is not under any known model root"
+
+    await broadcaster.handle_output(
+        "gen-1", ModelFileGenerationOutput(path=MODEL_PATH, index_warning=warning),
+    )
+
+    assert user.sent[-1]["artifact_data"]["index_warning"] == "'secret_dit_fp16.safetensors' is not under any known model root"
+    assert admin.sent[-1]["artifact_data"]["index_warning"] == warning
+
+
+@pytest.mark.asyncio
+async def test_a_progress_line_without_a_path_is_sent_once_to_everyone():
+    broadcaster, hub, _ = _broadcaster()
+    hub.broadcast_to_generation = AsyncMock()
+    await _subscribe(hub, "user", "gen-1")
+
+    await broadcaster.handle_output("gen-1", ProgressGenerationOutput(state="Sampling 1/20", title="Generating"))
+
+    message, privileged = hub.broadcast_to_generation.await_args[0][1:]
+    assert message["current_step"] == "Sampling 1/20"
+    assert privileged is None

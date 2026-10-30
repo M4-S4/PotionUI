@@ -330,6 +330,16 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertIs(result['videos'][0]['derived'], True)
         self.assertIs(result['video_urls_list'][0]['derived'], True)
 
+    def test_a_temporary_video_or_audio_update_carries_no_server_path(self):
+        video = VideoGenerationOutput(video_path="/srv/potion/tmp/tmpab12cd34.mp4", temporary=True)
+        audio = AudioGenerationOutput(audio_path="/srv/potion/tmp/tmpab12cd34.wav", temporary=True)
+
+        for output in (video, audio):
+            result = self.mapper.serialize_output(output)
+            self.assertNotIn('temp_path', result)
+            self.assertNotIn('/srv/', json.dumps(result, default=str))
+            self.assertTrue(result['path'].startswith('/api/media/tmp/'))
+
     def test_serialize_seed_output(self):
         """Test seed output serialization"""
         output = SeedGenerationOutput(index=0, seed=123456789)

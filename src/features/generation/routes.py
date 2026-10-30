@@ -15,7 +15,7 @@ from src.platform.observability.profiling import render_report_from_file
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
-from src.platform.security.failure_text import failure_detail
+from src.platform.security.failure_text import basename_paths, failure_detail
 from src.platform.security.current_user import (
     get_current_active_user,
     get_current_admin_user,
@@ -212,7 +212,7 @@ class GenerationController(BaseController):
         except ValueError as e:
             return self.error_response(
                 error="validation_error",
-                message=str(e),
+                message=str(e) if GenerationPolicy.is_admin(current_user) else basename_paths(str(e)),
                 status_code=400
             )
         except Exception as e:
@@ -248,7 +248,7 @@ class GenerationController(BaseController):
         except ValueError as e:
             return self.error_response(
                 error="validation_error",
-                message=str(e),
+                message=str(e) if GenerationPolicy.is_admin(current_user) else basename_paths(str(e)),
                 status_code=400
             )
         except (NoBackendForEngineError, NoEligibleBackendError) as e:

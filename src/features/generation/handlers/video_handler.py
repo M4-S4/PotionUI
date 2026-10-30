@@ -543,7 +543,6 @@ def serialize_video_output(output: VideoGenerationOutput, ctx: SerializeContext)
                     filename = Path(video_path).name
 
                 result['path'] = f"/api/media/tmp/{filename}"
-                result['temp_path'] = video_path  # Keep original path for debugging
                 result['video_name'] = filename
 
         except Exception as e:

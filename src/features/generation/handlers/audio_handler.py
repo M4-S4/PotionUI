@@ -268,7 +268,6 @@ def serialize_audio_output(output: AudioGenerationOutput, ctx: SerializeContext)
                     filename = Path(audio_path).name
 
                 result['path'] = f"/api/media/tmp/{filename}"
-                result['temp_path'] = audio_path  # Keep original path for debugging
                 result['audio_name'] = filename
 
         except Exception as e:
