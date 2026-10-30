@@ -36,6 +36,7 @@ from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import (
     resolve_target_geometry,
     upsample_chunked,
 )
+from src.pipelines.pipes.latent_upscaler.minimax_h3.diagnostics import diagnostics_dir, dump_upscale_previews
 from src.pipelines.pipes._shared.vae.minimax_h3_encode import (
     encode_activation_gb,
     encode_compute_dtype,
@@ -224,7 +225,11 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
             bundle, device, models, need_gb=_upscale_need_gb(bundle, geometry, int(latent_frames), encode_canvas),
         )
 
+        dumping = diagnostics_dir() is not None
+        source_frame: Optional[torch.Tensor] = None
         if pixels is not None:
+            if dumping:
+                source_frame = pixels[0, :, 0].clone()
             generation_outputs(ProgressGenerationOutput(
                 state="Encoding source video", icon=Icon(name="film", effect="pulse")))
             latent = self._encode_pixels(bundle, pixels, device)
@@ -233,6 +238,8 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
         generation_outputs(ProgressGenerationOutput(
             state="Upsampling latent", icon=Icon(name="bolt", effect="pulse")))
         upsampled = self._upsample(upsampler, latent, geometry, device)
+        if dumping:
+            dump_upscale_previews(bundle, device, source_frame, latent, upsampled)
         return PipeOutput(output={"latent": upsampled, "source_frame_count": source_frame_count})
 
     def _prepare_pixels(self, video_path: str) -> Tuple[torch.Tensor, int]:
