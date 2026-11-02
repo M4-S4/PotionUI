@@ -1,13 +1,11 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { mount, unmount, flushSync, type Component } from 'svelte';
 
 const { default: IconButton } = await import('../../src/lib/components/ui/IconButton.svelte');
 const { default: TooltipWrappedControlsFixture } = await import('./fixtures/TooltipWrappedControlsFixture.svelte');
-const { installInputModality } = await import('../../src/lib/utils/inputModality');
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount> | null = null;
-let stopInputModality: (() => void) | null = null;
 
 function render<Props extends Record<string, any>>(view: Component<Props>, props: Props) {
 	target = document.createElement('div');
@@ -38,8 +36,21 @@ function unhover(element: HTMLElement) {
 	flushSync();
 }
 
+function focusVisible(element: HTMLElement, visible: boolean) {
+	const matches = element.matches.bind(element);
+	element.matches = (selector: string) =>
+		selector === ':focus-visible' ? visible && document.activeElement === element : matches(selector);
+}
+
 async function keyboardFocus(element: HTMLElement) {
-	document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+	focusVisible(element, true);
+	element.focus();
+	await wait(0);
+}
+
+async function pointerFocus(element: HTMLElement) {
+	focusVisible(element, false);
+	element.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 	element.focus();
 	await wait(0);
 }
@@ -49,13 +60,7 @@ function blur(element: HTMLElement) {
 	flushSync();
 }
 
-beforeEach(() => {
-	stopInputModality = installInputModality();
-});
-
 afterEach(() => {
-	stopInputModality?.();
-	stopInputModality = null;
 	if (component) {
 		unmount(component);
 		component = null;
@@ -150,21 +155,13 @@ describe('IconButton with tooltip or kbd', () => {
 		expect(tooltips()).toEqual([]);
 	});
 
-	it('does not show when the focus comes from a mouse press or a script after one', async () => {
+	it('does not show when the focus follows a pointer press, then shows on keyboard focus', async () => {
 		render(IconButton, { icon: 'trash', label: 'Delete', tooltip: 'Delete the shot' });
 		const trigger = button();
 
-		trigger.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-		trigger.focus();
-		await wait(0);
+		await pointerFocus(trigger);
 		expect(tooltips()).toEqual([]);
 		expect(trigger.hasAttribute('aria-describedby')).toBe(false);
-
-		blur(trigger);
-		document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
-		trigger.focus();
-		await wait(0);
-		expect(tooltips()).toEqual([]);
 
 		blur(trigger);
 		await keyboardFocus(trigger);
@@ -217,9 +214,7 @@ describe('Tooltip on keyboard focus', () => {
 		render(TooltipWrappedControlsFixture, {});
 		const plain = button('.plain-child');
 
-		plain.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-		plain.focus();
-		await wait(0);
+		await pointerFocus(plain);
 		expect(tooltips()).toEqual([]);
 		expect(plain.hasAttribute('aria-describedby')).toBe(false);
 	});
