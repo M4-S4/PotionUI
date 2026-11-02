@@ -5,12 +5,15 @@ Provides real-time monitoring of CPU, RAM, GPU, and VRAM usage.
 Designed for memory management and resource allocation decisions.
 """
 
+import sys
+
 import psutil
 from threading import Lock
 from typing import Dict, Any, List, Optional
 from pynvml import *
 
 from src.platform.observability.logger import logger
+from src.platform.runtime import nvml_library
 from src.platform.runtime.system_memory import get_system_memory
 
 
@@ -40,6 +43,7 @@ class SystemMonitor:
         # methods below still consult torch.cuda for allocator stats, imported
         # locally at the point of use.
         try:
+            nvml_library.ensure_nvml_library()
             nvmlInit()
             self.gpu_handles = [nvmlDeviceGetHandleByIndex(i) for i in range(nvmlDeviceGetCount())]
             self.gpu_handle = self.gpu_handles[0]
@@ -139,7 +143,7 @@ class SystemMonitor:
 
         with self.lock:
             try:
-                import torch
+                torch = sys.modules.get("torch")
 
                 # NVML stats
                 mem_info = nvmlDeviceGetMemoryInfo(self.gpu_handle)
@@ -150,7 +154,7 @@ class SystemMonitor:
                 # PyTorch CUDA stats
                 allocated_gb = 0.0
                 reserved_gb = 0.0
-                if torch.cuda.is_available():
+                if torch is not None and torch.cuda.is_available():
                     allocated_gb = torch.cuda.memory_allocated() / (1024**3)
                     reserved_gb = torch.cuda.memory_reserved() / (1024**3)
 
