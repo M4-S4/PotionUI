@@ -55,8 +55,9 @@ async function pointerFocus(element: HTMLElement) {
 	await wait(0);
 }
 
-function blur(element: HTMLElement) {
+async function blur(element: HTMLElement) {
 	element.blur();
+	await Promise.resolve();
 	flushSync();
 }
 
@@ -99,7 +100,7 @@ describe('IconButton without tooltip props', () => {
 		expect(tooltip.textContent?.trim()).toBe('Delete the shot');
 		expect(iconButton.getAttribute('aria-describedby')).toBe(tooltip.id);
 
-		blur(iconButton);
+		await blur(iconButton);
 		expect(tooltips()).toEqual([]);
 		expect(iconButton.hasAttribute('aria-describedby')).toBe(false);
 	});
@@ -151,7 +152,7 @@ describe('IconButton with tooltip or kbd', () => {
 		await keyboardFocus(trigger);
 		expect(tooltips()).toHaveLength(1);
 
-		blur(trigger);
+		await blur(trigger);
 		expect(tooltips()).toEqual([]);
 	});
 
@@ -163,7 +164,7 @@ describe('IconButton with tooltip or kbd', () => {
 		expect(tooltips()).toEqual([]);
 		expect(trigger.hasAttribute('aria-describedby')).toBe(false);
 
-		blur(trigger);
+		await blur(trigger);
 		await keyboardFocus(trigger);
 		expect(tooltips()).toHaveLength(1);
 	});
