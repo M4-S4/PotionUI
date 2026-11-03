@@ -84,11 +84,6 @@ def build_default_form_data(
 
 
 def fixture_video_director_capabilities(preset: PresetTemplate, mode: str) -> Optional[Dict[str, Any]]:
-    """The Video Director capabilities a fixture document for `mode` is built
-    from, or `None` when the mode shows no Director with a `t2v` sub-mode.
-    When a document is built, its `settings.duration` is what the preset's
-    pipeline reads for the clip length, so a `frames`/`duration` field in a
-    recipe's `smoke.form` is never read (`test_shipped_recipes_lint.py`)."""
     capabilities = (getattr(preset, "vars", None) or {}).get("video_director") or {}
     if mode not in (capabilities.get("preset_modes") or []):
         return None

@@ -188,7 +188,10 @@ def _pipe_identifier(pipe_config: Dict[str, Any]) -> str:
 
 
 def _runs_on_cuda(pipes: list) -> bool:
-    return any(str((pipe.get('config') or {}).get('device', '')).startswith('cuda') for pipe in pipes)
+    return any(
+        pipe.get('enabled') and str((pipe.get('config') or {}).get('device') or 'cuda').startswith('cuda')
+        for pipe in pipes
+    )
 
 
 def _pipe_identifier_map(pipes: list) -> Dict[str, str]:
@@ -532,6 +535,7 @@ class GenerationEngine:
         # in torch and the rest of the engine tree - boot must not pay for
         # that just to define an except clause. See
         # tests/architecture/test_boot_imports.py.
+        from src.platform.runtime.native.cancellation import cancellation_scope
         from src.platform.runtime.native.errors import SamplingCancelled
 
         # One run at a time per manager: the GPU, the cancellation flag and the
@@ -766,19 +770,20 @@ class GenerationEngine:
                 import inspect
                 sig = inspect.signature(pipe.process)
 
-                if 'is_cancelled' in sig.parameters:
-                    # Pipe supports cancellation
-                    current_pipe_result = pipe.process(
-                        pipe_input=PipeInput(input=pipe_input),
-                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
-                        is_cancelled=is_cancelled,
-                    )
-                else:
-                    # Legacy pipe without cancellation support
-                    current_pipe_result = pipe.process(
-                        pipe_input=PipeInput(input=pipe_input),
-                        generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
-                    )
+                with cancellation_scope(is_cancelled):
+                    if 'is_cancelled' in sig.parameters:
+                        # Pipe supports cancellation
+                        current_pipe_result = pipe.process(
+                            pipe_input=PipeInput(input=pipe_input),
+                            generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
+                            is_cancelled=is_cancelled,
+                        )
+                    else:
+                        # Legacy pipe without cancellation support
+                        current_pipe_result = pipe.process(
+                            pipe_input=PipeInput(input=pipe_input),
+                            generation_outputs=lambda _output: self.hijack_pipe_generation_output(generation_outputs, _output, pipe, generation_id, pipe_id, failure_point),
+                        )
 
                 profiler.mark("pipe.end", pipe_id=pipe_id, pipe_name=pipe.name, pipe_identifier=pipe_config.get('id'))
 
@@ -883,7 +888,6 @@ class GenerationEngine:
 
             classification = classify_generation_error(e)
             message = classification.summary
-            hints = list(classification.suggestions)
             if classification.category == "cuda_oom":
                 vram_note = self._live_vram_note()
                 if vram_note:
@@ -894,7 +898,7 @@ class GenerationEngine:
                 detail=detail,
                 error_code=classification.category,
                 message=message,
-                hints=hints,
+                hints=list(classification.suggestions),
                 pipe_id=failure_point.get('pipe_id'),
                 pipe_name=failure_point.get('pipe_name'),
                 pipe_key=failure_point.get('pipe_key'),

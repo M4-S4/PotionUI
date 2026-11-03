@@ -792,11 +792,13 @@ def _run_text_encode_uncached(
          (measured ~15s on a 5090) when the ~4GB TE fits next to a resident 24.5GB
          DiT — which it does on a 32GB card.
       2. Only if it doesn't fit (or the co-resident attempt OOMs) do we offload
-         LRU-resident components (the DiT) to RAM and retry on the GPU.
+         LRU-resident components (the DiT) to RAM and retry on the GPU, whole if
+         it now fits, streamed with partial residency (torn down right after the
+         encode) if it does not.
       3. If it STILL doesn't fit, fall back to a CPU encode — slow but correct,
          never a crash.
 
-    On success (paths 1 and 2) the encoder is left GPU-resident and registered
+    On success (paths 1 and 2, whole move) the encoder is left GPU-resident and registered
     with the coordinator — never moved back to CPU here. A same-checkpoint
     reuse (the next generation, or a retry within one batch window) then skips
     the CPU<->GPU round trip entirely; a later phase that needs the VRAM back
@@ -835,21 +837,6 @@ def _run_text_encode_uncached(
     Both are ``None`` on the no-CUDA-at-all ``cpu-fallback`` mark below (no
     placement gate runs there — there is nothing to report), not a fake
     ``0.0``/silent omission.
-
-    **Partial residency** (``text_encoder_placement``, see
-    ``memory/text_encoder.py``). With the default ``auto``, step 2 re-reads free
-    VRAM after its eviction and applies step 1's own test with step 1's own
-    quantities: ``size_gb + reserve <= free + what the encoder already holds on
-    the device``. An encoder that passes takes the whole move exactly as before;
-    no backend cap and no dequantisation peak enter that test. One that fails is
-    placed like a streamed DiT (``engine.TextEncoderStreaming`` →
-    ``NativeModel.stream_to``), encoded, then torn down at once so the pinned host
-    RAM and the resident share go back before the DiT needs them
-    (``path="streamed"``); the backend's ``gpu_max_vram`` and the dequantisation
-    peak only size its resident share. An OOM retries fully streamed, then falls
-    back to the CPU encode. ``gpu`` keeps the whole move unconditionally (steps
-    1-3 above, unchanged); ``stream`` skips the co-resident attempt and always
-    streams. An encoder that fits follows steps 1-3 exactly as before.
     """
     from src.platform.observability.profiling import get_profiler
 
@@ -962,17 +949,6 @@ def _plan_encode_after_evict(
     size_gb: float,
     reserve_gb: float,
 ) -> tuple[ComponentPlacement | None, TextEncoderFootprint | None, float | None]:
-    """Step 2's partial-residency decision, read after the eviction.
-
-    The fit test is the historical whole move's, as ``encode_prompt``'s: the
-    encoder alone (``size_gb``, no reserve) against the freed VRAM plus what it
-    already holds there, so an encoder that fits still moves whole; the
-    reserve, the backend cap and the dequantisation peak only size a streamed
-    share.
-    Returns ``(plan, footprint, live_free_gb)``; ``plan`` is ``None`` when the
-    encoder has no measurable module or the device no free-VRAM reading, which
-    keeps the historical whole move.
-    """
     footprint = text_encoder_footprint(encoder)
     if footprint is None:
         return None, None, None
@@ -991,6 +967,13 @@ def _plan_encode_after_evict(
     return plan, footprint, live_free
 
 
+def _teardown_quietly(streaming: Any) -> None:
+    try:
+        streaming.teardown()
+    except Exception:
+        logger.warning("residency: streamed TE teardown failed", exc_info=True)
+
+
 def _run_streamed_encode(
     encoder: Any,
     device: str,
@@ -1003,15 +986,6 @@ def _run_streamed_encode(
     needed_gb: float,
     count_fields: dict[str, Any],
 ) -> Any:
-    """Encode with ``encoder`` placed with partial residency, then tear it down.
-
-    The encoder's own registry entry (left by an earlier co-resident encode) is
-    dropped first: for this window its VRAM is tracked through the streamed
-    parts, and after the teardown it sits on the CPU. A placement or encode that
-    OOMs is retried fully streamed (budget 0), then encoded on the CPU; so is a
-    streamed share host RAM could not pin (``HostMemoryExhaustedError``), since
-    the CPU encode needs no page-locked copy.
-    """
     from src.platform.observability.profiling import get_profiler
     from src.platform.runtime.native.engine import TextEncoderStreaming
 
@@ -1026,7 +1000,7 @@ def _run_streamed_encode(
             census = _weights_gb_by_device(encoder)
             result = encode_fn()
         except RuntimeError as exc:
-            streaming.teardown()
+            _teardown_quietly(streaming)
             if not retry_after_cuda_oom(exc):
                 raise
             logger.warning(
@@ -1037,10 +1011,10 @@ def _run_streamed_encode(
             continue
         except HostMemoryExhaustedError as exc:
             logger.warning("residency: streamed TE encode refused (%s); encoding on CPU", exc)
-            streaming.teardown()
+            _teardown_quietly(streaming)
             break
         except BaseException:
-            streaming.teardown()
+            _teardown_quietly(streaming)
             raise
         streaming.teardown()
         get_profiler().mark(

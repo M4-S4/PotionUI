@@ -1,20 +1,3 @@
-"""Text-encoder placement when the encoder FITS: the call sequence is pinned.
-
-Every native family's text encoder (``_te_layouts.FAMILIES``: real layouts and
-byte counts on the meta device) is driven through both encode sites — the pipes'
-``run_text_encode`` / ``run_text_encode_batch`` and ``NativeGenerator.
-encode_prompt`` — on a fake card where it fits, beside a resident DiT and after
-evicting it. The full sequence of placement calls (wrapper and module moves,
-registry notes and evictions, cache empties, the encode's device, the
-``te.encode`` mark) must be exactly the historical one.
-
-This module deliberately uses only APIs that predate partial-residency text
-encoders, so the very same file runs against the previous engine and must pass
-there too: that is the before/after proof. SeedVR2 (no live text encoder) and
-MiniMax-Music3 (its own ``NativeModel`` move/offload, outside both encode
-sites) are pinned at the end.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -88,8 +71,6 @@ def _fake_card(monkeypatch, log: list, capacity_gb: float):
 
 
 def _expected_whole_move(encoder, size_gb: float, *, free_gb: float, path: str, count=None) -> list:
-    """The historical sequence: wrapper ``.to``, then every real module moved
-    again by the safety net, the registry note, the encode on the GPU, the mark."""
     log: list = []
     probe = []
     if hasattr(encoder, "t5"):
@@ -215,8 +196,6 @@ def test_generator_encode_prompt_moves_a_fitting_encoder_whole(monkeypatch, fami
 
 
 def test_seedvr2_without_a_text_encoder_keeps_its_sampling_plan(monkeypatch):
-    """SeedVR2 has no live text encoder (``te=None``): its placement is the
-    sampling-phase plan alone, unchanged."""
     gen = NativeGenerator(
         _FakeNativeModel("dit", 6.6), None, _FakeNativeModel("vae", 0.5),
         DevicePlan(_DEV, _DEV, _DEV), vram_gb=12.0,
@@ -234,8 +213,6 @@ def test_seedvr2_without_a_text_encoder_keeps_its_sampling_plan(monkeypatch):
 
 
 def test_music3_text_encoder_native_model_moves_and_offloads_as_before(monkeypatch):
-    """MiniMax-Music3 loads its fused LM as a plain ``NativeModel("text_encoder")``
-    and moves it itself (``move_to`` / ``offload``), outside both encode sites."""
     log: list = []
     registry = _fake_card(monkeypatch, log, 24.0)
     module = RecordingModule(log)

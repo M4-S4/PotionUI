@@ -81,15 +81,21 @@ def test_is_cuda_driver_error_rejects_runtime_api_errors_and_other_types():
     assert not is_cuda_driver_error(ValueError("CUDA driver error: device not ready"))
 
 
-def test_is_cuda_oom_recognises_the_wsl_allocator_failure():
+def test_is_cuda_oom_recognises_the_wsl_allocator_failure(monkeypatch):
+    monkeypatch.setenv("POTIONUI_CUDA_DRIVER_OOM", "retry")
+
     assert is_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
 
 
-def test_is_cuda_oom_recognises_a_driver_error_that_says_out_of_memory():
+def test_is_cuda_oom_recognises_a_driver_error_that_says_out_of_memory(monkeypatch):
+    monkeypatch.setenv("POTIONUI_CUDA_DRIVER_OOM", "retry")
+
     assert is_cuda_oom(RuntimeError("CUDA driver error: out of memory"))
 
 
-def test_is_cuda_oom_recognises_the_wsl_allocator_failure_with_a_cpp_stack_appended():
+def test_is_cuda_oom_recognises_the_wsl_allocator_failure_with_a_cpp_stack_appended(monkeypatch):
+    monkeypatch.setenv("POTIONUI_CUDA_DRIVER_OOM", "retry")
+
     assert is_cuda_oom(RuntimeError("CUDA driver error: device not ready\nException raised from map at c10/cuda/CUDACachingAllocator.cpp"))
 
 
@@ -125,6 +131,25 @@ def test_is_cuda_oom_stops_retrying_a_driver_oom_under_wsl_by_default(monkeypatc
     assert is_cuda_oom(torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB"))
     assert is_cuda_oom(torch.AcceleratorError("CUDA error: out of memory"))
     assert cuda_allocator.allocator_damage() is None
+
+
+def test_is_cuda_oom_retries_a_driver_oom_on_native_linux_by_default(monkeypatch):
+    monkeypatch.delenv("POTIONUI_CUDA_DRIVER_OOM", raising=False)
+    monkeypatch.setattr(cuda_allocator, "is_wsl", lambda kernel_release=None: False)
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+
+    assert retry_after_cuda_oom(RuntimeError("CUDA driver error: device not ready"))
+    assert cuda_allocator.allocator_damage() is None
+
+
+def test_a_driver_oom_raised_as_an_accelerator_error_still_follows_the_policy(monkeypatch):
+    monkeypatch.setenv("POTIONUI_CUDA_DRIVER_OOM", "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+
+    assert not is_cuda_oom(torch.AcceleratorError("CUDA driver error: out of memory"))
 
 
 def test_a_fallback_records_the_driver_oom_it_will_not_retry(monkeypatch):

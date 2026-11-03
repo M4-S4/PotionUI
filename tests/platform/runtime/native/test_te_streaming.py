@@ -1,14 +1,3 @@
-"""Text encoder placed with partial residency when it does not fit (no GPU).
-
-Covers both encode sites — the pipes' ``run_text_encode`` and
-``NativeGenerator.encode_prompt`` — on a fake card whose free VRAM follows the
-residency registry: streaming triggers only when the honest footprint does not
-fit, ``gpu`` / ``stream`` override ``auto``, OOM backstops, the teardown after
-the encode, the DiT and the text encoder not overlapping their budgets, and the
-real ``TextEncoderStreaming`` over CPU modules (the CUDA copy itself is the one
-thing a CPU box cannot run, so ``NativeModel.stream_to`` is replayed on CPU).
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -16,12 +5,13 @@ import torch
 import torch.nn as nn
 
 from src.platform.observability import profiling
+from src.platform.runtime import cuda_allocator
 from src.platform.runtime.native import engine as engine_mod
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel, TextEncoderStreaming
 from src.platform.runtime.native.memory import residency
 from src.platform.runtime.native.memory.device_plan import DevicePlan
 from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
-from src.platform.runtime.native.memory.residency import get_residency_registry, run_text_encode
+from src.platform.runtime.native.memory.residency import get_residency_registry, module_size_gb, run_text_encode
 from src.platform.runtime.native.memory.text_encoder import (
     configure_text_encoder_placement,
     reset_text_encoder_placement,
@@ -31,7 +21,7 @@ from src.platform.runtime.native.memory.tiering import ComponentPlacement, Place
 from src.platform.runtime.native.kernels import fp8_ops, manual_cast
 
 from ._nvfp4_ref import default_tensor_scale, quantize_nvfp4
-from ._te_layouts import FAMILIES, FamilyEncoder, RecordingModule, minimax_h3_module, minimax_h3_te
+from ._te_layouts import FAMILIES, FamilyEncoder, RecordingModule, minimax_h3_module, minimax_h3_te, transformer
 
 _DEV = "cuda:0"
 GB = 1024 ** 3
@@ -83,8 +73,6 @@ def _wsl_driver_oom() -> BaseException:
 
 
 class _FakeStreaming:
-    """Stands in for ``engine.TextEncoderStreaming``: records the placement."""
-
     log: list = []
     oom_budgets: set = set()
     make_oom = _streamed_oom
@@ -135,11 +123,7 @@ def _h3_budget(available: float) -> float:
     return round(available - 1.0 - fp.dequant_peak_gb, 3)
 
 
-# --- pipe path: run_text_encode -------------------------------------------------
-
-
 def test_pipe_path_streams_minimax_h3_te_on_a_12gb_card(monkeypatch, fake_streaming):
-    """The reported case: 4070 Ti 12 GB, ~10 GB really free, 19 GB nvfp4 TE."""
     log = fake_streaming
     _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
     encoder = minimax_h3_te(log)
@@ -154,6 +138,27 @@ def test_pipe_path_streams_minimax_h3_te_on_a_12gb_card(monkeypatch, fake_stream
         ("encode", "cpu"),
         ("stream.teardown",),
         ("mark", "streamed", pytest.approx(_h3_budget(10.0), abs=1e-3)),
+    ]
+
+
+def test_pipe_path_streams_an_int8_gemma_te_larger_than_a_12gb_card_instead_of_moving_it_whole(monkeypatch, fake_streaming):
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=1.1)
+    module = transformer(
+        hidden=3840, inter=15360, q=4096, kv=2048, layers=48, vocab=262144, formats=["int8"] * 48, log=log,
+    )
+    encoder = FamilyEncoder(module, log, "gemma_12b_int8")
+    assert module_size_gb(encoder) > 10.9
+    budget = round(10.9 - 1.0 - text_encoder_footprint(encoder).dequant_peak_gb, 3)
+
+    run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]), reserve_gb=1.0)
+
+    assert log == [
+        ("note_offloaded", "FamilyEncoder"),
+        ("stream.apply", _DEV, budget),
+        ("encode", "cpu"),
+        ("stream.teardown",),
+        ("mark", "streamed", pytest.approx(budget, abs=1e-3)),
     ]
 
 
@@ -236,7 +241,8 @@ def test_pipe_path_streamed_oom_retries_fully_streamed(monkeypatch, fake_streami
     ]
 
 
-def test_pipe_path_wsl_driver_oom_retries_fully_streamed(monkeypatch, fake_streaming):
+def test_pipe_path_wsl_driver_oom_retries_fully_streamed_where_the_policy_retries(monkeypatch, fake_streaming):
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
     _FakeStreaming.make_oom = _wsl_driver_oom
     log = fake_streaming
@@ -253,6 +259,26 @@ def test_pipe_path_wsl_driver_oom_retries_fully_streamed(monkeypatch, fake_strea
         ("stream.teardown",),
         ("mark", "streamed", 0.0),
     ]
+
+
+def test_pipe_path_tears_down_and_raises_a_fatal_driver_oom(monkeypatch, fake_streaming):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = _wsl_driver_oom
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]))
+    assert [e for e in log if e[0].startswith("stream.")] == [
+        ("stream.apply", _DEV, _h3_budget(10.0)),
+        ("stream.teardown",),
+    ]
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
 
 
 def test_pipe_path_tears_down_and_raises_a_driver_error_that_is_not_exhaustion(monkeypatch, fake_streaming):
@@ -292,9 +318,6 @@ def test_pipe_path_tears_down_when_the_encode_itself_fails(monkeypatch, fake_str
     with pytest.raises(RuntimeError, match="encode failed"):
         run_text_encode(encoder, _DEV, boom)
     assert fake_streaming[-1] == ("stream.teardown",)
-
-
-# --- generator path: NativeGenerator.encode_prompt --------------------------------
 
 
 class _FakeSpec:
@@ -420,8 +443,10 @@ def test_generator_explicit_placement_decides_on_its_own(monkeypatch, fake_strea
     assert log[0] == ("stream.apply", _DEV, 3.0)
 
 
-def test_generator_streamed_placement_oom_retries_fully_streamed(monkeypatch, fake_streaming):
+def test_generator_streamed_placement_wsl_driver_oom_retries_fully_streamed_where_the_policy_retries(monkeypatch, fake_streaming):
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
     _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
+    _FakeStreaming.make_oom = _wsl_driver_oom
     log = fake_streaming
     _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
     encoder = minimax_h3_te(log)
@@ -434,9 +459,26 @@ def test_generator_streamed_placement_oom_retries_fully_streamed(monkeypatch, fa
     ]
 
 
-def test_generator_streamed_placement_wsl_driver_oom_retries_fully_streamed(monkeypatch, fake_streaming):
+def test_generator_streamed_placement_tears_down_and_raises_a_fatal_driver_oom(monkeypatch, fake_streaming):
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
     _FakeStreaming.make_oom = _wsl_driver_oom
+    log = fake_streaming
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    encoder = minimax_h3_te(log)
+
+    with pytest.raises(RuntimeError, match="device not ready"):
+        _generator(encoder, vram_gb=12.0).encode_prompt("prompt")
+
+    assert log == [("stream.apply", _DEV, _h3_budget(10.0)), ("stream.teardown",)]
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
+
+
+def test_generator_streamed_placement_oom_retries_fully_streamed(monkeypatch, fake_streaming):
+    _FakeStreaming.oom_budgets = {_h3_budget(10.0)}
     log = fake_streaming
     _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
     encoder = minimax_h3_te(log)
@@ -474,13 +516,7 @@ def test_generator_on_cpu_never_streams(monkeypatch, fake_streaming):
     assert fake_streaming == [("encoder.to", "cpu"), ("module.to", "cpu"), ("encode", "cpu")]
 
 
-# --- the real TextEncoderStreaming, replayed on CPU ---------------------------------
-
-
 def _replay_stream_to_on_cpu(monkeypatch):
-    """``NativeModel.stream_to`` minus the CUDA copy: same split, same streamer,
-    same registry note; the leaves just stay on the CPU."""
-
     def stream_to(self, device, resident_budget_gb, *, non_blocking=True):
         plan = plan_residency_split(self.module, resident_budget_gb, stream_nvfp4=self.stream_nvfp4)
         if self._streamer is None:
@@ -524,9 +560,6 @@ class _RealTE(RecordingModule):
 
 
 class _RealEncoder(FamilyEncoder):
-    """Runs the real module; inputs stay on the CPU (no CUDA on this box) while
-    the device the wrapper was retargeted to is recorded."""
-
     def encode(self, texts):
         self._log.append(("encode", str(self._device)))
         return {"context": self.module(torch.arange(5).unsqueeze(0))}
@@ -601,9 +634,6 @@ def test_real_streaming_keeps_the_small_part_of_a_composite_whole(monkeypatch):
 
 
 def test_te_and_dit_budgets_do_not_overlap(monkeypatch):
-    """The streamed TE's resident share is registered only for its encode and
-    measured after the DiT left; once torn down, the DiT's own partial-residency
-    budget sees the whole card again."""
     _replay_stream_to_on_cpu(monkeypatch)
     log: list = []
     registry, free = _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
@@ -673,16 +703,12 @@ def test_pipe_path_stream_mode_without_a_vram_reading_keeps_the_whole_move(monke
 
 
 class _CpuStreamer(ModuleStreamer):
-    """The real streamer, kept on the CPU (no CUDA copy on this box)."""
-
     def apply(self, device, plan, *, pin=True, non_blocking=True):
         super().apply("cpu", plan, pin=False, non_blocking=non_blocking)
 
 
 @pytest.mark.parametrize("stream_nvfp4", [False, True])
 def test_native_model_stream_to_streams_nvfp4_only_when_asked(monkeypatch, stream_nvfp4):
-    """The DiT's ``NativeModel`` (default) keeps nvfp4 leaves resident exactly as
-    before; the text encoder's parts (``stream_nvfp4=True``) stream them."""
     monkeypatch.setattr(engine_mod, "ModuleStreamer", _CpuStreamer)
     module = _RealTE([])
     model = NativeModel("diffusion_model", module, estimated_vram_gb=0.001, stream_nvfp4=stream_nvfp4)
@@ -695,3 +721,113 @@ def test_native_model_stream_to_streams_nvfp4_only_when_asked(monkeypatch, strea
     assert nvfp4.isdisjoint(streamed) is (not stream_nvfp4)
     model.offload()
     assert get_residency_registry().resident_gb(_DEV) == 0.0
+
+
+class _Part:
+    def __init__(self, log: list, name: str, error: Exception | None = None) -> None:
+        self._log = log
+        self._name = name
+        self._error = error
+
+    def offload(self) -> None:
+        self._log.append(f"{self._name}.offload")
+        if self._error is not None:
+            raise self._error
+
+
+class _Mover:
+    def __init__(self, log: list) -> None:
+        self._log = log
+
+    def to(self, device) -> None:
+        self._log.append(f"encoder.to.{device}")
+
+
+def _streaming_with(parts: list, encoder) -> TextEncoderStreaming:
+    streaming = TextEncoderStreaming.__new__(TextEncoderStreaming)
+    streaming.encoder = encoder
+    streaming.parts = parts
+    return streaming
+
+
+def test_teardown_offloads_every_part_and_the_encoder_then_raises_the_first_error():
+    log: list = []
+    first, second = RuntimeError("first"), RuntimeError("second")
+    streaming = _streaming_with(
+        [_Part(log, "a", first), _Part(log, "b", second), _Part(log, "c")], _Mover(log),
+    )
+
+    with pytest.raises(RuntimeError, match="first") as excinfo:
+        streaming.teardown()
+
+    assert excinfo.value is first
+    assert log == ["a.offload", "b.offload", "c.offload", "encoder.to.cpu"]
+
+
+def test_teardown_still_moves_the_encoder_to_the_cpu_when_the_move_is_the_only_failure():
+    log: list = []
+
+    class _FailingMover:
+        def to(self, device) -> None:
+            log.append(f"encoder.to.{device}")
+            raise RuntimeError("move failed")
+
+    streaming = _streaming_with([_Part(log, "a")], _FailingMover())
+
+    with pytest.raises(RuntimeError, match="move failed"):
+        streaming.teardown()
+    assert log == ["a.offload", "encoder.to.cpu"]
+
+
+class _TeardownFails(_FakeStreaming):
+    def teardown(self) -> None:
+        super().teardown()
+        raise RuntimeError("teardown failed")
+
+
+def test_a_teardown_failure_does_not_mask_the_encode_error(monkeypatch, fake_streaming):
+    _fake_card(monkeypatch, fake_streaming, capacity_gb=12.0, others_gb=2.0)
+    monkeypatch.setattr(engine_mod, "TextEncoderStreaming", _TeardownFails)
+    encoder = minimax_h3_te(fake_streaming)
+
+    def boom():
+        raise RuntimeError("encode failed")
+
+    with pytest.raises(RuntimeError, match="encode failed"):
+        run_text_encode(encoder, _DEV, boom)
+
+
+def test_the_generator_logs_a_failed_streaming_teardown_as_a_warning(monkeypatch, fake_streaming, caplog):
+    _fake_card(monkeypatch, fake_streaming, capacity_gb=12.0, others_gb=2.0)
+    monkeypatch.setattr(engine_mod, "TextEncoderStreaming", _TeardownFails)
+    gen = _generator(minimax_h3_te(fake_streaming), vram_gb=12.0)
+
+    with caplog.at_level("WARNING", logger=engine_mod.logger.name):
+        gen.encode_prompt("prompt")
+
+    assert any(
+        r.levelname == "WARNING" and "streaming teardown failed" in r.getMessage() for r in caplog.records
+    )
+    assert gen._te_streaming is None
+
+
+class _Aborted(BaseException):
+    pass
+
+
+def test_the_generator_tears_streaming_down_when_the_encode_is_aborted_by_a_base_exception(
+    monkeypatch, fake_streaming,
+):
+    _fake_card(monkeypatch, fake_streaming, capacity_gb=12.0, others_gb=2.0)
+
+    class _Aborting(FamilyEncoder):
+        def encode(self, texts):
+            raise _Aborted()
+
+    encoder = _Aborting(minimax_h3_module(), fake_streaming, "qwen3vl_32b")
+    gen = _generator(encoder, vram_gb=12.0)
+
+    with pytest.raises(_Aborted):
+        gen.encode_prompt("prompt")
+    assert fake_streaming[-1] == ("stream.teardown",)
+    assert gen._te_streaming is None

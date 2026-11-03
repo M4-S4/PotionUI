@@ -11,9 +11,7 @@ non-temporary output" - `min_outputs: 1` in spirit, mirroring
 the same fixture-building `_fixture_form.py` shares with `pipeline.render`,
 overlaid with the recipe's `smoke:` section (small resolution/step count,
 kept fast on purpose) - see `Recipe.smoke` / `RecipeSmokeRef` in
-`recipe_schema.py`. The wait for completion is bounded by that section's
-`timeout_seconds` (300 when omitted), because a big model on a small GPU
-legitimately needs longer than a quick image.
+`recipe_schema.py`.
 
 A missing backend/GPU is a normal, expected failure mode for a fresh
 install - it is reported as a plain sentence with a `suggested_repair`, never
@@ -32,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._async_bridge import run_sync
@@ -68,6 +66,14 @@ class GenerationSmokeExecutor:
         if model_repository is None:
             from src.features.models.repository import model_repo as model_repository
         self.model_repository = model_repository
+
+    def _running_app_loop(self) -> Optional[asyncio.AbstractEventLoop]:
+        if self.app_loop is None:
+            return None
+        loop = self.app_loop()
+        if loop is None or loop.is_closed() or not loop.is_running():
+            raise RuntimeError("Application event loop is not running")
+        return loop
 
     def execute(self, context: StepContext) -> StepResult:
         preset_id = context.step.params.get("preset_id")
@@ -122,6 +128,15 @@ class GenerationSmokeExecutor:
             )
 
         try:
+            app_loop = self._running_app_loop()
+        except RuntimeError as exc:
+            return StepResult.fail(
+                "GENERATION_SMOKE_NO_APP_LOOP",
+                f"The test generation can't start: {exc}.",
+                suggested_repair="Wait for the app to finish starting, then retry this step.",
+            )
+
+        try:
             outcome = run_sync(
                 self._run(
                     preset_id=preset_id,
@@ -134,7 +149,7 @@ class GenerationSmokeExecutor:
                     is_cancelled=context.is_cancelled,
                     timeout_seconds=smoke.timeout_seconds if smoke else DEFAULT_SMOKE_TIMEOUT_SECONDS,
                 ),
-                loop=self.app_loop() if self.app_loop is not None else None,
+                loop=app_loop,
             )
         except Exception as exc:
             return StepResult.fail(

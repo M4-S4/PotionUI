@@ -1,16 +1,3 @@
-"""Text encoders of every native family, at real size, without a single real byte.
-
-Each layout is built from the real ops classes (``manual_cast`` / ``fp8_ops``
-linears, nvfp4 and int8 leaves laid out exactly as ``Nvfp4Linear`` /
-``Fp8ScaledLinear`` hold them after load) on the ``meta`` device: parameter and
-buffer byte counts are those of the published checkpoints, while no memory is
-allocated and no weight is read. ``RecordingModule.to`` records the move instead
-of performing it, so placement code can be driven end to end on a CPU box.
-
-Shapes come from the published configs (hidden / intermediate / heads x head_dim
-/ layers); the per-family checkpoint formats are the ones the presets install.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,14 +12,12 @@ META = torch.device("meta")
 
 
 class RecordingModule(nn.Module):
-    """A real ``nn.Module`` whose ``.to()`` is recorded, never performed."""
-
     def __init__(self, log: list | None = None, name: str = "module") -> None:
         super().__init__()
         object.__setattr__(self, "_log", log if log is not None else [])
         object.__setattr__(self, "_name", name)
 
-    def to(self, *args, **kwargs):  # noqa: D401 - loose nn.Module.to signature
+    def to(self, *args, **kwargs):
         device = args[0] if args else kwargs.get("device")
         self._log.append((f"{self._name}.to", str(device)))
         return self
@@ -56,7 +41,6 @@ def int8_linear(in_f: int, out_f: int) -> nn.Module:
 
 
 def nvfp4_linear(in_f: int, out_f: int) -> nn.Module:
-    """``Nvfp4Linear`` exactly as ``_load_from_state_dict`` leaves it."""
     layer = fp8_ops.Linear(in_f, out_f, bias=False, device=META, dtype=torch.bfloat16)
     blocks = in_f // NVFP4_BLOCK
     padded_rows = (out_f + 127) // 128 * 128
@@ -93,7 +77,6 @@ def transformer(
     *, hidden: int, inter: int, q: int, kv: int, layers: int, vocab: int,
     formats: list[str], embedding: str = "bf16", log: list | None = None, name: str = "module",
 ) -> RecordingModule:
-    """Decoder/encoder stack: per layer q/k/v/o + gate/up/down + two norms."""
     root = RecordingModule(log, name)
     root.embed = int8_embedding(vocab, hidden) if embedding == "int8" else bf16_embedding(vocab, hidden)
     blocks = nn.ModuleList()
@@ -116,9 +99,6 @@ def transformer(
 
 
 class FamilyEncoder:
-    """A native text-encoder wrapper: ``.to()`` retargets and cascades to its
-    module (the contract every ``text_encoders/*`` class follows)."""
-
     def __init__(self, module: nn.Module, log: list, role: str) -> None:
         self.module = module
         self.role = role
@@ -140,8 +120,6 @@ class FamilyEncoder:
 
 
 class CompositeEncoder:
-    """Flux1's T5-XXL + CLIP-L pair (``loader.FluxTextEncoder`` shape)."""
-
     def __init__(self, t5: FamilyEncoder, clip_l: FamilyEncoder, log: list) -> None:
         self.t5 = t5
         self.clip_l = clip_l
@@ -164,8 +142,6 @@ class CompositeEncoder:
 
 @dataclass(frozen=True)
 class FamilyTE:
-    """One family's text encoder and the card it is exercised on."""
-
     family: str
     card_gb: float
     builder: object = field(repr=False)
@@ -225,7 +201,6 @@ FAMILIES: tuple[FamilyTE, ...] = (
 
 
 def minimax_h3_module(log: list | None = None) -> RecordingModule:
-    """MiniMax-H3's Qwen3-VL-32B nvfp4_awq text tower (50 LM layers kept)."""
     return _qwen3(
         [] if log is None else log, hidden=5120, inter=25600, q=8192, kv=1024, layers=50,
         formats=["nvfp4"] * 50, embedding="int8",

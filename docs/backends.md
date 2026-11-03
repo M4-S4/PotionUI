@@ -136,9 +136,8 @@ hard native-v2 runtime cap. See [Model Inference Path](/admin?tab=docs&doc=dev/m
 puts the text encoder on the GPU for the prompt encode. `auto` moves it whole when it fits and, when
 it does not, keeps as much of it on the GPU as fits and streams the rest per forward from pinned RAM,
 the way an oversized DiT is already placed; `gpu` always moves it whole (the behaviour before this
-option); `stream` always streams. "Fits" is the test the engine already applied (weights + the
-inference reserve against free VRAM), unchanged. The text encoder is placed by the engine itself,
-not by a pipe, so `NativeBackend.prepare_pipes` hands the mode to the engine before each run
+option); `stream` always streams. The text encoder is placed by the engine itself, not by a pipe, so
+`NativeBackend.prepare_pipes` hands the mode to the engine before each run
 (`configure_text_encoder_placement`), next to `set_vram_cap_gb()`, rather than as a pipe config key.
 It also passes `gpu_max_vram`, which only caps the resident share of an encoder that is already
 being streamed: it never decides whether the encoder fits. The option is part of
@@ -550,6 +549,8 @@ one hook subclasses override. **`InProcessBackend` is plugin-facing API** — it
   existing three-tier `healthy`/`degraded`/`error` status vocabulary the admin UI
   (`BackendsTab.svelte::getHealthVariant`) already renders, rather than inventing a new status the
   frontend doesn't recognize. A raised exception during the check itself still reports `"error"`.
+  A CUDA-configured backend also reports `"degraded"` once a driver-error OOM has damaged the
+  process's GPU allocator (see [Troubleshooting](#troubleshooting)).
 - `ComfyUIBackend.prepare_pipes` writes the connection config into each pipe's
   `config['backend_config']`, which is how `ComfyUIPipe`
   (`content/plugins/marketplace/comfyui-backend/backend/pipes/comfyui/main.py`) learns which server to talk
@@ -678,6 +679,36 @@ Backends persist in the database even when their engine is no longer registered.
 skipped at init and never becomes a candidate, with a warning naming it:
 `Backend '<id>' declares unknown engine '<engine>' (is its plugin enabled?)`. Re-enable or reinstall
 the plugin, or delete the orphaned backend.
+
+**A generation fails with `gpu_restart_required`, and `GET /health` says `"degraded"`.**
+Under WSL2, with expandable segments on (the default there), the card running out of VRAM raises
+`CUDA driver error: device not ready` or `CUDA driver error: out of memory`, and that error leaves
+the process's GPU allocator unusable until it restarts. Docker Desktop on Windows counts as WSL2: its
+containers see the WSL2 kernel. So the first such error is fatal to the process, by default:
+
+- it is not retried, and the generation that hit it fails;
+- every later run with an enabled pipe on `cuda`, which a pipe naming no `device` counts as, is refused
+  before its first pipe, under the same error code, including a run already waiting in the queue. A
+  run whose enabled pipes all target `cpu` still runs.
+  `prepare_pipes` gives every pipe the backend's `device`, so on a `device: cuda` backend that means
+  only pipes a preset pins to `cpu`;
+- `GET /health` answers 200 with `"status": "degraded"` and a `reason`, and the native backend's health
+  reports `degraded` with the same reason. It stays a 200 on purpose: a 503 could make an orchestrator
+  restart the container, and nothing here restarts on its own.
+
+To get out, use **Restart Backend** (Administration → Backends, `POST /api/admin/restart`), which
+replaces the process in place, or restart the container. Either also stops anything else running
+in that process. The state lives only in the process's memory, so the new process starts healthy.
+
+Set `POTIONUI_CUDA_DRIVER_OOM=retry` to keep retrying in the same process, as before: the OOM
+fallbacks run, and an allocation that later grows over the damaged range can fail on the assertion
+`!handles_.at(i)`, until the process restarts, with nothing to tell you why.
+`POTIONUI_CUDA_DRIVER_OOM=fatal` applies the fatal path outside WSL2 too. With expandable segments
+off, a driver-error OOM is always retried: PotionUI turns them on outside native Windows unless one
+of `PYTORCH_CUDA_ALLOC_CONF`, `PYTORCH_HIP_ALLOC_CONF` or `PYTORCH_ALLOC_CONF` is already set, and
+it never overrides a value you set there. Native Linux and native Windows retry by default; only
+the error's classification differs from before. The mechanism is in
+[Native Engine → Memory tiers & low-VRAM](/admin?tab=docs&doc=dev/native-engine).
 
 **`GET /health` answers 503 with `"status": "starting"` just after a start.**
 The process is up and still warming up in the background: it loads the preset catalogue and

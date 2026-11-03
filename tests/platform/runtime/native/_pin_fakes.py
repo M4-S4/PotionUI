@@ -1,12 +1,3 @@
-"""Page-locked host memory on a CPU box.
-
-``FakePinning`` replaces ``Tensor.pin_memory`` / ``Tensor.is_pinned`` with a
-tracked copy (the kept reference pins its address, so ``is_pinned`` is exact),
-refuses further pins once ``allow`` have succeeded with the error a CUDA host
-allocation raises, and records what ``add_pinned_bytes`` was told and how often
-the pinned pool was released.
-"""
-
 from __future__ import annotations
 
 import torch
@@ -44,6 +35,11 @@ class FakePinning:
         def release_pool():
             fake.pool_releases += 1
 
+        def arena_refused(arena, params):
+            raise RuntimeError(PIN_REFUSED)
+
+        monkeypatch.setattr(partial.PinnedArena, "pin", arena_refused)
+        monkeypatch.setattr(partial, "_warned_arena_failed", True)
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
         monkeypatch.setattr(torch.Tensor, "pin_memory", pin_memory)
         monkeypatch.setattr(torch.Tensor, "is_pinned", is_pinned)
@@ -52,7 +48,6 @@ class FakePinning:
         monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: None)
 
     def pinned_in(self, *modules: nn.Module) -> int:
-        """How many parameters and buffers of ``modules`` are still page-locked."""
         total = 0
         for module in modules:
             for tensor in list(module.parameters()) + list(module.buffers()):
@@ -62,14 +57,12 @@ class FakePinning:
 
 
 def hooks_in(*modules: nn.Module) -> int:
-    """Forward hooks still registered anywhere under ``modules``."""
     return sum(
         len(m._forward_hooks) + len(m._forward_pre_hooks) for module in modules for m in module.modules()
     )
 
 
 def streamed_flags_in(*modules: nn.Module) -> int:
-    """Modules still carrying a streamer's per-leaf copy mode or a cast flag off its class default."""
     total = 0
     for module in modules:
         for m in module.modules():

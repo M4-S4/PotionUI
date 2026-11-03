@@ -25,12 +25,6 @@ rest stream from pinned CPU RAM. Separately, the loader may **quantise a bf16 Di
 to fp8 at load** (``ops/fp8_quant.py``) so it fits resident — preferred over
 streaming. This module still only decides *resident vs not* and the ops mode; the
 partial split and the fp8 decision live in the generator / loader respectively.
-
-**The text encoder's encode phase** gets the same treatment
-(:func:`plan_text_encoder_placement`): an encoder whose honest footprint does not
-fit the VRAM available to it is placed with partial residency instead of moved
-whole. ``ComponentPlacement.streamed`` / ``stream_budget_gb`` carry that decision;
-``resident`` keeps its sampling-phase meaning.
 See ``docs/native-engine.md`` → "Memory tiers & low-VRAM".
 """
 
@@ -165,13 +159,7 @@ _TIER_VAE_OFFLOAD_MAX = 16.0
 
 @dataclass(frozen=True)
 class ComponentPlacement:
-    """Placement decision for one component.
-
-    ``streamed`` / ``stream_budget_gb`` describe the text encoder's encode phase
-    only: ``streamed`` places it with partial residency (``NativeModel.stream_to``)
-    and ``stream_budget_gb`` is the VRAM its resident leaves may use. Both keep
-    their defaults for every other component and for an encoder that fits.
-    """
+    """Placement decision for one component."""
 
     device: str
     ops_mode: OpsMode
@@ -239,25 +227,6 @@ def plan_text_encoder_placement(
     fit_headroom_gb: float | None = None,
     resident_cap_gb: float | None = None,
 ) -> ComponentPlacement:
-    """Encode-phase placement of the text encoder: whole on ``device`` or streamed.
-
-    ``available_gb`` is the VRAM the encoder could occupy there right now (live
-    free VRAM plus what it already holds on the device). ``mode``:
-
-      * ``"gpu"`` — never streams: the historical whole ``.to(device)``.
-      * ``"stream"`` — always streams.
-      * ``"auto"`` — streams only when ``weights_gb + fit_headroom_gb >
-        available_gb`` (``fit_headroom_gb`` defaults to ``working_headroom_gb``).
-        That is the caller's historical fit test, unchanged: neither the
-        dequantisation peak nor ``resident_cap_gb`` ever enters it, so an
-        encoder that fit before still takes the whole move.
-
-    Those two only size a streamed plan: ``stream_budget_gb`` is
-    ``min(available_gb, resident_cap_gb) - working_headroom_gb -
-    dequant_peak_gb`` (floored at 0), the resident leaves' share; every other
-    leaf streams from pinned RAM. Off-CUDA, or with no measurable
-    ``available_gb``, it never streams.
-    """
     if mode not in ("auto", "gpu", "stream"):
         raise ValueError(f"unknown text encoder placement mode: {mode!r}")
     whole = ComponentPlacement(device=device, ops_mode="standard", resident=True)
@@ -295,15 +264,6 @@ def plan_placement(
     ``model_memory_gb`` maps ``"dit"`` / ``"text_encoder"`` / ``"vae"`` to
     estimated resident sizes in GB. ``quant_format`` is the DiT quantisation
     (``"fp8_scaled"`` -> fp8 ops). ``device_plan`` decides co-location.
-
-    ``text_encoder_mode`` (``auto`` | ``gpu`` | ``stream``) additionally decides
-    the encoder's ENCODE-phase placement through
-    :func:`plan_text_encoder_placement` (``text_encoder.streamed`` /
-    ``stream_budget_gb``), against ``text_encoder_available_gb`` (default: the
-    whole ``vram_gb`` when the encoder shares the DiT's device),
-    ``text_encoder_headroom_gb`` (default: ``working_headroom_gb``) and its
-    ``fit_headroom_gb`` / ``resident_cap_gb`` / ``dequant_peak_gb`` siblings.
-    Left ``None``, the plan is exactly the sampling-phase plan it always was.
     """
     dit_gb = float(model_memory_gb.get("dit", 0.0))
     te_gb = float(model_memory_gb.get("text_encoder", 0.0))

@@ -40,7 +40,6 @@ def cancellation_scope(
     try:
         yield scope
     except SamplingCancelled as exc:
-        # Frees the interrupted forward's activations before the pipe's GPU cleanup runs.
         traceback.clear_frames(exc.__traceback__)
         raise
     finally:

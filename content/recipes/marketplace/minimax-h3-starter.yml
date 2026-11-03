@@ -145,10 +145,7 @@ smoke:
   seed: 12345
   # The canvas and steps of content/presets/marketplace/MiniMax-H3/tests.yml's
   # own "minimax-h3-turbo-fast" case (LoRA-free - the base model is a capable
-  # 4-step generator on its own): fastest canvas. The clip length is not set
-  # here: the smoke runs on a Video Director document whose duration is the
-  # shortest the preset allows (1 s, 39 frames), and the form's `frames`
-  # field is not read when that document is present.
+  # 4-step generator on its own): fastest canvas.
   form:
     resolution: "832x480"
     speed_profile: "turbo"

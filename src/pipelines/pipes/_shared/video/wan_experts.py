@@ -178,7 +178,7 @@ class ExpertRouter:
             return
         try:
             dit.stream_to(self.device, budget)
-        except Exception as exc:
+        except RuntimeError as exc:
             if not _retries_after(exc):
                 raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
@@ -306,7 +306,7 @@ def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
                 c.vae.module, z, tile_size=tile, overlap=causal3d_decode_overlap(tile), scale=scale,
                 accumulate_device="cpu", chunk_latent_frames=1,
             )
-        except Exception as exc:
+        except RuntimeError as exc:
             smaller = smaller_decode_tile(tile)
             if smaller >= tile or not _retries_after(exc):
                 raise
@@ -326,7 +326,7 @@ def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
                                          decode_mb_per_latent_px=mb_per_latent_px)
     try:
         return _decode_latent(c.vae.module, z, chunk_frames)
-    except Exception as exc:
+    except RuntimeError as exc:
         if not _retries_after(exc):
             raise
         traceback.clear_frames(exc.__traceback__)

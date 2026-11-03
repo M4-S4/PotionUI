@@ -247,7 +247,7 @@ class TestNativeBackendHealthCheck(unittest.IsolatedAsyncioTestCase):
         backend = _backend(device="cuda")
         fake_torch = _fake_torch(cuda_available=True, device_count=1)
 
-        with patch.object(cuda_allocator, "_damage", "CUDA driver error: device not ready"),                 patch.dict("sys.modules", {"torch": fake_torch}):
+        with patch.object(cuda_allocator, "_damage", "CUDA driver error: device not ready"), patch.dict("sys.modules", {"torch": fake_torch}):
             health = await backend.health_check()
 
         self.assertEqual(health["status"], "degraded")
@@ -259,7 +259,7 @@ class TestNativeBackendHealthCheck(unittest.IsolatedAsyncioTestCase):
         backend = _backend(device="cpu")
         fake_torch = _fake_torch(cuda_available=True)
 
-        with patch.object(cuda_allocator, "_damage", "CUDA driver error: device not ready"),                 patch.dict("sys.modules", {"torch": fake_torch}):
+        with patch.object(cuda_allocator, "_damage", "CUDA driver error: device not ready"), patch.dict("sys.modules", {"torch": fake_torch}):
             health = await backend.health_check()
 
         self.assertEqual(health["status"], "healthy")

@@ -1,6 +1,3 @@
-"""The native backend's ``text_encoder_placement`` option: schema, default,
-injection into the engine, persistence and the backend API."""
-
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, Mock
@@ -35,9 +32,6 @@ def _config(**overrides) -> NativeBackendConfig:
     return NativeBackendConfig(id="native", name="Local Generation", device="cuda:0", gpu_max_vram=10, **overrides)
 
 
-# --- schema ------------------------------------------------------------------------
-
-
 def test_default_is_auto():
     assert _config().text_encoder_placement == "auto"
 
@@ -68,9 +62,6 @@ def test_remote_driver_does_not_carry_it():
     assert "text_encoder_placement" not in NativeRemoteBackendConfig.model_fields
 
 
-# --- injection into the engine -------------------------------------------------------
-
-
 def _backend(cfg: NativeBackendConfig) -> NativeBackend:
     engine = Mock()
     engine.gpu_monitor = Mock()
@@ -97,9 +88,6 @@ def test_prepare_pipes_does_not_add_a_pipe_config_key():
     assert pipes[0]["config"] == {"device": "cuda:0", "dtype": _config().dtype, "vram_limit_gb": 10}
 
 
-# --- persistence ---------------------------------------------------------------------
-
-
 def _store(rows: list) -> BackendConfigStore:
     repo = MagicMock()
     repo.get_all.return_value = rows
@@ -119,9 +107,6 @@ def test_the_saved_value_round_trips():
     saved = {k: v for k, v in _config(text_encoder_placement="gpu").model_dump().items()
              if k not in {"id", "name", "engine", "driver", "enabled"}}
     assert saved["text_encoder_placement"] == "gpu"
-
-
-# --- API: GET /api/backends/{id}, PUT /api/backends/{id} ---------------------------------
 
 
 @pytest.fixture
