@@ -98,8 +98,30 @@ def test_without_a_policy_only_wsl_stops_retrying(monkeypatch, fake_torch, wsl, 
     assert (allocator_damage() is None) is retried
 
 
+def test_native_windows_never_stops_retrying(monkeypatch, fake_torch):
+    monkeypatch.delattr(cuda_allocator.os, "uname", raising=False)
+
+    record_driver_oom(DEVICE_NOT_READY)
+
+    assert not driver_oom_is_fatal()
+    assert driver_oom_retries()
+    assert allocator_damage() is None
+    fake_torch.assert_not_called()
+
+
 def test_fatal_policy_without_expandable_segments_retries(monkeypatch, fake_torch):
     monkeypatch.setenv(DRIVER_OOM_POLICY_ENV, "fatal")
+
+    record_driver_oom(DEVICE_NOT_READY)
+
+    assert driver_oom_retries()
+    assert allocator_damage() is None
+    fake_torch.assert_not_called()
+
+
+def test_wsl_with_the_segments_turned_off_by_the_user_retries(monkeypatch, fake_torch):
+    monkeypatch.setattr(cuda_allocator, "is_wsl", lambda kernel_release=None: True)
+    monkeypatch.setenv("PYTORCH_ALLOC_CONF", "expandable_segments:False")
 
     record_driver_oom(DEVICE_NOT_READY)
 
@@ -125,6 +147,7 @@ def test_only_a_driver_oom_is_recorded_as_damage(monkeypatch, fake_torch):
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     record_driver_oom(RuntimeError("CUDA driver error: invalid argument"))
+    record_driver_oom(RuntimeError("wrapped: CUDA driver error: device not ready"))
     record_driver_oom(ValueError("CUDA driver error: device not ready"))
 
     assert allocator_damage() is None
@@ -160,6 +183,14 @@ def test_a_retried_driver_oom_needs_no_restart(monkeypatch, fake_torch, policy):
     assert not needs_gpu_restart(DEVICE_NOT_READY)
     assert allocator_damage() is None
     fake_torch.assert_not_called()
+
+
+def test_a_damaged_process_asks_for_a_restart_on_any_later_driver_error(monkeypatch):
+    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
+
+    assert needs_gpu_restart(RuntimeError("CUDA driver error: invalid argument"))
+    assert needs_gpu_restart(CudaAllocatorDamaged("CUDA driver error: device not ready"))
+    assert not needs_gpu_restart(RuntimeError("CUDA error: an illegal memory access was encountered"))
 
 
 @pytest.mark.parametrize(

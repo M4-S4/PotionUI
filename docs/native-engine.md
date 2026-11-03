@@ -80,6 +80,7 @@ src/platform/runtime/native/
 ├── sampling/              the one flow-matching denoise loop + guidance strategies + step algorithms
 ├── memory/                VRAM-tier placement planning + per-component device assignment
 ├── lora/                  LoRA key-dialect mapping + runtime weight patching
+├── cancellation.py        the cancel probe of a run, read between DiT blocks and VAE tiles
 └── errors.py              NativeEngineError family (dependency-free, importable from anywhere)
 ```
 
@@ -96,7 +97,8 @@ One line per package, in loading order:
 | `text_encoders/` | Vendored TE modules (Qwen3, T5-XXL, CLIP-L, Qwen2.5-VL, Qwen3-VL, UMT5-XXL, Gemma3) + bundled tokenizer assets + `load_text_encoder`, the detect→build→integrity-load→wrap entry point. |
 | `vae/` | `AutoEncoder2D` (Flux-family 2D VAE: `flux_ae`/`flux2_ae`) + `tiling.py` (its spatial tiled encode/decode, not yet 3D-aware); `AutoEncoderCausal3D` (Wan 2.1-shaped, 16ch — Qwen-Image's and Krea-2's VAE) and `AutoEncoderCausal3D_2_2` (Wan 2.2-shaped, 48ch, patchified) for the causal-3D family; `load_vae`/`load_causal3d_vae`/`load_causal3d_v2_vae` entry points. |
 | `sampling/` | `denoise()` — the one loop — plus `flow_schedule.build_sigmas`, `cfg.py`'s guidance strategies (`EmbeddedGuidance`/`TrueCFG`/`NoCFG`), the step algorithms (`euler`/`dpmpp_2m`/`unipc`), and `hooks.py`'s per-step `StepHook` protocol. The algorithms and the schedules are both registries (`registry.py`): core registers its own at import time, a plugin adds more through the `samplers:` / `schedules:` manifest roots, and `denoise()`/`build_sigmas()` dispatch through them — there is no other list of sampler or schedule names. |
-| `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on) and `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes). |
+| `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on), `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes), and `text_encoder.py` with `tiering.plan_text_encoder_placement` (whole move or partial residency for the prompt encode). |
+| `cancellation.py` | `cancellation_scope` puts a run's cancel probe in a `ContextVar`: `GenerationEngine` opens one around each pipe, and `denoise()`, `denoise_prenoised()` and the samplers that own their step loop open one that also knows the step. `raise_if_cancelled(i)` raises `SamplingCancelled` when the probe says so and does nothing outside a scope. |
 | `lora/` | `key_mapping.map_lora_keys` (normalizes comfy/kohya/diffusers/PEFT LoRA key dialects onto native param names) and `apply.apply_loras`/`remove_loras` (in-place or cast-mode runtime patching). |
 
 ### The kernel layer
@@ -271,65 +273,6 @@ does not fit. A decode assembled on its own device keeps the float32 accumulator
 temporal-chunk path that assembles on the host still concatenates its chunks, two copies at its
 peak.
 
-What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
-`torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
-`RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
-expandable-segments allocator. Under WSL2 (Docker Desktop) with expandable segments, that driver
-error is how an exhausted card shows up, measured on a 12 GB RTX 4070 Ti on 2026-10-25: never an
-`OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches `RuntimeError` and keeps
-only what `is_cuda_oom` accepts; any other driver error propagates.
-
-`cuda_env.py` turns expandable segments on outside Windows, WSL2 included, and only when none of
-`PYTORCH_CUDA_ALLOC_CONF`, `PYTORCH_HIP_ALLOC_CONF` and `PYTORCH_ALLOC_CONF` is set: torch reads
-the first of the three that exists, so a default written into the first would hide the user's own
-setting in the last. They stay on under WSL2 because the default allocator is worse there: with
-driver 617.42 an exhausted card raises nothing and spills into Windows shared memory instead (a
-SeedVR2 1080p encode reached 47.9 GB of shared memory and the Docker VM 57.9 GiB without finishing,
-2026-10-28), so neither the tile shrink nor the batch retry ever runs.
-
-A driver-error OOM under expandable segments damages the process, though. When an expandable
-segment grows, torch 2.12 rolls the new pages back only if `cuMemCreate` returns
-`CUDA_ERROR_OUT_OF_MEMORY`; that clean case reaches the caller as `torch.OutOfMemoryError`. Any other
-failure of `cuMemCreate`, `cuMemMap` or `cuMemSetAccess` (the `device not ready` above, or an
-out-of-memory from `cuMemSetAccess`) raises with the pages still recorded, and the next growth over
-them fails on `!handles_.at(i) INTERNAL ASSERT FAILED at CUDACachingAllocator.cpp:445`, in any later
-allocation, until the process restarts (pytorch/pytorch#188008, #166234; seen twice in a row on
-2026-10-28, a SeedVR2 tiled-encode OOM followed by that assertion in the decode).
-
-So under WSL2 the first driver-error OOM is fatal to the process (`src/platform/runtime/cuda_allocator.py`):
-it is not retried (`is_cuda_oom` answers no), the segments stop growing for the rest of the process
-(`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
-fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
-use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
-to restart the backend. Until the process restarts, every run whose pipes target `cuda` is refused
-before its first pipe with that same code, `GET /health` and the native backend's health
-report `degraded` with the same reason, and nothing restarts on its own. **Restart Backend**
-(Administration › Backends, `POST /api/admin/restart`) re-executes the process in place, so the
-container keeps running; descriptors other than stdio are marked close-on-exec first, so none of
-the old process's driver handles survive the exec. `POTIONUI_CUDA_DRIVER_OOM=retry` brings back the
-retry in the same process, `POTIONUI_CUDA_DRIVER_OOM=fatal` applies the fatal path outside WSL2
-too; with expandable segments off, driver-error OOMs are always retried.
-
-A `native.remote` worker (`./potionui worker start` under WSL2, or the worker image under Docker
-Desktop on Windows, whose container sees the WSL2 kernel and so counts as WSL2 for `is_wsl()`) runs
-the same allocator code but never `GenerationEngine`, so the worker carries the fatal path itself
-(`src/features/remote_execution/worker/executor.py`): once the allocator is damaged, every pipe whose
-`device` is `cuda` is refused before it is built, under the worker's own code
-`worker_gpu_restart_required`, and the exception a pipe raises is classified on the worker
-(`classify_generation_error`, the host's own classifier) so the host receives a code (`cuda_oom`,
-`worker_gpu_restart_required`, ...) instead of guessing from the message text. The damage travels in
-the handshake (`capabilities.allocator_damage`) and in the worker's `GET /health` (`degraded`, with the
-reason); the remote native backend's health reports `degraded` with the same reason, naming the
-worker, and refuses to dispatch until the worker restarts. The hint names the worker process or
-container rather than Restart Backend, which only re-executes the host's own process. A CPU worker
-never records damage, and a worker under native Linux keeps retrying driver-error OOMs as before.
-A code the host does not classify (`expired`, `model_digest_mismatch`, `pipe_failed`, `worker_error`,
-...) is kept at the head of the failure's stored detail as `Worker error code: ...`, where the
-administrator's failure view shows it, and the category then comes from the message text. A
-failure that reaches the host as text alone (such a worker code, a worker predating the codes, or a
-stored error) follows the same policy as the exception would: a CUDA driver error reads as
-`gpu_restart_required` where driver-error OOMs are fatal, and as `cuda_oom` where they retry.
-
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
 
@@ -351,12 +294,14 @@ close that gap:
   each segment's weights back to plain RAM and unregisters the segment as soon as it is empty, so
   offloading holds at most one segment twice. If registration fails, streaming falls back to
   per-weight `pin_memory()`. Pinning stays best effort past that: when the host refuses to
-  page-lock a streamed leaf even per weight (`pin_memory()` raises a plain `RuntimeError`, as on the
-  capped page-locked memory of WSL2 / Docker Desktop), `ModuleStreamer.apply` repeats the placement
+  page-lock a streamed leaf even per weight (`pin_memory()` raises, as it can on the capped
+  page-locked memory of WSL2 / Docker Desktop), `ModuleStreamer.apply` repeats the placement
   unpinned (`pin=False`, synchronous copies, no prefetch), releases the pinned memory it had taken
   and logs one warning per process. The streamed forward is slower but the generation does not
   fail, for the DiT and the text encoder alike. Any other failure mid-placement is rolled back
-  completely (hooks, cast flags, pinned tensors).
+  completely (hooks, cast flags, pinned tensors). Teardown of a pinned placement empties the CUDA
+  cache before it frees its first pinned block: such a block records a CUDA event when it is freed,
+  and a failure there cannot be caught from Python.
   A streamer can also **park** its module instead of tearing it down (`ModuleStreamer.park` /
   `unpark`): the streamed weights stay in their pinned memory, the resident ones move to pinned host
   memory and the allocator's cache is handed back to the driver, so the next placement of that
@@ -374,37 +319,38 @@ close that gap:
   streamed-bf16: fp8 is both faster and higher PCIe throughput than streaming, at a small grid-level
   precision cost.
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
-  `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the GPU
-  for its encode (one that fits may stay co-resident afterwards, evictable by the DiT), so its
-  placement is decided for that phase alone. An encoder that does not fit (see **Decision** below) is
-  no longer moved whole with `.to(device)`: its real module(s) are placed with `NativeModel.stream_to(device, budget)`, exactly
-  like a DiT that does not fit (leaves resident up to the budget, the rest streamed per forward from
-  pinned RAM, prefetch included), then torn down right after the encode (unpinned, host RAM
-  reclaimed, wrapper pointed back at the CPU) so the DiT gets the whole card back. nvfp4 leaves are
-  streamed too: their packed buffers stay pinned and a forward pre-hook stages them onto the GPU for
-  the call, so the dequant runs on the GPU from the 0.81 B/elem form. Both encode sites take this
-  path: the pipes' `run_text_encode` / `run_text_encode_batch` (after the existing co-resident and
-  evict steps, path `"streamed"` on the `te.encode` mark; an OOM retries fully streamed, then encodes
-  on the CPU as before) and `NativeGenerator.encode_prompt` (torn down by `_maybe_offload_te`; a
-  placement that fails for any reason is torn down before the error propagates).
+  `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the
+  GPU for its encode, so its placement is decided for that phase alone. An encoder that does not fit
+  (see **Decision** below) is no longer moved whole with `.to(device)`: its real module(s) are placed
+  with `NativeModel.stream_to(device, budget)`, exactly like a DiT that does not fit (leaves resident
+  up to the budget, the rest streamed per forward from pinned RAM), then torn down right after the
+  encode (unpinned, host RAM reclaimed, wrapper pointed back at the CPU) so the DiT gets the card
+  back. nvfp4 leaves are streamed too: their packed buffers stay pinned and a forward pre-hook stages
+  them onto the GPU for the call, so the dequant runs on the GPU from the 0.81 B/elem form. Both
+  encode sites take this path: the pipes' `run_text_encode` / `run_text_encode_batch` (after the
+  existing co-resident and evict steps, path `"streamed"` on the `te.encode` mark; an OOM
+  `retry_after_cuda_oom` accepts retries fully streamed, then encodes on the CPU as before) and
+  `NativeGenerator.encode_prompt` (torn down by `_maybe_offload_te`). A placement or an encode that
+  fails for any other reason is torn down before the error propagates. That frees what the placement
+  holds; it cannot repair a CUDA context the driver has already damaged.
 
-  **Footprint formula** (`text_encoder_footprint`; the same weight figure `_estimate_text_encoder_gb`
-  reports): weights are every parameter and buffer the modules own, counted once — nvfp4 holds the
-  packed U8 codes (0.5 B/elem) + the fp32 natural scale precomputed at load (4/16) + the fp8 swizzled
-  block scale (1/16) ≈ **0.81 B/elem against 0.5625 on disk**, so a 14.6 GB nvfp4 checkpoint holds
-  ≈ 21 GB on the device; int8 and fp8 hold 1 B/elem plus their scales. On top, the largest
-  dequantisation transient: layers dequantise one at a time, so `dequant_peak = max over quantised
-  layers of out × in × k`, `k` = 10 B for nvfp4 (int32 code index + two fp32 LUT gathers + the fp32
-  weight) and 8 B for int8/fp8 (fp32 cast + scaled product) — ≈ 1.2 GB for a Qwen3-32B MLP projection.
-  The peak is kept out of the fit test; it only sizes a streamed encoder's resident share.
+  **Footprint formula** (`text_encoder_footprint`): weights are every parameter and buffer the modules
+  own, counted once. nvfp4 holds the packed U8 codes (0.5 B/elem) + the fp32 natural scale precomputed
+  at load (4/16) + the fp8 swizzled block scale (1/16) ≈ **0.81 B/elem against 0.5625 on disk**, so a
+  14.6 GB nvfp4 checkpoint holds ≈ 21 GB on the device; int8 and fp8 hold 1 B/elem plus their scales.
+  On top, the largest dequantisation transient: layers dequantise one at a time, so `dequant_peak =
+  max over quantised layers of out × in × k`, `k` = 10 B for nvfp4 (int32 code index + two fp32 LUT
+  gathers + the fp32 weight) and 8 B for int8/fp8 (fp32 cast + scaled product), ≈ 1.2 GB for a
+  Qwen3-32B MLP projection. Plain bf16/fp16 layers add at most one weight-sized copy, which the working
+  reserve covers. The peak is kept out of the fit test; it only sizes a streamed encoder's resident
+  share.
 
-  **Decision.** The fit test is the one each site already had, with the same quantities; streaming
-  only takes over where the historical whole move could not have worked. `available` = live free VRAM
-  + what the encoder already holds on the device, and `reserve` = `minimum_inference_memory_gb()` (or
-  the caller's `reserve_gb`).
-  - Pipes (`run_text_encode`): step 1 (co-resident) is unchanged. Step 2, after its eviction, re-reads
-    `available` and applies step 1's own test: the encoder streams only when `size + reserve >
-    available` (`size` = `module_size_gb`, the figure step 1 compares).
+  **Decision.** The fit test is the one each site already had; streaming only takes over where the
+  whole move could not have worked. `available` = live free VRAM + what the encoder already holds on
+  the device, and `reserve` = `minimum_inference_memory_gb()` (or the caller's `reserve_gb`).
+  - Pipes (`run_text_encode`): step 1 (co-resident, `size + reserve <= free`) is unchanged. Step 2
+    evicts as before, re-reads `available`, and the encoder streams only when `size > available`
+    (`size` = `module_size_gb`, the figure step 1 compares).
   - `NativeGenerator.encode_prompt`, which always moved the encoder whole and never evicted anything,
     streams only when the weights alone exceed `available`. It still evicts nothing.
 
@@ -419,29 +365,25 @@ close that gap:
   **Option** `text_encoder_placement` on the native backend (`auto` | `gpu` | `stream`, default
   `auto`), handed to the engine by `NativeBackend.prepare_pipes` with `gpu_max_vram`
   (`configure_text_encoder_placement`); `NativeGenerator(text_encoder_placement=...)` overrides it
-  for standalone use. `gpu` is the historical whole move, unconditionally; `stream` always uses
-  partial residency (and skips the co-resident attempt); `auto` streams only when the encoder does not
-  fit by the test above. An encoder that fits follows the historical path call for call, for every
-  family and with the production `gpu_max_vram` configured
-  (`tests/platform/runtime/native/test_te_placement_regression.py` and
-  `test_review_te_fit_side_effects.py` pin the sequence; both pass on the engine before this change
-  too). There is no `NATIVE_TEXT_ENCODER_PLACEMENT` environment variable:
-  the engine reads no setting from the environment at runtime any more (`NATIVE_*` variables were
-  seeded once into the backend's engine settings, then ignored), so the backend field is the one
-  source.
+  for standalone use. `gpu` is the whole move, unconditionally; `stream` always uses partial residency
+  (and skips the co-resident attempt); `auto` streams only when the encoder does not fit by the test
+  above. An encoder that fits follows the same path call for call, for every family and with
+  `gpu_max_vram` configured (`tests/platform/runtime/native/test_te_placement_regression.py` and
+  `test_review_te_fit_side_effects.py` pin the sequence). The remote driver has no such field: a
+  worker runs `auto` with no cap.
 
   **Limits.** A streamed encode is slower than a resident one: every streamed leaf crosses PCIe on
-  each forward (≈ 0.81 B/elem for nvfp4, 1 B for int8/fp8, 2 B for bf16), still far faster than the
-  CPU fallback it replaces (a 32B encoder on the CPU took ~190 s). `NATIVE_STREAM_PREFETCH` overlaps
-  the next weight-backed leaf's copy with compute; nvfp4 leaves are staged on demand by their own
-  hook, not prefetched. Pinning the streamed share needs that much free host RAM (+2 GB), guarded
-  like the DiT's. Size the host accordingly: on a 12 GB card the MiniMax-H3 encoder streams about
-  12 GB and a whole run peaks near 26 GB of process RAM, so plan 64 GB of host RAM for the 12 GB
-  profiles. On Windows/WSL2 a whole move that overflows the card can "succeed" through the
-  driver's shared-memory fallback and then fail inside a kernel with an uncatchable `CUDA error: out
-  of memory` that poisons the CUDA context. Streaming avoids that when the encoder clearly does not
-  fit. An encoder within the historical fit region is still moved whole, as before, so a transient
-  beyond the reserve (very long prompt, many vision tiles) can still overflow there.
+  each forward (≈ 0.81 B/elem for nvfp4, 1 B for int8/fp8, 2 B for bf16). nvfp4 leaves are staged on
+  demand by their own hook, not prefetched. Pinning the streamed share needs that much free host RAM
+  (+2 GB), guarded like the DiT's: when the guard refuses, the pipes encode on the CPU. Size the host
+  accordingly: on a 12 GB card the MiniMax-H3 encoder streams about 12 GB and a whole run peaks near
+  26 GB of process RAM, so plan 64 GB of host RAM for the 12 GB profiles. A streamed
+  teardown leaves idle blocks in the CUDA cache, which `mem_get_info` counts as used, so a phase that
+  decides from free VRAM right after it must empty the cache first when its first reading does not
+  fit (LTX's projection ladder does). An encoder within the fit region is still moved whole, so a
+  transient beyond the reserve (very long prompt, many vision tiles) can still overflow there. The
+  whole move is also not undone when it fails with anything but an OOM the same predicate accepts. A
+  driver-error OOM the policy calls fatal (below) tears the streaming down and propagates.
 
 Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 
@@ -456,6 +398,68 @@ All of the above is unit-testable without a GPU: the fit math, the deterministic
 fp8 quant equivalence, and the eviction accounting are pure functions (`tests/core/native/memory/`,
 `tests/core/native/test_fp8_quant.py`). The wall-clock A/B (streamed-bf16 vs partial-residency vs
 fp8-auto, in s/step) is measured on GPU via `tests/manual/native_smoke.py --tier-vram <GB>`.
+
+### Running out of VRAM, and the driver-error OOM
+
+What counts as running out of VRAM is decided in one place, `errors.is_cuda_oom`: a
+`torch.cuda.OutOfMemoryError`, a `torch.AcceleratorError` that says "out of memory", and the
+`RuntimeError: CUDA driver error: device not ready` (or `... out of memory`) raised by the
+expandable-segments allocator, wherever the policy below retries it. Under WSL2 (Docker Desktop)
+with expandable segments, that driver error is how an exhausted card shows up, measured on a 12 GB
+RTX 4070 Ti: never an `OutOfMemoryError`. Every OOM fallback in the engine and the pipes catches
+`RuntimeError`, keeps only what `errors.retry_after_cuda_oom` accepts and re-raises the rest
+unchanged. `cuda_allocator.record_driver_oom`, which that function calls, is the one place the damage
+below is recorded; `is_cuda_oom` and `cuda_allocator.needs_gpu_restart` only read it.
+
+`cuda_env.py` turns expandable segments on outside Windows, WSL2 included, and only when none of
+`PYTORCH_CUDA_ALLOC_CONF`, `PYTORCH_HIP_ALLOC_CONF` and `PYTORCH_ALLOC_CONF` is set: torch reads
+the first of the three that exists, so a default written into the first would hide the user's own
+setting in the last. They stay on under WSL2 because the default allocator is worse there: with
+driver 617.42 an exhausted card raises nothing and spills into Windows shared memory instead (a
+SeedVR2 1080p encode reached 47.9 GB of shared memory without finishing, on a 12 GB card), so no
+fallback ever runs.
+
+A driver-error OOM under expandable segments damages the process, though. When an expandable
+segment grows, torch 2.12 rolls the new pages back only if `cuMemCreate` returns
+`CUDA_ERROR_OUT_OF_MEMORY`; that clean case reaches the caller as `torch.OutOfMemoryError`. Any other
+failure of `cuMemCreate`, `cuMemMap` or `cuMemSetAccess` (the `device not ready` above, or an
+out-of-memory from `cuMemSetAccess`) raises with the pages still recorded, and the next growth over
+them fails on `!handles_.at(i) INTERNAL ASSERT FAILED`, in any later allocation, until the process
+restarts (pytorch/pytorch#188008, #166234).
+
+So under WSL2 the first driver-error OOM is fatal to the process (`src/platform/runtime/cuda_allocator.py`):
+it is not retried, the segments stop growing for the rest of the process
+(`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
+fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
+use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
+to restart the backend. A failure read from its text alone (`classify_error_text`: a stored row, a
+worker's message) asks for a restart only while this process is damaged, reads as `cuda_oom` otherwise,
+and never records anything. Until the process restarts, every run with an enabled pipe on `cuda`
+is refused before its first pipe with that same code, `GET /health` and the native backend's health
+report `degraded` with the same reason, and nothing restarts on its own. What the operator sees and
+does is in [Backends → Troubleshooting](/admin?tab=docs&doc=dev/backends).
+`POTIONUI_CUDA_DRIVER_OOM=retry` brings back the retry in the same process,
+`POTIONUI_CUDA_DRIVER_OOM=fatal` applies the fatal path outside WSL2 too; with expandable segments
+off, driver-error OOMs are always retried. The same error under native Linux keeps entering the
+fallbacks, and a `torch.OutOfMemoryError` keeps being retried everywhere, a damaged process included.
+
+A `native.remote` worker (`./potionui worker start` under WSL2, or the worker image under Docker
+Desktop on Windows, whose container sees the WSL2 kernel and so counts as WSL2 for `is_wsl()`) runs
+the same allocator code but never `GenerationEngine`, so the worker carries the fatal path itself
+(`src/features/remote_execution/worker/executor.py`): once the allocator is damaged, every pipe whose
+`device` is `cuda` is refused before it is built, under the worker's own code
+`worker_gpu_restart_required`, and the exception a pipe raises is classified on the worker
+(`classify_generation_error`, the host's own classifier) so the host receives a code (`cuda_oom`,
+`worker_gpu_restart_required`, ...) instead of guessing from the message text. The damage travels in
+the handshake (`capabilities.allocator_damage`) and in the worker's `GET /health` (`degraded`, with the
+reason); the remote native backend's health reports `degraded` with the same reason, naming the
+worker, and refuses to dispatch until the worker restarts. The hint names the worker process or
+container rather than Restart Backend, which only re-executes the host's own process. A CPU worker
+never records damage, and a worker under native Linux keeps retrying driver-error OOMs as before.
+A code the host does not classify (`expired`, `model_digest_mismatch`, `pipe_failed`, `worker_error`,
+...) is kept at the head of the failure's stored detail as `Worker error code: ...`, where the
+administrator's failure view shows it, and the category then comes from the message text. A
+failure that reaches the host as text alone follows the text rule above.
 
 ## The extension contract — adding model N+1
 
@@ -504,7 +508,10 @@ Concretely, adding model family N+1 means:
    `RotaryEmbedding.inv_freq` are `__init__`-computed non-persistent buffers, so meta construction
    leaves them on the meta device and `post_load` rebuilds all three from config
    (`arch/anima/model.py:Anima.post_load`). Flux/Krea-2/Z-Image compute RoPE inline per forward and
-   stay documented no-ops.
+   stay documented no-ops. Every loop over transformer blocks in a forward calls
+   `raise_if_cancelled(i)` before its block: that check is what stops a cancelled run before the
+   next block instead of at the end of the sampling step. It reads one `ContextVar` and calls the
+   run's probe, and regional `torch.compile` only wraps the blocks, so the loop stays Python.
 
 4. **TE mapping.** If the family needs a text encoder not yet supported, add it under
    `text_encoders/` the same way (`detect/te_detect.py` signature + a `TESpec` in
@@ -517,7 +524,8 @@ Concretely, adding model family N+1 means:
    channel count than what `AutoEncoder2D` already handles, extend `detect/vae_detect.py`'s
    detection and, if the architecture genuinely differs (not just key naming), add a new module
    under `vae/`. A same-architecture-different-keys VAE (like `flux2_ae`'s diffusers-layout keys)
-   gets a key-rename map instead of a new module — see `vae/key_convert.py`.
+   gets a key-rename map instead of a new module — see `vae/key_convert.py`. A tile loop calls
+   `raise_if_cancelled(i)` before each tile, like a DiT block loop.
 
 6. **Conditioning assembly.** However the family's TE output (`context`/`pooled`/`attention_mask`)
    maps onto the arch's `forward(x, timestep, context, y, guidance)` signature is the generator-side

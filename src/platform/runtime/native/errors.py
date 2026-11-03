@@ -25,12 +25,10 @@ def is_cuda_oom(exc: BaseException) -> bool:
 
     if isinstance(exc, torch.cuda.OutOfMemoryError):
         return True
-    accelerator_error = getattr(torch, "AcceleratorError", None)
-    if accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc):
-        return True
     if is_driver_oom(exc):
         return driver_oom_retries()
-    return False
+    accelerator_error = getattr(torch, "AcceleratorError", None)
+    return accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc)
 
 
 def retry_after_cuda_oom(exc: BaseException) -> bool:

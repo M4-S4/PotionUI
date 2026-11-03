@@ -1,12 +1,3 @@
-"""A refused page-lock never fails a streamed placement (no GPU).
-
-``pin_memory`` is replaced by ``FakePinning`` (a CPU stand-in that refuses with
-the ``RuntimeError`` a failed ``cudaHostAlloc`` surfaces as). The streamer must
-then place the same plan unpinned with synchronous copies, leave nothing
-page-locked behind, count only what it really pinned, say so once, and roll any
-other failed placement back completely.
-"""
-
 from __future__ import annotations
 
 import logging

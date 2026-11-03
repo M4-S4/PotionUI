@@ -1033,13 +1033,13 @@ def test_attention_wsl_driver_oom_retries_query_chunked_sdpa(monkeypatch):
 
     calls = []
 
-    def driver_oom_unless_sdpa(q, k, v, heads=None, mask=None, backend=None):
+    def driver_oom_unless_pinned_to_sdpa(q, k, v, heads=None, mask=None, backend=None):
         calls.append((q.shape[2], backend))
         if backend != SDPA:
             raise RuntimeError("CUDA driver error: device not ready")
         return F.scaled_dot_product_attention(q, k, v)
 
-    monkeypatch.setattr(model_module, "_dispatch_attention", driver_oom_unless_sdpa)
+    monkeypatch.setattr(model_module, "_dispatch_attention", driver_oom_unless_pinned_to_sdpa)
     out = attn(x, None, None, 4)
 
     assert calls == [(10, None), (4, SDPA), (4, SDPA), (2, SDPA)]

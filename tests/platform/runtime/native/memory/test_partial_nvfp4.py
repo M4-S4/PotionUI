@@ -1,11 +1,3 @@
-"""Partial residency over quantised leaves: nvfp4 (opt-in), int8 and fp8 (CPU only).
-
-A text encoder is mostly quantised Linears. The DiT path never streamed nvfp4
-leaves (their weight lives in buffers, ``weight is None``) and must keep not
-doing so; the text encoder's streamer opts in. These pin both behaviours on a
-small module built from the real ``kernels/`` layers.
-"""
-
 from __future__ import annotations
 
 import torch
@@ -39,8 +31,6 @@ def _nvfp4_sd(prefix: str, out_f: int, in_f: int, *, bias: bool, seed: int) -> d
 
 
 class _QuantTE(nn.Module):
-    """Embedding -> nvfp4 (with bias) -> int8 -> fp8 -> plain -> norm -> nvfp4."""
-
     def __init__(self) -> None:
         super().__init__()
         self.embed = manual_cast.Embedding(16, _DIM)
@@ -168,7 +158,6 @@ def test_streamed_leaves_get_the_cast_flags_and_only_nvfp4_gets_staging_hooks():
 
 
 def test_default_streamer_never_touches_nvfp4_leaves():
-    """The DiT path (no opt-in): nvfp4 leaves stay resident, unflagged, unhooked."""
     m = _QuantTE()
     plan = plan_residency_split(m, 0.0)
     streamer = ModuleStreamer(m)
@@ -180,9 +169,6 @@ def test_default_streamer_never_touches_nvfp4_leaves():
 
 
 def test_nvfp4_buffers_are_staged_onto_the_activation_device_for_the_call_only():
-    """The stager swaps a streamed nvfp4 leaf's buffers onto the input's device
-    for the forward and restores the very same CPU tensors afterwards. The meta
-    device stands in for CUDA: any non-CPU activation exercises the swap."""
     m = _QuantTE()
     leaf = m.nv_out
     sync_nvfp4_dequant_tables(m)

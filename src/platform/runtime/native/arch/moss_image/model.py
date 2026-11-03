@@ -131,6 +131,7 @@ class MossImage(NativeArchModule):
             rope = rope_table(height, width, text_in.shape[1], self._bands, x.device).to(video.dtype)
             text = self.text_embedder(text_in, rope[:, video_len:])
             stream = torch.cat((video, text), 1)
+            raise_if_cancelled(0)
             if 0 not in skip:
                 stream = self.layers[0](stream, rope, mod[i : i + 1])
             streams.append(stream)

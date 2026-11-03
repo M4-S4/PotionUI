@@ -236,7 +236,7 @@ def test_video_encode_wsl_driver_oom_walks_the_tile_ladder_to_the_explained_out_
 
     bundle.video_vae.module.encode = driver_oom_encode
     with patch(f"{_MOD}.load_video_frames", return_value=torch.rand(5, 32, 32, 3)):
-        with pytest.raises(torch.cuda.OutOfMemoryError, match="even at 128px tiles"):
+        with pytest.raises(torch.cuda.OutOfMemoryError, match="ran out of VRAM even at 128px tiles"):
             _pipe(device="cpu", target_mode="scale", scale=2.0).process(
                 PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
     assert tiles_tried == [256, 192, 128]

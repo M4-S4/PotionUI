@@ -2212,6 +2212,43 @@ class TestWeightRevision:
         assert model.weight_revision == revisions[-1]
 
 
+class _OrderedModule(torch.nn.Module):
+    def __init__(self, calls):
+        super().__init__()
+        self._calls = calls
+
+    def to(self, device):
+        self._calls.append(f"to:{device}")
+        return self
+
+
+def test_a_gpu_move_syncs_nvfp4_tables_before_the_move_and_an_offload_does_not(monkeypatch):
+    import src.platform.runtime.native.engine as engine
+
+    calls: list[str] = []
+    monkeypatch.setattr(engine, "sync_nvfp4_dequant_tables", lambda module: calls.append("sync"))
+    model = NativeModel("diffusion_model", _OrderedModule(calls), estimated_vram_gb=1.0)
+    model.move_to("cuda:0")
+    model.offload()
+    assert calls == ["sync", "to:cuda:0", "to:cpu"]
+
+
+def test_a_partial_placement_syncs_nvfp4_tables_before_planning(monkeypatch):
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
+    import src.platform.runtime.native.engine as engine
+
+    calls: list[str] = []
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: None)
+    monkeypatch.setattr(engine, "sync_nvfp4_dequant_tables", lambda module: calls.append("sync"))
+    real_plan = engine.plan_residency_split
+    monkeypatch.setattr(engine, "plan_residency_split",
+                        lambda module, budget, **kwargs: calls.append("plan") or real_plan(module, budget, **kwargs))
+    model = NativeModel("diffusion_model", torch.nn.Linear(2, 2), estimated_vram_gb=1.0)
+    model._streamer = _FakeStreamerForStreamTo(calls)
+    model.stream_to("cuda:0", 1.0)
+    assert calls == ["sync", "plan", "apply"]
+
+
 _WSL_DRIVER_OOM = "CUDA driver error: device not ready"
 
 
@@ -2265,40 +2302,3 @@ def test_decode_causal3d_tiled_shrinks_on_the_wsl_driver_oom():
     out = _causal3d_tiled_gen(module)._decode_causal3d_tiled(torch.randn(1, 16, 1, 64, 64), device="cpu")
     assert out.shape == (1, 512, 512, 3)
     assert module.widths_seen[0] > min(w for w in module.widths_seen[1:])
-
-
-class _OrderedModule(torch.nn.Module):
-    def __init__(self, calls):
-        super().__init__()
-        self._calls = calls
-
-    def to(self, device):
-        self._calls.append(f"to:{device}")
-        return self
-
-
-def test_a_gpu_move_syncs_nvfp4_tables_before_the_move_and_an_offload_does_not(monkeypatch):
-    import src.platform.runtime.native.engine as engine
-
-    calls: list[str] = []
-    monkeypatch.setattr(engine, "sync_nvfp4_dequant_tables", lambda module: calls.append("sync"))
-    model = NativeModel("diffusion_model", _OrderedModule(calls), estimated_vram_gb=1.0)
-    model.move_to("cuda:0")
-    model.offload()
-    assert calls == ["sync", "to:cuda:0", "to:cpu"]
-
-
-def test_a_partial_placement_syncs_nvfp4_tables_before_planning(monkeypatch):
-    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
-    import src.platform.runtime.native.engine as engine
-
-    calls: list[str] = []
-    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: None)
-    monkeypatch.setattr(engine, "sync_nvfp4_dequant_tables", lambda module: calls.append("sync"))
-    real_plan = engine.plan_residency_split
-    monkeypatch.setattr(engine, "plan_residency_split",
-                        lambda module, budget, **kwargs: calls.append("plan") or real_plan(module, budget, **kwargs))
-    model = NativeModel("diffusion_model", torch.nn.Linear(2, 2), estimated_vram_gb=1.0)
-    model._streamer = _FakeStreamerForStreamTo(calls)
-    model.stream_to("cuda:0", 1.0)
-    assert calls == ["sync", "plan", "apply"]

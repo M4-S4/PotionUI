@@ -18,7 +18,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Node: a pattern without **/ only matches at the context root.
+# Node
 node_modules/
 frontend/node_modules/
 content/plugins/**/node_modules/

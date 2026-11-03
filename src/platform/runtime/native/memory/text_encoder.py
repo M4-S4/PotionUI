@@ -1,42 +1,3 @@
-"""Encode-phase placement inputs for the text encoder.
-
-The planner (``tiering.plan_text_encoder_placement``) decides whether a text
-encoder is moved whole onto the GPU for its encode or placed with partial
-residency (``NativeModel.stream_to``, the same mechanism the DiT uses). It needs
-two inputs that both encode sites share — ``residency.run_text_encode`` (every
-pipe's CLIP adapter) and ``NativeGenerator.encode_prompt`` (standalone use):
-
-* the **mode** (``auto`` | ``gpu`` | ``stream``) and the backend's VRAM budget,
-  set before every run by ``NativeBackend.prepare_pipes`` from the backend's
-  ``text_encoder_placement`` / ``gpu_max_vram`` config;
-* the **honest footprint** of a loaded encoder (:func:`text_encoder_footprint`):
-  what its weights really occupy on the device, plus the largest transient a
-  quantised layer allocates while it dequantises.
-
-Whether the encoder fits is still each site's historical test; the budget and
-the dequantisation transient only size the resident share of an encoder that
-does not fit.
-
-Footprint formula (bytes per weight element of a layer ``out x in``):
-
-* nvfp4 (``Nvfp4Linear``): packed U8 codes ``0.5`` + the fp32 natural scale
-  precomputed at load ``4/16`` + the fp8 swizzled block scale ``1/16`` ≈
-  ``0.81`` B/elem, against ``0.5625`` on disk — a 14.6 GB nvfp4 checkpoint
-  holds ≈ 21 GB on the device.
-* int8 (``int8_tensorwise``): ``1`` B/elem + its fp32 scale (+ the ConvRot
-  Hadamard block when rotated).
-* fp8 (scaled e4m3): ``1`` B/elem + a scalar fp32 scale.
-
-Those are counted exactly, by summing every parameter and buffer the modules
-own. The dequantisation transient is estimated: layers dequantise one at a time,
-so the peak is the largest quantised layer's ``out x in`` times ``10`` B for
-nvfp4 (int32 code index 2 + two fp32 LUT gathers 2 + 2 + the interleaved fp32
-weight 4) and ``8`` B for int8/fp8 (fp32 cast 4 + scaled product 4). A
-Qwen3-32B MLP projection (25600 x 5120) peaks at ≈ 1.2 GB in nvfp4. Plain
-bf16/fp16 layers cast at most one weight-sized copy, which the caller's working
-reserve already covers.
-"""
-
 from __future__ import annotations
 
 import threading
@@ -56,8 +17,6 @@ DEQUANT_BYTES_PER_ELEMENT: dict[str, float] = {"nvfp4": 10.0, "int8": 8.0, "fp8"
 
 
 def normalize_text_encoder_placement(value: Any) -> TextEncoderPlacementMode:
-    """``value`` as one of :data:`TEXT_ENCODER_PLACEMENT_MODES`; ``None`` or blank
-    means the default. Raises ``ValueError`` on anything else."""
     if value is None:
         return DEFAULT_TEXT_ENCODER_PLACEMENT
     word = str(value).strip().lower()
@@ -67,14 +26,11 @@ def normalize_text_encoder_placement(value: Any) -> TextEncoderPlacementMode:
         raise ValueError(
             f"text_encoder_placement must be one of {', '.join(TEXT_ENCODER_PLACEMENT_MODES)}, got {value!r}"
         )
-    return word  # type: ignore[return-value]
+    return word
 
 
 @dataclass(frozen=True)
 class TextEncoderPlacementSettings:
-    """What the owning backend asked for: the mode and its VRAM budget (GB,
-    ``None`` = no backend cap, live free VRAM alone bounds the encoder)."""
-
     mode: TextEncoderPlacementMode = DEFAULT_TEXT_ENCODER_PLACEMENT
     vram_budget_gb: float | None = None
 
@@ -86,8 +42,6 @@ _settings = TextEncoderPlacementSettings()
 def configure_text_encoder_placement(
     mode: Any = None, *, vram_budget_gb: float | None = None,
 ) -> TextEncoderPlacementSettings:
-    """Set the process-wide settings for the next encodes (one backend owns the
-    GPU at a time, the same contract as ``GpuMonitor.set_vram_cap_gb``)."""
     global _settings
     budget = float(vram_budget_gb) if vram_budget_gb is not None and float(vram_budget_gb) > 0 else None
     new = TextEncoderPlacementSettings(mode=normalize_text_encoder_placement(mode), vram_budget_gb=budget)
@@ -111,9 +65,6 @@ def reset_text_encoder_placement() -> None:
 
 
 def text_encoder_modules(encoder: Any) -> list[nn.Module]:
-    """The real ``nn.Module``(s) behind a text-encoder wrapper: ``.module`` for a
-    single encoder, ``.t5`` / ``.clip_l`` (each wrapping a ``.module``) for the
-    Flux1 composite, or the object itself when it already is a module."""
     seen: set[int] = set()
     found: list[nn.Module] = []
 
@@ -133,8 +84,6 @@ def text_encoder_modules(encoder: Any) -> list[nn.Module]:
 
 
 def leaf_quant_format(module: nn.Module) -> str | None:
-    """``"nvfp4"`` / ``"int8"`` / ``"fp8"`` for a layer that dequantises its own
-    weight on every forward, ``None`` for anything else."""
     if getattr(module, "_is_nvfp4", False) and getattr(module, "nvfp4_packed", None) is not None:
         return "nvfp4"
     weight = getattr(module, "weight", None)
@@ -149,12 +98,15 @@ def leaf_quant_format(module: nn.Module) -> str | None:
 
 def _dequant_elements(module: nn.Module, fmt: str) -> int:
     if fmt == "nvfp4":
-        return int(getattr(module, "out_features", 0)) * int(getattr(module, "in_features", 0))
+        out_features = getattr(module, "out_features", None)
+        in_features = getattr(module, "in_features", None)
+        if isinstance(out_features, int) and isinstance(in_features, int) and out_features > 0 and in_features > 0:
+            return out_features * in_features
+        return int(module.nvfp4_packed.numel()) * 2
     return int(module.weight.numel())
 
 
 def tensors_bytes(tensors: Iterable[torch.Tensor | None], seen: set[int] | None = None) -> int:
-    """Bytes of ``tensors``, each counted once (by identity)."""
     seen = set() if seen is None else seen
     total = 0
     for t in tensors:
@@ -166,14 +118,11 @@ def tensors_bytes(tensors: Iterable[torch.Tensor | None], seen: set[int] | None 
 
 
 def module_weights_bytes(module: nn.Module, seen: set[int] | None = None) -> int:
-    """Parameters + buffers of ``module`` and its children, each counted once."""
     return tensors_bytes(list(module.parameters()) + list(module.buffers()), seen)
 
 
 @dataclass(frozen=True)
 class TextEncoderFootprint:
-    """What a loaded text encoder needs on the device for one encode."""
-
     weights_gb: float
     dequant_peak_gb: float
     quant_formats: tuple[str, ...]
@@ -184,8 +133,6 @@ class TextEncoderFootprint:
 
 
 def text_encoder_footprint(encoder: Any) -> TextEncoderFootprint | None:
-    """Honest device footprint of ``encoder`` (see the module docstring for the
-    formula), or ``None`` when no module or no tensor is discoverable."""
     modules = text_encoder_modules(encoder)
     if not modules:
         return None
@@ -196,14 +143,14 @@ def text_encoder_footprint(encoder: Any) -> TextEncoderFootprint | None:
     for module in modules:
         try:
             total += module_weights_bytes(module, seen)
-            for leaf in module.modules():
-                fmt = leaf_quant_format(leaf)
-                if fmt is None:
-                    continue
-                formats.add(fmt)
-                peak = max(peak, _dequant_elements(leaf, fmt) * DEQUANT_BYTES_PER_ELEMENT[fmt])
-        except Exception:  # pragma: no cover - best-effort sizing only
-            continue
+        except (TypeError, ValueError, RuntimeError):
+            return None
+        for leaf in module.modules():
+            fmt = leaf_quant_format(leaf)
+            if fmt is None:
+                continue
+            formats.add(fmt)
+            peak = max(peak, _dequant_elements(leaf, fmt) * DEQUANT_BYTES_PER_ELEMENT[fmt])
     if total <= 0:
         return None
     return TextEncoderFootprint(
@@ -214,8 +161,6 @@ def text_encoder_footprint(encoder: Any) -> TextEncoderFootprint | None:
 
 
 def encoder_gb_on_device(encoder: Any, device: str | torch.device) -> float:
-    """GB of ``encoder``'s tensors already resident on ``device`` (counted toward
-    what it may use, so an encoder left co-resident is never judged too big)."""
     target = torch.device(device)
     index = target.index if target.index is not None else 0
     seen: set[int] = set()

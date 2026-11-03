@@ -1,14 +1,3 @@
-"""A text encoder streamed from host RAM survives a refused page-lock (no GPU).
-
-The real ``TextEncoderStreaming`` / ``NativeModel.stream_to`` / ``ModuleStreamer``
-run over CPU modules (only the CUDA copy is replayed on the CPU), with
-``FakePinning`` refusing ``pin_memory`` the way a capped host (WSL2, Docker
-Desktop) does. Both encode sites — the pipes' ``run_text_encode`` and
-``NativeGenerator.encode_prompt`` — must still encode on the GPU path, unpinned
-and synchronous; a placement that fails for any other reason must leave nothing
-behind: no hook, no flag, no page-locked tensor, nothing registered on the card.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -41,15 +30,11 @@ def _clean_state(monkeypatch):
 
 
 class _CpuStreamer(ModuleStreamer):
-    """The real streamer with the CUDA target replayed on the CPU, pinning left on."""
-
     def apply(self, device, plan, *, pin=True, non_blocking=True):
         super().apply("cpu", plan, pin=pin, non_blocking=non_blocking)
 
 
 class _NoRoomUnpinnedStreamer(_CpuStreamer):
-    """An unpinned placement that keeps a resident share runs out of VRAM."""
-
     def _place(self, device, plan, *, pin, non_blocking):
         if not pin and plan.resident_bytes:
             raise torch.cuda.OutOfMemoryError("fake unpinned OOM")
@@ -253,6 +238,50 @@ def test_pipe_path_undoes_a_composite_placement_that_fails_midway(monkeypatch):
     assert t5._device == torch.device("cpu") and clip._device == torch.device("cpu")
 
 
+def test_pipe_path_encodes_again_after_a_placement_that_failed_midway(monkeypatch):
+    fake = FakePinning(monkeypatch, allow=None)
+    _use_streamer(monkeypatch)
+    log: list = []
+    encoder, t5, clip, budget = _composite(log)
+    reference = _reference(encoder)
+    _pipe_card(monkeypatch, log, budget)
+    _fail_when_pinning(monkeypatch, t5.module.blocks[3], [RuntimeError("placement boom")])
+
+    with pytest.raises(RuntimeError, match="placement boom"):
+        run_text_encode(encoder, _DEV, lambda: encoder.encode(["p"]))
+    _assert_nothing_left_behind(fake, t5.module, clip.module)
+
+    with torch.inference_mode():
+        out = run_text_encode(encoder, _DEV, lambda: encoder.encode(["p"]))
+
+    assert torch.equal(out["context"], reference)
+    assert [e for e in log if e[:2] == ("mark", "streamed")]
+    _assert_nothing_left_behind(fake, t5.module, clip.module)
+
+
+def test_pipe_path_encodes_again_after_an_encode_that_failed(monkeypatch):
+    fake = FakePinning(monkeypatch, allow=None)
+    _use_streamer(monkeypatch)
+    log: list = []
+    encoder, module, budget = _single(log)
+    reference = _reference(encoder)
+    _pipe_card(monkeypatch, log, budget)
+
+    def failing():
+        raise RuntimeError("encode boom")
+
+    with pytest.raises(RuntimeError, match="encode boom"):
+        run_text_encode(encoder, _DEV, failing)
+    _assert_nothing_left_behind(fake, module)
+    assert encoder._device == torch.device("cpu")
+
+    with torch.inference_mode():
+        out = run_text_encode(encoder, _DEV, lambda: encoder.encode(["p"]))
+
+    assert torch.equal(out["context"], reference)
+    _assert_nothing_left_behind(fake, module)
+
+
 def test_generator_path_streams_unpinned_when_the_host_refuses_to_pin(monkeypatch, caplog):
     fake = FakePinning(monkeypatch, allow=0)
     _use_streamer(monkeypatch)
@@ -341,6 +370,28 @@ def test_generator_path_undoes_a_composite_placement_that_fails_midway(monkeypat
     assert gen._te_streaming is None
     _assert_nothing_left_behind(fake, t5.module, clip.module)
     assert t5._device == torch.device("cpu") and clip._device == torch.device("cpu")
+
+
+def test_generator_path_encodes_again_after_a_placement_that_failed_midway(monkeypatch):
+    fake = FakePinning(monkeypatch, allow=None)
+    _use_streamer(monkeypatch)
+    log: list = []
+    encoder, t5, clip, budget = _composite(log)
+    reference = _reference(encoder)
+    _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
+    _fail_when_pinning(monkeypatch, t5.module.blocks[3], [RuntimeError("placement boom")])
+    gen = _generator_for(encoder, budget)
+
+    with pytest.raises(RuntimeError, match="placement boom"):
+        gen.encode_prompt("prompt")
+    _assert_nothing_left_behind(fake, t5.module, clip.module)
+
+    with torch.inference_mode():
+        conditioning = gen.encode_prompt("prompt")
+
+    assert torch.equal(conditioning.cond["context"], reference)
+    assert gen._te_streaming is None
+    _assert_nothing_left_behind(fake, t5.module, clip.module)
 
 
 def test_generator_path_undoes_the_placement_when_the_fully_streamed_retry_fails_too(monkeypatch):

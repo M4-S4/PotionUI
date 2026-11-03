@@ -29,15 +29,6 @@ embedding would not follow the activation to the GPU) — embeddings are small a
 always kept resident. Bare ``nn.Parameter`` tensors and non-ops modules are
 likewise never streamed and stay resident.
 
-**nvfp4 leaves** (``Nvfp4Linear``) hold their weight in buffers (``weight`` is
-``None``) and dequantise wherever those buffers live, so by default they count
-as fixed and stay resident. A caller that opts in (``stream_nvfp4=True``, the
-text encoder's partial residency) streams them too: their buffers stay pinned in
-CPU RAM and a forward pre-hook stages them onto the activation's device for the
-call (restored after it), so the dequant runs on the GPU from the 0.81 B/elem
-packed form instead of shipping a dequantised fp32 weight. Their bias, tiny,
-stays resident.
-
 The split is **estimate-driven and deterministic** (leaves in ``named_modules``
 order, greedy prefix resident) so it is unit-testable without a GPU.
 """
@@ -80,7 +71,7 @@ _TEARDOWN_RELEASE_CHUNK_GB = 2.0
 
 
 class PinnedMemoryUnavailableError(RuntimeError):
-    """``Tensor.pin_memory()`` failed: the host could not page-lock the allocation."""
+    pass
 
 
 def stream_prefetch_enabled() -> bool:
@@ -139,7 +130,6 @@ def _record_stream_on(tensor: torch.Tensor, stream) -> None:
 
 
 def _pin(data: torch.Tensor) -> torch.Tensor:
-    """Page-lock ``data`` and count it; ``PinnedMemoryUnavailableError`` if the host refuses."""
     try:
         pinned = data.pin_memory()
     except Exception as exc:
@@ -182,7 +172,6 @@ def _own_tensor_bytes(module: nn.Module) -> int:
 
 
 def is_nvfp4_leaf(module: nn.Module) -> bool:
-    """An ``Nvfp4Linear`` carrying loaded nvfp4 buffers (its ``weight`` is ``None``)."""
     return (
         isinstance(module, CastWeightBiasOp)
         and not isinstance(module, nn.Embedding)
@@ -196,8 +185,7 @@ def is_streamable_leaf(module: nn.Module, *, include_nvfp4: bool = False) -> boo
 
     True for ops-namespace ``Linear`` / ``Conv`` / norm layers carrying a weight;
     False for ``Embedding`` (casts to ``self.weight.device``, not the activation's)
-    and for anything that is not a ``CastWeightBiasOp``. ``include_nvfp4`` also
-    admits nvfp4 leaves (see the module docstring).
+    and for anything that is not a ``CastWeightBiasOp``.
     """
     if not isinstance(module, CastWeightBiasOp):
         return False
@@ -249,8 +237,7 @@ def plan_residency_split(
     always resident and counted first (``fixed_bytes``); the remaining budget is
     spent on streamable leaves in ``named_modules`` order, and everything that
     doesn't fit streams. A non-positive / tiny budget streams every leaf (only
-    the fixed tensors stay resident). ``stream_nvfp4`` makes nvfp4 leaves
-    streamable instead of fixed.
+    the fixed tensors stay resident).
     """
     budget_bytes = max(0, int(resident_budget_gb * _BYTES_PER_GB))
 
@@ -375,11 +362,7 @@ class ModuleStreamer:
         pin: bool = True,
         non_blocking: bool = True,
     ) -> None:
-        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU).
-
-        A page-lock failure repeats the placement unpinned with synchronous
-        copies; any other failure rolls it back.
-        """
+        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU)."""
         try:
             self._place(device, plan, pin=pin, non_blocking=non_blocking)
             return
@@ -570,7 +553,7 @@ class ModuleStreamer:
         for handle in self._stage_handles:
             try:
                 handle.remove()
-            except Exception:  # pragma: no cover - hook handle removal is best-effort
+            except Exception:
                 logger.debug("streamer: stager hook removal failed", exc_info=True)
         self._stage_handles = []
         self._staged_leaves = []
@@ -787,6 +770,7 @@ class LayerPrefetcher:
 
     def _install_hooks(self) -> None:
         self._handles.append(self._root.register_forward_pre_hook(lambda m, a: self._on_root_pre()))
+        self._handles.append(self._root.register_forward_hook(lambda m, a, o: self._on_root_done()))
         self._handles.append(
             _register_forward_hook_always(self._root, lambda m, a, o: self._on_root_post())
         )
@@ -813,28 +797,22 @@ class LayerPrefetcher:
     # -- root-forward boundary ---------------------------------------------
 
     def _on_root_pre(self) -> None:
-        # A new DiT forward: recording iff this is the very first one. Clear any
-        # unconsumed staged weights and dangling swaps from a prior forward (a
-        # data-dependent branch could leave a prefetch unconsumed).
         self._recording = self._forward_count == 0
+        if self._recording:
+            self._order = []
         self._restore_all()
         self._staged = {}
 
-    def _on_root_post(self) -> None:
+    def _on_root_done(self) -> None:
         if self._forward_count == 0:
-            # Freeze the observed execution order into a successor map (first
-            # occurrence wins for any reused module).
             self._next_of = {}
             for cur, nxt in zip(self._order, self._order[1:]):
                 self._next_of.setdefault(id(cur), nxt)
             logger.debug("prefetcher: recorded %d streamed leaves in execution order", len(self._order))
-        # Release staged weights that were prefetched but never consumed this
-        # forward (e.g. FBCache skipped the successor leaf: recorded A->B->C but ran
-        # A->C, so B's stage lingers). Dropping them at root completion frees that
-        # VRAM before the sampler update / decode instead of waiting for the next
-        # forward's pre-hook — the difference that can save a tight run.
-        self._staged = {}
         self._forward_count += 1
+
+    def _on_root_post(self) -> None:
+        self._staged = {}
 
     # -- per-leaf choreography ---------------------------------------------
 
@@ -848,7 +826,8 @@ class LayerPrefetcher:
         if self._disabled:
             return
         if self._recording:
-            self._order.append(leaf)
+            if not self._order or self._order[-1] is not leaf:
+                self._order.append(leaf)
             return
         try:
             self._consume(leaf)
@@ -880,7 +859,7 @@ class LayerPrefetcher:
 
     def _prefetch_after(self, leaf: nn.Module) -> None:
         nxt = self._next_of.get(id(leaf))
-        if nxt is None or id(nxt) in self._staged:
+        if nxt is None or id(nxt) in self._staged or id(nxt) in self._orig_weight:
             return
         if len(self._staged) >= self._depth:   # hard staging-budget cap
             return
@@ -923,15 +902,6 @@ def _module_id_by_name(root: nn.Module):
 
 
 class _BufferStager:
-    """Forward hooks of one streamed nvfp4 leaf: stage its buffers onto the
-    activation's device before the call, put the pinned originals back after.
-
-    Only ``_buffers`` entries are swapped (never ``Parameter.data``), so the
-    swap is a plain dict assignment, valid under ``inference_mode`` and for any
-    device pair. A call without a positional tensor stages nothing; the layer
-    then dequantises where its buffers live, which is slow but still correct.
-    """
-
     def __init__(self, non_blocking: bool) -> None:
         self._non_blocking = non_blocking
         self._saved: dict[str, torch.Tensor] = {}
@@ -958,7 +928,6 @@ class _BufferStager:
 
 
 def _place_streamed_nvfp4(module: nn.Module, device: str | torch.device, *, pin: bool) -> None:
-    """Streamed nvfp4 leaf: buffers to (pinned) CPU RAM, its params (the bias) on ``device``."""
     for p in module.parameters(recurse=False):
         p.data = p.data.to(device)
     placed: dict[str, torch.Tensor] = {}
@@ -975,8 +944,6 @@ def _place_streamed_nvfp4(module: nn.Module, device: str | torch.device, *, pin:
 
 
 def _unpin_own_buffers(module: nn.Module) -> None:
-    """Replace every pinned CPU buffer of ``module`` with a plain copy, so the
-    page-locked pages a streamed nvfp4 leaf held are actually released."""
     for name, buf in list(module._buffers.items()):
         if buf is None or buf.device.type != "cpu" or not buf.is_pinned():
             continue

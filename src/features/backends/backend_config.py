@@ -41,7 +41,6 @@ BASE_CONFIG_FIELDS = frozenset({
 
 ENGINE_FLAGS_FIELD = "engine_flags"
 
-# Copy of native memory.text_encoder.TEXT_ENCODER_PLACEMENT_MODES: importing the engine here would load torch at boot.
 TEXT_ENCODER_PLACEMENTS = ("auto", "gpu", "stream")
 
 # Mirrors src.features.generation.scheduling.SCHEDULING_POLICIES. Duplicated

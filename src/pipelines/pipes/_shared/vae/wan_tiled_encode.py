@@ -46,7 +46,7 @@ def make_wan_vae_encode(vae_module: Any, width: int, height: int, *, log_prefix:
     def encode(pixels: torch.Tensor) -> torch.Tensor:
         try:
             return vae_module.encode(pixels)
-        except Exception as exc:
+        except RuntimeError as exc:
             if not retry_after_cuda_oom(exc):
                 raise
             logger.warning(
@@ -61,7 +61,7 @@ def make_wan_vae_encode(vae_module: Any, width: int, height: int, *, log_prefix:
                 torch.cuda.empty_cache()
             try:
                 return tiled_encode_causal3d(vae_module, pixels, tile_size=tile)
-            except Exception as exc:
+            except RuntimeError as exc:
                 if not retry_after_cuda_oom(exc) or tile <= ENCODE_TILE_FLOOR:
                     raise
                 tile = _snap8(tile // 2)

@@ -239,66 +239,28 @@ def test_a_cloud_failure_with_context_leads_with_it():
     assert classify_generation_error(CloudRunError("credits", "x")).summary == "The cloud provider account is out of credits."
 
 
-def test_the_wsl_allocator_failure_classifies_as_cuda_oom(monkeypatch):
+def test_the_wsl_allocator_failure_is_not_marked_when_the_driver_retries(monkeypatch):
     from src.platform.runtime import cuda_allocator
 
     monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
-    exc = RuntimeError("CUDA driver error: device not ready")
-
-    classification = classify_generation_error(exc)
-
-    assert classification.category == "cuda_oom"
-    assert classification.suggestions
-
-
-@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
-def test_a_driver_oom_reads_as_cuda_oom_from_its_text_where_the_driver_retries(monkeypatch, text):
-    from src.platform.runtime import cuda_allocator
-
-    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
-
-    assert classify_error_text(text).category == "cuda_oom"
-    assert classify_error_text(f"RuntimeError: {text}").category == "cuda_oom"
-
-
-@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
-def test_a_driver_oom_reads_as_a_restart_from_its_text_where_the_driver_oom_is_fatal(monkeypatch, text):
-    from src.platform.runtime import cuda_allocator
-
     monkeypatch.setattr(cuda_allocator, "_damage", None)
-    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
-    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-    assert classify_error_text(f"RuntimeError: {text}").category == "gpu_restart_required"
-    assert classify_error_text(f"RuntimeError: {text}").suggestions == [cuda_allocator.RESTART_ACTION]
+    classify_generation_error(RuntimeError("CUDA driver error: device not ready"))
+
     assert cuda_allocator.allocator_damage() is None
 
-    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:False")
 
-    assert classify_error_text(f"RuntimeError: {text}").category == "cuda_oom"
-
-
-def test_the_text_of_a_driver_oom_is_classified_like_the_exception_under_either_policy(monkeypatch):
+def test_classifying_a_failure_records_the_first_fatal_driver_oom(monkeypatch):
     from src.platform.runtime import cuda_allocator
 
     monkeypatch.setattr(cuda_allocator, "_damage", None)
     monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
-    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-    exc = RuntimeError("CUDA driver error: device not ready")
-    for policy in ("retry", "fatal"):
-        monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, policy)
-        monkeypatch.setattr(cuda_allocator, "_damage", None)
-
-        assert classify_error_text(f"RuntimeError: {exc}").category == classify_generation_error(exc).category, policy
-
-
-def test_a_plain_cuda_oom_text_never_asks_for_a_restart(monkeypatch):
-    from src.platform.runtime import cuda_allocator
-
     monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
     monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
-    assert classify_error_text("torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB").category == "cuda_oom"
+    classify_generation_error(RuntimeError("CUDA driver error: device not ready"))
+
+    assert cuda_allocator.allocator_damage() == "CUDA driver error: device not ready"
 
 
 def test_the_refusal_of_a_damaged_process_asks_for_a_restart():
@@ -352,6 +314,91 @@ def test_users_are_told_to_ask_for_a_restart():
 
     assert copy.summary == "The server's GPU needs a restart before it can generate again."
     assert copy.suggestions == ["Ask your administrator to restart the backend"]
+
+
+def test_the_wsl_allocator_failure_classifies_as_cuda_oom(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+    exc = RuntimeError("CUDA driver error: device not ready")
+
+    classification = classify_generation_error(exc)
+
+    assert classification.category == "cuda_oom"
+    assert classification.suggestions
+
+
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_a_driver_oom_reads_as_cuda_oom_from_its_text_where_the_driver_retries(monkeypatch, text):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "retry")
+
+    assert classify_error_text(text).category == "cuda_oom"
+    assert classify_error_text(f"RuntimeError: {text}").category == "cuda_oom"
+
+
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_a_driver_oom_read_from_text_asks_for_a_restart_only_in_a_damaged_process(monkeypatch, text):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    damage = "CUDA driver error: device not ready"
+    monkeypatch.setattr(cuda_allocator, "_damage", damage)
+
+    assert classify_error_text(f"RuntimeError: {text}").category == "gpu_restart_required"
+    assert classify_error_text(f"RuntimeError: {text}").suggestions == [cuda_allocator.RESTART_ACTION]
+    assert cuda_allocator.allocator_damage() == damage
+
+
+@pytest.mark.parametrize("text", ["CUDA driver error: device not ready", "CUDA driver error: out of memory"])
+def test_a_driver_oom_read_from_a_worker_or_an_old_row_reads_as_an_oom_in_a_healthy_process(monkeypatch, text):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+
+    classification = classify_error_text(f"RuntimeError: {text}")
+
+    assert classification.category == "cuda_oom"
+    assert cuda_allocator.RESTART_ACTION not in classification.suggestions
+    assert cuda_allocator.allocator_damage() is None
+
+
+def test_the_text_of_a_driver_oom_is_classified_like_the_exception_under_either_policy(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setattr(cuda_allocator, "_damage", None)
+    monkeypatch.setattr(cuda_allocator, "_stop_growing_expandable_segments", lambda: None)
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    exc = RuntimeError("CUDA driver error: device not ready")
+    for policy in ("retry", "fatal"):
+        monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, policy)
+        monkeypatch.setattr(cuda_allocator, "_damage", None)
+
+        expected = classify_generation_error(exc).category
+
+        assert classify_error_text(f"RuntimeError: {exc}").category == expected, policy
+
+
+def test_a_plain_cuda_oom_text_never_asks_for_a_restart(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    assert classify_error_text("torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 2.00 GiB").category == "cuda_oom"
+
+
+def test_another_driver_error_is_not_read_as_an_oom_from_its_text(monkeypatch):
+    from src.platform.runtime import cuda_allocator
+
+    monkeypatch.setenv(cuda_allocator.DRIVER_OOM_POLICY_ENV, "fatal")
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    assert classify_error_text("RuntimeError: CUDA driver error: invalid argument").category == "unclassified"
 
 
 def test_a_workers_refusal_asks_for_the_worker_restart_not_the_backend():

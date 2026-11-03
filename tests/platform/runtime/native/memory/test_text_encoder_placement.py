@@ -1,8 +1,7 @@
-"""Encode-phase text-encoder placement: honest footprint, mode, planner (no GPU)."""
-
 from __future__ import annotations
 
 import pytest
+import torch.nn as nn
 
 from src.platform.runtime.native.engine import _estimate_text_encoder_gb
 from src.platform.runtime.native.memory.device_plan import DevicePlan
@@ -52,9 +51,6 @@ def _single_leaf(layer) -> FamilyEncoder:
     return FamilyEncoder(root, [], "probe")
 
 
-# --- footprint: what each format really holds on the device -------------------
-
-
 def test_nvfp4_leaf_counts_packed_codes_and_both_scales():
     out_f, in_f = 25600, 5120
     fp = text_encoder_footprint(_single_leaf(nvfp4_linear(in_f, out_f)))
@@ -72,6 +68,33 @@ def test_nvfp4_dequant_peak_is_ten_bytes_per_weight_element():
     assert fp.dequant_peak_gb * GB == pytest.approx(25600 * 5120 * DEQUANT_BYTES_PER_ELEMENT["nvfp4"])
     assert fp.dequant_peak_gb == pytest.approx(1.22, abs=0.01)
     assert fp.encode_gb == pytest.approx(fp.weights_gb + fp.dequant_peak_gb)
+
+
+def test_nvfp4_leaf_without_feature_attributes_is_sized_from_its_packed_codes():
+    out_f, in_f = 2048, 1024
+    known = text_encoder_footprint(_single_leaf(nvfp4_linear(in_f, out_f)))
+    layer = nvfp4_linear(in_f, out_f)
+    layer.out_features = None
+    layer.in_features = None
+    fp = text_encoder_footprint(_single_leaf(layer))
+    assert fp.dequant_peak_gb == pytest.approx(known.dequant_peak_gb)
+    assert fp.weights_gb == pytest.approx(known.weights_gb)
+
+
+def test_an_unsizable_module_makes_the_whole_footprint_unknown():
+    class _Unsizable(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.lazy = nn.Linear(8, 8)
+
+        def parameters(self, recurse: bool = True):
+            raise ValueError("cannot size")
+
+    root = RecordingModule()
+    root.layer = nvfp4_linear(1024, 2048)
+    encoder = FamilyEncoder(root, [], "probe")
+    encoder.t5 = _Unsizable()
+    assert text_encoder_footprint(encoder) is None
 
 
 def test_int8_and_fp8_leaves_count_one_byte_per_element_plus_scale():
@@ -119,9 +142,6 @@ def test_no_module_means_no_footprint():
 
 
 def test_minimax_h3_te_is_honestly_bigger_than_its_checkpoint():
-    """The 14.6 GB nvfp4 checkpoint holds ~19-20 GB on the device (0.81 vs
-    0.5625 B/elem) and dequantises a 1.2 GB transient on its MLP projections:
-    a planner reading the file size would think it fits a 12 GB card."""
     te = minimax_h3_te()
     fp = text_encoder_footprint(te)
     assert fp.weights_gb > 18.5
@@ -136,9 +156,6 @@ def test_encoder_gb_on_device_counts_only_that_device():
     te = _single_leaf(bf16_linear(64, 64))
     assert encoder_gb_on_device(te, "cuda:0") == 0.0
     assert encoder_gb_on_device(te, "meta") * GB == 64 * 64 * 2
-
-
-# --- mode ----------------------------------------------------------------------
 
 
 def test_modes_and_default():
@@ -164,9 +181,6 @@ def test_configure_sets_mode_and_backend_budget():
     configure_text_encoder_placement(None, vram_budget_gb=0)
     assert text_encoder_placement_settings().mode == "auto"
     assert text_encoder_placement_settings().vram_budget_gb is None
-
-
-# --- planner ---------------------------------------------------------------------
 
 
 def test_auto_keeps_a_fitting_encoder_whole():
@@ -229,8 +243,6 @@ def test_unknown_planner_mode_is_rejected():
     with pytest.raises(ValueError):
         plan_text_encoder_placement(10.0, 1.0, device="cuda:0", mode="maybe")
 
-
-# --- plan_placement integration ---------------------------------------------------
 
 _DP = DevicePlan("cuda:0", "cuda:0", "cuda:0")
 _SIZES = {"dit": 22.0, "text_encoder": 19.4, "vae": 0.5}

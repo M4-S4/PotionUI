@@ -306,8 +306,6 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def _default_text_encoder_placement():
-    """Every native test starts from the default text-encoder placement (``auto``,
-    no backend budget), whatever a backend's ``prepare_pipes`` left before."""
     from src.platform.runtime.native.memory.text_encoder import reset_text_encoder_placement
 
     reset_text_encoder_placement()
