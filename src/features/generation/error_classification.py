@@ -49,6 +49,8 @@ _BACKEND_UNREACHABLE_MARKERS = (
 
 UNCLASSIFIED = "unclassified"
 
+WORKER_GPU_RESTART_REQUIRED = "worker_gpu_restart_required"
+
 _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     "cuda_oom": (
         "Ran out of GPU memory (VRAM) during generation.",
@@ -64,8 +66,8 @@ _CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
         "Restart Backend (Administration > Backends) before the next generation.",
         (RESTART_ACTION,),
     ),
-    "worker_gpu_restart_required": (
-        "The remote worker can no longer use the GPU: a CUDA out-of-memory left its memory allocator unusable. "
+    WORKER_GPU_RESTART_REQUIRED: (
+        "A CUDA out-of-memory left the remote worker's GPU allocator unusable. "
         "Restart the worker process (or its container) before the next generation.",
         (WORKER_RESTART_ACTION,),
     ),
@@ -187,7 +189,7 @@ _USER_CATEGORIES: Dict[str, Tuple[str, Tuple[str, ...]]] = {
         "The server's GPU needs a restart before it can generate again.",
         ("Ask your administrator to restart the backend",),
     ),
-    "worker_gpu_restart_required": (
+    WORKER_GPU_RESTART_REQUIRED: (
         "The server's GPU needs a restart before it can generate again.",
         ("Ask your administrator to restart the worker",),
     ),
@@ -320,6 +322,18 @@ def classify_error_text(text: Optional[str]) -> ErrorClassification:
     return classification_for_code(UNCLASSIFIED)
 
 
+def worker_failure_category(code: Optional[str], text: Optional[str]) -> str:
+    if code == "gpu_restart_required":
+        return WORKER_GPU_RESTART_REQUIRED
+    if code in _CATEGORIES:
+        return code
+    message = (text or "").lower()
+    for category, matches in _TEXT_CHECKS:
+        if category != "gpu_restart_required" and matches(message):
+            return category
+    return UNCLASSIFIED
+
+
 def _has_any(message: str, markers: Tuple[str, ...]) -> bool:
     return any(marker in message for marker in markers)
 
@@ -337,7 +351,7 @@ def _text_is_cuda_oom(message: str) -> bool:
 
 
 _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
-    ("worker_gpu_restart_required", lambda m: "this worker can no longer use the gpu" in m),
+    (WORKER_GPU_RESTART_REQUIRED, lambda m: "worker's gpu allocator" in m),
     ("gpu_restart_required", lambda m: "can no longer use the gpu" in m),
     ("gpu_restart_required", _text_is_fatal_driver_oom),
     ("cuda_oom", _text_is_cuda_oom),

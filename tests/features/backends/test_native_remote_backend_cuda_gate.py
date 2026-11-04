@@ -17,6 +17,7 @@ from src.platform.runtime.cuda_allocator import WORKER_RESTART_HINT
 from src.platform.worker_protocol import WorkerCapabilitiesV1, WorkerInfoV1
 
 DRIVER_TOO_OLD = "The NVIDIA driver on your system is too old (found version 12040)."
+DAMAGED = WorkerCapabilitiesV1(features=("allocator_damaged",))
 
 
 class StubTransport:
@@ -73,31 +74,39 @@ async def test_a_deliberate_cpu_worker_is_not_degraded():
     assert "reason" not in health
 
 
-async def test_a_worker_whose_allocator_is_damaged_is_degraded_and_named():
-    health = await _health(
-        device="cuda", cuda_available=True,
-        capabilities=WorkerCapabilitiesV1(allocator_damage="CUDA driver error: device not ready"),
-    )
+async def test_a_worker_advertising_allocator_damage_is_degraded_and_named():
+    health = await _health(device="cuda", cuda_available=True, capabilities=DAMAGED)
 
     assert health["status"] == "degraded"
     assert health["reason"].startswith("Worker 'worker-1'")
-    assert "CUDA driver error: device not ready" in health["reason"]
     assert health["reason"].endswith(WORKER_RESTART_HINT)
     assert "Restart Backend" not in health["reason"]
 
 
-async def test_a_cpu_worker_reporting_allocator_damage_is_not_degraded():
-    health = await _health(
-        device="cpu", cuda_available=False,
-        capabilities=WorkerCapabilitiesV1(allocator_damage="CUDA driver error: device not ready"),
-    )
+async def test_a_cpu_worker_advertising_allocator_damage_is_not_degraded():
+    health = await _health(device="cpu", cuda_available=None, capabilities=DAMAGED)
 
     assert health["status"] == "healthy"
     assert "reason" not in health
 
 
-async def test_a_worker_reporting_no_damage_is_healthy():
+async def test_a_worker_advertising_no_damage_is_healthy():
     health = await _health(device="cuda", cuda_available=True, capabilities=WorkerCapabilitiesV1())
+
+    assert health["status"] == "healthy"
+    assert "reason" not in health
+
+
+async def test_a_feature_token_this_host_does_not_know_changes_nothing():
+    health = await _health(
+        device="cuda", cuda_available=True, capabilities=WorkerCapabilitiesV1(features=("something_new",)),
+    )
+
+    assert health["status"] == "healthy"
+
+
+async def test_a_handshake_from_a_worker_older_than_the_token_is_healthy():
+    health = await _health()
 
     assert health["status"] == "healthy"
     assert "reason" not in health

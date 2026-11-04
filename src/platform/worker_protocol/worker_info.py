@@ -22,6 +22,8 @@ from src.platform.worker_protocol.common import (
 #: are advisory is dispatch policy, not a property of the message.
 FINGERPRINT_DOMAINS = ("pipe_catalog", "plugin_bundle", "build")
 
+ALLOCATOR_DAMAGED_FEATURE = "allocator_damaged"
+
 
 class GpuInfoV1(ProtocolModel):
     """One accelerator visible to the worker."""
@@ -46,7 +48,6 @@ class WorkerCapabilitiesV1(ProtocolModel):
     cuda_version: str | None = None
     platform: str = ""
     attention_backends: tuple[str, ...] = ()
-    allocator_damage: str | None = None
     #: Open-ended capability tokens. This is the extension point that keeps
     #: ``extra="forbid"`` affordable: a worker advertising something new emits
     #: a token here instead of a new field, and a core that does not know the

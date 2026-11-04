@@ -24,7 +24,11 @@ from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Set
 
 from src.features.backends.base_backend import BaseBackend, ExecutionDevice
-from src.features.generation.error_classification import ERROR_CATEGORIES
+from src.features.generation.error_classification import (
+    ERROR_CATEGORIES,
+    WORKER_GPU_RESTART_REQUIRED,
+    worker_failure_category,
+)
 from src.features.generation.input_assets import collect_input_assets
 from src.features.generation.package_assembly import (
     assemble_execution_package,
@@ -62,7 +66,7 @@ from src.pipelines.remote_fingerprint import (
     compute_remote_plugin_bundle_fingerprint,
 )
 from src.platform.observability.logger import logger
-from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged
+from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, pipe_config_runs_on_cuda
 from src.platform.settings.runtime_flags import engine_flag_values
 from src.platform.util.ids import generate_ulid
 from src.platform.worker_protocol import (
@@ -71,6 +75,7 @@ from src.platform.worker_protocol import (
     JobEventV1,
     WorkerInfoV1,
 )
+from src.platform.worker_protocol.worker_info import ALLOCATOR_DAMAGED_FEATURE
 
 #: A closed SSE connection before a terminal event is a dropped connection,
 #: not a finished execution (see `_consume_events`) - bounded so a worker
@@ -78,8 +83,6 @@ from src.platform.worker_protocol import (
 #: rather than retrying forever.
 _MAX_EVENT_STREAM_RECONNECTS = 3
 _EVENT_STREAM_RECONNECT_DELAY_SECONDS = 0.05
-
-_WORKER_GPU_RESTART_CODE = "worker_gpu_restart_required"
 
 _CUDA_UNAVAILABLE_MESSAGE = (
     "Worker reports CUDA unavailable — generation would run on CPU. The pod's "
@@ -262,10 +265,11 @@ class RemoteNativeBackend(BaseBackend):
         return _CUDA_UNAVAILABLE_MESSAGE
 
     def _allocator_damage_reason(self, info: WorkerInfoV1) -> Optional[str]:
-        damage = info.capabilities.allocator_damage
-        if not damage or not (info.device or "").startswith("cuda"):
+        if ALLOCATOR_DAMAGED_FEATURE not in info.capabilities.features:
             return None
-        return f"Worker '{info.worker_id}': {CudaAllocatorDamaged(damage, worker=True)}"
+        if not (info.device or "").startswith("cuda"):
+            return None
+        return f"Worker '{info.worker_id}': {CudaAllocatorDamaged(None, worker=True)}"
 
     def _catalog_mismatch_note(self, info: WorkerInfoV1) -> Optional[str]:
         mismatched = [
@@ -355,11 +359,16 @@ class RemoteNativeBackend(BaseBackend):
         self, generation_id: str, preset_id: Optional[str], pipes: List[Dict[str, Any]],
         emit: Callable[[Optional[GenerationOutput]], None],
     ) -> None:
+        def emit_from_worker(output: GenerationOutput) -> None:
+            if isinstance(output, ErrorGenerationOutput):
+                output.error_code = worker_failure_category(output.error_code, output.error)
+            emit(output)
+
         try:
-            await self._dispatch(generation_id, preset_id, pipes, emit)
+            await self._dispatch(generation_id, preset_id, pipes, emit_from_worker)
         except Exception as exc:
             logger.error(f"[NATIVE_REMOTE_BACKEND] Generation {generation_id} failed: {exc}")
-            emit(ErrorGenerationOutput(error=str(exc)))
+            emit_from_worker(ErrorGenerationOutput(error=str(exc)))
         finally:
             self._active.discard(generation_id)
             emit(None)
@@ -444,12 +453,14 @@ class RemoteNativeBackend(BaseBackend):
             return
 
         damage_reason = self._allocator_damage_reason(info)
-        if damage_reason is not None:
+        if damage_reason is not None and any(
+            pipe.enabled and pipe_config_runs_on_cuda(pipe.config) for pipe in processed.pipes
+        ):
             self._repository.apply_state(
                 row.id, RemoteExecutionState.FAILED,
-                error_code=_WORKER_GPU_RESTART_CODE, error_message=damage_reason,
+                error_code=WORKER_GPU_RESTART_REQUIRED, error_message=damage_reason,
             )
-            emit(ErrorGenerationOutput(error=damage_reason, error_code=_WORKER_GPU_RESTART_CODE))
+            emit(ErrorGenerationOutput(error=damage_reason, error_code=WORKER_GPU_RESTART_REQUIRED))
             return
 
         mismatch = self._fingerprint_mismatch(info)

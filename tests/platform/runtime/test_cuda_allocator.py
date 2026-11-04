@@ -16,6 +16,7 @@ from src.platform.runtime.cuda_allocator import (
     expandable_segments_enabled,
     is_driver_oom,
     needs_gpu_restart,
+    pipe_config_runs_on_cuda,
     raise_if_allocator_damaged,
     record_driver_oom,
 )
@@ -219,15 +220,35 @@ def test_raise_if_allocator_damaged(monkeypatch):
     assert isinstance(caught.value, RuntimeError)
 
 
-def test_a_worker_refusal_names_the_worker_and_its_own_restart(monkeypatch):
-    raise_if_allocator_damaged(worker=True)
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        (None, True),
+        ({}, True),
+        ({"device": None}, True),
+        ({"device": ""}, True),
+        ({"device": "cuda"}, True),
+        ({"device": "cuda:1"}, True),
+        ({"device": "cpu"}, False),
+        ({"device": "mps"}, False),
+    ],
+)
+def test_a_pipe_config_runs_on_cuda_unless_it_names_another_device(config, expected):
+    assert pipe_config_runs_on_cuda(config) is expected
 
-    monkeypatch.setattr(cuda_allocator, "_damage", "CUDA driver error: device not ready")
-    with pytest.raises(CudaAllocatorDamaged) as caught:
-        raise_if_allocator_damaged(worker=True)
 
-    message = str(caught.value)
+def test_a_worker_refusal_names_the_worker_and_its_own_restart():
+    message = str(CudaAllocatorDamaged("CUDA driver error: device not ready", worker=True))
+
     assert "this worker's GPU allocator" in message
     assert "CUDA driver error: device not ready" in message
     assert message.endswith(WORKER_RESTART_HINT)
     assert "Restart Backend" not in message
+
+
+def test_a_worker_refusal_read_by_a_host_without_the_cause_still_names_the_restart():
+    message = str(CudaAllocatorDamaged(None, worker=True))
+
+    assert "()" not in message
+    assert "None" not in message
+    assert message.endswith(WORKER_RESTART_HINT)
