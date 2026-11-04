@@ -456,8 +456,9 @@ worker process or container rather than Restart Backend, which only replaces the
 A worker under native Linux keeps retrying as before. What the operator sees and does is in
 [Remote Native](/admin?tab=docs&doc=dev/remote-native).
 A code the host does not classify (`expired`, `model_digest_mismatch`, `pipe_failed`, `worker_error`,
-...) is kept at the head of the failure's stored detail as `Worker error code: ...`, where the
-administrator's failure view shows it, and the category then comes from the message text.
+...) is kept in the failure's stored detail as `Worker error code: ...`, after the message and before
+the worker's own detail, where the administrator's failure view shows it, and the category then comes
+from the message text.
 
 ## The extension contract — adding model N+1
 
