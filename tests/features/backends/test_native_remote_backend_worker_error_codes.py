@@ -17,13 +17,28 @@ def _failed_event(code, message, detail=None):
     )
 
 
-async def _outputs_of(event):
-    backend = RemoteNativeBackend(NativeRemoteBackendConfig(
+def _backend():
+    return RemoteNativeBackend(NativeRemoteBackendConfig(
         id="remote-1", name="RunPod A100", base_url="http://fake-worker", worker_token="tok", enabled=True,
     ))
+
+
+async def _outputs_of(event):
     outputs = []
-    await backend._handle_event(event, None, Path("imports"), {}, {}, outputs.append)
+    await _backend()._handle_event(event, None, Path("imports"), {}, {}, outputs.append)
     return outputs
+
+
+async def _outputs_through_the_host(event):
+    backend = _backend()
+
+    async def dispatch(generation_id, preset_id, pipes, emit):
+        await backend._handle_event(event, None, Path("imports"), {}, {}, emit)
+
+    backend._dispatch = dispatch
+    outputs = []
+    await backend._run("gen-1", None, [], outputs.append)
+    return [output for output in outputs if output is not None]
 
 
 @pytest.mark.parametrize("code", ["expired", "model_digest_mismatch", "pipe_failed", "worker_error"])
@@ -46,6 +61,22 @@ async def test_a_code_the_host_classifies_travels_as_the_error_code_with_the_det
     outputs = await _outputs_of(_failed_event("cuda_oom", "CUDA out of memory. Tried to allocate 2.00 GiB", detail="trace"))
 
     assert (outputs[0].error_code, outputs[0].detail) == ("cuda_oom", "trace")
+
+
+async def test_a_worker_only_code_stays_in_the_detail_when_the_host_reads_the_category_from_the_text():
+    outputs = await _outputs_through_the_host(_failed_event("pipe_failed", "CUDA driver error: device not ready"))
+
+    assert len(outputs) == 1
+    assert (outputs[0].error_code, outputs[0].detail) == ("cuda_oom", "Worker error code: pipe_failed")
+
+
+async def test_the_hosts_own_restart_code_from_a_worker_becomes_the_worker_restart_with_the_detail_untouched():
+    outputs = await _outputs_through_the_host(
+        _failed_event("gpu_restart_required", "CUDA driver error: device not ready", detail="trace"),
+    )
+
+    assert len(outputs) == 1
+    assert (outputs[0].error_code, outputs[0].detail) == ("worker_gpu_restart_required", "trace")
 
 
 def test_the_stored_failure_of_an_expired_package_carries_the_worker_code_for_the_administrator():

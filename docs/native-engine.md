@@ -432,9 +432,10 @@ it is not retried, the segments stop growing for the rest of the process
 (`torch.cuda.memory._set_allocator_settings`, the other allocator options kept), and the generation
 fails under its own error code, `gpu_restart_required`: admins read that the process can no longer
 use the GPU and get Restart Backend as the only hint, other users are told to ask an administrator
-to restart the backend. A failure read from its text alone (`classify_error_text`: a stored row, a
-worker's message) asks for a restart only while this process is damaged, reads as `cuda_oom` otherwise,
-and never records anything. Until the process restarts, every run with an enabled pipe on `cuda`
+to restart the backend. A failure read from its text alone (`classify_error_text`: a stored row) asks
+for a restart only while this process is damaged, reads as `cuda_oom` otherwise, and never records
+anything; a worker's failure never asks for this process's restart at all
+(`worker_failure_category`). Until the process restarts, every run with an enabled pipe on `cuda`
 is refused before its first pipe with that same code, `GET /health` and the native backend's health
 report `degraded` with the same reason, and nothing restarts on its own. What the operator sees and
 does is in [Backends → Troubleshooting](/admin?tab=docs&doc=dev/backends).
@@ -445,21 +446,19 @@ fallbacks, and a `torch.OutOfMemoryError` keeps being retried everywhere, a dama
 
 A `native.remote` worker (`./potionui worker start` under WSL2, or the worker image under Docker
 Desktop on Windows, whose container sees the WSL2 kernel and so counts as WSL2 for `is_wsl()`) runs
-the same allocator code but never `GenerationEngine`, so the worker carries the fatal path itself
-(`src/features/remote_execution/worker/executor.py`): once the allocator is damaged, every pipe whose
-`device` is `cuda` is refused before it is built, under the worker's own code
-`worker_gpu_restart_required`, and the exception a pipe raises is classified on the worker
-(`classify_generation_error`, the host's own classifier) so the host receives a code (`cuda_oom`,
-`worker_gpu_restart_required`, ...) instead of guessing from the message text. The damage travels in
-the handshake (`capabilities.allocator_damage`) and in the worker's `GET /health` (`degraded`, with the
-reason); the remote native backend's health reports `degraded` with the same reason, naming the
-worker, and refuses to dispatch until the worker restarts. The hint names the worker process or
-container rather than Restart Backend, which only re-executes the host's own process. A CPU worker
-never records damage, and a worker under native Linux keeps retrying driver-error OOMs as before.
+the same allocator code but never `GenerationEngine`, so it carries the fatal path itself
+(`src/features/remote_execution/worker/executor.py`): once the allocator is damaged, every enabled pipe
+on `cuda`, by the same rule (`pipe_config_runs_on_cuda`), is refused before it is built under the
+worker's own code `worker_gpu_restart_required`, and the exception a pipe raises is classified on the
+worker (`classify_generation_error`), so the host receives a code instead of reading the message. The
+worker's `GET /health` and the remote native backend's health report `degraded`, and the hint names the
+worker process or container rather than Restart Backend, which only replaces the host's own process.
+A worker under native Linux keeps retrying as before. What the operator sees and does is in
+[Remote Native](/admin?tab=docs&doc=dev/remote-native).
 A code the host does not classify (`expired`, `model_digest_mismatch`, `pipe_failed`, `worker_error`,
-...) is kept at the head of the failure's stored detail as `Worker error code: ...`, where the
-administrator's failure view shows it, and the category then comes from the message text. A
-failure that reaches the host as text alone follows the text rule above.
+...) is kept in the failure's stored detail as `Worker error code: ...`, after the message and before
+the worker's own detail, where the administrator's failure view shows it, and the category then comes
+from the message text.
 
 ## The extension contract — adding model N+1
 
