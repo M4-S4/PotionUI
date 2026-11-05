@@ -2963,3 +2963,30 @@ def test_a_scoped_stack_applied_around_placement_is_counted_then_dropped():
     assert during.lora_weight_gb == pytest.approx((4 * 64 + 32 * 4) * 4 / _GIB)
     assert not after.lora_active
     assert after.lora_weight_gb == 0.0
+
+
+def _decision_lines(caplog, mode):
+    return [r for r in caplog.records if r.getMessage().startswith(f"[LTX PLACEMENT] {mode}")]
+
+
+def test_a_judged_placement_logs_its_decision_at_info_with_the_free_vram_it_was_made_against(caplog):
+    dit, _ = _dit(estimated_vram_gb=10.0)
+    patches, _ = _patched(free_gb=12.5)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"), \
+            caplog.at_level(logging.INFO, logger=_MOD):
+        place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    lines = _decision_lines(caplog, "resident")
+    assert [r.levelno for r in lines] == [logging.INFO]
+    assert lines[0].getMessage().endswith("lora_active=False, 12.50GB free")
+
+
+def test_a_dit_kept_on_the_warm_path_logs_its_decision_at_debug_without_a_free_reading(caplog):
+    dit, _ = _dit(estimated_vram_gb=19.6)
+    dit.device = "cuda"
+    patches, _ = _patched(free_gb=2.0, effective_gb=10.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.maybe_compile_dit"), \
+            caplog.at_level(logging.DEBUG, logger=_MOD):
+        place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=5.0)
+    lines = _decision_lines(caplog, "resident")
+    assert [r.levelno for r in lines] == [logging.DEBUG]
+    assert lines[0].getMessage().endswith("lora_active=False")
