@@ -13,7 +13,7 @@ from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput
 from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
-from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, ltx_reserve_terms, place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
 from src.pipelines.pipes._shared.generation.guidance_options import (
@@ -32,6 +32,7 @@ from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes._shared.video.ltx_common import (
     decode_ltx_video,
+    ltx_reserve_terms,
     parse_explicit_sigmas,
     snap_ltx_geometry,
     validate_ltx_schedule_config,
@@ -361,16 +362,10 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         else:
             latents = torch.zeros(shape, device=c.device, dtype=c.dtype)
 
-        # Sequence-length-aware placement: a plain full-pin
-        # move_to leaves a FIXED activation budget that a long clip's growing
-        # attention/RoPE/hidden-state activations can exceed and OOM on, even
-        # though the same DiT comfortably fits a short clip. See
-        # dit_placement.py's module docstring for the full reasoning; short
-        # clips see byte-identical behaviour (full pin, same call).
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=t_lat * h_lat * w_lat,
             own_models=(c.bundle.dit, c.vae),
-            **ltx_reserve_terms(c.bundle.dit.module, per_token_timestep=False),
+            **ltx_reserve_terms(c.bundle.dit, per_token_timestep=False),
         )
         dit_module = c.bundle.dit.module
         fps = c.fps
