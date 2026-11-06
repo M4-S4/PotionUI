@@ -36,7 +36,8 @@ def _ratio(size: Tuple[int, int]) -> float:
 
 def reference_short_edge(size: Optional[Tuple[int, int]], final: bool, pictures: Iterable[Optional[Tuple[int, int]]] = ()) -> int:
     area = CAP_PIXELS if final or not size else min(CAP_PIXELS, int(size[0]) * int(size[1]))
-    ratios = [_ratio(picture) for picture in pictures if picture] or [_ratio(size) if size else 16 / 9]
+    shape = _ratio(size) if size else 16 / 9
+    ratios = [_ratio(picture) if picture else shape for picture in pictures] or [shape]
     return max(PATCH, min(math.floor(math.sqrt(area / min(MAX_RATIO, ratio))) for ratio in ratios))
 
 

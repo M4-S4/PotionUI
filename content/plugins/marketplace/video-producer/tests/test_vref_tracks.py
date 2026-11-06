@@ -508,6 +508,7 @@ def test_a_photo_is_encoded_at_the_area_of_the_take_in_a_draft_and_at_twice_1344
 def test_the_photos_of_a_take_share_the_smallest_short_edge_and_a_photo_of_unknown_size_counts_at_the_ratio_of_the_take():
     assert sequence.reference_short_edge((832, 480), False, [(4000, 4000), (4000, 2250), None]) == 473
     assert sequence.reference_short_edge((832, 480), False, [None]) == 480
+    assert sequence.reference_short_edge((832, 480), False, [(4000, 4000), None]) == 480
     assert sequence.reference_short_edge((832, 480), True, []) == 1091
     assert sequence.reference_short_edge(None, False, []) == sequence.reference_short_edge(None, True, []) == 1077
     assert sequence.reference_short_edge((32, 32), False, [(4000, 1000)]) == sequence.PATCH
