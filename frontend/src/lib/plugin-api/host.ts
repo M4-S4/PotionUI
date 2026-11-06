@@ -29,7 +29,11 @@ import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
-import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
+import type { PluginImageEditorApi } from '$lib/components/imageEditor/registries';
+import { createHostImageEditorApi } from '$lib/tool-tabs/canvasSource';
+import { findModelType, modelTypeDefinitions } from '$lib/stores/modelTypes.svelte';
+import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/modelPresentation';
+import type { ModelTypeDefinition } from '$lib/types/models';
 import { chatPanelStore, isChatPanelOpen, type ChatPrefillOptions } from '$lib/stores/chatPanel';
 import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
 import {
@@ -140,6 +144,12 @@ export interface PluginRendererEntry {
 	asset: string;
 }
 
+export interface PluginModelTypesApi {
+	list(): ModelTypeDefinition[];
+	get(id: string): ModelTypeDefinition | undefined;
+	presentation(id: string | null | undefined): ModelTypePresentation;
+}
+
 export interface PotionUIHostApi {
 	/** Bumped on breaking changes to this surface; plugins may feature-detect against it. */
 	version: 1;
@@ -170,6 +180,7 @@ export interface PotionUIHostApi {
 	input: PluginInputApi;
 	generation: PluginGenerationApi;
 	imageEditor: PluginImageEditorApi;
+	modelTypes: PluginModelTypesApi;
 	registerIcon: typeof registerIcon;
 }
 
@@ -335,7 +346,15 @@ export function initHostApi(): void {
 			prepareRequest: prepareRequestFromSession,
 			subscribe: generationEvents.subscribe
 		},
-		imageEditor: createImageEditorApi(),
+		imageEditor: createHostImageEditorApi(),
+		modelTypes: {
+			list: () => modelTypeDefinitions().map((definition) => ({ ...definition })),
+			get: (id) => {
+				const definition = findModelType(id);
+				return definition ? { ...definition } : undefined;
+			},
+			presentation: (id) => modelTypePresentation(id)
+		},
 		registerIcon
 	};
 

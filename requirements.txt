@@ -34,6 +34,7 @@ scipy>=1.11.0  # For scientific computing
 scikit-image>=0.21.0  # For image processing
 controlnet-aux>=0.0.10,<0.1
 kornia>=0.7.0  # Computer vision library
+onnxruntime>=1.20.0
 
 # Mesh post-processing (native 3D generation: clean, decimate, unwrap, GLB export)
 trimesh>=4.12.0  # Mesh repair, PBR materials, GLB export (needs 4.12 for extension_webp)
@@ -51,7 +52,6 @@ pyyaml>=6.0.1
 # Pipeline dependencies
 ultralytics>=8.3.199  # For ADetailer - minimum version for A2C2f class support
 mediapipe>=0.10.0   # For ADetailer face detection
-onnxruntime>=1.20.0
 
 # Video interpolation
 # rife-ncnn-vulkan-python>=1.2.1  # RIFE video frame interpolation (requires Vulkan SDK)
