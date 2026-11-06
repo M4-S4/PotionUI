@@ -108,6 +108,30 @@ def test_a_text_encoder_stays_when_the_expert_and_its_activations_still_fit_besi
     assert expert.moved == ["cuda:0"]
 
 
+def _eviction_and_budget(monkeypatch, preview_reserve_gb):
+    asked = []
+    monkeypatch.setattr(wan_experts, "get_residency_registry",
+                        lambda: SimpleNamespace(ensure_free=lambda device, need, free, exclude: asked.append(need) or []))
+    monkeypatch.setattr(wan_experts, "free_vram_gb", lambda device: 20.0)
+    expert = _Expert(2.64)
+    router = ExpertRouter(expert, None, 0.875, "cuda:0", latents_shape=LATENT_480P_5S)
+    router.preview_reserve_gb = preview_reserve_gb
+    budget = router._weights_budget_gb(expert)
+    return asked, budget
+
+
+def test_the_live_preview_reserve_joins_the_activation_reserve_in_the_eviction_target_and_in_the_budget(monkeypatch):
+    plain, plain_budget = _eviction_and_budget(monkeypatch, 0.0)
+    asked, budget = _eviction_and_budget(monkeypatch, 0.4)
+
+    assert asked[0] - plain[0] == pytest.approx(0.4)
+    assert plain_budget - budget == pytest.approx(0.4)
+
+
+def test_a_negative_live_preview_reserve_reserves_nothing(monkeypatch):
+    assert _eviction_and_budget(monkeypatch, -0.4) == _eviction_and_budget(monkeypatch, 0.0)
+
+
 def test_the_vae_decode_evicts_a_text_encoder_that_leaves_no_room_for_one_latent_frame(monkeypatch):
     registry, encoder = _text_encoder_on_the_card(monkeypatch)
     vae = _Vae(None)

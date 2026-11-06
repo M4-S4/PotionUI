@@ -549,7 +549,9 @@ weights and logs a warning.
 The BYO-loop families (MiniMax-H3, LTX) build their hooks before placement and pass this value to
 `place_dit_for_sequence(preview_reserve_gb=...)`. It is added to `extra_reserve_gb`, and the
 over-commit warning, the fit hint and the sampling OOM detail each report it separately. The Wan
-expert router takes it from its `preview_reserve_gb` attribute. `NativeGenerator.sample` computes it
+expert router takes it from its `preview_reserve_gb` attribute and adds it to the activation reserve,
+so it counts in what the router evicts room for as well as in the expert's weight budget, and the
+router's `[WAN PLACEMENT]` line reports the sum as its activation reserve. `NativeGenerator.sample` computes it
 from its own `hooks`, so every image family that passes a decoder hook is covered without extra
 wiring. Without a decoder hook (the colour projection or previews off) the reserve is 0.0 and
 placement does not change.
