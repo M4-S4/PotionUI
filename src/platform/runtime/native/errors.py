@@ -36,10 +36,6 @@ def retry_after_cuda_oom(exc: BaseException) -> bool:
     return is_cuda_oom(exc)
 
 
-def is_cuda_driver_error(exc: BaseException) -> bool:
-    return isinstance(exc, RuntimeError) and str(exc).startswith("CUDA driver error:")
-
-
 class NativeEngineError(Exception):
     """Base class for every native-engine error."""
 

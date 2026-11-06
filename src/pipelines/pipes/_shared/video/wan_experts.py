@@ -5,8 +5,7 @@ import traceback
 from typing import Any
 import numpy as np
 import torch
-from src.platform.runtime.cuda_allocator import needs_gpu_restart
-from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_driver_error, retry_after_cuda_oom
+from src.platform.runtime.native.errors import DecodeNumericsError, retry_after_cuda_oom
 from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
@@ -270,10 +269,6 @@ def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> tor
     return chunked_decode_causal3d(vae_module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu")
 
 
-def _retries_after(exc: BaseException) -> bool:
-    return (retry_after_cuda_oom(exc) or is_cuda_driver_error(exc)) and not needs_gpu_restart(exc)
-
-
 def host_assembly_gb(latent_shape: tuple, scale: int, result_itemsize: int) -> float:
     b, _c, t, h, w = latent_shape
     frames = 1 + WAN_TEMPORAL_DOWNSCALE * (int(t) - 1)
@@ -308,7 +303,7 @@ def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
             )
         except RuntimeError as exc:
             smaller = smaller_decode_tile(tile)
-            if smaller >= tile or not _retries_after(exc):
+            if not retry_after_cuda_oom(exc) or smaller >= tile:
                 raise
             traceback.clear_frames(exc.__traceback__)
             logger.warning("[WAN DECODE] tiled VAE decode failed for lack of VRAM at %d latent px (%s); "
@@ -327,7 +322,7 @@ def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
     try:
         return _decode_latent(c.vae.module, z, chunk_frames)
     except RuntimeError as exc:
-        if not _retries_after(exc):
+        if not retry_after_cuda_oom(exc):
             raise
         traceback.clear_frames(exc.__traceback__)
         logger.warning("[WAN DECODE] VAE decode failed for lack of VRAM at %s latent frame(s) per chunk (%s); "
