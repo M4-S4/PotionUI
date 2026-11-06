@@ -176,7 +176,6 @@ from src.platform.util.video_stream import (
     probe_audio_stream,
     require_ffmpeg,
 )
-from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (
@@ -202,7 +201,6 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     prepare_keyframe_condition_rows,
     prepare_reference_conditioning,
     reference_decode_seconds,
-    reference_image_max_pixels,
     snap_reference_video_frames,
     source_canvas_size,
     source_tail_frames,
@@ -384,7 +382,7 @@ def _load_reference_video(video_path: Any, max_seconds: Optional[float] = None) 
 
     `media_loader` hands videos over as PATHS (it decodes only images), so the
     decode lands here. The frames are RAW: `normalize_references` is what puts
-    them on H3's 24 fps and canvas, and it needs the source rate to do it.
+    them on H3's 24 fps, and it needs the source rate to do it.
     """
     frames, fps = read_video_frames(video_path, max_seconds=max_seconds)
     return ReferenceMedia(kind="video", frames=frames, fps=float(fps))
@@ -392,7 +390,7 @@ def _load_reference_video(video_path: Any, max_seconds: Optional[float] = None) 
 
 def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     """One `ref2va` audio reference's file path -> a `(channels, samples)`
-    float32 waveform at its native sample rate.
+    float32 waveform.
 
     More than two channels are downmixed to mono here rather than at the
     resampler: `normalize_condition_waveform` accepts mono or stereo only, and
@@ -401,8 +399,14 @@ def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     """
     import soundfile as sf
 
-    samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
-    waveform = torch.from_numpy(np.ascontiguousarray(samples.T))
+    try:
+        samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
+    except sf.LibsndfileError:
+        waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_path)
+    else:
+        waveform = torch.from_numpy(np.ascontiguousarray(samples.T))
+        if sample_rate != AUDIO_SAMPLE_RATE:
+            waveform, sample_rate = _decode_waveform_via_ffmpeg(audio_path)
     if waveform.shape[0] > AUDIO_CHANNELS:
         waveform = waveform.mean(dim=0, keepdim=True)
     return ReferenceMedia(kind="audio", audio=waveform, sample_rate=int(sample_rate))
@@ -417,7 +421,7 @@ def _require_ffmpeg_or_raise() -> str:
 
 def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
     """Any media file (pure audio, or a video with an embedded soundtrack) ->
-    a `(channels, samples)` float32 waveform at its native rate, via a real
+    a `(channels, samples)` float32 waveform, via a real
     `ffmpeg` decode rather than `soundfile` (which does not read video
     containers) -- the fallback path for a refine's `audio_refine` when no
     `initial_audio_latent` was connected (module docstring, "Audio on a
@@ -438,7 +442,10 @@ def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
             )
         samples, sample_rate = sf.read(wav_path, dtype="float32", always_2d=True)
     finally:
-        Path(wav_path).unlink(missing_ok=True)
+        try:
+            Path(wav_path).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("[GENERATOR MINIMAX-H3] could not remove %s: %s", wav_path, exc)
     return torch.from_numpy(np.ascontiguousarray(samples.T)), int(sample_rate)
 
 
@@ -1283,12 +1290,11 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             ),
             PipeConfigSpec(
                 "reference_short_edge", int, REFERENCE_IMAGE_SHORT_EDGE,
-                "Short edge, in pixels, every reference PICTURE is resized to before it is encoded "
-                "(each axis then rounded to the 32px canvas grid, aspect ratio kept). The default is "
+                "Short edge, in pixels (each axis rounded to the 32px canvas grid). The default is "
                 "the released checkpoint's own. An encoded picture costs one token per 32x32 block, "
                 "and every token of every reference is attended to on every step, so a lower value "
                 "shortens the sequence and speeds each step up, at the price of fine detail in the "
-                "reference. Reference videos are not affected: they follow the canvas rule.",
+                "reference. Reference videos are not affected.",
                 required=False, min_value=CANVAS_MULTIPLE,
             ),
             PipeConfigSpec(
@@ -1302,15 +1308,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "'reference_videos'/'reference_audios' above never see or count them. A mod needs no "
                 "loaded image/video/audio input at all: it can be the request's ONLY reference.",
                 required=False,
-            ),
-            PipeConfigSpec(
-                "reference_image_pixel_budget", float, 0.0,
-                "Cap the pixel AREA each ref2va reference IMAGE is VAE-encoded at, as a multiple of "
-                "the output canvas area ('resolution'): 1 encodes a large photo at about the size of "
-                "the clip it conditions. 0 (default) keeps the fixed cap of twice the release canvas "
-                "area, about 2,000 condition tokens. Never enlarges an image, and leaves reference "
-                "videos, which already follow the canvas rule, unchanged.",
-                required=False, min_value=0.0, max_value=16.0,
             ),
         ]
 
@@ -1331,8 +1328,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                           is_array=True),
             PipeInputSpec("reference_videos", IOType.VIDEO, False, "ref2va reference video(s), packed "
                           "after every image reference. Each contributes one visual condition latent "
-                          "(a frame stack, so 5*n+2 latent frames rather than 1) at the canvas its own "
-                          "aspect ratio resolves to", is_array=True),
+                          "(a frame stack, so 5*n+2 latent frames rather than 1)", is_array=True),
             PipeInputSpec("reference_audios", IOType.AUDIO, False, "ref2va reference audio track(s), "
                           "packed after every video reference. Each contributes CLEAN audio condition "
                           "rows and no visual latent at all, and cannot be the only reference kind on a "
@@ -1732,10 +1728,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             tuple(normalize_references(
                 raw_references, num_frames=reference_num_frames,
                 reference_short_edge=int(self.config.get("reference_short_edge", REFERENCE_IMAGE_SHORT_EDGE)),
-                reference_max_pixels=reference_image_max_pixels(
-                    float(self.config.get("reference_image_pixel_budget") or 0), width, height,
-                ),
-                upscale=bool(runtime_flag("native_h3_reference_upscale")),
             )) if packed else ()
         )
         source_path = source_videos[0] if source_frames is not None else None

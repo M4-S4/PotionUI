@@ -15,9 +15,8 @@ Both share the same encode/noise/patchify recipe (`encode_keyframe_condition`
 below); they differ only in what canvas the image is fit onto before that.
 An `fl2va` keyframe is fit onto the TARGET canvas (`fit_keyframe_to_canvas`),
 overlaying the generated frames it anchors. A `ref2va` reference keeps its
-OWN resolution (`normalize_reference_image`) -- a short-edge-2048 fit,
-area-capped at `REFERENCE_IMAGE_MAX_PIXELS`, never enlarged, no crop --
-because it is a PREFIX ahead of the generated rows rather than an overlay
+OWN resolution (`normalize_reference_image`) -- no upper pixel cap, no crop
+-- because it is a PREFIX ahead of the generated rows rather than an overlay
 onto them (`layout.build_ref2va_packed_sequence` reads each reference's
 geometry from what was actually encoded here).
 
@@ -37,14 +36,10 @@ an ordered list of :class:`ReferenceMedia` mixing images, videos and audio.
 The three differ in what they contribute:
 
 - an IMAGE contributes one visual condition latent, encoded at its own
-  2048-short-edge resolution, area-capped at `REFERENCE_IMAGE_MAX_PIXELS`
-  or at the request's lower cap (`reference_image_max_pixels`), or at its
-  own size when that is smaller;
+  resolution;
 - a VIDEO contributes one visual condition latent -- a frame stack, so the
   VAE's temporal chunking applies and the latent carries `5 * n + 2` frames
-  rather than 1 -- at the canvas ITS OWN aspect ratio resolves to under the
-  target's canvas rule (not the 2048 image rule), or at its own size when
-  that is smaller, plus a soundtrack if it carries one;
+  rather than 1 -- plus a soundtrack if it carries one;
 - an AUDIO reference contributes only clean soundtrack rows, no visual
   latent at all.
 
@@ -96,12 +91,10 @@ from src.pipelines.pipes.generator.video_minimax_h3.schedule import KEYFRAME_NOI
 Tensor = torch.Tensor
 
 # `reference_image_short_edge` (`MiniMaxH3Ref2VASetupStep`'s `ConfigSpec`) --
-# a `ref2va` image reference is encoded at high detail, unlike an `fl2va`
-# keyframe (which is fit onto the target canvas) or a `ref2va` VIDEO reference
-# (which shares the target's own canvas rule). The released pipeline leaves
-# its area uncapped; here it is capped at twice the release canvas area.
+# a `ref2va` image reference is encoded at high detail, uncapped by area,
+# unlike an `fl2va` keyframe (which is fit onto the target canvas) or a
+# `ref2va` VIDEO reference (which shares the target's own canvas rule).
 REFERENCE_IMAGE_SHORT_EDGE = 2048
-REFERENCE_IMAGE_MAX_PIXELS = 2 * CANVAS_MAX_PIXELS
 
 # Per-modality reference limits the released checkpoint documents
 # (`MiniMaxH3Ref2VASetupStep.__init__`'s `max_images`/`max_videos`/
@@ -149,12 +142,6 @@ def fit_keyframe_to_canvas(image: Image.Image, height: int, width: int, *, is_ge
     return resized.crop((left, top, left + width, top + height))
 
 
-def reference_image_max_pixels(budget: float, width: int, height: int) -> int:
-    if budget <= 0:
-        return REFERENCE_IMAGE_MAX_PIXELS
-    return max(1, min(REFERENCE_IMAGE_MAX_PIXELS, int(budget * width * height)))
-
-
 def pad_reference_to_aspect_range(image: Image.Image) -> Image.Image:
     width, height = image.size
     if width <= 0 or height <= 0:
@@ -170,28 +157,23 @@ def pad_reference_to_aspect_range(image: Image.Image) -> Image.Image:
     return flatten_onto(canvas)
 
 
+def _snap_without_enlarging(size: float, source: int, canvas_multiple: int) -> int:
+    return max(canvas_multiple, min(round(size / canvas_multiple), source // canvas_multiple) * canvas_multiple)
+
+
 def normalize_reference_image(
     image: Image.Image, *, canvas_multiple: int, short_edge: int = REFERENCE_IMAGE_SHORT_EDGE,
-    max_pixels: int = REFERENCE_IMAGE_MAX_PIXELS, upscale: bool = False,
 ) -> Image.Image:
-    """Put one `ref2va` image reference on its OWN resolution: short edge
-    `short_edge`, scaled down at the same aspect ratio when that area exceeds
-    `max_pixels`, and never above the image's own size unless `upscale`, each
-    axis then rounded to the nearest `canvas_multiple` with a floor of
-    `canvas_multiple`, no crop -- unlike `fit_keyframe_to_canvas`'s
-    target-canvas fit.
-
-    `upscale=True` is `MiniMaxH3Ref2VASetupStep`'s image branch with this
-    module's area cap: a smaller image is enlarged to `short_edge`.
+    """Put one `ref2va` image reference on its OWN resolution: each axis
+    rounded to `canvas_multiple` with a floor of `canvas_multiple`, no upper
+    pixel cap and no crop -- unlike `fit_keyframe_to_canvas`'s target-canvas
+    fit.
     """
     image = pad_reference_to_aspect_range(image)
     width, height = image.size
     scale = short_edge / min(width, height)
-    scale = min(scale, math.sqrt(max_pixels / (width * height)))
-    if not upscale:
-        scale = min(scale, 1.0)
-    target_height = max(canvas_multiple, round(height * scale / canvas_multiple) * canvas_multiple)
-    target_width = max(canvas_multiple, round(width * scale / canvas_multiple) * canvas_multiple)
+    target_height = _snap_without_enlarging(height * scale, height, canvas_multiple)
+    target_width = _snap_without_enlarging(width * scale, width, canvas_multiple)
     if (width, height) == (target_width, target_height):
         return image
     return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
@@ -200,31 +182,24 @@ def normalize_reference_image(
 def normalize_reference_video(
     frames: Any, *, fps: float, num_frames: int, target_fps: float = FPS,
     canvas_multiple: int = CANVAS_MULTIPLE, short_edge: int = CANVAS_SHORT_EDGE,
-    max_pixels: int = CANVAS_MAX_PIXELS, upscale: bool = False,
+    max_pixels: int = CANVAS_MAX_PIXELS,
 ) -> np.ndarray:
     """Put one `ref2va` VIDEO reference on MiniMax-H3's own rate and canvas:
     `(num_frames, height, width, 3)` uint8 at `target_fps`, truncated to the
-    generated frame count, on the canvas ITS OWN aspect ratio resolves to
-    (`MiniMaxH3Ref2VASetupStep._normalize_video_condition`).
+    generated frame count.
 
-    A video reference follows the TARGET's canvas rule -- short edge 768,
-    area capped at the canvas, both axes to `canvas_multiple` -- NOT the
-    2048-short-edge rule an image reference gets (`normalize_reference_image`,
-    whose area cap is twice the canvas's); only the aspect ratio it is
-    resolved from is the reference's own. A video whose area is below that
-    canvas keeps its own size, each axis rounded to the nearest
-    `canvas_multiple` (ComfyUI's `MiniMaxH3ReferenceToVideo`), unless
-    `upscale`, which enlarges it onto the canvas as the released pipeline
-    does.
+    A video reference follows the TARGET's canvas rule -- area capped, both
+    axes to `canvas_multiple` -- NOT the 2048-short-edge uncapped rule an image
+    reference gets (`normalize_reference_image`). It is therefore capped in
+    area where an image reference is not.
 
     The two passes run in the reference's own order: the constant-frame-rate
     resample first (dropping and duplicating WHOLE frames the way `ffmpeg`'s
     `fps` filter does -- not interpolating), the LANCZOS rescale second.
-    Frames handed over already at `target_fps` and already at the size they
-    resolve to flow through untouched. With `upscale`, or for a video at
-    least as large as the canvas, that is the parity-exact route: the
-    released model rescaled with `ffmpeg`'s own LANCZOS while decoding, so
-    only frames decoded at the canvas reproduce its pixels bit for bit.
+    Frames handed over already at `target_fps` and already on that canvas
+    flow through untouched, which is the parity-exact route: the released
+    model rescaled with `ffmpeg`'s own LANCZOS while decoding, so only frames
+    decoded at the canvas reproduce its pixels bit for bit.
 
     `frames` is a list of PIL images, a `(F, H, W, 3)` array or a
     `(F, 3, H, W)` tensor, uint8 or floating point over `[0, 1]`.
@@ -242,14 +217,12 @@ def normalize_reference_video(
         )
 
     frames = resample_frames(frames, fps=fps, target_fps=target_fps)[:num_frames]
-    source_height, source_width = frames.shape[1:3]
     height, width = resolve_canvas_size(
-        source_width, source_height,
+        frames.shape[2], frames.shape[1],
         canvas_multiple=canvas_multiple, short_edge=short_edge, max_pixels=max_pixels,
     )
-    if not upscale and source_width * source_height < width * height:
-        height = max(canvas_multiple, round(source_height / canvas_multiple) * canvas_multiple)
-        width = max(canvas_multiple, round(source_width / canvas_multiple) * canvas_multiple)
+    height = _snap_without_enlarging(height, frames.shape[1], canvas_multiple)
+    width = _snap_without_enlarging(width, frames.shape[2], canvas_multiple)
     if frames.shape[1:3] == (height, width):
         return frames
     return np.stack([
@@ -471,8 +444,8 @@ def encode_source_video_condition(
 
 # Bytes budget for the request-local `VisualLatentCache` below. Sized to hold a
 # full `MAX_REFERENCES` (12) reference set at `REFERENCE_IMAGE_SHORT_EDGE`'s
-# uncapped worst-case 1:4 aspect ratio in float32 with headroom left over for
-# a handful of Director windows layering distinct keyframes on top of that. A
+# worst-case 1:4 aspect ratio in float32 with headroom left over for a handful
+# of Director windows layering distinct keyframes on top of that. A
 # pathological request that would exceed it does not grow the cache past this
 # -- entries are evicted LRU, and any single entry over the WHOLE budget skips
 # caching for that one (see `VisualLatentCache.put`), falling back to the
@@ -946,19 +919,15 @@ def normalize_references(
     references: list[ReferenceMedia] | tuple[ReferenceMedia, ...], *, num_frames: int, fps: float = FPS,
     canvas_multiple: int = CANVAS_MULTIPLE, canvas_short_edge: int = CANVAS_SHORT_EDGE,
     canvas_max_pixels: int = CANVAS_MAX_PIXELS, reference_short_edge: int = REFERENCE_IMAGE_SHORT_EDGE,
-    reference_max_pixels: int = REFERENCE_IMAGE_MAX_PIXELS,
     audio_sample_rate: int = AUDIO_SAMPLE_RATE, audio_channels: int = AUDIO_CHANNELS,
-    upscale: bool = False,
 ) -> list[ReferenceMedia]:
     """Put every reference on MiniMax-H3's own rates and resolutions, in
     packed order (`MiniMaxH3Ref2VASetupStep.__call__`'s normalize loop).
 
-    Per modality: an image to its own `reference_short_edge` resolution
-    capped at `reference_max_pixels`, a video onto `fps` and onto the canvas
-    its own aspect ratio resolves to, neither enlarged unless `upscale`, and
-    ANY reference's soundtrack -- a standalone audio reference's, and a video
-    reference's alike -- onto the audio VAE's `audio_sample_rate`, truncated
-    to the generated duration `num_frames / fps`.
+    Per modality: an image to its own resolution, a video onto `fps`, and ANY
+    reference's soundtrack -- a standalone audio reference's, and a video
+    reference's alike -- onto the audio VAE's `audio_sample_rate`,
+    truncated to the generated duration `num_frames / fps`.
 
     The soundtrack is truncated at its SOURCE rate and resampled once
     afterwards, in that order (`audio.normalize_condition_waveform`); a
@@ -993,7 +962,6 @@ def normalize_references(
                 kind="image",
                 image=normalize_reference_image(
                     reference.image, canvas_multiple=canvas_multiple, short_edge=reference_short_edge,
-                    max_pixels=reference_max_pixels, upscale=upscale,
                 ),
             ))
         elif reference.kind == "video":
@@ -1002,7 +970,7 @@ def normalize_references(
                 frames=normalize_reference_video(
                     reference.frames, fps=float(reference.fps if reference.fps is not None else fps),
                     num_frames=num_frames, target_fps=fps, canvas_multiple=canvas_multiple,
-                    short_edge=canvas_short_edge, max_pixels=canvas_max_pixels, upscale=upscale,
+                    short_edge=canvas_short_edge, max_pixels=canvas_max_pixels,
                 ),
                 fps=fps, audio=waveform, sample_rate=None if waveform is None else audio_sample_rate,
             ))

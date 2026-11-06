@@ -223,10 +223,10 @@ def test_build_context_passes_the_reference_short_edge_to_normalize_references(o
 
 
 @pytest.mark.parametrize(("overrides", "expected_size", "expected_tokens"), [
-    ({}, (1088, 1920), 34 * 60),
+    ({}, (1056, 1920), 33 * 60),
     ({"reference_short_edge": 1024}, (1024, 1824), 32 * 57),
 ])
-def test_build_context_fits_a_reference_picture_to_the_configured_short_edge(
+def test_build_context_brings_a_reference_picture_down_to_the_configured_short_edge_without_enlarging_it(
     overrides, expected_size, expected_tokens,
 ):
     ctx = _build_reference_context(overrides, _reference_image((1072, 1920)))
@@ -3932,64 +3932,6 @@ def test_decode_tile_px_is_a_declared_config_choice():
     assert spec.default == 256
     assert GeneratorMinimaxH3Pipe.get_default_config()["decode_tile_px"] == 256
     assert set(spec.choices) == {0, 256, 512}
-
-
-@pytest.mark.parametrize(("upscale", "size"), [(False, (832, 480)), (True, (1888, 1088))])
-def test_reference_images_follow_the_reference_upscale_engine_setting(monkeypatch, upscale, size):
-    from src.platform.settings import runtime_flags
-
-    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_h3_reference_upscale", upscale)
-    ctx = GeneratorMinimaxH3Pipe({
-        **GeneratorMinimaxH3Pipe.get_default_config(),
-        "references": [{"path": "frame"}],
-    }).build_context(_pipe_input(
-        model=_fake_bundle(), conditioning=[_fake_conditioning(3)],
-        reference_images=[_reference_image((832, 480))],
-    ))
-    assert ctx.extra.references[0].image.size == size
-
-
-def test_the_reference_image_pixel_budget_is_a_declared_config():
-    spec = next(s for s in GeneratorMinimaxH3Pipe.configuration() if s.name == "reference_image_pixel_budget")
-    assert (spec.default, spec.min_value, spec.max_value) == (0.0, 0.0, 16.0)
-    assert GeneratorMinimaxH3Pipe.get_default_config()["reference_image_pixel_budget"] == 0.0
-
-
-@pytest.mark.parametrize(("budget", "resolution", "size"), [
-    (None, "832x480", (1920, 1088)),
-    (0, "832x480", (1920, 1088)),
-    ("", "832x480", (1920, 1088)),
-    (1, "832x480", (832, 480)),
-    ("1", "832x480", (832, 480)),
-    (1, "1344x768", (1344, 768)),
-    (2, "1344x768", (1920, 1088)),
-])
-def test_the_reference_image_pixel_budget_caps_a_photo_at_the_output_area(budget, resolution, size):
-    config = {
-        **GeneratorMinimaxH3Pipe.get_default_config(),
-        "resolution": resolution,
-        "references": [{"path": "photo"}],
-    }
-    if budget is not None:
-        config["reference_image_pixel_budget"] = budget
-    ctx = GeneratorMinimaxH3Pipe(config).build_context(_pipe_input(
-        model=_fake_bundle(), conditioning=[_fake_conditioning(3)],
-        reference_images=[_reference_image((1920, 1080))],
-    ))
-    assert ctx.extra.references[0].image.size == size
-
-
-def test_the_reference_image_pixel_budget_never_enlarges_a_small_reference():
-    ctx = GeneratorMinimaxH3Pipe({
-        **GeneratorMinimaxH3Pipe.get_default_config(),
-        "resolution": "1344x768",
-        "reference_image_pixel_budget": 2,
-        "references": [{"path": "frame"}],
-    }).build_context(_pipe_input(
-        model=_fake_bundle(), conditioning=[_fake_conditioning(3)],
-        reference_images=[_reference_image((832, 480))],
-    ))
-    assert ctx.extra.references[0].image.size == (832, 480)
 
 
 def _length_from_video_pipe(**overrides):
