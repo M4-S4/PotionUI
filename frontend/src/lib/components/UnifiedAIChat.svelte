@@ -12,13 +12,21 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
-	import { activeTab, tabsStore } from '$lib/stores/tabs';
+	import { activeTab, activeToolTab, tabsStore } from '$lib/stores/tabs';
+	import { userGenerationTabs as generationTabs } from '$lib/types/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
-	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
+	import {
+		chatModes,
+		modeOffersTools,
+		modeReadsAppContext,
+		resolveModeForRoute,
+		resolveModeName,
+		toolsForMode
+	} from '$lib/stores/chatModes';
 	import {
 		declaredMode,
 		collectProvidedContext,
@@ -97,7 +105,8 @@
 		parseDirectorCapabilities,
 		resolveDirectorRaw,
 		normalizeDirectorValue,
-		applyDirectorSegmentPrompt
+		applyDirectorSegmentPrompt,
+		resolveDirectorSegmentTarget
 	} from '$lib/utils/videoDirector';
 	import { applyModelOverlay, directorOverlayFrom, selectedCloudModelId } from '$lib/utils/cloudDirector';
 	import { sharedCapabilityCache } from '$lib/form/capabilityTracker';
@@ -274,7 +283,7 @@
 	}
 
 	// All available tabs for pin dropdown
-	$: allTabs = $tabsStore.tabs || [];
+	$: allTabs = generationTabs($tabsStore.tabs || []);
 
 	// Safety: clear stale pinnedTabId when it no longer references a valid tab
 	$: if (pinnedTabId && allTabs.length > 0 && !allTabs.find((t: any) => t.id === pinnedTabId)) {
@@ -282,7 +291,8 @@
 	}
 
 	// Resolved context tab: pinned or active
-	$: contextTab = resolveChatContextTab(allTabs, pinnedTabId, $activeTab);
+	$: chatActiveTab = $activeToolTab ? null : $activeTab;
+	$: contextTab = resolveChatContextTab(allTabs, pinnedTabId, chatActiveTab);
 
 	let chatResources: PresetPromptResourcesResult = { specs: [], fieldLabels: {} };
 	let chatResourcesKey = '';
@@ -341,7 +351,7 @@
 	// Context strip: states which tab the chat is reading (see contextStrip.ts).
 	$: pinnedTabResolved = pinnedTabId ? allTabs.find((t: any) => t.id === pinnedTabId) || null : null;
 	$: stripModel = deriveContextStripModel({
-		activeTab: $activeTab,
+		activeTab: chatActiveTab,
 		pinnedTab: pinnedTabResolved,
 		pinnedTabId,
 		presetName: resolvePresetName
@@ -390,7 +400,7 @@
 			hasMessages: messages.length > 0,
 			presetName: resolvePresetName
 		});
-		if (switched) {
+		if (switched && appContextOn) {
 			contextDividers = [
 				...contextDividers,
 				{
@@ -538,7 +548,9 @@
 	$: supportsVision = selectedConfig?.supports_vision || false;
 
 	// Tools visible in the current mode (mode tools + global tools)
-	$: visibleTools = toolsForMode($chatModes.toolsCatalog, currentMode);
+	$: toolsOffered = modeOffersTools(currentMode, $chatModes.modes);
+	$: appContextOn = modeReadsAppContext(currentMode, $chatModes.modes);
+	$: visibleTools = toolsOffered ? toolsForMode($chatModes.toolsCatalog, currentMode) : [];
 
 	// Token usage tracking: the header's context meter (Seam 3) only wants
 	// the last request's prompt-token count, not a running total.
@@ -1017,6 +1029,7 @@
 		!videoDirectorActive && !!contextTab?.selectedPreset && presetBatchCache[contextTab.selectedPreset] === true;
 
 	function buildContextMetadata(): Record<string, any> {
+		if (!appContextOn) return {};
 		const tab = contextTab;
 		const activeSegments: Segment[] = videoDirectorActive ? [] : tab?.promptSegments || [];
 		const negativeSegments: Segment[] = videoDirectorActive ? [] : tab?.negativePromptSegments || [];
@@ -1240,24 +1253,11 @@
 		if (action.type === 'update_director_segment') {
 			if (!videoDirectorActive || !videoDirectorCaps) return;
 			const doc = normalizeDirectorValue(tab.videoDirector, videoDirectorCaps);
-			// Resolve id-first/index-fallback against the SAME pre-apply list
-			// applyDirectorSegmentPrompt targets, so the applied-marker lands on
-			// the segment it actually wrote to. Timeline routing (W2): once the
-			// tag names a shot, resolve strictly within that shot's own beat
-			// list (a beat id is only unique WITHIN its shot); otherwise flatten
-			// every shot's beats in shot order, same as
-			// applyDirectorSegmentPrompt's own fallback.
-			const list: { id: string }[] = videoDirectorCaps.segmentRouting
-				? doc.chain.segments
-				: action.shotId
-					? (doc.timeline.shots.find((shot) => shot.id === action.shotId)?.segments ?? [])
-					: doc.timeline.shots.flatMap((shot) => shot.segments);
-			const byId = list.findIndex((s) => s.id === action.segmentId);
-			const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < list.length ? action.segmentIndex : -1;
+			const target = resolveDirectorSegmentTarget(doc, videoDirectorCaps, action);
 			const next = applyDirectorSegmentPrompt(doc, videoDirectorCaps, action);
-			if (!next || idx === -1) return;
+			if (!next || !target) return;
 			tabsStore.updateTab(tab.id, { videoDirector: next });
-			appliedSegmentActions.set(list[idx].id, messageId, actionIndex);
+			appliedSegmentActions.set(target.id, messageId, actionIndex);
 			return;
 		}
 
@@ -2004,7 +2004,7 @@
 							compact={false}
 							isStreaming={message.isStreaming || false}
 							isPartial={message.isPartial || false}
-							onApplyAction={enableTools
+							onApplyAction={enableTools && toolsOffered
 								? (action, actionIndex) =>
 										handleApplySegmentAction(action, message.id || '', actionIndex)
 								: undefined}
@@ -2115,7 +2115,7 @@
 		<!-- Pinned-to-another-tab warning: the only context state that needs its
 		     own block with actions; the following/pinned-active states render as
 		     the chip inside the composer's context row (see ChatInput's slot). -->
-		{#if stripModel && stripModel.state === 'pinned-mismatch'}
+		{#if appContextOn && stripModel && stripModel.state === 'pinned-mismatch'}
 			<div class="chat-overlay-col">
 				<ChatContextStrip
 					model={stripModel}
@@ -2159,18 +2159,19 @@
 			{visibleTools}
 			disabledTools={$chatSession.disabledTools}
 			{enableTools}
+			toolsAvailable={toolsOffered}
 			onToggleEnableTools={handleToggleEnableTools}
 			onToggleTool={handleToggleTool}
 			{myToolPreferences}
 			onOpenToolPreferences={() => (showToolPreferencesPanel = true)}
 			{alwaysAttachLastImage}
 			onToggleAttachImage={toggleAttachLastImage}
-			onOpenMemory={openMemoryPanel}
+			onOpenMemory={appContextOn ? openMemoryPanel : undefined}
 			memoryOpen={showMemoryPanel}
 			{memoryNoteCount}
 		>
 			<svelte:fragment slot="context">
-				{#if stripModel && stripModel.state !== 'pinned-mismatch'}
+				{#if appContextOn && stripModel && stripModel.state !== 'pinned-mismatch'}
 					<ChatContextStrip
 						model={stripModel}
 						flash={stripFlash}

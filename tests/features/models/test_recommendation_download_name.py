@@ -8,7 +8,7 @@ import yaml
 
 from src.features.models.dto import RecommendationDownloadRequest
 from src.features.models.routes import ModelController
-from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS
+from src.platform.filesystem.model_types import extensions_for
 from src.platform.security.user import AccountType
 
 INTERPOLATE_TAB = (
@@ -56,4 +56,4 @@ def test_every_rife_pick_has_a_name_the_indexer_reads():
     names = [rec["name"] for rec in model["configuration"]["recommendations"]]
 
     assert set(names) == {"flownet_v4.25.pth", "flownet_v4.26.pth", "rife49.pth"}
-    assert all(Path(name).suffix in SUPPORTED_MODEL_EXTENSIONS for name in names)
+    assert all(Path(name).suffix in extensions_for(model["configuration"]["model_type"]) for name in names)
