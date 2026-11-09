@@ -57,6 +57,9 @@ vars:
       max_duration: 5
   video_producer:
     profile: "12 GB · 64 GB RAM"
+    companions:
+      i2v: "01M57QPEMDPKHHW83YSEYBN0X2"
+      flf: "01M57QPEMDPKHHW83YSEYBN0X2"
 
 llm:
   guide: |
