@@ -6,7 +6,12 @@ from typing import Any
 import numpy as np
 import torch
 from src.platform.runtime.native.errors import DecodeNumericsError, retry_after_cuda_oom
-from src.platform.runtime.native.memory.residency import effective_free_vram_gb, free_vram_gb, get_residency_registry
+from src.platform.runtime.native.memory.residency import (
+    effective_free_vram_gb,
+    free_vram_gb,
+    get_residency_registry,
+    minimum_inference_memory_gb,
+)
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
@@ -26,7 +31,7 @@ from src.platform.runtime.native.vae.tiling import (
 from src.platform.runtime.system_memory import get_system_memory
 from src.platform.settings.runtime_flags import runtime_flag
 from src.pipelines.contracts import logger
-from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident
+from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident, _release_idle_pool
 from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 
 
@@ -93,6 +98,7 @@ class ExpertRouter:
 
     def _weights_budget_gb(self, dit) -> float:
         need = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + _dit_lora_delta_gb(dit)
+        _release_idle_pool(self.device)
         free = free_vram_gb(self.device)
         if free is None:
             return need
@@ -100,14 +106,14 @@ class ExpertRouter:
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
         headroom += max(0.0, float(self.preview_reserve_gb))
-        evicted = get_residency_registry().ensure_free(self.device, need + headroom, free, exclude=self._own_experts())
+        reserve = max(minimum_inference_memory_gb(), headroom)
+        target = need + reserve if need > 0.0 else 0.0
+        evicted = get_residency_registry().ensure_free(self.device, target, free, exclude=self._own_experts())
         if evicted:
-            logger.info("[WAN PLACEMENT] evicted %d resident component(s) (%s) for %.2fGB of weights and "
-                        "activations, %.2fGB free", len(evicted), ", ".join(type(m).__name__ for m in evicted),
-                        need + headroom, free)
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        free = free_vram_gb(self.device) or 0.0
+            logger.debug("[GENERATOR WAN] evicted %s for %.2fGB of expert weights + %.2fGB reserve (%.2fGB free)",
+                         ", ".join(type(m).__name__ for m in evicted), need, reserve, free)
+            _release_idle_pool(self.device)
+        free = effective_free_vram_gb(self.device) or 0.0
         budget = max(0.0, free - headroom)
         logger.info("[WAN PLACEMENT] %s expert %.2fGB: latent %dx%dx%d, activation reserve %.2fGB, "
                     "weight budget %.2fGB of %.2fGB free", self._expert_label(dit), need,

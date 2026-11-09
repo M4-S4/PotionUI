@@ -1,7 +1,7 @@
 id: "nvidia-rtx-upscale"
 name: "NVIDIA RTX Upscale"
 version: "0.2.0"
-description: "NVIDIA RTX Video Super Resolution and Video Frame Generation (nvidia-vfx) as native pipes: per-frame RTX Tensor Core upscaling, denoise and deblur for images and video, and frame-rate conversion for video. No diffusion checkpoint, no prompt -- Tensor Core effects, not generative models. Needs an NVIDIA RTX GPU (Turing or newer; Ada or Blackwell for frame generation), a driver >= 570.190 on Linux, and the nvidia-vfx 0.2 pip package from pypi.nvidia.com -- the pipes name the exact install command when it isn't there."
+description: "NVIDIA RTX Video Super Resolution and Video Frame Generation (nvidia-vfx) as native pipes: per-frame RTX Tensor Core upscaling, denoise and deblur for images and video, and frame-rate conversion for video. No diffusion checkpoint, no prompt -- Tensor Core effects, not generative models. Needs an NVIDIA RTX GPU (Turing or newer; Ada or Blackwell for frame generation), a driver >= 570.190 on Linux, and the nvidia-vfx pip package from pypi.nvidia.com (0.2 or later for frame generation) -- the pipes name the exact install command when it isn't there."
 author: "PotionUI Team"
 type: "backend-only"
 category: "steps"

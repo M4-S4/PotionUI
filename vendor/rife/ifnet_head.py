@@ -13,8 +13,6 @@ BLOCK_CHANNELS = 13
 
 
 class Head(nn.Module):
-    """Per-image feature encoder of the RIFE 4.10+ line."""
-
     def __init__(self, mid_ch: int = 16, out_ch: int = 4):
         super().__init__()
         self.cnn0 = nn.Conv2d(3, mid_ch, 3, 2, 1)
@@ -31,8 +29,6 @@ class Head(nn.Module):
 
 
 class HeadIFBlock(nn.Module):
-    """Flow block of the 4.21+ line: flow, mask and a feature map handed to the next block."""
-
     def __init__(self, in_planes: int, c: int = 64):
         super().__init__()
         self.conv0 = nn.Sequential(
@@ -59,8 +55,6 @@ class HeadIFBlock(nn.Module):
 
 
 class HeadIFNet(nn.Module):
-    """RIFE 4.21 to 4.26 flow network, built from per-block ``(in_planes, c)`` specs, the encoder widths and the scale ladder."""
-
     mask_is_residual = False
 
     def __init__(self, block_specs: List[Tuple[int, int]], encode_spec: Tuple[int, int],

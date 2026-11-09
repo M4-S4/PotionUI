@@ -1,10 +1,11 @@
-"""NVIDIA RTX Video Frame Generation (`nvidia-vfx` >= 0.2, `import nvvfx`) as a native-engine pipe."""
-
 from __future__ import annotations
 
 import contextlib
+import importlib.metadata
 import logging
 import math
+import os
+import re
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -40,48 +41,76 @@ PROGRESS_EVERY = 8
 INSTALL_HINT = (
     'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com -- '
     "Video Frame Generation needs nvidia-vfx 0.2 or later, an NVIDIA Ada or Blackwell "
-    "GPU, and an NVIDIA driver >= 570.190 on Linux (>= 570.65 on Windows). pypi.org "
-    "only carries a 3.7 kB source stub: the ~440 MB wheel comes from pypi.nvidia.com, "
-    "hence the extra index. In Docker, give the container the ngx driver capability "
-    "(NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx), which the effects of nvidia-vfx "
-    "need to load. On WSL2 outside Docker, users report that the library only loads with "
-    "LD_LIBRARY_PATH=/usr/lib/wsl/lib set before Python starts. The PyPI package name "
-    "(nvidia-vfx) differs from its import name (nvvfx), so the plugin catalog's generic "
-    "installer cannot run this for you -- install it yourself with the command above."
+    "GPU (Hopper too on Linux), and an NVIDIA driver >= 570.190 on Linux (>= 570.65 on "
+    "Windows). pypi.org only carries a 3.7 kB source stub: the ~440 MB wheel comes from "
+    "pypi.nvidia.com, hence the extra index. In Docker, Frame Generation runs with the "
+    "default compute,utility driver capabilities, while the plugin's Video Super Resolution "
+    "also needs ngx (NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx). On WSL2 outside "
+    "Docker, users report that the library only loads with LD_LIBRARY_PATH=/usr/lib/wsl/lib "
+    "set before Python starts. The PyPI package name (nvidia-vfx) differs from its import "
+    "name (nvvfx), so the plugin catalog's generic installer cannot run this for you -- "
+    "install it yourself with the command above."
 )
+
+SDK_DEVICE_ERROR_CODES = (-17, -18, -19)
+
+
+def _installed_version() -> Optional[str]:
+    try:
+        return importlib.metadata.version("nvidia-vfx")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 def _import_nvvfx():
     try:
         import nvvfx
     except ImportError as exc:
+        version = _installed_version()
+        if version is None:
+            raise GenerationExecutionError(
+                f"NVIDIA RTX Video Frame Generation is not installed. {INSTALL_HINT}"
+            ) from exc
+        reason = f"{exc} {exc.__cause__ or ''}".strip()
         raise GenerationExecutionError(
-            f"NVIDIA RTX Video Frame Generation is not installed. {INSTALL_HINT}"
+            f"NVIDIA RTX Video Frame Generation is installed (nvidia-vfx {version}) but its library does not load: "
+            f"{reason}. It needs an NVIDIA GPU and driver visible to this process; in Docker, start the "
+            f"container with --gpus all. {INSTALL_HINT}"
         ) from exc
     return nvvfx
 
 
+def _sdk_code(exc: Exception, codes: Tuple[int, ...]) -> bool:
+    return any(re.search(rf"code {code}(?!\d)", str(exc)) for code in codes)
+
+
+def sdk_error(exc: Exception, where: str) -> GenerationExecutionError:
+    if _sdk_code(exc, SDK_DEVICE_ERROR_CODES):
+        return GenerationExecutionError(
+            f"NVIDIA RTX Video Frame Generation does not run on this GPU or driver {where}: it needs an "
+            f"NVIDIA Ada or Blackwell GPU (Hopper too on Linux) and a driver >= 570.190 on Linux "
+            f"(>= 570.65 on Windows). SDK error: {exc}"
+        )
+    return GenerationExecutionError(f"NVIDIA RTX Video Frame Generation failed {where}: {exc}")
+
+
 def output_fps(source_fps: float, factor: int, target_fps: float) -> float:
-    """The frame rate of the output: `target_fps` when it is set, else the source's times `factor`."""
     if target_fps and target_fps > 0:
         return float(target_fps)
     return float(source_fps) * int(factor)
 
 
 def output_count(source_count: int, source_fps: float, out_fps: float) -> int:
-    """How many frames keep the clip's duration at the output frame rate."""
     return max(1, int(round(source_count * out_fps / source_fps)))
 
 
 def source_position(index: int, source_fps: float, out_fps: float) -> Tuple[int, float]:
-    """The source frame before output frame `index` and how far past it the frame falls."""
     position = index * source_fps / out_fps
     whole = int(math.floor(position + POSITION_EPSILON))
     return whole, position - whole
 
 
 def plan_frame(index: int, source_count: int, source_fps: float, out_fps: float) -> Tuple[int, Optional[float]]:
-    """(i, None) when output frame `index` is source frame i as is, (i, t) when it is made at t between i and i + 1."""
     whole, step = source_position(index, source_fps, out_fps)
     if whole >= source_count - 1:
         return source_count - 1, None
@@ -91,12 +120,10 @@ def plan_frame(index: int, source_count: int, source_fps: float, out_fps: float)
 
 
 def plan(source_count: int, source_fps: float, out_fps: float) -> List[Tuple[int, Optional[float]]]:
-    """Every output frame of a clip of `source_count` frames, as `plan_frame` gives it."""
     return [plan_frame(k, source_count, source_fps, out_fps) for k in range(output_count(source_count, source_fps, out_fps))]
 
 
 def default_stream(torch_module):
-    """Run the SDK on the default CUDA stream, the only one `nvvfx` 0.2 accepts."""
     if torch_module.cuda.is_available():
         return torch_module.cuda.stream(torch_module.cuda.default_stream())
     return contextlib.nullcontext()
@@ -123,18 +150,19 @@ def _to_rgb(tensor) -> np.ndarray:
 
 
 class _VfgSession:
-    """One `nvvfx.VideoFrameGeneration` effect for a whole clip, loaded for the clip's frame size."""
-
     def __init__(self, nvvfx_module, mode: str, scene_detection: bool, multiplier: Optional[int]):
         effect_cls = getattr(nvvfx_module, "VideoFrameGeneration", None)
         if effect_cls is None:
             raise GenerationExecutionError(
                 f"This nvvfx has no Video Frame Generation (it came in nvidia-vfx 0.2). {INSTALL_HINT}"
             )
-        self._effect = effect_cls(
-            mode=_mode(effect_cls, mode),
-            automatic_shot_change_detection_enabled=bool(scene_detection),
-        )
+        try:
+            self._effect = effect_cls(
+                mode=_mode(effect_cls, mode),
+                automatic_shot_change_detection_enabled=bool(scene_detection),
+            )
+        except Exception as exc:
+            raise sdk_error(exc, "when the effect is created") from exc
         self._multiplier = multiplier
         self._loaded_size: Optional[Tuple[int, int]] = None
         self._tensors: Dict[int, Any] = {}
@@ -149,9 +177,7 @@ class _VfgSession:
         try:
             self._effect.load()
         except Exception as exc:
-            raise GenerationExecutionError(
-                f"NVIDIA RTX Video Frame Generation could not load for {width}x{height} frames: {exc}"
-            ) from exc
+            raise sdk_error(exc, f"for {width}x{height} frames") from exc
         self._loaded_size = (width, height)
 
     def _tensor(self, index: int, frames: Dict[int, np.ndarray]):
@@ -175,11 +201,8 @@ class _VfgSession:
                 else:
                     result = self._effect.run_at_timestep(previous, current, float(step))
             except Exception as exc:
-                raise GenerationExecutionError(
-                    f"NVIDIA RTX Video Frame Generation failed between frames {index} and {index + 1}: {exc}"
-                ) from exc
-            made = torch.from_dlpack(result.image).clone()
-        return _to_rgb(made)
+                raise sdk_error(exc, f"between frames {index} and {index + 1}") from exc
+            return _to_rgb(torch.from_dlpack(result.image).clone())
 
     def close(self) -> None:
         self._tensors.clear()
@@ -319,62 +342,87 @@ class RtxFrameGenerationPipe(BasePipe):
 
         writer: Optional[StreamingMp4Writer] = None
         out_tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+        owned = [out_tmp]
         frames: Dict[int, np.ndarray] = {}
         try:
-            source_fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
-            out_fps = output_fps(source_fps, factor, target_fps)
-            expected = output_count(int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0), source_fps, out_fps)
-            read = 0
-            ended = False
-            index = 0
-            while True:
-                if is_cancelled and is_cancelled():
-                    break
-                whole, _ = source_position(index, source_fps, out_fps)
-                while not ended and read <= whole + 1:
-                    ok, frame_bgr = cap.read()
-                    if not ok or frame_bgr is None:
-                        ended = True
+            try:
+                source_fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+                out_fps = output_fps(source_fps, factor, target_fps)
+                expected = output_count(int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0), source_fps, out_fps)
+                read = 0
+                ended = False
+                index = 0
+                while True:
+                    if is_cancelled and is_cancelled():
                         break
-                    frames[read] = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                    read += 1
-                if read == 0:
-                    break
-                if ended and index >= output_count(read, source_fps, out_fps):
-                    break
-                source, step = plan_frame(index, read, source_fps, out_fps)
-                if writer is None:
-                    height, width = frames[source].shape[:2]
-                    writer = StreamingMp4Writer(out_tmp, width, height, out_fps)
-                if step is None:
-                    made = frames[source]
+                    whole, _ = source_position(index, source_fps, out_fps)
+                    while not ended and read <= whole + 1:
+                        ok, frame_bgr = cap.read()
+                        if not ok or frame_bgr is None:
+                            ended = True
+                            break
+                        frames[read] = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                        read += 1
+                    if read == 0:
+                        break
+                    if ended and index >= output_count(read, source_fps, out_fps):
+                        break
+                    source, step = plan_frame(index, read, source_fps, out_fps)
+                    if writer is None:
+                        height, width = frames[source].shape[:2]
+                        writer = StreamingMp4Writer(out_tmp, width, height, out_fps)
+                    if step is None:
+                        made = frames[source]
+                    else:
+                        session.ensure_loaded(frames[source].shape[1], frames[source].shape[0])
+                        made = session.frame_between(frames, source, step)
+                    writer.write(made)
+                    for key in [key for key in frames if key < source]:
+                        del frames[key]
+                    session.forget_before(source)
+                    index += 1
+                    if index % PROGRESS_EVERY == 0:
+                        generation_outputs(ProgressGenerationOutput(
+                            state=f"RTX frame generation: <<NUMBER:{index}>> / <<NUMBER:{expected}>> frames",
+                            icon=Icon(name="film"),
+                            progress=Progress(index, max(expected, index)),
+                        ))
+            finally:
+                cap.release()
+
+            if writer is None:
+                raise GenerationExecutionError(f"interpolator/rtx_vfg: no frames decoded from {video_path}")
+            writer.close()
+
+            final_path = out_tmp
+            if keep_audio:
+                muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+                owned.append(muxed)
+                if mux_audio_from_source(out_tmp, video_path, muxed):
+                    final_path = muxed
+                    _discard(out_tmp)
                 else:
-                    session.ensure_loaded(frames[source].shape[1], frames[source].shape[0])
-                    made = session.frame_between(frames, source, step)
-                writer.write(made)
-                for key in [key for key in frames if key < source]:
-                    del frames[key]
-                session.forget_before(source)
-                index += 1
-                if index % PROGRESS_EVERY == 0:
-                    generation_outputs(ProgressGenerationOutput(
-                        state=f"RTX frame generation: <<NUMBER:{index}>> / <<NUMBER:{expected}>> frames",
-                        icon=Icon(name="film"),
-                        progress=Progress(index, max(expected, index)),
-                    ))
-        finally:
-            cap.release()
-
-        if writer is None:
-            raise GenerationExecutionError(f"interpolator/rtx_vfg: no frames decoded from {video_path}")
-        writer.close()
-
-        final_path = out_tmp
-        if keep_audio:
-            muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-            if mux_audio_from_source(out_tmp, video_path, muxed):
-                final_path = muxed
-            else:
-                logger.warning("[INTERPOLATOR_RTX] audio mux skipped for %s -- keeping video-only output", video_path)
+                    _discard(muxed)
+                    logger.warning("[INTERPOLATOR_RTX] audio mux skipped for %s -- keeping video-only output", video_path)
+        except Exception:
+            _cleanup_on_failure(writer, owned)
+            raise
 
         return VideoGenerationOutput(video_path=final_path, temporary=True, fps=float(out_fps))
+
+
+def _discard(*paths: str) -> None:
+    for path in paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _cleanup_on_failure(writer: Optional[StreamingMp4Writer], owned: List[str]) -> None:
+    if writer is not None:
+        try:
+            writer.abort()
+        except Exception:
+            logger.warning("[INTERPOLATOR_RTX] writer.abort() failed during cleanup", exc_info=True)
+    _discard(*owned)

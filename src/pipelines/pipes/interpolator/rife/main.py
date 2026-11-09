@@ -12,18 +12,13 @@ held for the ``factor - 1`` slots it owns -- it has no successor to interpolate
 toward). Holding that tail is what keeps ``N * factor / (fps * factor)`` equal
 to the source's ``N / fps``; emitting ``(N - 1) * factor + 1`` frames instead
 lands ``(factor - 1) / (fps * factor)`` short and drags the audio with it.
-
-With ``target_fps`` set, the output runs at that rate instead and follows the
-schedule of :mod:`.cadence`: ``round(N * target_fps / source_fps)`` frames,
-each a source frame, an instant between two, or the last frame held. A pair
-whose frames differ like a cut (``scene_detection``) is never blended: its
-slots show the nearer of the two frames.
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -159,7 +154,6 @@ def _load_model(model_path: str, device: str, models: Optional[Any] = None) -> "
 
 
 def _similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Mean SSIM (11x11 Gaussian window, sigma 1.5) of two RGB frames reduced to 32x32 grey."""
     import cv2
 
     def grey(rgb: np.ndarray) -> np.ndarray:
@@ -203,9 +197,9 @@ class RifeInterpolatorPipe(BasePipe):
                            required=False, choices=[2, 4]),
             PipeConfigSpec("target_fps", float, 0.0,
                            "Output frame rate; 0 multiplies the source rate by factor instead",
-                           required=False),
+                           required=False, min_value=0.0, max_value=_MAX_TARGET_FPS),
             PipeConfigSpec("scene_detection", bool, True,
-                           "Hold the nearer frame instead of blending across a cut",
+                           "With a target frame rate, hold the nearer frame instead of blending across a cut",
                            required=False),
             PipeConfigSpec("flow_scale", float, 1.0,
                            "Flow-computation scale (0.5 for high-res >2K inputs)",
@@ -231,7 +225,7 @@ class RifeInterpolatorPipe(BasePipe):
 
     @staticmethod
     def output_frame_count(n_source: int, factor: int) -> int:
-        return n_source * factor if n_source > 0 else 0
+        return output_count(n_source, Fraction(1, factor))
 
     def _resolve_model_path(self) -> str:
         model_cfg = self.config.get("model")
@@ -270,7 +264,7 @@ class RifeInterpolatorPipe(BasePipe):
         factor = int(self.config.get("factor", 2))
         if target_fps == 0 and factor not in (2, 4):
             raise ValueError(f"interpolator/rife: factor must be 2 or 4, got {factor}")
-        scene_detection = bool(self.config.get("scene_detection", True))
+        scene_detection = target_fps > 0 and bool(self.config.get("scene_detection", True))
         flow_scale = float(self.config.get("flow_scale", 1.0))
         keep_audio = bool(self.config.get("keep_audio", True))
 
@@ -403,8 +397,6 @@ class RifeInterpolatorPipe(BasePipe):
                     if is_cancelled():
                         raise SamplingCancelled()
 
-                    # The last decoded frame owns `factor` slots at the output rate but has no
-                    # successor to interpolate toward, so it is held for the remaining ones.
                     total = output_count(read_idx, ratio)
                     written += self._flush(writer, pending, total)
                     pending.clear()
@@ -489,7 +481,6 @@ class RifeInterpolatorPipe(BasePipe):
 
     @staticmethod
     def _flush(writer: StreamingMp4Writer, pending: List[Tuple[int, np.ndarray]], limit: int) -> int:
-        """Write, in order, the pending output frames whose index is below ``limit`` and drop them from ``pending``; returns how many."""
         ready = [frame for index, frame in pending if index < limit]
         for frame in ready:
             writer.write(frame)
@@ -498,7 +489,6 @@ class RifeInterpolatorPipe(BasePipe):
 
     @staticmethod
     def _is_cut(prev_rgb: np.ndarray, rgb: np.ndarray) -> bool:
-        """True when two frames are as unlike as a cut: their SSIM on 32x32 grey copies is under 0.2."""
         return _similarity(prev_rgb, rgb) < _CUT_SSIM
 
     @staticmethod

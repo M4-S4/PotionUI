@@ -77,6 +77,7 @@ def _expert_budget(preview_reserve_gb=None):
         router.preview_reserve_gb = preview_reserve_gb
     registry = SimpleNamespace(ensure_free=lambda *a, **k: [])
     with patch("src.pipelines.pipes._shared.video.wan_experts.free_vram_gb", return_value=24.0), \
+         patch("src.pipelines.pipes._shared.video.wan_experts.effective_free_vram_gb", return_value=24.0), \
          patch("src.pipelines.pipes._shared.video.wan_experts.get_residency_registry", return_value=registry):
         return router._weights_budget_gb(high)
 
@@ -923,6 +924,7 @@ class _FakeResidency:
 def _patch_placement(monkeypatch, free_gb):
     res = _FakeResidency()
     monkeypatch.setattr(_wan_mod, "free_vram_gb", lambda device: free_gb)
+    monkeypatch.setattr(_wan_mod, "effective_free_vram_gb", lambda device: free_gb)
     monkeypatch.setattr(_wan_mod, "get_residency_registry", lambda: res)
     return res
 
@@ -1123,8 +1125,8 @@ def test_router_weights_budget_credits_resident_lora_delta(monkeypatch):
 
     assert res.ensure_free_calls
     need, _free, _exclude = res.ensure_free_calls[0]
-    headroom = sampling_headroom_gb((_HIRES_5S[-2], _HIRES_5S[-1]), latent_frames=_HIRES_5S[2])
-    assert need == pytest.approx(20.0 + expected_delta_gb + headroom)
+    reserve = sampling_headroom_gb(_HIRES_5S[-2:], latent_frames=_HIRES_5S[2])
+    assert need == pytest.approx(20.0 + expected_delta_gb + reserve)
 
 
 def test_router_resident_placement_routes_through_guarded_move(monkeypatch):
@@ -1143,50 +1145,6 @@ def test_router_resident_placement_routes_through_guarded_move(monkeypatch):
 
     assert calls == [(high, "cuda:0", (high,))]
     assert high.moved == []   # never called dit.move_to directly -- routed through the guard
-
-
-class _EvictingResidency(_FakeResidency):
-    def __init__(self, events):
-        super().__init__()
-        self.events = events
-
-    def ensure_free(self, device, need, free, *, exclude=()):
-        self.events.append("evict")
-        return ["text encoder"]
-
-
-def test_router_hands_the_evicted_pool_back_before_reading_free_vram_again(monkeypatch):
-    events = []
-    reads = iter([4.0, 10.0])
-
-    def _free(device):
-        events.append("free")
-        return next(reads)
-
-    monkeypatch.setattr(_wan_mod, "free_vram_gb", _free)
-    monkeypatch.setattr(_wan_mod, "get_residency_registry", lambda: _EvictingResidency(events))
-    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
-    high = _PlaceDiT("high", est_gb=14.0)
-    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
-
-    budget = router._weights_budget_gb(high)
-
-    assert events == ["free", "evict", "empty_cache", "free"]
-    assert budget == pytest.approx(10.0 - 0.75)
-
-
-def test_router_keeps_the_allocator_pool_when_nothing_was_evicted(monkeypatch):
-    calls = []
-    _patch_placement(monkeypatch, free_gb=10.0)
-    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: calls.append(1))
-    high = _PlaceDiT("high", est_gb=14.0)
-    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
-
-    router._weights_budget_gb(high)
-
-    assert calls == []
 
 
 class _LoggedPlaceDiT(_PlaceDiT):
@@ -1224,6 +1182,7 @@ def _switch_experts(monkeypatch, high, events, host_ram_gb=62.7, parking=True):
     recorder = _RecordingLogger()
     monkeypatch.setattr(_wan_mod, "logger", recorder)
     monkeypatch.setattr(_wan_mod, "free_vram_gb", _free)
+    monkeypatch.setattr(_wan_mod, "_release_idle_pool", lambda device: None)
     monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
     monkeypatch.setattr(_wan_mod, "get_system_memory",

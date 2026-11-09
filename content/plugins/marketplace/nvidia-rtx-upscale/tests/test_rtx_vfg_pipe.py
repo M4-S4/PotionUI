@@ -1,9 +1,8 @@
-"""Behavioral tests for the `interpolator/rtx_vfg` pipe, with a fake `nvvfx` and no GPU."""
-
 import json
 import shutil
 import subprocess
 from fractions import Fraction
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,6 +15,8 @@ needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
     reason="ffmpeg/ffprobe not on PATH",
 )
+
+needs_ffmpeg_binary = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH")
 
 
 @pytest.fixture
@@ -131,9 +132,9 @@ def test_a_target_frame_rate_makes_the_factor_irrelevant(pipe_class):
     assert pipe._settings()[:2] == (3, 60.0)
 
 
-def test_nvvfx_01_has_no_frame_generation(vfg_module, fake_nvvfx_01):
+def test_an_nvvfx_without_frame_generation_is_refused(vfg_module, fake_nvvfx_without_frame_generation):
     with pytest.raises(vfg_module.GenerationExecutionError) as exc_info:
-        vfg_module._VfgSession(fake_nvvfx_01, "medium", True, 2)
+        vfg_module._VfgSession(fake_nvvfx_without_frame_generation, "medium", True, 2)
 
     assert "nvidia-vfx 0.2" in str(exc_info.value)
 
@@ -268,3 +269,214 @@ def test_a_multiplier_keeps_the_sound_and_the_duration(tmp_path, pipe_class, fak
     effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
     assert effect.frame_multiplier == 2
     assert {call for call in effect.calls} == {("index", 1)}
+
+
+def _frames(width=8, height=8):
+    return {0: np.zeros((height, width, 3), dtype=np.uint8), 1: np.full((height, width, 3), 200, dtype=np.uint8)}
+
+
+@pytest.mark.parametrize("code", [-17, -18, -19])
+def test_an_unsupported_gpu_names_the_generations_it_needs(vfg_module, fake_nvvfx, code):
+    session = vfg_module._VfgSession(fake_nvvfx, "medium", True, None)
+    effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
+
+    def refuse():
+        raise RuntimeError(f"NvVFX_Load failed: The GPU is not supported (code {code})")
+
+    effect.load = refuse
+    with pytest.raises(vfg_module.GenerationExecutionError) as exc_info:
+        session.ensure_loaded(64, 48)
+
+    message = str(exc_info.value)
+    assert "does not run on this GPU or driver for 64x48 frames" in message
+    assert "Ada or Blackwell" in message
+
+
+def test_a_failed_frame_names_the_source_pair(vfg_module, fake_nvvfx, no_real_cuda):
+    session = vfg_module._VfgSession(fake_nvvfx, "medium", True, None)
+    session.ensure_loaded(8, 8)
+    effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("NvVFX_Run failed: inference error (code -120)")
+
+    effect.run_at_timestep = refuse
+    with pytest.raises(vfg_module.GenerationExecutionError) as exc_info:
+        session.frame_between(_frames(), 0, 0.5)
+
+    assert str(exc_info.value) == (
+        "NVIDIA RTX Video Frame Generation failed between frames 0 and 1: "
+        "NvVFX_Run failed: inference error (code -120)"
+    )
+
+
+def test_a_quadruple_multiplier_is_set_before_load(vfg_module, fake_nvvfx, no_real_cuda):
+    session = vfg_module._VfgSession(fake_nvvfx, "medium", True, 4)
+    session.ensure_loaded(8, 8)
+    effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
+
+    assert (effect.input_width, effect.input_height, effect.frame_multiplier) == (8, 8, 4)
+    assert effect.load_calls == 1
+    session.ensure_loaded(8, 8)
+    assert effect.load_calls == 1
+
+
+def test_a_target_frame_rate_leaves_the_multiplier_alone(vfg_module, fake_nvvfx, no_real_cuda):
+    session = vfg_module._VfgSession(fake_nvvfx, "medium", True, None)
+    session.ensure_loaded(8, 8)
+    session.frame_between(_frames(), 0, 0.4)
+    effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
+
+    assert effect.frame_multiplier == 2
+    assert effect.calls == [("timestep", pytest.approx(0.4))]
+
+
+class _RecordingWriter:
+    instances = []
+    abort_error = None
+
+    def __init__(self, path, width, height, fps):
+        self.path = path
+        self.calls = []
+        _RecordingWriter.instances.append(self)
+
+    def write(self, frame):
+        self.calls.append("write")
+
+    def close(self):
+        self.calls.append("close")
+
+    def abort(self):
+        self.calls.append("abort")
+        if _RecordingWriter.abort_error is not None:
+            raise _RecordingWriter.abort_error
+
+
+@pytest.mark.parametrize("abort_error", [None, RuntimeError("abort failed too")])
+def test_a_failure_mid_clip_aborts_the_writer_and_keeps_the_error(
+    vfg_module, pipe_class, fake_nvvfx, no_real_cuda, tmp_path, monkeypatch, abort_error,
+):
+    source = tmp_path / "in.mp4"
+    _write_input_video(source, frames=4, fps=10.0)
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    _RecordingWriter.instances = []
+    monkeypatch.setattr(_RecordingWriter, "abort_error", abort_error)
+    monkeypatch.setattr(vfg_module, "StreamingMp4Writer", _RecordingWriter)
+    monkeypatch.setattr(fake_nvvfx.VideoFrameGeneration, "run_at_timestep", refuse)
+    pipe = pipe_class({**pipe_class.get_default_config(), "target_fps": 15, "keep_audio": False})
+
+    with pytest.raises(vfg_module.GenerationExecutionError) as exc_info:
+        pipe.process(PipeInput(input={"video": [str(source)]}), lambda o: None)
+
+    assert str(exc_info.value) == "NVIDIA RTX Video Frame Generation failed between frames 0 and 1: boom"
+    (writer,) = _RecordingWriter.instances
+    assert writer.calls == ["write", "abort"]
+    assert not (tmp_path / writer.path).exists()
+    assert fake_nvvfx.VideoFrameGeneration.instances[-1].closed
+
+
+@needs_ffmpeg_binary
+def test_a_muxed_clip_leaves_no_silent_copy_behind(tmp_path, pipe_class, fake_nvvfx, no_real_cuda, monkeypatch):
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    source = tmp_path / "in.mp4"
+    _write_input_video_with_audio(source, frames=12, fps=12.0)
+    pipe = pipe_class({**pipe_class.get_default_config(), "factor": 2, "target_fps": 0, "keep_audio": True})
+
+    result = pipe.process(PipeInput(input={"video": [str(source)]}), lambda o: None)
+
+    (path,) = result.output["video"]
+    assert sorted(p.name for p in (tmp_path / "tmp").iterdir()) == [Path(path).name]
+
+
+def test_frames_are_made_on_the_default_cuda_stream(vfg_module):
+    from types import SimpleNamespace
+
+    fake_torch = SimpleNamespace(cuda=SimpleNamespace(
+        is_available=lambda: True,
+        default_stream=lambda: "stream 0",
+        stream=lambda stream: ("on", stream),
+    ))
+
+    assert vfg_module.default_stream(fake_torch) == ("on", "stream 0")
+
+
+def test_the_sdk_and_the_copies_run_inside_the_stream_context(vfg_module, fake_nvvfx, no_real_cuda, monkeypatch):
+    import contextlib
+
+    entered = []
+
+    @contextlib.contextmanager
+    def recording(torch_module):
+        entered.append("in")
+        yield
+        entered.append("out")
+
+    monkeypatch.setattr(vfg_module, "default_stream", recording)
+    session = vfg_module._VfgSession(fake_nvvfx, "medium", True, None)
+    session.ensure_loaded(8, 8)
+    effect = fake_nvvfx.VideoFrameGeneration.instances[-1]
+    real_run = effect.run_at_timestep
+
+    def run(*args, **kwargs):
+        assert entered == ["in"]
+        return real_run(*args, **kwargs)
+
+    effect.run_at_timestep = run
+    made = session.frame_between(_frames(), 0, 0.5)
+
+    assert entered == ["in", "out"]
+    assert int(made[0, 0, 0]) == 100
+
+
+@pytest.mark.parametrize("version", ["0.2.0.0", None])
+def test_the_import_tells_an_installed_but_unloadable_nvvfx_from_a_missing_one(vfg_module, monkeypatch, version):
+    import importlib.metadata
+    import sys
+
+    def lookup(name):
+        if version is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return version
+
+    class Refuse:
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname.split(".")[0] == "nvvfx":
+                raise ImportError("Failed to import NVVFX C++ extension. ")
+            return None
+
+    monkeypatch.setattr(importlib.metadata, "version", lookup)
+    monkeypatch.delitem(sys.modules, "nvvfx", raising=False)
+    finder = Refuse()
+    sys.meta_path.insert(0, finder)
+    try:
+        with pytest.raises(vfg_module.GenerationExecutionError) as exc_info:
+            vfg_module._import_nvvfx()
+    finally:
+        sys.meta_path.remove(finder)
+
+    message = str(exc_info.value)
+    if version is None:
+        assert message.startswith("NVIDIA RTX Video Frame Generation is not installed. pip install")
+    else:
+        assert message.startswith("NVIDIA RTX Video Frame Generation is installed (nvidia-vfx 0.2.0.0) but its library does not load: Failed to import")
+        assert "--gpus all" in message
+
+
+def test_an_effect_the_sdk_cannot_create_is_explained(vfg_module, fake_nvvfx, monkeypatch):
+    def refuse(self, *args, **kwargs):
+        raise RuntimeError("NvVFX_CreateEffect failed: The GPU is not supported (code -17)")
+
+    monkeypatch.setattr(fake_nvvfx.VideoFrameGeneration, "__init__", refuse)
+
+    with pytest.raises(vfg_module.GenerationExecutionError) as exc_info:
+        vfg_module._VfgSession(fake_nvvfx, "medium", True, None)
+
+    assert str(exc_info.value).startswith(
+        "NVIDIA RTX Video Frame Generation does not run on this GPU or driver when the effect is created: it needs an NVIDIA Ada or Blackwell GPU"
+    )

@@ -139,8 +139,10 @@ def _director_capabilities(request: Any) -> Optional[Dict[str, Any]]:
     if not preset_id:
         return None
     try:
-        repository = get_container().file_preset_repository
+        repository = getattr(get_container(), "file_preset_repository", None)
     except RuntimeError:
+        return None
+    if repository is None:
         return None
     template = repository.find_preset_by_id(preset_id)
     capabilities = (getattr(template, "vars", None) or {}).get("video_director") if template is not None else None

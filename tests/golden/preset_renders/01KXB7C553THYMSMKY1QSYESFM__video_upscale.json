@@ -165,7 +165,7 @@
         },
         "tile_size": {
           "type": "int",
-          "value": 0
+          "value": 2048
         },
         "uniform_batch_size": {
           "type": "bool",

@@ -1,4 +1,3 @@
-# RIFE's expert knobs: cut detection and the resolution the optical flow is computed at.
 fields:
   - name: "scene_detection"
     type: "checkbox"
@@ -6,7 +5,12 @@ fields:
     label: "Detect Cuts"
     audience: "advanced"
     default: true
-    ai_hint: "When two frames differ like a cut, show the nearer one instead of blending them into a ghost. Keep it on unless the clip has very fast motion that is wrongly read as cuts."
+    ai_hint: "With a Target Frame Rate, when two frames differ like a cut, show the nearer one instead of blending them into a ghost. Keep it on unless the clip has very fast motion that is wrongly read as cuts. Multiply blends every pair, as before."
+    reactions:
+      - when: { field: "target_fps", equals: 0 }
+        then: { set_disabled: true }
+      - when: { field: "target_fps", not_equals: 0 }
+        then: { set_disabled: false }
 
   - name: "flow_scale"
     type: "select"

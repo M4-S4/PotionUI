@@ -1,10 +1,9 @@
-"""The RIFE 4.21 to 4.26 `Head` line: published layouts load strictly, training-only tensors drop by name, the others are refused, and the forward runs on its own scale ladder and padding."""
-
 import pytest
 
 torch = pytest.importorskip("torch")
 
 from tests.vendor.rife.layouts import published_head_layout, state_dict_for
+from vendor.rife import ifnet_head
 from vendor.rife.ifnet import IFNet
 from vendor.rife.ifnet_head import HeadIFNet
 from vendor.rife.inference import interpolate, interpolate_prepared, pad_dims, prepare_frame
@@ -157,3 +156,32 @@ def test_the_forward_follows_the_model_scale_ladder(monkeypatch):
     interpolate(model, img0, img1, 0.5, flow_scale=0.5)
 
     assert seen == [[32.0, 16.0, 8.0, 4.0, 2.0]]
+
+
+def test_the_head_mask_is_a_blend_weight_between_0_and_1():
+    model = load_ifnet(_published("rife4.25", seed=1), "cpu")
+    img0, img1 = _pair(64, 64)
+
+    with torch.no_grad():
+        _, mask, _ = model(torch.cat((img0, img1), 1), 0.5, list(model.scale_base))
+
+    assert mask.min() >= 0 and mask.max() <= 1
+
+
+def test_each_head_block_after_the_first_warps_both_feature_maps(monkeypatch):
+    model = load_ifnet(_published("rife4.25"), "cpu")
+    warped = []
+    original = ifnet_head.warp
+
+    def spy(tensor, flow):
+        warped.append(tensor.shape[1])
+        return original(tensor, flow)
+
+    monkeypatch.setattr(ifnet_head, "warp", spy)
+    img0, img1 = _pair(64, 64)
+
+    with torch.no_grad():
+        model(torch.cat((img0, img1), 1), 0.5, list(model.scale_base))
+
+    assert warped.count(4) == 2 * (model.num_blocks - 1)
+    assert warped.count(3) == 2 * model.num_blocks

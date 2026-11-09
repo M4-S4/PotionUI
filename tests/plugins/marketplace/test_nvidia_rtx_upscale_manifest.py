@@ -66,10 +66,8 @@ def test_the_preset_declares_the_interpolate_mode(loaded_manifest):
     preset = yaml.safe_load((preset_root / "preset.yml").read_text())
     assert preset["modes"] == ["upscale", "video_upscale", "interpolate"]
     assert "interpolate" in preset["vars"]["promptless_modes"]
-    pipeline = yaml.safe_load((preset_root / "modes" / "interpolate" / "pipeline.yml").read_text())
-    assert [step["name"] for step in pipeline["pipeline"]] == [
-        "media_loader", "param_emitter", "interpolator/rtx_vfg", "gallery",
-    ]
+    form = yaml.safe_load((preset_root / "modes" / "interpolate" / "form.yml").read_text())
+    assert [tab["anchor"] for tab in form["fields"][0]["children"]] == ["generation", "advanced"]
 
 
 def test_manifest_preset_root_resolves_to_the_real_preset_on_disk(loaded_manifest):
