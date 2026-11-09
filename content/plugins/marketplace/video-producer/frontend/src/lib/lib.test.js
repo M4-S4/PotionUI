@@ -266,6 +266,29 @@ test('readiness: a text-only engine that ignores a shot frame warns about that s
 	assert.deepEqual(missing, []);
 });
 
+test('readiness: a chained shot that an engine starts from its text warns about that shot in both languages, with the files it misses', () => {
+	productionScene();
+	estimateState.data = { blocks: [], warnings: [{ code: 'chain_text_only', data: { shot_id: 's1' } }, { code: 'chain_models_missing', data: { shot_id: 's1', fields: ['i2v_high_noise_model', 'i2v_loras_low'] } }] };
+	const ready = readiness();
+	assert.deepEqual(ready.warnings, [
+		t('generation.warn.chainTextOnly', { shot: 'Opening' }),
+		t('generation.warn.chainModelsMissing', { shot: 'Opening', fields: 'i2v_high_noise_model, i2v_loras_low' })
+	]);
+	estimateState.data = null;
+	const missing = [];
+	assert.equal(translator('en', missing)('generation.warn.chainTextOnly', { shot: 'Opening' }), 'This engine generates from text only: “Opening” will not start from the last image of the previous shot.');
+	assert.equal(translator('fr', missing)('generation.warn.chainTextOnly', { shot: 'Ouverture' }), 'Ce moteur génère à partir du texte seul : « Ouverture » ne partira pas de la dernière image du plan précédent.');
+	assert.equal(
+		translator('en', missing)('generation.warn.chainModelsMissing', { shot: 'Opening', fields: 'i2v_high_noise_model' }),
+		'The image-to-video files of this engine are not installed (i2v_high_noise_model): “Opening” will be generated from its text, not from the last image of the previous shot.'
+	);
+	assert.equal(
+		translator('fr', missing)('generation.warn.chainModelsMissing', { shot: 'Ouverture', fields: 'i2v_high_noise_model' }),
+		'Les fichiers image vers vidéo de ce moteur ne sont pas installés (i2v_high_noise_model) : « Ouverture » sera généré à partir de son texte, pas de la dernière image du plan précédent.'
+	);
+	assert.deepEqual(missing, []);
+});
+
 test('migrate: the 3D scenes, the 3D shots and the Control videos go, empty 3D captures go, the other frames forget their scene, retired 3D set references become captures and the 3D set role becomes the set role', () => {
 	const old = {
 		name: 'Old',

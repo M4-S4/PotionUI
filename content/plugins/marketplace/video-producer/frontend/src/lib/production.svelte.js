@@ -228,6 +228,8 @@ function baseNoteText(note) {
 	if (code === 'time_unknown') return t('generation.warn.timeUnknown');
 	if (code === 'fl2va_no_frame') return t('generation.warn.noFrame', { shot: shotName(data.shot_id) });
 	if (code === 'text_only_preset') return t('generation.warn.textOnly', { shot: shotName(data.shot_id) });
+	if (code === 'chain_text_only') return t('generation.warn.chainTextOnly', { shot: shotName(data.shot_id) });
+	if (code === 'chain_models_missing') return t('generation.warn.chainModelsMissing', { shot: shotName(data.shot_id), fields: fieldNames(data.fields).join(', ') || '—' });
 	if (code === 'keep_framing_unavailable') return t('generation.warn.keepFramingUnavailable', { shot: shotName(data.shot_id) });
 	if (code === 'keep_framing_last_frame') return t('generation.warn.keepFramingLast', { shot: shotName(data.shot_id) });
 	if (code === 'action_undone') return t('generation.warn.actionUndone', { shot: shotName(data.shot_id) });

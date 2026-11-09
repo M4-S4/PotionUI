@@ -22,6 +22,7 @@ CORE_SOURCES = {
 
 H3_MODES = ("t2v", "i2v", "flf", "director")
 WAN_MODES = ("t2v",)
+LIGHTNING_MODES = ("t2v", "i2v")
 
 
 @dataclass(frozen=True)
@@ -101,7 +102,7 @@ TIERS = {
         fps_var="default_fps",
         fps=16,
         frames=81,
-        director_modes=WAN_MODES,
+        director_modes=LIGHTNING_MODES,
         profiles=("FL2VA",),
         max_duration=5,
     ),
@@ -137,6 +138,7 @@ TIERS = {
 }
 
 WAN_FOLDERS = sorted(folder for folder, tier in TIERS.items() if tier.is_wan)
+TEXT_ONLY_FOLDERS = sorted(folder for folder in WAN_FOLDERS if TIERS[folder].director_modes == WAN_MODES)
 
 
 def _manifest(folder):
@@ -196,13 +198,26 @@ def test_a_shipped_preset_declares_the_director_modes_and_limits_it_runs(folder)
     assert catalog.preset_limits(variables)["default_fps"] == tier.fps
 
 
-@pytest.mark.parametrize("folder", WAN_FOLDERS)
-def test_a_wan_tier_preset_generates_from_text_only_for_at_most_5_seconds(folder):
+@pytest.mark.parametrize("folder", TEXT_ONLY_FOLDERS)
+def test_an_8_gb_wan_tier_preset_generates_from_text_only_for_at_most_5_seconds(folder):
     variables = _manifest(folder)["vars"]
 
+    assert TEXT_ONLY_FOLDERS == ["Wan2.1-T2V-1.3B-8GB", "Wan2.2-TI2V-5B-8GB"]
     assert catalog.director_modes(variables) == ["t2v"]
     assert catalog.profiles(TIERS[folder].id, variables, ["video"]) == ["FL2VA"]
     assert catalog.preset_limits(variables)["max_duration"] == 5
+
+
+def test_the_lightning_preset_also_starts_a_shot_from_an_image_with_the_lightning_loras_of_the_image_to_video_experts():
+    folder = "Wan2.2-14B-Lightning-12GB"
+    variables = _manifest(folder)["vars"]
+    loras = yaml.safe_load((PRESETS_ROOT / folder / "modes" / "video" / "tabs" / "lora.yml").read_text(encoding="utf-8"))
+    pickers = {field["name"]: field for section in loras["fields"] for field in section["children"]}
+
+    assert catalog.director_modes(variables) == ["t2v", "i2v"]
+    assert catalog.preset_limits(variables)["max_duration"] == 5
+    assert [row["model"] for row in pickers["i2v_loras_high"]["default"]] == ["models/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors"]
+    assert [row["model"] for row in pickers["i2v_loras_low"]["default"]] == ["models/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors"]
 
 
 def _findings(lines):

@@ -1483,6 +1483,14 @@ def _chain_of(context: _Context, shot_id: str, media: Optional[Dict[str, Any]], 
     return context.chained[shot_id].previous if media is not None and director_mode != "t2v" else None
 
 
+def _chained_start(context: _Context, shot_id: str) -> bool:
+    if shot_id in context.chained:
+        return True
+    first = shot_frames(context.doc, shot_id)[0]
+    asset = _asset(context.doc, first.get("assetId")) if first is not None else None
+    return asset is not None and isinstance(asset.get("frameOf"), Mapping)
+
+
 def _text_only(preset: Preset) -> bool:
     modes = catalog.director_modes(preset.variables)
     return bool(modes) and "i2v" not in modes
@@ -1638,12 +1646,18 @@ def _native_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict
         document = audio_document(document, seconds, fps, capabilities)
     request = _request(preset.id, mode, prompt, _native_form(fields, document, resolution, fps, edge))
     chained: Optional[Dict[str, Any]] = None
+    unbound = copy.deepcopy(request)
     if refs:
         request["form_data"]["references"] = [entry.value for entry in sent]
         director_mode = REFS_MODE
     elif _text_only(preset) and shot_frames(doc, shot_id)[0] is not None:
         director_mode = "t2v"
         warnings.append(note("text_only_preset", "The preset generates from text only: the frames of the shot are not used.", shot_id=shot_id))
+    elif _text_only(preset) and shot_id in context.chained:
+        director_mode = "t2v"
+        warnings.append(
+            note("chain_text_only", "The preset generates from text only: the shot does not start from the last image of the previous shot.", shot_id=shot_id)
+        )
     else:
         modes = catalog.director_modes(preset.variables)
         chained = None if _text_only(preset) else _chain_media(context, shot_id)
@@ -1660,8 +1674,23 @@ def _native_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict
         )
         if director_mode == "t2v" and context.profile == FL2VA:
             warnings.append(note("fl2va_no_frame", "The shot has no first frame: it is generated from its text alone.", shot_id=shot_id))
+    needed = (AUDIO_VAE,) if mixed else ()
+    resolved = models.resolve_models(preset.id, mode, director_mode, fields, needed)
+    if director_mode in models.IMAGE_MODES and _chained_start(context, shot_id):
+        picked = engine_options.chosen(doc, preset.id, fields, preset.cloud).values
+        absent = [name for name in resolved.missing if name not in picked]
+        text = models.resolve_models(preset.id, mode, "t2v", fields, needed) if absent else None
+        if text is not None and all(name in picked for name in text.missing):
+            warnings.append(
+                note(
+                    "chain_models_missing",
+                    f"The image-to-video models of {preset.name} are not installed: the shot starts from its text, not from the last image of the previous shot.",
+                    shot_id=shot_id,
+                    fields=absent,
+                )
+            )
+            request, director_mode, chained, resolved = unbound, "t2v", None, text
     framing_warnings(doc, clip, director_mode, warnings)
-    resolved = models.resolve_models(preset.id, mode, director_mode, fields, (AUDIO_VAE,) if mixed else ())
     request["form_data"].update(resolved.values)
     chosen = project_options(context, fields, warnings)
     request["form_data"].update(chosen.values)

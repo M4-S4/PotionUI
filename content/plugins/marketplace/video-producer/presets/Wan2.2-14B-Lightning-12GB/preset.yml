@@ -51,6 +51,7 @@ vars:
     segment_routing: true
     modes:
       t2v: {}
+      i2v: {}
     limits:
       default_duration: 5
       default_fps: 16

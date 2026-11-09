@@ -352,8 +352,30 @@ def test_the_option_of_a_shot_wins_over_the_option_of_the_project(make_doc):
     assert _waits(make_doc, ["s1"], clips=SHOTS[:2]) == {}
 
 
-def test_an_engine_that_starts_from_text_only_does_not_wait(core, make_project, frames, slots):
-    preset_id = _wan_tier(core, preset_id=presets.WAN22_14B_LIGHTNING_12GB)
+CHAIN_TEXT_ONLY = {
+    "code": "chain_text_only",
+    "message": "The preset generates from text only: the shot does not start from the last image of the previous shot.",
+    "data": {"shot_id": "s2"},
+}
+IMAGE_MODES = {"t2v": {}, "i2v": {}}
+
+
+def _lightning(core, loras=False):
+    preset_id = _wan_tier(core, modes=IMAGE_MODES, preset_id=presets.WAN22_14B_LIGHTNING_12GB, fps=16)
+    if loras:
+        fields = core.fields[(preset_id, "video")]
+        for name in ("t2v_loras_high", "t2v_loras_low", "i2v_loras_high", "i2v_loras_low"):
+            fields[name] = {"type": "lora_picker", "required": False, "default": [{"model": f"models/loras/{name}.safetensors", "strength": 1.0}], "options": []}
+    return preset_id
+
+
+def _chain_warnings(payload):
+    return [warning for warning in payload["warnings"] if warning["code"].startswith("chain_")]
+
+
+@pytest.mark.parametrize("preset_id", [presets.WAN21_T2V_1_3B_8GB, presets.WAN22_TI2V_5B_8GB])
+def test_an_engine_that_starts_from_text_only_does_not_wait_and_says_the_chained_shot_starts_from_its_text(core, make_project, frames, slots, preset_id):
+    _wan_tier(core, preset_id=preset_id)
     project = make_project(clips=SHOTS[:2])
 
     evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
@@ -362,7 +384,87 @@ def test_an_engine_that_starts_from_text_only_does_not_wait(core, make_project, 
     assert evaluation.waits == {}
     assert [shot["chain"] for shot in evaluation.payload["shots"]] == [None, None]
     assert all(warning["code"] != "text_only_preset" for warning in evaluation.payload["warnings"])
+    assert _chain_warnings(evaluation.payload) == [CHAIN_TEXT_ONLY]
+    assert evaluation.payload["blocks"] == []
     assert s2["chain"] is None and s2["director_mode"] == "t2v" and s2["generation_id"] == "gen-2"
+
+
+def test_an_engine_that_starts_from_text_only_says_nothing_about_a_shot_that_is_not_chained(core, make_project, frames, slots):
+    preset_id = _wan_tier(core, preset_id=presets.WAN22_TI2V_5B_8GB)
+    project = make_project(clips=[SHOTS[0], {**SHOTS[1], "firstFromPrevious": False}])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert _chain_warnings(evaluation.payload) == []
+
+
+def test_the_lightning_engine_starts_a_chained_shot_from_the_last_image_of_the_previous_one(core, make_project, frames, slots):
+    preset_id = _lightning(core)
+    project = make_project(clips=SHOTS[:2])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
+    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert [(shot["shot_id"], shot["director_mode"], shot["chain"]) for shot in evaluation.payload["shots"]] == [("s1", "t2v", None), ("s2", "i2v", "s1")]
+    assert _chain_warnings(evaluation.payload) == []
+    assert list(evaluation.waits) == ["s2"]
+    assert s2["director_mode"] == "i2v" and s2["chain"]["state"] == chaining.WAITING
+    assert _paths(s2["request"]) == [STAND_IN]
+    assert s2["request"]["form_data"]["i2v_high_noise_model"] == "model:id-i2v_high_noise_model-sha"
+
+
+def test_the_lightning_engine_starts_a_chained_shot_from_its_text_with_a_warning_when_the_image_to_video_experts_are_missing(core, make_project, frames, slots):
+    preset_id = _lightning(core)
+    core.missing.add("i2v_high_noise_model-sha")
+    project = make_project(clips=SHOTS[:2])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
+    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert evaluation.payload["blocks"] == []
+    assert [(shot["shot_id"], shot["director_mode"], shot["chain"]) for shot in evaluation.payload["shots"]] == [("s1", "t2v", None), ("s2", "t2v", None)]
+    assert [(warning["code"], warning["data"]) for warning in _chain_warnings(evaluation.payload)] == [
+        ("chain_models_missing", {"shot_id": "s2", "fields": ["i2v_high_noise_model"]})
+    ]
+    assert evaluation.waits == {}
+    assert s2["chain"] is None and s2["director_mode"] == "t2v"
+    assert s2["request"]["form_data"]["video_director"]["media"] == []
+    assert "i2v_high_noise_model" not in s2["request"]["form_data"]
+
+
+def test_the_lightning_engine_falls_back_to_text_when_only_the_image_to_video_loras_are_missing(core, make_project, frames, slots):
+    preset_id = _lightning(core, loras=True)
+    core.missing.update({"i2v_loras_high.safetensors", "i2v_loras_low.safetensors"})
+    project = make_project(clips=SHOTS[:2])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert evaluation.payload["blocks"] == []
+    assert [shot["director_mode"] for shot in evaluation.payload["shots"]] == ["t2v", "t2v"]
+    assert [warning["data"]["fields"] for warning in _chain_warnings(evaluation.payload)] == [["i2v_loras_high", "i2v_loras_low"]]
+
+
+def test_a_text_to_video_shot_of_the_lightning_engine_needs_no_image_to_video_lora_and_an_image_to_video_shot_no_text_to_video_lora(core, make_project, frames, slots):
+    preset_id = _lightning(core, loras=True)
+    project = make_project(clips=SHOTS[:2])
+
+    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert sorted(name for name in s1["request"]["form_data"] if "loras" in name) == ["t2v_loras_high", "t2v_loras_low"]
+    assert sorted(name for name in s2["request"]["form_data"] if "loras" in name) == ["i2v_loras_high", "i2v_loras_low"]
+
+
+def test_a_shot_with_its_own_first_frame_still_blocks_when_the_image_to_video_experts_are_missing(core, make_project, frames, slots):
+    preset_id = _lightning(core)
+    core.missing.add("i2v_high_noise_model-sha")
+    core.add_media({"kind": "library", "item_id": "it-1"}, "uploads/harbour.png", "image")
+    frame = {"id": "f2", "shotId": "s2", "time": 4, "assetId": "img", "role": "first"}
+    project = make_project(clips=SHOTS[:2], frames=[frame], assets=[STILL])
+
+    evaluation = _evaluate(core, project, ["s2"], preset_id=preset_id)
+
+    assert [block["code"] for block in evaluation.payload["blocks"]] == ["missing_models"]
+    assert _chain_warnings(evaluation.payload) == []
 
 
 def test_the_estimate_plans_the_waiting_shot_from_an_image(core, make_project):

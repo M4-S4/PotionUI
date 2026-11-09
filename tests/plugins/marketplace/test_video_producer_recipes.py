@@ -45,6 +45,7 @@ RECIPE_PRESETS = {
     "vp-minimax-h3-fast-12gb": presets.MINIMAX_H3_FAST_12GB,
     "vp-wan22-14b-i2v": presets.WAN,
 }
+LORAS_FOR = {"vp-wan22-14b-i2v": (presets.WAN22_14B_LIGHTNING_12GB, ("i2v_loras_high", "i2v_loras_low"))}
 WITHOUT_SMOKE = {"vp-minimax-h3-12gb", "vp-minimax-h3-fast-12gb"}
 WITH_SMOKE = sorted(set(RECIPE_PRESETS) - WITHOUT_SMOKE)
 SMOKE_TIMEOUTS = {"vp-wan22-14b-lightning-12gb": 600, "vp-wan22-14b-i2v": 600}
@@ -87,13 +88,13 @@ def loaded_presets():
     return found
 
 
-def _visible_fields(preset):
+def _visible_fields(preset, hidden=False):
     [form] = preset.modes["video"].forms
     found = []
 
     def walk(fields):
         for field in fields:
-            if field.visible is False:
+            if field.visible is False and not hidden:
                 continue
             found.append(field)
             if isinstance(field.children, list):
@@ -107,8 +108,8 @@ def _model_fields(preset):
     return [field for field in _visible_fields(preset) if field.type == "model"]
 
 
-def _named(preset, name):
-    [field] = [field for field in _visible_fields(preset) if field.name == name]
+def _named(preset, name, hidden=False):
+    [field] = [field for field in _visible_fields(preset, hidden) if field.name == name]
     return field
 
 
@@ -236,8 +237,25 @@ def test_the_loras_of_a_recipe_are_the_ones_its_preset_selects_by_default(recipe
         if field.type == "lora_picker"
         for item in field.default or []
     ]
+    if recipe_id in LORAS_FOR:
+        preset_id, names = LORAS_FOR[recipe_id]
+        selected += [item["model"].rsplit("/", 1)[-1] for name in names for item in _named(loaded_presets[preset_id], name, hidden=True).default]
 
     assert sorted(file.filename for artifact in recipe.artifacts if artifact.kind == "lora" for file in _files(artifact)) == sorted(selected)
+
+
+def test_the_image_to_video_recipe_downloads_the_image_to_video_lora_of_each_expert_the_lightning_preset_selects(loaded_presets):
+    recipe = _recipe("vp-wan22-14b-i2v")
+    preset = loaded_presets[presets.WAN22_14B_LIGHTNING_12GB]
+    high = [item["model"].rsplit("/", 1)[-1] for item in _named(preset, "i2v_loras_high", hidden=True).default]
+    low = [item["model"].rsplit("/", 1)[-1] for item in _named(preset, "i2v_loras_low", hidden=True).default]
+    loras = {artifact.filename: artifact for artifact in recipe.artifacts if artifact.kind == "lora"}
+
+    assert len(high) == len(low) == 1
+    assert "i2v" in high[0] and "high_noise" in high[0] and "i2v" in low[0] and "low_noise" in low[0]
+    assert sorted(loras) == sorted(high + low)
+    assert all(artifact.required for artifact in loras.values())
+    assert all(item["model"].startswith("models/loras/") for name in ("i2v_loras_high", "i2v_loras_low") for item in _named(preset, name, hidden=True).default)
 
 
 def test_the_lightning_recipe_downloads_the_lora_of_each_expert_the_preset_selects(loaded_presets):

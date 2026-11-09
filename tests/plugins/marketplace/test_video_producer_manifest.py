@@ -1207,6 +1207,8 @@ WAN_14B_HIGH_DIT = "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors"
 WAN_14B_LOW_DIT = "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors"
 LIGHTNING_HIGH_LORA = "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors"
 LIGHTNING_LOW_LORA = "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors"
+LIGHTNING_I2V_HIGH_LORA = "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors"
+LIGHTNING_I2V_LOW_LORA = "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors"
 WAN_HIDDEN = ("i2v DiT (high-noise / single)", "i2v DiT (low-noise expert)", "Image to video", "SVI Pro")
 WAN_HIDDEN_FIELDS = {"i2v_high_noise_model": {"visible"}, "i2v_low_noise_model": {"visible"}}
 H3_DEFAULTS = {"resolution": "832x480", "quantity": 1, "sampler": "res_multistep", "scheduler": "simple", "keyframe_pixel_budget": "1"}
@@ -1237,6 +1239,7 @@ class Shipped:
     draft: Tuple[str, ...] = ()
     final: Tuple[str, ...] = ()
     modes: Tuple[str, ...] = ("video",)
+    wan_modes: Tuple[str, ...] = ("t2v",)
 
     @property
     def is_wan(self):
@@ -1265,7 +1268,7 @@ class Shipped:
 
     @property
     def director_modes(self):
-        return ["t2v"] if self.is_wan else ["t2v", "i2v", "flf", "director"]
+        return list(self.wan_modes) if self.is_wan else ["t2v", "i2v", "flf", "director"]
 
     @property
     def max_duration(self):
@@ -1357,6 +1360,8 @@ SHIPPED_PRESETS = {
             "t2v_low_noise_model": {"configuration"},
             "t2v_loras_high": {"default"},
             "t2v_loras_low": {"default"},
+            "i2v_loras_high": {"default"},
+            "i2v_loras_low": {"default"},
             **WAN_HIDDEN_FIELDS,
         },
         defaults={
@@ -1367,6 +1372,8 @@ SHIPPED_PRESETS = {
             "cfg": 5.0,
             "t2v_loras_high": [{"model": f"models/loras/{LIGHTNING_HIGH_LORA}", "strength": 1.0}],
             "t2v_loras_low": [{"model": f"models/loras/{LIGHTNING_LOW_LORA}", "strength": 1.0}],
+            "i2v_loras_high": [{"model": f"models/loras/{LIGHTNING_I2V_HIGH_LORA}", "strength": 1.0}],
+            "i2v_loras_low": [{"model": f"models/loras/{LIGHTNING_I2V_LOW_LORA}", "strength": 1.0}],
         },
         recommended={
             "text_encoder": [UMT5],
@@ -1380,6 +1387,7 @@ SHIPPED_PRESETS = {
         reacted={"steps": 6, "cfg": 1.0},
         draft=("832x480", "480x832", "640x640", "576x720"),
         final=("960x544", "544x960", "720x720", "640x800"),
+        wan_modes=("t2v", "i2v"),
     ),
     H3_12GB: Shipped(
         name="MiniMax-H3 (12 GB)",
@@ -1563,13 +1571,13 @@ def test_the_shipped_h3_presets_keep_the_director_and_prompt_help_of_the_core_pr
         assert preset.formulas["groups"] == {name: group for name, group in source.formulas["groups"].items() if name != "memory"}
 
 
-def test_the_shipped_wan_presets_keep_the_prompt_help_of_the_core_preset_and_generate_from_text_only(shipped_presets, core_presets):
+def test_the_shipped_wan_presets_keep_the_prompt_help_of_the_core_preset_and_offer_only_the_modes_their_models_run(shipped_presets, core_presets):
     own_vars = ("video_director", "video_producer", "default_fps", "default_frames")
     for preset_id, shipped in WAN_PRESETS.items():
         preset, source = shipped_presets[preset_id], core_presets[shipped.source_id]
         director = preset.vars["video_director"]
         limits = {"default_duration": 5, "default_fps": shipped.fps, "max_duration": 5}
-        assert director == {**source.vars["video_director"], "modes": {"t2v": {}}, "limits": limits}, preset_id
+        assert director == {**source.vars["video_director"], "modes": {mode: {} for mode in shipped.wan_modes}, "limits": limits}, preset_id
         assert {key for key, value in director.items() if value != source.vars["video_director"].get(key)} == {"modes", "limits"}, preset_id
         assert set(preset.vars) == set(own_vars), preset_id
         assert {key: value for key, value in preset.vars.items() if key not in own_vars} == {

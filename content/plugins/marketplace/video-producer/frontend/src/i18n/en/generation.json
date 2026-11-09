@@ -19,6 +19,8 @@
 	"warn.timeUnknown": "No time measured yet for this engine and resolution.",
 	"warn.noFrame": "“{shot}” has no linked frame: it will be generated from text only.",
 	"warn.textOnly": "This engine generates from text only: the frames linked to “{shot}” will not be used.",
+	"warn.chainTextOnly": "This engine generates from text only: “{shot}” will not start from the last image of the previous shot.",
+	"warn.chainModelsMissing": "The image-to-video files of this engine are not installed ({fields}): “{shot}” will be generated from its text, not from the last image of the previous shot.",
 	"warn.keepFramingUnavailable": "The engine of “{shot}” takes no end image here: its framing is not kept.",
 	"warn.keepFramingLast": "“{shot}” has an end image of its own: it is sent instead of its start image.",
 	"warn.actionUndone": "The action of “{shot}” asks the subject to move, but its end image brings it back where it starts: the engine may add a double. Describe an action in place, or give another end image.",
