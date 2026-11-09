@@ -1442,9 +1442,9 @@ Native SeedVR2 one-step restoration upscaler (no text encoder, no CFG, no denois
 | `input_noise_scale` | `float` | `0.0` | no | — | 0.0 | 1.0 | Small gaussian on the input pixels before encode (0 = off) |
 | `seed` | `int` | `-1` | no | — | -1 | — | Seed (-1 -> per-image random) |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
-| `tile_size` | `int` | `0` | no | — | 0 | 2048 | VAE encode/decode tile size ceiling (px); auto-tiles by live VRAM under this. 0 = 512 on a GPU of 12 GB or less, else 2048 |
+| `tile_size` | `int` | `2048` | no | — | 256 | 2048 | VAE encode/decode tile size ceiling (px); auto-tiles by live VRAM under this |
 | `tile_overlap` | `int` | `256` | no | — | 0 | 512 | VAE encode/decode tile overlap ceiling (px) |
-| `batch_size` | `int` | `0` | no | — | 0 | 49 | Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). The temporal VRAM knob — one batch is on the GPU at a time. 0 = 5 on a GPU of 12 GB or less, else auto-size to ~92% of live free VRAM at the output resolution (recommended); the OOM ladder halves it and re-runs if a batch ever exceeds real VRAM. |
+| `batch_size` | `int` | `0` | no | — | 0 | 49 | Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). The temporal VRAM knob — one batch is on the GPU at a time. 0 = 5 on a GPU of 12.5 GB or less, else auto-size to ~92% of live free VRAM at the output resolution (recommended); the OOM ladder halves it and re-runs if a batch ever exceeds real VRAM. |
 | `temporal_overlap` | `int` | `0` | no | — | 0 | 16 | Overlapping frames cross-faded between consecutive batches (0 = hard cut) |
 | `prepend_frames` | `int` | `0` | no | — | 0 | 16 | Reversed head frames prepended before upscaling to reduce clip-start artifacts (auto-removed from the output) |
 | `uniform_batch_size` | `bool` | `true` | no | — | — | — | Pad a short final batch up to the full batch size (avoids seam artifacts) |
@@ -1970,8 +1970,8 @@ RIFE 4.x frame interpolation (2x/4x or a target frame rate) with audio passthrou
 |---|---|---|---|---|---|---|---|
 | `model` | `dict` | — | yes | — | — | — | RIFE checkpoint ({file_path, name}) from the vfi model field |
 | `factor` | `int` | `2` | no | `2`, `4` | — | — | Interpolation factor: 2x inserts t=0.5; 4x inserts t=0.25/0.5/0.75 |
-| `target_fps` | `float` | `0.0` | no | — | — | — | Output frame rate; 0 multiplies the source rate by factor instead |
-| `scene_detection` | `bool` | `true` | no | — | — | — | Hold the nearer frame instead of blending across a cut |
+| `target_fps` | `float` | `0.0` | no | — | 0.0 | 240.0 | Output frame rate; 0 multiplies the source rate by factor instead |
+| `scene_detection` | `bool` | `true` | no | — | — | — | With a target frame rate, hold the nearer frame instead of blending across a cut |
 | `flow_scale` | `float` | `1.0` | no | `1.0`, `0.5` | — | — | Flow-computation scale (0.5 for high-res >2K inputs) |
 | `keep_audio` | `bool` | `true` | no | — | — | — | Mux the source video's audio track into the output |
 

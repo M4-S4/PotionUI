@@ -3,7 +3,7 @@ native-engine pipe.
 
 `nvvfx` is a Tensor Core effect, not a diffusion model: no checkpoint, no
 prompt, no seed. One `VideoSuperRes` instance drives four intents --
-`upscale`, `upscale_highbitrate` (tuned for a compressed/lossy source),
+`upscale`, `upscale_highbitrate`,
 `denoise` and `deblur` (the last two are same-resolution enhancement, not
 upscaling) -- at four quality tiers each, selected via `nvvfx`'s
 `QualityLevel` enum. `import nvvfx` happens lazily inside `process()`, never
@@ -14,8 +14,10 @@ NOT_INSTALLED) on a host without the package -- see `_import_nvvfx()`.
 from __future__ import annotations
 
 import contextlib
+import importlib.metadata
 import logging
 import math
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -73,29 +75,44 @@ DEFAULT_STRENGTH = 1.0
 
 INSTALL_HINT = (
     'pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com -- '
-    "requires an NVIDIA RTX GPU (Turing or newer; Ada or Blackwell for Video Frame "
-    "Generation) and an NVIDIA driver >= 570.190 on Linux (>= 570.65 on Windows). "
-    "pypi.org only carries a 3.7 kB source stub: the ~440 MB wheel comes from "
-    "pypi.nvidia.com, hence the extra index. In Docker, the container needs the ngx "
-    "driver capability (NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx), without "
-    "which the effect fails to load with code -12. On WSL2 outside Docker, users "
-    "report that the library only loads with LD_LIBRARY_PATH=/usr/lib/wsl/lib set "
-    "before Python starts. The PyPI package name (nvidia-vfx) differs from its import name "
+    "requires an NVIDIA RTX GPU (Turing or newer) and an NVIDIA driver >= 570.190 "
+    "on Linux (>= 570.65 on Windows). pypi.org only carries a 3.7 kB source stub: "
+    "the ~440 MB wheel comes from pypi.nvidia.com, hence the extra index. In Docker, "
+    "the container needs the ngx driver capability "
+    "(NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx), without which the effect "
+    "fails to load with code -12. On WSL2 outside Docker, users report that the "
+    "library only loads with LD_LIBRARY_PATH=/usr/lib/wsl/lib set before Python "
+    "starts. The PyPI package name (nvidia-vfx) differs from its import name "
     "(nvvfx), so the plugin catalog's generic installer cannot run this for you "
     "-- install it yourself with the command above."
 )
 
-SDK_SIZE_ERROR_CODE = "-7"
+SDK_SIZE_ERROR_CODES = (-7, -16)
+SDK_INIT_ERROR_CODES = (-12,)
+SDK_DEVICE_ERROR_CODES = (-17, -18, -19)
 
-SDK_INIT_ERROR_CODE = "code -12"
+
+def _installed_version() -> Optional[str]:
+    try:
+        return importlib.metadata.version("nvidia-vfx")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 def _import_nvvfx():
     try:
         import nvvfx
     except ImportError as exc:
+        version = _installed_version()
+        if version is None:
+            raise GenerationExecutionError(
+                f"NVIDIA RTX Video Super Resolution is not installed. {INSTALL_HINT}"
+            ) from exc
+        reason = f"{exc} {exc.__cause__ or ''}".strip()
         raise GenerationExecutionError(
-            f"NVIDIA RTX Video Super Resolution is not installed. {INSTALL_HINT}"
+            f"NVIDIA RTX Video Super Resolution is installed (nvidia-vfx {version}) but its library does not load: "
+            f"{reason}. It needs an NVIDIA GPU and driver visible to this process; in Docker, start the "
+            f"container with --gpus all. {INSTALL_HINT}"
         ) from exc
     return nvvfx
 
@@ -133,24 +150,11 @@ def round_to_8(value: float) -> int:
     return max(8, round(value / 8) * 8)
 
 
-def ceil_to_8(value: float) -> int:
-    """The smallest multiple of 8 at or above `value`, never below 8."""
-    return max(8, -(-int(math.ceil(value)) // 8) * 8)
-
-
-def effective_scale(scale: float, target_short_side: int, width: int, height: int) -> float:
-    """The scale an upscale runs at: the one that brings the short side to `target_short_side` when it is set, else `scale`, held to [1, 4]."""
-    if target_short_side and target_short_side > 0 and min(width, height) > 0:
-        scale = target_short_side / min(width, height)
-    return min(MAX_SCALE, max(MIN_SCALE, float(scale)))
-
-
 def target_size(intent: str, scale: float, width: int, height: int, target_short_side: int = 0) -> Tuple[int, int]:
     """The (width, height) to load `VideoSuperRes` for, given one frame's
     source size. Denoise/deblur force output size = input size; the two
-    upscale intents multiply by `scale`, or by the scale that reaches
-    `target_short_side` when it is set, and never land below the source.
-    Either way the result lands on the 8px grid `nvvfx` requires."""
+    upscale intents multiply by `scale`. Either way the result lands on the
+    8px grid `nvvfx` requires."""
     if intent in _SAME_RESOLUTION_INTENTS:
         return round_to_8(width), round_to_8(height)
     factor = effective_scale(scale, target_short_side, width, height)
@@ -160,28 +164,44 @@ def target_size(intent: str, scale: float, width: int, height: int, target_short
     )
 
 
+def ceil_to_8(value: float) -> int:
+    return max(8, math.ceil(value / 8) * 8)
+
+
+def effective_scale(scale: float, target_short_side: int, width: int, height: int) -> float:
+    if target_short_side and target_short_side > 0 and min(width, height) > 0:
+        scale = target_short_side / min(width, height)
+    return min(MAX_SCALE, max(MIN_SCALE, float(scale)))
+
+
+def _sdk_code(exc: Exception, codes: Tuple[int, ...]) -> bool:
+    return any(re.search(rf"code {code}(?!\d)", str(exc)) for code in codes)
+
+
 def sdk_error(exc: Exception, source: Optional[Tuple[int, int]], output: Optional[Tuple[int, int]]) -> GenerationExecutionError:
-    """A readable error for an `nvvfx` failure, naming the sizes when the SDK rejected them."""
-    sizes = ""
-    if source and output:
-        sizes = f" ({source[0]}x{source[1]} to {output[0]}x{output[1]})"
-    if SDK_SIZE_ERROR_CODE in str(exc) or "invalid parameter" in str(exc).lower():
+    sizes = f" ({source[0]}x{source[1]} to {output[0]}x{output[1]})" if source and output else ""
+    if _sdk_code(exc, SDK_SIZE_ERROR_CODES) or "invalid parameter" in str(exc).lower():
         return GenerationExecutionError(
-            f"NVIDIA RTX Video Super Resolution refused the frame size{sizes}: the SDK rejects a "
-            f"target smaller than the source, and some driver and library pairs also reject small "
-            f"outputs. Pick a larger target, or Denoise/Deblur to keep the size. SDK error: {exc}"
+            f"NVIDIA RTX Video Super Resolution refused the frame size{sizes}: the SDK rejects an "
+            f"invalid size, a target smaller than the source among them. Pick another target, or "
+            f"Denoise/Deblur to keep the size. SDK error: {exc}"
         )
-    if SDK_INIT_ERROR_CODE in str(exc):
+    if _sdk_code(exc, SDK_INIT_ERROR_CODES):
         return GenerationExecutionError(
-            f"NVIDIA RTX Video Super Resolution could not initialize{sizes}: the NVIDIA driver's NGX library "
-            f"(libnvidia-ngx.so.1) is not reachable. In Docker, recreate the container with "
+            f"NVIDIA RTX Video Super Resolution could not initialize{sizes}: the NVIDIA driver's NGX "
+            f"library (libnvidia-ngx.so.1) is not reachable. In Docker, recreate the container with "
             f"NVIDIA_DRIVER_CAPABILITIES=compute,utility,ngx. SDK error: {exc}"
+        )
+    if _sdk_code(exc, SDK_DEVICE_ERROR_CODES):
+        return GenerationExecutionError(
+            f"NVIDIA RTX Video Super Resolution does not run on this GPU or driver{sizes}: it needs an "
+            f"NVIDIA RTX GPU (Turing or newer) and a driver >= 570.190 on Linux (>= 570.65 on Windows). "
+            f"SDK error: {exc}"
         )
     return GenerationExecutionError(f"NVIDIA RTX Video Super Resolution failed{sizes}: {exc}")
 
 
 def default_stream(torch_module):
-    """Run the SDK on the default CUDA stream, the only one `nvvfx` 0.2 accepts."""
     if torch_module.cuda.is_available():
         return torch_module.cuda.stream(torch_module.cuda.default_stream())
     return contextlib.nullcontext()
@@ -201,13 +221,12 @@ def _clone_dlpack_result(result) -> "torch.Tensor":
 
 
 def _make_effect(effect_cls, quality_level, strength: Optional[float]):
-    """Build the effect, passing `strength` only when it departs from the SDK default, and without it on an `nvvfx` 0.1 that does not take it."""
     if strength is None or abs(float(strength) - DEFAULT_STRENGTH) < 1e-9:
         return effect_cls(quality=quality_level)
     try:
         return effect_cls(quality=quality_level, strength=float(strength))
     except TypeError:
-        logger.warning("[UPSCALER_RTX] this nvvfx takes no strength (nvidia-vfx < 0.2): running at full strength")
+        logger.warning("[UPSCALER_RTX] this nvvfx's VideoSuperRes takes no strength: running at full strength")
         return effect_cls(quality=quality_level)
 
 
@@ -223,15 +242,15 @@ class _RtxSession:
     """
 
     def __init__(self, nvvfx_module, quality_level, strength: Optional[float] = None):
-        self._effect = _make_effect(nvvfx_module.VideoSuperRes, quality_level, strength)
+        try:
+            self._effect = _make_effect(nvvfx_module.VideoSuperRes, quality_level, strength)
+        except Exception as exc:
+            raise sdk_error(exc, None, None) from exc
         self._loaded_size: Optional[Tuple[int, int]] = None
-        self._loaded_source: Optional[Tuple[int, int]] = None
 
     def ensure_loaded(self, width: int, height: int, source: Optional[Tuple[int, int]] = None) -> None:
-        if self._loaded_size == (width, height) and self._loaded_source == source:
+        if self._loaded_size == (width, height):
             return
-        if source is not None and hasattr(self._effect, "input_width"):
-            self._effect.input_width, self._effect.input_height = source
         self._effect.output_width = width
         self._effect.output_height = height
         try:
@@ -239,7 +258,6 @@ class _RtxSession:
         except Exception as exc:
             raise sdk_error(exc, source, (width, height)) from exc
         self._loaded_size = (width, height)
-        self._loaded_source = source
 
     def process_frame(self, image: Image.Image) -> Image.Image:
         import torch
@@ -253,11 +271,11 @@ class _RtxSession:
             except Exception as exc:
                 raise sdk_error(exc, image.size, self._loaded_size) from exc
             out = _clone_dlpack_result(result)
-        del frame
+            del frame
 
-        out = out.clamp(0.0, 1.0).mul(255.0).round().to(torch.uint8)
-        out_np = out.permute(1, 2, 0).contiguous().cpu().numpy()
-        del out
+            out = out.clamp(0.0, 1.0).mul(255.0).round().to(torch.uint8)
+            out_np = out.permute(1, 2, 0).contiguous().cpu().numpy()
+            del out
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         return Image.fromarray(out_np, mode="RGB")
@@ -320,7 +338,7 @@ class RtxUpscalePipe(BasePipe):
             ),
             PipeConfigSpec(
                 name="strength", param_type=float, default=DEFAULT_STRENGTH,
-                description="Effect strength (nvidia-vfx >= 0.2); 1.0 is the SDK default and is not sent",
+                description="Effect strength from 0 to 1; 1.0 is the SDK default and is not sent",
                 required=False, min_value=0.0, max_value=1.0,
             ),
             PipeConfigSpec(

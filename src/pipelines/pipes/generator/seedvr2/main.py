@@ -81,28 +81,9 @@ SEEDVR2_TIMESTEP = 1000.0
 # ``decode()`` path this video loop doesn't call.
 _MIN_DECODE_TILE_LATENT = 16          # floor, latent px (mirrors engine.py)
 _MIN_ENCODE_TILE_PIXEL = 256          # floor, image px (64x the latent floor)
-#
-# Decode spike per latent px PER OUTPUT FRAME. SeedVR2's VAE is a 16-channel
-# ``[128,256,512,512]`` inflated SD3 AE, not the 128-channel LTX/Wan latent
-# engine.py's 1.2 constant assumes.
-#
-# The decode's real spike is its top up-block at full pixel resolution, whose
-# buffer is ``(1, 128, T_out, 8t, 8t)`` fp32 for a ``t``-latent-px tile — it
-# scales with the OUTPUT frame count ``T_out = 1 + 4*(T_lat - 1)``, NOT the
-# latent-frame count, so the tile sizer is fed ``T_out`` (see ``_decode_clip``);
-# feeding it ``T_lat`` under-counts the 4x temporal expansion. 0.05
-# MB/latent-px/output-frame puts the model peak at ~1.3GB for a tile=40 window
-# and ~20GB for the whole clip untiled (~2 full-res 128-ch fp32 buffers).
-_CAUSAL3D_DECODE_MB_PER_LATENT_PX = 0.05
-# The encoder's spike is its architecturally-symmetric bottom DOWN-block, at the
-# same full pixel resolution, channel width AND frame count as the decoder's top
-# block, so its cost per INPUT pixel per input frame is exactly the decoder's
-# per-latent-px-per-output-frame figure over the 8x8 spatial ratio (64 image px
-# per latent px) — an EXACT ratio for the two mirrored blocks, not a guess.
-# Being off only shrinks/grows the tile via the feathered-seam blend, never the
-# encoded/decoded values, so a miscalibration costs VRAM headroom or one extra
-# shrink-on-OOM retry, not correctness.
-_CAUSAL3D_ENCODE_MB_PER_PIXEL = _CAUSAL3D_DECODE_MB_PER_LATENT_PX / 64.0
+_CAUSAL3D_DECODE_MB_PER_LATENT_PX = 0.19
+_CAUSAL3D_ENCODE_MB_PER_PIXEL = 0.0018
+_TILE_COST_FIXED_FRAMES = 1
 _TILE_VRAM_FRACTION = 0.75             # mirrors engine.py's _DECODE_TILE_VRAM_FRACTION
 
 
@@ -175,20 +156,12 @@ _SEEDVR2_DEFAULT_WEIGHTS_GB = 15.0    # 7B fp16 resident size; fallback when unk
 _SEEDVR2_VAE_DOWNSAMPLE = 8
 _SEEDVR2_PATCH_HW = (2, 2)
 _SMALL_CARD_MAX_TOTAL_VRAM_GB = 12.5
-_SMALL_CARD_TILE_SIZE = 512
 _SMALL_CARD_BATCH_SIZE = 5
-_DEFAULT_TILE_SIZE = 2048
 
 
 def _small_card(device: str) -> bool:
     total = total_vram_gb(device)
     return total is not None and total <= _SMALL_CARD_MAX_TOTAL_VRAM_GB
-
-
-def _resolve_tile_size(requested: int, device: str) -> int:
-    if requested > 0:
-        return requested
-    return _SMALL_CARD_TILE_SIZE if _small_card(device) else _DEFAULT_TILE_SIZE
 
 
 def _spatial_tokens_per_latent_frame(height: int, width: int) -> int:
@@ -338,9 +311,6 @@ class SeedVR2NativeGenerator(NativeGenerator):
     Reuses the base class's VAE encode/decode (self-normalizing branch) and DiT
     placement helpers; the only new piece is the 33-channel one-step forward.
     """
-
-    _encode_tile_cap: Optional[int] = None
-    _decode_tile_cap: Optional[int] = None
 
     def upscale(
         self,
@@ -560,12 +530,10 @@ class SeedVR2NativeGenerator(NativeGenerator):
         tile = _adaptive_tile_size(
             max(h, w), _MIN_ENCODE_TILE_PIXEL,
             free_vram_gb_value=effective_free_vram_gb(device),
-            mb_per_px=_CAUSAL3D_ENCODE_MB_PER_PIXEL, frames=frames,
+            mb_per_px=_CAUSAL3D_ENCODE_MB_PER_PIXEL, frames=frames + _TILE_COST_FIXED_FRAMES,
         )
         if tile_size and tile_size > 0:
             tile = min(tile, max(_MIN_ENCODE_TILE_PIXEL, (int(tile_size) // 8) * 8))
-        if self._encode_tile_cap is not None:
-            tile = min(tile, self._encode_tile_cap)
         overlap_cap = int(tile_overlap) if tile_overlap and tile_overlap > 0 else None
 
         shrinks = 0
@@ -580,8 +548,6 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         "seedvr2.encode.tile", tile=tile, overlap=overlap,
                         shrinks=shrinks, whole_clip=tile >= max(h, w),
                     )
-                    if shrinks:
-                        self._encode_tile_cap = tile
                     return out
                 except RuntimeError as exc:
                     if not retry_after_cuda_oom(exc):
@@ -616,21 +582,15 @@ class SeedVR2NativeGenerator(NativeGenerator):
         self.vae.move_to(device)
         latent = latent.to(device=device, dtype=self.vae.compute_dtype)
         h, w = latent.shape[-2], latent.shape[-1]
-        # Decode VRAM scales with the OUTPUT frame count the top up-block
-        # materializes (``T_out = 1 + 4*(T_lat - 1)`` for the t4 VAE), not the
-        # latent-frame count — feeding the sizer T_out is what keeps the tile
-        # honest across batch sizes.
         latent_frames = latent.shape[2] if latent.ndim == 5 else 1
         frames = 1 + 4 * (latent_frames - 1) if latent_frames > 1 else 1
         tile = _adaptive_tile_size(
             max(h, w), _MIN_DECODE_TILE_LATENT,
             free_vram_gb_value=effective_free_vram_gb(device),
-            mb_per_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX, frames=frames,
+            mb_per_px=_CAUSAL3D_DECODE_MB_PER_LATENT_PX, frames=frames + _TILE_COST_FIXED_FRAMES,
         )
         if tile_size and tile_size > 0:
             tile = min(tile, max(_MIN_DECODE_TILE_LATENT, int(tile_size) // 8))
-        if self._decode_tile_cap is not None:
-            tile = min(tile, self._decode_tile_cap)
         overlap_cap = (int(tile_overlap) // 8) if tile_overlap and tile_overlap > 0 else None
 
         freed_foreign_residents = False
@@ -647,8 +607,6 @@ class SeedVR2NativeGenerator(NativeGenerator):
                         shrinks=shrinks, evicted_foreign=freed_foreign_residents,
                         whole_clip=tile >= max(h, w),
                     )
-                    if shrinks:
-                        self._decode_tile_cap = tile
                     break
                 except RuntimeError as exc:
                     if not retry_after_cuda_oom(exc):
@@ -721,18 +679,17 @@ class GeneratorSeedVR2Pipe(BasePipe):
             # video path's per-batch VAE encode/decode — lower them to force
             # extra headroom at very high target resolutions; the auto-sizing still
             # applies underneath (shrinks further, never grows past this ceiling).
-            PipeConfigSpec("tile_size", int, 0,
-                           "VAE encode/decode tile size ceiling (px); auto-tiles by live VRAM under this. "
-                           "0 = 512 on a GPU of 12 GB or less, else 2048",
-                           required=False, min_value=0, max_value=2048),
+            PipeConfigSpec("tile_size", int, 2048,
+                           "VAE encode/decode tile size ceiling (px); auto-tiles by live VRAM under this",
+                           required=False, min_value=256, max_value=2048),
             PipeConfigSpec("tile_overlap", int, 256, "VAE encode/decode tile overlap ceiling (px)",
                            required=False, min_value=0, max_value=512),
             # -- Video (temporal) knobs. Ignored when the input is an image. ----
             PipeConfigSpec("batch_size", int, 0,
                            "Frames per temporal batch (snapped to the VAE's 4n+1 lattice: 1,5,9,…). "
                            "The temporal VRAM knob — one batch is on the GPU at a time. "
-                           "0 = 5 on a GPU of 12 GB or less, else auto-size to ~92% of live free "
-                           "VRAM at the output resolution (recommended); the OOM ladder "
+                           "0 = 5 on a GPU of 12.5 GB or less, else auto-size to ~92% of live free VRAM at the output resolution "
+                           "(recommended); the OOM ladder "
                            "halves it and re-runs if a batch ever exceeds real VRAM.",
                            required=False, min_value=0, max_value=49),
             PipeConfigSpec("temporal_overlap", int, 0,
@@ -828,7 +785,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
                     out = generator.upscale(
                         encode_np, bundle.prompt_embedding,
                         seed=seed, latent_noise_scale=latent_noise_scale,
-                        tile_size=_resolve_tile_size(int(self.config.get("tile_size", 0)), device),
+                        tile_size=int(self.config.get("tile_size", 1024)),
                         tile_overlap=int(self.config.get("tile_overlap", 128)),
                     )
                 out_np = out[0] if out.ndim == 4 else out
@@ -901,7 +858,7 @@ class GeneratorSeedVR2Pipe(BasePipe):
         prepend_frames = int(self.config.get("prepend_frames", 0))
         uniform = bool(self.config.get("uniform_batch_size", True))
         keep_audio = bool(self.config.get("keep_audio", True))
-        tile_size = _resolve_tile_size(int(self.config.get("tile_size", 0)), device)
+        tile_size = int(self.config.get("tile_size", 1024))
         tile_overlap = int(self.config.get("tile_overlap", 128))
         seed = self._seed_for(seeds, 0, cfg_seed)
 
@@ -925,13 +882,6 @@ class GeneratorSeedVR2Pipe(BasePipe):
 
         generator = build_native_generator(bundle, device=device)
 
-        # ``batch_size == 0`` (the form default) auto-sizes the temporal batch to
-        # ~92% of live free VRAM AT THE OUTPUT RESOLUTION -- sized only now that
-        # the resized geometry and the loaded DiT's weight size are both known, so
-        # a 4K target picks a small batch up front instead of paying a doomed
-        # oversized attempt first. Any explicit value is honoured as-is. Either
-        # way the OOM ladder below is the safety net: a batch that exceeds real
-        # VRAM is halved and re-run, so an over-estimate never fails the job.
         free_gb = free_vram_gb(device)
         spatial_tokens = _spatial_tokens_per_latent_frame(out_h, out_w)
         weights_gb = float(getattr(getattr(generator, "dit", None), "estimated_vram_gb", 0.0) or 0.0)
@@ -954,7 +904,6 @@ class GeneratorSeedVR2Pipe(BasePipe):
                 batch_size, auto_would,
                 f" (free VRAM {free_gb:.1f}GB)" if free_gb is not None else " (free VRAM unknown)",
             )
-        logger.info("[GENERATOR SEEDVR2] video: tile %d px, batch %d frames", tile_size, batch_size)
 
         # 2. Each attempt streams the whole clip into its OWN output file. On a
         #    CUDA OOM the file is discarded, the batch is halved and the clip is

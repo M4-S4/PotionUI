@@ -1,12 +1,6 @@
 # Pipeline for the 'interpolate' mode.
 #
 #   media_loader -> param_emitter -> interpolator/rife -> gallery
-#
-# RIFE is deterministic frame synthesis: no text encoder, no denoise loop, no
-# seed -- so there is no prompt_encoder or seed_generator pipe. Output fps =
-# the target frame rate, or source fps * factor when it is Multiply (N source
-# frames -> round(N * output fps / source fps) output frames), the duration is
-# preserved, and the source audio is muxed back when keep_audio.
 pipeline:
   #############
   ## Media Loader - Load the source video from the form file path

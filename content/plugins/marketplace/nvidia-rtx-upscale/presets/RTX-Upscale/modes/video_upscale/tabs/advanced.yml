@@ -37,7 +37,7 @@ fields:
     label: "Strength"
     audience: "advanced"
     default: 1.0
-    ai_hint: "How strongly the RTX effect applies, from 0 to 1. 1 is NVIDIA's default and is not sent to the SDK; a lower value needs nvidia-vfx 0.2 or later (an older package runs at full strength)."
+    ai_hint: "How strongly the RTX effect applies, from 0 to 1. 1 is NVIDIA's default and is not sent to the SDK; an nvidia-vfx whose effect takes no strength runs at full strength."
     configuration:
       min: 0.0
       max: 1.0

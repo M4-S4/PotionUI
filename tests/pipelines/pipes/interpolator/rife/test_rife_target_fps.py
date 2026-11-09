@@ -1,5 +1,3 @@
-"""interpolator/rife with a target frame rate: frame count and rate, source frames kept, the factor mode unchanged, the cut guard, a lower target, and the real encode with its sound."""
-
 import json
 import shutil
 import subprocess
@@ -173,12 +171,15 @@ def test_source_frames_pass_through_untouched_at_24_to_60(monkeypatch):
         assert np.array_equal(writer.frames[k], _rgb(frames[k * 2 // 5]))
 
 
+@pytest.mark.parametrize("scene_detection", [True, False])
+@pytest.mark.parametrize("clip", ["smooth", "cut"])
 @pytest.mark.parametrize("factor", [2, 4])
-def test_factor_mode_is_the_former_output(monkeypatch, factor):
-    frames = [_ramp(i) for i in range(5)]
+def test_factor_mode_is_the_former_output(monkeypatch, factor, clip, scene_detection):
+    frames = [_ramp(i) for i in range(5)] if clip == "smooth" else [_ramp(0), _ramp(1), _checker(), _checker(), _ramp(2)]
     model = _model()
+    monkeypatch.setattr(RifeInterpolatorPipe, "_is_cut", staticmethod(lambda a, b: pytest.fail("factor mode looked for a cut")))
 
-    writer, _ = _run(monkeypatch, frames, 10.0, model=model, factor=factor)
+    writer, _ = _run(monkeypatch, frames, 10.0, model=model, factor=factor, scene_detection=scene_detection)
 
     rgbs = [_rgb(frame) for frame in frames]
     tensor = lambda rgb: RifeInterpolatorPipe._to_tensor(rgb, "cpu", torch.float32)
@@ -205,8 +206,9 @@ def test_an_out_of_range_target_is_refused(monkeypatch, target_fps):
         _run(monkeypatch, [_ramp(0), _ramp(1)], 24.0, target_fps=target_fps)
 
 
-def test_a_cut_holds_the_nearer_frame_without_running_the_model(monkeypatch):
-    frames = [_ramp(i) for i in range(3)] + [_checker() for _ in range(3)]
+@pytest.mark.parametrize("cut_after", [1, 2])
+def test_a_cut_holds_the_nearer_frame_without_running_the_model(monkeypatch, cut_after):
+    frames = [_ramp(i) for i in range(cut_after + 1)] + [_checker() for _ in range(5 - cut_after)]
     runs = []
     original = RifeInterpolatorPipe._run
 
@@ -219,13 +221,13 @@ def test_a_cut_holds_the_nearer_frame_without_running_the_model(monkeypatch):
     writer, _ = _run(monkeypatch, frames, 16.0, target_fps=24.0)
 
     ratio = source_per_output(16.0, target_fps=24.0)
-    across = [slot(k, ratio) for k in range(len(writer.frames)) if slot(k, ratio).left == 2 and slot(k, ratio).t > 0]
+    across = [slot(k, ratio) for k in range(len(writer.frames)) if slot(k, ratio).left == cut_after and slot(k, ratio).t > 0]
     assert across
     for s in across:
-        nearer = frames[2] if s.t < 0.5 else frames[3]
+        nearer = frames[cut_after] if s.t < 0.5 else frames[cut_after + 1]
         assert np.array_equal(writer.frames[s.index], _rgb(nearer))
     assert len(runs) == sum(1 for k in range(len(writer.frames))
-                            if 0 < slot(k, ratio).t and slot(k, ratio).left not in (2, 5))
+                            if 0 < slot(k, ratio).t and slot(k, ratio).left not in (cut_after, 5))
 
 
 def test_without_scene_detection_the_cut_is_blended(monkeypatch):

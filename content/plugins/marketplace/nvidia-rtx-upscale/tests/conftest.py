@@ -158,9 +158,6 @@ def _fake_video_super_res(takes_strength):
                 raise TypeError("__init__() got an unexpected keyword argument 'strength'")
             self.quality = quality
             self.kwargs = dict(kwargs)
-            if takes_strength:
-                self.input_width = None
-                self.input_height = None
             self.output_width = None
             self.output_height = None
             self.load_calls = 0
@@ -181,6 +178,8 @@ def _fake_video_super_res(takes_strength):
             h, w = self.output_height, self.output_width
             if self._buffer is None or tuple(self._buffer.shape[-2:]) != (h, w):
                 self._buffer = torch.zeros(3, h, w)
+            # Distinct value per call, still inside the [0,1] range `nvvfx`
+            # itself uses -- 0.0, 0.5, 1.0 for calls 0, 1, 2.
             self._buffer.fill_(min(1.0, 0.5 * self.run_calls))
             self.run_calls += 1
             return SimpleNamespace(image=self._buffer)
@@ -192,8 +191,6 @@ def _fake_video_super_res(takes_strength):
 
 
 class FakeVideoFrameGeneration:
-    """Blends the two frames at the asked instant into ONE reused buffer, like the SDK-owned output."""
-
     Mode = _FakeMode
     instances = []
 
@@ -202,7 +199,7 @@ class FakeVideoFrameGeneration:
         self.scene_detection = automatic_shot_change_detection_enabled
         self.input_width = None
         self.input_height = None
-        self.frame_multiplier = None
+        self.frame_multiplier = 2
         self.load_calls = 0
         self.calls = []
         self.closed = False
@@ -214,6 +211,7 @@ class FakeVideoFrameGeneration:
         self.load_calls += 1
 
     def _blend(self, previous, current, t):
+        assert self.load_calls, "run before load()"
         assert tuple(previous.shape) == tuple(current.shape) == (3, self.input_height, self.input_width)
         if self._buffer is None:
             self._buffer = torch.zeros_like(previous)
@@ -221,7 +219,7 @@ class FakeVideoFrameGeneration:
         return SimpleNamespace(image=self._buffer)
 
     def run(self, previous_frame, current_frame, *, frame_index=1, shot_change=False, **kwargs):
-        assert self.frame_multiplier, "run() needs frame_multiplier"
+        assert 1 <= frame_index < self.frame_multiplier, (frame_index, self.frame_multiplier)
         self.calls.append(("index", frame_index))
         return self._blend(previous_frame, current_frame, frame_index / self.frame_multiplier)
 
@@ -236,11 +234,11 @@ class FakeVideoFrameGeneration:
 
 @pytest.fixture
 def fake_nvvfx(monkeypatch):
-    """Installs a fake `nvvfx` 0.2 module in `sys.modules` for the duration of
-    the test. `FakeVideoSuperRes.run()` deliberately reuses the SAME tensor
-    buffer across calls (overwritten in place, like the real DLPack-backed
-    result the brief describes) so a pipe that forgets `.clone()` fails a test
-    rather than the real GPU.
+    """Installs a fake `nvvfx` module in `sys.modules` for the duration of the
+    test. `FakeVideoSuperRes.run()` deliberately reuses the SAME tensor buffer
+    across calls (overwritten in place, like the real DLPack-backed result the
+    brief describes) so a pipe that forgets `.clone()` fails a test rather than
+    the real GPU.
     """
     FakeVideoFrameGeneration.instances = []
     module = ModuleType("nvvfx")
@@ -251,8 +249,15 @@ def fake_nvvfx(monkeypatch):
 
 
 @pytest.fixture
-def fake_nvvfx_01(monkeypatch):
-    """A fake `nvvfx` 0.1: Video Super Resolution without `strength`, and no Video Frame Generation."""
+def fake_nvvfx_without_frame_generation(monkeypatch):
+    module = ModuleType("nvvfx")
+    module.VideoSuperRes = _fake_video_super_res(takes_strength=True)
+    monkeypatch.setitem(sys.modules, "nvvfx", module)
+    return module
+
+
+@pytest.fixture
+def fake_nvvfx_without_strength(monkeypatch):
     module = ModuleType("nvvfx")
     module.VideoSuperRes = _fake_video_super_res(takes_strength=False)
     monkeypatch.setitem(sys.modules, "nvvfx", module)

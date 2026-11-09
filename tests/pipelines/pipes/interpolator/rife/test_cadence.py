@@ -1,5 +1,3 @@
-"""The frame-rate change schedule shared by the RIFE pipe: output count, source position and the snap to a source frame."""
-
 from fractions import Fraction
 
 import pytest

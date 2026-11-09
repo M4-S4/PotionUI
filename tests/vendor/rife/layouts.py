@@ -7,19 +7,6 @@ that matches a real checkpoint without shipping 21MB of weights:
     rife47    124 tensors  sha256 6a8a825ab2750558bdd20dcced386fd82b7222c7ba58c11d3b611d9c44f1be63
     rife49    124 tensors  sha256 e55fd00f3cc184e3c65961f4bb827a9da022e78eed36b055242c0ac30000d533
 
-The 4.21+ `Head` line is transcribed key by key in `published_head_layouts.json`,
-read from the zip directory and the pickle of each published file without
-fetching its tensors:
-
-    rife4.22       168 tensors  flownet_v4.22.pkl of the vs-rife "model" release
-    rife4.22.lite  168 tensors  flownet_v4.22.lite.pkl of the same release
-    rife4.25       198 tensors  sha256 6615790efd627772917205db291f51cd392528a157ecbb2ecaeec3bff8eb6de2
-    rife4.25.lite  198 tensors  flownet_v4.25.lite.pkl of the vs-rife "model" release
-    rife4.26       198 tensors  sha256 45c7f74156704769dc9f85cfcaf8552e1e926f9399dcfa3a553dee88fac6f53f
-
-Each carries the `teacher.*` and `caltime.*` tensors the author's training uses
-and his inference loads with `strict=False`.
-
 Nothing here may be derived from `IFNet`/`load_ifnet`: these tables are the
 specification the loader is tested against, and generating them from the code
 under test is what let a loader that rejected every real checkpoint look green.

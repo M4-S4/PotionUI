@@ -155,11 +155,9 @@ def load_ifnet(
     dict) and load its weights. Handles ``module.``/``flownet.`` prefixes,
     ``.pth`` (``weights_only=True``) and ``.safetensors``, and derives the
     per-block channel widths + optional feature encoder from the state dict so
-    the rife46/47/48/49 variants and the 4.21 to 4.26 `Head` line all load under
-    their own published key names; the training-only ``teacher.*`` and
-    ``caltime.*`` tensors of the 4.21+ checkpoints are dropped by name. Raises
-    ``ValueError`` naming the supported family for a checkpoint whose keys don't
-    match."""
+    the rife46/47/48/49 variants all load under their own published key names.
+    Raises ``ValueError`` naming the supported family for a checkpoint whose keys
+    don't match."""
     state = _read_state_dict(source)
     model = _build(state)
 

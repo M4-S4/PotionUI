@@ -293,6 +293,43 @@ def test_video_batch_zero_auto_sizes_from_free_vram(monkeypatch):
     assert gen.batch_calls == [_SEEDVR2_MAX_BATCH]
 
 
+@pytest.mark.parametrize("total_gb", [7.99, 11.99, 12.5])
+def test_video_batch_zero_is_five_frames_on_a_gpu_of_12_5gb_or_less(monkeypatch, total_gb):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "free_vram_gb", lambda device: 24.0)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: total_gb)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=0))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [5]
+
+
+def test_video_batch_zero_still_auto_sizes_on_a_16gb_gpu(monkeypatch):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "free_vram_gb", lambda device: 24.0)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: 15.99)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=0))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [_SEEDVR2_MAX_BATCH]
+
+
+def test_video_explicit_batch_is_kept_on_a_12gb_gpu(monkeypatch):
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    monkeypatch.setattr(m, "free_vram_gb", lambda device: 11.0)
+    monkeypatch.setattr(m, "total_vram_gb", lambda device: 11.99)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=13))
+
+    pipe.process(_video_input(), lambda o: None)
+
+    assert gen.batch_calls == [13]
+
+
 class _RecordingProfiler:
     """Captures ``mark`` calls so a test can assert which profiler events the
     video path emits (the real profiler writes to a file, not memory)."""
@@ -768,72 +805,6 @@ def test_video_publish_failure_leaves_no_temp_survivors(monkeypatch):
     final_path = created[0]
     assert glob.glob(f"{final_path}*") == []
     assert gen.released >= 1
-
-
-class _TileRecordingGen(_FakeGen):
-    def __init__(self):
-        super().__init__(oom_at_or_above=999)
-        self.tile_sizes = []
-
-    def upscale_video(self, clips, prompt_embedding, *, seed, latent_noise_scale,
-                      tile_size=None, tile_overlap=None):
-        self.tile_sizes.append(tile_size)
-        yield from super().upscale_video(
-            clips, prompt_embedding, seed=seed, latent_noise_scale=latent_noise_scale,
-            tile_size=tile_size, tile_overlap=tile_overlap,
-        )
-
-
-@pytest.mark.parametrize(
-    ("total", "batch", "tile"),
-    [(11.99, 5, 512), (12.5, 5, 512), (23.99, _SEEDVR2_MAX_BATCH, 2048), (None, _SEEDVR2_MAX_BATCH, 2048)],
-)
-def test_auto_tile_and_batch_follow_the_card_size(monkeypatch, total, batch, tile):
-    gen = _TileRecordingGen()
-    _wire(monkeypatch, gen)
-    monkeypatch.setattr(m, "free_vram_gb", lambda device: 24.0)
-    monkeypatch.setattr(m, "total_vram_gb", lambda device: total)
-    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=0, tile_size=0))
-
-    pipe.process(_video_input(), lambda o: None)
-
-    assert gen.batch_calls == [batch]
-    assert gen.tile_sizes == [tile]
-
-
-def test_a_request_with_tile_and_batch_wins_on_a_small_card(monkeypatch):
-    gen = _TileRecordingGen()
-    _wire(monkeypatch, gen)
-    monkeypatch.setattr(m, "total_vram_gb", lambda device: 11.99)
-    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=9, tile_size=1024))
-
-    pipe.process(_video_input(), lambda o: None)
-
-    assert gen.batch_calls == [9]
-    assert gen.tile_sizes == [1024]
-
-
-def test_the_image_path_takes_512_tiles_on_a_small_card(monkeypatch):
-    from PIL import Image
-
-    seen = {}
-
-    class _ImageGen:
-        def upscale(self, pixels, prompt_embedding, *, seed, latent_noise_scale, tile_size, tile_overlap):
-            seen["tile_size"] = tile_size
-            return np.zeros((1, pixels.shape[0], pixels.shape[1], 3), dtype=np.uint8)
-
-        def release_gpu(self):
-            pass
-
-    monkeypatch.setattr(m, "build_native_generator", lambda bundle, device="cuda": _ImageGen())
-    monkeypatch.setattr(m, "total_vram_gb", lambda device: 11.99)
-    pipe = GeneratorSeedVR2Pipe(_base_config(tile_size=0))
-    bundle = SimpleNamespace(prompt_embedding=torch.zeros(1))
-
-    pipe.process(PipeInput(input={"image": [Image.new("RGB", (32, 32))], "model": bundle, "seed": [0]}), lambda o: None)
-
-    assert seen["tile_size"] == 512
 
 
 def test_cancelling_inside_a_video_batch_stops_the_run(monkeypatch):

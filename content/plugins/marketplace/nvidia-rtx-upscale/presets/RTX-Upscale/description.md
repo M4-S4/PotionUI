@@ -6,9 +6,10 @@ prompt to write, just an image or video.
 
 **Upscale an image or a video** with one of four intents:
 
-- **Upscale** — increase resolution, tuned for a clean source.
-- **Upscale — compressed source** — increase resolution, tuned for a heavily
-  compressed or lossy source (streamed video, old encodes).
+- **Upscale** — increase resolution and remove compression artifacts, for
+  typical compressed video.
+- **Upscale — clean source** — increase resolution without artifact
+  suppression, for a high-bitrate or lossless source with few artifacts.
 - **Denoise** — same-resolution noise reduction.
 - **Deblur** — same-resolution sharpening of blurred detail.
 
@@ -23,5 +24,5 @@ the audio stay the same.
 Requires an NVIDIA RTX GPU (Turing generation or newer; Ada or Blackwell for
 frame generation), an NVIDIA driver `>= 570.190` on Linux (`>= 570.65` on
 Windows), and the `nvidia-vfx` Python package, 0.2 or later for frame
-generation and Strength, installed from NVIDIA's index:
+generation, installed from NVIDIA's index:
 `pip install "nvidia-vfx>=0.2" --extra-index-url https://pypi.nvidia.com`.
