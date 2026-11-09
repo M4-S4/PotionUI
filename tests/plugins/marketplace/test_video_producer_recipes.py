@@ -44,9 +44,9 @@ RECIPE_PRESETS = {
     "vp-minimax-h3-12gb": presets.MINIMAX_H3_12GB,
     "vp-minimax-h3-fast-12gb": presets.MINIMAX_H3_FAST_12GB,
     "vp-wan22-14b-i2v": presets.WAN,
+    "vp-wan22-14b-lightning-i2v-12gb": presets.WAN22_14B_LIGHTNING_I2V_12GB,
 }
-LORAS_FOR = {"vp-wan22-14b-i2v": (presets.WAN22_14B_LIGHTNING_12GB, ("i2v_loras_high", "i2v_loras_low"))}
-WITHOUT_SMOKE = {"vp-minimax-h3-12gb", "vp-minimax-h3-fast-12gb"}
+WITHOUT_SMOKE = {"vp-minimax-h3-12gb", "vp-minimax-h3-fast-12gb", "vp-wan22-14b-lightning-i2v-12gb"}
 WITH_SMOKE = sorted(set(RECIPE_PRESETS) - WITHOUT_SMOKE)
 SMOKE_TIMEOUTS = {"vp-wan22-14b-lightning-12gb": 600, "vp-wan22-14b-i2v": 600}
 COLD_SMOKE_SECONDS_ON_8_GB = {"vp-wan21-t2v-1-3b-8gb": 64, "vp-wan22-ti2v-5b-8gb": 111}
@@ -57,6 +57,7 @@ PATH_HINTS = {
     presets.MINIMAX_H3_12GB: "video-producer/MiniMax-H3-12GB",
     presets.MINIMAX_H3_FAST_12GB: "video-producer/MiniMax-H3-Fast-12GB",
     presets.WAN: "marketplace/Wan",
+    presets.WAN22_14B_LIGHTNING_I2V_12GB: "video-producer/Wan2.2-14B-Lightning-I2V-12GB",
 }
 WEIGHT_KINDS = ("diffusion_model", "text_encoder", "vae")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -88,13 +89,13 @@ def loaded_presets():
     return found
 
 
-def _visible_fields(preset, hidden=False):
+def _visible_fields(preset):
     [form] = preset.modes["video"].forms
     found = []
 
     def walk(fields):
         for field in fields:
-            if field.visible is False and not hidden:
+            if field.visible is False:
                 continue
             found.append(field)
             if isinstance(field.children, list):
@@ -108,8 +109,8 @@ def _model_fields(preset):
     return [field for field in _visible_fields(preset) if field.type == "model"]
 
 
-def _named(preset, name, hidden=False):
-    [field] = [field for field in _visible_fields(preset, hidden) if field.name == name]
+def _named(preset, name):
+    [field] = [field for field in _visible_fields(preset) if field.name == name]
     return field
 
 
@@ -237,25 +238,8 @@ def test_the_loras_of_a_recipe_are_the_ones_its_preset_selects_by_default(recipe
         if field.type == "lora_picker"
         for item in field.default or []
     ]
-    if recipe_id in LORAS_FOR:
-        preset_id, names = LORAS_FOR[recipe_id]
-        selected += [item["model"].rsplit("/", 1)[-1] for name in names for item in _named(loaded_presets[preset_id], name, hidden=True).default]
 
     assert sorted(file.filename for artifact in recipe.artifacts if artifact.kind == "lora" for file in _files(artifact)) == sorted(selected)
-
-
-def test_the_image_to_video_recipe_downloads_the_image_to_video_lora_of_each_expert_the_lightning_preset_selects(loaded_presets):
-    recipe = _recipe("vp-wan22-14b-i2v")
-    preset = loaded_presets[presets.WAN22_14B_LIGHTNING_12GB]
-    high = [item["model"].rsplit("/", 1)[-1] for item in _named(preset, "i2v_loras_high", hidden=True).default]
-    low = [item["model"].rsplit("/", 1)[-1] for item in _named(preset, "i2v_loras_low", hidden=True).default]
-    loras = {artifact.filename: artifact for artifact in recipe.artifacts if artifact.kind == "lora"}
-
-    assert len(high) == len(low) == 1
-    assert "i2v" in high[0] and "high_noise" in high[0] and "i2v" in low[0] and "low_noise" in low[0]
-    assert sorted(loras) == sorted(high + low)
-    assert all(artifact.required for artifact in loras.values())
-    assert all(item["model"].startswith("models/loras/") for name in ("i2v_loras_high", "i2v_loras_low") for item in _named(preset, name, hidden=True).default)
 
 
 def test_the_lightning_recipe_downloads_the_lora_of_each_expert_the_preset_selects(loaded_presets):
@@ -270,6 +254,36 @@ def test_the_lightning_recipe_downloads_the_lora_of_each_expert_the_preset_selec
     assert "high_noise" in high[0] and "low_noise" in low[0]
     assert sorted(loras) == sorted(high + low)
     assert all(artifact.required for artifact in recipe.artifacts if artifact.kind == "lora")
+
+
+def _sizes(recipe_id):
+    return {file.filename: (file.checksum.value, file.size_bytes) for artifact in _recipe(recipe_id).artifacts for file in _files(artifact)}
+
+
+def test_the_lightning_image_to_video_recipe_shares_its_experts_text_encoder_and_vae_with_the_other_14b_recipes_by_sha256():
+    own = _sizes("vp-wan22-14b-lightning-i2v-12gb")
+    others = {**_sizes("vp-wan22-14b-lightning-12gb"), **_sizes("vp-wan22-14b-i2v")}
+    shared = sorted(set(own) & set(others))
+
+    assert shared == sorted(
+        [
+            "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+            "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+            "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+            "wan_2.1_vae.safetensors",
+        ]
+    )
+    assert all(own[name] == others[name] for name in shared)
+    assert sorted(set(own) - set(others)) == [
+        "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+        "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+    ]
+    assert sum(size for name, (_, size) in own.items() if name not in others) == 2453954848
+    assert sum(size for _, size in own.values()) == 38033162727
+
+
+def test_the_image_to_video_recipe_of_the_core_preset_downloads_no_lora():
+    assert [artifact.filename for artifact in _recipe("vp-wan22-14b-i2v").artifacts if artifact.kind == "lora"] == []
 
 
 @pytest.mark.parametrize("recipe_id", WITH_SMOKE)

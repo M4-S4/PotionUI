@@ -964,6 +964,26 @@ def test_me_leaves_the_model_of_a_cloud_preset_to_the_production_bar(client, sto
     assert [option["name"] for option in modes["img2video"]["options"]] == ["seed"]
 
 
+def _lightning_pair(companion=True):
+    fields = {"resolution": _field("resolution"), "text_encoder": _field("model", required=True), "fps": _field("slider")}
+    text_vars = {"default_fps": 16, "video_director": {**WAN_DIRECTOR, "modes": {"t2v": {}}}, "video_producer": {"companions": {"i2v": presets.WAN22_14B_LIGHTNING_I2V_12GB, "flf": presets.WAN22_14B_LIGHTNING_I2V_12GB}}}
+    image_vars = {"default_fps": 16, "video_director": {**WAN_DIRECTOR, "modes": {"i2v": {}, "flf": {}}}, "video_producer": {"companions": {"t2v": presets.WAN22_14B_LIGHTNING_12GB}}}
+    found = [_description(presets.WAN22_14B_LIGHTNING_12GB, "Wan 2.2 14B Lightning (12 GB)", vars=text_vars, modes={"video": _mode(custom=fields)})]
+    if companion:
+        found.append(_description(presets.WAN22_14B_LIGHTNING_I2V_12GB, "Wan 2.2 14B Lightning I2V (12 GB)", vars=image_vars, modes={"video": _mode(custom=fields)}))
+    return found
+
+
+def test_me_gives_a_preset_the_modes_its_installed_companion_runs_for_it(client, store, no_container, catalog):
+    catalog.presets = _lightning_pair()
+    paired = {preset["id"]: preset["director_modes"] for preset in client.get(ME_URL).json()["data"]["presets"]}
+    catalog.presets = _lightning_pair(companion=False)
+    alone = {preset["id"]: preset["director_modes"] for preset in client.get(ME_URL).json()["data"]["presets"]}
+
+    assert paired == {presets.WAN22_14B_LIGHTNING_12GB: ["t2v", "i2v", "flf"], presets.WAN22_14B_LIGHTNING_I2V_12GB: ["i2v", "flf", "t2v"]}
+    assert alone == {presets.WAN22_14B_LIGHTNING_12GB: ["t2v"]}
+
+
 def test_me_offers_ref2va_only_with_the_h3_refs_mode(client, store, no_container, catalog):
     catalog.presets = [_h3(modes=("video",))]
 
