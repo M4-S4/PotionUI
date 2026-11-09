@@ -397,9 +397,8 @@ def _own_frame(core, *roles):
     return [{"id": f"f-{role}", "shotId": "s2", "time": 4 if role == "first" else 9, "assetId": "img", "role": role} for role in roles]
 
 
-@pytest.mark.parametrize("preset_id", [presets.WAN21_T2V_1_3B_8GB, presets.WAN22_TI2V_5B_8GB])
-def test_an_engine_that_starts_from_text_only_does_not_wait_and_says_the_chained_shot_starts_from_its_text(core, make_project, frames, slots, preset_id):
-    _wan_tier(core, preset_id=preset_id)
+def test_an_engine_that_starts_from_text_only_does_not_wait_and_says_the_chained_shot_starts_from_its_text(core, make_project, frames, slots):
+    preset_id = _wan_tier(core, preset_id=presets.WAN21_T2V_1_3B_8GB, fps=16, name="Wan 2.1 T2V 1.3B (8 GB)")
     project = make_project(clips=SHOTS[:2])
 
     evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
@@ -412,12 +411,37 @@ def test_an_engine_that_starts_from_text_only_does_not_wait_and_says_the_chained
 
 
 def test_an_engine_that_starts_from_text_only_says_nothing_about_a_shot_that_is_not_chained(core, make_project, frames, slots):
-    preset_id = _wan_tier(core, preset_id=presets.WAN22_TI2V_5B_8GB)
+    preset_id = _wan_tier(core, preset_id=presets.WAN21_T2V_1_3B_8GB, fps=16, name="Wan 2.1 T2V 1.3B (8 GB)")
     project = make_project(clips=[SHOTS[0], {**SHOTS[1], "firstFromPrevious": False}])
 
     evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
 
     assert _chain_warnings(evaluation.payload) == []
+
+
+def test_the_5b_engine_starts_a_chained_shot_from_the_last_image_of_the_previous_shot_on_the_same_preset(core, make_project, frames, slots):
+    preset_id = _wan_tier(core, modes={"t2v": {}, "i2v": {}}, preset_id=presets.WAN22_TI2V_5B_8GB)
+    project = make_project(clips=SHOTS[:2])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
+    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert _shots(evaluation.payload) == [("s1", preset_id, "t2v", None), ("s2", preset_id, "i2v", "s1")]
+    assert _chain_warnings(evaluation.payload) == [] and evaluation.payload["blocks"] == []
+    assert list(evaluation.waits) == ["s2"]
+    assert (s2["preset_id"], s2["director_mode"], s2["chain"]["state"]) == (preset_id, "i2v", chaining.WAITING)
+    assert _paths(s2["request"]) == [STAND_IN]
+    assert s2["request"]["form_data"]["i2v_high_noise_model"] == "model:id-i2v_high_noise_model-sha"
+
+
+def test_the_5b_engine_starts_a_shot_from_its_own_first_frame_and_leaves_its_last_frame_out(core, make_project, frames, slots):
+    preset_id = _wan_tier(core, modes={"t2v": {}, "i2v": {}}, preset_id=presets.WAN22_TI2V_5B_8GB)
+    project = make_project(clips=SHOTS[:2], frames=_own_frame(core, "first", "last"), assets=[STILL])
+
+    evaluation = _evaluate(core, project, ["s2"], preset_id=preset_id)
+
+    assert _shots(evaluation.payload) == [("s2", preset_id, "i2v", None)]
+    assert evaluation.payload["blocks"] == []
 
 
 def test_the_lightning_engine_hands_a_chained_shot_to_its_image_to_video_companion_which_waits_for_the_last_image_of_the_previous_shot(core, make_project, frames, slots):

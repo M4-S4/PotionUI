@@ -24,6 +24,7 @@ CORE_SOURCES = {
 H3_MODES = ("t2v", "i2v", "flf", "director")
 WAN_MODES = ("t2v",)
 IMAGE_MODES = ("i2v", "flf")
+FIRST_FRAME_MODES = ("t2v", "i2v")
 LIGHTNING_I2V_LORAS = {
     "i2v_loras_high": ["models/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors"],
     "i2v_loras_low": ["models/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors"],
@@ -93,7 +94,7 @@ TIERS = {
         fps_var="default_fps",
         fps=24,
         frames=121,
-        director_modes=WAN_MODES,
+        director_modes=FIRST_FRAME_MODES,
         profiles=("FL2VA",),
         max_duration=5,
     ),
@@ -226,16 +227,34 @@ def test_a_wan_tier_preset_generates_from_text_only_for_at_most_5_seconds(folder
     assert catalog.preset_limits(variables)["max_duration"] == 5
 
 
+def test_the_5b_tier_starts_a_shot_from_text_or_from_its_first_frame_with_the_same_file_in_both_pickers():
+    folder = "Wan2.2-TI2V-5B-8GB"
+    variables = _manifest(folder)["vars"]
+    generation = yaml.safe_load((PRESETS_ROOT / folder / "modes" / "video" / "tabs" / "generation.yml").read_text(encoding="utf-8"))
+    models = {field["name"]: field for section in generation["fields"] for field in section.get("children") or [] if field.get("type") == "model"}
+
+    assert catalog.director_modes(variables) == ["t2v", "i2v"]
+    assert catalog.companions(variables) == {}
+    assert [item["sha256"] for item in models["i2v_high_noise_model"]["configuration"]["recommendations"]] == [
+        item["sha256"] for item in models["t2v_high_noise_model"]["configuration"]["recommendations"]
+    ]
+    assert "recommendations" not in models["i2v_low_noise_model"]["configuration"]
+    assert variables["video_director"]["timing"]["one_frame_tail"] == {
+        "model_field": "i2v_high_noise_model",
+        "sha256": [models["i2v_high_noise_model"]["configuration"]["recommendations"][0]["sha256"]],
+    }
+
+
 def _loras(folder):
     loras = yaml.safe_load((PRESETS_ROOT / folder / "modes" / "video" / "tabs" / "lora.yml").read_text(encoding="utf-8"))
     return {field["name"]: [row["model"] for row in field["default"]] for section in loras["fields"] for field in section["children"]}
 
 
-def test_the_text_presets_are_the_three_text_only_wan_tiers_and_the_lightning_one_hands_its_image_shots_to_its_companion():
+def test_the_text_presets_are_the_two_text_only_wan_tiers_and_the_lightning_one_hands_its_image_shots_to_its_companion():
     lightning = _manifest("Wan2.2-14B-Lightning-12GB")["vars"]
     companion = _manifest("Wan2.2-14B-Lightning-I2V-12GB")["vars"]
 
-    assert TEXT_FOLDERS == ["Wan2.1-T2V-1.3B-8GB", "Wan2.2-14B-Lightning-12GB", "Wan2.2-TI2V-5B-8GB"]
+    assert TEXT_FOLDERS == ["Wan2.1-T2V-1.3B-8GB", "Wan2.2-14B-Lightning-12GB"]
     assert catalog.companions(lightning) == {"i2v": presets.WAN22_14B_LIGHTNING_I2V_12GB, "flf": presets.WAN22_14B_LIGHTNING_I2V_12GB}
     assert catalog.companions(companion) == {"t2v": presets.WAN22_14B_LIGHTNING_12GB}
     assert all(catalog.companions(_manifest(folder)["vars"]) == {} for folder in TIERS if not folder.startswith("Wan2.2-14B-Lightning"))
