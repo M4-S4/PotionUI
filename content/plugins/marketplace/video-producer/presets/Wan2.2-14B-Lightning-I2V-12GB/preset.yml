@@ -31,11 +31,11 @@ configuration:
 
 speed_profiles:
   fast:
-    steps: 6
+    steps: 4
     guidance: 1.0
     sampler: "unipc"
   custom:
-    steps: 6
+    steps: 4
     guidance: 1.0
     sampler: "unipc"
 

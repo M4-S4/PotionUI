@@ -6,7 +6,7 @@ fields:
     default: "fast"
     configuration:
       options:
-        - { label: "Lightning (6 steps)", value: "fast", sub_label: "(6 steps, CFG 1, with the lightx2v LoRA pair)" }
+        - { label: "Lightning (4 steps)", value: "fast", sub_label: "(4 steps, CFG 1, with the lightx2v LoRA pair)" }
         - { label: "Custom", value: "custom", sub_label: "(set steps/CFG freely)" }
 
   - type: "section"

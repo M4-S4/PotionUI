@@ -252,13 +252,17 @@ def test_the_lightning_text_preset_keeps_its_text_to_video_loras_and_its_compani
     assert (image["t2v_loras_high"], image["t2v_loras_low"]) == ([], [])
 
 
-def test_the_lightning_companion_runs_the_same_steps_and_sizes_as_the_text_preset():
+def test_the_lightning_companion_runs_its_image_to_video_loras_in_four_steps_and_the_sizes_of_the_text_preset():
     text, image = (_manifest(folder) for folder in ("Wan2.2-14B-Lightning-12GB", "Wan2.2-14B-Lightning-I2V-12GB"))
     sizes = [(PRESETS_ROOT / folder / "files" / "form" / "resolutions_540p.yml").read_bytes() for folder in ("Wan2.2-14B-Lightning-12GB", "Wan2.2-14B-Lightning-I2V-12GB")]
 
-    assert image["speed_profiles"] == text["speed_profiles"] == {
+    assert text["speed_profiles"] == {
         "fast": {"steps": 6, "guidance": 1.0, "sampler": "unipc"},
         "custom": {"steps": 6, "guidance": 1.0, "sampler": "unipc"},
+    }
+    assert image["speed_profiles"] == {
+        "fast": {"steps": 4, "guidance": 1.0, "sampler": "unipc"},
+        "custom": {"steps": 4, "guidance": 1.0, "sampler": "unipc"},
     }
     assert sizes[0] == sizes[1]
     assert max(int(width) * int(height) for width, height in (line.split('"')[1].split("x") for line in sizes[1].decode().splitlines() if "value" in line)) == 960 * 544

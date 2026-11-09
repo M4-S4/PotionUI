@@ -1416,6 +1416,7 @@ SHIPPED_PRESETS = {
             "i2v_low_noise_model": {"configuration"},
             "i2v_loras_high": {"default"},
             "i2v_loras_low": {"default"},
+            "steps": {"reactions"},
         },
         defaults={
             **WAN_DEFAULTS,
@@ -1437,7 +1438,7 @@ SHIPPED_PRESETS = {
         hidden=WAN_I2V_HIDDEN,
         own_resolutions=LIGHTNING_RESOLUTIONS,
         speed_options=("fast", "custom"),
-        reacted={"steps": 6, "cfg": 1.0},
+        reacted={"steps": 4, "cfg": 1.0},
         draft=("832x480", "480x832", "640x640", "576x720"),
         final=("960x544", "544x960", "720x720", "640x800"),
         wan_modes=("i2v", "flf"),
@@ -1896,6 +1897,19 @@ def test_the_wan_forms_bind_to_the_defaults_and_the_speed_profile_they_declare(s
         assert [option["value"] for option in named["speed_profile"].configuration["options"]] == list(shipped.speed_options), preset_id
         assert list(preset.speed_profiles) == list(shipped.speed_options), preset_id
         assert preset.speed_profiles[values["speed_profile"]] == {"steps": values["steps"], "guidance": values["cfg"], "sampler": values["sampler"]}, preset_id
+
+
+def test_the_lightning_companion_changes_only_the_step_count_the_fast_profile_sets_in_the_core_steps_reactions(shipped_presets, core_presets):
+    def fast(reaction):
+        return (reaction["when"]["field"], reaction["when"]["equals"]) == ("speed_profile", "fast")
+
+    mine = _video_form(shipped_presets[WAN_LIGHTNING_I2V_12GB])[0]["steps"].reactions
+    theirs = _video_form(core_presets[WAN])[0]["steps"].reactions
+    text = _video_form(shipped_presets[WAN_LIGHTNING_12GB])[0]["steps"].reactions
+
+    assert [reaction["then"]["set_value"] for reaction in theirs if fast(reaction)] == [6]
+    assert mine == [{**reaction, "then": {**reaction["then"], "set_value": 4}} if fast(reaction) else reaction for reaction in theirs]
+    assert text == theirs
 
 
 @pytest.mark.parametrize("aspect, draft, final", [(16 / 9, "832x480", "1344x768"), (9 / 16, "480x832", "768x1344")])
