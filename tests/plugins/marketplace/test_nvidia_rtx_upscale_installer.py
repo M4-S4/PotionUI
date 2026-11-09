@@ -52,8 +52,6 @@ def test_the_pipes_report_themselves_uninstalled_without_nvvfx(pipe_classes):
 
 
 def test_the_pipes_report_themselves_installed_with_nvvfx_present(pipe_classes):
-    """The complement of the test above: on a host that DOES have nvvfx, the
-    catalog must report them ready rather than perpetually NOT_INSTALLED."""
     if importlib.util.find_spec("nvvfx") is None:
         pytest.skip("this host has no nvvfx installed")
 
