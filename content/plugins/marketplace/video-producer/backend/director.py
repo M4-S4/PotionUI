@@ -1612,6 +1612,10 @@ def _native_form(fields: models.Fields, document: Dict[str, Any], resolution: Op
 def project_options(context: _Context, fields: models.Fields, warnings: List[Dict[str, Any]]) -> engine_options.Chosen:
     """The options the project sets for the preset of a plan, a warning naming those that no longer fit their field and are left out."""
     chosen = engine_options.chosen(context.doc, context.preset.id, fields, context.preset.cloud)
+    if context.handed_from is not None:
+        handed = engine_options.chosen(context.doc, context.handed_from, fields, context.preset.cloud)
+        chosen.values = {**handed.values, **chosen.values}
+        chosen.seed = chosen.seed if chosen.seed is not None else handed.seed
     if chosen.invalid:
         warning = note(
             "engine_option_invalid",

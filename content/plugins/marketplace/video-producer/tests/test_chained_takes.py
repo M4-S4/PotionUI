@@ -456,6 +456,56 @@ def test_the_companion_makes_a_chained_shot_at_the_size_the_project_chose_for_th
     assert [(shot["preset_id"], shot["resolution"]) for shot in shots] == [(LIGHTNING, "960x544"), (LIGHTNING_I2V, "960x544")]
 
 
+def _tunable(core, *preset_ids, own=None):
+    for preset_id in preset_ids:
+        fields = core.fields[(preset_id, "video")]
+        fields["steps"] = {"type": "slider", "required": False, "default": 6, "options": [], "recommendations": [], "limits": {"min": 1, "max": 100, "step": 1}}
+        fields["cfg"] = {"type": "slider", "required": False, "default": 1.0, "options": [], "recommendations": [], "limits": {"min": 1.0, "max": 20.0}}
+    for preset_id, name in (own or {}).items():
+        core.fields[(preset_id, "video")][name] = {"type": "checkbox", "required": False, "default": False, "options": [], "recommendations": []}
+
+
+def test_the_companion_takes_the_seed_and_the_options_the_project_set_for_the_lightning_engine_that_its_form_also_has(core, make_project, frames, slots):
+    preset_id = _lightning(core)
+    _tunable(core, LIGHTNING, LIGHTNING_I2V, own={LIGHTNING: "text_only_knob"})
+    project = make_project(clips=SHOTS[:2])
+    project["doc"]["engine"]["options"] = {LIGHTNING: {"seed": 1234, "speed_profile": "custom", "steps": 8, "cfg": 2.0, "text_only_knob": True}}
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=preset_id)
+    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert _shots(evaluation.payload)[1] == ("s2", LIGHTNING_I2V, "i2v", "s1")
+    assert [warning for warning in evaluation.payload["warnings"] if warning["code"] == "engine_option_invalid"] == []
+    first, second = s1["request"]["form_data"], s2["request"]["form_data"]
+    assert (first["seed"], first["speed_profile"], first["steps"], first["cfg"], first["text_only_knob"]) == (1234, "custom", 8, 2.0, True)
+    assert (second["seed"], second["speed_profile"], second["steps"], second["cfg"]) == (1234, "custom", 8, 2.0)
+    assert "text_only_knob" not in second
+
+
+def test_an_option_the_project_sets_for_the_companion_itself_wins_over_the_one_of_the_lightning_engine(core, make_project, frames, slots):
+    preset_id = _lightning(core)
+    _tunable(core, LIGHTNING, LIGHTNING_I2V)
+    project = make_project(clips=SHOTS[:2])
+    project["doc"]["engine"]["options"] = {LIGHTNING: {"seed": 1234, "steps": 8}, LIGHTNING_I2V: {"steps": 4}}
+
+    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert (s1["request"]["form_data"]["steps"], s2["request"]["form_data"]["steps"]) == (8, 4)
+    assert s2["request"]["form_data"]["seed"] == 1234
+
+
+def test_without_options_the_companion_keeps_the_defaults_of_its_own_form(core, make_project, frames, slots):
+    preset_id = _lightning(core)
+    _tunable(core, LIGHTNING, LIGHTNING_I2V)
+    project = make_project(clips=SHOTS[:2])
+    project["doc"]["engine"]["options"] = {LIGHTNING_I2V: {"steps": 4}}
+
+    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=preset_id)
+
+    assert "steps" not in s1["request"]["form_data"]
+    assert s2["request"]["form_data"]["steps"] == 4
+
+
 def test_without_the_companion_the_lightning_engine_starts_a_chained_shot_from_its_text_and_says_the_preset_is_not_available(core, make_project, frames, slots):
     preset_id = _lightning(core, companion=False)
     project = make_project(clips=SHOTS[:2])
