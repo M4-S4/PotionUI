@@ -1246,6 +1246,7 @@ class Shipped:
     modes: Tuple[str, ...] = ("video",)
     wan_modes: Tuple[str, ...] = ("t2v",)
     companions: Dict[str, str] = dataclasses.field(default_factory=dict)
+    listed: bool = True
 
     @property
     def is_wan(self):
@@ -1441,6 +1442,7 @@ SHIPPED_PRESETS = {
         final=("960x544", "544x960", "720x720", "640x800"),
         wan_modes=("i2v", "flf"),
         companions={"t2v": WAN_LIGHTNING_12GB},
+        listed=False,
     ),
     H3_12GB: Shipped(
         name="MiniMax-H3 (12 GB)",
@@ -1583,7 +1585,11 @@ def test_the_shipped_presets_load_through_the_cores_loader(shipped_presets):
         assert preset.requires == shipped.requires, preset_id
         assert preset.tags[:3] == shipped.leading_tags, preset_id
         assert [tag for tag in preset.tags if tag.startswith("ram-")] == shipped.ram_tags, preset_id
-        assert preset.vars["video_producer"] == {"profile": shipped.profile, **({"companions": shipped.companions} if shipped.companions else {})}, preset_id
+        assert preset.vars["video_producer"] == {
+            "profile": shipped.profile,
+            **({"companions": shipped.companions} if shipped.companions else {}),
+            **({} if shipped.listed else {"listed": False}),
+        }, preset_id
         assert (preset.vars[shipped.fps_var], preset.vars["default_frames"]) == (shipped.fps, shipped.frames), preset_id
         for text in shipped.description_mentions:
             assert text in preset.description, (preset_id, text)
@@ -1609,6 +1615,7 @@ def test_the_backend_knows_the_shipped_presets_and_reads_their_profile(shipped_p
         assert catalog.profiles(preset_id, preset.vars, list(preset.modes)) == shipped.profiles
         assert catalog.director_modes(preset.vars) == shipped.director_modes
         assert catalog.companions(preset.vars) == shipped.companions, preset_id
+        assert catalog.listed(preset.vars) is shipped.listed, preset_id
         assert all(companion in SHIPPED_PRESETS and mode in SHIPPED_PRESETS[companion].director_modes for mode, companion in shipped.companions.items()), preset_id
         assert catalog.preset_limits(preset.vars)["max_duration"] == shipped.max_duration
         assert catalog.preset_fps(preset.vars) == shipped.fps

@@ -2,7 +2,7 @@ import { formatNumber, t } from '../i18n/index.svelte.js';
 import { ui, doc, act, toast, asset, newAsset, clipLabel, productionRange, shotsIn, itemsIn, itemsOf, pickedClips, globalPrompt, clipAt, secs, onRestore, openDirector, generates, directorShot, relayout } from './state.svelte.js';
 import { project, getClient, flushSave, projectGone, onLoaded } from './project.svelte.js';
 import { takeStore, setTakes, upsertTake, patchTake, removeTake, takeById, realTakesOf, flyingTakes } from './takes.svelte.js';
-import { PROFILES, aggregate, canUpscale, engineOptions, isInFlight, migrateEngine, optionFor, presetLabel, presetProfiles, progressText, takeAsset } from './generation.js';
+import { PROFILES, aggregate, canUpscale, engineOptions, isInFlight, listedOptions, migrateEngine, optionFor, presetLabel, presetProfiles, progressText, takeAsset } from './generation.js';
 import { confirm, openHostModal } from './host.js';
 import { finalsToSync, takeLabelOf, marksOf, relabel, releasedLabel } from './labels.js';
 import { durationLimit, generationCounts, releaseOverrun, setSpeed } from './shots.js';
@@ -52,7 +52,7 @@ export function engineChoices() {
 
 export function engineGroups() {
 	const groups = [];
-	for (const option of engineChoices()) {
+	for (const option of listedOptions(engineChoices())) {
 		let group = groups.find((g) => g.label === option.group);
 		if (!group) {
 			group = { label: option.group, options: [] };

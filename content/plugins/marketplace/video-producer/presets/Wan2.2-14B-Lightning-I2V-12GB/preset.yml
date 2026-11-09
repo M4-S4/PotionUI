@@ -60,6 +60,7 @@ vars:
     profile: "12 GB · 64 GB RAM"
     companions:
       t2v: "01M57QPEMDPKHHW83YSEYBN0X1"
+    listed: false
 
 llm:
   guide: |

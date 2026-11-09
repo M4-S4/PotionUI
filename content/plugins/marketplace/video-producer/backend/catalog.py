@@ -12,6 +12,8 @@ VIDEO_PRODUCER = "video_producer"
 
 COMPANIONS = "companions"
 
+LISTED = "listed"
+
 NATIVE_KINDS = {"native.local": "local", "native.remote": "remote"}
 
 READY = "ready"
@@ -129,6 +131,11 @@ def companions(variables: Optional[Mapping[str, Any]]) -> Dict[str, str]:
     if not isinstance(found, Mapping):
         return {}
     return {str(mode): preset_id for mode, preset_id in found.items() if isinstance(preset_id, str) and preset_id}
+
+
+def listed(variables: Optional[Mapping[str, Any]]) -> bool:
+    own = (variables or {}).get(VIDEO_PRODUCER)
+    return not (isinstance(own, Mapping) and own.get(LISTED) is False)
 
 
 def reachable_modes(variables: Optional[Mapping[str, Any]], available: Collection[str]) -> List[str]:
@@ -253,6 +260,7 @@ def _preset(description: Any, upscaler: bool, cloud_backends: List[Dict[str, Any
     return {
         "id": description.id,
         "name": description.name,
+        "listed": listed(variables),
         "engine": description.engine,
         "category": description.category,
         "requires": description.requires,
