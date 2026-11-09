@@ -1335,15 +1335,24 @@ SHIPPED_PRESETS = {
             "vae": {"configuration"},
             "t2v_high_noise_model": {"configuration"},
             "t2v_low_noise_model": {"configuration"},
-            **WAN_HIDDEN_FIELDS,
+            "i2v_high_noise_model": {"configuration", "visible"},
+            "i2v_low_noise_model": {"configuration", "visible"},
         },
         defaults={**WAN_DEFAULTS, "speed_profile": "balanced", "resolution": "832x480", "fps": 24, "cfg": 5.0, "t2v_loras_high": [], "t2v_loras_low": []},
-        recommended={"text_encoder": [UMT5], "vae": [WAN22_VAE], "t2v_high_noise_model": [WAN_5B_DIT], "t2v_low_noise_model": []},
+        recommended={
+            "text_encoder": [UMT5],
+            "vae": [WAN22_VAE],
+            "t2v_high_noise_model": [WAN_5B_DIT],
+            "t2v_low_noise_model": [],
+            "i2v_high_noise_model": [WAN_5B_DIT],
+            "i2v_low_noise_model": [],
+        },
         hidden=WAN_HIDDEN,
         own_resolutions=("832x480", "480x832", "640x640", "576x704"),
         speed_options=("balanced", "custom"),
         draft=("832x480", "480x832", "640x640", "576x704"),
         final=("832x480", "480x832", "640x640", "576x704"),
+        wan_modes=("t2v", "i2v"),
     ),
     WAN_LIGHTNING_12GB: Shipped(
         name="Wan 2.2 14B Lightning (12 GB)",
@@ -1896,6 +1905,28 @@ def test_the_wan_forms_bind_to_the_defaults_and_the_speed_profile_they_declare(s
         assert [option["value"] for option in named["speed_profile"].configuration["options"]] == list(shipped.speed_options), preset_id
         assert list(preset.speed_profiles) == list(shipped.speed_options), preset_id
         assert preset.speed_profiles[values["speed_profile"]] == {"steps": values["steps"], "guidance": values["cfg"], "sampler": values["sampler"]}, preset_id
+
+
+def test_the_5b_preset_carries_one_motion_latent_when_its_image_to_video_picker_holds_the_5b(shipped_presets, tmp_path):
+    from unittest.mock import Mock
+
+    from src.features.forms.binding import bind_form
+    from src.features.generation.orchestrator import _prepare_director_form_data
+
+    preset = shipped_presets[WAN_5B_8GB]
+    [five_b] = _recommendations(_video_form(preset)[0]["i2v_high_noise_model"])
+    segment = {"id": "seg-0", "prompt": "a lantern", "negative_prompt": "", "start": None, "end": None, "frames": None, "seed": None, "steps": None, "cfg": None, "loras": None}
+    document = {"schema_version": 1, "mode": "t2v", "settings": {"fps": 24, "duration": 5, "resolution": "", "seed": 7, "continuation": None}, "segments": [segment], "media": [], "audio": [], "ic_lora": []}
+    form = {"video_director": document, "t2v_high_noise_model": "model:dit", "i2v_high_noise_model": "model:dit", "text_encoder": "model:te", "vae": "model:vae"}
+    settings = Mock()
+    settings.get_file_storage_directory = Mock(return_value=str(tmp_path))
+    bound = bind_form(preset, "video", None, form, "user_1", storage_dir=str(tmp_path))
+
+    prepared = _prepare_director_form_data(preset, "video", bound.values, "user_1", settings, model_sha256={"model:dit": five_b["sha256"]}.get)
+
+    assert bound.values["svi_motion_latent_count"] == 2
+    assert prepared["svi_motion_latent_count"] == 1
+    assert prepared["video_director"]["settings"]["timing_profile"] == {"motion_latent_count": 1}
 
 
 @pytest.mark.parametrize("aspect, draft, final", [(16 / 9, "832x480", "1344x768"), (9 / 16, "480x832", "768x1344")])
