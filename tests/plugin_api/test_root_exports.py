@@ -32,9 +32,18 @@ REEXPORTS = {
     ],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],
     "src.plugin_api.media": ["extract_frame", "save_user_media"],
-    "src.plugin_api.presets": ["DirectorBindingError", "bind_director_media"],
     "src.plugin_api.chat": ["ToolApprovalPreview"],
     "src.plugin_api.testing": ["scratch_database", "use_database"],
+    "src.plugin_api.presets": [
+        "DirectorBindingError",
+        "PresetInstallState",
+        "PresetTemplate",
+        "bind_director_media",
+        "list_presets",
+        "preset_install_state",
+        "preset_template",
+        "resolve_preset_path",
+    ],
 }
 
 

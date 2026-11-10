@@ -890,12 +890,14 @@ class TextEncoderStreaming:
         self.budget_gb = 0.0
         self.resident_gb = 0.0
         self.streamed_gb = 0.0
+        self.device = "cpu"
 
     @property
     def active(self) -> bool:
         return any(part.is_streaming for part in self.parts)
 
     def apply(self, device: str | torch.device, budget_gb: float) -> None:
+        self.device = str(device)
         self.budget_gb = max(0.0, float(budget_gb))
         remaining = self.budget_gb
         resident = streamed = 0.0
@@ -930,6 +932,12 @@ class TextEncoderStreaming:
         if callable(mover):
             try:
                 mover("cpu")
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if self.device.startswith("cuda") and torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
             except Exception as exc:
                 if first_error is None:
                     first_error = exc
@@ -2521,10 +2529,19 @@ class NativeGenerator:
         tile, overlap = _causal3d_encode_tile(
             free, (pixels.shape[-2], pixels.shape[-1]), self._spatial_downscale(), max_tile,
         )
-        logger.info(
-            "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx",
-            need, free, tile, overlap,
-        )
+        if (self.spec.latent_format or {}).get("tiled_encode_faithful", True):
+            logger.info(
+                "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx",
+                need, free, tile, overlap,
+            )
+        else:
+            logger.warning(
+                "ref-image encode needs ~%.1fGB with %.1fGB free; encoding tiled, tile=%dpx overlap=%dpx. "
+                "This VAE's tiled latent differs from its whole-image latent, so the output may not follow "
+                "the reference image closely. Use a smaller reference image, or free VRAM (unload other "
+                "models, stop other GPU work) so it encodes in one piece.",
+                need, free, tile, overlap,
+            )
         return tile, overlap
 
     def _encode_need_gb(self, pixels: torch.Tensor) -> float:

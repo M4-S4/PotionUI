@@ -70,7 +70,7 @@ itself exports.
 | **Cloud** — contributing a hosted-model provider, reading the enabled models and pricing a run | `.cloud`, `.cloud_testing` | `estimate_cloud_cost(user, model_id, shots, driver=None)` (what a run of shots on an enabled cloud model would cost, the answer of `POST /api/cloud/models/{model_id}/estimate`; each shot is the route's `{"task", "params"}`; administrators only, `PermissionError` for anyone else; `ModelNotFoundException` for a model that is not an enabled cloud model), `DirectorEstimateError` (a `ValueError`: the shots it cannot price), `enabled_cloud_models(backend_id)` (the `CloudCatalogEntry` of each model turned on in a cloud backend's catalog, by slug: `model_id`, `label`, `provider_model_id`, `tasks`, `outputs` and its `spec`), `resolve_cloud_model(model_id)` (a `ResolvedCloudModel`: the `backend_id`, `driver` and catalog `entry` of an enabled cloud model, with its `spec`; `None` when no enabled cloud backend offers it), `CloudCatalogEntry`, `ResolvedCloudModel` (none of these reads carries a backend credential; the two catalog reads are unscoped: they do not check that a given user may reach a model, which `submit_generation` does and `visible_model_ids(user_id)` lists), and the provider kit: `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError`, `PreEncodedReference` (an already VAE-encoded reference a pipe hands to a `reference_latents` input), `MAX_BUNDLE_COPIES` (the most copies a prompt resource bundle row may ask for) |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks`, `load_native_component(path, kind)` (one component file, such as a `vae`, loaded on the CPU by the engine's own loader and returned as its wrapper: `.module`, `move_to(device)`, `unload()`) |
-| **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `preset_template(preset_id)` (a loaded preset as its loader built it, a `PresetTemplate` with its `path`, `driver` and modes down to each form field, or `None`), `resolve_preset_path(preset_id, reference)` (a path the preset names with its `{{ paths.preset }}` and `{{ paths._shared }}` variables filled, or `None` when the preset is not loaded), `preset_install_state(preset_id)` (a `PresetInstallState`: whether the preset is `installed` and, when it is, `assigned` to a user or a group), `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`, plus its `engine`, `category` and `requires` (the `requires:` block of its `preset.yml`, e.g. `{"min_vram_gb": 12, "recommended_vram_gb": 16}`, or `None`); `None` when not installed), `list_presets(user)` (a `PresetDescription` for each preset installed by an admin that `user` may run, in the order of `GET /api/presets`: the presets assigned to them directly or through a group, every installed preset for an administrator; `PermissionError` without a user), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False, *, at=None, capabilities=None, field=None)` (puts a resolved image, from `resolve_media_ref` or `extract_frame`, into the request's Video Director document, keeping the rest of it. A single-shot document takes it as its `first` or `last` frame; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot. A `director` document needs `segment_id` and takes `first`, `last` or, when the preset's director mode allows keyframes, `keyframe` with `at` in seconds from the start of that segment. Role `reference` adds one media or a list (images, videos, audio) to the preset mode's reference pool, the form field `field` or the first of its `reference_fields`, and with `segment_id` cites them in that segment's prompt for `per_shot` references. The capabilities default to the preset's `vars.video_director` for the request's mode. Raises `DirectorBindingError` with a `code`; the codes and placement rules are in the [`media`](video-director.md#media) and [`references`](video-director.md#references-segment) sections of docs/video-director.md), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
+| **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `preset_template(preset_id)` (a deep copy of a loaded preset as its loader built it, a `PresetTemplate` whose fields follow the loader and are not yet a stable contract, or `None`), `resolve_preset_path(preset_id, reference)` (a path the preset names, with its `{{ paths.preset }}` and `{{ paths._shared }}` variables filled and resolved; `None` unless it stays inside the preset's folder or the shared presets folder), `preset_install_state(preset_id)` (a `PresetInstallState`: whether the preset is `installed` and `assigned` to anyone), `describe_preset` (a loaded preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`, and its `engine`, `category` and `requires`; `None` when no preset with that id is loaded, installed or not), `list_presets(user)` (a `PresetDescription` of each installed preset the user may run, the only one of these preset reads scoped to a user: `describe_preset`, `preset_template`, `resolve_preset_path` and `preset_install_state` take no user; see [Reading presets](#reading-presets)), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False, *, at=None, capabilities=None, field=None)` (puts a resolved image, from `resolve_media_ref` or `extract_frame`, into the request's Video Director document, keeping the rest of it. A single-shot document takes it as its `first` or `last` frame; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot. A `director` document takes `first` or `last` on `segment_id`, or a `keyframe` at `at` seconds from the start of that segment, as the preset's director mode allows: see [`media`](video-director.md#media) in docs/video-director.md. Role `reference` adds one media or a list of them (images, videos, audio tracks) to the reference pool of the preset mode, the form field `field` or the first of its `reference_fields`, and with `segment_id` cites them in that segment's prompt: see [`references`](video-director.md#references-segment). `capabilities` defaults to the preset's `vars.video_director` for the request's mode, read from the running application: a `director` document or a `reference` bound before the application has started, such as in a plugin's own unit tests, raises the container's `RuntimeError` unless `capabilities` is given. Raises `DirectorBindingError` with a `code`), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
 | **Generation** — submitting, previewing, following and reading generations | `.generation` | `submit_generation`, `preview_memory`, `cancel_generation`, `generation_state`, `generation_record`, `generation_failure` (administrators only), `generation_active`, `list_generation_files`, `resolve_media_ref`, `get_session`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict`, and the errors `submit_generation` and `preview_memory` let through, to catch by type: `FormBindingError` (a `ValueError`: the form does not bind), `FormNotFoundException` (no form of that name), `NoBackendForEngineError` and `NoEligibleBackendError` (both `RuntimeError`: no backend can run the request) |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
@@ -2420,6 +2420,28 @@ stops being selected for generations. It never re-enables on a return to
 action instead. `GET /api/admin/provisioning/{row_id}` is the same reconcile
 on demand.
 
+## Reading presets
+
+`src.plugin_api.presets` describes the presets of this instance, so a plugin can offer a user a
+choice of presets and fill a request for the one they pick.
+
+| Function | Does |
+|---|---|
+| `list_presets(user)` | A `PresetDescription` for each installed preset `user` may run, in the order `GET /api/presets` lists presets: the presets assigned to them directly or through one of their groups, the rule `submit_generation` checks, and every installed preset for an administrator. An installed preset whose files are not loaded is left out. Without a user it raises `PermissionError` |
+| `describe_preset(preset_id)` | The `PresetDescription` of a loaded preset, installed or not, or `None` when no preset with that id is loaded: its `id` and `name`, a copy of its `vars`, its `modes` (each with its `default_form` and every form's fields as `type`, `required` and `multi`), its `engine` and `category`, and `requires`, a copy of the `requires:` block of its `preset.yml` (such as `{"min_vram_gb": 12, "recommended_vram_gb": 16}`) or `None` |
+| `preset_template(preset_id)` | The `PresetTemplate` of a loaded preset as its loader built it, installed or not, or `None`: its `path` on this server, its `driver`, and its modes down to each form field and its `configuration`, recommended model files included. It is a deep copy: changing it changes nothing in the loaded preset. Its fields are those the loader builds (`src/features/presets/templates.py`) and follow it; they are not a stable contract until the plugin API's stability question (issue #36) is answered, so read the fields you need and expect them to move |
+| `resolve_preset_path(preset_id, reference)` | `reference`, a path a preset names (such as the `path` of a field's option file), with its `{{ paths.preset }}` and `{{ paths._shared }}` variables replaced by the preset's folder and the shared presets folder, then resolved, links followed. `None` when the preset is not loaded, or when the resolved path is not inside the preset's folder or the shared presets folder: a `..` that climbs out, an absolute path elsewhere, a drive letter, a UNC path, or a symbolic link or junction that leads out. On Windows the check ignores case, as the file system does. A path without either variable is resolved against the server's working directory, as the loader reads it, so it is `None` unless it lands in one of the two folders |
+| `preset_install_state(preset_id)` | A `PresetInstallState`: `installed`, whether an administrator installed the preset, and `assigned`, whether it is then assigned to at least one user or group. A preset that is not installed is never `assigned` |
+
+Only `list_presets(user)` is scoped to a user: it lists what they may run and says nothing of the
+other presets. `describe_preset`, `preset_template`, `resolve_preset_path` and
+`preset_install_state` are not scoped to a user. They take no user and read the presets of the
+instance, whoever asks: the first three read any loaded preset, installed, assigned or not, and
+`preset_install_state` tells about any preset id. Before you show a user what one of them reads,
+check that `list_presets(user)` lists that preset. `preset_install_state` is for what administrators see,
+such as a [setup check](#showing-admins-the-next-setup-step), and a `PresetTemplate` holds paths on
+this server.
+
 ## Running generations from a plugin
 
 `src.plugin_api.generation` is the supported way to start, follow and read generations from
@@ -3118,8 +3140,83 @@ text and the shortcut (as `Shift+R`) after the control's name.
 Tailwind classes written in a plugin's `frontend/src/**/*.{svelte,js,ts}` (marketplace and
 local) and in `content/plugins/sdk/` are scanned by the app's Tailwind build, so the semantic
 token classes (`bg-surface-2`, `text-fg-muted`, `border-line`, ...) and arbitrary values work
-in plugin markup. Rebuild the app frontend after adding new classes; the plugin's own `dist/`
-carries no Tailwind CSS. Use the token classes only, as in the app.
+in plugin markup. Rebuild the app frontend after adding new classes. Use the token classes only,
+as in the app.
+
+### Shipping a stylesheet with a plugin page
+
+The app's Tailwind build only sees the plugins that are on disk when it runs. A plugin added
+later, to `content/plugins/local/` of a Docker image or of an install whose frontend was built
+before, finds only the classes the app happens to use itself, and its layout breaks wherever it
+uses others. Such a plugin ships its own stylesheet with its page.
+
+A page plugin whose `frontend/src/` holds `<Component>.css`, next to the `<Component>.svelte`
+that `index.js` imports, gets `frontend/dist/<Component>.css` from `scripts/build-plugins.mjs`.
+The build compiles that file with Tailwind, using the app's `frontend/tailwind.config.js` as a
+preset (same theme, tokens, type scale and `focus-visible` variants), over the plugin's own
+`frontend/src/**/*.{svelte,js,ts}` only, with Tailwind's base styles off. `@tailwind utilities;`
+is usually the whole file; plain CSS rules may follow it. A release build minifies the sheet as
+it minifies the bundle. Compiling it needs the app frontend's packages (`npm ci` in
+`frontend/`); a plugin without the file does not.
+
+The build puts every rule under the page of the plugin: `.p-4` becomes
+`:where([data-potionui-plugin="video-producer"]) .p-4`, `:root`, `html` and `body` at the start
+of a selector become the page element itself, and keyframes keep their names. The sheet holds no
+token values: its rules read the app's CSS variables (`--surface-2`, `--fg-muted`, ...), so it
+follows the light and dark themes like the app does.
+
+The scope sits in `:where()`, so it adds no specificity: a rule of the sheet weighs what the same
+utility weighs in the app's own CSS, and the sheet, adopted after the app's, wins only ties. A
+host component rendered in the page (a `Button` of `hostComponents`) keeps its `hover:`,
+`focus-visible:` and `disabled:` styles when the plugin uses the same base utility, since those
+variants weigh more than a bare class. One tie remains: a responsive variant weighs what a bare
+class weighs, so a host component whose element carries `px-3 md:px-4` keeps `px-3` at every
+width once the plugin uses `px-3` anywhere, because the sheet's `px-3` comes after the app's
+`md:px-4`. `:where()` needs Chrome or Edge 88, Firefox 78 or Safari 14; the app's own
+`focus-visible:` variant already uses it, and in Firefox and Safari adopting a constructed
+stylesheet needs more (Firefox 101, Safari 16.4).
+
+`GET /api/plugins/pages/{route}` answers `stylesheet`, the path of `<Component>.css` in
+`frontend/dist/` when the file is there, `null` otherwise. The plugin page route fetches the
+sheet with the bundle, keeps only the rules that stay inside the page element, adopts the sheet
+before it mounts the page, and removes it when the page unmounts. A kept style rule has
+selectors that each start with the plugin's `:where([data-potionui-plugin="<id>"])`, the scope
+alone inside `:where()`, followed by nothing, a descendant or a child combinator, and holds no
+nested rules; `@media`, `@supports`, `@container` and `@layer` blocks are looked into,
+`@keyframes` and `@font-face` are kept, and everything else (`@import`, `@page`, a selector that
+starts elsewhere or reaches a sibling of the page, a style rule with nested rules) is dropped,
+with a console warning in development. The sheet therefore applies to the plugin page only, and
+to nothing once the user leaves it.
+
+Limits of the page stylesheet:
+
+- **Content outside the page element.** Content the plugin moves out of its page element, such
+  as its own dropdown or modal portalled to `document.body`, gets nothing from the sheet. Render
+  it with the host components, which carry the app's own classes, or give its root the attribute
+  `data-potionui-plugin` with the plugin id, which brings the sheet to the root's descendants but
+  not to the root itself. The plugins of this repository do not show the problem because the
+  app's Tailwind build still scans them.
+- **Selectors on the document root.** Only `:root`, `html` and `body` written alone at the start
+  of a selector become the page element. `:root[data-theme='light'] .x`, `html.dark .x`,
+  `body:hover .x`, and any selector that depends on an ancestor of the page element such as
+  `[data-theme='light'] .x`, stay in the sheet under the page, where they never match, and no
+  warning says so. They are not supported: the utilities read the app's tokens and already
+  follow the theme.
+- **CSS nesting.** Nesting in the plain CSS written after `@tailwind utilities;` is not
+  supported: the scope prefix breaks `&` rules, and the page drops any style rule that holds
+  nested rules.
+- **Global names.** `@keyframes` and `@font-face` names are global while the page is open: a
+  plugin's `@keyframes spin` replaces the app's `spin`, and a `font-family` it declares applies
+  wherever the app uses that name. Prefix your own names with the plugin id
+  (`@keyframes video-producer-pulse`).
+- **Responsive variants of host components.** As said above, a host component's `md:px-4` loses
+  to the sheet's `px-3` when the component's element carries both and the plugin uses `px-3`.
+  The host components that change a utility at a breakpoint are the page layout ones
+  (`PageHeader`, `PageContainer`, `PageTitle`) and several of `detail/` and `library/`;
+  `Button` and the other controls of `ui/` do not.
+
+A plugin without the file, which is every plugin in this repository, gets `stylesheet: null`
+and loads as before.
 
 The distribution image (`docker/Dockerfile`) builds the app frontend with the plugin sources of
 the repository it is built from: `content/plugins/sdk/` and every
@@ -3291,9 +3388,10 @@ const handle = picker.mount(el, {
 `@xyflow/svelte` is part of the plugin toolchain (`content/plugins/package.json`), at the same
 version as the app (pinned exactly in both). A plugin imports it like any other dependency
 (`import { SvelteFlow, Background } from '@xyflow/svelte'`) and it is bundled into the plugin's
-own dist (about 250 kB minified). The build writes only `.js`, so the library's stylesheet is not
-shipped as a file: copy what you need from `@xyflow/svelte/dist/style.css` into the component's
-`<style>` block, using `:global(...)` selectors.
+own dist (about 250 kB minified). The build writes only `.js` there, apart from the page
+stylesheet described above, so the library's stylesheet is not shipped as a file: copy what you
+need from `@xyflow/svelte/dist/style.css` into the component's `<style>` block, using
+`:global(...)` selectors.
 
 ## Building your plugin's frontend
 
@@ -3364,6 +3462,120 @@ def plugin_db(tmp_path):
 - **Nothing else.** Do not patch the module `db` comes from or build its class yourself: both
   are internal and change without notice. These two names are the supported way to swap the
   database.
+
+## Publishing a plugin in a catalog
+
+A plugin that lives outside this repository installs in two ways: cloned or unpacked into
+`content/plugins/local/<id>/` by hand, then **Scan for plugins**; or from a catalog, with
+**Install from catalog** in Admin → Plugins. A catalog is a JSON file served over https:
+
+```json
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "video-producer",
+      "name": "Video Producer",
+      "version": "0.1.0",
+      "description": "Storyboards, takes, editing and delivery for AI video.",
+      "license": "GPL-3.0",
+      "requires": { "core": "0.2.0" },
+      "release": {
+        "archive": "https://example.com/releases/video-producer-0.1.0.zip",
+        "sha256": "<64 lowercase hex digits>"
+      }
+    }
+  ]
+}
+```
+
+- `id` is the plugin folder name and the manifest `id`: lowercase letters, digits, `.`,
+  `_` and `-`, at most 64 characters, not ending with `.`, never a Windows device name
+  (`con`, `nul`, `com1`, ...).
+- `requires.core` is the PotionUI version the release needs: a bare version is a minimum
+  (`"0.2.0"` means `>=0.2.0`), and a range such as `">=0.2,<0.3"` is read as a Python
+  version specifier. An entry whose requirement this PotionUI does not meet, or that is not
+  a version at all, is listed as incompatible and cannot be installed. Other keys of
+  `requires`, and keys PotionUI does not know anywhere in an entry, are ignored.
+- `release` names the archive and its sha256; `null`, or both values `null`, lists the
+  plugin without a release. An entry that breaks these rules, or an id listed twice, is set
+  aside and shown with its reason; the others stay installable.
+
+The archive is a zip holding a single folder named after the id, with `manifest.yml` at
+its root and the built `frontend/dist/`: what `content/plugins/local/<id>/` should hold,
+without tests. The `__MACOSX/` folder the macOS Finder adds next to it is skipped, never
+unpacked. PotionUI refuses the whole archive if any other entry is outside that folder, has
+an absolute path, a `..`, `.` or empty part, a backslash or a `:`, a name Windows cannot
+hold (a device name, a trailing dot or space, a control character), is a link or a special
+file, is encrypted, differs from another only by letter case, or uses a file as a folder,
+and when the archive holds more than 10,000 entries or unpacks to more than 1 GiB. The
+manifest must be valid and carry the `id` and `version` of the catalog entry.
+
+What an install does, in order: it reads the catalog again on the server (the browser
+sends the catalog URL, the plugin id, and the version and sha256 the admin confirmed),
+refuses with nothing written when the entry it reads now lists another version or
+sha256, downloads the archive (at most 128 MiB, within 300 seconds for the archive and 30
+for the catalog, redirects included, and dropped when the host sends nothing for 30
+seconds),
+compares its sha256 with the catalog's before anything is written, unpacks it into a
+staging folder under `content/plugins/local/.potionui-install/`, checks the manifest,
+writes `.potionui-catalog.json` (the catalog URL as given, query included, since it binds
+the plugin to that catalog; the version, archive URL and sha256) into the plugin folder,
+moves the folder into `content/plugins/local/<id>/`, and scans for
+plugins. A new plugin is discovered disabled, like one placed by hand, and stays so across
+a restart even when the database still holds an enabled row for its id from a copy that
+was removed while the server was stopped.
+
+The same id is never installed twice. A plugin that ships with PotionUI
+(`content/plugins/marketplace/`) is listed as bundled; a folder of that id that holds no
+`.potionui-catalog.json` (a clone, a plugin placed by hand), or the id found in another
+folder or in `POTIONUI_EXTRA_PLUGIN_DIRS`, is a conflict; neither is replaced. So is an id
+that differs from an installed plugin's only by `-` and `_` (`foo-bar` and `foo_bar`), since
+both would load as the same Python package. A plugin
+belongs to the catalog it was installed from, the URL kept in its `.potionui-catalog.json`
+(scheme and host compared without case, a default port the same as none, path and query
+exactly): any other catalog that lists its id shows it as a conflict, installed from
+another catalog, and cannot replace it. A plugin installed from this catalog is updated
+only to a strictly newer version, both versions read as Python package versions (PEP 440)
+like `requires.core`: the same version is installed, an older one is listed as older
+than the installed one, and a version either side that is not a PEP 440 version is
+listed as not comparable; none of these offers an action. PEP 440 rules apply as they are:
+`1.0.0+build` counts as newer than `1.0.0`, and after a version with an epoch (`1!0.1`)
+every version without one is older, so a catalog should use plain release numbers. On an
+update, the
+new folder replaces the old one whole, the old one comes back if the move fails, and an
+enabled plugin is enabled again on its new manifest, with presets, pipes and recipes
+rescanned. The old folder waits in the staging folder until the scan that follows the
+move has the plugin back up, and is never deleted before: when that scan fails (a page
+route another plugin already owns, for example), when the new version of an enabled plugin
+does not start (a missing Python package, a hook that fails to register), or when the new
+manifest of any plugin leaves it in error, the old folder goes back in place, an enabled
+plugin is enabled again on it, and the install answers with the reason. A disabled plugin
+takes the new version as it is, since nothing runs it until it is enabled. If the old
+folder cannot be moved back, or the server stops before the check, it stays in
+`content/plugins/local/.potionui-install/`, named in the answer when there is one.
+
+PotionUI installs no Python package. `dependencies.python` stays in the manifest; the
+enable step checks it, and the install answer lists it so the admin knows what to
+install.
+
+Catalog and archive URLs must be https, to a host that resolves to public addresses
+only; every redirect is checked the same way, and the connection goes to the addresses
+that were checked. A host written as a number that is not a full IP address
+(`2130706433`, `127.1`, `0x7f.1`) is refused in every mode, and so is a URL with
+credentials in it. Refusals, statuses and logs name the host, never the whole URL, so a
+token in a query or a signed redirect does not end up in them. For a catalog on a local network or a test server, start PotionUI
+with `POTIONUI_PLUGIN_CATALOG_ALLOW_LOCAL=1`: catalog and archive URLs may then point to
+local and private addresses, and use plain http, but only to such an address. A plain http
+URL to a public address, written as one or a name with any public answer, is refused
+before connecting, a redirect from https to http included; https to public hosts is
+unchanged. Local and private addresses include link-local ones, such as the cloud metadata
+address `169.254.169.254`, so set the variable only on a server where that is acceptable.
+Installing,
+updating and reading a catalog are admin-only (`POST /api/plugins/catalog` and
+`POST /api/plugins/catalog/install`). The sha256 proves the archive is the one the
+catalog names; it says nothing about the catalog itself, so install only from catalogs
+you trust: a plugin runs with the same rights as PotionUI.
 
 ## Related
 

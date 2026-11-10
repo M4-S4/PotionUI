@@ -6,13 +6,6 @@ preset it wants to run. `src.features.presets.operations` and the
 `src.features.presets.collaborators`) hold the rest of the preset business
 logic (install/assign/configure), for a plugin that needs more than a lookup.
 
-`describe_preset` reads one preset's modes, fields, engine, category and
-hardware guidance; `list_presets(user)` describes every installed preset that
-user may run. `preset_template` hands over a loaded preset as its loader built
-it, `resolve_preset_path` fills the `{{ paths.preset }}` and
-`{{ paths._shared }}` variables of a path it names, and `preset_install_state`
-tells whether a preset is installed and assigned to anyone.
-
 To actually generate, build a `GenerationRequest` - the preset, the mode, the
 `PromptPair`s and the form data its fields expect - and hand it to the generation
 orchestrator from the container:
@@ -51,6 +44,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
+from src.features.generation.policy import GenerationPolicy
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations as preset_operations
 from src.features.presets.children_paths import resolve_children_path
@@ -70,11 +64,10 @@ from src.features.presets.requirements.contracts import (
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
 from src.features.presets.templates import PresetTemplate, default_form_name
-from src.features.video_director.binding import DirectorBindingError
+from src.features.video_director import apply_preset_mode_overlay
+from src.features.video_director.binding import REFERENCE_ROLE, DirectorBindingError
 from src.features.video_director.binding import bind_director_media as _bind_director_media
 from src.platform.plugins.runtime_registries import get_container
-from src.platform.security.user import AccountType
-from src.platform.util.path_resolution import apply_preset_mode_overlay
 
 __all__ = [
     "DirectorBindingError",
@@ -131,24 +124,22 @@ def lint_preset_dir(path: str) -> Tuple[List[str], List[str]]:
     return errors, warnings
 
 
-def _director_capabilities(request: Any) -> Optional[Dict[str, Any]]:
-    if isinstance(request, Mapping):
-        preset_id, mode = request.get("preset_id"), request.get("mode")
-    else:
-        preset_id, mode = getattr(request, "preset_id", None), getattr(request, "mode", None)
-    if not preset_id:
+def _request_field(request: Any, name: str) -> Any:
+    return request.get(name) if isinstance(request, Mapping) else getattr(request, name, None)
+
+
+def _preset_capabilities(request: Any, role: str) -> Optional[Dict[str, Any]]:
+    form_data = _request_field(request, "form_data")
+    document = form_data.get("video_director") if isinstance(form_data, Mapping) else None
+    if role != REFERENCE_ROLE and (not isinstance(document, Mapping) or document.get("mode") != "director"):
         return None
-    try:
-        repository = getattr(get_container(), "file_preset_repository", None)
-    except RuntimeError:
-        return None
-    if repository is None:
-        return None
-    template = repository.find_preset_by_id(preset_id)
-    capabilities = (getattr(template, "vars", None) or {}).get("video_director") if template is not None else None
-    if not isinstance(capabilities, dict):
-        return None
-    return apply_preset_mode_overlay(capabilities, mode)
+    repository = get_container().file_preset_repository
+    preset_id = _request_field(request, "preset_id")
+    template = repository.find_preset_by_id(preset_id) if preset_id else None
+    capabilities = (template.vars or {}).get("video_director") if template is not None else None
+    if not isinstance(capabilities, Mapping):
+        return {}
+    return apply_preset_mode_overlay(capabilities, _request_field(request, "mode"))
 
 
 def bind_director_media(
@@ -162,18 +153,8 @@ def bind_director_media(
     capabilities: Optional[Mapping[str, Any]] = None,
     field: Optional[str] = None,
 ):
-    """Bind resolved media into the request's Video Director document; returns a new request.
-
-    Single-shot documents take a `first` or `last` frame; `promote` turns t2v
-    into i2v and i2v into flf when needed. A `director` document takes `first`, `last` or `keyframe` on `segment_id`,
-    `at` being a keyframe's seconds from the start of that segment. Role
-    `reference` adds one or a list of media to the preset mode's reference
-    pool (`field`, default the first reference field) and, with `segment_id`,
-    cites them in that segment's prompt. `capabilities` defaults to the
-    preset's `vars.video_director` for the request's mode. Raises
-    `DirectorBindingError` with a `code`."""
     if capabilities is None:
-        capabilities = _director_capabilities(request)
+        capabilities = _preset_capabilities(request, role)
     return _bind_director_media(
         request, role, media, segment_id, promote, at=at, capabilities=capabilities, field=field,
     )
@@ -222,27 +203,33 @@ class PresetInstallState:
 
 
 def preset_template(preset_id: str) -> Optional[PresetTemplate]:
-    """A loaded preset as its loader built it, with its `path`, `driver` and modes down to each form field, or None."""
-    return get_container().file_preset_repository.find_preset_by_id(preset_id)
+    template = get_container().file_preset_repository.find_preset_by_id(preset_id)
+    return copy.deepcopy(template) if template is not None else None
 
 
 def resolve_preset_path(preset_id: str, reference: str) -> Optional[Path]:
-    """A path a preset names with its `{{ paths.preset }}` and `{{ paths._shared }}` variables filled, or None when the preset is not loaded."""
     repository = get_container().file_preset_repository
     template = repository.find_preset_by_id(preset_id)
     if template is None:
         return None
-    return resolve_children_path(reference, Path(template.path), Path(repository.preset_loader.shared_path))
+    preset_root = Path(template.path)
+    shared_root = Path(repository.preset_loader.shared_path)
+    try:
+        resolved = resolve_children_path(reference, preset_root, shared_root).resolve()
+        roots = [preset_root.resolve(), shared_root.resolve()]
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not any(resolved.is_relative_to(root) for root in roots):
+        return None
+    return resolved
 
 
 def preset_install_state(preset_id: str) -> PresetInstallState:
-    """Whether a preset is installed on this instance and, when it is, assigned to a user or a group."""
-    collaborators = get_container().preset_collaborators
-    if not collaborators.db_repo.is_preset_installed(preset_id):
+    summary = get_container().preset_collaborators.db_repo.get_installed_preset_summaries().get(preset_id)
+    if summary is None:
         return PresetInstallState(installed=False, assigned=False)
-    summary = collaborators.db_repo.get_preset_assignment_summary(preset_id) or {}
-    groups = collaborators.group_repo.get_group_count_for_preset(preset_id) or 0
-    return PresetInstallState(installed=True, assigned=int(summary.get("total_assignments") or 0) + int(groups) > 0)
+    _, users, groups = summary
+    return PresetInstallState(installed=True, assigned=users + groups > 0)
 
 
 def describe_preset(preset_id: str) -> Optional[PresetDescription]:
@@ -253,28 +240,15 @@ def describe_preset(preset_id: str) -> Optional[PresetDescription]:
 
 
 def list_presets(user) -> List[PresetDescription]:
-    """The installed presets `user` may run, in the order `GET /api/presets`
-    lists them, each described like `describe_preset`. A user gets the presets
-    assigned to them directly or through one of their groups, as
-    `submit_generation` checks; an administrator gets every installed preset.
-    `PermissionError` without a user."""
     if user is None:
         raise PermissionError("A user is required to list presets")
     container = get_container()
     db_repo = container.preset_collaborators.db_repo
-    if getattr(user, "account_type", None) == AccountType.ADMIN:
-        visible = {preset.preset_id for preset in db_repo.get_all_installed_presets()}
+    if GenerationPolicy.is_admin(user):
+        offered = {preset.preset_id for preset in db_repo.get_all_installed_presets()}
     else:
-        visible = set(db_repo.get_available_preset_ids_for_user(user.id) or [])
-    files = container.file_preset_repository
-    listed = []
-    for entry in files.list_all_presets():
-        if entry["id"] not in visible:
-            continue
-        template = files.find_preset_by_id(entry["id"])
-        if template is not None:
-            listed.append(_describe(template))
-    return listed
+        offered = set(db_repo.get_available_preset_ids_for_user(user.id))
+    return [_describe(template) for template in container.file_preset_repository.templates() if template.id in offered]
 
 
 def _describe(template) -> PresetDescription:

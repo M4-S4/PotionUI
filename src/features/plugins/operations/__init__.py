@@ -23,6 +23,11 @@ from src.features.plugins.operations.lifecycle import (
     delete_plugin,
 )
 from src.features.plugins.operations.scan import scan_plugins, refresh_known_plugin_hooks
+from src.features.plugins.operations.install import (
+    CatalogInstallError,
+    install_from_catalog,
+    read_catalog,
+)
 from src.features.plugins.operations.settings import (
     PluginManifestUnavailableError,
     update_plugin_settings,
@@ -34,6 +39,7 @@ from src.features.plugins.operations.frontend import (
     role_gate_open,
     get_frontend_extensions,
     get_hooks_catalog,
+    page_stylesheet,
 )
 
 __all__ = [
@@ -43,6 +49,9 @@ __all__ = [
     "delete_plugin",
     "scan_plugins",
     "refresh_known_plugin_hooks",
+    "CatalogInstallError",
+    "install_from_catalog",
+    "read_catalog",
     "PluginManifestUnavailableError",
     "update_plugin_settings",
     "encrypt_declared_secrets",
@@ -51,4 +60,5 @@ __all__ = [
     "role_gate_open",
     "get_frontend_extensions",
     "get_hooks_catalog",
+    "page_stylesheet",
 ]

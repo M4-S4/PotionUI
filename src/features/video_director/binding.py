@@ -10,6 +10,7 @@ BINDABLE_ROLES = ("first", "last")
 DIRECTOR_ROLES = ("first", "last", "keyframe")
 REFERENCE_ROLE = "reference"
 REFERENCE_MEDIA_TYPES = ("image", "video", "audio")
+UNCITABLE_CHARACTERS = ("]", "\r", "\n")
 SINGLE_SHOT_MODES_FOR_ROLE = {"first": ("i2v", "flf"), "last": ("flf",)}
 PROMOTED_MODE_FOR_ROLE = {"first": {"t2v": "i2v"}, "last": {"i2v": "flf"}}
 DEFAULT_FPS = 24
@@ -29,13 +30,13 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
-def _media_value(media: Mapping[str, Any]) -> Dict[str, Any]:
+def _media_value(media: Mapping[str, Any], place: str = "first or last frame") -> Dict[str, Any]:
     value = media.get("value")
     if not isinstance(value, str) or not value:
         raise DirectorBindingError("invalid_media", "The media to bind has no stored path")
     media_type = str(media.get("media_type") or "").lower()
     if media_type != "image":
-        raise DirectorBindingError("invalid_media", "Only an image can be a Video Director frame")
+        raise DirectorBindingError("invalid_media", f"Only an image can be a Video Director {place}")
     return {"path": value, "relative_path": value, "type": "image"}
 
 
@@ -100,9 +101,7 @@ def _bind(
     return bound
 
 
-def _director_capabilities(capabilities: Optional[Mapping[str, Any]]) -> Tuple[Mapping[str, Any], Mapping[str, Any]]:
-    if not isinstance(capabilities, Mapping):
-        raise DirectorBindingError("no_capabilities", "The preset declares no Video Director capabilities to bind against")
+def _director_modes(capabilities: Mapping[str, Any]) -> Tuple[Mapping[str, Any], Mapping[str, Any]]:
     modes = capabilities.get("modes")
     modes = modes if isinstance(modes, Mapping) else {}
     if "director" not in modes:
@@ -148,6 +147,8 @@ def _place_edge(
         entry.get("role") == "first" and entry.get("segment_id") == segment_id for entry in entries
     ):
         raise DirectorBindingError("first_frame_required", "A last frame needs a first frame on the same segment")
+    if window[0] is None or window[1] is None:
+        raise DirectorBindingError("invalid_at", f"Segment {segment_id!r} has no timing to place a {role} frame on")
     existing = next(
         (entry for entry in entries if entry.get("role") == role and entry.get("segment_id") == segment_id),
         None,
@@ -209,7 +210,7 @@ def _bind_director(
     media: Mapping[str, Any],
     segment_id: Optional[str],
     at: Any,
-    capabilities: Optional[Mapping[str, Any]],
+    capabilities: Mapping[str, Any],
 ) -> Dict[str, Any]:
     if role not in DIRECTOR_ROLES:
         raise DirectorBindingError("invalid_role", f"Only {', '.join(DIRECTOR_ROLES)} media can be bound to a director document")
@@ -219,7 +220,7 @@ def _bind_director(
     index = next((i for i, segment in enumerate(segments) if segment.get("id") == segment_id), None)
     if index is None:
         raise DirectorBindingError("unknown_segment", f"The document has no segment {segment_id!r}")
-    modes, mode_caps = _director_capabilities(capabilities)
+    modes, mode_caps = _director_modes(capabilities)
     chain = bool(capabilities.get("segment_routing"))
     keyframes = mode_caps.get("keyframes")
     anywhere = not chain or keyframes == "anywhere"
@@ -232,7 +233,7 @@ def _bind_director(
         raise DirectorBindingError("role_unsupported", f"This preset's director mode takes no {role} media")
     if role != "keyframe" and at is not None:
         raise DirectorBindingError("invalid_at", "at only places a keyframe")
-    value = _media_value(media)
+    value = _media_value(media, "keyframe" if role == "keyframe" else "first or last frame")
     window = _segment_window(document, capabilities, segments, index, chain)
     bound = dict(document)
     entries = _entries(bound)
@@ -269,6 +270,8 @@ def _cite(document: Mapping[str, Any], segment_id: str, field: str, items: List[
     target = next((s for s in segments if isinstance(s, dict) and s.get("id") == segment_id), None)
     if target is None:
         raise DirectorBindingError("unknown_segment", f"The document has no segment {segment_id!r}")
+    if any(character in item["relative_path"] for item in items for character in UNCITABLE_CHARACTERS):
+        raise DirectorBindingError("invalid_media", "A reference whose path holds a ] or a line break cannot be cited in a prompt")
     prompt = target.get("prompt") if isinstance(target.get("prompt"), str) else ""
     cited = {(match.group(1), match.group(2)) for match in RESOURCE_MARKER_RE.finditer(prompt)}
     markers = []
@@ -301,6 +304,7 @@ def _bind_references(
         raise DirectorBindingError(
             "unsupported_mode", "Only a director document with per-shot references cites references per segment",
         )
+    cited = document if segment_id is None else _cite(document, segment_id, field, items)
     raw = form_data.get(field)
     pool = list(raw) if isinstance(raw, list) else ([] if raw is None or raw == "" else [raw])
     known = {key for entry in pool for key in media_item_keys(entry)}
@@ -309,7 +313,7 @@ def _bind_references(
             known.add(item["relative_path"])
             pool.append(item)
     form_data[field] = pool
-    return document if segment_id is None else _cite(document, segment_id, field, items)
+    return cited
 
 
 def bind_director_media(
@@ -330,8 +334,10 @@ def bind_director_media(
     if not isinstance(document, Mapping):
         raise DirectorBindingError("no_director", "The request has no Video Director document to bind into")
     if role == REFERENCE_ROLE:
+        if at is not None:
+            raise DirectorBindingError("invalid_at", "at only places a keyframe")
         form_data["video_director"] = _bind_references(form_data, document, media, segment_id, capabilities, field)
-    elif document.get("mode") == "director":
+    elif document.get("mode") == "director" and capabilities is not None:
         form_data["video_director"] = _bind_director(document, role, media, segment_id, at, capabilities)
     else:
         if at is not None:

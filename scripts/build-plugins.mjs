@@ -43,10 +43,11 @@
  * entry/outfile names are derived from the component name, and chunk names
  * carry a hash of their content only.
  */
-import { readFileSync, existsSync, readdirSync, statSync, lstatSync, unlinkSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, lstatSync, unlinkSync, rmSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { createRequire } from 'module';
+import { compilePluginStylesheet } from './plugin-stylesheet.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -180,7 +181,17 @@ async function buildPagePlugin(plugin, srcDir, distDir) {
 	});
 	removeStaleMap(outfile);
 
-	return [componentName];
+	return [componentName, ...(await buildPageStylesheet(plugin, srcDir, distDir, componentName))];
+}
+
+async function buildPageStylesheet(plugin, srcDir, distDir, componentName) {
+	const source = join(srcDir, `${componentName}.css`);
+	if (!existsSync(source)) return [];
+	const css = await compilePluginStylesheet({ pluginId: plugin.id, pluginDir: plugin.dir, source, frontendDir: FRONTEND_DIR });
+	const { code } = await esbuild.transform(css, { loader: 'css', minify: !DEBUG_BUILD, legalComments: 'eof' });
+	mkdirSync(distDir, { recursive: true });
+	writeFileSync(join(distDir, `${componentName}.css`), code);
+	return [`${componentName}.css`];
 }
 
 async function buildComponentPlugin(plugin, srcDir, distDir, skip = new Set()) {
