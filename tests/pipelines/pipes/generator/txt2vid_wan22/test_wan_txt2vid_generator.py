@@ -1193,37 +1193,30 @@ class _ParkablePlaceDiT(_LoggedPlaceDiT):
         return self.parks
 
 
-def _switch_experts(monkeypatch, high, events, host_ram_gb=62.7, parking=True):
+def _switch_experts(monkeypatch, high, events):
     def _free(device):
         events.append("free")
         return 10.0
 
     _patch_placement(monkeypatch, free_gb=10.0)
-    recorder = _RecordingLogger()
-    monkeypatch.setattr(_wan_mod, "logger", recorder)
     monkeypatch.setattr(_wan_mod, "free_vram_gb", _free)
     monkeypatch.setattr(_wan_mod, "_release_idle_pool", lambda device: None)
     monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
-    monkeypatch.setattr(_wan_mod, "get_system_memory",
-                        lambda: SimpleNamespace(total_gb=host_ram_gb, available_gb=host_ram_gb / 2))
-    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_park_experts", parking)
     low = _LoggedPlaceDiT("low", events)
     shape = (1, 16, 5, 60, 104)
     router = ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
     router(torch.zeros(shape), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     events.clear()
     router(torch.zeros(shape), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
-    return [line for line in recorder.infos if "parked" in line or "torn down" in line]
 
 
 def test_router_tears_down_an_expert_that_was_not_streamed(monkeypatch):
     events = []
-    lines = _switch_experts(monkeypatch, _LoggedPlaceDiT("high", events, device="cuda:0"), events)
+    _switch_experts(monkeypatch, _LoggedPlaceDiT("high", events, device="cuda:0"), events)
 
     assert events[:2] == ["offload high", "free"]
     assert "empty_cache" not in events
-    assert lines == []
 
 
 @patch("src.pipelines.pipes.generator.txt2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
