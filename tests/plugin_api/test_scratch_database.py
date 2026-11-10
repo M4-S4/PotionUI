@@ -1,15 +1,36 @@
 import importlib
 import os
+import shutil
 import sqlite3
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 
+import src.platform.database.testing as database_testing
 import src.plugin_api as plugin_api
 import src.plugin_api.storage as plugin_storage
 from src.platform.database.database import Database
 from src.platform.database.migration_runner import MigrationRunner
 from src.platform.settings.records import SettingValueType
 from src.plugin_api import SettingRepository, scratch_database, use_database
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+IMPORT_SCRIPT = """
+import sys
+import src.plugin_api as api
+
+def loaded():
+    watched = ("src.plugin_api.testing", "src.platform.database.testing")
+    return ",".join(sorted(m for m in sys.modules if m in watched or m.split(".")[0] in ("pytest", "_pytest", "tests")))
+
+print("IMPORTED:" + loaded())
+api.scratch_database
+print("ASKED:" + loaded())
+"""
 
 
 def _current():
@@ -91,6 +112,93 @@ def test_a_scratch_database_refuses_a_file_that_already_exists(tmp_path, core_sc
         scratch_database(path, core_schema=core_schema)
 
     assert path.read_bytes() == b"kept"
+
+
+@pytest.mark.parametrize("core_schema", [True, False])
+def test_two_scratch_databases_cannot_share_a_file_even_before_either_is_used(tmp_path, core_schema):
+    path = tmp_path / "shared.sqlite"
+    scratch_database(path, core_schema=core_schema)
+
+    with pytest.raises(FileExistsError, match="shared.sqlite"):
+        scratch_database(path, core_schema=core_schema)
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_a_scratch_database_refuses_the_application_s_database_file_even_before_it_exists(
+    tmp_path, monkeypatch, configured
+):
+    monkeypatch.chdir(tmp_path)
+    if configured:
+        path = tmp_path / "instance" / "db.sqlite"
+        monkeypatch.setenv("POTIONUI_DB_PATH", str(path))
+    else:
+        path = tmp_path / "storage" / "db.sqlite"
+        monkeypatch.delenv("POTIONUI_DB_PATH", raising=False)
+
+    with pytest.raises(ValueError, match="application's database"):
+        scratch_database(path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_scratch_database_that_fails_to_fill_leaves_no_file_behind(tmp_path, monkeypatch):
+    path = tmp_path / "scratch.sqlite"
+
+    def fail(source, target):
+        target.write(b"partial")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(shutil, "copyfileobj", fail)
+    with pytest.raises(OSError, match="disk full"):
+        scratch_database(path)
+
+    assert not path.exists()
+    monkeypatch.undo()
+    assert "users" in _tables(scratch_database(path))
+
+
+def test_a_scratch_database_writes_nothing_but_its_file_and_the_template_it_copies(tmp_path, monkeypatch):
+    temp = tmp_path / "temp"
+    work = tmp_path / "work"
+    temp.mkdir()
+    work.mkdir()
+    monkeypatch.setattr(database_testing, "_template_path", None)
+    monkeypatch.setattr(tempfile, "tempdir", str(temp))
+    monkeypatch.chdir(work)
+    before = _current()
+    instance = Database._instance
+
+    database = scratch_database(tmp_path / "tests" / "scratch.sqlite")
+
+    templates = list(temp.iterdir())
+    assert [template.name.startswith("potionui-test-db-template-") for template in templates] == [True]
+    assert sorted(file.relative_to(tmp_path).as_posix() for file in tmp_path.rglob("*") if file.is_file()) == [
+        f"temp/{templates[0].name}/template.sqlite",
+        "tests/scratch.sqlite",
+    ]
+    assert list(work.iterdir()) == []
+    assert _current() == before
+    assert Database._instance is instance
+    assert "users" in _tables(database)
+
+
+def test_the_plugin_api_loads_the_testing_names_only_when_a_test_asks_for_them():
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in [str(REPO_ROOT), os.environ.get("PYTHONPATH", "")] if p)
+    result = subprocess.run(
+        [sys.executable, "-c", IMPORT_SCRIPT],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().splitlines()[-2:] == [
+        "IMPORTED:",
+        "ASKED:src.platform.database.testing,src.plugin_api.testing",
+    ]
 
 
 def test_in_use_a_scratch_database_is_what_every_name_of_the_application_s_database_resolves_to(tmp_path):

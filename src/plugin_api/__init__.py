@@ -209,8 +209,6 @@ from src.plugin_api.storage import (
     plugin_settings,
 )
 
-from src.plugin_api.testing import scratch_database, use_database
-
 # Contributing an automation node.
 from src.plugin_api.automation import (
     NodeExecutionContext,
@@ -658,6 +656,11 @@ _TORCH_BACKED_EXPORTS = {
     "sample_euler": "src.plugin_api.sampling",
 }
 
+_TEST_ONLY_EXPORTS = {
+    "scratch_database": "src.plugin_api.testing",
+    "use_database": "src.plugin_api.testing",
+}
+
 
 def __getattr__(name):
     """`db` is resolved on access, not bound here at import time - a plugin
@@ -669,7 +672,7 @@ def __getattr__(name):
     if name == "db":
         from src.platform.database.database import db
         return db
-    module_name = _TORCH_BACKED_EXPORTS.get(name)
+    module_name = _TORCH_BACKED_EXPORTS.get(name) or _TEST_ONLY_EXPORTS.get(name)
     if module_name is not None:
         return getattr(importlib.import_module(module_name), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

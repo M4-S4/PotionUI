@@ -21,7 +21,7 @@ def _stage(tmp_path: Path) -> Path:
     root = tmp_path / "tree"
     (root / "scripts").mkdir(parents=True)
     (root / "frontend").mkdir()
-    for module in SCRIPT_MODULES:
+    for module in sorted(SCRIPT.parent.glob("*.mjs")):
         shutil.copy(module, root / "scripts" / module.name)
     plugins = root / "content" / "plugins"
     shutil.copytree(PLUGINS_DIR / "sdk", plugins / "sdk")
