@@ -264,8 +264,8 @@ frame) costs 1.43 MB allocated and 1.51 reserved at 1024x1024 and 1536x1024, mor
 1.2 MB per latent pixel at which the image engine's own causal-3D decode (`engine.py`) still prices
 every causal VAE: its 2 GB base covers the difference up to about 1536x1024, not beyond.
 
-The tiles of a Wan decode are assembled on the host, in float32: the peak is about four float32
-copies of the clip, figures in [Chunked VAE decode](techniques/chunked-vae-decode.md).
+The tiles of a Wan decode are assembled on the host, in float32; the host RAM this takes is given
+under "Video VAE decode on the Wan pipes" below and in [Chunked VAE decode](techniques/chunked-vae-decode.md).
 
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
