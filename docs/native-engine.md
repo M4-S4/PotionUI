@@ -264,15 +264,8 @@ frame) costs 1.43 MB allocated and 1.51 reserved at 1024x1024 and 1536x1024, mor
 1.2 MB per latent pixel at which the image engine's own causal-3D decode (`engine.py`) still prices
 every causal VAE: its 2 GB base covers the difference up to about 1536x1024, not beyond.
 
-The tiles of a Wan decode are assembled on the host. The accumulator is float16 and the blend
-weight a single `(H, W)` plane, normalised in place, so the assembly holds one half-precision copy
-of the video plus the result in the VAE's dtype, instead of three float32 copies of the whole clip:
-about 3.8 GB for 161 frames at 1080p with a bf16 VAE, 5.6 GB for the 5B's 81 frames at 1280x704
-decoded in float32. Half precision keeps every pixel within one 8-bit step of the float32 blend. The
-decode log prices that assembly against the host RAM available and warns, never refuses, when it
-does not fit. A decode assembled on its own device keeps the float32 accumulator, and the
-temporal-chunk path that assembles on the host still concatenates its chunks, two copies at its
-peak.
+The tiles of a Wan decode are assembled on the host, in float32: the peak is about four float32
+copies of the clip, figures in [Chunked VAE decode](techniques/chunked-vae-decode.md).
 
 A component that does **not** fit resident is no longer streamed all-or-nothing. Two mechanisms
 close that gap:
@@ -303,13 +296,22 @@ close that gap:
   completely (hooks, cast flags, pinned tensors). Teardown of a pinned placement empties the CUDA
   cache before it frees its first pinned block: such a block records a CUDA event when it is freed,
   and a failure there cannot be caught from Python.
-  A streamer can also **park** its module instead of tearing it down (`ModuleStreamer.park` /
-  `unpark`): the streamed weights stay in their pinned memory, the resident ones move to pinned host
-  memory and the allocator's cache is handed back to the driver, so the next placement of that
-  module copies from memory that is already page-locked. Wan 2.2's expert router parks the idle
-  high-noise expert at the expert switch (native backend setting `native_park_experts`, on by
-  default; measurements in [Wan 2.2](models/wan.md)). Parking needs a real pinned placement: under
-  the unpinned fallback the module is torn down as before.
+  A streamer can also **park** its module instead of tearing it down (`ModuleStreamer.park`): the
+  streamed weights stay in their arena, the resident ones are copied from the GPU into a new arena
+  (per weight when no segment can be registered) and the allocator's cache is handed back to the
+  driver. The next placement of a parked module registers and pins nothing, and each resident
+  weight keeps its page-locked copy while it runs on the GPU (`release_unused(keep=...)`), so the
+  next park copies it back into a segment that is already registered: only the first park of a
+  module registers new segments, and a weight whose GPU copy changed shape or dtype is pinned
+  again. `NativeModel.park` parks only a pinned placement, and only while free host RAM covers
+  the resident weights that have no such copy plus the streaming reserve;
+  a parked model streamed again skips the host-RAM guard, since its weights are already
+  page-locked. A full move or an offload unparks it (`unpark`: every weight back to pageable
+  memory, every segment unregistered), an eviction drops its arenas (`forget_parked`), and a
+  placement that fails is rolled back like any other, leaving nothing pinned. When the host
+  refuses to page-lock a weight while parking, the module is torn down as before. Wan 2.2's expert
+  router parks the idle high-noise expert at the expert switch (native backend setting
+  `native_park_experts`, on by default; see [Wan 2.2](models/wan.md)).
 - **On-the-fly fp8 quantise-at-load** (`ops/fp8_quant.py`). When a bf16/fp16 DiT would not fit
   resident but *would* as fp8 (e.g. Krea-2 24.5GB → ~12.5GB), the loader quantises its big 2D Linear
   weights to per-tensor scaled e4m3 (`weight` fp8 + a `weight_scale` sidecar — the exact format
@@ -564,6 +566,92 @@ fp8-auto, in s/step) is measured on GPU via `tests/manual/native_smoke.py --tier
 **System RAM** (`src/platform/runtime/system_memory.py`) is psutil's reading, capped by cgroup v2 on the process's folder and
 its parents from `/proc/self/cgroup`, or a passthrough without a limit: `total` by the smallest `memory.max`,
 `available` by the smallest `memory.max - (memory.current - inactive_file)`, since `memory.current` counts page cache.
+
+### Video VAE decode on the Wan pipes
+
+The Wan pipes (`txt2vid_wan22`, `img2vid_wan22`, `chain_video_wan22`) decode through
+`wan_experts.decode_wan_video`, not through the engine.
+
+**Room before the decode.** `_make_room_for_decode` evicts foreign residents, never the VAE, until
+one latent frame fits: `causal3d_frame_need_gb` is the VAE's weights plus `activation_headroom_gb`
+for one latent frame (the 2 GB working base plus the per-pixel spike), over the 0.75 fraction of the
+free VRAM that every decode sizer keeps. It reads `effective_free_vram_gb` and, once something left,
+hands the idle pool back with `_release_idle_pool`. This runs on every card. A card that kept the
+text encoder or another family's components resident sends them to RAM before a decode whose frame
+needs more than its free VRAM, and the next generation that uses them reloads them from RAM.
+
+**Whole, chunked or tiled.** With the VAE on the card, `_decode_pixels` reads the effective free
+VRAM again:
+
+- When one latent frame fits, the clip decodes whole, or in temporal chunks sized by
+  `causal3d_chunk_frames` (`chunked_decode_causal3d`, one `feat_cache` across the chunks). Chunks
+  leave the pixels unchanged.
+- When it does not, the clip decodes in spatial tiles sized on the free VRAM by
+  `causal3d_decode_tile`, the function the engine's own causal-3D tiled decode calls (the decoded
+  window is the tile plus its overlap, about 1.125 tile edges wide). Each tile decodes one latent
+  frame at a time with its own `feat_cache`:
+  `tiled_decode_causal3d(chunk_latent_frames=1, accumulate_device="cpu")`. Tiles change the pixels
+  near the seams.
+- Chunks and tiles are assembled on the host. A tiled decode holds about three float32 copies of the
+  clip in host RAM: 1.2 GB for 81 frames at 832×480, 3.9 GB for 121 frames at 1280×704, 12 GB for
+  161 frames at 1920×1080.
+
+**Fallbacks.** Both go through `errors.retry_after_cuda_oom`, so under WSL2 the first driver-error
+OOM is fatal here too, at every tile size including the smallest. A whole or chunked decode that runs
+out of VRAM clears the card (`offload_all` of the foreign residents, then the idle pool) and decodes
+again one latent frame at a time. A tiled decode that runs out clears the card and halves its tile,
+down to 16 latent px, then raises.
+
+**Cost per VAE.** The sizers price the decode spike per latent pixel.
+`causal3d_decode_mb_per_latent_px(spatial_downscale, latent_format)` returns the
+`decode_mb_per_latent_px` a spec's `latent_format` declares. Otherwise it returns 1.2 MB per latent
+pixel (`CAUSAL3D_DECODE_MB_PER_LATENT_PX`, the value of the engine's own constant), calibrated on the
+8× Wan 2.1 VAE, times `(spatial_downscale / 8)²`: 4.8 for an undeclared 16× VAE, an upper bound that
+errs towards tiles rather than towards an OOM, which is fatal under WSL2. The Wan 2.2 5B
+(`wan_ti2v_5b`) declares 2.6, the worst allocated cost of its later latent frames rounded up to the
+tenth. The 8× specs that load the Wan 2.1 VAE (`wan_t2v_14b`, `wan_i2v_14b`, `wan22_i2v_14b`, the
+Wan 2.1 1.3B included) declare 0.8, measured the same way in bf16; fp16, the compute dtype of a card
+without bf16, has the same element size and is not measured. The engine's own causal-3D decode, which
+other families that load this VAE go through, keeps 1.2. The chain pipe hands the decode the spec of
+the set a segment runs on, so a 5B segment is priced like a 5B text-to-video.
+
+The declared costs are measured on a 12 GB RTX 4070 Ti under WSL 2, torch 2.12.1, with the calls of
+this page (`vae.decode`, `chunked_decode_causal3d(accumulate_device="cpu")`,
+`tiled_decode_causal3d(chunk_latent_frames=1, accumulate_device="cpu")`), the VAE loaded by the
+engine's loader (bf16 compute) and five random latent frames. Peaks are `max_memory_allocated` and
+`max_memory_reserved` after `reset_peak_memory_stats`, over the resident weights, the same on the
+whole card and under an 8 GiB allocator cap wherever the window fits:
+
+| VAE | Window decoded | Latent px | First latent frame, allocated | Later latent frames, allocated | Later frames, reserved (expandable segments / default allocator) |
+|---|---|---:|---:|---:|---:|
+| Wan 2.2 (5B) | 832×480 whole | 1,560 | 1,461 MiB | 3,951 MiB (2.53 per px) | 4,583 / 5,548 MiB |
+| Wan 2.2 (5B) | 1280×704 whole | 3,520 | 3,280 MiB | 8,897 MiB (2.53 per px) | 9,122 MiB / out of memory under 9 GiB |
+| Wan 2.2 (5B) | 40 px tile | 1,600 | | 4,011 MiB (2.51 per px) | 4,616 / 5,690 MiB |
+| Wan 2.2 (5B) | 24 px tile | 576 | | 1,453 MiB (2.52 per px) | 1,837 / 1,916 MiB |
+| Wan 2.1 | 832×480 whole | 6,240 | 883 MiB | 4,040 MiB (0.65 per px) | 4,915 / 4,982 MiB |
+| Wan 2.1 | 40 px tile | 1,600 | | 1,026 MiB (0.64 per px) | 1,204 / 1,454 MiB |
+| Wan 2.1 | 32 px tile | 1,024 | | 657 MiB (0.64 per px) | 783 / 878 MiB |
+
+The first latent frame decodes to one pixel frame and costs a third of the later ones, which decode
+to four pixel frames each and keep the causal `feat_cache`. From the third latent frame on, the peak
+stops growing in the chunked and tiled paths. A 2 GB working base covers every reserved peak of the
+table under both allocators.
+
+The decode tiles below these free VRAM readings, with the VAE on the card (all frame counts):
+
+| VAE, cost | 832×480 | 960×544 | 1280×720 | 1488×624 | 1920×1080 |
+|---|---:|---:|---:|---:|---:|
+| 8× (Wan 2.1 VAE), 0.8, declared | 9.17 GB | 11.17 GB | 17.67 GB | 17.78 GB | 36.42 GB |
+| 8× undeclared, 1.2 | 12.42 GB | 15.42 GB | 25.17 GB | 25.34 GB | 53.29 GB |
+
+| VAE, cost | 832×480 | 1280×704 | 1920×1088 |
+|---|---:|---:|---:|
+| 16× (Wan 2.2 VAE, 5B), 2.6 | 7.95 GB | 14.58 GB | 30.29 GB |
+
+A 12 GB card has about 9.4 GB free with the VAE on it: at 0.8 an 832×480 clip decodes in chunks of one
+latent frame, as a whole decode, and tiles from 960×544. Before the decode, the eviction targets the
+same frame plus the VAE's weights: at 0.8, 17.99 GB for a 1280×720 frame and 36.74 GB for a 1920×1080
+frame.
 
 ### Running out of VRAM, and the driver-error OOM
 

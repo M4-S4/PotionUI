@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-import traceback
 from typing import Any
 import numpy as np
 import torch
@@ -19,7 +18,6 @@ from src.platform.runtime.native.sampling.denoise_loop import schedule_from_sett
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
 from src.platform.runtime.native.vae.tiling import (
-    HOST_ACCUMULATE_DTYPE,
     causal3d_chunk_frames,
     causal3d_decode_mb_per_latent_px,
     causal3d_decode_overlap,
@@ -155,12 +153,13 @@ class ExpertRouter:
         outgoing = self.active
         if outgoing is None:
             return
-        if self.low is None or not callable(getattr(outgoing, "park", None)):
+        placed = str(getattr(outgoing, "device", "cpu")).startswith("cuda")
+        if not placed or not callable(getattr(outgoing, "park", None)):
             outgoing.offload()
             return
         parked, reason = self._park(outgoing, incoming)
-        logger.info("[WAN PLACEMENT] %s expert %s: %s", self._expert_label(outgoing),
-                    "parked pinned" if parked else "torn down", reason)
+        logger.debug("[GENERATOR WAN] %s expert %s: %s", self._expert_label(outgoing),
+                     "parked pinned" if parked else "torn down", reason)
         if not parked:
             outgoing.offload()
 
@@ -174,9 +173,9 @@ class ExpertRouter:
         limit_gb = _PARK_PINNED_SHARE * get_system_memory().total_gb
         if pinned_gb > limit_gb:
             return False, (f"up to {pinned_gb:.2f}GB pinned with the next expert, over {limit_gb:.2f}GB "
-                           f"({_PARK_PINNED_SHARE:.0%} of host RAM)")
+                           f"({_PARK_PINNED_SHARE:.0%} of total RAM)")
         if not outgoing.park():
-            return False, "free host RAM would fall under the streaming reserve"
+            return False, "its placement is not pinned or free host RAM would fall under the streaming reserve"
         return True, f"up to {pinned_gb:.2f}GB pinned with the next expert, limit {limit_gb:.2f}GB"
 
     def _place_expert(self, dit) -> None:
@@ -207,7 +206,7 @@ class ExpertRouter:
             dit.stream_to(self.device, 0.0)
 
     def __call__(self, x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
-        dit = self._select(float(sigma.reshape(-1)[0]))
+        dit = self._select(float(sigma.max()))
         if dit is not self.active:
             started = time.perf_counter()
             self._place_expert(dit)
@@ -254,8 +253,7 @@ def resolve_expert_boundary(spec, config: dict, sampling_settings: dict, steps: 
 
 
 def _decode_mb_per_latent_px(c: Any) -> float:
-    latent_format = getattr(getattr(c, "spec", None), "latent_format", None)
-    return causal3d_decode_mb_per_latent_px(int(getattr(c, "spatial_downscale", 8)), latent_format)
+    return causal3d_decode_mb_per_latent_px(c.spatial_downscale, c.spec.latent_format)
 
 
 def _make_room_for_decode(c: Any, latent: torch.Tensor) -> None:
@@ -264,21 +262,20 @@ def _make_room_for_decode(c: Any, latent: torch.Tensor) -> None:
     free = effective_free_vram_gb(c.device)
     if free is None:
         return
-    vae_gb = float(getattr(c.vae, "estimated_vram_gb", None) or 0.0)
-    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=vae_gb,
+    need = causal3d_frame_need_gb((latent.shape[-2], latent.shape[-1]), vae_resident_gb=float(c.vae.estimated_vram_gb or 0.0),
                                   decode_mb_per_latent_px=_decode_mb_per_latent_px(c))
     evicted = get_residency_registry().ensure_free(c.device, need, free, exclude=[c.vae])
     if evicted:
         logger.info("[WAN DECODE] evicted %d resident component(s) (%s) before the VAE decode: %.2fGB needed, "
                     "%.2fGB free", len(evicted), ", ".join(type(m).__name__ for m in evicted), need, free)
-        torch.cuda.empty_cache()
+        _release_idle_pool(c.device)
 
 
 def _clear_card_for_decode(c: Any) -> None:
     if not str(c.device).startswith("cuda") or not torch.cuda.is_available():
         return
     get_residency_registry().offload_all(c.device, exclude=[c.vae])
-    torch.cuda.empty_cache()
+    _release_idle_pool(c.device)
 
 
 def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> torch.Tensor:
@@ -287,32 +284,12 @@ def _decode_latent(vae_module, z: torch.Tensor, chunk_frames: int | None) -> tor
     return chunked_decode_causal3d(vae_module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu")
 
 
-def host_assembly_gb(latent_shape: tuple, scale: int, result_itemsize: int) -> float:
-    b, _c, t, h, w = latent_shape
-    frames = 1 + WAN_TEMPORAL_DOWNSCALE * (int(t) - 1)
-    pixels = int(b) * 3 * frames * round(int(h) * scale) * round(int(w) * scale)
-    return pixels * (HOST_ACCUMULATE_DTYPE.itemsize + result_itemsize) / 1024 ** 3
-
-
-def _warn_about_host_assembly(z: torch.Tensor, scale: int) -> None:
-    need = host_assembly_gb(tuple(z.shape), scale, z.element_size())
-    frames = 1 + WAN_TEMPORAL_DOWNSCALE * (int(z.shape[2]) - 1)
-    available = get_system_memory().available_gb
-    if need > available:
-        logger.warning("[WAN DECODE] assembling the %d-frame video on the host needs about %.1fGB of RAM and %.1fGB "
-                       "are available: the decode goes on, the system may have to swap", frames, need, available)
-    else:
-        logger.info("[WAN DECODE] assembling the %d-frame video on the host needs about %.1fGB of RAM (%.1fGB available)",
-                    frames, need, available)
-
-
 def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
     mb_per_latent_px = _decode_mb_per_latent_px(c)
     tile = causal3d_decode_tile((z.shape[-2], z.shape[-1]), free, decode_mb_per_latent_px=mb_per_latent_px)
-    scale = int(getattr(c, "spatial_downscale", 8))
+    scale = c.spatial_downscale
     logger.info("[WAN DECODE] one latent frame does not fit %.2fGB free (%.1f MB per latent px at %dx): decoding in "
                 "spatial tiles of %d latent px, one latent frame at a time", free, mb_per_latent_px, scale, tile)
-    _warn_about_host_assembly(z, scale)
     while True:
         try:
             return tiled_decode_causal3d(
@@ -323,7 +300,6 @@ def _decode_tiled(c: Any, z: torch.Tensor, free: float) -> torch.Tensor:
             smaller = smaller_decode_tile(tile)
             if not retry_after_cuda_oom(exc) or smaller >= tile:
                 raise
-            traceback.clear_frames(exc.__traceback__)
             logger.warning("[WAN DECODE] tiled VAE decode failed for lack of VRAM at %d latent px (%s); "
                            "clearing the card and retrying at %d", tile, str(exc).splitlines()[0][:200], smaller)
         _clear_card_for_decode(c)
@@ -335,19 +311,25 @@ def _decode_pixels(c: Any, z: torch.Tensor) -> torch.Tensor:
     mb_per_latent_px = _decode_mb_per_latent_px(c)
     if free is not None and free < causal3d_frame_need_gb((z.shape[-2], z.shape[-1]), decode_mb_per_latent_px=mb_per_latent_px):
         return _decode_tiled(c, z, free)
-    chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free, single_frame_on_overflow=True,
-                                         decode_mb_per_latent_px=mb_per_latent_px)
+    chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free, decode_mb_per_latent_px=mb_per_latent_px)
     try:
         return _decode_latent(c.vae.module, z, chunk_frames)
     except RuntimeError as exc:
         if not retry_after_cuda_oom(exc):
             raise
-        traceback.clear_frames(exc.__traceback__)
         logger.warning("[WAN DECODE] VAE decode failed for lack of VRAM at %s latent frame(s) per chunk (%s); "
                        "clearing the card and decoding one latent frame at a time",
                        chunk_frames or int(z.shape[2]), str(exc).splitlines()[0][:200])
     _clear_card_for_decode(c)
-    return _decode_latent(c.vae.module, z, 1)
+    try:
+        return _decode_latent(c.vae.module, z, 1)
+    except RuntimeError as exc:
+        if not retry_after_cuda_oom(exc):
+            raise
+        logger.warning("[WAN DECODE] VAE decode failed for lack of VRAM at one latent frame per chunk (%s); "
+                       "clearing the card and decoding in spatial tiles", str(exc).splitlines()[0][:200])
+    _clear_card_for_decode(c)
+    return _decode_tiled(c, z, effective_free_vram_gb(c.device) or 0.0)
 
 
 def decode_wan_video(c: Any, latent: torch.Tensor) -> np.ndarray:

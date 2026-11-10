@@ -755,6 +755,7 @@ class NativeModel:
         if self.module is None or streamer is None or not streamer.active or not streamer.pinned_gb:
             return False
         resident_gb = float(getattr(self.last_stream_plan, "resident_gb", 0.0) or 0.0)
+        resident_gb = max(0.0, resident_gb - streamer.held_gb)
         if resident_gb + self._STREAM_HOST_RESERVE_GB > get_system_memory().available_gb:
             return False
         if not streamer.park():
@@ -874,9 +875,10 @@ def _module_moves_suppressed(modules: Sequence[torch.nn.Module]):
 
 
 class TextEncoderStreaming:
-    def __init__(self, encoder: Any) -> None:
+    def __init__(self, encoder: Any, modules: Sequence[torch.nn.Module] | None = None) -> None:
         self.encoder = encoder
-        modules = sorted(text_encoder_modules(encoder), key=module_weights_bytes)
+        found = text_encoder_modules(encoder) if modules is None else list(modules)
+        modules = sorted(found, key=module_weights_bytes)
         self.parts = [
             NativeModel(
                 "text_encoder", module,
@@ -2116,13 +2118,6 @@ class NativeGenerator:
             # resident DiT it simply sees less room and tiles; the shrink-on-OOM
             # tile loop plus the cleared-card retry below stay as the safety
             # net for cards where even a small tile can't co-fit.
-            # TEMPORAL chunking (exact, no spatial seams) is preferred over spatial
-            # tiling whenever a single frame's spatial spike fits and the VAE
-            # supports feat_cache chunking (wan v1/v2); the two axes don't compose
-            # (see ``chunked_decode_causal3d``). It engages both when the preflight
-            # estimate rejects untiled AND when an optimistic untiled attempt
-            # actually OOMs (fragmentation) — the latter re-evaluates the chunk
-            # budget against the freed live VRAM instead of jumping to tiling.
             chunk_frames = None
             if self._causal3d_decode_fits(latents, device):
                 try:
@@ -2263,8 +2258,7 @@ class NativeGenerator:
         only to the wan v1/v2 feat_cache VAEs (SeedVR2 self-normalizes and exposes
         no ``new_feat_cache``), only to multi-frame latents, and only when a SINGLE
         latent frame's spatial decode fits — if even one frame needs spatial tiling
-        the two axes don't compose (see ``chunked_decode_causal3d``) and the caller
-        spatial-tiles the whole clip instead. ``None`` in all those cases (and on
+        the caller spatial-tiles the whole clip instead. ``None`` in all those cases (and on
         CPU / unqueryable VRAM), so the decode path stays byte-identical wherever
         chunking wouldn't engage.
 
@@ -2296,8 +2290,7 @@ class NativeGenerator:
         Bounds decode VRAM by clip length; the shared ``feat_cache`` makes it
         mathematically identical to a single whole-clip decode (see
         :func:`chunked_decode_causal3d`). Each chunk decodes its FULL spatial
-        extent — the temporal and spatial bounding axes don't compose, so this path
-        is chosen only when one frame's spatial spike already fits
+        extent — so this path is chosen only when one frame's spatial spike already fits
         (:meth:`_causal3d_chunk_frames`).
 
         On OOM (an optimistic frame budget) the WHOLE clip is re-decoded with a

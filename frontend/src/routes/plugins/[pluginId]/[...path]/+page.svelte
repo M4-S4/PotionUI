@@ -9,7 +9,7 @@
 	import { PageHeader, PageTitle } from '$lib/components/ui';
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
 	import { createHostFetchApi } from '$lib/plugin-api/hostApi';
-	import { createPluginApi, type PluginPageApi } from '$lib/plugin-api/pluginApi';
+	import { createPluginApi as createHostPluginApi } from '$lib/plugin-api/pluginApi';
 	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
 
 	let pageInfo: any = null;
@@ -28,10 +28,8 @@
 		headerHidden = state.hidden;
 	});
 
-	const hostFetch = createHostFetchApi(api);
-
-	function pluginApiFor(pluginId: string): PluginPageApi {
-		return createPluginApi(pluginId, hostFetch, () => api.getToken());
+	function createPluginApi(pluginId: string) {
+		return createHostPluginApi(pluginId, createHostFetchApi(api), () => api.getToken());
 	}
 
 	function cleanupPlugin() {
@@ -58,7 +56,7 @@
 		pageInfo = null;
 
 		try {
-			const response = await hostFetch.fetch(`/api/plugins/pages/${id}`);
+			const response = await createHostFetchApi(api).fetch(`/api/plugins/pages/${id}`);
 
 			if (thisVersion !== loadVersion) return;
 
@@ -89,7 +87,7 @@
 				pluginInstance = mod.mountPlugin(containerEl, {
 					pluginId: id,
 					route: pageInfo.route,
-					api: pluginApiFor(id),
+					api: createPluginApi(id),
 					user: $authStore.user,
 					navigate: (path: string) => goto(path),
 					replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),
@@ -107,7 +105,7 @@
 					props: {
 						pluginId: id,
 						route: pageInfo.route,
-						api: pluginApiFor(id),
+						api: createPluginApi(id),
 						user: $authStore.user,
 						navigate: (path: string) => goto(path),
 						replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),

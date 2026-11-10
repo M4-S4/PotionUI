@@ -63,7 +63,17 @@ def _make_i2v_ctx(router, vae, concat=None):
         forward=fwd, vae=vae, sampling_settings={}, conditioning=[],
         steps=1, cfg=1.0, sampler="unipc", width=8, height=8, frames=1,
         fps=16.0, latent_channels=16, spatial_downscale=8, device="cuda", dtype=torch.bfloat16,
+        spec=SimpleNamespace(latent_format={}),
     )
+
+
+def test_an_i2v_context_without_its_spec_fails_at_construction():
+    with pytest.raises(TypeError, match="spec"):
+        _Ctx(
+            forward=None, vae=None, sampling_settings={}, conditioning=[],
+            steps=1, cfg=1.0, sampler="unipc", width=8, height=8, frames=1,
+            fps=16.0, latent_channels=16, spatial_downscale=8, device="cuda", dtype=torch.bfloat16,
+        )
 
 
 class TestCtxReleaseGpu:
@@ -630,3 +640,22 @@ def test_a_failed_sampling_frees_its_tensors_before_the_expert_is_offloaded():
 
     assert expert.offloaded == 1
     assert seen["activation_alive"] is False
+
+
+def test_ti2v_5b_makes_room_on_the_card_before_it_encodes_the_start_image():
+    bundle, seen = _ti2v_bundle()
+    order = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    encode = bundle.vae.module.encode
+    bundle.vae.module.encode = lambda px: (order.append("encode"), encode(px))[1]
+
+    def make_room(device, keep):
+        order.append("make_room")
+        assert device == "cpu"
+        kept = [id(m) for m in keep if m is not None]
+        assert kept == [id(bundle.vae), id(bundle.high_dit)]
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode", side_effect=make_room):
+        _pipe(device="cpu", resolution="128x64", frames=9).build_context(_ti2v_input(bundle))
+
+    assert order == ["make_room", "vae.move_to", "encode"]

@@ -110,13 +110,13 @@ describe('host fetch api', () => {
 		const form = new FormData();
 		h.client.getClient().defaults.adapter = async (config) => {
 			config.onUploadProgress?.({ loaded: 5, total: 20, bytes: 5, lengthComputable: true });
-			config.onUploadProgress?.({ loaded: 20, total: 20, bytes: 15, lengthComputable: true });
+			config.onUploadProgress?.({ loaded: 20, total: undefined, bytes: 15, lengthComputable: false });
 			return { data: jsonBlob({ ok: true }), status: 200, statusText: '', headers: {}, config };
 		};
 		await h.host.json('/api/upload', { method: 'POST', body: form, onUploadProgress: (loaded, total) => progress.push([loaded, total]) });
 		expect(progress).toEqual([
 			[5, 20],
-			[20, 20]
+			[20, 0]
 		]);
 	});
 

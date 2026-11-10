@@ -14,6 +14,7 @@ from src.platform.runtime.native.memory.partial import (
     iter_streamable_leaves,
     plan_residency_split,
 )
+from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 from src.platform.runtime.system_memory import SystemMemory
 from src.platform.runtime.native.kernels import disable_weight_init
 
@@ -195,4 +196,80 @@ def test_evicting_a_parked_model_releases_its_pinned_pool(fake_pinning, monkeypa
     model.unload()
 
     assert model.module is None and not model.is_parked
+    assert released
+
+
+def test_offloading_a_parked_model_hands_every_weight_back_to_pageable_memory(fake_pinning, monkeypatch):
+    model = _streamed_model(40.0, monkeypatch)
+    model.park()
+
+    model.offload()
+
+    assert not model.is_parked and model.device == "cpu"
+    assert not any(p.data.is_pinned() for p in model.module.parameters())
+
+
+def test_a_parked_model_whose_placement_runs_out_of_memory_is_guarded_again_on_the_retry(fake_pinning, monkeypatch):
+    model = _streamed_model(40.0, monkeypatch)
+    model.park()
+    real_move = partial_mod._move_own_tensors
+
+    def _oom_on_resident(module, device, **kwargs):
+        if str(device) != "cpu":
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        real_move(module, device, **kwargs)
+
+    monkeypatch.setattr(partial_mod, "_move_own_tensors", _oom_on_resident)
+    with pytest.raises(torch.cuda.OutOfMemoryError):
+        model.stream_to("cuda:0", 0.0)
+
+    assert not model.is_parked and not model._streamer.active
+    assert not any(p.data.is_pinned() for p in model.module.parameters())
+    guarded = []
+    monkeypatch.setattr(model, "_guard_host_ram_for_streaming", guarded.append)
+    monkeypatch.setattr(model._streamer, "apply", lambda device, plan, **kw: None)
+    model.stream_to("cuda:0", 0.0)
+    assert len(guarded) == 1
+
+
+def test_native_model_never_parks_a_placement_that_pinned_nothing(fake_pinning, monkeypatch):
+    monkeypatch.setattr(engine_mod, "get_system_memory",
+                        lambda: SystemMemory(total=64 * 1024 ** 3, available=40 * 1024 ** 3))
+    m = _Tiny()
+    model = NativeModel("diffusion_model", m, estimated_vram_gb=1.0)
+    model._streamer = ModuleStreamer(m, prefetch=False)
+    plan = plan_residency_split(m, resident_budget_gb=1.0)
+    model._streamer.apply("cpu", plan, pin=True)
+    model.last_stream_plan = plan
+    assert plan.fully_resident
+
+    assert model.park() is False
+
+    assert not model.is_parked and model._streamer.active
+
+
+def test_a_parked_model_leaves_the_residency_registry_and_its_derived_caches(fake_pinning, monkeypatch):
+    registry = GpuResidencyRegistry()
+    monkeypatch.setattr(engine_mod, "get_residency_registry", lambda: registry)
+    model = _streamed_model(40.0, monkeypatch)
+    registry.note_resident(model, "cuda:0", 1.0)
+    released = []
+    monkeypatch.setattr(model.module.blocks[0], "release_derived_caches", lambda: released.append(1) or 0, raising=False)
+
+    assert model.park() is True
+
+    assert registry.resident_gb("cuda:0") == 0.0
+    assert released
+
+
+def test_a_full_move_of_a_large_parked_model_releases_the_pinned_pool(fake_pinning, monkeypatch):
+    released = []
+    model = _streamed_model(40.0, monkeypatch)
+    model.park()
+    model.estimated_vram_gb = 13.0
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: released.append(1))
+    monkeypatch.setattr(model, "_PINNED_RELEASE_FLOOR_GB", 0.0)
+
+    model.move_to("cpu")
+
     assert released

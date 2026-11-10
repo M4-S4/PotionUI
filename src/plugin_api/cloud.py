@@ -59,10 +59,11 @@ from src.features.cloud.contracts import (
     valid_specs,
 )
 from src.features.cloud.director import DirectorEstimateError
+from src.features.cloud.dto import DirectorEstimateRequest
 from src.features.cloud.http import CloudHttp, HttpResponse, default_error_mapper, parse_retry_after
 from src.features.cloud.inline import decode_inline, encode_media
-from src.features.cloud.records import CloudCatalogEntry
 from src.features.cloud.rate_limit import TokenBucket
+from src.features.cloud.records import CloudCatalogEntry
 from src.features.cloud.redaction import redact_headers, redact_url, scrub_text
 from src.features.cloud.registration import register_cloud_provider
 from src.platform.plugins.runtime_registries import get_container
@@ -170,29 +171,19 @@ CLOUD_BLOCKS = (
 
 
 def enabled_cloud_models(backend_id: str) -> List[CloudCatalogEntry]:
-    """The models turned on in a cloud backend's catalog, by slug, each with its tasks, outputs and spec."""
     return get_container().cloud_catalog.repository.list_enabled(backend_id)
 
 
 def resolve_cloud_model(model_id: str) -> Optional[ResolvedCloudModel]:
-    """The backend, driver and catalog entry of an enabled cloud model, or None when no enabled cloud backend offers it."""
     return get_container().cloud_capabilities.resolve(model_id)
 
 
 def estimate_cloud_cost(
     user, model_id: str, shots: Sequence[Mapping[str, Any]], driver: Optional[str] = None
 ) -> Dict[str, Any]:
-    """What a run of shots on an enabled cloud model would cost, as
-    `POST /api/cloud/models/{model_id}/estimate` answers it. Costs are shown
-    to administrators only: anyone else, or no user, gets `PermissionError`.
-    Each shot is `{"task", "params"}`, as in the route's body. Shots the route
-    would refuse raise `ValueError` (`DirectorEstimateError` when the
-    estimator refuses them), and a model that is not an enabled cloud model
-    raises `ModelNotFoundException`."""
     if getattr(user, "account_type", None) != AccountType.ADMIN:
         raise PermissionError("Only an administrator can see what a cloud run costs")
-    from src.features.cloud.dto import DirectorEstimateRequest
-    from src.features.cloud.routes import estimate_cost
-
     request = DirectorEstimateRequest.model_validate({"shots": list(shots), "driver": driver})
-    return estimate_cost(get_container().cloud_capabilities, model_id, request)
+    return get_container().cloud_capabilities.estimate(
+        model_id, [shot.model_dump() for shot in request.shots], request.driver
+    )

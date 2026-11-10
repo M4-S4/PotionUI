@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -15,7 +16,6 @@ from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
 from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D
 from src.platform.runtime.native.vae.tiling import (
-    HOST_ACCUMULATE_DTYPE,
     VAE_SPATIAL_DOWNSCALE,
     auto_tile_size,
     causal3d_decode_mb_per_latent_px,
@@ -242,6 +242,43 @@ def test_tiled_decode_causal3d_honours_a_16x_rgba_vae():
     assert torch.allclose(tiled[interior], whole[interior], atol=5e-2)
 
 
+def test_a_latent_that_fits_one_tile_is_still_moved_to_the_accumulation_device():
+    moved = []
+    pixels = mock.Mock()
+    pixels.to = lambda device: moved.append(device) or "on the host"
+    vae = SimpleNamespace(decode=lambda latent: pixels)
+
+    out = tiled_decode_causal3d(vae, torch.zeros(1, 16, 2, 4, 4), tile_size=8, overlap=2, accumulate_device="cpu")
+
+    assert out == "on the host"
+    assert moved == ["cpu"]
+
+
+def test_the_engine_sizes_its_first_causal3d_tile_with_its_own_constants():
+    from src.platform.runtime.native import engine as engine_mod
+
+    seen = []
+    gen = engine_mod.NativeGenerator.__new__(engine_mod.NativeGenerator)
+    gen.vae = SimpleNamespace(module=None, compute_dtype=torch.float32, move_to=lambda device: None, offload=lambda: None)
+    gen.spec = SimpleNamespace(latent_format={})
+    gen._is_self_normalizing_vae = lambda: False
+    gen._spatial_downscale = lambda: 8
+    gen._resident = lambda component: True
+    gen._to_uint8 = lambda pixels: pixels
+
+    sizer = mock.Mock(side_effect=lambda hw, free, **kw: seen.append((hw, free, kw)) or 16)
+    with mock.patch.object(engine_mod, "free_vram_gb", return_value=6.0), \
+            mock.patch.object(engine_mod, "causal3d_decode_tile", sizer), \
+            mock.patch.object(engine_mod, "tiled_decode_causal3d", return_value="pixels"):
+        assert gen._decode_causal3d_tiled(torch.zeros(1, 16, 1, 8, 12), "cpu") == "pixels"
+
+    assert seen == [((8, 12), 6.0, {
+        "decode_mb_per_latent_px": engine_mod._CAUSAL3D_DECODE_MB_PER_LATENT_PX,
+        "vram_fraction": engine_mod._DECODE_TILE_VRAM_FRACTION,
+        "min_tile": engine_mod._MIN_DECODE_TILE_LATENT,
+    })]
+
+
 @pytest.mark.parametrize(
     ("latent_hw", "free", "expected"),
     [
@@ -271,75 +308,9 @@ def test_tiled_decode_causal3d_can_accumulate_on_another_device(tile_size, overl
     with torch.no_grad():
         here = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap)
         there = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap, accumulate_device="cpu")
-        exact = tiled_decode_causal3d(vae, latent, tile_size=tile_size, overlap=overlap, accumulate_device="cpu",
-                                      accumulate_dtype=torch.float32)
 
     assert there.device.type == "cpu"
-    assert there.dtype == here.dtype == latent.dtype
-    assert torch.allclose(here, there, atol=2e-3)
-    assert torch.equal(here, exact)
-
-
-class _Upscale8VAE:
-    def new_feat_cache(self):
-        return {}
-
-    def decode(self, latent, feat_cache=None):
-        b, _c, t, h, w = latent.shape
-        rgb = latent[:, :3].permute(0, 2, 1, 3, 4).reshape(b * t, 3, h, w)
-        up = torch.nn.functional.interpolate(rgb, scale_factor=8, mode="bilinear", align_corners=False)
-        return up.reshape(b, t, 3, h * 8, w * 8).permute(0, 2, 1, 3, 4)
-
-
-def _accumulators_allocated_by(monkeypatch):
-    allocated = []
-    real_zeros = torch.zeros
-
-    def zeros(*args, **kwargs):
-        tensor = real_zeros(*args, **kwargs)
-        if tensor.ndim == 5:
-            allocated.append((tuple(tensor.shape), tensor.dtype, tensor.device.type))
-        return tensor
-
-    monkeypatch.setattr(torch, "zeros", zeros)
-    return allocated
-
-
-def test_a_decode_assembled_on_the_host_keeps_one_half_precision_copy_of_the_video_and_a_single_weight_plane(monkeypatch):
-    allocated = _accumulators_allocated_by(monkeypatch)
-    latent = torch.randn(1, 16, 2, 4, 12)
-
-    with torch.no_grad():
-        pixels = tiled_decode_causal3d(_Upscale8VAE(), latent, tile_size=8, overlap=4, accumulate_device="cpu", chunk_latent_frames=1)
-
-    assert pixels.shape == (1, 3, 2, 32, 96)
-    assert pixels.dtype == torch.float32
-    assert torch.isfinite(pixels).all()
-    assert allocated == [((1, 3, 2, 32, 96), HOST_ACCUMULATE_DTYPE, "cpu"), ((1, 1, 1, 32, 96), torch.float32, "cpu")]
-
-
-def test_a_decode_assembled_on_its_own_device_still_accumulates_in_full_precision(monkeypatch):
-    allocated = _accumulators_allocated_by(monkeypatch)
-    latent = torch.randn(1, 16, 1, 4, 12)
-
-    with torch.no_grad():
-        tiled_decode_causal3d(_Upscale8VAE(), latent, tile_size=8, overlap=4)
-
-    assert allocated == [((1, 3, 1, 32, 96), torch.float32, "cpu"), ((1, 1, 1, 32, 96), torch.float32, "cpu")]
-
-
-def test_a_half_precision_assembly_stays_within_a_pixel_step_of_the_whole_decode():
-    torch.manual_seed(0)
-    vae = _tiny_causal3d_vae()
-    latent = torch.randn(1, 16, 1, 16, 16)
-
-    with torch.no_grad():
-        whole = vae.decode(latent)
-        tiled = tiled_decode_causal3d(vae, latent, tile_size=8, overlap=2, accumulate_device="cpu")
-
-    interior = (slice(None), slice(None), slice(None), slice(8, -8), slice(8, -8))
-    assert torch.allclose(tiled[interior], whole[interior], atol=8e-3)
-    assert torch.allclose(tiled, whole, atol=5e-2)
+    assert torch.equal(here, there)
 
 
 def test_the_decode_cost_per_latent_px_follows_the_square_of_the_spatial_factor():
@@ -399,3 +370,26 @@ def test_with_its_measured_cost_a_5b_frame_decodes_whole_at_832x480_on_12gb_and_
     assert causal3d_decode_tile((30, 52), 5.5, decode_mb_per_latent_px=declared) == 24
     assert causal3d_decode_tile((44, 80), 5.5, decode_mb_per_latent_px=declared) == 32
     assert causal3d_decode_tile((44, 80), 9.4, decode_mb_per_latent_px=declared) == 40
+
+
+@pytest.mark.parametrize("variant", ["wan_t2v_14b", "wan_i2v_14b", "wan22_i2v_14b"])
+def test_the_wan21_vae_specs_declare_a_measured_cost_under_the_8x_constant(variant):
+    declared = causal3d_decode_mb_per_latent_px(8, arch_registry.get("wan", variant).latent_format)
+
+    assert declared == 0.8
+    assert declared < causal3d_decode_mb_per_latent_px(8)
+
+
+_MEASURED_WAN21_FRAME_SPIKES_MIB = (
+    (1024, 660.8, 878.0),
+    (1600, 1029.9, 1454.1),
+    (6240, 4042.6, 4982.0),
+)
+
+
+@pytest.mark.parametrize("latent_px,allocated_mib,reserved_mib", _MEASURED_WAN21_FRAME_SPIKES_MIB)
+def test_the_declared_wan21_cost_covers_every_measured_decode_spike(latent_px, allocated_mib, reserved_mib):
+    declared = causal3d_decode_mb_per_latent_px(8, arch_registry.get("wan", "wan_t2v_14b").latent_format)
+
+    assert latent_px * declared >= allocated_mib
+    assert activation_headroom_gb((1, latent_px), decode_mb_per_latent_px=declared) * 1024 >= reserved_mib

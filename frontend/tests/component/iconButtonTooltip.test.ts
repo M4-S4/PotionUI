@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mount, unmount, flushSync, type Component } from 'svelte';
 
 const { default: IconButton } = await import('../../src/lib/components/ui/IconButton.svelte');
-const { default: TooltipWrappedControlsFixture } = await import('./fixtures/TooltipWrappedControlsFixture.svelte');
+const { default: IconButtonInsideTooltipFixture } = await import('./fixtures/IconButtonInsideTooltipFixture.svelte');
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount> | null = null;
@@ -77,40 +77,23 @@ describe('IconButton without tooltip props', () => {
 		expect(button().parentElement).toBe(target);
 		expect(button().hasAttribute('title')).toBe(false);
 		expect(button().getAttribute('aria-label')).toBe('Delete');
-		expect(button().hasAttribute('aria-describedby')).toBe(false);
 
 		hover(button());
 		await wait(250);
 
 		const [tooltip] = tooltips();
 		expect(tooltip.textContent?.trim()).toBe('Delete');
+		expect(tooltip.querySelector('kbd')).toBeNull();
 		expect(button().getAttribute('aria-describedby')).toBe(tooltip.id);
-	});
-
-	it('drops its title inside a Tooltip and is described by it while it shows', async () => {
-		render(TooltipWrappedControlsFixture, {});
-		const iconButton = button('button[aria-label="Delete"]');
-
-		expect(iconButton.hasAttribute('title')).toBe(false);
-		expect(iconButton.hasAttribute('aria-describedby')).toBe(false);
-
-		await keyboardFocus(iconButton);
-
-		const [tooltip] = tooltips();
-		expect(tooltip.textContent?.trim()).toBe('Delete the shot');
-		expect(iconButton.getAttribute('aria-describedby')).toBe(tooltip.id);
-
-		await blur(iconButton);
-		expect(tooltips()).toEqual([]);
-		expect(iconButton.hasAttribute('aria-describedby')).toBe(false);
 	});
 });
 
 describe('IconButton with tooltip or kbd', () => {
-	it('renders the host tooltip itself instead of a native title', async () => {
+	it('shows its tooltip text instead of the label', async () => {
 		render(IconButton, { icon: 'film', label: 'Render', tooltip: 'Render the selected take' });
 		const trigger = button();
 
+		expect(trigger.parentElement).toBe(target);
 		expect(trigger.hasAttribute('title')).toBe(false);
 		expect(trigger.getAttribute('aria-label')).toBe('Render');
 		expect(tooltips()).toEqual([]);
@@ -120,7 +103,6 @@ describe('IconButton with tooltip or kbd', () => {
 
 		const [tooltip] = tooltips();
 		expect(tooltip.textContent?.trim()).toBe('Render the selected take');
-		expect(tooltip.hasAttribute('aria-hidden')).toBe(false);
 		expect(trigger.getAttribute('aria-describedby')).toBe(tooltip.id);
 
 		unhover(trigger);
@@ -132,7 +114,6 @@ describe('IconButton with tooltip or kbd', () => {
 		render(IconButton, { icon: 'play', label: 'Play', kbd: ['Shift', 'Space'] });
 		const trigger = button();
 
-		expect(trigger.hasAttribute('title')).toBe(false);
 		await keyboardFocus(trigger);
 
 		const [tooltip] = tooltips();
@@ -143,6 +124,16 @@ describe('IconButton with tooltip or kbd', () => {
 		]);
 		expect(tooltip.querySelector('.sr-only')?.textContent).toBe('Shift+Space');
 		expect(trigger.getAttribute('aria-describedby')).toBe(tooltip.id);
+	});
+
+	it('reads a shortcut given as one string as it is', async () => {
+		render(IconButton, { icon: 'search', label: 'Search', kbd: 'Ctrl+K' });
+
+		await keyboardFocus(button());
+
+		const [tooltip] = tooltips();
+		expect(Array.from(tooltip.querySelectorAll('kbd')).map((key) => key.textContent?.trim())).toEqual(['Ctrl+K']);
+		expect(tooltip.querySelector('.sr-only')?.textContent).toBe('Ctrl+K');
 	});
 
 	it('shows at once on keyboard focus and hides on blur', async () => {
@@ -186,53 +177,13 @@ describe('IconButton with tooltip or kbd', () => {
 		expect(button().hasAttribute('tooltip')).toBe(false);
 		expect(button().hasAttribute('kbd')).toBe(false);
 	});
-});
 
-describe('Tooltip on keyboard focus', () => {
-	it('describes a Button inside it', async () => {
-		render(TooltipWrappedControlsFixture, {});
-		const renderButton = Array.from(target.querySelectorAll('button')).find((el) => el.textContent?.trim() === 'Render')!;
+	it('leaves the tooltip to an enclosing Tooltip of the same tree', async () => {
+		render(IconButtonInsideTooltipFixture, {});
+		const trigger = button('button[aria-label="Delete"]');
 
-		await keyboardFocus(renderButton);
+		await keyboardFocus(trigger);
 
-		const [tooltip] = tooltips();
-		expect(tooltip.textContent?.trim()).toBe('Render every take');
-		expect(renderButton.getAttribute('aria-describedby')).toBe(tooltip.id);
-	});
-
-	it('shows for any focusable child and describes it', async () => {
-		render(TooltipWrappedControlsFixture, {});
-		const plain = button('.plain-child');
-
-		await keyboardFocus(plain);
-
-		const [tooltip] = tooltips();
-		expect(tooltips().map((tooltip) => tooltip.textContent?.trim())).toEqual(['Plain child']);
-		expect(plain.getAttribute('aria-describedby')).toBe(tooltip.id);
-	});
-
-	it('does not show when the focus follows a pointer press', async () => {
-		render(TooltipWrappedControlsFixture, {});
-		const plain = button('.plain-child');
-
-		await pointerFocus(plain);
-		expect(tooltips()).toEqual([]);
-		expect(plain.hasAttribute('aria-describedby')).toBe(false);
-	});
-
-	it('gives each tooltip its own id', async () => {
-		render(TooltipWrappedControlsFixture, {});
-		const iconButton = button('button[aria-label="Delete"]');
-		const renderButton = Array.from(target.querySelectorAll('button')).find((el) => el.textContent?.trim() === 'Render')!;
-
-		await keyboardFocus(iconButton);
-		const first = iconButton.getAttribute('aria-describedby');
-		await keyboardFocus(renderButton);
-		const second = renderButton.getAttribute('aria-describedby');
-
-		expect(first).toBeTruthy();
-		expect(second).toBeTruthy();
-		expect(first).not.toBe(second);
-		expect(iconButton.hasAttribute('aria-describedby')).toBe(false);
+		expect(tooltips().map((tooltip) => tooltip.textContent?.trim())).toEqual(['Delete the shot']);
 	});
 });

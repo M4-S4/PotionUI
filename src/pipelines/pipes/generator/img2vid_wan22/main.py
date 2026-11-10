@@ -104,7 +104,7 @@ class _Ctx:
     spatial_downscale: int
     device: str
     dtype: torch.dtype
-    spec: Any = None
+    spec: Any
     start_latent: Optional[torch.Tensor] = None
 
     def release_gpu(self) -> None:

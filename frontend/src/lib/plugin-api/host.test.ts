@@ -2,9 +2,6 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { initHostApi, createGenerationEvents, type PotionUIHostApi, type GenerationEvent } from './host';
-import { chatPanelStore, CHAT_READY_TIMEOUT_MS, type ChatComposer } from '$lib/stores/chatPanel';
-import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
-import { activeConfirm, cancelAllConfirms, settleConfirm } from '$lib/stores/confirm';
 import {
 	isKeyboardSuppressed,
 	suppressKeyboard,
@@ -12,6 +9,9 @@ import {
 	releaseAllKeyboardHolds
 } from '$lib/services/keyboard';
 import { iconPaths, getIconPath, iconLookup } from '$lib/utils/IconLibrary';
+import { chatPanelStore, CHAT_READY_TIMEOUT_MS, type ChatComposer } from '$lib/stores/chatPanel';
+import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
+import { activeConfirm, cancelAllConfirms, settleConfirm } from '$lib/stores/confirm';
 import type { WebSocketService } from '$lib/services/websocket';
 
 class FakeBrowserSocket {
@@ -52,6 +52,18 @@ function host(): PotionUIHostApi {
 
 beforeAll(() => {
 	initHostApi();
+});
+
+describe('window.__potionui.confirm', () => {
+	afterEach(() => cancelAllConfirms());
+
+	it('passes the button labels to the app dialog and resolves false on cancel', async () => {
+		const pending = host().confirm({ message: 'Discard the storyboard?', confirmLabel: 'Discard', cancelLabel: 'Keep it' });
+		const request = get(activeConfirm);
+		expect(request).toMatchObject({ message: 'Discard the storyboard?', confirmLabel: 'Discard', cancelLabel: 'Keep it' });
+		settleConfirm(request!.id, false);
+		await expect(pending).resolves.toBe(false);
+	});
 });
 
 describe('window.__potionui.chat', () => {
@@ -127,6 +139,38 @@ describe('window.__potionui.chat composer', () => {
 		expect(composer.prefills.at(-1)).toEqual(['Again', false]);
 	});
 
+	it('ignores a prefill that is not text', () => {
+		(host().chat.prefill as (text: unknown) => void)(42);
+		expect(host().chat.isOpen()).toBe(false);
+	});
+
+	it('drops a prefill when the panel is closed before the chat is ready', () => {
+		host().chat.prefill('hello');
+		host().chat.close();
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([]);
+	});
+
+	it('drops a prefill when the panel is toggled closed before the chat is ready', () => {
+		host().chat.prefill('hello');
+		host().chat.toggle();
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([]);
+	});
+
+	it('drops a prefill when the chat never becomes ready', () => {
+		vi.useFakeTimers();
+		host().chat.prefill('hello');
+		vi.advanceTimersByTime(CHAT_READY_TIMEOUT_MS - 1);
+		host().chat.prefill('again');
+		vi.advanceTimersByTime(1);
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([]);
+	});
+
 	it('opens the panel on send and resolves once the chat has sent the message', async () => {
 		const pending = host().chat.send('Make the intro shorter');
 		expect(host().chat.isOpen()).toBe(true);
@@ -139,6 +183,25 @@ describe('window.__potionui.chat composer', () => {
 	it('passes on the rejection of a chat that cannot send', async () => {
 		detach = chatPanelStore.attachComposer(fakeComposer(() => Promise.reject(new Error('No chat model is configured'))));
 		await expect(host().chat.send('hello')).rejects.toThrow('No chat model is configured');
+	});
+
+	it('turns a chat that throws while sending into a rejection', async () => {
+		detach = chatPanelStore.attachComposer(
+			fakeComposer(() => {
+				throw new Error('The chat broke');
+			})
+		);
+		await expect(host().chat.send('hello')).rejects.toThrow('The chat broke');
+	});
+
+	it('rejects a queued send when the chat throws as it takes it', async () => {
+		const pending = host().chat.send('hello');
+		detach = chatPanelStore.attachComposer(
+			fakeComposer(() => {
+				throw new Error('The chat broke');
+			})
+		);
+		await expect(pending).rejects.toThrow('The chat broke');
 	});
 
 	it('rejects an empty text without opening the panel', async () => {
@@ -163,7 +226,7 @@ describe('window.__potionui.chat composer', () => {
 		await settled;
 	});
 
-	it('queues again once the chat panel has detached', async () => {
+	it('sends a message queued after the chat panel detached to the next chat', async () => {
 		const first = fakeComposer();
 		chatPanelStore.attachComposer(first)();
 		const pending = host().chat.send('later');
@@ -173,17 +236,15 @@ describe('window.__potionui.chat composer', () => {
 		await pending;
 		expect(second.sends).toEqual(['later']);
 	});
-});
 
-describe('window.__potionui.confirm', () => {
-	afterEach(() => cancelAllConfirms());
-
-	it('passes the cancel label to the app dialog and resolves false on cancel', async () => {
-		const pending = host().confirm({ message: 'Discard the storyboard?', cancelLabel: 'Keep it' });
-		const request = get(activeConfirm);
-		expect(request).toMatchObject({ message: 'Discard the storyboard?', cancelLabel: 'Keep it' });
-		settleConfirm(request!.id, false);
-		await expect(pending).resolves.toBe(false);
+	it('queues again once the chat panel has detached', () => {
+		const first = fakeComposer();
+		chatPanelStore.attachComposer(first)();
+		host().chat.prefill('later');
+		expect(first.prefills).toEqual([]);
+		const second = fakeComposer();
+		detach = chatPanelStore.attachComposer(second);
+		expect(second.prefills).toEqual([['later', false]]);
 	});
 });
 
@@ -272,25 +333,25 @@ describe('window.__potionui.registerIcon', () => {
 	});
 
 	it('adds an icon that the icon lookup resolves', () => {
-		added.push('vp-clapper');
-		expect(host().registerIcon('vp-clapper', 'M4 4h16v16H4z')).toBe(true);
-		expect(getIconPath('vp-clapper')).toBe('M4 4h16v16H4z');
-		expect(get(iconLookup)('vp-clapper')).toBe('M4 4h16v16H4z');
+		added.push('my-plugin-clapper');
+		expect(host().registerIcon('my-plugin-clapper', 'M4 4h16v16H4z')).toBe(true);
+		expect(getIconPath('my-plugin-clapper')).toBe('M4 4h16v16H4z');
+		expect(get(iconLookup)('my-plugin-clapper')).toBe('M4 4h16v16H4z');
 	});
 
 	it('copies a multi-path icon', () => {
 		const paths = ['M1 1h2', 'M3 3h4'];
-		added.push('vp-timeline');
-		expect(host().registerIcon('vp-timeline', paths)).toBe(true);
+		added.push('my-plugin-timeline');
+		expect(host().registerIcon('my-plugin-timeline', paths)).toBe(true);
 		paths.push('M9 9h9');
-		expect(getIconPath('vp-timeline')).toEqual(['M1 1h2', 'M3 3h4']);
+		expect(getIconPath('my-plugin-timeline')).toEqual(['M1 1h2', 'M3 3h4']);
 	});
 
 	it('notifies mounted icons when a new icon arrives', () => {
 		const seen: (string | string[] | null)[] = [];
-		const stop = iconLookup.subscribe((lookup) => seen.push(lookup('vp-late')));
-		added.push('vp-late');
-		host().registerIcon('vp-late', 'M2 2h20');
+		const stop = iconLookup.subscribe((lookup) => seen.push(lookup('my-plugin-late')));
+		added.push('my-plugin-late');
+		host().registerIcon('my-plugin-late', 'M2 2h20');
 		stop();
 		expect(seen).toEqual([null, 'M2 2h20']);
 	});
@@ -302,17 +363,18 @@ describe('window.__potionui.registerIcon', () => {
 	});
 
 	it('keeps the first registration of a plugin icon', () => {
-		added.push('vp-render');
-		expect(host().registerIcon('vp-render', 'M1 1h1')).toBe(true);
-		expect(host().registerIcon('vp-render', 'M2 2h2')).toBe(false);
-		expect(getIconPath('vp-render')).toBe('M1 1h1');
+		added.push('my-plugin-render');
+		expect(host().registerIcon('my-plugin-render', 'M1 1h1')).toBe(true);
+		expect(host().registerIcon('my-plugin-render', 'M2 2h2')).toBe(false);
+		expect(getIconPath('my-plugin-render')).toBe('M1 1h1');
 	});
 
 	it('refuses an empty name or empty paths', () => {
 		expect(host().registerIcon('', 'M1 1h1')).toBe(false);
-		expect(host().registerIcon('vp-empty', '')).toBe(false);
-		expect(host().registerIcon('vp-empty', [])).toBe(false);
-		expect('vp-empty' in iconPaths).toBe(false);
+		expect(host().registerIcon('my-plugin-empty', '')).toBe(false);
+		expect(host().registerIcon('my-plugin-empty', [])).toBe(false);
+		expect(host().registerIcon('my-plugin-empty', ['M1 1h1', ''])).toBe(false);
+		expect('my-plugin-empty' in iconPaths).toBe(false);
 	});
 });
 
@@ -433,6 +495,21 @@ describe('window.__potionui.generation.subscribe', () => {
 		expect(received).toHaveLength(1);
 		stopFirst();
 		stopSecond();
+	});
+
+	it('leaves a newer subscription alone when an old unsubscribe runs again', () => {
+		stubSocket();
+		const received: GenerationEvent[] = [];
+		const stopOld = host().generation.subscribe('gen-1', () => {});
+		stopOld();
+		const stopNew = host().generation.subscribe('gen-1', (event) => received.push(event));
+		stopOld();
+		const socket = FakeBrowserSocket.instances.at(-1)!;
+		socket.open();
+		socket.receive({ type: 'generation_complete', data: { id: 'gen-1' } });
+		expect(socket.closed).toBe(false);
+		expect(received).toHaveLength(1);
+		stopNew();
 	});
 
 	it('ignores a subscription without an id or a handler', () => {

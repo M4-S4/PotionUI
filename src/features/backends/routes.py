@@ -63,8 +63,6 @@ def _redacted_backend_dump(backend) -> Dict[str, Any]:
 
 
 def serialize_backend(backend, default_ids: Dict[str, str]) -> Dict[str, Any]:
-    """A backend config as the backends API returns it: secrets redacted, plus
-    whether it is its engine's default and its quick actions."""
     data = _redacted_backend_dump(backend)
     data["is_default"] = default_ids.get(backend.engine) == backend.id
     data["quick_actions"] = backend.quick_actions()
@@ -72,11 +70,8 @@ def serialize_backend(backend, default_ids: Dict[str, str]) -> Dict[str, Any]:
 
 
 def enabled_backends_payload(backend_config_store) -> List[Dict[str, Any]]:
-    """What `GET /api/backends/enabled` returns: every enabled backend,
-    highest priority first, serialized by `serialize_backend`."""
-    backends = backend_config_store.get_enabled_backends()
     default_ids = backend_config_store.get_default_backend_ids()
-    return [serialize_backend(b, default_ids) for b in backends]
+    return [serialize_backend(backend, default_ids) for backend in backend_config_store.get_enabled_backends()]
 
 
 def _cuda_allocated_gb() -> float:

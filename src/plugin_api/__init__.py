@@ -106,7 +106,12 @@ from src.plugin_api.backends import (
     list_backends,
 )
 
-from src.plugin_api.cloud import DirectorEstimateError, estimate_cloud_cost
+from src.plugin_api.cloud import (
+    DirectorEstimateError,
+    enabled_cloud_models,
+    estimate_cloud_cost,
+    resolve_cloud_model,
+)
 
 # Provisioning rented GPU compute.
 from src.plugin_api.compute import (
@@ -179,7 +184,11 @@ from src.plugin_api.generation import (
     NoEligibleBackendError,
     SessionNotFoundError,
     cancel_generation,
+    generation_active,
+    generation_failure,
+    generation_record,
     generation_state,
+    get_session,
     get_session_snapshot,
     list_generation_files,
     preview_memory,
@@ -443,7 +452,9 @@ __all__ = [
     "deduplicate",
     "list_backends",
     "DirectorEstimateError",
+    "enabled_cloud_models",
     "estimate_cloud_cost",
+    "resolve_cloud_model",
     # Compute provisioning
     "COMPUTE_HOOKS",
     "ComputeFieldDescriptorV1",
@@ -513,7 +524,11 @@ __all__ = [
     "NoEligibleBackendError",
     "SessionNotFoundError",
     "cancel_generation",
+    "generation_active",
+    "generation_failure",
+    "generation_record",
     "generation_state",
+    "get_session",
     "get_session_snapshot",
     "list_generation_files",
     "preview_memory",

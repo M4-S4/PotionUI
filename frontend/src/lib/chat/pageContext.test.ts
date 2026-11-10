@@ -187,7 +187,7 @@ describe('pageContext', () => {
 
 			const outcome = dispatchExecutedToolResults({
 				id: 'm1',
-				tool_executions: [executed('save_shot', { shot: 1 }), executed('save_scene', { scene: 2 })]
+				tool_executions: [executed('save_shot', { shot: 1 }), executed('save_scene', { scene: 2 }, { approval_status: null })]
 			});
 
 			expect(outcome).toBeNull();
@@ -195,7 +195,7 @@ describe('pageContext', () => {
 			expect(scenes).toEqual([{ scene: 2 }]);
 		});
 
-		it('leaves out tools that wait for approval, were rejected, failed, were skipped, still run or returned text', () => {
+		it('leaves out tools that wait for approval, were rejected, failed, expired, were skipped, still run or returned text', () => {
 			const handler = vi.fn();
 			onToolApplied('save_shot', handler);
 
@@ -205,6 +205,7 @@ describe('pageContext', () => {
 					executed('save_shot', { status: 'pending_approval', shot: 1 }, { approval_status: 'pending' }),
 					executed('save_shot', { shot: 2 }, { approval_status: 'rejected' }),
 					executed('save_shot', { shot: 3 }, { approval_status: 'failed' }),
+					executed('save_shot', { status: 'pending_approval', shot: 7 }, { approval_status: 'expired' }),
 					executed('save_shot', { shot: 4 }, { skipped: true }),
 					executed('save_shot', { shot: 5 }, { result: { success: false, data: '{"shot":5}' } }),
 					executed('save_shot', { shot: 6 }, { status: 'running' }),

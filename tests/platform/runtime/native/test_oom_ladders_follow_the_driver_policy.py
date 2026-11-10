@@ -84,28 +84,35 @@ def _wan_expert(op):
         router._place_expert(dit)
 
 
-def _wan_whole_decode(op):
-    c = SimpleNamespace(vae=SimpleNamespace(module=SimpleNamespace(decode=op)), device="cpu")
-    with patch.object(wan_experts, "effective_free_vram_gb", return_value=64.0), \
-            patch.object(wan_experts, "causal3d_chunk_frames", return_value=None):
-        wan_experts._decode_pixels(c, torch.zeros(1, 16, 3, 8, 8))
+def _wan_decode_ctx(op):
+    return SimpleNamespace(vae=SimpleNamespace(module=SimpleNamespace(decode=op)), device="cpu", spatial_downscale=8,
+                           spec=SimpleNamespace(latent_format={}))
 
 
-def _wan_tiled_decode(op, tile=64):
-    c = SimpleNamespace(vae=SimpleNamespace(module=object()), device="cpu")
-    with patch.object(wan_experts, "causal3d_decode_tile", return_value=tile), \
-            patch.object(wan_experts, "tiled_decode_causal3d", op):
-        wan_experts._decode_tiled(c, torch.zeros(1, 16, 3, 8, 8), 1.0)
+def _wan_decode(op):
+    wan_experts._decode_pixels(_wan_decode_ctx(op), torch.zeros(1, 16, 1, 8, 64))
+
+
+def _wan_decode_one_latent_frame_at_a_time(op):
+    whole = _Failing(torch.cuda.OutOfMemoryError("CUDA out of memory"))
+    with patch.object(wan_experts, "chunked_decode_causal3d", op):
+        wan_experts._decode_pixels(_wan_decode_ctx(whole), torch.zeros(1, 16, 1, 8, 64))
+
+
+def _wan_tiled_decode(op):
+    with patch.object(wan_experts, "tiled_decode_causal3d", op):
+        wan_experts._decode_tiled(_wan_decode_ctx(op), torch.zeros(1, 16, 1, 8, 64), 100.0)
 
 
 def _wan_tiled_decode_at_the_smallest_tile(op):
-    _wan_tiled_decode(op, tile=16)
+    with patch.object(wan_experts, "tiled_decode_causal3d", op):
+        wan_experts._decode_tiled(_wan_decode_ctx(op), torch.zeros(1, 16, 1, 8, 64), 0.001)
 
 
 LADDERS = [
     _move_resident, _move_partial, _first_forward, _native_full_move, _wan_expert,
     _ltx_encode, _wan_encode, _h3_encode, _colour_fix,
-    _wan_whole_decode, _wan_tiled_decode, _wan_tiled_decode_at_the_smallest_tile,
+    _wan_decode, _wan_decode_one_latent_frame_at_a_time, _wan_tiled_decode, _wan_tiled_decode_at_the_smallest_tile,
 ]
 ladders = pytest.mark.parametrize("ladder", LADDERS, ids=[ladder.__name__ for ladder in LADDERS])
 

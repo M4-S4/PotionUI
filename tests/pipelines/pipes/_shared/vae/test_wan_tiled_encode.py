@@ -96,30 +96,57 @@ def test_vae_encode_lets_an_accelerator_error_that_is_not_an_oom_through(monkeyp
         encode(torch.rand(1, 3, 1, 64, 64))
 
 
-def test_make_room_offloads_every_foreign_resident_and_hands_the_pool_back(monkeypatch):
-    import src.pipelines.pipes._shared.vae.wan_tiled_encode as mod
+class _Component:
+    def __init__(self, name, registry, log):
+        self.name = name
+        self._registry = registry
+        self._log = log
 
-    events = []
-    vae, high = object(), object()
-
-    class _Registry:
-        def offload_all(self, device, *, exclude=()):
-            events.append(("offload_all", device, tuple(exclude)))
-            return ["text encoder"]
-
-    monkeypatch.setattr(mod, "get_residency_registry", lambda: _Registry())
-    monkeypatch.setattr(mod.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
-
-    mod.make_room_for_wan_vae_encode("cuda:0", keep=(vae, high, None))
-
-    assert events == [("offload_all", "cuda:0", (vae, high)), "empty_cache"]
+    def offload(self):
+        self._log.append(("offload", self.name))
+        self._registry.note_offloaded(self)
 
 
-def test_make_room_is_a_no_op_off_the_gpu(monkeypatch):
-    import src.pipelines.pipes._shared.vae.wan_tiled_encode as mod
+def _registry_with(names, monkeypatch):
+    from src.pipelines.pipes._shared.vae import wan_tiled_encode
+    from src.platform.runtime.native.memory.residency import GpuResidencyRegistry
 
-    monkeypatch.setattr(mod, "get_residency_registry",
-                        lambda: (_ for _ in ()).throw(AssertionError("must not touch the registry")))
+    registry = GpuResidencyRegistry()
+    log = []
+    components = {name: _Component(name, registry, log) for name in names}
+    for component in components.values():
+        registry.note_resident(component, "cuda:0", 1.0)
+    monkeypatch.setattr(wan_tiled_encode, "get_residency_registry", lambda: registry)
+    monkeypatch.setattr(wan_tiled_encode.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(wan_tiled_encode.torch.cuda, "empty_cache", lambda: log.append(("empty_cache", None)))
+    return registry, components, log
 
-    mod.make_room_for_wan_vae_encode("cpu", keep=())
+
+def test_make_room_offloads_the_text_encoder_and_keeps_the_vae_and_the_dit(monkeypatch):
+    from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode
+
+    registry, parts, log = _registry_with(("umt5", "vae", "dit"), monkeypatch)
+    make_room_for_wan_vae_encode("cuda:0", keep=(parts["vae"], parts["dit"], None))
+
+    assert log == [("offload", "umt5"), ("empty_cache", None)]
+    assert registry.resident_gb("cuda:0") == 2.0
+
+
+def test_make_room_leaves_a_parked_expert_alone(monkeypatch):
+    from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode
+
+    registry, parts, log = _registry_with(("umt5", "vae", "parked"), monkeypatch)
+    registry.note_offloaded(parts["parked"])
+    make_room_for_wan_vae_encode("cuda:0", keep=(parts["vae"],))
+
+    assert log == [("offload", "umt5"), ("empty_cache", None)]
+
+
+def test_make_room_does_nothing_off_cuda(monkeypatch):
+    from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode
+
+    registry, parts, log = _registry_with(("umt5",), monkeypatch)
+    make_room_for_wan_vae_encode("cpu", keep=())
+
+    assert log == []
+    assert registry.resident_gb("cuda:0") == 1.0

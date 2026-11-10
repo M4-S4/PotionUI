@@ -23,11 +23,11 @@ function render(name: string) {
 
 describe('Icon with a plugin-registered icon', () => {
 	it('draws an icon registered after it mounted, without a remount', () => {
-		render('l6-late-plugin-icon');
+		render('my-plugin-late-icon');
 		expect(target!.querySelector('svg')).toBeNull();
-		expect(target!.textContent?.trim()).toBe('L');
+		expect(target!.textContent?.trim()).toBe('M');
 
-		expect(registerIcon('l6-late-plugin-icon', ['M4 4h16', 'M4 20h16'])).toBe(true);
+		expect(registerIcon('my-plugin-late-icon', ['M4 4h16', 'M4 20h16'])).toBe(true);
 		flushSync();
 
 		expect(Array.from(target!.querySelectorAll('path')).map((path) => path.getAttribute('d'))).toEqual([
@@ -37,8 +37,8 @@ describe('Icon with a plugin-registered icon', () => {
 	});
 
 	it('draws an icon registered before it mounted', () => {
-		registerIcon('l6-early-plugin-icon', 'M12 4v16');
-		render('l6-early-plugin-icon');
+		registerIcon('my-plugin-early-icon', 'M12 4v16');
+		render('my-plugin-early-icon');
 
 		expect(target!.querySelector('path')?.getAttribute('d')).toBe('M12 4v16');
 	});

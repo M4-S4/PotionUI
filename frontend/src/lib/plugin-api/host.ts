@@ -36,13 +36,13 @@ import { modelTypePresentation, type ModelTypePresentation } from '$lib/utils/mo
 import type { ModelTypeDefinition } from '$lib/types/models';
 import { chatPanelStore, isChatPanelOpen, type ChatPrefillOptions } from '$lib/stores/chatPanel';
 import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
+import { registerIcon } from '$lib/utils/IconLibrary';
 import {
 	createGenerationSocket,
 	type MessageHandler,
 	type WebSocketMessage,
 	type WebSocketService
 } from '$lib/services/websocket';
-import { registerIcon } from '$lib/utils/IconLibrary';
 import { logger } from '$lib/utils/logger';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
@@ -94,28 +94,16 @@ export interface PluginChatApi {
 	 */
 	declareMode: typeof declareMode;
 	/**
-	 * Run `handler` with the JSON result of a tool call named `toolName`,
-	 * whether the user approved it or it ran without approval, before any
-	 * core hardcoded handling for that tool (which is skipped once a handler
-	 * is registered). Each result is delivered once. Returns an unregister
-	 * function.
+	 * Run `handler` with the result of an approved/confirmed tool call named
+	 * `toolName`, before any core hardcoded handling for that tool (which is
+	 * skipped once a handler is registered). Returns an unregister function.
 	 */
 	onToolApplied: typeof onToolApplied;
 	open(): void;
 	close(): void;
 	toggle(): void;
 	isOpen(): boolean;
-	/**
-	 * Put `text` in the chat composer without sending it, opening the panel
-	 * and focusing the composer. A draft the user already typed is kept
-	 * unless `replace` is set.
-	 */
 	prefill(text: string, options?: ChatPrefillOptions): void;
-	/**
-	 * Send `text` as the user's message in the page's chat mode, opening the
-	 * panel. Resolves once the message is on its way; rejects when the chat
-	 * is unavailable or still answering.
-	 */
 	send(text: string): Promise<void>;
 }
 
@@ -173,7 +161,7 @@ export interface PotionUIHostApi {
 	/** User notification surface: local toasts and persisted notifications. */
 	notifications: PluginNotificationsApi;
 	api: PluginHostFetchApi;
-	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling, panel and composer. */
+	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
 	chat: PluginChatApi;
 	keyboard: PluginKeyboardApi;
 	layers: PluginLayersApi;

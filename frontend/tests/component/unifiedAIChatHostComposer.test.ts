@@ -27,7 +27,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 vi.mock('$app/stores', () => {
 	const { writable } = require('svelte/store');
-	return { page: writable({ url: new URL('http://localhost/plugins/video-producer') }) };
+	return { page: writable({ url: new URL('http://localhost/plugins/my-plugin') }) };
 });
 
 class StubResizeObserver {
@@ -152,17 +152,17 @@ describe('UnifiedAIChat composer driven by window.__potionui.chat', () => {
 		] as never);
 		vi.mocked(api.createChatSession).mockResolvedValue({
 			success: true,
-			data: { id: 'sess-2', mode: 'video-producer', status: 'active' }
+			data: { id: 'sess-2', mode: 'my-plugin', status: 'active' }
 		} as never);
 		vi.mocked(api.sendChatMessageStream).mockResolvedValue(undefined);
 		await mountChat();
-		undeclare = declareMode('video-producer');
+		undeclare = declareMode('my-plugin');
 
 		await chatPanelStore.send('Plan the shots');
 
-		expect(api.createChatSession).toHaveBeenCalledWith(expect.objectContaining({ mode: 'video-producer' }));
+		expect(api.createChatSession).toHaveBeenCalledWith(expect.objectContaining({ mode: 'my-plugin' }));
 		expect(api.sendChatMessageStream).toHaveBeenCalledWith('sess-2', expect.any(Object), expect.any(Function));
-		expect(get(chatSession).mode).toBe('video-producer');
+		expect(get(chatSession).mode).toBe('my-plugin');
 		await settle();
 	});
 

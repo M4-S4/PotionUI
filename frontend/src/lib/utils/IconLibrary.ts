@@ -1,10 +1,9 @@
+import { writable, type Readable } from 'svelte/store';
 import { spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
 
 // Centralized icon library with all custom and heroicons
 // Usage: import { iconPaths } from './IconLibrary'
 // Then: <Icon name="generation" />
-
-import { writable, type Readable } from 'svelte/store';
 
 // Icons can have single path (string) or multiple paths (string array)
 export const iconPaths: Record<string, string | string[]> = {

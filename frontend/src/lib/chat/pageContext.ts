@@ -3,8 +3,8 @@
  * (`$lib/plugin-api/host.ts`). A plugin-hosted page (e.g. the ComfyUI import
  * wizard) uses this to feed the chat assistant page-scoped context, take over
  * the resolved chat mode while it's the active surface, and react to a tool
- * result (approved by the user, or executed without approval) — without
- * UnifiedAIChat.svelte knowing the plugin exists.
+ * result the user approved — without UnifiedAIChat.svelte knowing the plugin
+ * exists.
  *
  * Module-scope state here is per-browser-session content (which page/mode is
  * active), not per-user data, but it's reset on an identity switch anyway via
@@ -90,7 +90,7 @@ export function declareMode(modeId: string): () => void {
 }
 
 /**
- * Register a handler for a tool result, approved or executed without approval. Every handler
+ * Register a handler for a confirmed/approved tool result. Every handler
  * registered for `toolName` runs (in registration order) before any
  * hardcoded dispatch for that tool. Returns an unregister function.
  */
@@ -169,12 +169,10 @@ function isUnapplied(outcome: ToolAppliedOutcome | boolean): outcome is ToolAppl
 	return isToolAppliedOutcome(outcome) && (outcome.status === 'stale' || outcome.status === 'partial');
 }
 
-const UNDELIVERED_APPROVALS = new Set(['pending', 'rejected', 'failed']);
-
 function deliverable(execution: ExecutedTool | null | undefined): execution is ExecutedTool {
 	return (
 		!!execution &&
-		!UNDELIVERED_APPROVALS.has(execution.approval_status ?? '') &&
+		(execution.approval_status == null || execution.approval_status === 'approved') &&
 		!execution.skipped &&
 		execution.status !== 'running' &&
 		execution.result?.success !== false

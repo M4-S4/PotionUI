@@ -51,7 +51,21 @@ spatial tiling if even a single-frame chunk doesn't fit.
   clip length.
 - SeedVR2's VAE is excluded by the same detection: it self-normalizes rather than using the Wan-style
   causal feature cache, so it's never routed through temporal chunking either.
-- Temporal chunking is not combined with spatial tiling — they're mutually exclusive strategies
-  picked based on whether a single frame's full-spatial decode fits in VRAM. If it doesn't, PotionUI
-  uses spatial tiling instead, not both together.
+- When a single frame's full-spatial decode does not fit in VRAM, the Wan pipes decode in spatial
+  tiles, each tile one latent frame at a time with its own decode cache, so the two combine there.
+  Tiles change the pixels near the seams. The engine's own causal-3D decode still picks one or the
+  other.
+- When a Wan pipe's decode still runs out of VRAM, it steps down in the same order. A whole or
+  chunked decode that fails clears the card and decodes one latent frame per chunk. If that fails
+  too, the card is cleared again and the clip is decoded in spatial tiles sized from a fresh reading
+  of free VRAM, or from the smallest tile when the card cannot be read. The tile then halves on each
+  further failure. A driver OOM that the driver policy makes fatal (`POTIONUI_CUDA_DRIVER_OOM`; by
+  default under WSL2 with expandable segments) is not retried at any of these steps.
+- The spatial tiles are blended in host RAM, not on the card. The blend keeps two full-clip
+  float32 buffers (the weighted sum and the summed weights), then the division makes a third and
+  the cast back to the VAE's compute dtype a fourth, so the peak is about 42 bytes per output
+  pixel with a bfloat16 VAE and 48 with a float32 one, about 3.5 and 4 float32 copies of the clip.
+  That is about 1.4 GB for 832x480 with 81 frames, 3.1 GB for 1280x720 with 81 frames, 4.7 GB for
+  1280x720 with 121 frames and 10.6 GB for 1920x1088 with 121 frames. The temporal-only path keeps
+  one copy of the clip in the compute dtype while it gathers the chunks, plus the joined result.
 - No user-facing knob: you cannot force chunk size or disable this behavior from a preset or setting.
