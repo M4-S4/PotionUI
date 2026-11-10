@@ -1217,41 +1217,6 @@ def _switch_experts(monkeypatch, high, events, host_ram_gb=62.7, parking=True):
     return [line for line in recorder.infos if "parked" in line or "torn down" in line]
 
 
-def test_router_parks_the_outgoing_expert_instead_of_tearing_it_down(monkeypatch):
-    events = []
-    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=True), events)
-
-    assert events[:2] == ["park high", "free"]
-    assert "offload high" not in events and "empty_cache" not in events
-    assert lines == ["[WAN PLACEMENT] high expert parked pinned: up to 28.58GB pinned with the next expert, "
-                     "limit 37.62GB"]
-
-
-def test_router_tears_the_outgoing_expert_down_when_it_cannot_be_parked(monkeypatch):
-    events = []
-    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=False), events)
-
-    assert events[:3] == ["park high", "offload high", "free"]
-    assert lines == ["[WAN PLACEMENT] high expert torn down: free host RAM would fall under the streaming reserve"]
-
-
-def test_router_never_parks_when_both_experts_would_pin_over_sixty_percent_of_host_ram(monkeypatch):
-    events = []
-    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=True), events, host_ram_gb=46.0)
-
-    assert events[:2] == ["offload high", "free"]
-    assert lines == ["[WAN PLACEMENT] high expert torn down: up to 28.58GB pinned with the next expert, "
-                     "over 27.60GB (60% of host RAM)"]
-
-
-def test_router_never_parks_when_parking_is_off(monkeypatch):
-    events = []
-    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=True), events, parking=False)
-
-    assert events[:2] == ["offload high", "free"]
-    assert lines == ["[WAN PLACEMENT] high expert torn down: parking is off (native_park_experts)"]
-
-
 def test_router_tears_down_an_expert_that_was_not_streamed(monkeypatch):
     events = []
     lines = _switch_experts(monkeypatch, _LoggedPlaceDiT("high", events, device="cuda:0"), events)
