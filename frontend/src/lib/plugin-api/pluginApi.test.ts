@@ -60,7 +60,7 @@ function pluginApiHarness(pluginId: string, respond: (call: Call) => Reply | Err
 }
 
 function setup(respond: (call: Call) => Reply | Error, token: string | null = 'tok') {
-	return pluginApiHarness('video-producer', respond, token);
+	return pluginApiHarness('my-plugin', respond, token);
 }
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Reply {
@@ -82,10 +82,10 @@ describe('createPluginApi: the methods model-browser relies on', () => {
 		await api.delete('/projects/1');
 
 		expect(calls.map((call) => [call.method, call.url])).toEqual([
-			['GET', '/api/plugins/video-producer/projects'],
-			['POST', '/api/plugins/video-producer/projects'],
-			['PUT', '/api/plugins/video-producer/projects/1'],
-			['DELETE', '/api/plugins/video-producer/projects/1']
+			['GET', '/api/plugins/my-plugin/projects'],
+			['POST', '/api/plugins/my-plugin/projects'],
+			['PUT', '/api/plugins/my-plugin/projects/1'],
+			['DELETE', '/api/plugins/my-plugin/projects/1']
 		]);
 		for (const call of calls) {
 			expect(call.withCredentials).toBe(true);
@@ -146,7 +146,7 @@ describe('createPluginApi: request and patch', () => {
 
 		await api.patch('/shots/3', { duration: 4 });
 
-		expect(calls[0].url).toBe('/api/plugins/video-producer/shots/3');
+		expect(calls[0].url).toBe('/api/plugins/my-plugin/shots/3');
 		expect(calls[0].method).toBe('PATCH');
 		expect(calls[0].data).toBe('{"duration":4}');
 		expect(headerOf(calls[0], 'Content-Type')).toBe('application/json');
@@ -232,7 +232,7 @@ describe('createPluginApi: fetchRaw', () => {
 
 		expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
 		expect(res.headers.get('Content-Type')).toBe('video/mp4');
-		expect(calls[0].url).toBe('/api/plugins/video-producer/renders/1/file');
+		expect(calls[0].url).toBe('/api/plugins/my-plugin/renders/1/file');
 		expect(calls[0].withCredentials).toBe(true);
 		expect(calls[0].timeout).toBe(0);
 		expect(headerOf(calls[0], 'Authorization')).toBe('Bearer tok');
@@ -313,15 +313,15 @@ describe('createPluginApi: download', () => {
 	});
 
 	it('saves the response as a file, then removes the link and revokes the object URL', async () => {
-		const { api, calls } = setup(() => ({ status: 200, body: '<fcpxml/>' }));
+		const { api, calls } = setup(() => ({ status: 200, body: '{"tracks":[]}' }));
 
-		await api.download('/projects/1/export.fcpxml', 'teaser.fcpxml');
+		await api.download('/projects/1/export.otio', 'teaser.otio');
 		vi.useFakeTimers();
 
 		expect(headerOf(calls[0], 'Authorization')).toBe('Bearer tok');
 		expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
 		expect(clicked).toHaveLength(1);
-		expect(clicked[0].download).toBe('teaser.fcpxml');
+		expect(clicked[0].download).toBe('teaser.otio');
 		expect(clicked[0].href).toBe('blob:export-1');
 		expect(clicked[0].isConnected).toBe(false);
 		expect(URL.revokeObjectURL).not.toHaveBeenCalled();
@@ -329,9 +329,9 @@ describe('createPluginApi: download', () => {
 
 	it('revokes the object URL a minute after the click', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout'] });
-		const { api } = setup(() => ({ status: 200, body: '<fcpxml/>' }));
+		const { api } = setup(() => ({ status: 200, body: '{"tracks":[]}' }));
 
-		await api.download('/projects/1/export.fcpxml', 'teaser.fcpxml');
+		await api.download('/projects/1/export.otio', 'teaser.otio');
 
 		vi.advanceTimersByTime(59_999);
 		expect(URL.revokeObjectURL).not.toHaveBeenCalled();

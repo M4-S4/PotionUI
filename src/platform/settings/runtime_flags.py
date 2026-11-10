@@ -84,7 +84,7 @@ RUNTIME_FLAGS: tuple[RuntimeFlag, ...] = (
         "Copy the next streamed layer to the GPU while the current one computes.",
     ),
     RuntimeFlag(
-        "native_park_experts", "NATIVE_PARK_EXPERTS", "bool", True, "live", "memory", "backend",
+        "native_park_experts", None, "bool", True, "live", "memory", "backend",
         "Keep the idle expert of a two-expert video model page-locked in RAM so placing it again is quick.",
     ),
     RuntimeFlag(

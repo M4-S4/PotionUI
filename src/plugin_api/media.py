@@ -68,6 +68,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, 
 
 from src.features.media.validators import UPLOAD_PURPOSE_USER, UPLOAD_PURPOSES
 from src.pipelines.pipes._shared.media.frame_extract import extract_frame as _extract_video_frame
+from src.pipelines.pipes.interpolator.rife.cadence import (
+    Slot,
+    output_count,
+    output_fps,
+    slot,
+    source_per_output,
+)
 from src.platform.filesystem import audio_formats, visual_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
 from src.platform.filesystem.storage_driver import local_copy, validate_key
@@ -109,6 +116,7 @@ __all__ = [
     "LibraryMediaRef",
     "MediaRefError",
     "ResolvedMedia",
+    "Slot",
     "StoredMedia",
     "StreamingMp4Writer",
     "TranscodeSpec",
@@ -127,9 +135,13 @@ __all__ = [
     "image_embedder",
     "media_local_path",
     "mux_audio_from_source",
+    "output_count",
+    "output_fps",
     "probe_video",
     "resolve_media_ref",
     "save_user_media",
+    "slot",
+    "source_per_output",
     "transcode_video",
     "upload_formats",
 ]

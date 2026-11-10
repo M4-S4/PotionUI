@@ -374,6 +374,26 @@ def test_t2v_opener_runs_on_t2v_set_without_concat_then_chain_on_i2v_set():
     assert len(captured) == 1
 
 
+def test_each_segment_decodes_with_the_spec_and_spatial_factor_of_its_own_set():
+    doc = _document(n_segments=2, start_on_seg0=False)
+    pipe = _pipe(document=doc)
+    t2v_bundle = _bundle(in_dim=16, dual=False, variant="wan22_t2v")
+    i2v_bundle = _bundle(in_dim=36, variant="wan22_i2v_14b")
+    pi = _inputs(model=i2v_bundle, model_t2v=t2v_bundle, conditioning=_cond(2))
+    fake_decode, _ = _fake_decode_factory()
+    seen = []
+
+    def decode(ctx, latent):
+        seen.append((ctx.spec, ctx.spatial_downscale))
+        return fake_decode(ctx, latent)
+
+    p1, p2, p3, p4 = _patches(fake_decode=decode)
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: None)
+
+    assert seen == [(t2v_bundle.spec, 8), (i2v_bundle.spec, 8)]
+
+
 def test_i2v_opener_uses_its_own_start_image_rest_continue():
     doc = _document(n_segments=3, start_on_seg0=True)
     pipe = _pipe(document=doc)
@@ -415,6 +435,32 @@ def test_concat_encode_routes_through_the_shared_oom_ladder_not_raw_encode():
 
     mock_make_encode.assert_called_once()
     assert seen_encode["fn"] is sentinel
+
+
+def test_an_a14b_i2v_segment_makes_room_on_the_card_before_its_start_frame_encode():
+    doc = _document(n_segments=1, start_on_seg0=True)
+    pipe = _pipe(document=doc)
+    bundle = _bundle(in_dim=36)
+    events = []
+    bundle.vae.move_to = lambda d: events.append(("vae.move_to", d))
+    pi = _inputs(model=bundle, conditioning=_cond(1), image=[torch.rand(8, 8, 3)])
+
+    def make_room(device, keep):
+        events.append(("make_room", device, tuple(keep)[0]))
+
+    def fake_build(start_frames, vae_encode, **kw):
+        events.append(("build",))
+        t_lat = (kw["length"] - 1) // 4 + 1
+        return torch.zeros(1, 20, t_lat, kw["height"] // 8, kw["width"] // 8)
+
+    p1, p2, p3, p4 = _patches(fake_build=fake_build)
+    with p1, p2, p3, p4, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.make_room_for_wan_vae_encode",
+               side_effect=make_room), \
+         _no_stitch():
+        pipe.process(pi, lambda o: None)
+
+    assert events[:3] == [("make_room", "cpu", bundle.vae), ("vae.move_to", "cpu"), ("build",)]
 
 
 def test_per_segment_sub_type_override_forces_t2v_mid_chain():

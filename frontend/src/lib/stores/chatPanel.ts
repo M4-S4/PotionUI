@@ -9,11 +9,9 @@ const initialState: ChatPanelState = {
 };
 
 export interface ChatPrefillOptions {
-	/** Overwrite a draft the user has already typed. */
 	replace?: boolean;
 }
 
-/** What the mounted chat panel hands over once it can take composer requests. */
 export interface ChatComposer {
 	prefill(text: string, replace: boolean): void;
 	send(text: string): Promise<void>;
@@ -93,13 +91,11 @@ function createChatPanelStore() {
 			dropPending('The chat panel was reset before the chat was ready');
 		},
 
-		/** Put `text` in the composer without sending it; opens the panel. */
 		prefill(text: string, options: ChatPrefillOptions = {}) {
 			if (typeof text !== 'string') return;
 			enqueue({ kind: 'prefill', text, replace: options.replace === true });
 		},
 
-		/** Send `text` as the user's message; opens the panel and settles once the message is on its way. */
 		send(text: string): Promise<void> {
 			if (typeof text !== 'string' || !text.trim()) {
 				return Promise.reject(new TypeError('chat.send needs a non-empty text'));
@@ -107,7 +103,6 @@ function createChatPanelStore() {
 			return new Promise<void>((resolve, reject) => enqueue({ kind: 'send', text, resolve, reject }));
 		},
 
-		/** Called by the mounted chat panel once it is ready; returns the matching detach. */
 		attachComposer(next: ChatComposer): () => void {
 			composer = next;
 			if (readyTimer) clearTimeout(readyTimer);

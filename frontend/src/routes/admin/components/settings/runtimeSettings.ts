@@ -176,9 +176,9 @@ export const RUNTIME_SETTINGS: RuntimeSettingDescriptor[] = [
 		kind: 'bool',
 		label: 'Keep the idle expert pinned',
 		description:
-			'Wan 2.2 14B samples with two experts. When the first one streams from RAM, it stays page-locked while the second one runs, so the next generation places it again in under a second.',
+			'Wan 2.2 14B samples with two experts. When the first one streams from RAM, it stays page-locked while the second one runs, so the next generation places it again without copying and pinning it anew.',
 		guidance:
-			'Saves about 10 s per Wan 14B generation. Turn it off if the host runs short of RAM: the idle expert then holds up to its full size in page-locked memory.',
+			'Skips re-pinning the high-noise expert at each generation, from the second generation on. While on, the high-noise expert keeps its full size in page-locked RAM from one generation to the next; turn it off if the host runs short of RAM.',
 		defaultLabel: 'On',
 		defaultValue: true
 	},

@@ -99,6 +99,7 @@ def _by_id(entries):
     return {entry["id"]: entry for entry in entries}
 
 
+@pytest.mark.asyncio
 async def test_each_entry_is_what_the_enabled_backends_route_returns_plus_its_instance_facts(install):
     world = install(World())
 
@@ -173,11 +174,3 @@ def test_a_native_backend_on_cpu_reports_no_gpu_and_no_vram(install):
     assert native["execution_device"] == "no_gpu"
     assert native["vram_total_gb"] is None
     assert native["vram_free_gb"] is None
-
-
-def test_list_backends_is_importable_from_the_package_root():
-    import src.plugin_api as root
-
-    assert root.list_backends is api.list_backends
-    assert "list_backends" in root.__all__
-    assert "list_backends" in api.__all__

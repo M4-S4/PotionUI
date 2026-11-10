@@ -83,3 +83,15 @@ def test_types_stay_declared_when_the_plugin_is_disabled_and_are_not_declared_tw
 
     assert [spec.key for spec in types.all()] == ["hot-plugin.done"]
     assert calls(log) == ["hot-plugin"]
+
+
+def test_a_plugin_declared_at_startup_is_not_declared_again_when_enabled_anew(plugins, log):
+    types = NotificationTypeRegistry()
+    assert plugins.enable_plugin("boot-plugin")
+    startup(plugins, types)
+
+    assert plugins.disable_plugin("boot-plugin")
+    assert plugins.enable_plugin("boot-plugin")
+
+    assert [spec.key for spec in types.all()] == ["boot-plugin.done"]
+    assert calls(log) == ["boot-plugin"]

@@ -33,8 +33,8 @@ class Queue:
         self.pending = list(pending)
         self.running = running or {}
 
-    def snapshot(self):
-        return {"pending": self.pending, "running": self.running}
+    def is_idle(self):
+        return not self.pending and not any(self.running.values())
 
 
 def _world(embedder=None, queue=None):

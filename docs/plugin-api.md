@@ -66,17 +66,17 @@ itself exports.
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `ToolApprovalPreview`, `PreChatAction` |
 | **LLM** — contributing an LLM configuration type | `.llm` | `Adapter`, `HttpAdapter`, `OpenAIChatAdapter`, `RenderRequest`, `WireRequest`, `CapabilityProfile`, `ProfileLayer`, `Settings`, `ToolSpec`, the message parts, stream events and provider errors, `LLMConfig`, `DiscoveredModel`, `DiscoveredWindow` |
-| **Backends** — contributing an engine, and reading the enabled ones | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate`, `list_backends()` (every enabled backend, highest priority first: what `GET /api/backends/enabled` returns for it, plus `execution_device` (`"this_host_gpu"`, `"no_gpu"`, `"remote"` or `"unestablished"`), `max_concurrent_runs` and `vram_total_gb` / `vram_free_gb`; the VRAM is known only for a local native backend on the GPU this process monitors and is `None` otherwise; a backend that is enabled but not running reports `"unestablished"` and a `None` capacity) |
-| **Cloud** — contributing a hosted-model provider, and pricing a run | `.cloud`, `.cloud_testing` | `estimate_cloud_cost(user, model_id, shots, driver=None)` (what a run of shots on an enabled cloud model would cost, the answer of `POST /api/cloud/models/{model_id}/estimate`; administrators only, `PermissionError` for anyone else), `enabled_cloud_models(backend_id)` (the `CloudCatalogEntry` of each model turned on in a cloud backend's catalog, by slug: `model_id`, `label`, `provider_model_id`, `tasks`, `outputs` and its `spec`), `resolve_cloud_model(model_id)` (a `ResolvedCloudModel`: the `backend_id`, `driver` and catalog `entry` of an enabled cloud model, with its `spec`; `None` when no enabled cloud backend offers it), `DirectorEstimateError` (a `ValueError`: the shots it cannot price), `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
+| **Backends** — contributing an engine, and reading the enabled ones | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate`, `list_backends()` (every enabled backend, highest priority first: what `GET /api/backends/enabled` returns for it, credentials redacted, plus `execution_device` (`"this_host_gpu"`, `"no_gpu"`, `"remote"` or `"unestablished"`), `max_concurrent_runs` and `vram_total_gb` / `vram_free_gb`; the VRAM is known only for a local native backend on the GPU this process monitors and is `None` otherwise; a backend that is enabled but not running reports `"unestablished"` and a `None` capacity; not user-scoped: it returns what `GET /api/backends/enabled` returns to any signed-in user) |
+| **Cloud** — contributing a hosted-model provider, reading the enabled models and pricing a run | `.cloud`, `.cloud_testing` | `estimate_cloud_cost(user, model_id, shots, driver=None)` (what a run of shots on an enabled cloud model would cost, the answer of `POST /api/cloud/models/{model_id}/estimate`; each shot is the route's `{"task", "params"}`; administrators only, `PermissionError` for anyone else; `ModelNotFoundException` for a model that is not an enabled cloud model), `DirectorEstimateError` (a `ValueError`: the shots it cannot price), `enabled_cloud_models(backend_id)` (the `CloudCatalogEntry` of each model turned on in a cloud backend's catalog, by slug: `model_id`, `label`, `provider_model_id`, `tasks`, `outputs` and its `spec`), `resolve_cloud_model(model_id)` (a `ResolvedCloudModel`: the `backend_id`, `driver` and catalog `entry` of an enabled cloud model, with its `spec`; `None` when no enabled cloud backend offers it), `CloudCatalogEntry`, `ResolvedCloudModel` (none of these reads carries a backend credential; the two catalog reads are unscoped: they do not check that a given user may reach a model, which `submit_generation` does and `visible_model_ids(user_id)` lists), and the provider kit: `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError`, `PreEncodedReference` (an already VAE-encoded reference a pipe hands to a `reference_latents` input), `MAX_BUNDLE_COPIES` (the most copies a prompt resource bundle row may ask for) |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks`, `load_native_component(path, kind)` (one component file, such as a `vae`, loaded on the CPU by the engine's own loader and returned as its wrapper: `.module`, `move_to(device)`, `unload()`) |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `preset_template(preset_id)` (a loaded preset as its loader built it, a `PresetTemplate` with its `path`, `driver` and modes down to each form field, or `None`), `resolve_preset_path(preset_id, reference)` (a path the preset names with its `{{ paths.preset }}` and `{{ paths._shared }}` variables filled, or `None` when the preset is not loaded), `preset_install_state(preset_id)` (a `PresetInstallState`: whether the preset is `installed` and, when it is, `assigned` to a user or a group), `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`, plus its `engine`, `category` and `requires` (the `requires:` block of its `preset.yml`, e.g. `{"min_vram_gb": 12, "recommended_vram_gb": 16}`, or `None`); `None` when not installed), `list_presets(user)` (a `PresetDescription` for each preset installed by an admin that `user` may run, in the order of `GET /api/presets`: the presets assigned to them directly or through a group, every installed preset for an administrator; `PermissionError` without a user), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False, *, at=None, capabilities=None, field=None)` (puts a resolved image, from `resolve_media_ref` or `extract_frame`, into the request's Video Director document, keeping the rest of it. A single-shot document takes it as its `first` or `last` frame; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot. A `director` document needs `segment_id` and takes `first`, `last` or, when the preset's director mode allows keyframes, `keyframe` with `at` in seconds from the start of that segment. Role `reference` adds one media or a list (images, videos, audio) to the preset mode's reference pool, the form field `field` or the first of its `reference_fields`, and with `segment_id` cites them in that segment's prompt for `per_shot` references. The capabilities default to the preset's `vars.video_director` for the request's mode. Raises `DirectorBindingError` with a `code`; the codes and placement rules are in the [`media`](video-director.md#media) and [`references`](video-director.md#references-segment) sections of docs/video-director.md), `RequirementBackendInfo` (the resolved backend a `RequirementContext` carries: `id`, `engine`, `driver`, `config`) |
 | **Forms** — the field types core ships | `.forms` | `core_field_type_names()` (the names of every core non-container field type, e.g. to validate a `field_type` a form-building tool is handed) |
-| **Generation** — submitting, previewing, following and reading generations | `.generation` | `submit_generation`, `preview_memory`, `cancel_generation`, `generation_state`, `generation_record(user, generation_id)` (the stored row of a generation the user may read, as `generation_state` returns it once the generation has left the queue, or `None` while it is not stored), `generation_failure(user, generation_id)` (the failure of a failed generation with its raw `detail`, as `GET /api/generations/{id}/failure` answers it, or `None` when it did not fail; administrators only, `PermissionError` for anyone else), `generation_active` (True while the generation queue holds a generation, pending or running, of any user on any backend: a plugin waits for `False` before a heavy background job), `list_generation_files`, `resolve_media_ref`, `get_session`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict`, and the errors `submit_generation` and `preview_memory` let through so you can catch them by type: `FormBindingError` (a `ValueError`: the form does not bind), `FormNotFoundException` (no form of that name), `NoBackendForEngineError` and `NoEligibleBackendError` (both `RuntimeError`: no backend can run the request) |
+| **Generation** — submitting, previewing, following and reading generations | `.generation` | `submit_generation`, `preview_memory`, `cancel_generation`, `generation_state`, `generation_record`, `generation_failure` (administrators only), `generation_active`, `list_generation_files`, `resolve_media_ref`, `get_session`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict`, and the errors `submit_generation` and `preview_memory` let through, to catch by type: `FormBindingError` (a `ValueError`: the form does not bind), `FormNotFoundException` (no form of that name), `NoBackendForEngineError` and `NoEligibleBackendError` (both `RuntimeError`: no backend can run the request) |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `plugin_settings`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Testing** — running your plugin's tests against a scratch database | `.testing` | `scratch_database(path, *, core_schema=True)` (a new database in the file `path`, which must not exist yet (`FileExistsError` otherwise), carrying the tables of every core migration, or no table at all with `core_schema=False`; it is not the application's database until `use_database` makes it so), `use_database(database)` (a `with` block during which `db` and every repository behind this API read and write `database`; the database in place before comes back when the block ends, even when it raises). See [Testing your plugin against a scratch database](#testing-your-plugin-against-a-scratch-database) |
-| **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe`, `StreamingMp4Writer(out_path, width, height, fps)` (pipes RGB uint8 frames to ffmpeg into a video-only MP4; `write`, `close`, `abort`, or a `with` block; raises `FFmpegNotFoundError` when ffmpeg is missing), `has_audio_stream(path)`, `mux_audio_from_source(video_only, source, out_path)` (video of one file plus audio of another, stream-copied or AAC; returns `False` and leaves no partial file when there is no audio or ffmpeg fails), `extract_frame(user, ref, at="last", purpose="user_upload")` and `save_user_media(user, path, purpose="user_upload")` (async; one frame of a video the user may see, or a file the plugin wrote, stored as the user's upload and returned as a `StoredMedia`; see [Working with the user's media](#working-with-the-users-media)), `media_local_path(user, ref)` (the path on this server of the file of a media the user may see, or `None` when the storage keeps it elsewhere), `copy_media_file(user, ref, target)` (streams that file into a file of the plugin), `upload_formats()` (the file extensions the Library takes, by `media_type`), `StoredMedia`, and the media reference names of `.generation`: `resolve_media_ref`, `MediaRefError`, `HistoryMediaRef`, `LibraryMediaRef`, `ResolvedMedia`, `embed_images(images)` (the vectors of images, paths or PIL images, from the application's image embedder, the SigLIP model of the gallery search: L2-normalized, so the dot product of two vectors is their cosine; the model goes through `ModelLifecycle` for each call and is never downloaded from here: `FileNotFoundError` when its weights are not on this server), `image_embedder()` (`{model, slug, device, available, loaded}`: which model it is, the namespace of its vectors, whether its weights are here and whether it is resident now), `detect_faces(images, min_score=0.5)` (the faces OpenCV's YuNet detector finds in each image, paths or PIL images, on the CPU: per image a list of boxes `{x, y, width, height, score, landmarks}` in pixels of the image, `landmarks` the five points right eye, left eye, nose tip, right and left corners of the mouth as the face sees them, best first, each image read at its own size so that the small face of a wide shot is found; the model file `face_detection_yunet_2023mar.onnx` (MIT license) is read from a `detection_bbox` folder of the model roots and never downloaded from here: `FileNotFoundError` when it is missing), `face_detector()` (`{model, available}`: the file name and whether it is here), `identify_faces(faces)` (the identity vector of each face, given as `(image, landmarks)` with the landmarks `detect_faces` found, from AuraFace (`fal/AuraFace-v1`, an ArcFace face recognition model, Apache-2.0 license) through onnxruntime on the CPU, one face at a time, each face aligned on the ArcFace template in 112×112: L2-normalized, two faces of one person with a high cosine and two people near 0; the model file `glintr100.onnx` (260 694 151 bytes, SHA-256 `a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60`) is read from `face_recognition/auraface` in the home model root, or from the file the environment variable `POTIONUI_FACE_IDENTITY_MODEL` names, and never downloaded from here: `FileNotFoundError` when it is missing), `face_identifier()` (`{model, path, available}`: the file name, where it is looked for and whether it is there with onnxruntime to run it) |
+| **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe`, `StreamingMp4Writer(out_path, width, height, fps)` (pipes RGB uint8 frames to ffmpeg into a video-only MP4; `write`, `close`, `abort`, or a `with` block; raises `FFmpegNotFoundError` when ffmpeg is missing), `has_audio_stream(path)`, `mux_audio_from_source(video_only, source, out_path)` (video of one file plus audio of another, stream-copied or AAC; returns `False` and leaves no partial file when there is no audio or ffmpeg fails), the frame schedule of frame interpolation, the one `interpolator/rife` uses: `source_per_output(src_fps, factor=2, target_fps=0.0)` (source frames per output frame, an exact `Fraction`: `1/factor`, or `src_fps/target_fps` with both rates as fractions), `output_fps(src_fps, factor=2, target_fps=0.0)`, `output_count(n_source, ratio)` (output frames for `n_source` source frames, the duration kept) and `slot(index, ratio)` (a `Slot`: output frame `index` lies between source frames `left` and `left + 1` at `t` in [0, 1), `t` snapped to 0 within 1e-3), so two interpolators given the same clip place the same frames, NTSC rates on long clips included; `extract_frame(user, ref, at="last", purpose="user_upload")` and `save_user_media(user, path, purpose="user_upload")` (async; one frame of a video the user may see, or a file the plugin wrote, stored as the user's upload and returned as a `StoredMedia`; see [Working with the user's media](#working-with-the-users-media)), `media_local_path(user, ref)` (the path on this server of the file of a media the user may see, or `None` when the storage keeps it elsewhere), `copy_media_file(user, ref, target)` (streams that file into a file of the plugin), `upload_formats()` (the file extensions the Library takes, by `media_type`), `StoredMedia`, and the media reference names of `.generation`: `resolve_media_ref`, `MediaRefError`, `HistoryMediaRef`, `LibraryMediaRef`, `ResolvedMedia` |
 | **Models** — model metadata fields, provider links, resolving a model's file/folder across roots, and acting on catalog models | `.models` | `WellKnownModelMetadataField`, `get_model_provider_info`, `ModelFileUnavailable` (raised by `resolve_model_file` when the model's file is not reachable), `model_type_dirs`, `model_write_dir`, `resolve_model_file`, `model_for_path(path, admin=False)`, `model_for_sha256(sha256, *, size=None, hash_candidates="background", admin=False)` (the indexed model with that hash, or `None`; pass the file's `size` in bytes and a local copy that has not been hashed yet but has exactly that size can match as well: `"background"` queues at most eight of those candidates per call at the normal, rate-capped priority and answers `None` until they are done, `"paced"` verifies at most two of them through the rate-capped pool, waiting up to 15 minutes, `"inline"` hashes up to eight of them before answering at full speed, `"never"` only looks; `ValueError` for any other mode; unscoped; both leave out the operational fields - location, file size, hash - unless `admin=True`, for a caller that has checked the user is an admin), the hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds: files finished being hashed, so a model's `sha256` is now known), `visible_model_ids(user_id)` (the models assigned to a user, directly or through their groups), `assign_model_to_user(model_id, user_id)` (`True` when newly assigned; fires `model_index.before_assign` / `after_assign`; raises `ModelAssignmentException`), `update_model_metadata(model_id, values)` (sets some shared attribute values, validated against the type's definitions; raises `InvalidModelMetadataException`, `ModelNotFoundException`), `run_provider_fetch(provider, model_ids)` (async; hashes any model that has no digest yet, one after another, then fills empty description, triggers, tags and previews from a provider plugin; `{"successful", "failed", "errors"}`; raises `ProviderFetchException` for an unknown or uninitialised provider, or a `model_index.before_fetch_info` veto), `ProviderFetchException`, `directory_aliases()`, `type_for_folder_name`, `model_types()` (the registered model types, plugin types included, read at call time), `HeaderView`, `TensorInfo`, `FamilyMatch`, `model_classifier_registry` (read-only) |
 | **Downloads** — queueing a download and following it | `.downloads` | `queue_model_download(url, *, filename=None, model_type=None, subdir=None, tags=None, checksum_sha256=None, provider_id=None, created_by=None, destination_backend_id=None)` (async; the queued download as a dict; raises `DownloadQueueException`, or its `UnsafeFilenameException` and `DownloadDestinationInvalid` subtypes - the latter when the subfolder, directory or remote backend cannot be used, as opposed to a queue that is blocked), `get_download(download_id)` (the download's current state, or `None`), `DownloadNotFoundException`. Declare the `download.after_complete` hook to be told when a download has landed (`download_id`, `created_by` ...; `model_id` or `duplicate_of` only for a plain local model download, the one kind indexed on completion) |
 | **User groups** — groups, membership, and the NSFW policy a user gets | `.groups` | `list_groups()`, `get_user_groups(user_id)`, `group_member_ids(group_id)` (groups are `{"id", "name", "is_system", "content_policy"}` dicts), `effective_content_policy(user_id)` (`"allowed"`, `"blur"` or `"blocked"`: the instance setting made stricter by the user's groups), `assign_models_to_group(group_id, model_ids, acting_user)` (the ids newly assigned, through the group operation and its hooks in that admin's name; `ValueError` for a non-admin actor or an unknown group) |
@@ -648,24 +648,28 @@ knowing your plugin exists:
   example from an "Ask the assistant" button.
 - `isOpen()` — whether the panel is open right now.
 - `prefill(text, {replace?})` — puts `text` in the chat composer without sending it, opens
-  the panel if it is closed and focuses the composer, so the user can edit the message
-  before sending it. A draft the user has already typed is kept; pass `{replace: true}` to
-  overwrite it. Called while the panel is still loading, the text lands as soon as the chat
-  is ready.
+  the panel if it is closed and focuses the composer, so the user reads and edits the message
+  and sends it, or not, as with one they typed. A draft the user has already typed is kept;
+  pass `{replace: true}` to overwrite it. Called while the panel is still loading, the text
+  lands as soon as the chat is ready; it is dropped if the panel is closed first or the chat
+  is not ready within 15 seconds.
 - `send(text)` — sends `text` as the user's message, as if they had typed it, in the mode
   the page resolves (the route-prefix match, or your `declareMode`), opening the panel if it
-  is closed. When the open conversation is in another mode, a new conversation is started in
-  the page's mode; the previous one stays in the chat history. Your `provideContext`
-  providers run for this message like for any other, and the draft in the composer is left
-  alone. Returns a promise that resolves once the message is on its way (not when the
-  assistant has answered) and rejects with an `Error` when the chat is unavailable: no chat
-  model configured, the assistant still answering the previous message, the conversation
-  could not be created, the panel closed before the chat was ready, or the chat not ready
-  within 15 seconds. An empty `text` rejects with a `TypeError`.
+  is closed. The user does not confirm it: the message appears in the conversation as theirs
+  and the assistant answers it; a tool declared with `requires_approval` still waits for their
+  approval as usual. When the open conversation is in another mode, a new conversation is
+  started in the page's mode; the previous one stays in the chat history. Your
+  `provideContext` providers run for this message like for any other, and the draft in the
+  composer is left alone. Returns a promise that resolves once the message is on its way (not
+  when the assistant has answered) and rejects with an `Error` when the chat is unavailable:
+  no chat model configured, the assistant still answering the previous message, the
+  conversation could not be created, the panel closed before the chat was ready, or the chat
+  not ready within 15 seconds. An empty `text` rejects with a `TypeError`. Prefer `prefill`
+  when the user should read the message before it goes.
 
-`open`, `close`, `toggle` and `isOpen` are absent on hosts that predate them; call them as
-`window.__potionui.chat.open?.()`. `prefill` and `send` are absent on hosts that predate
-them too: feature-detect them before offering a button that relies on them.
+`open`, `close`, `toggle`, `isOpen`, `prefill` and `send` are absent on hosts that predate
+them: feature-detect them before offering a button that relies on them, or call them as
+`window.__potionui.chat.open?.()`.
 
 ```js
 const chat = window.__potionui.chat;
@@ -700,12 +704,13 @@ unregisterTool();
 
 **When `onToolApplied` runs.** A tool declared with `requires_approval` reaches the handler
 when the user approves it; a rejected call never does. Any other tool reaches it when the
-assistant's reply that ran it is final: at the end of the streamed answer, when the app
-recovers a reply whose stream was cut, in the non-streaming fallback, and for the tools the
-assistant runs while it carries on after an approval. Such a call reaches the handler only
-when it succeeded and its `data` is JSON: a tool that returns plain text, a failed call and a
-call still waiting for approval are not passed on. Nothing reaches the handler while the
-user has switched the assistant's tools off (Tools OFF in the composer).
+assistant's reply that ran it is final: at the end of the streamed answer (including one the
+app reattaches to after a reload), when the app recovers a reply whose stream was cut, in the
+non-streaming fallback, and for the tools the assistant runs while it carries on after an
+approval. Such a call reaches the handler only when it succeeded and its `data` is JSON: a
+tool that returns plain text, a failed or skipped call, and a call that waits for approval or
+whose approval expired are not passed on. Nothing reaches the handler while the user has
+switched the assistant's tools off (Tools OFF in the composer).
 
 Each call reaches the handler at most once. A call is identified by its assistant message and
 its position in that message, so a reply that arrives twice (live, then again when the app
@@ -722,7 +727,7 @@ changes what is shown, not the stored conversation. A handler that throws is log
 reply's other calls still reach their handlers.
 
 ```js
-const unregisterShot = window.__potionui.chat.onToolApplied('video_producer_add_shot', (result) => {
+const unregisterShot = window.__potionui.chat.onToolApplied('my_plugin_add_shot', (result) => {
   if (result.project_id !== currentProjectId) {
     return { status: 'stale', message: 'That shot belongs to another project; it was not added here.' };
   }
@@ -737,7 +742,7 @@ On a host that predates this, only approved calls reach the handler, and nothing
 **Following a turn live.** A tool that runs without approval reaches `onToolApplied` only
 when the whole reply is final, which can be many calls later. A page whose tools save its
 document on the server can follow each call as it ends: the host dispatches a
-`potionui:tool-end` event on `window` for every tool call of the streamed turn, with
+`potionui:tool-end` event on `window` for every tool call of a streamed turn, with
 `detail = {tool_name, success, pending}` (`pending` is true for a call that now waits for the
 user's approval). The event carries no result, so read your own state again, and keep
 `onToolApplied` for the result itself: a page that misses the event (a host that predates it,
@@ -2431,11 +2436,13 @@ presets assigned to the admin, or with `include_uninstalled=true` every preset o
 
 | Function | Does |
 |---|---|
-| `await submit_generation(user, request)` | Same path as `POST /api/generations/start`: routing, form binding, cloud and content policy. Returns `{generation_id, status, queue_position}` and raises what the route turns into HTTP errors. With `request.idempotency_key` set, submitting the same key again returns the first submission instead of starting another (see below). Before the request is routed or an idempotency key looked up, a preset that is not assigned to the user, directly or through one of their groups, raises `PermissionError` (administrators may use any preset): the rule the chat assistant's tools apply. An unknown preset id raises the same error, so it does not reveal which presets exist |
-| `await preview_memory(user, request)` | Same path as `POST /api/generations/memory-preview`: binds the form and picks the backend as a submit would, then returns `{estimate, coverage, device, budget, backend}` without queueing anything, running a hook or loading a model. Raises what the route turns into HTTP errors: `ValueError` for an unknown preset, `FormBindingError` (a `ValueError`) for a form that does not bind, `FormNotFoundException` for an unknown `form_name`, `NoBackendForEngineError` or `NoEligibleBackendError` (both `RuntimeError`) when no backend can run it. Like the route, it does not check the preset's assignment |
+| `await submit_generation(user, request)` | Same path as `POST /api/generations/start`: routing, form binding, cloud and content policy. Returns `{generation_id, status, queue_position}` and raises what the route turns into HTTP errors. With `request.idempotency_key` set, submitting the same key again returns the first submission instead of starting another (see below). The preset must be one the user is offered: installed and assigned to them, directly or through one of their groups, as `GET /api/presets` lists them and as the assistant's tools check (administrators may use any preset). Any other preset id, unknown ones included, raises `PermissionError` with the same message, so the answer does not tell which presets exist. This is checked first, before an idempotency key is looked up: a retry after the preset was unassigned is refused too |
+| `await preview_memory(user, request)` | Same path as `POST /api/generations/memory-preview`: binds the form and picks the backend as a submit would, then returns `{estimate, coverage, device, budget, backend}` without queueing anything, running a hook or loading a model. A preset the user is not offered raises the same `PermissionError` as `submit_generation`. Otherwise it raises what the route turns into HTTP errors: `ValueError` for an unknown preset, `FormBindingError` (a `ValueError`) for a form that does not bind, `FormNotFoundException` for an unknown `form_name`, `NoBackendForEngineError` or `NoEligibleBackendError` (both `RuntimeError`) when no backend can run it |
 | `await cancel_generation(user, generation_id)` | Cancels one generation; returns whether anything was cancelled |
-| `generation_state(user, generation_id)` | The live status record, or the stored row once the process no longer tracks it |
-| `generation_active()` | True while the application's generation queue holds a generation, pending or running, of any user on any backend |
+| `generation_state(user, generation_id)` | The live status record, or the stored row once the process no longer tracks it, scoped as `GET /api/generations/{id}/status` scopes it: for anyone but an administrator, a failure's `message`, `error_message` and `error_user_message` are the generic user copy for its `error_code`, with `error_contact_admin` set |
+| `generation_record(user, generation_id)` | The stored row, as `generation_state` returns it once the generation has left the queue, even while the live record still exists; `None` while the generation is not stored yet. Its failure text is scoped as `GET /api/generations/history/{id}` scopes it: the generic user copy for anyone but an administrator. Never carries the raw detail of a failure |
+| `generation_failure(user, generation_id)` | The failure of a failed generation with its raw `detail`, as `GET /api/generations/{id}/failure` answers it, or `None` when the generation is unknown or did not fail. Administrators only: anyone else, the generation's owner included, gets `PermissionError` |
+| `generation_active()` | Whether the application's generation queue holds a generation, pending or running, of any user on any backend: a plugin waits for `False` before a heavy background job. It says nothing about whose generations they are |
 | `list_generation_files(user, generation_id, final_only=True)` | The generation's files in canonical order, each with its `index` in the unfiltered list (the `file_index` of a `<field>__origin` link). `final_only` leaves out intermediate and derived files |
 | `resolve_media_ref(user, ref)` | Turns `{"kind": "history", "generation_id", "file_id"}` or `{"kind": "library", "item_id"}` into `{value, media_type, original_filename, origin}`; `value` is what a media field accepts. Paths and URLs are never accepted; a bad, foreign, hidden or deleted reference raises `MediaRefError` with a `code` of `invalid_ref` or `not_found` |
 | `get_session(user, session_id, mode=None)` | The owner's session as it is now: `{session_id, preset_id, name, version, updated_at, mode, data}`. `version` is the write counter every save bumps (layout-only saves included), so compare payloads rather than versions to tell whether settings changed. With `mode`, `data` is that mode's payload or `None`; raises `SessionNotFoundError` for anyone else |
@@ -2528,11 +2535,11 @@ user's own generations; administrators may follow any.
 All plugin subscriptions share one connection to the app's generation websocket
 (`/ws/generation`), opened on the first `subscribe` and closed when the last subscriber
 unsubscribes, so subscribing to many generations does not open many sockets. The core pages
-(Generate, History) keep their own connections, which plugins cannot reach. The socket
-reconnects on its own after a drop and subscribes to every followed generation again. The
-generation protocol has no unsubscribe message: `unsubscribe()` stops calling your handler,
-and the server stops sending once the shared connection closes. A handler that throws is
-logged and does not stop the other handlers.
+(Generate, History) keep their own connections. The socket reconnects on its own after a drop
+and subscribes to every followed generation again. The generation protocol has no unsubscribe
+message: `unsubscribe()` stops calling your handler, and the server stops sending once the
+shared connection closes. A handler that throws is logged and does not stop the other
+handlers.
 
 `subscribe` is absent on hosts that predate it; feature-detect it with
 `window.__potionui.generation.subscribe?.(...)` and fall back to polling
@@ -2807,7 +2814,8 @@ using `layers.overlayLayer` as described above. Mounting it into a plain, unlaye
 ## Calling your plugin's backend from its page
 
 A plugin page (a `pages:` entry) is mounted by the host with `mountPlugin(el, props)`, or, when
-the module has no `mountPlugin`, as a Svelte component whose props are the same. The props are:
+the module has no `mountPlugin`, as a Svelte component with the same props except
+`hostComponents`. The props are:
 
 - `pluginId`, `route` — your plugin's id and the page's route.
 - `api` — the HTTP client described below.
@@ -2824,8 +2832,9 @@ Every method goes through the host's authenticated client, the one behind `windo
 (see "Using the app's UI components and Tailwind in a plugin frontend" below): it sends the
 current session token and the app's cookies, adopts a refreshed token, and ends the session on a
 401 as core pages do. Your routes can therefore depend on the usual authenticated user, and a
-long-lived page keeps working after the token is refreshed. A path is always a path on the app;
-nothing is ever sent to another host.
+long-lived page keeps working after the token is refreshed. `fetchFromApp` and `fetchRawFromApp`
+take a path on the app, from the site root; a URL of another host is refused with a `TypeError`
+before anything is sent.
 
 | Method | Sends | Resolves with |
 | --- | --- | --- |
@@ -2841,12 +2850,12 @@ nothing is ever sent to another host.
 | `download(path, filename?)` | `GET` through `fetchRaw`, then saves the body as a file | once the browser has been asked to save it. Throws on an error status |
 | `getToken()` | — | the current token, or `null`. HTTP calls never need it; it is only for a WebSocket you open yourself (a browser WebSocket cannot send headers, so pass it as `?token=`) |
 
-**Errors.** The first six methods do not look at the HTTP status: they resolve with the parsed
-JSON of any response, error responses included, or with `null` when the body is not JSON (an
-HTML error page from a proxy, for example). They reject only when the network fails (a
-`TypeError`). They keep that behaviour because existing plugins read errors out of the body.
-For new code, prefer `request` and `patch`, which throw an `Error` for any status outside
-200–299 with:
+**Errors.** `get`, `post`, `put`, `delete`, `uploadFile` and `fetchFromApp` do not look at the
+HTTP status: they resolve with the parsed JSON of any response, error responses included, or
+with `null` when the body is not JSON (an HTML error page from a proxy, for example). They reject
+only when the network fails (a `TypeError`). They keep that behaviour because existing plugins
+read errors out of the body. For new code, prefer `request` and `patch`, which throw an `Error`
+(named `PluginApiError`) for any status outside 200–299 with:
 
 - `status` — the HTTP status;
 - `body` — the parsed body (JSON, text, or `null`);
@@ -2878,8 +2887,8 @@ export function mountPlugin(el, { api }) {
     }
   }
 
-  async function exportCut(id, name) {
-    await api.download(`/projects/${id}/export.fcpxml`, `${name}.fcpxml`);
+  async function exportProject(id, name) {
+    await api.download(`/projects/${id}/export.zip`, `${name}.zip`);
   }
 
   async function showThumbnail(img, renderId) {
@@ -2988,13 +2997,14 @@ from the app's own (the paint editor, the Keyboard Shortcuts dialog): the app re
 shortcuts does not cancel yours, and yours do not cancel the app's.
 
 When a plugin page is left, or replaced by another plugin's page, the host calls
-`unmountPlugin` and then drops every plugin suppression still held. A page that throws while
-unmounting, that has no `unmountPlugin`, or that forgets to resume therefore cannot leave the
-app without shortcuts. A function returned by `suppress()` before that point does nothing
-afterwards, so a late call from the old page cannot cancel the next page's suppression.
-Navigating between sub-paths of the same plugin page keeps the plugin mounted and keeps its
-suppressions. This cleanup is done by the plugin page host only: a component mounted through
-a plugin slot on another page must resume on its own unmount.
+`unmountPlugin` and then drops every plugin suppression still held, including one held by a
+plugin component mounted elsewhere at that moment. A page that throws while unmounting, that
+has no `unmountPlugin`, or that forgets to resume therefore cannot leave the app without
+shortcuts. A function returned by `suppress()` before that point does nothing afterwards, so a
+late call from the old page cannot cancel the next page's suppression. Navigating between
+sub-paths of the same plugin page keeps the plugin mounted and keeps its suppressions. This
+cleanup is done by the plugin page host only: a component mounted through a plugin slot on
+another page must resume on its own unmount.
 
 The keyboard API is absent on hosts that predate it; call it as
 `window.__potionui.keyboard?.suppress()`.
@@ -3021,9 +3031,8 @@ form outside the Generate page: pass `presetId`, `mode`, `variant`, `initialData
 audience's fields without changing the user's own Simple/Advanced choice. `window.__potionui.confirm({title?,
 message, variant?, confirmLabel?, cancelLabel?})` opens the app's confirm dialog and resolves to a
 boolean: `true` from the confirm button, `false` from the cancel button, Escape or the backdrop.
-`confirmLabel` and `cancelLabel` rename the two buttons (`'Confirm'` and `'Cancel'` by default); a
-host that predates `cancelLabel` ignores it and keeps Cancel. `window.__potionui.notifications.toast(level,
-message)` shows a toast.
+`confirmLabel` and `cancelLabel` rename the two buttons (`'Confirm'` and `'Cancel'` by default).
+`window.__potionui.notifications.toast(level, message)` shows a toast.
 
 `window.__potionui.api` makes authenticated requests to the app, so a plugin never reads the
 token from `localStorage` or builds an `Authorization` header. `api.fetch(path, init?)` takes an
@@ -3045,8 +3054,8 @@ breaks plugins that use it. Treat such a change as an API change and note it in 
 a component that must stay private belongs outside those folders.
 
 `Button` no longer takes a `title` prop and `IconButton` sets no native `title`: an `IconButton`
-shows its `label` in the host tooltip by itself, and any other control is wrapped in the host
-`Tooltip` (`props={{ text }}`) to show a hover hint. `IconButton`
+shows its `label` in the host tooltip by itself (see "Icon buttons with a tooltip" below), and any
+other control is wrapped in the host `Tooltip` (`props={{ text }}`) to show a hover hint. `IconButton`
 accepts `variant: 'overlay'` for controls that sit over media and forwards extra attributes
 such as `data-*` to its button. `Tooltip` also opens on keyboard focus, closes on Escape,
 describes its trigger with `aria-describedby` while open, and takes `truncateOnly: true` to
@@ -3130,7 +3139,7 @@ Every host component that takes an icon name (`Icon`, `Button`, `IconButton`, th
 icons with `window.__potionui.registerIcon(name, paths)`:
 
 ```js
-window.__potionui.registerIcon('vp-clapperboard', [
+window.__potionui.registerIcon('my-plugin-clapperboard', [
   'M4 11v8a1 1 0 001 1h14a1 1 0 001-1v-8H4z',
   'M4 11l1.5-6 15 3.5-.9 2.5'
 ]);
@@ -3141,8 +3150,8 @@ like the app's own icons: a 24×24 view box, stroked with `currentColor`, no fil
 
 `registerIcon` returns `true` when the icon was added. It returns `false` and changes nothing
 when the name already exists, whether it is one of the app's icons or one a plugin
-registered earlier, or when the name or the paths are empty: a plugin can never replace an
-icon the app or another plugin relies on. Prefix your names with your plugin's id to stay
+registered earlier, or when the name or one of the paths is empty: a plugin can never replace
+an icon the app or another plugin relies on. Prefix your names with your plugin's id to stay
 clear of names the app may add later.
 
 An icon can be registered at any time: an `Icon` already on screen under that name (showing
@@ -3156,8 +3165,8 @@ starts, for example at the top of `mountPlugin`.
 ### Icon buttons with a tooltip
 
 Each `HostUi` is its own Svelte root, so a host `IconButton` mounted inside a host `Tooltip`
-through two `HostUi` does not know it is inside one: it keeps its native `title`, and the user
-gets two tooltips. Give the tooltip to the `IconButton` itself instead:
+through two `HostUi` does not know it is inside one: it shows its own `label` tooltip and the
+user gets two. Give the tooltip to the `IconButton` itself instead:
 
 ```svelte
 <HostUi
@@ -3166,27 +3175,17 @@ gets two tooltips. Give the tooltip to the `IconButton` itself instead:
 />
 ```
 
-- `tooltip` — the tooltip text. When only `kbd` is given, the text is `label`.
-- `kbd` — a keyboard shortcut shown in the tooltip, as one string (`'Ctrl+K'`) or one string
-  per key (`['Shift', 'R']`). It is only displayed: handling the keys is up to your page (see
-  "Keyboard shortcuts on a plugin page").
+- `tooltip` — the tooltip text. Without it the tooltip shows `label`.
+- `kbd` — a keyboard shortcut shown in the tooltip, as one string (`'Ctrl+K'`) or one string per
+  key (`['Shift', 'R']`). It is only displayed: handling the keys is up to your page (see
+  "Keyboard shortcuts on a plugin page"). A screen reader reads it after the tooltip text, the
+  keys joined with `+`.
 
-With either prop, the button renders the host `Tooltip` around itself and has no native
-`title`; `label` stays its accessible name (`aria-label`). The tooltip wraps the button in
-two `inline-flex` elements; `class` still applies to the button. Without these props an
-`IconButton` renders as before: a native `title` equal to `label`, or none when it sits
-inside a `Tooltip` of the same Svelte tree.
-
-**Tooltip on keyboard focus.** A `Tooltip`, including the one of an `IconButton`, also opens
-when its trigger receives keyboard focus, at once, and closes when the focus leaves the
-trigger. Following the browser's own `:focus-visible` rule, a mouse click does not open it,
-nor does focus moved by a script right after a click; hovering works as before. While it is
-open, the tooltip has `role="tooltip"` and an `id`, and a host `Button` or `IconButton`
-inside it gets `aria-describedby` pointing to it, so a screen reader reads the text and the
-shortcut after the button's name. Any other element inside a `Tooltip` (a `<button>` or an
-input of your own) shows the tooltip on focus but is not linked to it, since its `id` is not
-exposed: give such an element an accessible name that carries what matters, or use
-`IconButton` with `tooltip`.
+Both props are consumed by the button: unlike other extra props (`data-*`), they never reach the
+DOM as attributes. The tooltip attaches to the button itself, with no wrapper element, so `class`
+and layout apply to the button as usual, and `label` stays its accessible name (`aria-label`).
+Inside a `Tooltip` of the same Svelte tree, an `IconButton` shows no tooltip of its own, so
+`tooltip` and `kbd` are not shown there either.
 
 ### A list page like History and Models
 

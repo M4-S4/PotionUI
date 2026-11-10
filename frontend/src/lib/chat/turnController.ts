@@ -553,7 +553,6 @@ export interface SendMessageParams {
 	onSessionCreated?: (sessionData: ChatSessionResponse) => void;
 	/** e.g. focusing the composer input once settled. */
 	onSettled?: () => void;
-	/** Fired once, right before this turn's request is issued. */
 	onDispatched?: () => void;
 }
 

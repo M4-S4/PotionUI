@@ -5,12 +5,10 @@ index-formula generality there is for video VAEs this module doesn't need).
 Covers two VAE shapes:
   * ``AutoEncoder2D`` (4D ``(B,C,H,W)`` tensors) -- ``tiled_decode``/``tiled_encode``.
   * ``AutoEncoderCausal3D`` (5D ``(B,C,T,H,W)`` tensors) -- ``tiled_encode_causal3d``
-    and ``tiled_decode_causal3d``, which tile the H/W axes only and pass the full
-    temporal axis through each tile whole (the causal ``feat_cache`` chunking must
-    not be split; SPATIAL tiling only). Encode is the Wan i2v 480p+ start-frame
-    path; decode is the Krea-2/Qwen-Image high-res path (the fp32 3D-conv decode
-    spike scales with pixels and exceeds a 31GB card past ~1024², and caps 12GB
-    cards at 512² untiled).
+    and ``tiled_decode_causal3d``, which tile the H/W axes only. Encode is the Wan
+    i2v 480p+ start-frame path; decode is the Krea-2/Qwen-Image high-res path (the
+    fp32 3D-conv decode spike scales with pixels and exceeds a 31GB card past
+    ~1024², and caps 12GB cards at 512² untiled).
 
 Algorithm: run ``vae.decode``/``vae.encode`` tile-by-tile, weight each tile's
 edges with a linear ramp over the overlap region, and normalize by the summed
@@ -39,7 +37,10 @@ logger = logging.getLogger(__name__)
 # dumps: 3 downsample convs before the bottleneck).
 VAE_SPATIAL_DOWNSCALE = 8
 
-HOST_ACCUMULATE_DTYPE = torch.float16
+CAUSAL3D_DECODE_MB_PER_LATENT_PX = 1.2
+CAUSAL3D_DECODE_VRAM_FRACTION = 0.75
+CAUSAL3D_MIN_DECODE_TILE_LATENT = 16
+_DECODED_WINDOW_PER_TILE_EDGE = 1.125
 
 
 def _feather_mask(tile: torch.Tensor, feather: int, spatial_dims: tuple[int, int] = (2, 3)) -> torch.Tensor:
@@ -207,21 +208,16 @@ def tiled_decode_causal3d(
     overlap: int = 32,
     scale: int = VAE_SPATIAL_DOWNSCALE,
     *,
-    accumulate_device: "str | torch.device | None" = None,
+    accumulate_device: str | torch.device | None = None,
     chunk_latent_frames: int | None = None,
-    accumulate_dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
     """Spatial tiled ``vae.decode`` for the causal-3D (Wan-shaped) VAE, with
     linear-blended seams -- the decode twin of :func:`tiled_encode_causal3d`.
 
-    Tiles only the H/W axes of a ``(B, 16, T, H, W)`` *latent* tensor; the full
-    temporal axis is passed through each tile whole, or in slices of
-    ``chunk_latent_frames`` that share one ``feat_cache`` through
-    :func:`chunked_decode_causal3d`, so the VAE's causal temporal state is
-    unchanged either way. Each tile is decoded
-    independently and the ``8x``-upscaled pixel tiles are feathered together in
-    OUTPUT (pixel) space with a linear ramp over the overlap region, normalized
-    by the summed weight where tiles overlap.
+    Tiles only the H/W axes of a ``(B, 16, T, H, W)`` *latent* tensor. Each tile
+    is decoded independently and the ``8x``-upscaled pixel tiles are feathered
+    together in OUTPUT (pixel) space with a linear ramp over the overlap region,
+    normalized by the summed weight where tiles overlap.
 
     ``tile_size``/``overlap`` are in *latent* pixels (matching the 2D
     :func:`tiled_decode` convention); the output is full resolution
@@ -234,16 +230,13 @@ def tiled_decode_causal3d(
     """
     b, _c, _t, h, w = latent.shape
     if h <= tile_size and w <= tile_size:
-        pixels = _decode_causal3d(vae, latent, chunk_latent_frames, accumulate_device)
-        return pixels if accumulate_device is None else pixels.to(accumulate_device)
+        return _decode_causal3d(vae, latent, chunk_latent_frames, accumulate_device)
 
     feather = round(overlap * scale)
     step = tile_size - overlap
     ys = list(range(0, max(h - overlap, 1), step)) if h > tile_size else [0]
     xs = list(range(0, max(w - overlap, 1), step)) if w > tile_size else [0]
 
-    if accumulate_dtype is None:
-        accumulate_dtype = torch.float32 if accumulate_device is None else HOST_ACCUMULATE_DTYPE
     out: torch.Tensor | None = None
     out_weight: torch.Tensor | None = None
     tile_index = 0
@@ -257,34 +250,29 @@ def tiled_decode_causal3d(
             raise_if_cancelled(tile_index)
             tile_index += 1
             tile_in = latent[:, :, :, y:y + ty, xx:xx + tx]
-            tile_out = _decode_causal3d(vae, tile_in, chunk_latent_frames, accumulate_device)
-            mask = _feather_mask(tile_out[:1, :1, :1].float(), feather, spatial_dims=(3, 4))
-            weighted = (tile_out.float() * mask).to(device=accumulate_device or tile_out.device, dtype=accumulate_dtype)
+            tile_out = _decode_causal3d(vae, tile_in, chunk_latent_frames, accumulate_device).to(dtype=torch.float32)
 
             if out is None:
-                # T'/out_channels are only known after the first decode (T'
-                # depends on the temporal-upsample chunking, 3 channels for RGB).
                 out = torch.zeros(
                     (b, tile_out.shape[1], tile_out.shape[2], round(h * scale), round(w * scale)),
-                    device=weighted.device, dtype=accumulate_dtype,
+                    device=tile_out.device, dtype=torch.float32,
                 )
-                out_weight = torch.zeros((1, 1, 1, out.shape[3], out.shape[4]), device=weighted.device, dtype=torch.float32)
+                out_weight = torch.zeros_like(out)
 
+            mask = _feather_mask(tile_out, feather, spatial_dims=(3, 4))
             oy, ox = round(y * scale), round(xx * scale)
             oh, ow = tile_out.shape[3], tile_out.shape[4]
-            out[:, :, :, oy:oy + oh, ox:ox + ow] += weighted
-            out_weight[:, :, :, oy:oy + oh, ox:ox + ow] += mask.to(out_weight.device)
-            del tile_out, weighted, mask
+            out[:, :, :, oy:oy + oh, ox:ox + ow] += tile_out * mask
+            out_weight[:, :, :, oy:oy + oh, ox:ox + ow] += mask
 
-    out.div_(out_weight.to(out.dtype).clamp_min_(torch.finfo(out.dtype).tiny))
-    del out_weight
-    return out.to(dtype=latent.dtype)
+    return (out / out_weight.clamp_min(1e-8)).to(dtype=latent.dtype)
 
 
 def _decode_causal3d(vae, latent: torch.Tensor, chunk_latent_frames: int | None, accumulate_device) -> torch.Tensor:
-    if chunk_latent_frames is None:
-        return vae.decode(latent)
-    return chunked_decode_causal3d(vae, latent, chunk_latent_frames, accumulate_device=accumulate_device)
+    if chunk_latent_frames is not None:
+        return chunked_decode_causal3d(vae, latent, chunk_latent_frames, accumulate_device=accumulate_device)
+    pixels = vae.decode(latent)
+    return pixels if accumulate_device is None else pixels.to(accumulate_device)
 
 
 @torch.no_grad()
@@ -319,9 +307,6 @@ def chunked_decode_causal3d(
     The Wan 2.2 VAE (:class:`AutoEncoderCausal3D_2_2`) additionally needs
     ``first_chunk=True`` on (and only on) the call carrying the clip's true
     first latent frame -- threaded through here automatically.
-
-    :func:`tiled_decode_causal3d` composes it with spatial tiling one tile at a
-    time (``chunk_latent_frames``), so only that tile's ``feat_cache`` is alive.
 
     Engine wiring note: nothing here decides WHEN to chunk (VRAM-based sizing)
     or calls this from the decode orchestration path -- that's
@@ -359,9 +344,8 @@ def causal3d_chunk_frames(
     free_vram_gb_value: float | None,
     vae_resident_gb: float = 0.0,
     is_self_normalizing: bool = False,
-    decode_mb_per_latent_px: float = 1.2,
-    vram_fraction: float = 0.75,
-    single_frame_on_overflow: bool = False,
+    decode_mb_per_latent_px: float = CAUSAL3D_DECODE_MB_PER_LATENT_PX,
+    vram_fraction: float = CAUSAL3D_DECODE_VRAM_FRACTION,
 ) -> int | None:
     """Max latent frames per TEMPORAL chunk (:func:`chunked_decode_causal3d`)
     whose full-spatial decode fits the given free-VRAM budget, or ``None`` when
@@ -385,8 +369,7 @@ def causal3d_chunk_frames(
     so this is a no-op there by construction) and only to multi-frame
     latents; ``None`` on self-normalizing VAEs (SeedVR2), when free VRAM can't
     be queried, or when even a SINGLE latent frame's spatial decode wouldn't
-    fit (spatial-tiling territory instead -- the two axes don't compose, see
-    :func:`chunked_decode_causal3d`).
+    fit (spatial-tiling territory instead).
     """
     if is_self_normalizing or not hasattr(vae_module, "new_feat_cache"):
         return None
@@ -402,10 +385,8 @@ def causal3d_chunk_frames(
     per_frame = two - one          # marginal decode spike for one extra latent frame
     base = one - per_frame         # fixed working overhead (paid once)
     budget = free_vram_gb_value * vram_fraction - vae_resident_gb - base
-    if per_frame <= 0:
+    if per_frame <= 0 or budget < per_frame:   # not even one frame fits -> spatial tiling territory
         return None
-    if budget < per_frame:                     # not even one frame fits -> spatial tiling territory
-        return 1 if single_frame_on_overflow else None
     max_frames = int(budget / per_frame)
     if max_frames >= frames:                   # whole clip already fits temporally -> no chunking
         return None
@@ -416,44 +397,34 @@ def causal3d_frame_need_gb(
     latent_hw: tuple[int, int],
     *,
     vae_resident_gb: float = 0.0,
-    decode_mb_per_latent_px: float = 1.2,
-    vram_fraction: float = 0.75,
+    decode_mb_per_latent_px: float = CAUSAL3D_DECODE_MB_PER_LATENT_PX,
+    vram_fraction: float = CAUSAL3D_DECODE_VRAM_FRACTION,
 ) -> float:
     one = activation_headroom_gb(latent_hw, decode_mb_per_latent_px=decode_mb_per_latent_px, latent_frames=1)
     return (vae_resident_gb + one) / vram_fraction
 
 
-CAUSAL3D_DECODE_MB_PER_LATENT_PX = 1.2
-
-
-def causal3d_decode_mb_per_latent_px(
-    spatial_downscale: int,
-    latent_format: "Mapping[str, Any] | None" = None,
-    *,
-    calibrated_mb: float = CAUSAL3D_DECODE_MB_PER_LATENT_PX,
-    calibrated_downscale: int = VAE_SPATIAL_DOWNSCALE,
-) -> float:
+def causal3d_decode_mb_per_latent_px(spatial_downscale: int, latent_format: Mapping[str, Any] | None = None) -> float:
     declared = (latent_format or {}).get("decode_mb_per_latent_px")
     if declared:
         return float(declared)
-    return calibrated_mb * (spatial_downscale / calibrated_downscale) ** 2
+    return CAUSAL3D_DECODE_MB_PER_LATENT_PX * (spatial_downscale / VAE_SPATIAL_DOWNSCALE) ** 2
 
 
 def causal3d_decode_tile(
     latent_hw: tuple[int, int],
     free_vram_gb_value: float | None,
     *,
-    decode_mb_per_latent_px: float = 1.2,
-    vram_fraction: float = 0.75,
-    min_tile: int = 16,
+    decode_mb_per_latent_px: float = CAUSAL3D_DECODE_MB_PER_LATENT_PX,
+    vram_fraction: float = CAUSAL3D_DECODE_VRAM_FRACTION,
+    min_tile: int = CAUSAL3D_MIN_DECODE_TILE_LATENT,
 ) -> int:
     h, w = latent_hw
     tile = max(min_tile, ((max(h, w) + 1) // 2 // 8) * 8)
     if free_vram_gb_value is None:
         return tile
     budget_px = free_vram_gb_value * vram_fraction * 1024.0 / decode_mb_per_latent_px
-    # The decoded window is the tile plus its overlap, about 1.125 tile edges wide.
-    cap = int((budget_px ** 0.5) / 1.125) // 8 * 8
+    cap = int((budget_px ** 0.5) / _DECODED_WINDOW_PER_TILE_EDGE) // 8 * 8
     return max(min_tile, min(tile, cap))
 
 
@@ -461,7 +432,7 @@ def causal3d_decode_overlap(tile: int) -> int:
     return min(tile // 2, max(8, tile // 8))
 
 
-def smaller_decode_tile(tile: int, min_tile: int = 16) -> int:
+def smaller_decode_tile(tile: int, min_tile: int = CAUSAL3D_MIN_DECODE_TILE_LATENT) -> int:
     return max(min_tile, (tile // 2 // 8) * 8)
 
 

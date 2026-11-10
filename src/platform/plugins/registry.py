@@ -526,8 +526,6 @@ class PluginRegistry:
         return True
 
     def _replay_declarations(self, plugin_id: str) -> None:
-        """Run startup declaration hooks (`_REPLAYED_ON_HOT_ENABLE`) for a
-        plugin enabled after they fired, once per process and plugin."""
         for hook_name, payload in list(self._replay_payloads.items()):
             declared = self._declared_by.setdefault(hook_name, set())
             if plugin_id in declared or hook_name not in self._plugin_hooks.get(plugin_id, set()):
