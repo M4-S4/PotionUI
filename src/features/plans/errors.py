@@ -26,18 +26,6 @@ class LimitExceeded(PassThrough):
     def kinds(self) -> List[str]:
         return [refusal["kind"] for refusal in self.refusals]
 
-    @property
-    def limit(self) -> Optional[float]:
-        return self.primary.get("limit")
-
-    @property
-    def used(self) -> Optional[float]:
-        return self.primary.get("used")
-
-    @property
-    def remaining(self) -> Optional[float]:
-        return self.primary.get("remaining")
-
     def payload(self) -> Dict[str, Any]:
         primary = self.primary
         return {
