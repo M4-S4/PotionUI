@@ -9,7 +9,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS_DIR = REPO_ROOT / "content" / "plugins"
 MARKETPLACE = PLUGINS_DIR / "marketplace"
 SCRIPT = REPO_ROOT / "scripts" / "build-plugins.mjs"
-SCRIPT_MODULES = (SCRIPT, REPO_ROOT / "scripts" / "plugin-stylesheet.mjs")
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None or not (PLUGINS_DIR / "node_modules").is_dir(),
@@ -21,7 +20,7 @@ def _stage(tmp_path: Path) -> Path:
     root = tmp_path / "tree"
     (root / "scripts").mkdir(parents=True)
     (root / "frontend").mkdir()
-    for module in SCRIPT_MODULES:
+    for module in sorted(SCRIPT.parent.glob("*.mjs")):
         shutil.copy(module, root / "scripts" / module.name)
     plugins = root / "content" / "plugins"
     shutil.copytree(PLUGINS_DIR / "sdk", plugins / "sdk")

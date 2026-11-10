@@ -1,5 +1,3 @@
-"""Scratch databases for tests, carrying the schema the migrations build, and the switch that makes one the application's database."""
-
 import atexit
 import importlib
 import io
@@ -12,7 +10,7 @@ from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from typing import Any, Iterator, Optional, Union
 
-from src.platform.database.database import Database
+from src.platform.database.database import LIVE_DATABASE_PATH, Database
 from src.platform.database.migration_runner import MigrationRunner
 from src.platform.database.sql_functions import register_sql_functions
 
@@ -38,7 +36,6 @@ def _database_at(path: Path) -> Database:
 
 @contextmanager
 def use_database(database: Any) -> Iterator[Any]:
-    """Make `database` the application's database until the block ends, then put the previous one back."""
     modules = [importlib.import_module(name) for name in _REDIRECTED_MODULES]
     previous = [module.db for module in modules]
     for module in modules:
@@ -51,7 +48,7 @@ def use_database(database: Any) -> Iterator[Any]:
         Database.close_pool()
 
 
-def _build_template(path: Path) -> None:
+def build_template(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     template = _database_at(path)
     connection = sqlite3.connect(path, check_same_thread=False)
@@ -75,7 +72,7 @@ def _build_template(path: Path) -> None:
     checkpoint_wal(path)
 
 
-def _remove_template_directory(directory: Path, owner_pid: int) -> None:
+def remove_template_directory(directory: Path, owner_pid: int) -> None:
     if os.getpid() != owner_pid:
         return
     shutil.rmtree(directory, ignore_errors=True)
@@ -86,9 +83,9 @@ def template_db_path() -> Path:
     with _lock:
         if _template_path is None:
             directory = Path(tempfile.mkdtemp(prefix="potionui-test-db-template-"))
-            atexit.register(_remove_template_directory, directory, os.getpid())
+            atexit.register(remove_template_directory, directory, os.getpid())
             path = directory / "template.sqlite"
-            _build_template(path)
+            build_template(path)
             _template_path = path
         return _template_path
 
@@ -111,12 +108,27 @@ def load_template_into_connection(*, template_path: Optional[Path] = None) -> sq
     return target
 
 
+def _same_file(first: Union[str, Path], second: Union[str, Path]) -> bool:
+    return os.path.normcase(os.path.realpath(first)) == os.path.normcase(os.path.realpath(second))
+
+
 def scratch_database(path: Union[str, Path], *, core_schema: bool = True) -> Database:
-    """A new database in the file `path`, which must not exist yet, carrying the core schema unless `core_schema` is False."""
     path = Path(path)
-    if path.exists():
-        raise FileExistsError(f"a scratch database needs a file that does not exist yet: {path}")
+    application = (LIVE_DATABASE_PATH, os.getenv("POTIONUI_DB_PATH", str(LIVE_DATABASE_PATH)))
+    if any(_same_file(path, candidate) for candidate in application):
+        raise ValueError(f"a scratch database cannot be the application's database file: {path}")
+    template = template_db_path() if core_schema else None
     path.parent.mkdir(parents=True, exist_ok=True)
-    if core_schema:
-        copy_template_db(path)
+    try:
+        target = open(path, "xb")
+    except FileExistsError:
+        raise FileExistsError(f"a scratch database needs a file that does not exist yet: {path}") from None
+    try:
+        with target:
+            if template is not None:
+                with open(template, "rb") as source:
+                    shutil.copyfileobj(source, target)
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
     return _database_at(path)

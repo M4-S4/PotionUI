@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.platform.database.testing import _remove_template_directory
+from src.platform.database.testing import remove_template_directory
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PREFIX = "potionui-test-db-template-"
@@ -53,6 +53,6 @@ def test_another_process_does_not_remove_the_scratch_database_template(tmp_path)
     directory = tmp_path / f"{PREFIX}kept"
     directory.mkdir()
 
-    _remove_template_directory(directory, os.getpid() + 1)
+    remove_template_directory(directory, os.getpid() + 1)
 
     assert directory.is_dir()
