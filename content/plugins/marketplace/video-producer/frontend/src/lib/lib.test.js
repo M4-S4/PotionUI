@@ -116,8 +116,8 @@ function translator(locale, missing) {
 	return (key, params) => translate(dictionaries, locale, key, params, (k, l) => missing.push(`${l}:${k}`));
 }
 
-const starterImage = (name, itemId) => ({ itemId, url: `/api/media/uploads/${itemId}.jpg`, filename: `${name}.jpg`, width: 1024, height: 1024 });
-const starterImages = () => ({ lumi: starterImage('lumi', 'i-lumi'), bottle: starterImage('bottle', 'i-bottle'), 'bottle-gold': starterImage('bottle-gold', 'i-gold') });
+const starterImage = (name, itemId, height) => ({ itemId, url: `/api/media/uploads/${itemId}.jpg`, filename: `${name}.jpg`, width: 1024, height });
+const starterImages = () => ({ lumi: starterImage('lumi', 'i-lumi', 1024), bottle: starterImage('bottle', 'i-bottle', 576), 'bottle-gold': starterImage('bottle-gold', 'i-gold', 576) });
 
 test('starterDoc: Lumi in four shots of 5 seconds, one function each, with a title, a marker and four empty lanes', () => {
 	const missing = [];
@@ -240,8 +240,8 @@ test('starterDoc: the three images become the media of the project, the referenc
 		doc.assets.map((a) => [a.kind, a.name, a.src, a.origin, a.width, a.height, a.res, a.generated, a.role]),
 		[
 			['image', 'lumi.jpg', '/api/media/uploads/i-lumi.jpg', { kind: 'library', itemId: 'i-lumi' }, 1024, 1024, '1024×1024', false, null],
-			['image', 'bottle.jpg', '/api/media/uploads/i-bottle.jpg', { kind: 'library', itemId: 'i-bottle' }, 1024, 1024, '1024×1024', false, null],
-			['image', 'bottle-gold.jpg', '/api/media/uploads/i-gold.jpg', { kind: 'library', itemId: 'i-gold' }, 1024, 1024, '1024×1024', false, null]
+			['image', 'bottle.jpg', '/api/media/uploads/i-bottle.jpg', { kind: 'library', itemId: 'i-bottle' }, 1024, 576, '1024×576', false, null],
+			['image', 'bottle-gold.jpg', '/api/media/uploads/i-gold.jpg', { kind: 'library', itemId: 'i-gold' }, 1024, 576, '1024×576', false, null]
 		]
 	);
 	const seam = seamAsset(images.lumi, 'x');
@@ -262,7 +262,7 @@ test('starterDoc: the three images become the media of the project, the referenc
 	const fr = translator('fr', missing);
 	assert.deepEqual(
 		starterDoc(fr, fr, 'fr', images).references.map((r) => r.name),
-		['Lumi', 'Fiole de potion']
+		['Lumi', 'Flacon de potion']
 	);
 	assert.deepEqual(missing, []);
 });
