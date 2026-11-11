@@ -201,7 +201,7 @@ def face_detector() -> Dict[str, Any]:
 def identifier() -> Dict[str, Any]:
     """The face recognition model of the application, as far as the looks need it: its model file and whether it is there."""
     try:
-        info = core_bridge.face_identifier()
+        info = core_bridge.face_embedder()
     except Exception:
         logger.warning("[VIDEO-PRODUCER] Could not read the face recognition model", exc_info=True)
         return {"model": None, "available": False}
@@ -282,7 +282,7 @@ def _face_vectors(picked: Sequence[Tuple[Any, Path]], folder: Path, identify: bo
         found[index] = vector
     if readable:
         try:
-            read = core_bridge.identify_faces([(path, landmarks) for _, path, landmarks in readable])
+            read = core_bridge.embed_faces([(path, landmarks) for _, path, landmarks in readable])
         except FileNotFoundError:
             read = []
         for (index, _, _), vector in zip(readable, read):
