@@ -134,7 +134,8 @@ def test_a_project_saved_before_the_chain_setting_keeps_its_chained_ref2va_shot_
     assert s2["chain"] is None and s2["chain_wait"] is False and s2["generation_id"] is not None
 
 
-def test_the_final_render_of_a_chained_ref2va_shot_of_a_project_saved_before_the_chain_setting_is_the_one_it_was(core, make_project, slots):
+def test_the_final_render_of_a_chained_ref2va_shot_of_a_project_saved_before_the_chain_setting_is_the_one_it_was(core, make_project, slots, monkeypatch):
+    monkeypatch.setattr(sequence, "CEILING", 10**6)
     first = {**SHOTS[0], "assetId": PLACED["id"], "stage": "draft", "take": "t0"}
     project = _project(core, make_project, chain_by=None, clips=[first, {**SHOTS[1], "stage": "draft"}], assets=[PLACED])
     unchained = _project(core, make_project, chain_by=None, clips=[first, {**SHOTS[1], "stage": "draft", "firstFromPrevious": False}], assets=[PLACED])
