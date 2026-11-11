@@ -11,13 +11,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, List
 from unittest.mock import patch
+import weakref
 
 import numpy as np
 import pytest
 import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput, ParamGenerationOutput
-from src.platform.runtime.native.errors import DecodeNumericsError, SamplingNumericsError
+from src.platform.runtime.native.errors import DecodeNumericsError, SamplingCancelled, SamplingNumericsError
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.chain_video_wan22 import geometry as chain_geometry
@@ -437,30 +438,34 @@ def test_concat_encode_routes_through_the_shared_oom_ladder_not_raw_encode():
     assert seen_encode["fn"] is sentinel
 
 
-def test_an_a14b_i2v_segment_makes_room_on_the_card_before_its_start_frame_encode():
-    doc = _document(n_segments=1, start_on_seg0=True)
+def test_each_a14b_shot_makes_room_on_the_card_before_it_encodes_its_conditioning_frames():
+    doc = _document(n_segments=2, start_on_seg0=True)
     pipe = _pipe(document=doc)
     bundle = _bundle(in_dim=36)
-    events = []
-    bundle.vae.move_to = lambda d: events.append(("vae.move_to", d))
-    pi = _inputs(model=bundle, conditioning=_cond(1), image=[torch.rand(8, 8, 3)])
+    pi = _inputs(model=bundle, conditioning=_cond(2), image=[torch.rand(8, 8, 3)])
+    order = []
+    kept = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    build, _ = _fake_build_i2v_concat_factory()
 
-    def make_room(device, keep):
-        events.append(("make_room", device, tuple(keep)[0]))
+    sizes = []
 
-    def fake_build(start_frames, vae_encode, **kw):
-        events.append(("build",))
-        t_lat = (kw["length"] - 1) // 4 + 1
-        return torch.zeros(1, 20, t_lat, kw["height"] // 8, kw["width"] // 8)
+    def recording_build(*args, **kwargs):
+        order.append("encode")
+        sizes.append((kwargs["width"], kwargs["height"]))
+        return build(*args, **kwargs)
 
-    p1, p2, p3, p4 = _patches(fake_build=fake_build)
-    with p1, p2, p3, p4, \
-         patch("src.pipelines.pipes.generator.chain_video_wan22.main.make_room_for_wan_vae_encode",
-               side_effect=make_room), \
-         _no_stitch():
+    def make_room(device, vae, width, height, keep):
+        order.append("make_room")
+        kept.append((vae, (width, height), [id(m) for m in keep if m is not None]))
+
+    p1, p2, p3, p4 = _patches(fake_build=recording_build)
+    with p1, p2, p3, p4, _no_stitch(),          patch("src.pipelines.pipes.generator.chain_video_wan22.main.make_room_for_wan_concat_encode",
+               side_effect=make_room):
         pipe.process(pi, lambda o: None)
 
-    assert events[:3] == [("make_room", "cpu", bundle.vae), ("vae.move_to", "cpu"), ("build",)]
+    assert order == ["make_room", "vae.move_to", "encode"] * 2
+    assert kept == [(bundle.vae, size, [id(bundle.high_dit), id(bundle.low_dit)]) for size in sizes]
 
 
 def test_per_segment_sub_type_override_forces_t2v_mid_chain():
@@ -1654,3 +1659,44 @@ def test_sampler_spec_has_no_hardcoded_choices():
     spec = next(s for s in GeneratorWanChainVideoPipe.configuration() if s.name == "sampler")
     assert spec.choices is None
     assert sampler_registry.has(spec.default)
+
+
+class _FailingForward:
+    patch_size = (1, 2, 2)
+    in_dim = 36
+    img_emb = None
+
+    def __init__(self, error):
+        self.error = error
+        self.activations = []
+
+    def __call__(self, x, t, context, **extra):
+        activation = torch.ones(64, 64)
+        self.activations.append(weakref.ref(activation))
+        raise self.error
+
+
+@pytest.mark.parametrize("make_error", [
+    pytest.param(lambda: torch.cuda.OutOfMemoryError("CUDA out of memory"), id="out-of-memory"),
+    pytest.param(lambda: SamplingCancelled(step_index=0), id="cancelled"),
+])
+def test_a_failed_sampling_drops_its_activations_before_the_experts_are_offloaded(make_error):
+    error = make_error()
+    forward = _FailingForward(error)
+    bundle = _bundle(in_dim=36)
+    offloads = []
+    for dit in (bundle.high_dit, bundle.low_dit):
+        dit.module = forward
+        dit.offload = lambda: offloads.append((len(forward.activations), all(ref() is None for ref in forward.activations)))
+    pipe = _pipe(document=_document(n_segments=1, start_on_seg0=True))
+    pi = _inputs(model=bundle, conditioning=_cond(1), image=[torch.rand(8, 8, 3)])
+    fake_decode, _ = _fake_decode_factory()
+    fake_build, _ = _fake_build_i2v_concat_factory()
+
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4",
+               lambda frames, path, fps: Path(path).write_bytes(b"fake")),          patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video", side_effect=fake_decode),          patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat", side_effect=fake_build),          _no_stitch(), pytest.raises(type(error)):
+        pipe.process(pi, lambda o: None, is_cancelled=lambda: False)
+
+    assert len(forward.activations) == 1
+    after_failure = [freed for seen, freed in offloads if seen == 1]
+    assert after_failure and all(after_failure)

@@ -25,44 +25,13 @@ release it - it is never resident:
 `checkpoint_path` is a `.safetensors` file the plugin/user supplies (e.g. from
 the model depot's `detection_segm/` folder, the convention
 `content/plugins/marketplace/trellis2` established) - nothing is ever downloaded.
-
-`embed_images(images)` turns images (paths or PIL images) into the vectors of
-the application's image embedder, the SigLIP model the gallery search uses,
-L2-normalized so that the dot product of two vectors is their cosine. The model
-goes through `ModelLifecycle` for each call, like any other model, and is never
-downloaded: without its weights on this server it raises `FileNotFoundError`.
-`image_embedder()` tells which model it is (`model`, `slug`, `device`) and
-whether its weights are here (`available`) and it is loaded now (`loaded`).
-
-`detect_faces(images)` finds the faces in images (paths or PIL images) with
-OpenCV's YuNet detector, on the CPU: for each image, its boxes (`x`, `y`,
-`width`, `height` in pixels of the image, `score`, and `landmarks`, the five
-points right eye, left eye, nose tip, right and left corners of the mouth, as
-the face sees them), best first. Each image is read at its own size, so that
-the small face of a wide shot is found too. The model file,
-`face_detection_yunet_2023mar.onnx`, is read from a `detection_bbox` folder of
-the model roots and is never downloaded: without it `detect_faces` raises
-`FileNotFoundError`. `face_detector()` tells which file it is (`model`) and
-whether it is here (`available`).
-
-`identify_faces(faces)` gives the identity vector of faces with AuraFace
-(`fal/AuraFace-v1`, an ArcFace face recognition model under the Apache-2.0
-license), on the CPU: each face is an image (path or PIL image) and the
-`landmarks` `detect_faces` found for it, the face aligned on the ArcFace
-template before it is read. The vectors are L2-normalized: two faces of one
-person have a high cosine, two people a cosine near 0. The model file,
-`glintr100.onnx`, is read from `face_recognition/auraface` in the home model
-root, or from the file the environment variable `POTIONUI_FACE_IDENTITY_MODEL`
-names, and is never downloaded: without it `identify_faces` raises
-`FileNotFoundError`. `face_identifier()` tells which file it is (`model`), where
-it is looked for (`path`) and whether it is here with onnxruntime to run it
-(`available`).
 """
 
 import asyncio
+import contextvars
 import io
 import math
-import os
+import numbers
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Sequence, Union
 
@@ -79,6 +48,7 @@ from src.platform.filesystem import audio_formats, visual_formats
 from src.platform.filesystem.mesh_formats import mesh_format_registry
 from src.platform.filesystem.storage_driver import local_copy, validate_key
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.util import face_boxes, face_identity, face_models
 from src.platform.util.imaging import convert_image_to_base64
 from src.platform.util.video_stream import (
     FFmpegNotFoundError,
@@ -125,13 +95,13 @@ __all__ = [
     "convert_image_to_base64",
     "copy_media_file",
     "detect_faces",
+    "embed_faces",
     "embed_images",
     "extract_frame",
     "face_detector",
-    "face_identifier",
+    "face_embedder",
     "find_ffmpeg",
     "has_audio_stream",
-    "identify_faces",
     "image_embedder",
     "media_local_path",
     "mux_audio_from_source",
@@ -303,84 +273,70 @@ def upload_formats() -> Dict[str, List[str]]:
     }
 
 
+ImageInput = Union[str, Path, "Image.Image"]
+
+
 def _embedder():
     return get_container().media_indexer.vision_embedder
 
 
-def _weights_here(embedder) -> bool:
+def _embedder_weights_here(embedder) -> bool:
     return bool(type(embedder).resolve_status(embedder.model_name, embedder.resolver)["present"])
 
 
 def image_embedder() -> Dict[str, Any]:
-    """The application's image embedder: `model`, `slug` (the namespace of its vectors), `device`, `available` (its weights are on this server) and `loaded` (it is resident now)."""
     embedder = _embedder()
     return {
         "model": embedder.model_name,
         "slug": embedder.embedder_slug,
         "device": str(embedder.device),
-        "available": _weights_here(embedder),
+        "available": _embedder_weights_here(embedder),
         "loaded": bool(embedder.is_loaded()),
     }
 
 
-def embed_images(images: Sequence[Union[str, Path, "Image.Image"]]) -> List[List[float]]:
-    """The L2-normalized vectors of images (paths or PIL images) from the application's image embedder, through ModelLifecycle; `FileNotFoundError` when its weights are not on this server, which is never downloaded from here."""
+def embed_images(images: Sequence[ImageInput]) -> List[List[float]]:
+    images = face_boxes.listed(images, "images")
     embedder = _embedder()
-    if not _weights_here(embedder):
+    if not _embedder_weights_here(embedder):
         raise FileNotFoundError(f"The weights of {embedder.model_name} are not on this server")
-    return embedder.embed_images(list(images))
-
-
-FACE_MODEL = "face_detection_yunet_2023mar.onnx"
-FACE_MODEL_TYPE = "detection_bbox"
+    pictures = [face_boxes.readable(image, f"images[{index}]") for index, image in enumerate(images)]
+    return contextvars.copy_context().run(embedder.embed_images, pictures)
 
 
 def _face_model() -> Optional[Path]:
-    for entry in get_container().model_roots.type_dirs(FACE_MODEL_TYPE):
-        candidate = Path(entry.path) / FACE_MODEL
-        if candidate.is_file():
-            return candidate
-    return None
+    return face_models.face_model(get_container().model_roots)
 
 
 def face_detector() -> Dict[str, Any]:
-    """The face detector the plugins can use: `model`, its file name, and `available`, whether that file is in a detection_bbox folder of the model roots."""
-    return {"model": FACE_MODEL, "available": _face_model() is not None}
+    return {"model": face_models.FACE_MODEL, "available": _face_model() is not None}
 
 
-def detect_faces(images: Sequence[Union[str, Path, "Image.Image"]], min_score: float = 0.5) -> List[List[Dict[str, float]]]:
-    """The faces YuNet finds in each image (paths or PIL images), on the CPU: a list of boxes `x`, `y`, `width`, `height` in pixels of the image, `score` and the five `landmarks`, best first, each image read at its own size; `FileNotFoundError` when the model file is not in a detection_bbox folder of the model roots, which is never downloaded from here."""
-    from src.platform.util.face_boxes import detect
-
+def detect_faces(images: Sequence[ImageInput], min_score: float = 0.5) -> List[List[Dict[str, Any]]]:
+    images = face_boxes.listed(images, "images")
+    if isinstance(min_score, bool) or not isinstance(min_score, numbers.Real) or not 0 <= min_score <= 1:
+        raise ValueError("min_score is a number from 0 to 1")
     model = _face_model()
     if model is None:
-        raise FileNotFoundError(f"{FACE_MODEL} is not in a {FACE_MODEL_TYPE} folder of the model roots")
-    return detect(model, list(images), min_score)
+        raise FileNotFoundError(f"{face_models.FACE_MODEL} is not in a {face_models.FACE_MODEL_TYPE} folder of the model roots")
+    return face_boxes.detect(model, images, min_score)
 
 
-IDENTITY_MODEL = "glintr100.onnx"
-IDENTITY_DIR = "face_recognition/auraface"
-IDENTITY_ENV = "POTIONUI_FACE_IDENTITY_MODEL"
+def _identity_model() -> Optional[Path]:
+    return face_models.identity_model(get_container().model_roots)
 
 
-def _identity_path() -> Path:
-    configured = os.environ.get(IDENTITY_ENV, "").strip()
-    return Path(configured) if configured else get_container().model_roots.asset_dir(IDENTITY_DIR) / IDENTITY_MODEL
+def face_embedder() -> Dict[str, Any]:
+    return {"model": face_models.IDENTITY_MODEL, "available": _identity_model() is not None and face_identity.runtime_imports()}
 
 
-def face_identifier() -> Dict[str, Any]:
-    """The face recognition model the plugins can use: `model`, its file name, `path`, where it is looked for (the file `POTIONUI_FACE_IDENTITY_MODEL` names, else face_recognition/auraface in the home model root), and `available`, whether that file is there and onnxruntime imports to run it."""
-    from src.platform.util.face_identity import runtime_imports
-
-    path = _identity_path()
-    return {"model": IDENTITY_MODEL, "path": str(path), "available": path.is_file() and runtime_imports()}
-
-
-def identify_faces(faces: Sequence[Any]) -> List[List[float]]:
-    """The L2-normalized AuraFace identity vector of each face, given as an image (path or PIL image) and the five `landmarks` detect_faces found for that face, on the CPU; `FileNotFoundError` when the model file is not where face_identifier says, which is never downloaded from here."""
-    from src.platform.util.face_identity import embed
-
-    path = _identity_path()
-    if not path.is_file():
-        raise FileNotFoundError(f"{IDENTITY_MODEL} is not at {path}")
-    return embed(path, [(image, landmarks) for image, landmarks in faces])
+def embed_faces(faces: Sequence[Any]) -> List[List[float]]:
+    faces = face_boxes.listed(faces, "faces")
+    model = _identity_model()
+    if model is None:
+        raise FileNotFoundError(f"{face_models.IDENTITY_MODEL} is not in {face_models.IDENTITY_DIR} of the home model root")
+    try:
+        pairs = [(image, landmarks) for image, landmarks in faces]
+    except (TypeError, ValueError) as error:
+        raise ValueError("Each face is a pair: an image and its five landmarks") from error
+    return contextvars.copy_context().run(face_identity.embed, get_container().model_lifecycle, model, pairs)

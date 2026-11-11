@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import patch
+import weakref
 
 import numpy as np
 import pytest
 import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.generator.img2vid_wan22.main import GeneratorWanImg2VidPipe, _Ctx, ExpertRouter, _I2VForward
@@ -164,6 +166,47 @@ def _pipe_input(quantity=1, seeds=(1,), in_dim=36):
                             n_embeds={"context": torch.zeros(1, 4, 8)}) for _ in range(quantity)]
     img = torch.rand(64, 64, 3)  # HWC start frame
     return PipeInput(input={"model": _bundle(in_dim=in_dim), "conditioning": cond, "image": [img], "seed": list(seeds)})
+
+
+class _ActivationHoldingExpert:
+    def __init__(self, error):
+        self.error = error
+        self.device = "cpu"
+        self.activations = []
+        self.freed_at_offload = []
+
+    def module(self, x, t, context, **extra):
+        activation = torch.ones(64, 64)
+        self.activations.append(weakref.ref(activation))
+        raise self.error
+
+    def move_to(self, device):
+        self.device = device
+
+    def offload(self):
+        self.freed_at_offload.append(all(ref() is None for ref in self.activations))
+
+
+@pytest.mark.parametrize("make_error", [
+    pytest.param(lambda: torch.cuda.OutOfMemoryError("CUDA out of memory"), id="out-of-memory"),
+    pytest.param(lambda: SamplingCancelled(step_index=0), id="cancelled"),
+])
+@patch("src.pipelines.pipes.generator.img2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
+def test_a_failed_sampling_drops_its_activations_before_the_expert_is_offloaded(make_error):
+    pipe = _pipe(device="cpu", preview=False, steps=2)
+    ctx = pipe.build_context(_pipe_input())
+    ctx.is_cancelled = lambda: False
+    error = make_error()
+    expert = _ActivationHoldingExpert(error)
+    ctx.extra.forward.router.high = expert
+    ctx.extra.forward.router.low = expert
+    progress = SimpleNamespace(step=lambda *a, **k: None, preview=lambda *a, **k: None)
+
+    with pytest.raises(type(error)):
+        pipe.generate_one(ctx, index=0, seed=1, progress=progress)
+
+    assert len(expert.activations) == 1
+    assert expert.freed_at_offload == [True]
 
 
 def test_build_context_vae_offload_called_even_when_concat_build_raises():
@@ -584,64 +627,6 @@ def test_emitted_videos_carry_live_resolution():
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
 
 
-def test_build_context_makes_room_on_the_card_before_the_first_frame_encode():
-    events = []
-    bundle = _bundle()
-    bundle.vae.move_to = lambda d: events.append(("vae.move_to", d))
-    pipe_input = PipeInput(input={
-        "model": bundle,
-        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
-        "image": [torch.rand(64, 64, 3)],
-        "seed": [1],
-    })
-
-    def _make_room(device, keep):
-        events.append(("make_room", device, tuple(keep)))
-
-    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode", _make_room):
-        _pipe(device="cpu").build_context(pipe_input)
-
-    assert events[0] == ("make_room", "cpu", (bundle.vae, bundle.high_dit, bundle.low_dit))
-    assert events[1] == ("vae.move_to", "cpu")
-
-
-@patch("src.pipelines.pipes.generator.img2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
-def test_a_failed_sampling_frees_its_tensors_before_the_expert_is_offloaded():
-    import weakref
-
-    pipe = _pipe(device="cpu", preview=False)
-    ctx = pipe.build_context(_pipe_input())
-    held = {}
-    seen = {}
-
-    class _Expert(_FakeDiT):
-        def offload(self):
-            seen["activation_alive"] = held["activation"]() is not None
-            super().offload()
-
-    expert = _Expert()
-
-    def failing_denoise(model_forward, latents, cond, uncond, **kw):
-        model_forward.router.active = expert
-        activation = torch.empty(1024)
-        held["activation"] = weakref.ref(activation)
-        raise torch.cuda.OutOfMemoryError("mid-sampling OOM")
-
-    class _Progress:
-        def step(self, *a, **k):
-            pass
-
-        def preview(self, *a, **k):
-            pass
-
-    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise", side_effect=failing_denoise):
-        with pytest.raises(torch.cuda.OutOfMemoryError):
-            pipe.generate_one(ctx, index=0, seed=1, progress=_Progress())
-
-    assert expert.offloaded == 1
-    assert seen["activation_alive"] is False
-
-
 def test_ti2v_5b_makes_room_on_the_card_before_it_encodes_the_start_image():
     bundle, seen = _ti2v_bundle()
     order = []
@@ -659,3 +644,25 @@ def test_ti2v_5b_makes_room_on_the_card_before_it_encodes_the_start_image():
         _pipe(device="cpu", resolution="128x64", frames=9).build_context(_ti2v_input(bundle))
 
     assert order == ["make_room", "vae.move_to", "encode"]
+
+
+def test_a14b_i2v_makes_room_on_the_card_before_it_encodes_the_start_image():
+    pipe_input = _pipe_input(in_dim=36)
+    bundle = pipe_input.input["model"]
+    order = []
+    rooms = []
+    encoded = []
+    bundle.vae.move_to = lambda d: order.append("vae.move_to")
+    encode = bundle.vae.module.encode
+    bundle.vae.module.encode = lambda px: (order.append("encode"), encoded.append(tuple(px.shape[-2:])), encode(px))[2]
+
+    def make_room(device, vae, width, height, keep):
+        order.append("make_room")
+        rooms.append((device, vae, (height, width), [id(m) for m in keep if m is not None]))
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_concat_encode", side_effect=make_room),          patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode") as five_b_room:
+        _pipe(device="cpu").build_context(pipe_input)
+
+    assert order[:3] == ["make_room", "vae.move_to", "encode"]
+    assert rooms == [("cpu", bundle.vae, encoded[0], [id(bundle.high_dit), id(bundle.low_dit)])]
+    five_b_room.assert_not_called()

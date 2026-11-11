@@ -14,7 +14,6 @@ naming convention).
 from __future__ import annotations
 
 import tempfile
-import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -50,7 +49,11 @@ from src.pipelines.pipes._shared.generation.wan_ti2v import (
     require_single_ti2v_expert,
 )
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
-from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode, make_wan_vae_encode
+from src.pipelines.pipes._shared.vae.wan_tiled_encode import (
+    make_room_for_wan_concat_encode,
+    make_room_for_wan_vae_encode,
+    make_wan_vae_encode,
+)
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
 from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
 from src.pipelines.pipes._shared.video.frames import prep_start_frame
@@ -265,7 +268,10 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         # is spatial only).
         start = prep_start_frame(images[0], height, width, device, dtype)
         end = prep_start_frame(end_images[0], height, width, device, dtype) if end_images else None
-        make_room_for_wan_vae_encode(device, keep=(bundle.vae, bundle.high_dit, bundle.low_dit))
+        if ti2v:
+            make_room_for_wan_vae_encode(device, keep=(bundle.vae, bundle.high_dit, bundle.low_dit))
+        else:
+            make_room_for_wan_concat_encode(device, bundle.vae, width, height, keep=(bundle.high_dit, bundle.low_dit))
         bundle.vae.move_to(device)
         # try/finally: build_context runs OUTSIDE process()'s own try (it's
         # called before that try opens -- see BaseGeneratorPipe.process), so
@@ -358,11 +364,9 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
                 # ensure_sampler_generator's docstring.
                 **sampler_step_cache_kwargs(self.config, sampler=c.sampler, generator=gen),
             )
-        except BaseException as exc:
-            traceback.clear_frames(exc.__traceback__)
-            raise
         finally:
-            c.forward.router.offload_active()
+            if c.forward.router.active is not None:
+                c.forward.router.active.offload()
 
         if c.start_latent is not None:
             latent = pin_start_latent(latent, c.start_latent)

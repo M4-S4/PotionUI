@@ -26,9 +26,9 @@ worker doctor`/`worker start`). See the README's [Install](../../README.md#insta
 section for the full table and commands, and [Remote Native](../remote-native.md)
 for how a worker is wired to the instance that dispatches to it.
 
-Running natively on Windows is experimental as of 0.0.8 — see the README's
-[Windows (native)](../../README.md#windows-native) section for prerequisites,
-what's verified, and what isn't yet.
+PotionUI also runs natively on Windows — see the README's
+[Windows (native)](../../README.md#windows-native) section for prerequisites
+and what the Windows CI covers.
 
 ## First run: claiming the instance
 
@@ -42,6 +42,8 @@ A freshly installed PotionUI has no accounts at all. The **first** account ever 
 4. **Create your first image.** Click it (or, at any time, click **Generate** in the sidebar) and continue with [Your first generation](#your-first-generation) below.
 
 Once the owner account exists, this instance is claimed: nobody else can repeat this flow, and everyone after you signs in the ordinary way, either by an account someone with admin rights creates for them, or by registering directly if the instance owner has turned on open registration.
+
+Create the owner account before you open the port to a network. A request counts as coming from the same machine only when nothing in it points elsewhere: it must arrive from the local machine and carry no forwarded address, forwarded host or `Origin` that names another host. If you put PotionUI behind a reverse proxy, make the proxy send `X-Forwarded-For` (and keep the original `Host` or send `X-Forwarded-Host`); a proxy that hides the real client address can make a remote visitor look local.
 
 ## Signing in to an existing instance
 

@@ -31,7 +31,6 @@ REEXPORTS = {
         "resolve_cloud_model",
     ],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],
-    "src.plugin_api.media": ["extract_frame", "save_user_media"],
     "src.plugin_api.chat": ["ToolApprovalPreview"],
     "src.plugin_api.presets": [
         "DirectorBindingError",
@@ -44,6 +43,16 @@ REEXPORTS = {
         "resolve_preset_path",
     ],
     "src.plugin_api.testing": ["scratch_database", "use_database"],
+    "src.plugin_api.media": [
+        "extract_frame",
+        "save_user_media",
+        "embed_images",
+        "image_embedder",
+        "detect_faces",
+        "face_detector",
+        "face_embedder",
+        "embed_faces",
+    ],
 }
 
 
