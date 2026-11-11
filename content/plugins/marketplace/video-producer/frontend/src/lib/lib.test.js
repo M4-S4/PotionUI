@@ -208,7 +208,8 @@ test('starterDoc: shot 1 from its text, shot 2 chained, shot 3 casts the card of
 	const [lumi] = doc.bible.characters;
 	const [workshop] = doc.bible.places;
 	assert.deepEqual([doc.bible.characters.length, doc.bible.places.length], [1, 1]);
-	assert.deepEqual([lumi.label, lumi.props], ['Lumi', 'a small glowing violet potion bottle']);
+	assert.deepEqual([lumi.label, lumi.props], ['Lumi', 'a straight glass potion bottle with a cork stopper, a blank cream paper label and a glowing violet liquid']);
+	assert.ok(doc.prompts[0].text.includes(lumi.props), doc.prompts[0].text);
 	assert.match(lumi.text, /^a woman in her thirties, with fair skin and light freckles, amber eyes/);
 	assert.match(lumi.text, /a worn midnight-blue pointed witch's hat of felt with a golden star pin/);
 	assert.equal(workshop.label, 'Workshop');
