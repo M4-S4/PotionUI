@@ -25,6 +25,7 @@
 	"chain.continues": "In Ref2VA, the end of the take of “{previous}” goes with this shot as a continuation video when the generation starts.",
 	"chain.continueStill": "In Ref2VA, “{previous}” shows a still, not footage: this shot starts from its text and its references.",
 	"chain.continueLater": "In Ref2VA, a take of this shot waits for the take of “{previous}”, then continues its end as a reference video.",
+	"chain.references": "In Ref2VA, this shot starts from its text and its references. Chain it by Continuation to send it the end of the take of “{previous}”.",
 	"chain.fromShot": "Set for this shot",
 	"chain.fromProject": "Follows the project (File › Project properties…)",
 	"chain.followProject": "Follow the project",

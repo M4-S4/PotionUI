@@ -98,12 +98,13 @@ export function chainState(doc, index) {
 	return null;
 }
 
-export function seamChain(doc, index, takes = [], textOnly = false, continues = false) {
+export function seamChain(doc, index, takes = [], textOnly = false, continues = false, references = false) {
 	const from = doc.clips?.[index - 1];
 	const to = doc.clips?.[index];
 	if (!from || !to) return null;
 	const base = { from, to, own: ownChain(to) !== null, after: null };
 	if (!shotChained(doc, to)) return { ...base, state: 'off' };
+	if (references && !continues) return { ...base, state: 'references' };
 	if (textOnly && !continues) return { ...base, state: 'textOnly' };
 	const waiting = takes.find((take) => take.shotId === to.id && chainWaiting(take));
 	if (waiting) return { ...base, state: 'waiting', take: waiting, after: takes.find((take) => take.id === waiting.chain.after) ?? null };

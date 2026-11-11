@@ -103,7 +103,8 @@ export function seamChainOf(clip) {
 	if (i <= 0) return null;
 	const engine = effectiveEngine(doc.clips[i], doc);
 	const option = optionFor(engineChoices(), engine);
-	return seamChain(doc, i, takeStore.list, ignoresFirstFrame(option), engine.profile === 'Ref2VA' && chainByOf(doc, doc.clips[i]) === 'video');
+	const references = engine.profile === 'Ref2VA';
+	return seamChain(doc, i, takeStore.list, ignoresFirstFrame(option), references && chainByOf(doc, doc.clips[i]) === 'video', references);
 }
 
 export function waitText(take) {
@@ -124,6 +125,7 @@ export function chainStatusText(state) {
 	if (state.state === 'stale') return t('storyboard.chain.stale', { previous });
 	if (state.state === 'fresh') return t('storyboard.chain.fresh', { previous });
 	if (state.state === 'ready') return t('storyboard.chain.ready', { previous });
+	if (state.state === 'references') return t('storyboard.chain.references', { previous });
 	if (state.state === 'continues') return t('storyboard.chain.continues', { previous });
 	if (state.state === 'continueStill') return t('storyboard.chain.continueStill', { previous });
 	if (state.state === 'continueLater') return t('storyboard.chain.continueLater', { previous });

@@ -10,7 +10,7 @@ globalThis.Image = class {
 const { doc, ui, dispose } = await import('./state.svelte.js');
 const { project } = await import('./project.svelte.js');
 const { setTakes } = await import('./takes.svelte.js');
-const { chooseShotChainBy, seamChainOf } = await import('./chain.svelte.js');
+const { chainStatusText, chooseShotChainBy, seamChainOf } = await import('./chain.svelte.js');
 const { noteText } = await import('./production.svelte.js');
 const { t } = await import('../i18n/index.svelte.js');
 
@@ -76,7 +76,8 @@ test('a chained shot chooses how it chains in FL2VA and in Ref2VA, where only th
 	assert.equal(seamChainOf(doc.clips[1]).state, 'continueLater');
 	assert.equal((await control()).selected, 'video');
 	chooseShotChainBy(doc.clips[1], 'frame');
-	assert.equal(seamChainOf(doc.clips[1]).state, 'later');
+	assert.equal(seamChainOf(doc.clips[1]).state, 'references');
+	assert.equal(chainStatusText(seamChainOf(doc.clips[1])), t('storyboard.chain.references', { previous: 'One' }));
 	assert.equal((await control()).selected, 'frame');
 	doc.direction.mode = 'FL2VA';
 	doc.clips[1].firstFromPrevious = false;
