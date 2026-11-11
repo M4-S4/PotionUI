@@ -340,3 +340,40 @@ def test_a_take_shorter_than_the_continuation_cannot_be_cut(core, make_project, 
 
     assert raised.value.code == "chain_video_short"
     assert library.saved == []
+
+
+def _streams(path):
+    command = ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "json", str(path)]
+    return {stream["codec_type"]: float(stream.get("duration") or 0) for stream in json.loads(subprocess.run(command, capture_output=True, check=True, text=True).stdout)["streams"]}
+
+
+@FFMPEG
+@pytest.mark.requires_ffmpeg
+def test_the_end_of_a_take_cut_with_its_sound_keeps_the_sound_of_those_frames(core, make_project, library, tmp_path, monkeypatch):
+    source = tmp_path / "source" / "sound.mp4"
+    source.parent.mkdir(parents=True)
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=gray:s=64x36:r=24:d=4", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", "-y", str(source)],
+        check=True,
+    )
+    project = make_project(clips=[{"id": "s1", "start": 0, "dur": 4.0, "srcIn": 0.0}, {"id": "s2", "start": 4.0, "dur": 3}])
+    take = takes.create_take(
+        {"project_id": project["id"], "shot_id": "s1", "user_id": "user-1", "quality": "draft", "kind": "render", "status": "done", "generation_id": "g-1", "file_id": "f-1", "file_path": TAKE_FILE}
+    )
+    library.files[("history", TAKE_FILE)] = source
+    kept = {}
+    original = library.save_user_media
+
+    async def save(user, path):
+        kept["streams"] = _streams(path)
+        kept["frames"] = int(_frames(path)["nb_read_frames"])
+        return await original(user, path)
+
+    monkeypatch.setattr(chainvideo.core_bridge, "save_user_media", save)
+
+    asyncio.run(chainvideo.end_video(core.users["user-1"], project, "s1", take, 56, (64, 36), sound=True))
+
+    assert kept["frames"] == 56
+    assert set(kept["streams"]) == {"video", "audio"}
+    assert abs(kept["streams"]["audio"] - 56 / 24) < 0.1
