@@ -375,6 +375,20 @@ test('readiness: a text-only engine that ignores a shot frame warns about that s
 	assert.deepEqual(missing, []);
 });
 
+test('readiness: an engine that starts from the first frame only warns that the last frame of the shot is left out, in both languages, as a warning', () => {
+	productionScene();
+	estimateState.data = { blocks: [], warnings: [{ code: 'last_frame_unsupported', data: { shot_id: 's1' } }, { code: 'time_unknown' }] };
+	const ready = readiness();
+	assert.deepEqual(ready.missing, []);
+	assert.deepEqual(ready.warnings, [t('generation.warn.lastFrameUnsupported', { shot: 'Opening' })]);
+	assert.deepEqual(ready.notes, [noteText({ code: 'time_unknown' })]);
+	estimateState.data = null;
+	const missing = [];
+	assert.equal(translator('en', missing)('generation.warn.lastFrameUnsupported', { shot: 'Opening' }), 'This engine starts “Opening” from its first frame only: its last frame will not be used.');
+	assert.equal(translator('fr', missing)('generation.warn.lastFrameUnsupported', { shot: 'Ouverture' }), 'Ce moteur fait partir « Ouverture » de sa première frame seulement : sa dernière frame ne sera pas utilisée.');
+	assert.deepEqual(missing, []);
+});
+
 test('readiness: a chained shot that an engine starts from its text warns about that shot in both languages, with the files it misses', () => {
 	productionScene();
 	estimateState.data = { blocks: [], warnings: [{ code: 'chain_text_only', data: { shot_id: 's1' } }, { code: 'chain_models_missing', data: { shot_id: 's1', fields: ['i2v_high_noise_model', 'i2v_loras_low'] } }] };
