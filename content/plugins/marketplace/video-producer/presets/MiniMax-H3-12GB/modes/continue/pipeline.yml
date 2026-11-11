@@ -43,7 +43,6 @@ pipeline:
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
       guidance_scale: 1.0
-      output_resolution: "{{ form.resolution }}"
 
   - name: "seed_generator"
     enabled: true
