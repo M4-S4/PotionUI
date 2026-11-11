@@ -226,11 +226,22 @@ def frontal(face: Mapping[str, Any]) -> bool:
     return span > 0 and abs(nose_x - (right_x + left_x) / 2) / span <= FRONTAL_TURN and span / float(face["width"]) >= FRONTAL_EYES
 
 
-def _face_crop(path: Path, box: Mapping[str, float], output: Path) -> Path:
+def _on_white(image: Any) -> Any:
     from PIL import Image
 
+    if image.mode not in ("RGBA", "LA", "PA") and not (image.mode == "P" and "transparency" in image.info):
+        return image.convert("RGB")
+    canvas = Image.new("RGBA", image.size, (255, 255, 255, 255))
+    canvas.alpha_composite(image.convert("RGBA"))
+    return canvas.convert("RGB")
+
+
+def _face_crop(path: Path, box: Mapping[str, float], output: Path) -> Path:
+    from PIL import Image, ImageOps
+
     with Image.open(path) as image:
-        picture = image.convert("RGB")
+        ImageOps.exif_transpose(image, in_place=True)
+        picture = _on_white(image)
     side = min(max(float(box["width"]), float(box["height"])) * FACE_SCALE, float(max(picture.width, picture.height)))
     left = min(max(float(box["x"]) + float(box["width"]) / 2 - side / 2, 0.0), max(picture.width - side, 0.0))
     top = min(max(float(box["y"]) + float(box["height"]) / 2 - side / 2, 0.0), max(picture.height - side, 0.0))

@@ -346,6 +346,34 @@ def test_a_take_measured_with_faces_before_the_heights_were_kept_is_measured_aga
     assert after == {first["id"]: "queued", second["id"]: "done"}
 
 
+def test_a_face_is_cropped_from_the_picture_turned_upright_by_its_exif_orientation(tmp_path):
+    stored = Image.new("RGB", (60, 40), BLUE)
+    stored.paste(RED, (0, 0, 20, 20))
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    stored.save(tmp_path / "phone.png", exif=exif)
+
+    looks._face_crop(tmp_path / "phone.png", {"x": 20.0, "y": 0.0, "width": 20.0, "height": 20.0}, tmp_path / "face.png")
+
+    with Image.open(tmp_path / "face.png") as crop:
+        assert crop.size == (36, 36)
+        assert crop.convert("RGB").getpixel((30, 5)) == RED
+        assert crop.convert("RGB").getpixel((5, 30)) == BLUE
+
+
+def test_a_face_is_cropped_from_a_transparent_picture_put_on_white(tmp_path):
+    picture = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+    picture.paste((*RED, 255), (14, 14, 26, 26))
+    picture.save(tmp_path / "cut-out.png")
+
+    looks._face_crop(tmp_path / "cut-out.png", {"x": 14.0, "y": 14.0, "width": 12.0, "height": 12.0}, tmp_path / "face.png")
+
+    with Image.open(tmp_path / "face.png") as crop:
+        assert crop.mode == "RGB"
+        assert crop.getpixel((0, 0)) == (255, 255, 255)
+        assert crop.getpixel((crop.width // 2, crop.height // 2)) == RED
+
+
 GRAY = (128, 128, 128)
 DARK = (10, 10, 10)
 FRONT = {"x": 18.0, "y": 6.0, "width": 20.0, "height": 32.0, "score": 0.93, "landmarks": [[22.0, 12.0], [34.0, 12.0], [28.0, 16.0], [24.0, 20.0], [32.0, 20.0]]}
