@@ -477,7 +477,7 @@ def test_the_mode_loaded_by_the_core_resolves_its_prompt_and_its_context(chat):
     )
     assert block.splitlines()[:2] == [
         'VIDEO PRODUCER: project "Night ride" [p-1], saved version 3.',
-        "Prompt language: fr. Write every shot instruction in French; never translate what the user wrote.",
+        "Prompt language: en. Write every shot instruction in English; never translate what the user wrote.",
     ]
 
 

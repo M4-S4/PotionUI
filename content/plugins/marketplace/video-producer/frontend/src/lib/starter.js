@@ -13,7 +13,7 @@ const SHOT_DURATION = 5;
 export const PROMPT_LANGUAGES = ['en', 'fr'];
 export const DEFAULT_PROMPT_LANGUAGE = 'en';
 
-export const promptLanguageOf = (value) => (PROMPT_LANGUAGES.includes(value) ? value : DEFAULT_PROMPT_LANGUAGE);
+export const promptLanguageOf = () => DEFAULT_PROMPT_LANGUAGE;
 
 export function newClip(extra = {}) {
 	return { id: ulid(), assetId: null, start: 0, dur: 4, srcIn: 0, label: '', stage: 'todo', take: null, fadeIn: 0, fadeOut: 0, exposure: 0, contrast: 100, saturation: 100, temperature: 0, preset: 'Original', flag: null, mute: false, ...extra };
