@@ -95,8 +95,9 @@ export const toggleShotChaining = (clip) => setShotChaining(clip, !shotChained(d
 export function seamChainOf(clip) {
 	const i = clip ? doc.clips.findIndex((c) => c.id === clip.id) : -1;
 	if (i <= 0) return null;
-	const option = optionFor(engineChoices(), effectiveEngine(doc.clips[i], doc));
-	return seamChain(doc, i, takeStore.list, ignoresFirstFrame(option));
+	const engine = effectiveEngine(doc.clips[i], doc);
+	const option = optionFor(engineChoices(), engine);
+	return seamChain(doc, i, takeStore.list, ignoresFirstFrame(option), engine.profile === 'Ref2VA');
 }
 
 export function waitText(take) {
@@ -104,7 +105,8 @@ export function waitText(take) {
 	const previous = doc.clips.find((c) => c.id === take.chain.previous);
 	const shot = previous ? clipLabel(previous) : '—';
 	const after = take.chain.after ? takeStore.list.find((x) => x.id === take.chain.after) : null;
-	return after ? t('lib.chain.waitTake', { variant: after.variant, shot }) : t('lib.chain.waitFrame', { shot });
+	if (after) return t('lib.chain.waitTake', { variant: after.variant, shot });
+	return take.chain.video ? t('lib.chain.waitEnd', { shot }) : t('lib.chain.waitFrame', { shot });
 }
 
 export function chainStatusText(state) {
@@ -116,6 +118,9 @@ export function chainStatusText(state) {
 	if (state.state === 'stale') return t('storyboard.chain.stale', { previous });
 	if (state.state === 'fresh') return t('storyboard.chain.fresh', { previous });
 	if (state.state === 'ready') return t('storyboard.chain.ready', { previous });
+	if (state.state === 'continues') return t('storyboard.chain.continues', { previous });
+	if (state.state === 'continueStill') return t('storyboard.chain.continueStill', { previous });
+	if (state.state === 'continueLater') return t('storyboard.chain.continueLater', { previous });
 	return t('storyboard.chain.later', { previous });
 }
 

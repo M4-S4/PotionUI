@@ -123,7 +123,7 @@
 	"properties.fpsValue": "{fps} i/s",
 	"properties.resolutionValue": "{resolution} · {size}",
 	"properties.chain": "Ouvrir chaque nouveau plan sur le précédent",
-	"properties.chainHelp": "Un nouveau plan prend comme première image l’image de fin de la portion montée du plan précédent. Vous pouvez la changer dans l’éditeur de plan ; quand le plan précédent change, le raccord le signale au lieu de la remplacer.",
+	"properties.chainHelp": "Un nouveau plan prend comme première image l’image de fin de la portion montée du plan précédent. En Ref2VA, il reçoit à la place la fin de la prise précédente comme vidéo de continuation. Vous pouvez la changer dans l’éditeur de plan ; quand le plan précédent change, le raccord le signale au lieu de la remplacer.",
 	"properties.chainTextOnly": "{engine} génère à partir du texte seul : il n’utilise pas ces premières images.",
 	"toast.undo": "Annuler",
 	"toast.view": "Voir",

@@ -80,15 +80,20 @@ export function chainState(doc, index) {
 	return null;
 }
 
-export function seamChain(doc, index, takes = [], textOnly = false) {
+export function seamChain(doc, index, takes = [], textOnly = false, continues = false) {
 	const from = doc.clips?.[index - 1];
 	const to = doc.clips?.[index];
 	if (!from || !to) return null;
 	const base = { from, to, own: ownChain(to) !== null, after: null };
 	if (!shotChained(doc, to)) return { ...base, state: 'off' };
-	if (textOnly) return { ...base, state: 'textOnly' };
+	if (textOnly && !continues) return { ...base, state: 'textOnly' };
 	const waiting = takes.find((take) => take.shotId === to.id && chainWaiting(take));
 	if (waiting) return { ...base, state: 'waiting', take: waiting, after: takes.find((take) => take.id === waiting.chain.after) ?? null };
+	if (continues) {
+		const source = chainSource(doc, from);
+		if (!source) return { ...base, state: 'continueLater' };
+		return { ...base, state: source.at === null ? 'continueStill' : 'continues' };
+	}
 	const image = seamImage(doc, to.id, 'first');
 	if (image && !isObject(image.frameOf)) return { ...base, state: 'own' };
 	if (image) return { ...base, state: chainState(doc, index)?.state === 'stale' ? 'stale' : 'fresh' };
@@ -108,7 +113,7 @@ export function takeFrameAsset(doc, take, name) {
 const PLACEABLE = ['queued', 'running', 'done'];
 
 export function placesTakeFrame(doc, take, takes = [], removed = () => false) {
-	if (take?.chain?.state !== 'taken' || !take.chain.source || !PLACEABLE.includes(take.status)) return false;
+	if (take?.chain?.state !== 'taken' || !take.chain.source || take.chain.video || !PLACEABLE.includes(take.status)) return false;
 	if (assetOf(doc, chainAssetId(take)) || removed(take.id) || (take.status === 'done' && assetOf(doc, `gen-${take.id}`))) return false;
 	const i = (doc.clips ?? []).findIndex((c) => c.id === take.shotId);
 	if (i <= 0 || doc.clips[i - 1].id !== take.chain.previous) return false;
@@ -136,7 +141,8 @@ const CHAIN_STATES = ['waiting', 'taken'];
 
 export function normalizeChain(value) {
 	if (!isObject(value) || !text(value.previous) || !CHAIN_STATES.includes(value.state)) return null;
-	return { previous: value.previous, after: text(value.after) || null, state: value.state, batch: text(value.batch) || null, source: normalizeFrameSource(value.source), frame: normalizeSeamMedia(value.frame) };
+	const video = isObject(value.video) ? { frames: number(value.video.frames), seconds: number(value.video.seconds), value: text(value.video.value) || null } : null;
+	return { previous: value.previous, after: text(value.after) || null, state: value.state, batch: text(value.batch) || null, source: normalizeFrameSource(value.source), frame: normalizeSeamMedia(value.frame), ...(video ? { video } : {}) };
 }
 
 export function frameAsset(media, source, fallbackName) {

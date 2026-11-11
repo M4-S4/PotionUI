@@ -7,7 +7,7 @@
 
 	const chain = $derived(seamChainOf(clip));
 	const id = $derived(`vp-chain-${clip?.id}`);
-	const tone = $derived(chain?.state === 'textOnly' || chain?.state === 'stale' ? 'text-warning' : 'text-fg-subtle');
+	const tone = $derived(chain?.state === 'textOnly' || chain?.state === 'stale' || chain?.state === 'continueStill' ? 'text-warning' : 'text-fg-subtle');
 </script>
 
 {#if chain}
