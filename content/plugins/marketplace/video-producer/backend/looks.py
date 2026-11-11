@@ -40,6 +40,7 @@ FRONTAL_TURN = 0.35
 FRONTAL_EYES = 0.35
 FACES = "faces"
 IDENTITY = "identity"
+UPRIGHT = "upright"
 FACE = "face"
 WHOLE = "whole"
 CHARACTER = "character"
@@ -213,7 +214,7 @@ def measure_key(info: Mapping[str, Any], faces: Mapping[str, Any], identity: Opt
     slug = info.get("slug")
     if not slug or not faces.get("available"):
         return slug
-    return f"{slug}+{FACES}+{IDENTITY}" if identity and identity.get("available") else f"{slug}+{FACES}"
+    return f"{slug}+{FACES}+{UPRIGHT}+{IDENTITY}" if identity and identity.get("available") else f"{slug}+{FACES}+{UPRIGHT}"
 
 
 def frontal(face: Mapping[str, Any]) -> bool:
