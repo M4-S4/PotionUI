@@ -22,7 +22,7 @@ Before you start:
 
 You pick the language of the interface in the Preferences, and it is saved for you (chapter 15).
 
-The first time you open the page, it creates a starter project, "Lumi’s potion", and opens it: a short tale where the young witch Lumi brews a violet potion in her workshop and turns it to gold. It is a tutorial in four shots of 5 seconds, still to generate, each showing one thing the plugin does, from the simplest to the richest:
+The first time you open the page, it creates a starter project, "Lumi’s potion", and opens it: a short tale where the witch Lumi brews a violet potion in her workshop and turns it to gold. It is a tutorial in four shots of 5 seconds, still to generate, each showing one thing the plugin does, from the simplest to the richest:
 
 1. **The workshop** is made from its text alone.
 2. **The potion** starts from the last image of shot 1: its link chip is on (chapter 12).

@@ -127,8 +127,13 @@ test('starterDoc: Lumi in four shots of 5 seconds, one function each, with a tit
 	assert.equal(fr.name, 'La potion de Lumi');
 	assert.equal(en.name, 'Lumi’s potion');
 	assert.deepEqual([fr.fps, fr.aspect, fr.resolution, fr.direction.mode], [25, '16:9', '1080p', 'FL2VA']);
-	assert.match(fr.synopsis, /^La nuit, dans l’atelier de sa chaumière, la jeune sorcière Lumi/);
-	assert.match(en.synopsis, /^At night, in her cottage workshop, the young witch Lumi/);
+	assert.match(fr.synopsis, /^La nuit, dans l’atelier de sa chaumière, la sorcière Lumi/);
+	assert.match(en.synopsis, /^At night, in her cottage workshop, the witch Lumi/);
+	assert.match(en.direction.personnages, /^Lumi, a witch in her thirties,/);
+	assert.match(fr.direction.personnages, /^Lumi, une sorcière d’une trentaine d’années,/);
+	for (const doc of [fr, en]) assert.doesNotMatch([doc.synopsis, doc.direction.personnages, doc.bible.characters[0].text].join(' '), /young|youthful|jeune|juvénile/i);
+	assert.deepEqual([0, 1, 2, 3].map((i) => /at night/.test(en.prompts[i].text)), [true, false, true, false]);
+	assert.deepEqual([0, 1, 2, 3].map((i) => /la nuit/.test(fr.prompts[i].text)), [true, false, true, false]);
 	for (const key of ['univers', 'personnages', 'photographie', 'palette', 'rythme']) assert.ok(fr.direction[key].length > 40 && en.direction[key].length > 40, key);
 	assert.deepEqual(
 		fr.clips.map((c) => [c.start, c.dur, c.stage, c.assetId, c.take]),
@@ -204,7 +209,7 @@ test('starterDoc: shot 1 from its text, shot 2 chained, shot 3 casts the card of
 	const [workshop] = doc.bible.places;
 	assert.deepEqual([doc.bible.characters.length, doc.bible.places.length], [1, 1]);
 	assert.deepEqual([lumi.label, lumi.props], ['Lumi', 'a small glowing violet potion bottle']);
-	assert.match(lumi.text, /^a young witch in her early thirties, with a youthful face/);
+	assert.match(lumi.text, /^a woman in her thirties, with fair skin and light freckles, amber eyes/);
 	assert.equal(workshop.label, 'Workshop');
 	assert.match(workshop.text, /^an old witch's cottage workshop with rough timber beams/);
 	assert.deepEqual(workshop.references, []);
@@ -557,7 +562,7 @@ test('prompt language: a project setting, English by default, that only decides 
 	assert.deepEqual([doc.bible.characters[0].text, doc.bible.places[0].label, doc.references[1].name], [en('starter.card.lumi.text'), 'Workshop', 'Potion bottle']);
 	const french = starterDoc(fr, fr, 'fr');
 	assert.match(french.prompts[0].text, /^Plan d’ensemble de l’atelier vide/);
-	assert.match(french.bible.characters[0].text, /^une jeune sorcière d’une trentaine d’années/);
+	assert.match(french.bible.characters[0].text, /^une femme d’une trentaine d’années, à la peau claire/);
 	assert.equal(french.bible.places[0].label, 'Atelier');
 	assert.equal(french.promptLanguage, 'fr');
 	assert.equal(starterDoc(fr).promptLanguage, 'en');
