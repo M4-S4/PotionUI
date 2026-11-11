@@ -27,14 +27,26 @@ def _as(app, make_user, user_id):
     app.dependency_overrides[get_current_active_user] = lambda: make_user(user_id=user_id)
 
 
+BOTTLES = {
+    "bottle": ("b14769ce4e5ebc685c1a20b3b869b247aac432908e05c0a14df22ebe89cf8b73", 153282),
+    "bottle-gold": ("c8d238cd18b893c32bb2eb4141e1a178559c54ebf80902ab45ccb8c98a3d05fd", 134545),
+}
+
+
 @pytest.mark.skipif(not PACK.is_file(), reason="the audit pack is not next to the plugin")
-def test_the_three_images_are_the_audit_pack_inputs_byte_for_byte():
+def test_the_portrait_of_lumi_is_the_audit_pack_input_byte_for_byte():
     inputs = tomllib.loads(PACK.read_text(encoding="utf-8"))["inputs"]
 
-    for name in starter.IMAGES:
+    data = starter.image_path("lumi").read_bytes()
+    assert hashlib.sha256(data).hexdigest() == inputs["lumi"]["sha256"]
+    assert len(data) == inputs["lumi"]["size_bytes"]
+
+
+def test_the_two_bottles_are_the_wide_pair_made_for_the_starter_project():
+    for name, (digest, size) in BOTTLES.items():
         data = starter.image_path(name).read_bytes()
-        assert hashlib.sha256(data).hexdigest() == inputs[name]["sha256"], name
-        assert len(data) == inputs[name]["size_bytes"], name
+        assert hashlib.sha256(data).hexdigest() == digest, name
+        assert len(data) == size, name
 
 
 def test_the_plugin_ships_the_three_images_of_the_starter_project():

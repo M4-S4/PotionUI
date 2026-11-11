@@ -10,8 +10,8 @@ export const keys = (key) => `[${key}]`;
 
 export const starterImages = {
 	lumi: { itemId: 'starter-lumi', url: '/api/media/uploads/starter-lumi.jpg', filename: 'lumi.jpg', width: 1024, height: 1024 },
-	bottle: { itemId: 'starter-bottle', url: '/api/media/uploads/starter-bottle.jpg', filename: 'bottle.jpg', width: 1024, height: 1024 },
-	'bottle-gold': { itemId: 'starter-bottle-gold', url: '/api/media/uploads/starter-bottle-gold.jpg', filename: 'bottle-gold.jpg', width: 1024, height: 1024 }
+	bottle: { itemId: 'starter-bottle', url: '/api/media/uploads/starter-bottle.jpg', filename: 'bottle.jpg', width: 1024, height: 576 },
+	'bottle-gold': { itemId: 'starter-bottle-gold', url: '/api/media/uploads/starter-bottle-gold.jpg', filename: 'bottle-gold.jpg', width: 1024, height: 576 }
 };
 
 export function stableIds(value) {
