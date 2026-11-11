@@ -662,7 +662,15 @@ async def final_plan(
         return _upscale_plan(owner, source, upscalers.resolve_target(target, project.get("doc") or {}, source), upscaler, rtx_source)
     if method == GUIDED:
         return await _guided_plan(owner, project, source)
-    return await _render_plan(owner, project, source, "final")
+    return await _render_plan(owner, project, source, "final", _continued(project, source["shot_id"]))
+
+
+def _continued(project: Mapping[str, Any], shot_id: str) -> Dict[str, chaining.Wait]:
+    doc = project["doc"]
+    clip = director.clip_of(doc, shot_id)
+    if clip is None or not chaining.continues(doc, clip):
+        return {}
+    return chaining.waits(project["id"], doc, [shot_id])
 
 
 async def with_first(owner: User, pairs: List[Tuple[Mapping[str, Any], ShotPlan]]) -> None:
@@ -697,6 +705,7 @@ def create_final(
         minutes=minutes,
         parent_take_id=source["id"],
         revision=director.shot_revision(project["doc"], source["shot_id"]) if method == RENDER else source.get("shot_revision"),
+        chain=chaining.record(_continued(project, source["shot_id"]).get(source["shot_id"]), source.get("variant") or variant_letter(0), [], core_bridge.generate_ulid(), _chain_video(plan)) if plan.chain else None,
     )
 
 

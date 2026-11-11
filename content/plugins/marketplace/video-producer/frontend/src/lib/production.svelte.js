@@ -262,6 +262,12 @@ function baseNoteText(note) {
 	if (code === 'chain_video_short') return t('generation.warn.chainVideoShort', { shot: shotName(data.shot_id), previous: shotName(data.previous), seconds: secs(leastSeconds()) });
 	if (code === 'chain_video_trimmed') return t('generation.warn.chainVideoTrimmed', { shot: shotName(data.shot_id), limit: LIMITS.video });
 	if (code === 'chain_video_rows') return t('generation.warn.chainVideoRows', { shot: shotName(data.shot_id), rows: formatNumber(Number(data.rows) || 0), limit: formatNumber(Number(data.limit) || 0) });
+	if (code === 'chain_continue_unsupported') return t('generation.warn.chainContinueUnsupported', { shot: shotName(data.shot_id) });
+	if (code === 'chain_continue_still') return t('generation.warn.chainContinueStill', { shot: shotName(data.shot_id) });
+	if (code === 'chain_continue_short') return t('generation.warn.chainContinueShort', { shot: shotName(data.shot_id), seconds: secs(leastSeconds()) });
+	if (code === 'chain_continue_last_frame') return t('generation.warn.chainContinueLastFrame', { shot: shotName(data.shot_id) });
+	if (code === 'chain_continue_too_long') return t('generation.warn.chainContinueTooLong', { shot: shotName(data.shot_id), seconds: secs(328 / 24) });
+	if (code === 'chain_continue_sound') return t('generation.warn.chainContinueSound', { shot: shotName(data.shot_id) });
 	if (code === 'vref_rows_high') return t('generation.warn.vrefRowsHigh', { shot: shotName(data.shot_id), rows: formatNumber(Number(data.rows) || 0), limit: formatNumber(Number(data.limit) || 0) });
 	if (code === 'video_ffmpeg_missing') return t('generation.block.videoFfmpeg');
 	if (code === 'video_source_missing') return t('generation.block.videoSource', { shot: shotName(data.shot_id) });

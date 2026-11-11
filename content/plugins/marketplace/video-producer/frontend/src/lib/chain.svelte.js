@@ -7,7 +7,7 @@ import { engineChoices } from './production.svelte.js';
 import { optionFor } from './generation.js';
 import { effectiveEngine } from './engine.js';
 import { frameErrorText, placeSeamFrame, previousShot, seamImage } from './seam.js';
-import { chainOn, chainPlan, chainSource, chainState, chainWaiting, frameAsset, ignoresFirstFrame, placesTakeFrame, resetShotChain, seamChain, setShotChain, shotChained, stillAsset, takeFrameAsset } from './chain.js';
+import { chainByOf, setShotChainBy, chainOn, chainPlan, chainSource, chainState, chainWaiting, frameAsset, ignoresFirstFrame, placesTakeFrame, resetShotChain, seamChain, setShotChain, shotChained, stillAsset, takeFrameAsset } from './chain.js';
 
 export const chainJobs = $state({ shots: [] });
 
@@ -88,6 +88,12 @@ export function setShotChaining(clip, on) {
 	const names = { shot: clipLabel(target), previous: clipLabel(previous) };
 	toast(on ? t('lib.chain.shotOn', names) : t('lib.chain.shotOff', names), 'info', { label: t('shell.toast.undo'), run: undo });
 	if (on && !seamImage(doc, target.id, 'first') && chainSource(doc, previous)) chainFrame(target.id, true);
+}
+
+export function chooseShotChainBy(clip, value) {
+	const target = doc.clips.find((c) => c.id === clip?.id);
+	if (!target || chainByOf(doc, target) === value) return;
+	act(() => setShotChainBy(doc, target, value));
 }
 
 export const toggleShotChaining = (clip) => setShotChaining(clip, !shotChained(doc, clip));

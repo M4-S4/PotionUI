@@ -66,8 +66,12 @@ def first_kind(doc: Mapping[str, Any], shot_id: str) -> Optional[str]:
     return CHAINED if isinstance(frame_of, Mapping) else OWN
 
 
-def continues(doc: Mapping[str, Any], clip: Mapping[str, Any]) -> bool:
+def _references(doc: Mapping[str, Any], clip: Mapping[str, Any]) -> bool:
     return (director.shot_engine(doc, clip["id"]).get("profile") or director.profile_of(doc)) == REF2VA
+
+
+def continues(doc: Mapping[str, Any], clip: Mapping[str, Any]) -> bool:
+    return _references(doc, clip) or director.chain_by(doc, clip) == director.VIDEO_CHAIN
 
 
 def waits(project_id: str, doc: Mapping[str, Any], shot_ids: Sequence[str]) -> Dict[str, Wait]:
@@ -81,7 +85,9 @@ def waits(project_id: str, doc: Mapping[str, Any], shot_ids: Sequence[str]) -> D
             continue
         previous = clips[index - 1]
         opening = first_kind(doc, clip["id"])
-        if not continues(doc, clip) and (opening == OWN or (opening == CHAINED and previous["id"] not in batch)):
+        if opening == OWN and not _references(doc, clip):
+            continue
+        if opening == CHAINED and previous["id"] not in batch and not continues(doc, clip):
             continue
         if previous["id"] in batch:
             found[clip["id"]] = Wait(clip["id"], previous["id"], BATCH)

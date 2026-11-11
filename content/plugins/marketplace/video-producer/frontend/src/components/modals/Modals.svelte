@@ -4,7 +4,7 @@
 	import { ui, doc, act, globalPrompt, itemsIn, productionRange, secs, select, openDirector } from '../../lib/state.svelte.js';
 	import { promptLanguageOf } from '../../lib/starter.js';
 	import { cardWordsOf, setCardWords } from '../../lib/cardwords.js';
-	import { chainOn, ignoresFirstFrame, setChain } from '../../lib/chain.js';
+	import { chainByOf, chainOn, ignoresFirstFrame, setChain, setChainBy } from '../../lib/chain.js';
 	import { engineOptions, optionFor } from '../../lib/generation.js';
 	import { seek } from '../../lib/playback.svelte.js';
 	import { allCommands, pointerShortcuts } from '../../lib/commands.js';
@@ -86,6 +86,11 @@
 		{ id: 'picture', label: t('project.cardWords.picture') }
 	]);
 	const cardWords = $derived(cardWordsOf(doc));
+	const chainBy = $derived(chainByOf(doc));
+	const chainByChoices = $derived([
+		{ id: 'frame', label: t('shell.properties.chainByFrame') },
+		{ id: 'video', label: t('shell.properties.chainByVideo') }
+	]);
 	const cardWordsHelp = $derived(cardWords === 'picture' ? t('project.cardWords.pictureHelp') : cardWords === 'label' ? t('project.cardWords.labelHelp') : t('project.cardWords.cardHelp'));
 	const deliveryText = (resolution) => deliverySize(filmRatio(doc), resolution).join('×');
 
@@ -253,6 +258,13 @@
 					</div>
 					<p class="text-xs text-fg-subtle">{t('shell.properties.chainHelp')}</p>
 					{#if chainOn(doc) && ignoresFirstFrame(projectEngine)}<p class="text-xs text-warning">{t('shell.properties.chainTextOnly', { engine: projectEngine.label })}</p>{/if}
+					{#if chainOn(doc)}
+						<div class="flex items-center justify-between gap-3" data-chain-by={chainBy}>
+							<span class="vp-label">{t('shell.properties.chainBy')}</span>
+							<HostUi name="SegmentedControl" props={{ items: chainByChoices, selected: chainBy, onSelect: (v) => act(() => setChainBy(doc, v)), ariaLabel: t('shell.properties.chainBy'), variant: 'toggle' }} />
+						</div>
+						<p class="text-xs text-fg-subtle">{t('shell.properties.chainByHelp')}</p>
+					{/if}
 				</div>
 			</div>
 		</Modal>

@@ -84,6 +84,13 @@ TAG = re.compile(r"(?P<space>[ \t]*)(?<![0-9A-Za-z_])@vref(?P<slot>[1-9])(?![0-9
 CHAIN_PREFIX = "chain:"
 CHAIN_VIDEO_PREFIX = "chainvideo:"
 
+CONTINUE_MODE = "continue"
+FRAME_CHAIN = "frame"
+VIDEO_CHAIN = "video"
+CHAIN_BY = (FRAME_CHAIN, VIDEO_CHAIN)
+OVERLAP_FRAMES = 17
+MAX_CONTINUE_FRAMES = 328
+
 CONDITION = "condition"
 MUX = "mux"
 IGNORED = "ignored"
@@ -1527,6 +1534,13 @@ def chain_wanted(doc: Mapping[str, Any], clip: Mapping[str, Any]) -> bool:
     return own if isinstance(own, bool) else doc.get("firstFromPrevious") is not False
 
 
+def chain_by(doc: Mapping[str, Any], clip: Mapping[str, Any]) -> str:
+    own = clip.get("chainBy")
+    if own in CHAIN_BY:
+        return own
+    return doc.get("chainBy") if doc.get("chainBy") in CHAIN_BY else FRAME_CHAIN
+
+
 def previous_clip(doc: Mapping[str, Any], shot_id: str) -> Optional[Dict[str, Any]]:
     clips = doc.get("clips") or []
     index = next((i for i, clip in enumerate(clips) if clip.get("id") == shot_id), 0)
@@ -1559,6 +1573,76 @@ def _chain_cut(context: _Context, clip: Mapping[str, Any], ready: Sequence[ShotT
         return None
     size = reception.cut_size(size_ratio(resolution) or aspect_of(doc), models.parse_size(resolution))
     return ChainCut(chain.previous, frames, size)
+
+
+def _fall_back(code: str, reason: str, shot_id: str, warnings: List[Dict[str, Any]]) -> None:
+    _add(warnings, note(code, f"{reason}: the shot starts from the last image of the previous shot.", shot_id=shot_id))
+
+
+def _continue_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict[str, Any]]) -> Optional["ShotPlan"]:
+    preset, doc, shot_id = context.preset, context.doc, clip["id"]
+    chain = context.chained.get(shot_id)
+    if chain is None or chain_by(doc, clip) != VIDEO_CHAIN:
+        return None
+    engine = bible.family(preset.id, preset.cloud)
+    if engine != bible.H3 or CONTINUE_MODE not in preset.modes or context.profile != FL2VA:
+        _fall_back("chain_continue_unsupported", f"{preset.name} cannot continue a video in {context.profile}", shot_id, warnings)
+        return None
+    if chain.asset_id is not None:
+        _fall_back("chain_continue_still", "The previous shot shows a still, not footage", shot_id, warnings)
+        return None
+    previous = previous_clip(doc, shot_id) or {}
+    if float(previous.get("dur") or 0) * formats.speed_of(previous) < reception.least_seconds():
+        _fall_back("chain_continue_short", f"The previous shot lasts less than {reception.least_seconds():.2f} s", shot_id, warnings)
+        return None
+    if shot_frames(doc, shot_id)[1] is not None or keepframing.keeps_framing(clip):
+        _fall_back("chain_continue_last_frame", "A continuation takes no last frame and the shot has one", shot_id, warnings)
+        return None
+    fps = preset.fps
+    wanted = min(_wanted_seconds(clip, preset), float(preset.limits.get("max_duration") or _wanted_seconds(clip, preset)))
+    if math.floor(wanted * fps + 0.5) > MAX_CONTINUE_FRAMES:
+        _fall_back("chain_continue_too_long", f"A continuation adds at most {MAX_CONTINUE_FRAMES / fps:.2f} s", shot_id, warnings)
+        return None
+    if audio_behavior(preset, context.profile) == MUX and (mixed_references(doc, shot_id) or reference_lanes(doc, shot_id, *mux_window(clip, wanted))):
+        _fall_back("chain_continue_sound", "A continuation cannot have the sound of the shot mixed onto it", shot_id, warnings)
+        return None
+    fields = context.mode_fields(CONTINUE_MODE)
+    resolution = _native_size(context, fields, warnings)
+    seconds = _clamped(_wanted_seconds(clip, preset), preset.limits.get("max_duration"), shot_id, warnings)
+    frames = max(OVERLAP_FRAMES, math.floor(seconds * fps + 0.5))
+    prompt, reference = compose_shot(doc, clip, engine)
+    _ignored_tracks(doc, clip, seconds, warnings)
+    _bible_warnings(doc, clip, prompt, engine, warnings, reference)
+    _dialogue_warnings(doc, clip, engine, seconds, warnings, None)
+    form: Dict[str, Any] = {"seed": -1, "frames": frames, "source_video": chain_video_value(chain.previous)}
+    if "resolution" in fields:
+        form["resolution"] = resolution
+    if "quantity" in fields:
+        form["quantity"] = 1
+    request = _request(preset.id, CONTINUE_MODE, prompt, form)
+    resolved = models.resolve_models(preset.id, CONTINUE_MODE, "i2v", fields, (AUDIO_VAE,))
+    request["form_data"].update(resolved.values)
+    chosen = project_options(context, fields, warnings)
+    request["form_data"].update(chosen.values)
+    size = models.parse_size(resolution) or (0, 0)
+    least = reception.video_frames(reception.least_seconds())
+    return ShotPlan(
+        shot_id=shot_id,
+        profile=context.profile,
+        director_mode=CONTINUE_MODE,
+        preset_mode=CONTINUE_MODE,
+        seconds=seconds,
+        resolution=resolution,
+        fps=fps,
+        prompt_text=prompt,
+        request=request,
+        missing_models=[name for name in resolved.missing if name not in chosen.values],
+        seed=chosen.seed,
+        work_scale=engine_options.work_scale(fields, request["form_data"]) * (frames + OVERLAP_FRAMES) / frames,
+        reference=reference,
+        chain=chain.previous,
+        chain_video=ChainCut(chain.previous, least, size, sound=True),
+    )
 
 
 def _text_only(preset: Preset) -> bool:
@@ -1728,6 +1812,9 @@ def _native_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict
     refs = reception.takes_references(context.profile, engine)
     fallback: Optional[Dict[str, Any]] = None
     if not refs:
+        continued = _continue_plan(context, clip, warnings)
+        if continued is not None:
+            return continued
         handed, fallback = _companion_plan(context, clip, warnings)
         if handed is not None:
             return handed

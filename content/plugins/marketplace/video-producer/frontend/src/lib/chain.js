@@ -14,6 +14,24 @@ export function setChain(doc, on) {
 	else doc.firstFromPrevious = false;
 }
 
+export const CHAIN_BY = ['frame', 'video'];
+
+const projectChainBy = (doc) => (CHAIN_BY.includes(doc?.chainBy) ? doc.chainBy : 'frame');
+
+export const chainByOf = (doc, clip = null) => (CHAIN_BY.includes(clip?.chainBy) ? clip.chainBy : projectChainBy(doc));
+
+export function setChainBy(doc, value) {
+	if (!CHAIN_BY.includes(value)) return;
+	if (value === 'frame') delete doc.chainBy;
+	else doc.chainBy = value;
+}
+
+export function setShotChainBy(doc, clip, value) {
+	if (!CHAIN_BY.includes(value)) return;
+	if (value === projectChainBy(doc)) delete clip.chainBy;
+	else clip.chainBy = value;
+}
+
 export const ownChain = (clip) => (typeof clip?.firstFromPrevious === 'boolean' ? clip.firstFromPrevious : null);
 
 export const shotChained = (doc, clip) => ownChain(clip) ?? chainOn(doc);
