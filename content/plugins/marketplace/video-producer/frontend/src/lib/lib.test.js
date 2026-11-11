@@ -547,7 +547,7 @@ test('newAsset: every field of the persisted asset contract, null when it does n
 	assert.notEqual(newAsset().id, newAsset().id);
 });
 
-test('prompt language: a project setting, English by default, that only decides the language of the starter direction, cards and prompts', () => {
+test('prompt language: always English, the interface language only names the starter project, its shots, title and marker', () => {
 	const missing = [];
 	const fr = translator('fr', missing);
 	const en = translator('en', missing);
@@ -562,16 +562,11 @@ test('prompt language: a project setting, English by default, that only decides 
 	assert.match(doc.prompts[0].text, /^Wide establishing shot of the empty workshop/);
 	assert.deepEqual(doc.direction, starterDoc(en, en, 'en').direction);
 	assert.deepEqual([doc.bible.characters[0].text, doc.bible.places[0].label, doc.references[1].name], [en('starter.card.lumi.text'), 'Workshop', 'Potion bottle']);
-	const french = starterDoc(fr, fr, 'fr');
-	assert.match(french.prompts[0].text, /^Plan d’ensemble de l’atelier vide/);
-	assert.match(french.bible.characters[0].text, /^une femme d’une trentaine d’années, à la peau claire/);
-	assert.match(french.bible.characters[0].text, /un vieux chapeau pointu de sorcière en feutre bleu nuit/);
-	assert.equal(french.bible.places[0].label, 'Atelier');
-	assert.equal(french.promptLanguage, 'fr');
+	assert.equal(starterDoc(fr, en, 'fr').promptLanguage, 'en');
 	assert.equal(starterDoc(fr).promptLanguage, 'en');
 	assert.equal(emptyDoc(fr).promptLanguage, 'en');
-	assert.equal(emptyDoc(fr, 'fr').promptLanguage, 'fr');
-	assert.deepEqual(['en', 'fr', 'de', undefined, null].map(promptLanguageOf), ['en', 'fr', 'en', 'en', 'en']);
+	assert.equal(emptyDoc(fr, 'fr').promptLanguage, 'en');
+	assert.deepEqual(['en', 'fr', 'de', undefined, null].map(promptLanguageOf), ['en', 'en', 'en', 'en', 'en']);
 });
 
 test('window layers: Escape closes only the foreground window, a replaced window hands its return focus on', () => {

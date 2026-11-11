@@ -29,9 +29,9 @@ The first time you open the page, it creates a starter project, "Lumi’s potion
 3. **Lumi** casts the character card of Lumi, whose picture is in the References, and the place card of the workshop (chapter 4, The bible).
 4. **From violet to gold** goes from a first image, the violet bottle, to a last image, the same bottle turned to gold (Key frames in the shot panel).
 
-The project also holds a synopsis, the global direction in five fields, a title, a marker named "The magic" and four empty audio tracks. Its three images, Lumi’s portrait, the violet bottle and the golden bottle, come with the plugin and are added to your media when the project is created: they are in the Media panel and in your PotionUI library. If they cannot be added (your storage plan is full, for example), the project opens without them and the page says so; every shot can still be generated from its text. Its name, synopsis, shot names, title and marker are written in the language of the interface; its global direction, cards and shot prompts are written in the prompt language of the project, English by default (chapter 15).
+The project also holds a synopsis, the global direction in five fields, a title, a marker named "The magic" and four empty audio tracks. Its three images, Lumi’s portrait, the violet bottle and the golden bottle, come with the plugin and are added to your media when the project is created: they are in the Media panel and in your PotionUI library. If they cannot be added (your storage plan is full, for example), the project opens without them and the page says so; every shot can still be generated from its text. Its name, synopsis, shot names, title and marker are written in the language of the interface; its global direction, cards and shot prompts are in English, like every prompt (chapter 15).
 
-Every shot of it can be generated with each of the five engines of the plugin; what each engine makes of it differs. Wan 2.1 T2V 1.3B generates every shot from its text: shot 2 does not start from shot 1 and shot 4 does not use its images, and the estimate says so. Wan 2.2 TI2V 5B starts shot 2 from the last image of shot 1 and shot 4 from the violet bottle, but takes no last image, so the potion may not turn to gold; the estimate warns about it. Wan 2.2 14B Lightning hands shots 2 and 4 to its image-to-video preset when your admin has installed it, and otherwise generates them from their text with a warning. MiniMax H3 and MiniMax H3 Fast use the chain and both images. All four shots use the FL2VA profile, which every engine runs; with MiniMax H3 (not Fast) you can set shot 3 to Ref2VA in its shot editor (chapter 4, The shot editor, and chapter 8, Profiles per preset), and Lumi’s picture is then sent to the engine. Try the whole path on it, or start an empty project with **File › New project**. On your next visits the page opens the project you used last (chapter 5).
+Every shot of it can be generated with each of the five engines of the plugin; what each engine makes of it differs. Wan 2.1 T2V 1.3B generates every shot from its text: shot 2 does not start from shot 1 and shot 4 does not use its images, and the estimate says so. Wan 2.2 TI2V 5B starts shot 2 from the last image of shot 1 and shot 4 from the violet bottle, but takes no last image, so the potion may not turn to gold; the estimate warns about it. Wan 2.2 14B Lightning hands shots 2 and 4 to its image-to-video preset when your admin has installed it, and otherwise generates them from their text with a warning; it also renders the workshop brighter than the other engines, close to daylight, although the prompts ask for night. MiniMax H3 and MiniMax H3 Fast use the chain and both images. All four shots use the FL2VA profile, which every engine runs; with MiniMax H3 (not Fast) you can set shot 3 to Ref2VA in its shot editor (chapter 4, The shot editor, and chapter 8, Profiles per preset), and Lumi’s picture is then sent to the engine. Try the whole path on it, or start an empty project with **File › New project**. On your next visits the page opens the project you used last (chapter 5).
 
 ## 2. The path in eight steps
 
@@ -614,7 +614,7 @@ Click **Assistant** in the project bar, choose **Window › PotionUI assistant**
 
 With each message, the page sends the assistant a summary of your project:
 
-- the project: its name, its saved version and its prompt language;
+- the project: its name, its saved version and the prompt language, English;
 - where you are: the workspace, the playhead (and the shot under it), your selection and the range;
 - the synopsis and the global direction: the five fields and the H3 profile;
 - the bible: the visual tag and the words of each card;
@@ -705,7 +705,7 @@ If you had already typed something in the box of the chat, your text stays and t
 - Each change of the assistant is a new version of your project: **File › Version history…** shows it with the word "Assistant". On the page, **Edit › Undo** (Ctrl+Z) takes it back like your own changes, one tool call at a time.
 - If you edit the project while the assistant works, both changes are kept. When you and the assistant changed the same thing (the same name, the same length), your version wins, and the message says so: "Project updated by the assistant; 1 of your edits was kept over its change".
 - A generation, a label in the takes and an export are not in the project: Ctrl+Z does not cancel them. Cancel a take in the queue, and delete an export in the export window.
-- The assistant writes shot prompts in the prompt language of the project (chapter 15) and answers you in your language. It never translates what you wrote. The contradiction checks only read texts in the prompt language.
+- The assistant writes shot prompts in English (chapter 15) and answers you in your language. It never translates what you wrote. The contradiction checks only read texts in English.
 - The list **To check** and the proposal appear once, when the answer arrives. They disappear when you leave the page or open another project, and reopening an old conversation does not bring them back: ask again.
 
 ### If it does not work
@@ -723,7 +723,7 @@ The chat itself is a PotionUI window: its buttons (**Tools**, **New chat**, **Ap
 - **You approved and the chat says "The assistant changed another project, not the one open here."** The answer was for another project than the one you have open now. Open that one, or ask again here.
 - **"The project could not be reloaded. Reopen it to see the assistant’s changes."** The assistant's change is saved, but the page could not reload it: open the project again (**File › Open…**).
 - **The suggestion did not appear in the box.** You had already typed a draft, or your PotionUI cannot fill the box (it then opens it empty). Type or paste the request.
-- **A prompt came out in the wrong language.** The assistant follows the **Prompt language** of the project, in **Project properties…** (chapter 15). Change it, then ask again.
+- **A prompt came out in the wrong language.** Prompts are written in English (chapter 15). Ask again, saying that the prompt must be in English.
 - **The assistant ends with an out-of-memory error, answers in text only or never shows a card.** If your admin connected the model built into PotionUI on a 12 GB graphics card, it can run out of memory or be too small to call the tools. Ask your admin to connect llama.cpp `llama-server`, Ollama or an online provider (chapter 1).
 - **The chat shows "Ollama returned status 400: request (… tokens) exceeds the available context size".** The model is connected through Ollama with its default context, which is too small for the assistant. Ask your admin to set the **Context Size** of the Ollama configuration to 16384.
 - **The assistant waits about ten seconds before every answer, or sometimes ends without a card.** The model thinks before each call, or is loaded again at every turn. Ask your admin to turn its thinking off (**Reasoning Effort** None for an OpenAI configuration, **Thinking Mode** Automatic or Disabled for Ollama) and, for Ollama, to set **Keep Alive**.
@@ -967,25 +967,21 @@ An SRT file built from the titles of the timeline (the title, then its subtitle 
 
 The language of the interface is a setting of each user. Choose it in **Video Producer › Preferences…**, setting **Language** (a two-way switch), or click the language reminder at the left of the status bar, which opens the same window. The change is immediate and is saved for you alone, on the server; if the saving fails, a message says that the language changed for this session only. Until you choose, the page follows the language of your browser, and uses English when your browser's language is not one the page offers.
 
-The **Preferences** window has five other settings: **Prompt language** (see below), **Preview quality** (**Best performance**, **Balanced** or **Best quality**, without effect), **Snapping by default**, **Framing guides** and **Single-key shortcuts** (chapter 16). Except **Prompt language**, which is saved with the project, they apply to the current session and are not saved.
+The **Preferences** window has four other settings: **Preview quality** (**Best performance**, **Balanced** or **Best quality**, without effect), **Snapping by default**, **Framing guides** and **Single-key shortcuts** (chapter 16). They apply to the current session and are not saved.
 
 What is translated: the menus, the windows, the buttons, the tooltips, the messages, the names given to new items (for example a new shot or a new track), the prompt library with its templates, categories and composer choices, and the way numbers and durations are written. What is never translated is the content of your project: your own texts (the synopsis, the global direction, the shot prompts, the names and titles you typed, the project name) and the starter project, which is created once and is not translated afterwards. Product terms such as Director AI, Storyboard, Edit Engine, Control video or FL2VA are the same whatever the language.
 
 ### Prompt language
 
-Each project has its own **Prompt language**, chosen with a two-way switch. It is the language of the texts that are sent to the models, the global direction and the shot prompts, and it does not depend on the language of the interface. It is English by default.
+Every prompt is in English. The texts sent to the models (the global direction, the cards, the shot prompts) and everything the page or the assistant writes for you are in English, whatever the language of the interface. There is no setting for it.
 
-Change it in **Project properties…** (the setting says "Language of the direction and prompts sent to the models. Changing it does not rewrite existing text.") or in **Preferences…** (the setting says "Applies to the current project"). It is saved with the project. A new project always starts in English, whatever the language of the interface or of the project that is open.
+- **The starter project.** Its global direction, its cards, the names of its references and its shot prompts are in English. Its name, synopsis, shot names, title and marker follow the language of the interface.
+- **The prompt library.** The text that the built-in templates insert, their placeholders (the subject, the place and so on) and the default values of those placeholders are in English. The names, descriptions and categories of the templates follow the language of the interface.
+- **The composer.** The **Final prompt** is composed in English. The choices you click keep the language of the interface.
+- **The direction checks.** The checks that read your texts use English rules: the contradictions between the global direction and a shot prompt (for example a direction that excludes neon and a prompt that asks for it). A text written in another language is not checked.
+- **The assistant.** It writes every shot prompt, rewrite and proposed shot in English, and answers you in your own language.
 
-What it changes:
-
-- **The starter project.** Its global direction, its cards, the names of its references and its shot prompts are written in the prompt language, English by default, even when the interface is in another language. Its name, synopsis, shot names, title and marker follow the language of the interface.
-- **The prompt library.** The text that the built-in templates insert, their placeholders (the subject, the place and so on) and the default values of those placeholders are written in the prompt language. The names, descriptions and categories of the templates follow the language of the interface.
-- **The composer.** The **Final prompt** is composed in the prompt language. The choices you click keep the language of the interface.
-- **The direction checks.** The checks that read your texts use the rules of the prompt language: the contradictions between the global direction and a shot prompt (for example a direction that excludes neon and a prompt that asks for it). A text written in another language is not checked.
-- **The assistant.** It writes every shot prompt, rewrite and proposed shot in the prompt language of the project, and answers you in your own language. The contradiction checks it runs use the rules of that language.
-
-What it never changes: nothing you typed is translated, and changing the setting rewrites no existing text. Set the language before you write, or rewrite the texts yourself.
+Nothing you typed is translated: a prompt you write in another language is sent as you wrote it. A project made with an earlier version, whose prompt language was set to French, opens as it is, with its texts; what the page writes for it from then on is in English.
 
 
 ## 16. Keyboard shortcuts
@@ -1123,7 +1119,7 @@ Every button has an accessible name, and an icon button shows its tooltip when i
 | playhead | The current position on the timeline. |
 | range | A part of the timeline between an in point and an out point. |
 | global direction | The text that guides every generation. |
-| prompt language | The language of the global direction and of the shot prompts of a project (chapter 15). |
+| prompt language | The language of the texts sent to the models: always English (chapter 15). |
 | version | A saved state of the project; **Version history…** lists them and restores one. |
 | shot prompt | The text for one shot; it completes the global direction. |
 | motion guide | A video of the **Motion guides** family of references: with the Ref2VA profile, MiniMax-H3 carries its motion over to the shot (chapter 8). |
