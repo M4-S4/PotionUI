@@ -210,6 +210,7 @@ test('starterDoc: shot 1 from its text, shot 2 chained, shot 3 casts the card of
 	assert.deepEqual([doc.bible.characters.length, doc.bible.places.length], [1, 1]);
 	assert.deepEqual([lumi.label, lumi.props], ['Lumi', 'a small glowing violet potion bottle']);
 	assert.match(lumi.text, /^a woman in her thirties, with fair skin and light freckles, amber eyes/);
+	assert.match(lumi.text, /a worn midnight-blue pointed witch's hat of felt with a golden star pin/);
 	assert.equal(workshop.label, 'Workshop');
 	assert.match(workshop.text, /^an old witch's cottage workshop with rough timber beams/);
 	assert.deepEqual(workshop.references, []);
@@ -563,6 +564,7 @@ test('prompt language: a project setting, English by default, that only decides 
 	const french = starterDoc(fr, fr, 'fr');
 	assert.match(french.prompts[0].text, /^Plan d’ensemble de l’atelier vide/);
 	assert.match(french.bible.characters[0].text, /^une femme d’une trentaine d’années, à la peau claire/);
+	assert.match(french.bible.characters[0].text, /un vieux chapeau pointu de sorcière en feutre bleu nuit/);
 	assert.equal(french.bible.places[0].label, 'Atelier');
 	assert.equal(french.promptLanguage, 'fr');
 	assert.equal(starterDoc(fr).promptLanguage, 'en');
