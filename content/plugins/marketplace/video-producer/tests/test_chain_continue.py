@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend import chainvideo, director, estimate, generation, presets, sequence, takes, tracker
+from backend import bible, chainvideo, director, estimate, generation, presets, sequence, takes, tracker
 from backend.estimate import Order
 from backend.projects import DocError, validate_doc
 
@@ -251,6 +251,14 @@ def test_the_final_render_of_a_ref2va_shot_continues_the_placed_take_of_the_prev
     assert plan.chain == "s1" and STAND_IN in plan.request["form_data"]["references"]
     assert take["chain"]["state"] == "waiting" and take["chain"]["video"]["sound"] is False
 
+
+def test_the_starter_project_chains_by_the_last_image_and_keeps_the_words_of_its_cards():
+    doc = json.loads((Path(__file__).resolve().parent / "fixtures" / "starter_lumi.json").read_text(encoding="utf-8"))
+
+    assert "chainBy" not in doc and "cardWords" not in doc
+    assert all("chainBy" not in clip and "cardWords" not in clip for clip in doc["clips"])
+    assert [director.chain_by(doc, clip) for clip in doc["clips"]] == [director.FRAME_CHAIN] * len(doc["clips"])
+    assert [bible.card_words(doc, clip) for clip in doc["clips"]] == [bible.CARD_WORDS] * len(doc["clips"])
 
 @pytest.mark.parametrize("where", ["project", "shot"])
 def test_a_document_may_chain_by_the_last_image_or_by_continuation_and_nothing_else(make_doc, where):

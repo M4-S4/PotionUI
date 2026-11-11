@@ -134,6 +134,25 @@ def test_a_project_saved_before_the_chain_setting_keeps_its_chained_ref2va_shot_
     assert s2["chain"] is None and s2["chain_wait"] is False and s2["generation_id"] is not None
 
 
+def test_the_final_render_of_a_chained_ref2va_shot_of_a_project_saved_before_the_chain_setting_is_the_one_it_was(core, make_project, slots):
+    first = {**SHOTS[0], "assetId": PLACED["id"], "stage": "draft", "take": "t0"}
+    project = _project(core, make_project, chain_by=None, clips=[first, {**SHOTS[1], "stage": "draft"}], assets=[PLACED])
+    unchained = _project(core, make_project, chain_by=None, clips=[first, {**SHOTS[1], "stage": "draft", "firstFromPrevious": False}], assets=[PLACED])
+    user = core.users["user-1"]
+
+    def final(project):
+        source = takes.create_take(
+            {"project_id": project["id"], "shot_id": "s2", "user_id": "user-1", "quality": "draft", "kind": "render", "status": "done", "generation_id": "g-2", "file_id": "f-2", "preset_id": presets.MINIMAX_H3, "seed": 7, "variant": "A", "profile": "Ref2VA"}
+        )
+        plan, _, _ = asyncio.run(generation.final_plan(user, project, source, generation.RENDER, "final"))
+        return plan, generation.create_final(user, project, source, generation.RENDER, plan, presets.MINIMAX_H3, 0.0)
+
+    plan, take = final(project)
+
+    assert plan.request == final(unchained)[0].request
+    assert plan.request["form_data"]["references"] == ["uploads/face.png"]
+    assert (plan.chain, plan.chain_video, take["chain"]) == (None, None, None)
+
 def test_a_ref2va_shot_chained_by_the_last_frame_in_a_project_that_continues_starts_from_its_references(core, make_project, slots):
     project = _project(core, make_project, clips=[SHOTS[0], {**SHOTS[1], "chainBy": "frame"}])
 
