@@ -7,6 +7,7 @@
 	"toast.tooLarge": "The project is too large to be saved.",
 	"toast.reloaded": "Project reloaded: it changed elsewhere",
 	"toast.createFailed": "Could not create the project.",
+	"toast.starterImages": "The starter project opened without its three images: they could not be added to your media.",
 	"toast.openFailed": "Could not open the project.",
 	"toast.deleteFailed": "Could not delete the project.",
 	"toast.deleted": "“{name}” deleted",

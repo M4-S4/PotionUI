@@ -7,6 +7,7 @@
 	"toast.tooLarge": "Le projet est trop volumineux pour être enregistré.",
 	"toast.reloaded": "Projet rechargé : il a été modifié ailleurs",
 	"toast.createFailed": "Impossible de créer le projet.",
+	"toast.starterImages": "Le projet de départ s’est ouvert sans ses trois images : elles n’ont pas pu être ajoutées à vos médias.",
 	"toast.openFailed": "Impossible d’ouvrir le projet.",
 	"toast.deleteFailed": "Impossible de supprimer le projet.",
 	"toast.deleted": "« {name} » supprimé",

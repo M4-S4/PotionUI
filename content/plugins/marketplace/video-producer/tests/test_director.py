@@ -343,15 +343,15 @@ def test_a_text_only_preset_keeps_the_no_first_frame_warning_when_the_shot_has_n
 
 
 @pytest.mark.parametrize(
-    "modes, director_mode, roles",
+    "modes, director_mode, roles, warned",
     [
-        ({"t2v": {}, "i2v": {}}, "i2v", ["first"]),
-        ({"t2v": {}, "i2v": {}, "flf": {}}, "flf", ["first", "last"]),
-        ({"t2v": {}, "i2v": {}, "flf": {}, "director": {"max_segments": 8}}, "flf", ["first", "last"]),
-        ({}, "flf", ["first", "last"]),
+        ({"t2v": {}, "i2v": {}}, "i2v", ["first"], ["last_frame_unsupported"]),
+        ({"t2v": {}, "i2v": {}, "flf": {}}, "flf", ["first", "last"], []),
+        ({"t2v": {}, "i2v": {}, "flf": {}, "director": {"max_segments": 8}}, "flf", ["first", "last"], []),
+        ({}, "flf", ["first", "last"], []),
     ],
 )
-def test_a_preset_that_declares_image_to_video_keeps_binding_the_frames_its_modes_allow(core, make_doc, modes, director_mode, roles):
+def test_a_preset_that_declares_image_to_video_keeps_binding_the_frames_its_modes_allow(core, make_doc, modes, director_mode, roles, warned):
     preset_id = _wan_tier(core, modes=modes)
     frames = [_frame("f1", "a", "first", time=0.1), _frame("f2", "b", "last", time=3.9)]
     doc = make_doc(clips=[SHOT], frames=frames, assets=_images(core))
@@ -363,7 +363,7 @@ def test_a_preset_that_declares_image_to_video_keeps_binding_the_frames_its_mode
     assert plan.director_mode == director_mode and plan.request["form_data"]["video_director"]["mode"] == director_mode
     assert [entry["role"] for entry in media] == roles
     assert plan.request["form_data"]["i2v_high_noise_model"] == "model:id-i2v_high_noise_model-sha"
-    assert plans.warnings == []
+    assert [(warning["code"], warning["data"]["shot_id"]) for warning in plans.warnings] == [(code, "s1") for code in warned]
 
 
 @pytest.mark.parametrize("preset_id, fps", [(presets.WAN21_T2V_1_3B_8GB, 16), (presets.WAN22_TI2V_5B_8GB, 24)])
