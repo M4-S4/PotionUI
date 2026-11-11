@@ -1135,6 +1135,7 @@ def compose_refs(doc: Mapping[str, Any], clip: Mapping[str, Any], sent: Sequence
     language = _language(doc)
     text = REFS_TEXT[language]
     numbers = _subjects(doc, clip, sent)
+    words = bible.card_words(doc, clip)
     definitions: List[str] = []
     retention: List[str] = []
     citations: List[str] = []
@@ -1175,7 +1176,7 @@ def compose_refs(doc: Mapping[str, Any], clip: Mapping[str, Any], sent: Sequence
         shown = bible.listed(item["labels"], language)
         if card is not None:
             defined.add(card.id)
-            definitions.append(bible.definition(card, subject, language, shown=shown))
+            definitions.append(bible.definition(card, subject, language, shown=shown, words=words))
             kept = "character" if card.kind == bible.CHARACTERS else "setting"
         else:
             definitions.append(text[f"define_{item['role']}"].format(subject=subject, label=shown))

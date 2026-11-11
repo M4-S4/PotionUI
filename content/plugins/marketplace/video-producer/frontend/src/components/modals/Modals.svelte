@@ -3,6 +3,7 @@
 	import { getLocale, t } from '../../i18n/index.svelte.js';
 	import { ui, doc, act, globalPrompt, itemsIn, productionRange, secs, select, openDirector } from '../../lib/state.svelte.js';
 	import { promptLanguageOf } from '../../lib/starter.js';
+	import { cardWordsOf, setCardWords } from '../../lib/cardwords.js';
 	import { chainOn, ignoresFirstFrame, setChain } from '../../lib/chain.js';
 	import { engineOptions, optionFor } from '../../lib/generation.js';
 	import { seek } from '../../lib/playback.svelte.js';
@@ -79,10 +80,21 @@
 		if (mode === 'bars') return t('project.framing.barsHelp');
 		return t('project.framing.autoHelp', { loss: percent(CROP_LOSS) });
 	});
+	const cardWordChoices = $derived([
+		{ id: 'card', label: t('project.cardWords.card') },
+		{ id: 'label', label: t('project.cardWords.label') },
+		{ id: 'picture', label: t('project.cardWords.picture') }
+	]);
+	const cardWords = $derived(cardWordsOf(doc));
+	const cardWordsHelp = $derived(cardWords === 'picture' ? t('project.cardWords.pictureHelp') : cardWords === 'label' ? t('project.cardWords.labelHelp') : t('project.cardWords.cardHelp'));
 	const deliveryText = (resolution) => deliverySize(filmRatio(doc), resolution).join('×');
 
 	function setPromptLanguage(id) {
 		if (id !== promptLanguage) act(() => (doc.promptLanguage = id));
+	}
+
+	function chooseCardWords(id) {
+		if (id !== cardWords) act(() => setCardWords(doc, id));
 	}
 </script>
 
@@ -226,6 +238,13 @@
 						<HostUi name="SegmentedControl" props={{ items: languages, selected: promptLanguage, onSelect: setPromptLanguage, ariaLabel: t('project.promptLanguage.label'), variant: 'toggle' }} />
 					</div>
 					<p class="text-xs text-fg-subtle">{t('project.promptLanguage.help')}</p>
+				</div>
+				<div class="space-y-1" data-card-words={cardWords}>
+					<div class="flex items-center justify-between gap-3">
+						<span class="vp-label">{t('project.cardWords.title')}</span>
+						<HostUi name="SegmentedControl" props={{ items: cardWordChoices, selected: cardWords, onSelect: chooseCardWords, ariaLabel: t('project.cardWords.title'), variant: 'toggle' }} />
+					</div>
+					<p class="text-xs text-fg-subtle">{cardWordsHelp}</p>
 				</div>
 				<div class="space-y-1">
 					<div class="flex items-center justify-between gap-3">
