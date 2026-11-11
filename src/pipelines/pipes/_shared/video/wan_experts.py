@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from typing import Any
 import numpy as np
 import torch
@@ -72,14 +71,6 @@ TIMESTEP_SCALE = 1000.0
 _PARK_PINNED_SHARE = 0.6
 
 
-def _holds_resident_weights(dit) -> bool:
-    streamer = getattr(dit, "_streamer", None)
-    plan = getattr(dit, "last_stream_plan", None)
-    if streamer is not None and getattr(streamer, "active", False) and plan is not None:
-        return plan.resident_gb > 0
-    return str(getattr(dit, "device", "cpu")).startswith("cuda")
-
-
 class ExpertRouter:
     def __init__(self, high, low, boundary: float, device: str, riflex: dict | None = None,
                  latents_shape: tuple | None = None) -> None:
@@ -122,32 +113,10 @@ class ExpertRouter:
                          ", ".join(type(m).__name__ for m in evicted), need, reserve, free)
             _release_idle_pool(self.device)
         free = effective_free_vram_gb(self.device) or 0.0
-        budget = max(0.0, free - headroom)
-        logger.info("[WAN PLACEMENT] %s expert %.2fGB: latent %dx%dx%d, activation reserve %.2fGB, "
-                    "weight budget %.2fGB of %.2fGB free", self._expert_label(dit), need,
-                    frames, shape[-2], shape[-1], headroom, budget, free)
-        return budget
+        return max(0.0, free - headroom)
 
     def _expert_label(self, dit) -> str:
         return "low" if dit is self.low and dit is not self.high else "high"
-
-    def _log_placement(self, dit, seconds: float) -> None:
-        streamer = getattr(dit, "_streamer", None)
-        plan = getattr(dit, "last_stream_plan", None)
-        if streamer is not None and getattr(streamer, "active", False) and plan is not None:
-            logger.info("[WAN PLACEMENT] %s expert placed in %.1fs: %.2fGB resident, %.2fGB streamed",
-                        self._expert_label(dit), seconds, plan.resident_gb, plan.streamed_gb)
-        else:
-            logger.info("[WAN PLACEMENT] %s expert placed in %.1fs: fully resident",
-                        self._expert_label(dit), seconds)
-
-    def offload_active(self) -> None:
-        if self.active is None:
-            return
-        held = _holds_resident_weights(self.active)
-        self.active.offload()
-        if held and torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
     def _park_or_offload_active(self, incoming) -> None:
         outgoing = self.active
@@ -208,10 +177,7 @@ class ExpertRouter:
     def __call__(self, x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
         dit = self._select(float(sigma.max()))
         if dit is not self.active:
-            started = time.perf_counter()
             self._place_expert(dit)
-            if self.latents_shape is not None:
-                self._log_placement(dit, time.perf_counter() - started)
         extra = {}
         nag_context = conditioning.get("nag_context")
         if nag_context is not None:
