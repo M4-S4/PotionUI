@@ -239,6 +239,7 @@ def test_the_final_render_of_a_ref2va_shot_continues_the_placed_take_of_the_prev
         references=[{"id": "r-face", "assetId": "face", "space": "identite", "scope": {"type": "global"}}],
         direction={"mode": "Ref2VA"},
     )
+    project["doc"]["chainBy"] = "video"
     source = takes.create_take(
         {"project_id": project["id"], "shot_id": "s2", "user_id": "user-1", "quality": "draft", "kind": "render", "status": "done", "generation_id": "g-2", "file_id": "f-2", "preset_id": presets.MINIMAX_H3, "seed": 7, "variant": "A", "profile": "Ref2VA"}
     )

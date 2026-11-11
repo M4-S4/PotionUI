@@ -9,7 +9,7 @@
 
 	const chain = $derived(seamChainOf(clip));
 	const id = $derived(`vp-chain-${clip?.id}`);
-	const choosable = $derived(Boolean(chain) && !['off', 'textOnly', 'continues', 'continueStill', 'continueLater'].includes(chain.state));
+	const choosable = $derived(Boolean(chain) && !['off', 'textOnly'].includes(chain.state));
 	const by = $derived(chainByOf(doc, clip));
 	const choices = $derived([
 		{ id: 'frame', label: t('shell.properties.chainByFrame') },

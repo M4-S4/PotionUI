@@ -56,10 +56,13 @@ def _parts(clips=SHOTS, mode="Ref2VA", assets=(), references=(REFERENCE,)):
     return {"clips": [dict(clip) for clip in clips], "assets": [FACE, *assets], "references": list(references), "direction": {"mode": mode}}
 
 
-def _project(core, make_project, **options):
+def _project(core, make_project, chain_by="video", **options):
     core.use_h3()
     core.add_media({"kind": "library", "item_id": "lib-face"}, "uploads/face.png", "image")
-    return make_project(**_parts(**options))
+    project = make_project(**_parts(**options))
+    if chain_by is not None:
+        project["doc"]["chainBy"] = chain_by
+    return project
 
 
 def _order(shots, **fields):
@@ -112,6 +115,32 @@ def test_a_chained_ref2va_shot_after_one_of_the_same_order_sends_the_end_of_its_
     assert sections["detailed_description"] == "[Shot 1] The shot continues from the last frame of <Video 1>. <Subject 1> appears in the shot."
     assert plan.rows is not None and plan.track_scale > 1.0
     assert set(evaluation.waits) == {"s2"}
+
+
+def test_a_project_saved_before_the_chain_setting_keeps_its_chained_ref2va_shot_starting_from_its_references_as_before(core, make_project, slots):
+    project = _project(core, make_project, chain_by=None)
+    unchained = _project(core, make_project, chain_by=None, clips=[SHOTS[0], {**SHOTS[1], "firstFromPrevious": False}])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"])
+    plan = _plan(evaluation, "s2")
+    s1, s2 = _start(core, project, ["s1", "s2"])
+
+    assert "chainBy" not in project["doc"]
+    assert plan.request == _plan(_evaluate(core, unchained, ["s1", "s2"]), "s2").request
+    assert plan.request["form_data"]["references"] == ["uploads/face.png"]
+    assert (plan.chain, plan.chain_video) == (None, None)
+    assert "[video continuation]" not in plan.prompt_text
+    assert _codes(evaluation) == [] and evaluation.waits == {}
+    assert s2["chain"] is None and s2["chain_wait"] is False and s2["generation_id"] is not None
+
+
+def test_a_ref2va_shot_chained_by_the_last_frame_in_a_project_that_continues_starts_from_its_references(core, make_project, slots):
+    project = _project(core, make_project, clips=[SHOTS[0], {**SHOTS[1], "chainBy": "frame"}])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"])
+
+    assert _plan(evaluation, "s2").chain_video is None and evaluation.waits == {}
+    assert _plan(evaluation, "s2").request["form_data"]["references"] == ["uploads/face.png"]
 
 
 def test_the_take_of_a_chained_ref2va_shot_waits_then_receives_the_cut_end_of_the_previous_take(core, make_project, ends, slots):
@@ -267,7 +296,7 @@ def test_the_end_of_the_previous_take_is_left_out_when_it_alone_takes_the_shot_p
 
 
 def test_fl2va_still_chains_by_the_last_image(core, make_project, slots):
-    project = _project(core, make_project, mode="FL2VA")
+    project = _project(core, make_project, chain_by=None, mode="FL2VA")
 
     evaluation = _evaluate(core, project, ["s1", "s2"])
     plan = _plan(evaluation, "s2")
@@ -280,7 +309,7 @@ def test_the_prompt_route_shows_the_continuation_a_shot_after_a_placed_take_will
     first = {**SHOTS[0], "assetId": PLACED["id"], "stage": "draft", "take": "t0"}
     project = _project(core, make_project, clips=[first, SHOTS[1]], assets=[PLACED])
 
-    response = client.post(f"/api/plugins/video-producer/projects/{project['id']}/prompts", json={"shots": ["s2"], "preset_id": presets.MINIMAX_H3})
+    response = client.post(f"/api/plugins/video-producer/projects/{project['id']}/prompts", json={"shots": ["s2"], "preset_id": presets.MINIMAX_H3, "doc": project["doc"]})
     (entry,) = response.json()["data"]["prompts"]
 
     assert "[video continuation]" in entry["prompt"]

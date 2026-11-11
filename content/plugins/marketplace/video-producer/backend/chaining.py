@@ -71,7 +71,7 @@ def _references(doc: Mapping[str, Any], clip: Mapping[str, Any]) -> bool:
 
 
 def continues(doc: Mapping[str, Any], clip: Mapping[str, Any]) -> bool:
-    return _references(doc, clip) or director.chain_by(doc, clip) == director.VIDEO_CHAIN
+    return director.chain_by(doc, clip) == director.VIDEO_CHAIN
 
 
 def waits(project_id: str, doc: Mapping[str, Any], shot_ids: Sequence[str]) -> Dict[str, Wait]:
@@ -85,7 +85,7 @@ def waits(project_id: str, doc: Mapping[str, Any], shot_ids: Sequence[str]) -> D
             continue
         previous = clips[index - 1]
         opening = first_kind(doc, clip["id"])
-        if opening == OWN and not _references(doc, clip):
+        if opening == OWN and not (_references(doc, clip) and continues(doc, clip)):
             continue
         if opening == CHAINED and previous["id"] not in batch and not continues(doc, clip):
             continue

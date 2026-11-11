@@ -103,7 +103,7 @@ export function seamChainOf(clip) {
 	if (i <= 0) return null;
 	const engine = effectiveEngine(doc.clips[i], doc);
 	const option = optionFor(engineChoices(), engine);
-	return seamChain(doc, i, takeStore.list, ignoresFirstFrame(option), engine.profile === 'Ref2VA');
+	return seamChain(doc, i, takeStore.list, ignoresFirstFrame(option), engine.profile === 'Ref2VA' && chainByOf(doc, doc.clips[i]) === 'video');
 }
 
 export function waitText(take) {

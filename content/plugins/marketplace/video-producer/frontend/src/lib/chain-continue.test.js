@@ -10,7 +10,7 @@ globalThis.Image = class {
 const { doc, ui, dispose } = await import('./state.svelte.js');
 const { project } = await import('./project.svelte.js');
 const { setTakes } = await import('./takes.svelte.js');
-const { chooseShotChainBy } = await import('./chain.svelte.js');
+const { chooseShotChainBy, seamChainOf } = await import('./chain.svelte.js');
 const { noteText } = await import('./production.svelte.js');
 const { t } = await import('../i18n/index.svelte.js');
 
@@ -59,7 +59,7 @@ test('the project properties offer the chain by continuation while the chain is 
 	ui.modal = null;
 });
 
-test('a chained FL2VA shot chooses how it chains, and the choice follows the project until it sets its own', async () => {
+test('a chained shot chooses how it chains in FL2VA and in Ref2VA, where only the continuation sends the end of the previous take', async () => {
 	project.id = 'p1';
 	doc.direction = { ...(doc.direction ?? {}), mode: 'FL2VA' };
 	doc.clips = [
@@ -73,7 +73,11 @@ test('a chained FL2VA shot chooses how it chains, and the choice follows the pro
 	assert.equal(doc.clips[1].chainBy, 'video');
 	assert.equal((await control()).selected, 'video');
 	doc.direction.mode = 'Ref2VA';
-	assert.equal(await control(), undefined);
+	assert.equal(seamChainOf(doc.clips[1]).state, 'continueLater');
+	assert.equal((await control()).selected, 'video');
+	chooseShotChainBy(doc.clips[1], 'frame');
+	assert.equal(seamChainOf(doc.clips[1]).state, 'later');
+	assert.equal((await control()).selected, 'frame');
 	doc.direction.mode = 'FL2VA';
 	doc.clips[1].firstFromPrevious = false;
 	assert.equal(await control(), undefined);

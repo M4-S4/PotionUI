@@ -1550,7 +1550,7 @@ def previous_clip(doc: Mapping[str, Any], shot_id: str) -> Optional[Dict[str, An
 def _chain_cut(context: _Context, clip: Mapping[str, Any], ready: Sequence[ShotTrack], resolution: Optional[str], warnings: List[Dict[str, Any]]) -> Optional[ChainCut]:
     doc, shot_id = context.doc, clip["id"]
     previous = previous_clip(doc, shot_id)
-    if previous is None or not chain_wanted(doc, clip):
+    if previous is None or not chain_wanted(doc, clip) or chain_by(doc, clip) != VIDEO_CHAIN:
         return None
     own = next((track for track in ready if track.cut is not None and track.cut.role == reception.CONTINUATION), None)
     if own is not None:
