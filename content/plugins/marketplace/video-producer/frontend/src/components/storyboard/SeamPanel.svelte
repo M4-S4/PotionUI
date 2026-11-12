@@ -1,6 +1,6 @@
 <script>
 	import { t } from '../../i18n/index.svelte.js';
-	import { ui, doc, clipLabel } from '../../lib/state.svelte.js';
+	import { doc, clipLabel } from '../../lib/state.svelte.js';
 	import { seam } from '../../lib/continuity.svelte.js';
 	import { openSeam } from '../../lib/band.svelte.js';
 	import ChainSwitch from '../shots/ChainSwitch.svelte';
@@ -9,7 +9,7 @@
 	import Icon from '../Icon.svelte';
 	import { shotNumberAt } from '../../lib/shots.js';
 
-	let { clip, title = true, compare = true, transition = ui.workspace !== 'director' } = $props();
+	let { clip, title = true, compare = true, transition = compare } = $props();
 
 	const index = $derived(doc.clips.findIndex((c) => c.id === clip?.id));
 	const sm = $derived(index > 0 ? seam(index) : null);

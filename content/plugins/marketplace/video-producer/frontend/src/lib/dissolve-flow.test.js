@@ -154,12 +154,9 @@ test('dissolve flow: the cut offers the dissolve, says how much shorter the film
 	assert.match(inspector, /data-seam-transition="b"/);
 });
 
-test('dissolve flow: the cut window of the Storyboard offers the dissolve, the review of Director AI does not', async () => {
+test('dissolve flow: the cut window of the Storyboard grid offers the dissolve, the compact cuts of the band and of the review of Director AI do not', async () => {
 	project();
 	const PANEL = new URL('../components/storyboard/SeamPanel.svelte', import.meta.url).href;
-	ui.workspace = 'storyboard';
-	assert.match(clean(await renderComponent(PANEL, { clip: doc.clips[1], title: false, compare: false })), /data-seam-transition="b"/);
-	ui.workspace = 'director';
+	assert.match(clean(await renderComponent(PANEL, { clip: doc.clips[1] })), /data-seam-transition="b"/);
 	assert.doesNotMatch(clean(await renderComponent(PANEL, { clip: doc.clips[1], title: false, compare: false })), /data-seam-transition/);
-	ui.workspace = 'media';
 });
