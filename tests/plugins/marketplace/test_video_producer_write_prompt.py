@@ -109,7 +109,8 @@ def test_the_core_writes_from_the_plugin_instruction_with_the_guide_of_the_shot_
     assert REFS_GUIDE in text
     assert GUIDE not in text
     assert "he lifts the lantern" in text
-    assert "no section label, no [Shot] marker" in text
+    assert "no section label and no [Shot] marker" in text
+    assert "write no tag in angle brackets at all" in text
     assert len(message.parts) == 3
 
 
