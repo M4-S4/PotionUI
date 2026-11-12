@@ -5,6 +5,8 @@ import { MAKERS, srtCues } from './exchange.js';
 import { EXPORT_ERROR_CODES, currentJob, exchangeFile, exchangePath, finishedNow, isJobActive, jobFilePath, mergeJob, pollDelay, sortJobs, videoFile } from './exports.js';
 import { confirm } from './host.js';
 import { libraryAvailable, openLibrary } from './importer.js';
+import { dropFinish, finishJob, planFinish } from './finishing.svelte.js';
+import { finishFormat } from './finishing.js';
 
 export const exportState = $state({ projectId: null, job: null, jobs: [], loaded: false, starting: false, busy: null });
 
@@ -78,6 +80,8 @@ function settle(job) {
 	if (finishedNow(before, job) && (!shown() || !canShowLibrary())) {
 		toast(t('exports.toast.done', { file: fileOf(job) }), 'success', { label: t('exports.download'), run: () => downloadJob(job) });
 	}
+	if (finishedNow(before, job)) finishJob(job);
+	else if (!isJobActive(job)) dropFinish(job.id);
 	schedule();
 }
 
@@ -99,7 +103,7 @@ export async function listJobs() {
 	schedule();
 }
 
-export async function startVideoExport({ format, resolution, stems = false, ratio = null }) {
+export async function startVideoExport({ format, resolution, stems = false, ratio = null, finish = [] }) {
 	if (exportState.starting || isJobActive(exportState.job)) return;
 	exportState.starting = true;
 	try {
@@ -113,6 +117,7 @@ export async function startVideoExport({ format, resolution, stems = false, rati
 		}
 		exportState.job = result.data;
 		exportState.jobs = mergeJob(exportState.jobs, result.data);
+		if (finishFormat(format)) planFinish(result.data.id, finish, videoFile(doc.name, resolution, format, false, ratio));
 		schedule();
 	} finally {
 		exportState.starting = false;

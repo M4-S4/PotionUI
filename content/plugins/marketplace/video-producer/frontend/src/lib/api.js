@@ -798,6 +798,48 @@ export function normalizeRun(value) {
 
 const runPath = (runId) => `${MEDIA_RUNS}/${encodeURIComponent(runId)}`;
 
+export const MEDIA_TOOLS = '/api/media-tools';
+
+function normalizeToolOption(value) {
+	if (!isObject(value) || typeof value.value !== 'string') return null;
+	return { label: text(value.label) || value.value, value: value.value, group: text(value.group) || null };
+}
+
+function normalizeToolParam(value) {
+	if (!isObject(value) || !text(value.name)) return null;
+	return {
+		name: value.name,
+		type: text(value.type),
+		default: value.default === undefined ? null : value.default,
+		min: number(value.min),
+		max: number(value.max),
+		step: number(value.step),
+		options: list(value.options, normalizeToolOption)
+	};
+}
+
+export function normalizeTool(value) {
+	if (!isObject(value) || !text(value.id)) return null;
+	return { id: value.id, label: text(value.label) || value.id, runnable: value.runnable !== false, params: list(value.params, normalizeToolParam) ?? [] };
+}
+
+export async function coreFile(api, path, filename, save) {
+	if (typeof api?.fetchRawFromApp !== 'function') return failure(0, 'no_api');
+	let response;
+	try {
+		response = await api.fetchRawFromApp(path, { method: 'GET' });
+	} catch (err) {
+		return thrown(err);
+	}
+	if (!response.ok) return { ok: false, error: normalizeError(null, response.status) };
+	try {
+		save(filename, await response.blob());
+	} catch (err) {
+		return thrown(err);
+	}
+	return { ok: true, data: { filename } };
+}
+
 export function createClient(api, save) {
 	return {
 		async me() {
@@ -953,6 +995,12 @@ export function createClient(api, save) {
 		},
 		async cancelMediaRun(runId) {
 			return mapped(await coreJson(api, 'DELETE', runPath(runId)), normalizeRun);
+		},
+		async mediaTools(kind) {
+			return mapped(await coreJson(api, 'GET', `${MEDIA_TOOLS}?kind=${encodeURIComponent(kind)}`), (data) => list(data.tools, normalizeTool));
+		},
+		downloadCore(path, filename) {
+			return coreFile(api, path, filename, save);
 		}
 	};
 }

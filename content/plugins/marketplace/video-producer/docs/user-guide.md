@@ -458,6 +458,10 @@ The export runs on the server, in the background: you can close the window or le
 
 **Previous exports** lists the earlier exports of the project, with a download and a delete button. Your administrator sets a size budget for your exports; when it is full, your oldest exports are deleted to make room.
 
+### Finishing
+
+Under **Sound**, **Finishing** gives a web or social video a last touch with PotionUI's own effects: **Fix colours** (neutral whites and full contrast), a **LUT** your administrator installed, one of your **Looks**, a **Vignette** and **Film grain**. All are off by default: switch on the ones you want and set their strength. **Export** then reads **Export and finish**. When the export is ready, PotionUI encodes the film a second time with the finishing and saves it to your library as a new video. A second card follows the finishing, with **Cancel finishing**; when it is ready it offers **Download finished** and **Show in the library**. The plain export is always kept: if the finishing fails or you cancel it, the window says so and the plain file stays ready to download. The master and the archive are never finished. Your choices are saved with the project.
+
 ### To other software
 
 Three files of the cut, for editing and grading software: **FCPXML** (`.fcpxml`), **OpenTimelineIO** (`.otio`) and **EDL CMX 3600** (`.edl`). They hold the order of the shots, their names and in points, and, for OpenTimelineIO, the audio tracks. They carry no fades, no color settings and no titles.
