@@ -416,3 +416,79 @@ test('dissolve shots: a document whose valid dissolve keys sit on starts end to 
 	ui.picked = [];
 	ui.modal = null;
 });
+
+const { rangeDraw } = await import('./timeline.js');
+
+function drawRange(from, to) {
+	const fire = (type, time) => window.dispatchEvent(Object.assign(new Event(type), { pointerId: 11, clientX: time * ui.pxPerSec, clientY: 0 }));
+	ui.range = null;
+	drag({ button: 0, pointerId: 11, clientX: from * ui.pxPerSec, clientY: 0, stopPropagation() {}, currentTarget: null }, rangeDraw(from, (ev) => ev.clientX / ui.pxPerSec));
+	fire('pointermove', (from + to) / 2);
+	fire('pointermove', to);
+	fire('pointerup', to);
+	return [ui.range.in, ui.range.out];
+}
+
+test('dissolve shots: a range drawn with the mouse snaps to the drawn bounds of the shots, so from edge to edge it keeps one shot', () => {
+	ui.snapping = true;
+	ui.pxPerSec = 34;
+	ui.playhead = 0;
+	const lay3 = (seconds) => {
+		scene([0, 0, 0]);
+		doc.clips = [shot('a', 4), shot('b', 4, { dissolve: seconds }), shot('c', 4)];
+		relayout();
+		ui.playhead = 0;
+	};
+	const drawn = () => [shownSpans(doc.clips)[1].start, shownSpans(doc.clips)[1].end];
+	lay3(0.6);
+	assert.deepEqual(doc.clips.map((c) => c.start), [0, 3.4, 7.4]);
+	assert.ok(Math.abs(drawn()[0] - 3.7) < 1e-9);
+	assert.deepEqual(drawRange(3.7, 7.4), drawn());
+	assert.deepEqual(ids(shotsIn([ui.range.in, ui.range.out])), ['b']);
+	lay3(1);
+	assert.deepEqual(drawRange(3.47, 6.98), drawn());
+	assert.deepEqual(drawn(), [3.5, 7]);
+	assert.deepEqual(ids(jobClips()), ['b']);
+	assert.deepEqual(drawRange(3.5, 7), drawn());
+	lay3(0.4);
+	assert.ok(Math.abs(drawn()[0] - 3.8) < 1e-9);
+	assert.deepEqual(drawRange(3.77, 7.6), drawn());
+	assert.deepEqual(ids(shotsIn([ui.range.in, ui.range.out])), ['b']);
+	assert.deepEqual(drawRange(3.8, 7.6), drawn());
+	scene([0, 0, 0]);
+	ui.playhead = 0;
+	assert.deepEqual(drawRange(3.95, 8.03), [4, 8]);
+	ui.range = null;
+	ui.production.target = 'clip';
+});
+
+test('dissolve shots: on projects drawn at random, a range drawn between two pointers near the drawn edges of a shot keeps that shot alone', () => {
+	scene([0, 0, 0]);
+	ui.snapping = true;
+	const random = seeded(1112);
+	const pick = (list) => list[Math.floor(random() * list.length)];
+	let checked = 0;
+	for (let n = 0; n < 300; n++) {
+		const count = 2 + Math.floor(random() * 7);
+		doc.clips = Array.from({ length: count }, (_, i) => shot(`s${i}`, length(random, pick), i && random() < 0.75 ? { dissolve: pick([0.08, 0.12, 0.4, 0.6, 1, 1.2, 2]) } : {}));
+		relayout();
+		if (!joins(doc.clips).some(Boolean)) continue;
+		ui.pxPerSec = pick([8, 20, 34, 60, 100, 220]);
+		ui.playhead = 0;
+		const tol = 8 / ui.pxPerSec;
+		const spans = shownSpans(doc.clips);
+		doc.clips.forEach((c, i) => {
+			const wide = [i - 1, i, i + 1].every((k) => !spans[k] || spans[k].end - spans[k].start > 2 * tol);
+			if (!wide) return;
+			const near = (edge) => edge + (random() * 2 - 1) * 0.9 * tol;
+			const range = drawRange(near(spans[i].start), near(spans[i].end));
+			checked += 1;
+			assert.deepEqual(range, [spans[i].start, spans[i].end], `${c.id} at ${ui.pxPerSec} px/s of ${JSON.stringify(doc.clips.map((x) => [x.dur, x.dissolve ?? 0]))}`);
+			assert.deepEqual(ids(shotsIn(range)), [c.id]);
+		});
+	}
+	ui.range = null;
+	ui.production.target = 'clip';
+	ui.pxPerSec = 34;
+	assert.ok(checked > 600, `${checked} checked`);
+});

@@ -39,7 +39,7 @@
 	import { speedOf } from '../../lib/cadence.js';
 	import { activityStep } from '../../lib/generation.js';
 	import { seek } from '../../lib/playback.svelte.js';
-	import { drag, cancelDrag, snap, snapMove, rulerStep, rulerTicks, rulerLabel, zoomTo, dragText, trimText, waveform, peakWaveform } from '../../lib/timeline.js';
+	import { drag, cancelDrag, rangeDraw, snap, snapMove, rulerStep, rulerTicks, rulerLabel, zoomTo, dragText, trimText, waveform, peakWaveform } from '../../lib/timeline.js';
 	import { pickMode } from '../../lib/keyboard.js';
 	import { audioPeaks } from '../../lib/sources.svelte.js';
 	import { roleColor, stages, frameRoleLabel } from '../../lib/catalog.js';
@@ -186,17 +186,7 @@
 	}
 
 	function rangeDown(e) {
-		const t0 = snap(timeAt(e.clientX)).t;
-		drag(e, {
-			undoable: false,
-			onMove: (dx, dy, ev) => {
-				const t1 = snap(timeAt(ev.clientX)).t;
-				ui.range = { in: Math.min(t0, t1), out: Math.max(t0, t1) };
-				ui.production.target = 'range';
-				dragText(t('timeline.drag.range', { start: secs(ui.range.in), end: secs(ui.range.out) }));
-			},
-			onClick: () => (ui.range = null)
-		});
+		drag(e, rangeDraw(timeAt(e.clientX), (ev) => timeAt(ev.clientX)));
 	}
 
 	function laneDown(e) {
