@@ -79,21 +79,21 @@ test('finishing dialog: while the catalog loads, and when the core has none of t
 
 test('finishing dialog: a running finishing shows its progress and locks the export; a failed one says the plain export is kept', async () => {
 	finishState.tools = TOOLS;
-	finishState.run = { jobId: 'j1', projectId: 'p1', runId: 'r1', status: 'running', progress: 0.42, item: null, failure: null, message: '', fileName: 'Film_1080p.mp4' };
+	finishState.runs = [{ jobId: 'j1', projectId: 'p1', runId: 'r1', status: 'running', progress: 0.42, item: null, failure: null, message: '', fileName: 'Film_1080p.mp4' }];
 	let html = await renderComponent(MODALS);
 	let text = textOf(html);
 	assert.ok(text.includes('Film_1080p_finished.mp4'));
 	assert.ok(text.includes('42%'));
 	assert.ok(text.includes(t('exports.finish.cancel')));
 	assert.equal(primary(html).disabled, true);
-	finishState.run = { ...finishState.run, status: 'failed', failure: 'busy' };
+	finishState.runs = [{ ...finishState.runs[0], status: 'failed', failure: 'busy' }];
 	text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes(`${t('exports.finish.failure.busy')} ${t('exports.finish.rawKept')}`));
-	finishState.run = { ...finishState.run, status: 'cancelled' };
+	finishState.runs = [{ ...finishState.runs[0], status: 'cancelled' }];
 	setLocale('fr');
 	text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes('Finition annulée. L’export brut reste disponible.'));
-	finishState.run = { ...finishState.run, status: 'done', item: { id: 'i', url: '/u.mp4' } };
+	finishState.runs = [{ ...finishState.runs[0], status: 'done', item: { id: 'i', url: '/u.mp4' } }];
 	text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes('Le film fini est dans votre bibliothèque.'));
 	assert.ok(text.includes('Télécharger le film fini'));
@@ -101,7 +101,7 @@ test('finishing dialog: a running finishing shows its progress and locks the exp
 
 test('finishing dialog: a finishing of another project is not shown', async () => {
 	finishState.tools = TOOLS;
-	finishState.run = { jobId: 'j1', projectId: 'other', runId: 'r1', status: 'running', progress: 0.5, item: null, failure: null, message: '', fileName: 'X.mp4' };
+	finishState.runs = [{ jobId: 'j1', projectId: 'other', runId: 'r1', status: 'running', progress: 0.5, item: null, failure: null, message: '', fileName: 'X.mp4' }];
 	const text = textOf(await renderComponent(MODALS));
 	assert.ok(!text.includes('X_finished.mp4'));
 });

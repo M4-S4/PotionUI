@@ -80,5 +80,6 @@
 	"finish.failure.gone": "Le fichier exporté n’est plus dans la bibliothèque.",
 	"finish.failure.noLibrary": "L’export n’a pas d’élément de bibliothèque à finir.",
 	"finish.failure.failed": "La finition a échoué.",
-	"finish.failure.failedWith": "La finition a échoué : {message}"
+	"finish.failure.failedWith": "La finition a échoué : {message}",
+	"finish.failure.lost": "La page a perdu le fil de la finition. Elle peut encore aboutir dans PotionUI : cherchez le film fini dans votre bibliothèque."
 }

@@ -26,6 +26,8 @@ export const FINISH_EFFECTS = [
 export const FINISH_KEYS = FINISH_EFFECTS.map((effect) => effect.key);
 export const FINISHED_SUFFIX = '_finished';
 export const FINISH_POLL_MS = 1000;
+export const FINISH_READ_TRIES = 5;
+export const MAX_FINISH_RUNS = 8;
 
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 

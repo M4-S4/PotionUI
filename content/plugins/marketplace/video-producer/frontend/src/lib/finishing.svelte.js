@@ -1,12 +1,12 @@
 import { t } from '../i18n/index.svelte.js';
 import { doc, ui, act, toast } from './state.svelte.js';
 import { getClient, project } from './project.svelte.js';
-import { FINISH_POLL_MS, cleanFinishing, effectByKey, finishFailure, finishRequest, finishable, finishedName, finishingOf, settingOf, toolsById } from './finishing.js';
+import { FINISH_POLL_MS, FINISH_READ_TRIES, MAX_FINISH_RUNS, cleanFinishing, effectByKey, finishFailure, finishRequest, finishable, finishedName, finishingOf, settingOf, toolsById } from './finishing.js';
 
-export const finishState = $state({ tools: null, loading: false, run: null });
+export const finishState = $state({ tools: null, loading: false, runs: [] });
 
 const planned = new Map();
-let ticket = 0;
+const controls = new Map();
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -14,7 +14,10 @@ export const finishTiming = { wait: delay };
 
 export const finishTools = () => toolsById(finishState.tools ?? []);
 
-export const finishShown = () => (finishState.run?.projectId === project.id ? finishState.run : null);
+export function finishShown() {
+	for (let i = finishState.runs.length - 1; i >= 0; i--) if (finishState.runs[i].projectId === project.id) return finishState.runs[i];
+	return null;
+}
 
 export async function loadFinishing() {
 	const client = getClient();
@@ -48,8 +51,28 @@ export function dropFinish(jobId) {
 	planned.delete(jobId);
 }
 
-function ended(status, extra = {}) {
-	finishState.run = { ...finishState.run, status, runId: null, ...extra };
+function record(fields) {
+	finishState.runs = [...finishState.runs.filter((run) => run.key !== fields.key), fields].slice(-MAX_FINISH_RUNS);
+	return finishState.runs[finishState.runs.length - 1];
+}
+
+function close(run, control, status, extra = {}) {
+	if (control.stopped) return null;
+	Object.assign(run, { status, ...extra });
+	controls.delete(run.key);
+	if (status === 'done' && (ui.modal?.type !== 'export' || run.projectId !== project.id)) {
+		toast(t('exports.finish.toastDone', { file: finishedName(run.fileName) }), 'success', { label: t('exports.finish.download'), run: () => downloadFinished(run) }, 6000);
+	}
+	return status === 'done' ? run.item : null;
+}
+
+function apply(run, control, data) {
+	run.progress = data.progress;
+	if (data.status === 'failed') return close(run, control, 'failed', { failure: finishFailure(data.error), message: data.error?.message ?? '' });
+	if (data.status === 'cancelled') return close(run, control, 'cancelled');
+	if (data.status !== 'completed') return undefined;
+	const item = data.items.find((x) => x.mediaType === 'video') ?? null;
+	return item ? close(run, control, 'done', { progress: 1, item }) : close(run, control, 'failed', { failure: 'failed' });
 }
 
 export async function finishJob(job, { wait = finishTiming.wait } = {}) {
@@ -57,46 +80,48 @@ export async function finishJob(job, { wait = finishTiming.wait } = {}) {
 	if (!plan || plan.projectId !== project.id) return null;
 	planned.delete(job.id);
 	const client = getClient();
-	const mine = ++ticket;
 	const fileName = !job.stems && job.file?.name ? job.file.name : plan.fileName;
-	finishState.run = { jobId: job.id, projectId: plan.projectId, runId: null, status: 'running', progress: 0, item: null, failure: null, message: '', fileName };
-	if (!finishable(job) || !client) return ended('failed', { failure: 'noLibrary' });
+	const control = { stopped: false };
+	const run = record({ key: job.id, jobId: job.id, projectId: plan.projectId, runId: null, status: 'running', progress: 0, item: null, failure: null, message: '', fileName });
+	controls.set(run.key, control);
+	if (!finishable(job) || !client) return close(run, control, 'failed', { failure: 'noLibrary' });
 	const started = await client.startMediaRun(finishRequest(job.media.itemId, plan.steps));
-	if (mine !== ticket) {
+	if (control.stopped) {
 		if (started.ok) await client.cancelMediaRun(started.data.id);
 		return null;
 	}
-	if (!started.ok) return ended('failed', { failure: finishFailure(started.error), message: started.error?.message ?? '' });
-	finishState.run.runId = started.data.id;
-	while (true) {
+	if (!started.ok) return close(run, control, 'failed', { failure: finishFailure(started.error), message: started.error?.message ?? '' });
+	run.runId = started.data.id;
+	let misses = 0;
+	while (run.status === 'running') {
 		await wait(FINISH_POLL_MS);
-		if (mine !== ticket) return null;
-		const read = await client.mediaRun(started.data.id);
-		if (mine !== ticket) return null;
-		if (!read.ok) return ended('failed', { failure: finishFailure(read.error), message: read.error?.message ?? '' });
-		const run = read.data;
-		finishState.run.progress = run.progress;
-		if (run.status === 'failed') return ended('failed', { failure: finishFailure(run.error), message: run.error?.message ?? '' });
-		if (run.status === 'cancelled') return ended('cancelled');
-		if (run.status === 'completed') {
-			const item = run.items.find((x) => x.mediaType === 'video') ?? null;
-			if (!item) return ended('failed', { failure: 'failed' });
-			ended('done', { progress: 1, item });
-			if (ui.modal?.type !== 'export') toast(t('exports.finish.toastDone', { file: finishedName(fileName) }), 'success', { label: t('exports.finish.download'), run: downloadFinished }, 6000);
-			return item;
+		if (control.stopped || run.status !== 'running') break;
+		const read = await client.mediaRun(run.runId);
+		if (control.stopped || run.status !== 'running') break;
+		if (!read.ok) {
+			misses += 1;
+			if (read.error?.status === 404 || misses >= FINISH_READ_TRIES) return close(run, control, 'failed', { failure: 'lost', message: '' });
+			continue;
 		}
+		misses = 0;
+		const ended = apply(run, control, read.data);
+		if (ended !== undefined) return ended;
 	}
+	return run.status === 'done' ? run.item : null;
 }
 
 export async function cancelFinish() {
-	const runId = finishState.run?.runId;
-	ticket += 1;
-	if (finishState.run?.status === 'running') ended('cancelled');
+	const run = finishShown();
+	if (!run || run.status !== 'running') return;
+	const control = controls.get(run.key);
+	const runId = run.runId;
+	if (control) control.stopped = true;
+	controls.delete(run.key);
+	run.status = 'cancelled';
 	if (runId) await getClient()?.cancelMediaRun(runId);
 }
 
-export async function downloadFinished() {
-	const run = finishState.run;
+export async function downloadFinished(run = finishShown()) {
 	if (run?.status !== 'done' || !run.item) return;
 	const result = await getClient().downloadCore(run.item.url, finishedName(run.fileName));
 	if (!result.ok) return toast(t('exports.finish.downloadFailed'), 'error');
@@ -107,12 +132,18 @@ export function finishFailureText(run) {
 	if (run?.failure === 'busy') return t('exports.finish.failure.busy');
 	if (run?.failure === 'quota') return t('exports.finish.failure.quota');
 	if (run?.failure === 'gone') return t('exports.finish.failure.gone');
+	if (run?.failure === 'lost') return t('exports.finish.failure.lost');
 	if (run?.failure === 'noLibrary') return t('exports.finish.failure.noLibrary');
 	return run?.message ? t('exports.finish.failure.failedWith', { message: run.message }) : t('exports.finish.failure.failed');
 }
 
-export function resetFinishing() {
-	ticket += 1;
+export function disposeFinishing() {
+	for (const control of controls.values()) control.stopped = true;
+	controls.clear();
 	planned.clear();
-	Object.assign(finishState, { tools: null, loading: false, run: null });
+}
+
+export function resetFinishing() {
+	disposeFinishing();
+	Object.assign(finishState, { tools: null, loading: false, runs: [] });
 }

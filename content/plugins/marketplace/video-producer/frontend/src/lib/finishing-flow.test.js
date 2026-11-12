@@ -17,7 +17,7 @@ globalThis.window = { __potionui: { confirm: async () => true, notifications: { 
 const { doc, ui, undo, dispose } = await import('./state.svelte.js');
 const { bindClient, openProject, project } = await import('./project.svelte.js');
 const { exportState, startVideoExport, pollJob, listJobs, cancelJob, resumeExports, disposeExports } = await import('./exports.svelte.js');
-const { finishState, finishTiming, finishJob, cancelFinish, loadFinishing, setFinish, downloadFinished, resetFinishing, finishShown } = await import('./finishing.svelte.js');
+const { finishState, finishTiming, finishJob, cancelFinish, loadFinishing, setFinish, downloadFinished, resetFinishing, finishShown, finishFailureText } = await import('./finishing.svelte.js');
 const { finishSteps, finishingOf, toolsById } = await import('./finishing.js');
 const { normalizeTool } = await import('./api.js');
 const { emptyDoc, newClip } = await import('./starter.js');
@@ -131,7 +131,7 @@ const stepsNow = () => finishSteps(finishingOf(doc), toolsById(finishState.tools
 const runs = () => server.calls.filter(([kind]) => kind === 'run');
 
 async function drain() {
-	for (let i = 0; i < 100 && finishState.run?.status === 'running'; i++) await settle();
+	for (let i = 0; i < 100 && finishState.runs.some((run) => run.status === 'running'); i++) await settle();
 }
 
 async function exportAndFinish(format = 'web') {
@@ -144,7 +144,7 @@ async function exportAndFinish(format = 'web') {
 
 beforeEach(() => {
 	setLocale('en');
-	finishTiming.wait = async () => {};
+	finishTiming.wait = () => settle();
 	ui.modal = null;
 });
 
@@ -278,11 +278,67 @@ test('finishing flow: cancelling the finishing cancels the core run and keeps th
 	finishTiming.wait = async () => {
 		reads += 1;
 		if (reads === 2) await cancelFinish();
+		await settle();
 	};
 	await exportAndFinish();
 	assert.equal(finishShown().status, 'cancelled');
 	assert.ok(server.calls.some(([kind, id]) => kind === 'cancel' && id === 'run1'));
 	assert.equal(exportState.job.status, 'done');
+});
+
+test('finishing flow: a read that fails once is tried again, and the finishing still ends', async () => {
+	await open({ finishing: { grain: { on: true } }, reads: [{ status: 'running', progress: 0.2 }, { fail: { status: 0, code: 'network_error', message: 'offline' } }, { status: 'running', progress: 0.7 }] });
+	await exportAndFinish();
+	assert.equal(finishShown().status, 'done');
+	assert.equal(server.calls.filter(([kind]) => kind === 'read').length, 4);
+});
+
+test('finishing flow: a run PotionUI no longer knows, or reads failing again and again, say the page lost track of it', async () => {
+	await open({ finishing: { grain: { on: true } }, reads: [{ fail: { status: 404, code: 'not_found', message: 'Run not found' } }] });
+	await exportAndFinish();
+	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'lost']);
+	assert.equal(finishFailureText(finishShown()), 'The page lost track of the finishing. It may still end in PotionUI: look for the finished film in your library.');
+	const offline = { fail: { status: 0, code: 'network_error', message: '' } };
+	await open({ finishing: { grain: { on: true } }, reads: [offline, offline, offline, offline, offline] });
+	await exportAndFinish();
+	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'lost']);
+	assert.equal(server.calls.filter(([kind]) => kind === 'read').length, 5);
+});
+
+test('finishing flow: a finishing in a second project leaves the first one running to its end', async () => {
+	let held = true;
+	await open({ exportEnds: 'done', finishing: { grain: { on: true } }, reads: (id) => (id === 'run1' && held ? [{ status: 'running', progress: 0.5 }] : []) });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	await settle();
+	await openProject('p2');
+	await resumeExports();
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	for (let i = 0; i < 20; i++) await settle();
+	assert.equal(finishShown().status, 'done');
+	assert.equal(finishShown().projectId, 'p2');
+	held = false;
+	await drain();
+	const first = finishState.runs.find((run) => run.projectId === 'p1');
+	assert.equal(first.status, 'done');
+	assert.equal(server.calls.some(([kind]) => kind === 'cancel'), false);
+	assert.deepEqual(runs().map(([, body]) => body.inputs[0].item_id), ['item-raw-p1', 'item-raw-p2']);
+	assert.ok(ui.toasts.some((x) => x.message === 'Finished film ready: Film_720p_finished.mp4'));
+});
+
+test('finishing flow: closing the page stops following a finishing, with no read and no message after', async () => {
+	await open({ finishing: { grain: { on: true } }, reads: () => [{ status: 'running', progress: 0.4 }] });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	for (let i = 0; i < 5; i++) await settle();
+	const toasts = ui.toasts.length;
+	disposeExports();
+	const reads = server.calls.filter(([kind]) => kind === 'read').length;
+	for (let i = 0; i < 10; i++) await settle();
+	assert.equal(server.calls.filter(([kind]) => kind === 'read').length, reads);
+	assert.equal(ui.toasts.length, toasts);
+	assert.equal(finishShown().status, 'running');
 });
 
 test('finishing flow: the choices are kept in the project, one undo step each, and a project without them stays as it was', async () => {

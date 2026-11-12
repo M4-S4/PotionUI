@@ -5,7 +5,7 @@ import { MAKERS, srtCues } from './exchange.js';
 import { EXPORT_ERROR_CODES, currentJob, exchangeFile, exchangePath, finishedNow, isJobActive, jobFilePath, mergeJob, pollDelay, sortJobs, videoFile } from './exports.js';
 import { confirm } from './host.js';
 import { libraryAvailable, openLibrary } from './importer.js';
-import { dropFinish, finishJob, planFinish } from './finishing.svelte.js';
+import { disposeFinishing, dropFinish, finishJob, planFinish } from './finishing.svelte.js';
 import { finishFormat } from './finishing.js';
 
 export const exportState = $state({ projectId: null, job: null, jobs: [], loaded: false, starting: false, busy: null });
@@ -219,4 +219,5 @@ export function disposeExports() {
 	watching = false;
 	live = false;
 	stopPolling();
+	disposeFinishing();
 }
