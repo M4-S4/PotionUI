@@ -17,7 +17,8 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, chained, dissolveOf, indexAt, layout, mixAt, newlyLimited, splitKeepsDissolves, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, dissolveBefore, dissolveOf, holderAt, indexAt, layout, mixAt, newlyLimited, splitKeepsDissolves, startingAt } from './dissolve.js';
+import { roleKind } from './seam.js';
 
 export { newAsset, newClip };
 
@@ -316,11 +317,21 @@ export const startOf = (item) => ('time' in item ? item.time : item.start);
 export function clipAt(time) {
 	return doc.clips[indexAt(doc.clips, time)] ?? null;
 }
-export function shotIdAt(time) {
-	return doc.clips[startingAt(doc.clips, time)]?.id ?? null;
+export function entryTime(clip) {
+	const i = doc.clips.findIndex((c) => c.id === clip?.id);
+	const head = i > 0 && chained(doc.clips) ? dissolveBefore(doc.clips, i) : 0;
+	return head > 0 ? +(doc.clips[i].start + head).toFixed(6) : clip.start + 0.01;
+}
+export function playsAlone(clip, time) {
+	return clipAt(time)?.id === clip?.id && !mixAt(doc.clips, time);
+}
+export function shotIdAt(time, role) {
+	const kind = role === undefined || !chained(doc.clips) ? null : roleKind(role);
+	const held = kind ? holderAt(doc.clips, time, kind) : -1;
+	return doc.clips[held >= 0 ? held : startingAt(doc.clips, time)]?.id ?? null;
 }
 export function relink(item) {
-	item.shotId = shotIdAt(startOf(item));
+	item.shotId = shotIdAt(startOf(item), item.role);
 }
 
 function linkedTo(shotId) {

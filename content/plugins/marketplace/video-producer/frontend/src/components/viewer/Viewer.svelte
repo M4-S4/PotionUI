@@ -35,6 +35,7 @@
 	const time = $derived(ui.playhead);
 	const mix = $derived(mixAt(doc.clips, time));
 	const clip = $derived(mix ? mix.from : clipAt(time));
+	const under = $derived(clipAt(time));
 	const a = $derived(clip ? asset(clip.assetId) : null);
 	const opacity = $derived(clip ? fadeOpacity(unfaded(doc.clips, doc.clips.indexOf(clip)), time) : 1);
 	let lastMix = $state(null);
@@ -49,7 +50,7 @@
 	const previewAsset = $derived(!player && ui.preview?.kind === 'asset' ? asset(ui.preview.id) : null);
 	const previewResult = $derived(!player && ui.preview?.kind === 'result' ? findTake(ui.preview.id) : null);
 	const compareRes = $derived(!player && ui.compare ? ui.compare.map((id) => findTake(id)).filter(Boolean) : []);
-	const localPrompt = $derived(clip ? promptOf(clip) : null);
+	const localPrompt = $derived(under ? promptOf(under) : null);
 	const mode = $derived(compareRes.length === 2 ? 'compare' : previewResult ? 'result' : previewAsset ? 'asset' : 'sequence');
 	const bare = $derived(mode === 'sequence' && !(clip && a));
 	const previewThumb = $derived(previewAsset ? assetThumb(previewAsset) : null);
@@ -294,8 +295,8 @@
 				props={{ icon: hostIconName(ui.muted ? 'volume-x' : 'volume'), label: ui.muted ? t('viewer.unmute') : t('viewer.mute'), size: 'sm', class: 'vp-h7 shrink-0', tooltip: t('viewer.monitor'), onclick: () => (ui.muted = !ui.muted) }}
 			/>
 			{#if sideW >= 136}<input class="vp-slider w-24 shrink-0" type="range" min="0" max="1" step="0.01" bind:value={ui.monitorVol} aria-label={t('viewer.monitor')} />{/if}
-			{#if player && clip}
-				<span class="ml-1 min-w-0 truncate text-sm text-fg-muted">{t('viewer.shot', { index: doc.clips.indexOf(clip) + 1, count: doc.clips.length, name: clipLabel(clip) })}</span>
+			{#if player && under}
+				<span class="ml-1 min-w-0 truncate text-sm text-fg-muted">{t('viewer.shot', { index: doc.clips.indexOf(under) + 1, count: doc.clips.length, name: clipLabel(under) })}</span>
 			{/if}
 		</div>
 		<div class="flex items-center gap-1">

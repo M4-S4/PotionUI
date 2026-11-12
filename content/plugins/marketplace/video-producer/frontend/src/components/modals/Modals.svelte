@@ -1,7 +1,8 @@
 <script>
 	import HostUi from '../../../../../../sdk/HostUi.svelte';
 	import { getLocale, t } from '../../i18n/index.svelte.js';
-	import { ui, doc, act, globalPrompt, itemsIn, productionRange, secs, select, openDirector } from '../../lib/state.svelte.js';
+	import { ui, doc, act, globalPrompt, productionRange, secs, select, openDirector } from '../../lib/state.svelte.js';
+	import { productionItems } from '../../lib/production.svelte.js';
 	import { cardWordsOf, setCardWords } from '../../lib/cardwords.js';
 	import { chainByOf, chainOn, ignoresFirstFrame, setChain, setChainBy } from '../../lib/chain.js';
 	import { engineOptions, optionFor } from '../../lib/generation.js';
@@ -38,7 +39,7 @@
 	const recap = $derived.by(() => {
 		if (m?.type !== 'recap') return null;
 		const range = productionRange();
-		const it = itemsIn(range);
+		const it = productionItems(range);
 		return { range, it, local: it.prompts.map((p) => p.text) };
 	});
 

@@ -10,6 +10,7 @@ import { speedOf } from './cadence.js';
 import { effectiveEngine, projectQuality, shotEngineOf } from './engine.js';
 import { CONDITION, audioBehavior, shotSound } from './sound.js';
 import { fieldTitle, presetFields } from './options.js';
+import { chained } from './dissolve.js';
 import { prioritized } from './queue.js';
 import { laneTitle } from './tracks.js';
 import { clearRemoved, isRemoved, pruneRemoved } from './removedtakes.js';
@@ -314,6 +315,13 @@ function clipsRange(clips) {
 	return [Math.min(...clips.map((c) => c.start)), Math.max(...clips.map((c) => c.start + c.dur))];
 }
 
+export function productionItems(range = productionRange(), opts = {}) {
+	const picked = opts.clips?.length ? [] : pickedClips();
+	if (picked.length) return itemsOf(picked);
+	const own = chained(doc.clips) ? (opts.clips?.length ? opts.clips : ui.production.target === 'clip' ? jobClips(range) : null) : null;
+	return own ? itemsOf(own) : itemsIn(range);
+}
+
 export function jobClips(range = productionRange()) {
 	const picked = pickedClips();
 	if (picked.length) return picked;
@@ -415,7 +423,7 @@ export function scheduleEstimate(request) {
 export function readiness(opts = {}) {
 	const picked = opts.clips?.length ? [] : pickedClips();
 	const range = opts.clips?.length ? clipsRange(opts.clips) : picked.length ? clipsRange(picked) : productionRange();
-	const items = picked.length ? itemsOf(picked) : itemsIn(range);
+	const items = productionItems(range, opts);
 	const missing = [];
 	const reasons = [];
 	const warnings = [];

@@ -28,7 +28,8 @@ import {
 	pickAll,
 	clearPicked,
 	relayout,
-	sayLimited
+	sayLimited,
+	entryTime
 } from './state.svelte.js';
 import { dissolveOf, playedLengths } from './dissolve.js';
 import { compareSeam, cycleTake, labelPreviewed, nudgeDuration, pickShot, previewed, selectedShot, shiftShot, stepShot as bandStep } from './band.svelte.js';
@@ -414,7 +415,7 @@ function escape() {
 function goToShot(next) {
 	if (!next) return;
 	select('clip', next.id);
-	seek(next.start + 0.01);
+	seek(entryTime(next));
 }
 
 function stepShot(delta) {

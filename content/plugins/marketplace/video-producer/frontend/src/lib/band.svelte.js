@@ -1,5 +1,5 @@
 import { t } from '../i18n/index.svelte.js';
-import { ui, doc, act, relayout, select, moveClip, promptOf, toast, clipLabel, secs, openDirector, clipAt } from './state.svelte.js';
+import { ui, doc, act, relayout, select, moveClip, promptOf, toast, clipLabel, secs, openDirector, clipAt, entryTime } from './state.svelte.js';
 import { takesOf, findTake, shotDurationLimit, settleRelease, labelTake } from './production.svelte.js';
 import { applyShotDraft, shotDraft, shotStale } from './shots.js';
 import { identityTakes, seam } from './continuity.svelte.js';
@@ -21,7 +21,7 @@ export function pickShot(clip, seekTo = true) {
 	if (shown && shown.shotId !== clip.id) ui.preview = null;
 	if (ui.seamCompare && ui.seamCompare !== clip.id) ui.seamCompare = null;
 	select('clip', clip.id);
-	if (seekTo) seek(clip.start + 0.01);
+	if (seekTo) seek(entryTime(clip));
 }
 
 export function stepShot(delta) {

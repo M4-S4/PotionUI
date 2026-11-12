@@ -169,6 +169,12 @@ export function indexAt(clips, time) {
 	return spans(clips).findIndex((span) => time >= span.start && time < span.start + span.dur);
 }
 
+export function holderAt(clips, time, kind) {
+	const inside = (clips ?? []).flatMap((clip, i) => (time >= finite(clip.start) - EPSILON && time <= finite(clip.start) + finite(clip.dur) + EPSILON ? [i] : []));
+	if (!inside.length) return -1;
+	return kind === 'last' ? inside[0] : inside.at(-1);
+}
+
 export function startingAt(clips, time) {
 	if (!dissolving(clips)) return indexAt(clips, time);
 	const places = placement(clips);
