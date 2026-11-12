@@ -78,6 +78,7 @@
 	const pps = $derived(ui.pxPerSec);
 	const tracks = $derived(videoTracksOf(doc));
 	const spans = $derived(shownSpans(doc.clips));
+	const dissolves = $derived(chained(doc.clips));
 	const shots = $derived(tracks.length ? doc.clips.map((c) => shotReceptionFor(c)) : []);
 	const total = $derived(Math.max(seqDuration(), ...(doc.vrefItems ?? []).map((item) => item.start + item.dur)));
 	const contentW = $derived(Math.max(viewW - HEAD, (total + 8) * pps));
@@ -791,6 +792,7 @@
 	{@const activity = shotActivity(c.id)}
 	{@const waiting = activity.state === 'running' && !activity.running ? shotWaitText(c.id) : ''}
 	{@const ownEngine = shotEngineText(c)}
+	{@const reach = dissolves ? `${Math.min(16, Math.max(w / 2 - 8, 0))}px` : null}
 	<div
 		class="vp-touch-none group absolute bottom-1 top-1 overflow-hidden rounded border {sel || picked ? 'z-10 border-signal ring-1 ring-signal' : 'border-black/40'} {reorder?.id === c.id ? 'opacity-60' : ''}"
 		style:left="{x(span.start)}px"
@@ -851,6 +853,7 @@
 			type="button"
 			tabindex="-1"
 			class="vp-hit vp-edge-start absolute inset-y-0 left-0 z-20 w-2 cursor-ew-resize hover:bg-warning {sel ? 'bg-warning/70' : ''}"
+			style:--vp-reach={reach}
 			aria-label={t('timeline.trim.start')}
 			title={t('timeline.trim.start')}
 			onpointerdown={(e) => clipTrim(e, c, 'start')}
@@ -859,6 +862,7 @@
 			type="button"
 			tabindex="-1"
 			class="vp-hit vp-edge-end absolute inset-y-0 right-0 z-20 w-2 cursor-ew-resize hover:bg-warning {sel ? 'bg-warning/70' : ''}"
+			style:--vp-reach={reach}
 			aria-label={t('timeline.trim.end')}
 			title={t('timeline.trim.end')}
 			onpointerdown={(e) => clipTrim(e, c, 'end')}

@@ -655,3 +655,15 @@ test('dissolve flow: a trim that shortens a shot below twice its dissolve plays 
 		assert.equal(said.length + ui.toasts.length, toasts, name);
 	}
 });
+
+test('dissolve flow: in a project that dissolves, the trim handles of a narrow shot share it in halves, and a project without dissolve keeps its handles as they were', async () => {
+	const reaches = (html) => [...html.matchAll(/--vp-reach: ([\d.]+)px/g)].map((m) => +(+m[1]).toFixed(3));
+	project();
+	doc.clips[1].dur = 4;
+	ui.pxPerSec = 8;
+	assert.deepEqual(reaches(clean(await renderComponent(TIMELINE))), []);
+	dissolveB(0.4);
+	assert.deepEqual(reaches(clean(await renderComponent(TIMELINE))), [0, 0, 7.2, 7.2, 0, 0]);
+	ui.pxPerSec = 34;
+	assert.deepEqual(reaches(clean(await renderComponent(TIMELINE))), [16, 16, 16, 16, 9, 9]);
+});
