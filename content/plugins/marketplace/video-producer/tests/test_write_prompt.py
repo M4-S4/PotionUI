@@ -823,6 +823,28 @@ def test_a_frame_past_the_pixel_bound_is_left_out_without_being_decoded(core, mo
     assert loads == []
 
 
+def test_a_small_frame_past_the_pixel_bound_is_left_out_without_being_decoded(core, monkeypatch, export_storage):
+    from PIL import Image, ImageFile
+
+    width, height = 8000, 6000
+    assert width * height > prompt_writer.MAX_PIXELS
+    source = export_storage / "uploads" / "flat.png"
+    source.parent.mkdir(parents=True)
+    Image.new("1", (width, height)).save(source, "PNG")
+    assert source.stat().st_size <= prompt_writer.MAX_IMAGE_BYTES
+    loads = []
+    image_load = Image.Image.load
+    file_load = ImageFile.ImageFile.load
+    monkeypatch.setattr(Image.Image, "load", lambda self, *args: loads.append(self.size) or image_load(self, *args))
+    monkeypatch.setattr(ImageFile.ImageFile, "load", lambda self, *args: loads.append(self.size) or file_load(self, *args))
+    user = core.users["user-1"]
+
+    sent, dropped = prompt_writer.fitted(user, [{"value": "uploads/flat.png", "media_type": "image", "role": "first"}], export_storage / "work")
+
+    assert (sent, dropped) == ([], 1)
+    assert loads == []
+
+
 def test_a_large_jpeg_frame_is_decoded_reduced(tmp_path, monkeypatch):
     import os
 

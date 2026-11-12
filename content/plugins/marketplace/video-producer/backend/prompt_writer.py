@@ -205,12 +205,16 @@ def _flattened(picture: Any) -> Any:
     return picture.convert("RGB")
 
 
+def _within(image: Any) -> None:
+    if image.width * image.height > MAX_PIXELS:
+        raise ValueError(f"{image.width}x{image.height} is past {MAX_PIXELS} pixels")
+
+
 def _shrunk(source: Path, target: Path) -> None:
     from PIL import Image, ImageOps
 
     with Image.open(source) as image:
-        if image.width * image.height > MAX_PIXELS:
-            raise ValueError(f"{image.width}x{image.height} is past {MAX_PIXELS} pixels")
+        _within(image)
         image.draft("RGB", (IMAGE_EDGE, IMAGE_EDGE))
         image.thumbnail((IMAGE_EDGE, IMAGE_EDGE))
         picture = _flattened(ImageOps.exif_transpose(image))
@@ -230,6 +234,7 @@ def readable(source: Path) -> bool:
 
     try:
         with Image.open(source) as image:
+            _within(image)
             image.draft("RGB", (IMAGE_EDGE, IMAGE_EDGE))
             image.load()
     except Exception:
