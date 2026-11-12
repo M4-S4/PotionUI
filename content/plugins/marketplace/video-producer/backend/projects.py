@@ -240,7 +240,7 @@ CLIP = _object(
         "chainBy": _enum("frame", "video"),
         "keepFraming": FLAG,
         "speed": _enum(*formats.SLOW_SPEEDS),
-        dissolve.KEY: {"type": "number", "minimum": 0, "maximum": dissolve.MAX_DISSOLVE},
+        dissolve.KEY: {"anyOf": [{"type": "number", "enum": [0]}, {"type": "number", "minimum": dissolve.MIN_DISSOLVE, "maximum": dissolve.MAX_DISSOLVE}]},
     },
 )
 
