@@ -82,5 +82,7 @@
 	"finish.failure.failedWith": "La finition a échoué : {message}",
 	"finish.failure.lost": "La page a perdu le fil de la finition. Elle peut encore aboutir dans PotionUI : cherchez le film fini dans votre bibliothèque.",
 	"finish.cancelling": "Annulation…",
-	"finish.cancelFailed": "Impossible d’annuler la finition : elle continue."
+	"finish.cancelFailed": "Impossible d’annuler la finition : elle continue.",
+	"finish.toolsFailed": "Impossible de lire les effets de PotionUI.",
+	"finish.retry": "Réessayer"
 }

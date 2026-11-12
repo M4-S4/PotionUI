@@ -82,5 +82,7 @@
 	"finish.failure.failedWith": "The finishing failed: {message}",
 	"finish.failure.lost": "The page lost track of the finishing. It may still end in PotionUI: look for the finished film in your library.",
 	"finish.cancelling": "Cancelling…",
-	"finish.cancelFailed": "Could not cancel the finishing: it goes on."
+	"finish.cancelFailed": "Could not cancel the finishing: it goes on.",
+	"finish.toolsFailed": "Could not read the PotionUI effects.",
+	"finish.retry": "Try again"
 }

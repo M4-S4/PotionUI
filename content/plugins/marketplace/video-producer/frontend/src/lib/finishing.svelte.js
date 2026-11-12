@@ -3,7 +3,7 @@ import { doc, ui, act, toast } from './state.svelte.js';
 import { getClient, project } from './project.svelte.js';
 import { FINISH_POLL_MS, FINISH_READ_TRIES, MAX_FINISH_RUNS, cleanFinishing, effectByKey, finishFailure, finishRequest, finishable, finishedName, finishingOf, settingOf, toolsById } from './finishing.js';
 
-export const finishState = $state({ tools: null, loading: false, runs: [] });
+export const finishState = $state({ tools: null, loading: false, toolsFailed: false, runs: [] });
 
 const planned = new Map();
 const controls = new Map();
@@ -21,11 +21,12 @@ export function finishShown() {
 
 export async function loadFinishing() {
 	const client = getClient();
-	if (!client || finishState.loading || finishState.tools) return;
+	if (!client || finishState.loading) return;
 	finishState.loading = true;
 	const result = await client.mediaTools('video');
 	finishState.loading = false;
-	finishState.tools = result.ok ? result.data : [];
+	if (result.ok) Object.assign(finishState, { tools: result.data, toolsFailed: false });
+	else finishState.toolsFailed = true;
 }
 
 export function setFinish(key, patch) {
@@ -158,5 +159,5 @@ export function disposeFinishing() {
 
 export function resetFinishing() {
 	disposeFinishing();
-	Object.assign(finishState, { tools: null, loading: false, runs: [] });
+	Object.assign(finishState, { tools: null, loading: false, toolsFailed: false, runs: [] });
 }

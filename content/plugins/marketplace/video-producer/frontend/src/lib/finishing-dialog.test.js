@@ -71,6 +71,12 @@ test('finishing dialog: a switched-on effect shows its settings, the second enco
 test('finishing dialog: while the catalog loads, and when the core has none of the effects, it says so', async () => {
 	let text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes(t('exports.finish.loading')));
+	finishState.toolsFailed = true;
+	const failedHtml = await renderComponent(MODALS);
+	assert.ok(textOf(failedHtml).includes(t('exports.finish.toolsFailed')));
+	assert.match(failedHtml, /data-finish-tools="failed"/);
+	assert.ok(textOf(failedHtml).includes(t('exports.finish.retry')));
+	finishState.toolsFailed = false;
 	finishState.tools = [];
 	text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes(t('exports.finish.unavailable')));

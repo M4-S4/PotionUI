@@ -263,6 +263,11 @@
 				<div id="vp-export-finish" class="vp-section-title">{t('exports.finish.title')}</div>
 				{#if !finishOn}
 					<p class="text-xs text-fg-subtle">{t('exports.finish.excluded')}</p>
+				{:else if finishState.tools === null && finishState.toolsFailed && !finishState.loading}
+					<p class="flex items-center gap-2 text-xs text-fg-subtle" data-finish-tools="failed">
+						<span class="min-w-0 flex-1">{t('exports.finish.toolsFailed')}</span>
+						<HostUi name="Button" props={{ variant: 'ghost', size: 'xs', onclick: loadFinishing }}>{t('exports.finish.retry')}</HostUi>
+					</p>
 				{:else if finishState.tools === null}
 					<p class="text-xs text-fg-subtle">{t('exports.finish.loading')}</p>
 				{:else if finishRows.every((row) => row.state === 'missing')}

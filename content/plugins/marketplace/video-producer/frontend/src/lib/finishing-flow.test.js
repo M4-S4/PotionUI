@@ -450,10 +450,30 @@ test('finishing flow: the choices are kept in the project, one undo step each, a
 
 test('finishing flow: without the core catalog nothing is offered and an export stays plain', async () => {
 	await open({ tools: false, finishing: { grain: { on: true } } });
-	assert.deepEqual(finishState.tools, []);
+	assert.deepEqual([finishState.tools, finishState.toolsFailed], [null, true]);
 	const steps = await exportAndFinish();
 	assert.deepEqual(steps, []);
 	assert.equal(runs().length, 0);
+});
+
+test('finishing flow: a catalog that failed at the first opening is read again at the next one', async () => {
+	let answers = [false];
+	await open({ tools: () => answers.shift() });
+	assert.deepEqual([finishState.tools, finishState.toolsFailed], [null, true]);
+	await loadFinishing();
+	assert.equal(finishState.toolsFailed, false);
+	assert.deepEqual(finishState.tools.map((tool) => tool.id), ['film_grain', 'vignette', 'fix_colors', 'lut']);
+});
+
+test('finishing flow: a LUT installed after the first opening is offered at the next one', async () => {
+	const more = [...TOOLS.slice(0, 3), normalizeTool({ id: 'lut', params: [{ name: 'lut', type: 'lut', options: [{ label: 'None', value: '' }, { label: 'warm', value: 'warm.cube' }, { label: 'cold', value: 'cold.cube' }] }, { name: 'strength', min: 0, max: 1 }] })];
+	let answers = [TOOLS, more];
+	await open({ tools: () => answers.shift() });
+	const lutOptions = () => finishState.tools.find((tool) => tool.id === 'lut').params[0].options.map((option) => option.value);
+	assert.deepEqual(lutOptions(), ['', 'warm.cube']);
+	await loadFinishing();
+	assert.deepEqual(lutOptions(), ['', 'warm.cube', 'cold.cube']);
+	assert.equal(server.calls.filter(([kind]) => kind === 'tools').length, 2);
 });
 
 test('finishing flow: a job finished without a plan is left alone', async () => {
