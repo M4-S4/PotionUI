@@ -4,13 +4,13 @@ Video Producer is a PotionUI plugin for making short films with AI video, in one
 
 This page is for the administrator who installs and sets up the plugin. Users read **Video Producer: user guide**.
 
-![The Storyboard of the starter project "Lumi’s potion" after its first takes: four shots on the band, their takes, the monitor and the production deck at the bottom](docs/screenshots/starter-storyboard-generated-light.jpg)
+![The Storyboard of the starter project "Lumi’s potion" after its first takes: four shots on the band, their takes, the monitor and the production deck at the bottom](https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/video-producer/docs/screenshots/starter-storyboard-generated-light.webp)
 
-![Director AI, Direction view: the five fields of the global direction, and the prompt the first shot will send to the engine](docs/screenshots/starter-director-direction-light.jpg)
+![Director AI, Direction view: the five fields of the global direction, and the prompt the first shot will send to the engine](https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/video-producer/docs/screenshots/starter-director-direction-light.webp)
 
-![The Inspector on the Takes tab of a shot: a draft take made by MiniMax H3 (12 GB), labelled Selected](docs/screenshots/starter-inspector-takes-light.jpg)
+![The Inspector on the Takes tab of a shot: a draft take made by MiniMax H3 (12 GB), labelled Selected](https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/video-producer/docs/screenshots/starter-inspector-takes-light.webp)
 
-![The export window, Video tab, in dark and light themes: an export in progress with its step and progress bar, then the same export ready to download, with the list of previous exports](docs/screenshots/export-video.png)
+![The export window, Video tab, in dark and light themes: an export in progress with its step and progress bar, then the same export ready to download, with the list of previous exports](https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/video-producer/docs/screenshots/export-video.webp)
 
 ## Documentation
 

@@ -306,6 +306,7 @@ How the install is checked and shown:
 - Takes are ordinary PotionUI generations: their files and thumbnails stay in the user's history and gallery, under the user who owns the project, and the page plays them from `/api/media/generations/<generation id>/<file name>`. Deleting a take, or its project, in Video Producer does not delete the generation or its files. A user who deletes the generation from the gallery breaks the playback of the take.
 - Projects are rows of the database, not files (see Projects and media). Imported media are not copied: a project keeps a reference to the library item or to the generation file.
 - Seam frames and the copy of each export are library items of the user, and count in that user's storage plan.
+- **Import a cut as shots** uses the `cut_finder` media tool of PotionUI, which runs with ffmpeg on the processor, without the graphics card. Each search counts in the limit of 8 media tool runs waiting per user, and the pieces it makes are library items of the user, counted in that user's storage plan. There is nothing to set.
 - Earlier versions wrote the splat files of the former Reframe from 3D tool under `video_producer/scenes/<project id>/`. Nothing reads, writes or deletes that folder any more: an administrator can delete it by hand.
 
 ## Projects and media

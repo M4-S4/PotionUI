@@ -177,6 +177,17 @@ Accepted files: images (`.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`), video
 
 An imported media is a link to the file in your library or gallery. If you delete that file from PotionUI, the project can no longer show it: the viewer says **Media offline**.
 
+### Import a cut as shots
+
+To start from an existing edit, an animatic or a reference film, choose **File › Import a cut as shots…**. It is also in the **Import** menu of the project bar (**A cut, split into shots…**), and under a selected video of the Media panel (**Split into shots…**).
+
+1. Pick the video: one of the project, **From the library…** or **From this computer…**.
+2. Set **Sensitivity** (higher finds softer cuts too) and **Shortest shot** (two cuts closer than this count as one).
+3. Choose what **Each piece becomes**. **The shot's source** places the piece on its shot, with its sound: you get the original cut, ready to be replaced shot by shot. **Its motion reference** leaves the shot to generate and keeps the piece as its Motion reference, which MiniMax-H3 follows in Ref2VA.
+4. Choose where to **Place the shots** (**At the end**, or after the selected shot), then click **Find cuts**.
+
+PotionUI finds the cuts and Video Producer makes one shot per cut. One **Undo** removes all the new shots. The pieces are saved in your PotionUI library and stay there after an Undo. A video with no cut, or with more than 200 shots, is refused with a hint to change the settings.
+
 ### Removing a media
 
 The trash icon of a media removes it from the project, after a confirmation that says where it is used. The file stays in your library, and **Undo** brings everything back.
@@ -265,6 +276,8 @@ Two words are easy to mix up. A take is **Selected** when it is the one its shot
 ### The take card
 
 The card shows the letter of the take, its quality, the engine that made it, its label and its state. Click its picture to preview it. **Take details** shows the profile, the size, the seed and the server that made it. A failed take explains the usual causes in plain words, with **Retry**. The card also offers **Compare**, **Extract a frame at the playhead** (chapter 12), **Generation details** and **Delete**.
+
+For a one-off retouch of a take (a free crop, a speed-up, an effect), open it from **History**: in the take's **Tools** menu, choose **Edit**, then the tool you need. The take opens in PotionUI's Video editor with that tool ready. Saving puts the result in your library, and **Import › From the library…** brings it into the project.
 
 ### Labels
 
