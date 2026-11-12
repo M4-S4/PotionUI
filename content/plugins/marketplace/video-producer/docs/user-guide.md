@@ -403,7 +403,9 @@ For another moment than the last image, put the playhead on the shot and click *
 A cut can be a cross-dissolve: the picture of the shot that ends blends into the picture of the shot that starts. Select the shot that starts and choose its **Transition** in the Inspector (the window of a cut that carries a continuity alert in the Storyboard grid offers it too): **Cut**, or **Cross-dissolve** of 0.4, 0.6, 1, 1.2 or 2 seconds.
 
 - **The film gets shorter by the length of the dissolve.** No frame is generated for it and each take keeps the length of its shot: the shot that starts moves earlier, and the later shots follow with their prompts and frames. Sounds, titles and markers stay where they are, as when you trim a shot; move them if they must follow the picture. Under the choice, the page says how much shorter the film gets.
-- A dissolve lasts at most half of the shorter of its two shots; the page says when it shortens the one you chose.
+- A dissolve lasts a whole number of frames, at most half of the shorter of its two shots; the page says when it shortens the one you chose.
+- A shot that starts from the last frame of the shot before already continues its motion: with a dissolve on the same cut, that motion shows twice. The page says so under the choice.
+- The blade does not cut inside a dissolve.
 - On a cut with a cross-dissolve, the fades to black of the two shots on that cut are not played: choosing a dissolve sets them to zero, and the Inspector greys them out.
 - The sound of the two shots crosses over the same time. The **Crossfade between neighbouring clips** of the export window is another setting: it only joins the clips of the audio tracks and changes no duration.
 - The timeline draws a crossed box on the cut (click it to select the shot that starts) and each shot up to the middle of its dissolve. The viewer and playback blend the two pictures.
