@@ -3,6 +3,7 @@ export const MAX_DISSOLVE = 2;
 export const DISSOLVE_CHOICES = [0.4, 0.6, 1, 1.2, 2];
 export const GRID = 0.04;
 export const MIN_STEPS = 2;
+export const MIN_DISSOLVE = MIN_STEPS * GRID;
 
 const STEP_SLACK = 1e-6;
 const EPSILON = 1e-6;
@@ -19,7 +20,8 @@ export function limitOf(before, clip) {
 	const half = Math.min(positive(before.dur), positive(clip.dur)) / 2;
 	const steps = Math.floor(Math.min(wanted, half) / GRID + STEP_SLACK);
 	const seconds = steps >= MIN_STEPS ? rounded(steps * GRID) : 0;
-	if (!seconds) return { seconds, by: half < wanted ? 'half' : 'grid' };
+	if (wanted < MIN_DISSOLVE - STEP_SLACK) return { seconds: 0, by: 'brief' };
+	if (!seconds) return { seconds, by: 'half' };
 	if (half < wanted) return { seconds, by: 'half' };
 	return { seconds, by: wanted - seconds > STEP_SLACK ? 'grid' : null };
 }
@@ -29,7 +31,7 @@ export const dissolveOf = (before, clip) => limitOf(before, clip).seconds;
 export function played(before, clip) {
 	if (!dissolveOf(before, clip)) return 0;
 	const overlap = finite(before.start) + finite(before.dur) - finite(clip.start);
-	if (overlap <= GRID / 2 || overlap > Math.min(positive(before.dur), positive(clip.dur)) / 2 + 1.5 * GRID) return 0;
+	if (overlap <= GRID / 2 || overlap > Math.min(positive(before.dur), positive(clip.dur)) / 2 + EPSILON) return 0;
 	return rounded(overlap);
 }
 
@@ -62,15 +64,20 @@ export const joins = (clips) => placement(clips).map((place) => place?.overlap ?
 
 export const dissolving = (clips) => joins(clips).some(Boolean);
 
+const ceiling = (value) => Math.ceil(value / GRID - STEP_SLACK) * GRID;
+
 export function layout(clips, snap) {
 	let at = 0;
-	let shift = 0;
-	return clips.map((clip, i) => {
-		if (i) shift += dissolveOf(clips[i - 1], clip);
-		const start = shift ? +(snap(at) - shift).toFixed(3) : snap(at);
+	let chained = false;
+	const starts = [];
+	clips.forEach((clip, i) => {
+		const length = i ? dissolveOf(clips[i - 1], clip) : 0;
+		chained = chained || length > 0;
+		const end = i ? starts[i - 1] + finite(clips[i - 1].dur) : 0;
+		starts.push(!chained ? snap(at) : length ? +(ceiling(end) - length).toFixed(3) : snap(end));
 		at += finite(clip.dur);
-		return start;
 	});
+	return starts;
 }
 
 export const dissolveBefore = (clips, i) => (i > 0 ? (joins(clips)[i] ?? 0) : 0);

@@ -6,6 +6,7 @@ KEY = "dissolve"
 MAX_DISSOLVE = 2
 GRID = 0.04
 MIN_STEPS = 2
+MIN_DISSOLVE = MIN_STEPS * GRID
 STEP_SLACK = 1e-6
 EPSILON = 1e-6
 
@@ -34,7 +35,7 @@ def dissolve_of(before: Optional[Mapping[str, Any]], clip: Optional[Mapping[str,
     asked = _seconds(clip.get(KEY))
     if asked <= 0:
         return 0.0
-    length = min(asked, MAX_DISSOLVE, _seconds(before.get("dur")) / 2, _seconds(clip.get("dur")) / 2)
+    length = min(asked, MAX_DISSOLVE, min(_seconds(before.get("dur")), _seconds(clip.get("dur"))) / 2)
     steps = math.floor(length / GRID + STEP_SLACK)
     return round(steps * GRID, 6) if steps >= MIN_STEPS else 0.0
 
@@ -43,7 +44,7 @@ def played(before: Optional[Mapping[str, Any]], clip: Optional[Mapping[str, Any]
     if not dissolve_of(before, clip):
         return 0.0
     overlap = _number(before.get("start")) + _number(before.get("dur")) - _number(clip.get("start"))
-    if overlap <= GRID / 2 or overlap > min(_seconds(before.get("dur")), _seconds(clip.get("dur"))) / 2 + 1.5 * GRID:
+    if overlap <= GRID / 2 or overlap > min(_seconds(before.get("dur")), _seconds(clip.get("dur"))) / 2 + EPSILON:
         return 0.0
     return round(overlap, 6)
 
@@ -106,13 +107,21 @@ def shown(clips: Sequence[Mapping[str, Any]]) -> List[Place]:
     return result
 
 
+def _ceiling(value: float) -> float:
+    return math.ceil(value / GRID - STEP_SLACK) * GRID
+
+
 def layout(clips: Sequence[Mapping[str, Any]], snap: Callable[[float], float]) -> List[float]:
     starts: List[float] = []
-    at, shift = 0.0, 0.0
+    at, chained = 0.0, False
     for index, clip in enumerate(clips):
-        if index:
-            shift += dissolve_of(clips[index - 1], clip)
-        starts.append(snap(at) if not shift else float(f"{snap(at) - shift:.3f}"))
+        length = dissolve_of(clips[index - 1], clip) if index else 0.0
+        chained = chained or length > 0
+        if not chained:
+            starts.append(snap(at))
+        else:
+            end = starts[-1] + _number(clips[index - 1].get("dur"))
+            starts.append(float(f"{_ceiling(end) - length:.3f}") if length else snap(end))
         at += _number(clip.get("dur"))
     return starts
 
