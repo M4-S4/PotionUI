@@ -188,7 +188,11 @@ def _shrunk(source: Path, target: Path) -> None:
 
 
 def fitted(owner: User, media: Sequence[Mapping[str, Any]]) -> Tuple[List[Dict[str, Any]], int, Optional[Path]]:
-    root = core_bridge.storage_directory()
+    try:
+        root = core_bridge.storage_directory()
+    except Exception:
+        logger.warning("[VIDEO-PRODUCER] Could not read the file storage directory; the key frames go as they are", exc_info=True)
+        return [dict(item) for item in media], 0, None
     sent: List[Dict[str, Any]] = []
     dropped = 0
     folder: Optional[Path] = None
