@@ -36,7 +36,7 @@ for (const c of cases) {
 test('dissolve: seeded documents give on the page the layout, dissolves, drawn spans and exchange cuts of the server, at every cadence', () => {
 	for (const [n, c] of property.docs.entries()) {
 		const clips = c.clips.map((clip, i) => ({ id: `c${i}`, ...clip }));
-		assert.deepEqual(layout(clips, snap), c.starts, `starts of document ${n}`);
+		assert.deepEqual(layout(clips, snap), c.laid, `layout of document ${n}`);
 		clips.forEach((clip, i) => (clip.start = c.starts[i]));
 		assert.deepEqual(joins(clips), c.joins, `dissolves of document ${n}`);
 		close(
@@ -52,7 +52,8 @@ test('dissolve: seeded documents give on the page the layout, dissolves, drawn s
 			);
 		}
 		clips.forEach((clip, i) => {
-			if (i && dissolveOf(clips[i - 1], clip) > 0) assert.ok(c.joins[i] > 0, `cut ${i} of document ${n} dissolves`);
+			if (i && !(String(i) in c.gaps) && dissolveOf(clips[i - 1], clip) > 0) assert.ok(c.joins[i] > 0, `cut ${i} of document ${n} dissolves`);
+			if (i > 1 && c.joins[i - 1] && c.joins[i]) assert.ok(clips[i - 2].start + clips[i - 2].dur <= clip.start + 1e-9, `dissolves around shot ${i - 1} of document ${n}`);
 		});
 	}
 });
@@ -71,6 +72,7 @@ test('dissolve: the page says why a dissolve is shorter than asked: half of a sh
 	assert.deepEqual(limitOf({ dur: 4 }, { dur: 4, dissolve: 0.5 }), { seconds: 0.48, by: 'grid' });
 	assert.deepEqual(limitOf({ dur: 4 }, { dur: 4, dissolve: 1 }), { seconds: 1, by: null });
 	assert.deepEqual(limitOf({ dur: 0.12 }, { dur: 4, dissolve: 1 }), { seconds: 0, by: 'half' });
+	assert.deepEqual(limitOf({ dur: 4 }, { dur: 4, dissolve: 0.04 }), { seconds: 0, by: 'brief' });
 	assert.equal(dissolveOf({ dur: 0.16 }, { dur: 4, dissolve: 1 }), 0.08);
 });
 
