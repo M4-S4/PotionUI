@@ -985,6 +985,35 @@ The export runs on the server, in the background. The window shows a card with t
 - When it is ready the card says "Lumis_potion_1080p.mp4 is ready" with its size, and offers **Download** and, when your PotionUI can show it, **Show in the library**, which opens your library on the videos. A web or social MP4 is also in your library like any video, so you can import it into a project (chapter 6); **Show in the library** is not offered for a master or an archive, which you download.
 - A failed export says what failed ("ffmpeg could not assemble the video.", "The video could not be converted." or "The export could not be saved.") and, under it, the technical message of the server (chapter 17).
 
+### Finishing
+
+The **Finishing** section, under **Sound**, applies PotionUI's video effects to the web or social file after the export, with the same render as the Video editor of PotionUI. It needs no graphics card.
+
+| Effect | What it does | Settings (default when switched on) |
+|---|---|---|
+| **Fix colours** | Neutral whites and full contrast, measured over the whole film | **Strength** 0 to 100 % (100 %) |
+| **LUT** | Grades with a `.cube` colour table installed by your administrator in the `luts` model folder | the LUT (the first one), **Strength** 0 to 100 % (100 %) |
+| **Look** | Grades with one of your looks, made in the Image editor, or a shared one | the look (the first one), **Strength** 0 to 100 % (100 %) |
+| **Vignette** | Darker edges | **Amount** 0 to 100 % (40 %), **Radius** 0 to 100 % (50 %) |
+| **Film grain** | Moving grain, new on every frame | **Amount** 0 to 100 % (30 %), **Size** 1.0 to 3.0 (1.5) |
+
+- Every effect is off until you switch it on. Switching one off keeps its settings for next time. The choices are saved with the project, and **Undo** takes each change back.
+- The effects run in the order of the table: the correction first, then the grade, then the texture, the grain last.
+- A LUT row with no LUT installed says "No LUT is installed: an administrator adds .cube files to the luts model folder."; a Look row with no look says "You have no look yet: make one in the Image editor." An effect your PotionUI does not have is not shown.
+- The list of effects, LUTs and looks is read from PotionUI each time you open the window, so a LUT or a look added since shows up. If it cannot be read, the section says "Could not read the PotionUI effects." with **Try again**.
+- A LUT or a look saved with the project that PotionUI no longer offers is not replaced, and the export leaves that effect out until you pick another one. For a LUT, its file name shows greyed in the list and a line says "The saved LUT “warm.cube” is no longer offered by PotionUI: pick another one, or the LUT is left out of the finishing." A look has no name the page could show: the list says "Saved look, no longer offered" and the line "The saved look is no longer offered by PotionUI: pick another one, or the look is left out of the finishing."
+- For a master or an archive the section says "Finishing applies to the web and social files only; the master and archive come out untouched." and its switches are disabled.
+- With at least one effect on, the window warns "After the export, PotionUI encodes the film a second time with the finishing, into a new library item. The plain export is kept." and the button reads **Export and finish**.
+
+When the export is ready, the page starts the finishing at once, even if you closed the window, reopened it or went to another project and back in the meantime. The page must stay open until the export is ready: if you leave it or reload it before, the plain export is made but not finished. The same goes when you open another project during the export and do not come back to this one before you close the page: the finishing starts only once the page shows the project again. Cancelling the export drops its finishing, even if the export ends at that very moment; if the cancel fails, the export goes on and is finished as planned. A second card shows the name of the finished film (the name of the export followed by `_finished`, for example `Lumis_potion_1080p_finished.mp4`), its state, "Applying the finishing…" with a percentage, and **Cancel finishing**.
+
+- When it is ready the card says "The finished film is in your library." and offers **Show in the library** and **Download finished**, which saves it as `Lumis_potion_1080p_finished.mp4`. With the window closed, a toast says "Finished film ready: Lumis_potion_1080p_finished.mp4" with **Download finished**.
+- The finished film is a new video of your library, next to the plain export, which does not change. It counts in your storage quota, not in the export folder budget.
+- **Cancel finishing** asks PotionUI to stop the finishing; the button reads **Cancelling…** until PotionUI answers. If the film was finished in the meantime, the card shows it ready. If the cancel cannot reach PotionUI, the page says "Could not cancel the finishing: it goes on." and the card keeps following it.
+- If the finishing fails or is cancelled, the card says why ("The finishing failed:" followed by the words of PotionUI, "Eight media tool runs are already waiting in PotionUI, so the finishing could not start." or "Finishing cancelled.") followed by "The plain export is still available.", and the export card still offers its **Download**. With the window closed, a toast says the same.
+- The page asks PotionUI how the finishing goes every second. After a missed answer it waits longer before each new try (2, 4, 8, then 16 seconds), so a PotionUI that restarts within about half a minute does not stop the follow-up. When PotionUI no longer knows the finishing, or five answers in a row are missed, the card reads **Not followed**, in amber rather than red, and says "The page lost track of the finishing. It may still end in PotionUI: look for the finished film in your library." With the window closed, the same words come as a warning.
+- A finishing started in one project goes on to its end when you open another project and finish an export there. A new export of the same project waits until its finishing ends. If you reload or leave the page during the finishing, it goes on in PotionUI and the finished film arrives in your library, but the window no longer follows it: back on the page without a reload, its card says "The page lost track of the finishing…" and a new export can start.
+
 ### Previous exports
 
 Under the card, **Previous exports** lists the export in progress first, with its state, then the earlier exports of the project: format (followed by "stems" when they were asked for) and resolution, state, when it ended and its size, with a download icon (**Download <file>**) and a trash icon (**Delete <file>**). Deleting asks "Delete this export?" ("<file> is removed from the export folder. A copy saved in your library stays."): **Delete** or **Keep it**. With none, the list says "No video exported for this project yet."
