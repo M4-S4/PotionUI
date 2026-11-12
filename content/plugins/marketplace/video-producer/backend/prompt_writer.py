@@ -50,7 +50,12 @@ BARE = re.compile(r"<(?:Subject|Picture|Video|Audio) \d+>")
 OPENS = re.compile(r"(?:^|[.!?\u2026]\s+)$")
 SPACED = re.compile(r"[ \t]+([,.;:!?])")
 FENCE = re.compile(r"```[A-Za-z]*[ \t]*\n?(.*?)```", re.DOTALL)
-PREAMBLE = re.compile(r"^(?:[^\n:]{0,120}):[ \t]*\n+")
+PREAMBLE = re.compile(
+    r"^(?:(?:sure|okay|ok|certainly|of course|absolutely)\b[^\n]{0,20}?)?"
+    r"(?:here(?:'s| is| are| it is)\b|below is\b|this is\b|(?:the )?(?:new |rewritten |revised |final |shot )*prompt\b)"
+    r"[^\n]{0,100}:[ \t]*\n+",
+    re.IGNORECASE,
+)
 SENTENCE_END = re.compile(r"[.!?\u2026][\"')\]]?(?=\s)")
 MAX_WRITTEN_CHARS = 1500
 

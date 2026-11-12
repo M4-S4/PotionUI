@@ -837,3 +837,18 @@ def test_a_large_jpeg_frame_is_decoded_reduced(tmp_path, monkeypatch):
     assert asked and asked[0] == ("RGB", (prompt_writer.IMAGE_EDGE, prompt_writer.IMAGE_EDGE))
     with Image.open(tmp_path / "small.jpg") as small:
         assert max(small.size) == prompt_writer.IMAGE_EDGE
+
+
+@pytest.mark.parametrize(
+    ("reply", "kept"),
+    [
+        ("The camera holds on the quay:\nthe fisherman lights his lantern.", "The camera holds on the quay:\nthe fisherman lights his lantern."),
+        ("Here we see the quay:\nthe fisherman waits.", "Here we see the quay:\nthe fisherman waits."),
+        ("At dusk:\nthe fisherman waits.", "At dusk:\nthe fisherman waits."),
+        ("Below is the rewritten prompt:\nThe fisherman waits.", "The fisherman waits."),
+        ("Sure! Here's the shot prompt for you:\n\nThe fisherman waits.", "The fisherman waits."),
+        ("Revised prompt:\nThe fisherman waits.", "The fisherman waits."),
+    ],
+)
+def test_only_a_real_introduction_line_is_taken_for_a_preamble(reply, kept):
+    assert prompt_writer.cleaned(reply) == kept
