@@ -215,6 +215,17 @@ def work_folder(owner: User) -> Optional[Path]:
         return None
 
 
+def readable(source: Path) -> bool:
+    from PIL import Image
+
+    try:
+        with Image.open(source) as image:
+            image.verify()
+    except Exception:
+        return False
+    return True
+
+
 def inside(root: Path, value: Any) -> Optional[Path]:
     if not isinstance(value, str) or not value:
         return None
@@ -241,11 +252,19 @@ def fitted(owner: User, media: Sequence[Mapping[str, Any]], folder: Optional[Pat
             dropped += 1
             continue
         try:
-            large = source.is_file() and source.stat().st_size > MAX_IMAGE_BYTES
+            size = source.stat().st_size if source.is_file() else None
         except OSError:
-            large = False
-        if not large:
-            sent.append(dict(item))
+            size = None
+        if size is None:
+            logger.warning("[VIDEO-PRODUCER] A key frame of the prompt writer is not on the disk: %s", item.get("value"))
+            dropped += 1
+            continue
+        if size <= MAX_IMAGE_BYTES:
+            if readable(source):
+                sent.append(dict(item))
+            else:
+                logger.warning("[VIDEO-PRODUCER] A key frame of the prompt writer cannot be read: %s", item.get("value"))
+                dropped += 1
             continue
         try:
             if folder is None:

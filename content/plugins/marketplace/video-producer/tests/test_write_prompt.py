@@ -740,3 +740,40 @@ def test_a_key_frame_whose_path_leaves_the_file_storage_is_never_opened_and_is_l
 
     assert (sent, dropped) == ([], 1)
     assert opened == []
+
+
+@pytest.mark.parametrize("broken", ["corrupt", "missing", "not_an_image"])
+def test_a_small_key_frame_that_is_missing_or_cannot_be_read_is_left_out_and_the_writing_goes_on(core, client, make_doc, make_project, monkeypatch, export_storage, broken):
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    start = export_storage / "uploads" / "start.png"
+    _noise_png(start, 64, 36)
+    _noise_png(export_storage / "uploads" / "end.png", 64, 36)
+    if broken == "corrupt":
+        start.write_bytes(start.read_bytes()[:200])
+    elif broken == "missing":
+        start.unlink()
+    else:
+        start.write_bytes(b"plain text, no picture")
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 200
+    assert response.json()["data"]["images"] == 1
+    assert response.json()["data"]["images_dropped"] == 1
+    assert writer.calls[0]["media"] == [{"value": "uploads/end.png", "media_type": "image"}]
+    assert "The image is the shot's last frame" in writer.calls[0]["instruction"]
+
+
+def test_small_readable_key_frames_go_as_they_are(core, client, make_doc, make_project, monkeypatch, export_storage):
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    _noise_png(export_storage / "uploads" / "start.png", 64, 36)
+    _noise_png(export_storage / "uploads" / "end.png", 64, 36)
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.json()["data"]["images_dropped"] == 0
+    assert writer.calls[0]["media"] == [{"value": "uploads/start.png", "media_type": "image"}, {"value": "uploads/end.png", "media_type": "image"}]
