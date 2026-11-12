@@ -93,6 +93,17 @@ test('finishing dialog: a finishing left running when the page closed does not h
 	assert.ok(!text.includes(t('exports.finish.step')));
 });
 
+test('finishing dialog: a saved look that is no longer offered is told without its id', async () => {
+	finishState.tools = TOOLS;
+	doc.master.finishing = { look: { on: true, ref: 'mine:01M77QZK4V', strength: 1 } };
+	const html = await renderComponent(MODALS);
+	const text = textOf(html);
+	assert.match(html, /data-finish-missing="look"/);
+	assert.match(html, /<option value="mine:01M77QZK4V" disabled[^>]*>Saved look, no longer offered<\/option>/);
+	assert.ok(text.includes('The saved look is no longer offered by PotionUI: pick another one, or the look is left out of the finishing.'));
+	assert.ok(!text.includes('01M77QZK4V'));
+});
+
 test('finishing dialog: while the catalog loads, and when the core has none of the effects, it says so', async () => {
 	let text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes(t('exports.finish.loading')));

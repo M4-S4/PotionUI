@@ -287,11 +287,11 @@
 										<label class="col-span-2 space-y-1">
 											<span class="vp-label">{finishLabel(row.effect.key)}</span>
 											<select class="input vp-dense w-full" value={row.setting.ref} disabled={finishLocked} onchange={(e) => setFinish(row.effect.key, { ref: e.currentTarget.value })}>
-												{#if row.setting.missing}<option value={row.setting.ref} disabled>{row.setting.ref}</option>{/if}
+												{#if row.setting.missing}<option value={row.setting.ref} disabled>{row.effect.key === 'lut' ? row.setting.ref : t('exports.finish.missingLookOption')}</option>{/if}
 												{#each row.choices as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
 											</select>
 										</label>
-										{#if row.setting.missing}<p class="col-span-2 text-xs text-warning" role="alert" data-finish-missing={row.effect.key}>{row.effect.key === 'lut' ? t('exports.finish.missingLut', { name: row.setting.ref }) : t('exports.finish.missingLook', { name: row.setting.ref })}</p>{/if}
+										{#if row.setting.missing}<p class="col-span-2 text-xs text-warning" role="alert" data-finish-missing={row.effect.key}>{row.effect.key === 'lut' ? t('exports.finish.missingLut', { name: row.setting.ref }) : t('exports.finish.missingLook')}</p>{/if}
 									{/if}
 									{#each row.effect.fields as field (field.name)}
 										<label class="space-y-1">
