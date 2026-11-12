@@ -336,6 +336,22 @@ test('finishing flow: a run PotionUI no longer knows, or reads failing again and
 	assert.equal(server.calls.filter(([kind]) => kind === 'read').length, 5);
 });
 
+test('finishing flow: a missed read is tried again after a wait doubled each time, so the page rides out half a minute without PotionUI', async () => {
+	const offline = { fail: { status: 0, code: 'network_error', message: '' } };
+	const waits = [];
+	await open({ finishing: { grain: { on: true } }, reads: [offline, offline, { status: 'running', progress: 0.5 }, offline] });
+	finishTiming.wait = (ms) => (waits.push(ms), settle());
+	await exportAndFinish();
+	assert.equal(finishShown().status, 'done');
+	assert.deepEqual(waits, [1000, 2000, 4000, 1000, 2000]);
+	waits.length = 0;
+	await open({ finishing: { grain: { on: true } }, reads: [offline, offline, offline, offline, offline] });
+	finishTiming.wait = (ms) => (waits.push(ms), settle());
+	await exportAndFinish();
+	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'lost']);
+	assert.deepEqual(waits, [1000, 2000, 4000, 8000, 16000]);
+});
+
 test('finishing flow: a finishing in a second project leaves the first one running to its end', async () => {
 	let held = true;
 	await open({ exportEnds: 'done', finishing: { grain: { on: true } }, reads: (id) => (id === 'run1' && held ? [{ status: 'running', progress: 0.5 }] : []) });

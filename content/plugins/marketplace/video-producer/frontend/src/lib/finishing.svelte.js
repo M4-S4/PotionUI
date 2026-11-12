@@ -108,7 +108,7 @@ export async function finishJob(job, { wait = finishTiming.wait } = {}) {
 	if (run.cancelling) await askCancel(run);
 	let misses = 0;
 	while (run.status === 'running') {
-		await wait(FINISH_POLL_MS);
+		await wait(FINISH_POLL_MS * 2 ** misses);
 		if (control.stopped || run.status !== 'running') break;
 		const read = await client.mediaRun(run.runId);
 		if (control.stopped || run.status !== 'running') break;
