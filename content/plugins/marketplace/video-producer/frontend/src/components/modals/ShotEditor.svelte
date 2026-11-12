@@ -22,7 +22,7 @@
 	import { ulid } from '../../lib/ulid.js';
 	import { project } from '../../lib/project.svelte.js';
 	import { createWriter } from '../../lib/promptwriter.svelte.js';
-	import { CARD_WORDS, cardWordsOf } from '../../lib/cardwords.js';
+	import { CARD_WORDS, cardWordsOf, shotCardWordsView } from '../../lib/cardwords.js';
 	import Modal from './Modal.svelte';
 	import Icon from '../Icon.svelte';
 	import DraftsField from '../shots/DraftsField.svelte';
@@ -238,9 +238,11 @@
 
 	const cardWordLabel = (value) => (value === 'picture' ? t('project.cardWords.picture') : value === 'label' ? t('project.cardWords.label') : t('project.cardWords.card'));
 	const shotCardWords = $derived(draft.cardWords ?? null);
-	const cardWordsUsed = $derived(composed?.cardWords ?? null);
-	const showCardWords = $derived(Boolean(cardWordsUsed || shotCardWords));
+	const cardWordsView = $derived(shotCardWordsView(composed, shotCardWords));
+	const cardWordsUsed = $derived(cardWordsView.used);
+	const showCardWords = $derived(cardWordsView.show);
 	const cardWordsHelp = $derived.by(() => {
+		if (cardWordsView.replaced) return t('modals.shot.cardWords.replaced');
 		if (!cardWordsUsed) return t('modals.shot.cardWords.unused');
 		if (cardWordsUsed === 'picture') return t('project.cardWords.pictureHelp');
 		if (cardWordsUsed === 'label') return t('project.cardWords.labelHelp');
@@ -296,7 +298,7 @@
 						<div class="space-y-1" data-shot-card-words={shotCardWords ?? 'project'}>
 							<label class="flex items-center justify-between gap-3">
 								<span class="vp-label">{t('project.cardWords.title')}</span>
-								<select class="vp-popup shrink-0" value={shotCardWords ?? ''} onchange={(e) => setShotCardWords(e.currentTarget.value)}>
+								<select class="vp-popup shrink-0" value={shotCardWords ?? ''} disabled={cardWordsView.disabled} data-card-words-replaced={cardWordsView.replaced ? '' : undefined} onchange={(e) => setShotCardWords(e.currentTarget.value)}>
 									<option value="">{t('modals.shot.asProject', { value: cardWordLabel(cardWordsOf(doc)) })}</option>
 									{#each CARD_WORDS as value (value)}<option {value}>{cardWordLabel(value)}</option>{/each}
 								</select>

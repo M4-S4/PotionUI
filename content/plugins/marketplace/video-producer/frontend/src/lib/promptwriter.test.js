@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { MAX_REQUEST, WRITER_CODES, canUndo, canWrite, normalizeWriterStatus, normalizeWritten, writeBody, writerCode, writerIdle, writerStep } from './promptwriter.js';
 import { normalizePrompts } from './api.js';
-import { setShotCardWords, shotCardWordsOf } from './cardwords.js';
+import { setShotCardWords, shotCardWordsOf, shotCardWordsView } from './cardwords.js';
 import { applyShotDraft, inputsChanged, migrateShots, shotDraft } from './shots.js';
 
 const json = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
@@ -128,4 +128,16 @@ test('a shot follows the project card words until it sets its own, saved with th
 test('the migration keeps a shot card words only when it is one of the three', () => {
 	const doc = migrateShots({ clips: [{ id: 's1', cardWords: 'label' }, { id: 's2', cardWords: 'all' }, { id: 's3' }] });
 	assert.deepEqual(doc.clips, [{ id: 's1', cardWords: 'label' }, { id: 's2' }, { id: 's3' }]);
+});
+
+test('the card words of a shot are greyed and say why when the shot replaced its reference part by hand', () => {
+	const refs = (overridden) => ({ layout: 'refs', composed: {}, sent: {}, overridden, changed: false, ignored: false });
+	assert.deepEqual(shotCardWordsView({ cardWords: 'label', reference: refs(false) }, null), { show: true, used: 'label', replaced: false, disabled: false });
+	assert.deepEqual(shotCardWordsView({ cardWords: 'label', reference: refs(true) }, 'label'), { show: true, used: 'label', replaced: true, disabled: true });
+	assert.deepEqual(shotCardWordsView({ cardWords: null, reference: refs(true) }, 'picture'), { show: true, used: null, replaced: false, disabled: false });
+	assert.deepEqual(shotCardWordsView(null, null), { show: false, used: null, replaced: false, disabled: false });
+	assert.deepEqual(shotCardWordsView({ cardWords: 'card', reference: { ...refs(true), layout: 'subjects' } }, null).replaced, false);
+	const source = readFileSync(new URL('../components/modals/ShotEditor.svelte', import.meta.url), 'utf8');
+	assert.match(source, /disabled=\{cardWordsView\.disabled\}/);
+	assert.match(source, /cardWordsView\.replaced\) return t\('modals\.shot\.cardWords\.replaced'\)/);
 });

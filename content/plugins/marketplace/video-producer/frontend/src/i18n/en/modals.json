@@ -292,5 +292,6 @@
 	"shot.writer.error.write_busy": "A prompt is still being written for you. Wait a moment, then try again.",
 	"shot.writer.error.write_cancelled": "The writing was stopped.",
 	"shot.writer.dropped.one": "One of the shot’s images could not be prepared for the language model: it was written without it.",
-	"shot.writer.dropped.other": "{count} of the shot’s images could not be prepared for the language model: it was written without them."
+	"shot.writer.dropped.other": "{count} of the shot’s images could not be prepared for the language model: it was written without them.",
+	"shot.cardWords.replaced": "This shot replaces its prompt part from the references by hand, so the card words change nothing it sends. Choose Back to the composed text to use them."
 }

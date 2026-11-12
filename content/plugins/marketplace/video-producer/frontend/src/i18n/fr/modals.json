@@ -292,5 +292,6 @@
 	"shot.writer.error.write_busy": "Un prompt est encore en cours d’écriture pour vous. Attendez un instant, puis réessayez.",
 	"shot.writer.error.write_cancelled": "La rédaction a été arrêtée.",
 	"shot.writer.dropped.one": "Une des images du plan n’a pas pu être préparée pour le modèle de langue : il a écrit sans elle.",
-	"shot.writer.dropped.other": "{count} images du plan n’ont pas pu être préparées pour le modèle de langue : il a écrit sans elles."
+	"shot.writer.dropped.other": "{count} images du plan n’ont pas pu être préparées pour le modèle de langue : il a écrit sans elles.",
+	"shot.cardWords.replaced": "Ce plan remplace à la main sa partie du prompt faite des références : les mots de la fiche ne changent donc rien à ce qu’il envoie. Choisissez Revenir au texte composé pour les utiliser."
 }
