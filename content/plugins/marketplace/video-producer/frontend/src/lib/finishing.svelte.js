@@ -49,7 +49,13 @@ export function planFinish(jobId, steps, fileName) {
 export const finishPlanned = (jobId) => planned.has(jobId);
 
 export function dropFinish(jobId) {
+	const plan = planned.get(jobId) ?? null;
 	planned.delete(jobId);
+	return plan;
+}
+
+export function keepFinish(jobId, plan) {
+	if (jobId && plan) planned.set(jobId, plan);
 }
 
 function record(fields) {

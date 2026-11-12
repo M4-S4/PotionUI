@@ -5,7 +5,7 @@ import { MAKERS, srtCues } from './exchange.js';
 import { EXPORT_ERROR_CODES, currentJob, exchangeFile, exchangePath, finishedNow, isJobActive, jobFilePath, mergeJob, pollDelay, sortJobs, videoFile } from './exports.js';
 import { confirm } from './host.js';
 import { libraryAvailable, openLibrary } from './importer.js';
-import { disposeFinishing, dropFinish, finishJob, planFinish } from './finishing.svelte.js';
+import { disposeFinishing, dropFinish, finishJob, keepFinish, planFinish } from './finishing.svelte.js';
 import { finishFormat } from './finishing.js';
 
 export const exportState = $state({ projectId: null, job: null, jobs: [], loaded: false, starting: false, busy: null });
@@ -181,9 +181,13 @@ export function resumeExports() {
 }
 
 export async function cancelJob(job) {
-	dropFinish(job.id);
+	const plan = dropFinish(job.id);
 	const result = await getClient().cancelExport(job.id);
-	if (!result.ok && result.error.status !== 404 && result.error.status !== 409) return failed(result.error);
+	if (!result.ok && result.error.status !== 404 && result.error.status !== 409) {
+		keepFinish(job.id, plan);
+		finishSeen(exportState.jobs);
+		return failed(result.error);
+	}
 	if (result.ok && result.data) settle(result.data);
 	else await listJobs();
 }

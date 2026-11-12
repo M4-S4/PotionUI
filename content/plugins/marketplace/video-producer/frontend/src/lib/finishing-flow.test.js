@@ -259,6 +259,35 @@ test('finishing flow: a cancel answered 409 then listed done starts no finishing
 	assert.equal(runs().length, 0);
 });
 
+test('finishing flow: a cancel of the export that fails keeps its finishing, which starts when the export ends', async () => {
+	await open({ exportEnds: 'running', finishing: { grain: { on: true } } });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	server.cancelAnswer = { ok: false, error: { status: 0, code: 'network_error', message: '' } };
+	await cancelJob(exportState.job);
+	assert.equal(runs().length, 0);
+	server.status = 'done';
+	await pollJob();
+	await drain();
+	assert.equal(runs().length, 1);
+	assert.equal(finishShown().status, 'done');
+});
+
+test('finishing flow: an export seen done while its cancel fails is still finished', async () => {
+	await open({ exportEnds: 'running', finishing: { grain: { on: true } } });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	server.client.cancelExport = async (jobId) => {
+		server.calls.push(['cancel-export', jobId]);
+		server.status = 'done';
+		await pollJob();
+		return { ok: false, error: { status: 500, code: 'server_error', message: '' } };
+	};
+	await cancelJob(exportState.job);
+	await drain();
+	assert.equal(exportState.job.status, 'done');
+	assert.equal(runs().length, 1);
+	assert.equal(finishShown().status, 'done');
+});
+
 test('finishing flow: a finishing that fails leaves the plain export done and says why', async () => {
 	await open({ finishing: { lut: { on: true, ref: 'warm.cube', strength: 0.7 } }, reads: [{ status: 'failed', error: { code: 'tool_failed', message: 'ffmpeg failed' } }] });
 	await exportAndFinish();
