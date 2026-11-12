@@ -215,6 +215,17 @@ def work_folder(owner: User) -> Optional[Path]:
         return None
 
 
+def inside(root: Path, value: Any) -> Optional[Path]:
+    if not isinstance(value, str) or not value:
+        return None
+    relative = Path(value)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    base = root.resolve()
+    located = (base / relative).resolve()
+    return located if located.is_relative_to(base) else None
+
+
 def fitted(owner: User, media: Sequence[Mapping[str, Any]], folder: Optional[Path]) -> Tuple[List[Dict[str, Any]], int]:
     try:
         root = core_bridge.storage_directory()
@@ -224,7 +235,11 @@ def fitted(owner: User, media: Sequence[Mapping[str, Any]], folder: Optional[Pat
     sent: List[Dict[str, Any]] = []
     dropped = 0
     for index, item in enumerate(media):
-        source = root / str(item.get("value") or "")
+        source = inside(root, item.get("value"))
+        if source is None:
+            logger.warning("[VIDEO-PRODUCER] A key frame of the prompt writer is outside the file storage: %s", item.get("value"))
+            dropped += 1
+            continue
         try:
             large = source.is_file() and source.stat().st_size > MAX_IMAGE_BYTES
         except OSError:

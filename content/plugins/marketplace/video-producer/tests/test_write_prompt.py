@@ -727,3 +727,16 @@ def test_a_core_call_that_outlives_the_grace_keeps_its_frame_until_it_ends(core,
     assert during != []
     assert seen == {"frame_at_end": True}
     assert _writer_area(export_storage) == []
+
+
+@pytest.mark.parametrize("value", ["../secret.png", "uploads/../../secret.png", "/etc/secret.png", "", None])
+def test_a_key_frame_whose_path_leaves_the_file_storage_is_never_opened_and_is_left_out(core, monkeypatch, export_storage, value):
+    (export_storage.parent / "secret.png").write_bytes(b"x" * (prompt_writer.MAX_IMAGE_BYTES + 1))
+    opened = []
+    monkeypatch.setattr(prompt_writer, "_shrunk", lambda source, target: opened.append(source))
+    user = core.users["user-1"]
+
+    sent, dropped = prompt_writer.fitted(user, [{"value": value, "media_type": "image", "role": "first"}], export_storage / "work")
+
+    assert (sent, dropped) == ([], 1)
+    assert opened == []
