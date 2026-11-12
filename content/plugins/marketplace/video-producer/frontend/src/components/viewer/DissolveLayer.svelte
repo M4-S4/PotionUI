@@ -12,7 +12,7 @@
 
 	const clip = $derived(mix.to);
 	const a = $derived(asset(clip.assetId));
-	const shown = $derived(unfaded(doc.clips, mix.index));
+	const shown = $derived(unfaded(doc.clips, mix.index, doc.fps));
 	const opacity = $derived(mix.progress * fadeOpacity(shown, time));
 	const lut = $derived(lutOf(clip));
 	let natural = $state(null);
@@ -61,4 +61,6 @@
 {:else if a?.src && a.kind === 'image'}
 	<img bind:this={picture} src={a.src} alt="" class="absolute inset-0 h-full w-full {fitClass(fit)}" data-dissolve-layer={clip.id} style:opacity={opacity} style:filter={clipFilter(clip)} onload={(e) => measure(e.currentTarget)} />
 	{#if lut && picture}<MatchCanvas source={picture} {lut} filter={clipFilter(clip)} fade={opacity} cover={fit !== BARS} />{/if}
+{:else}
+	<div class="pointer-events-none absolute inset-0 bg-black" data-dissolve-layer={clip.id} style:opacity={opacity}></div>
 {/if}

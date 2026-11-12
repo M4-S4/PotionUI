@@ -9,6 +9,7 @@ import { takeStore } from './takes.svelte.js';
 import { reviewChoice, reviewCounts, reviewFilterOf, reviewShots } from './director.js';
 import { ulid } from './ulid.js';
 import { BAND_STEP, ghostLayout, insertIndex, lastFailure, previewable } from './band.js';
+import { lostSeconds } from './dissolve.js';
 
 export function selectedShot() {
 	return ui.selection?.kind === 'clip' ? (doc.clips.find((c) => c.id === ui.selection.id) ?? null) : null;
@@ -158,7 +159,8 @@ export function openSeam(clip) {
 
 export function proposalLayout() {
 	if (!ui.storyOpen || ui.storyTab !== 'cut' || !ui.storyProposal?.length) return null;
-	const layout = ghostLayout(doc.clips, ui.storyProposal, insertIndex(doc.clips, ui.storyAt, selectedShot()?.id ?? null));
+	const index = insertIndex(doc.clips, ui.storyAt, selectedShot()?.id ?? null);
+	const layout = ghostLayout(doc.clips, ui.storyProposal, index, lostSeconds(doc.clips.slice(0, index), doc.fps));
 	return layout.ghosts.length ? layout : null;
 }
 

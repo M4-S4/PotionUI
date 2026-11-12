@@ -128,5 +128,8 @@
 	"dissolve.total": "All cross-dissolves together: the film is {dur} shorter.",
 	"dissolve.tooShort": "These shots are too short for a cross-dissolve: the cut stays a cut.",
 	"dissolve.hint": "A cross-dissolve blends this shot into the previous one and shortens the film by its length.",
-	"dissolve.tip": "Cross-dissolve {dur}: the film is {dur} shorter"
+	"dissolve.tip": "Cross-dissolve {dur}: the film is {dur} shorter",
+	"dissolve.rounded": "Rounded to {dur}: {frames} whole frames at {fps} fps.",
+	"dissolve.chained": "This shot starts from the last frame of the previous one: with a cross-dissolve, the same motion shows twice.",
+	"dissolve.noSplit": "Cannot split inside a cross-dissolve: move the playhead out of it, or choose Cut first."
 }

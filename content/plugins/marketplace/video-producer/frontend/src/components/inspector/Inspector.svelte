@@ -136,8 +136,8 @@
 	const audioLane = $derived(audio ? (doc.lanes.find((l) => l.id === audio.lane) ?? null) : null);
 	const cuts = $derived(audio ? sliceCuts(audio.dur, sliceLength(ui.sliceSeconds)) : []);
 	const join = $derived(audio ? joinPlan(doc, audio) : null);
-	const onShots = $derived(audio ? shotCuts(audio, doc.clips) : []);
-	const laneShots = $derived(s?.kind === 'lane' && item ? doc.audio.filter((x) => x.lane === item.id).map((x) => shotCuts(x, doc.clips)) : []);
+	const onShots = $derived(audio ? shotCuts(audio, doc.clips, doc.fps) : []);
+	const laneShots = $derived(s?.kind === 'lane' && item ? doc.audio.filter((x) => x.lane === item.id).map((x) => shotCuts(x, doc.clips, doc.fps)) : []);
 	const laneSliced = $derived(laneShots.filter((x) => x?.length));
 	const vsecs = (v) => `${formatNumber(v, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} s`;
 
@@ -724,8 +724,8 @@
 
 {#snippet fadeFields(video)}
 	{@const index = video ? doc.clips.indexOf(item) : -1}
-	{@const joinedIn = index > 0 && dissolveBefore(doc.clips, index) > 0}
-	{@const joinedOut = index >= 0 && dissolveAfter(doc.clips, index) > 0}
+	{@const joinedIn = index > 0 && dissolveBefore(doc.clips, index, doc.fps) > 0}
+	{@const joinedOut = index >= 0 && dissolveAfter(doc.clips, index, doc.fps) > 0}
 	<section class="space-y-2">
 		<div class="vp-section-title">{t('inspector.section.fades')}</div>
 		<NumField label={t('inspector.field.fadeIn')} value={joinedIn ? 0 : item.fadeIn} min={0} max={fadeMax} step={0.04} unit="s" disabled={joinedIn} onchange={(v) => set('fadeIn', v)} />

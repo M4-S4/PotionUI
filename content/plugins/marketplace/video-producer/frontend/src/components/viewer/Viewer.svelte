@@ -33,10 +33,16 @@
 	const box = $derived(w / h > r ? { w: h * r, h } : { w, h: w / r });
 
 	const time = $derived(ui.playhead);
-	const clip = $derived(clipAt(time));
+	const mix = $derived(mixAt(doc.clips, time, doc.fps));
+	const clip = $derived(mix ? mix.from : clipAt(time));
 	const a = $derived(clip ? asset(clip.assetId) : null);
-	const mix = $derived(mixAt(doc.clips, time));
-	const opacity = $derived(clip ? fadeOpacity(unfaded(doc.clips, doc.clips.indexOf(clip)), time) : 1);
+	const opacity = $derived(clip ? fadeOpacity(unfaded(doc.clips, doc.clips.indexOf(clip), doc.fps), time) : 1);
+	let lastMix = $state(null);
+	let ready = $state(null);
+	$effect(() => {
+		if (mix) lastMix = { ...mix, progress: 1 };
+	});
+	const held = $derived(!mix && lastMix && clip?.id === lastMix.to.id && liveVideo && ready !== liveVideo ? lastMix : null);
 
 	const title = $derived(doc.titles.find((x) => time >= x.start && time < x.start + x.dur));
 
@@ -233,6 +239,8 @@
 							style:filter={clipFilter(clip)}
 							onerror={(e) => mark(liveVideo, e.currentTarget)}
 							onloadedmetadata={(e) => (mark(liveVideo, e.currentTarget, true), measure(liveVideo, e.currentTarget))}
+							onseeked={() => (ready = liveVideo)}
+							oncanplay={() => (ready = liveVideo)}
 						></video>
 						{#if lut && video}<MatchCanvas source={video} {lut} filter={clipFilter(clip)} fade={opacity} cover={liveFit !== BARS} />{/if}
 					{/key}
@@ -253,8 +261,8 @@
 					<div class="flex h-full items-center justify-center text-sm {bare ? 'text-fg-muted' : 'text-white/60'}">{t('viewer.end')}</div>
 				{/if}
 
-				{#if mix && mode === 'sequence'}
-					<DissolveLayer {mix} {time} />
+				{#if (mix || held) && mode === 'sequence'}
+					<DissolveLayer mix={mix ?? held} {time} />
 				{/if}
 
 				{#if title && mode === 'sequence'}

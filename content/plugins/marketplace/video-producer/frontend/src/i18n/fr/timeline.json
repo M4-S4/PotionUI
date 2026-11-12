@@ -128,5 +128,8 @@
 	"dissolve.total": "Tous les fondus enchaînés réunis : le film raccourcit de {dur}.",
 	"dissolve.tooShort": "Ces plans sont trop courts pour un fondu enchaîné : le raccord reste une coupe.",
 	"dissolve.hint": "Un fondu enchaîné mêle ce plan au précédent et raccourcit le film de sa durée.",
-	"dissolve.tip": "Fondu enchaîné {dur} : le film raccourcit de {dur}"
+	"dissolve.tip": "Fondu enchaîné {dur} : le film raccourcit de {dur}",
+	"dissolve.rounded": "Arrondi à {dur} : {frames} images entières à {fps} i/s.",
+	"dissolve.chained": "Ce plan repart de la dernière image du précédent : avec un fondu enchaîné, le même mouvement se voit deux fois.",
+	"dissolve.noSplit": "Impossible de couper dans un fondu enchaîné : sortez la tête de lecture du fondu, ou choisissez d’abord Coupe."
 }

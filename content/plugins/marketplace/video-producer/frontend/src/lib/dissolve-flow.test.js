@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { clean, renderComponent } from './svelte-harness.js';
 import { setDissolve } from './dissolve.js';
 
-const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, dispose } = await import('./state.svelte.js');
+const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, dispose } = await import('./state.svelte.js');
+const { commandById } = await import('./commands.js');
 const { t } = await import('../i18n/index.svelte.js');
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -34,13 +35,14 @@ function project() {
 
 function dissolveB(seconds = 1) {
 	act(() => {
-		setDissolve(doc.clips, 1, seconds);
+		setDissolve(doc.clips, 1, seconds, doc.fps);
 		relayout();
 	});
 }
 
 for (const c of cases) {
 	test(`dissolve flow: the page lays the shared case "${c.name}" out where the assistant does`, () => {
+		doc.fps = c.fps;
 		doc.clips = c.clips.map((clip, i) => ({ id: `c${i}`, start: 99, srcIn: 0, ...clip }));
 		relayout();
 		assert.ok(
@@ -159,4 +161,80 @@ test('dissolve flow: the cut window of the Storyboard grid offers the dissolve, 
 	const PANEL = new URL('../components/storyboard/SeamPanel.svelte', import.meta.url).href;
 	assert.match(clean(await renderComponent(PANEL, { clip: doc.clips[1] })), /data-seam-transition="b"/);
 	assert.doesNotMatch(clean(await renderComponent(PANEL, { clip: doc.clips[1], title: false, compare: false })), /data-seam-transition/);
+});
+
+test('dissolve flow: from the middle of a dissolve on, the shot under the playhead is the incoming one, and the blade refuses to cut inside it', () => {
+	project();
+	dissolveB();
+	assert.deepEqual([0.9, 1.2, 1.49, 1.5, 1.8, 2.99, 3].map((time) => clipAt(time)?.id), ['a', 'a', 'a', 'b', 'b', 'b', 'c']);
+	assert.equal(shotIdAt(1.8), 'b');
+	select('clip', 'b');
+	const before = JSON.stringify(doc.clips);
+	bladeAt(1.8);
+	assert.equal(JSON.stringify(doc.clips), before);
+	bladeAt(2.6);
+	assert.deepEqual(
+		doc.clips.map((c) => [c.id === 'b' ? 'b' : c.id === 'a' || c.id === 'c' ? c.id : 'new', c.dur]),
+		[
+			['a', 2],
+			['b', 1.6],
+			['new', 0.4],
+			['c', 1]
+		]
+	);
+});
+
+test('dissolve flow: trimming a dissolved shot from the keyboard keeps its dissolve where it is drawn', () => {
+	project();
+	dissolveB(0.4);
+	select('clip', 'b');
+	ui.playhead = 3.2;
+	commandById('trim-end').run();
+	const expected = [
+		[0, 2],
+		[1.6, 1.6],
+		[3.2, 1]
+	];
+	assert.ok(
+		doc.clips.every((c, i) => Math.abs(c.start - expected[i][0]) < 1e-9 && Math.abs(c.dur - expected[i][1]) < 1e-9),
+		JSON.stringify(doc.clips.map((c) => [c.start, c.dur]))
+	);
+	assert.ok(Math.abs(seqDuration() - 4.2) < 1e-9);
+});
+
+test('dissolve flow: an incoming shot without media fades the picture to black, as the export does', async () => {
+	project();
+	doc.clips[1].assetId = null;
+	dissolveB();
+	ui.playhead = 1.5;
+	const html = clean(await renderComponent(VIEWER));
+	assert.match(html, /<div class="pointer-events-none absolute inset-0 bg-black" data-dissolve-layer="b" style="opacity: 0\.5;"><\/div>/);
+});
+
+test('dissolve flow: the cut says when a dissolve is rounded to whole frames, when it is capped, and when the shot is chained', async () => {
+	project();
+	doc.fps = 24;
+	act(() => {
+		setDissolve(doc.clips, 1, 0.4, doc.fps);
+		relayout();
+	});
+	const rounded = clean(await renderComponent(SEAM, { clip: doc.clips[1] }));
+	assert.ok(rounded.includes(t('timeline.dissolve.rounded', { dur: '0.38 s', frames: 9, fps: 24 })));
+	assert.doesNotMatch(rounded, /data-dissolve-capped/);
+	assert.match(rounded, /<option value="0\.416667">/);
+	project();
+	doc.clips[1].dur = 1;
+	doc.clips[2].stage = 'source';
+	act(() => {
+		setDissolve(doc.clips, 2, 2, doc.fps);
+		relayout();
+	});
+	const capped = clean(await renderComponent(SEAM, { clip: doc.clips[2] }));
+	assert.ok(capped.includes(t('timeline.dissolve.capped', { dur: '0.48 s' })));
+	assert.doesNotMatch(capped, /data-dissolve-rounded|data-dissolve-chained/);
+	doc.clips[2].stage = 'todo';
+	assert.ok(clean(await renderComponent(SEAM, { clip: doc.clips[2] })).includes(t('timeline.dissolve.chained')));
+	doc.firstFromPrevious = false;
+	assert.doesNotMatch(clean(await renderComponent(SEAM, { clip: doc.clips[2] })), /data-dissolve-chained/);
+	delete doc.firstFromPrevious;
 });

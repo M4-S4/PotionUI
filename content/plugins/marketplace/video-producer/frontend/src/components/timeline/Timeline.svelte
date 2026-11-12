@@ -619,7 +619,7 @@
 							{#each doc.clips as c, i (c.id)}
 								{@render clip(c, i)}
 							{/each}
-							{#each dissolveMarks(doc.clips) as mark (mark.id)}
+							{#each dissolveMarks(doc.clips, doc.fps) as mark (mark.id)}
 								{@render dissolve(mark)}
 							{/each}
 							{#if reorder}
@@ -766,7 +766,7 @@
 {#snippet clip(c, i)}
 	{@const thumb = clipThumb(c)}
 	{@const media = asset(c.assetId)}
-	{@const span = shownSpan(doc.clips, i)}
+	{@const span = shownSpan(doc.clips, i, doc.fps)}
 	{@const w = x(span.dur)}
 	{@const sel = isSel('clip', c.id)}
 	{@const picked = isPicked(c.id)}

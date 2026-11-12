@@ -26,8 +26,10 @@ import {
 	openDirector,
 	directorView,
 	pickAll,
-	clearPicked
+	clearPicked,
+	relayout
 } from './state.svelte.js';
+import { DISSOLVE_KEY } from './dissolve.js';
 import { compareSeam, cycleTake, labelPreviewed, nudgeDuration, pickShot, previewed, selectedShot, shiftShot, stepShot as bandStep } from './band.svelte.js';
 import { BAND_STEP } from './band.js';
 import { speedOf } from './cadence.js';
@@ -126,6 +128,7 @@ const nudgeTrim = (edge) => () => {
 			s.dur = at - s.start;
 			if (doc.clips.includes(s)) fitShot(s, before);
 		}
+		if (doc.clips.includes(s) && doc.clips.some((c) => DISSOLVE_KEY in c)) relayout();
 	});
 };
 
