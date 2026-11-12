@@ -249,8 +249,8 @@ test('dissolve flow: changing the cadence of the project keeps every dissolve an
 	});
 	const starts = doc.clips.map((c) => c.start);
 	const played = joins(doc.clips);
-	assert.deepEqual(starts, [0, 1, 3.6]);
-	assert.deepEqual(played, [0, 1, 0.5]);
+	assert.deepEqual(starts, [0, 1, 3.64]);
+	assert.deepEqual(played, [0, 1, 0.46]);
 	for (const fps of [24, 25, 30, 48, 50, 60]) {
 		doc.fps = fps;
 		assert.deepEqual(joins(doc.clips), played, `${fps} fps`);
@@ -331,4 +331,28 @@ test('dissolve flow: a project whose cuts are all too short for a dissolve trims
 			[4, 1]
 		]
 	);
+});
+
+test('dissolve flow: the cut says why a dissolve plays shorter after a shot off the grid, and when its value is too brief', async () => {
+	project();
+	doc.clips[0].dur = 3.1;
+	act(() => {
+		setDissolve(doc.clips, 1, 1);
+		relayout();
+	});
+	const off = clean(await renderComponent(SEAM, { clip: doc.clips[1] }));
+	assert.ok(off.includes(t('timeline.dissolve.shorter', { dur: '0.98 s' })));
+	assert.ok(off.includes(t('timeline.dissolve.overlap', { dur: '0.98 s', asked: '1.0 s' })));
+	assert.doesNotMatch(off, /data-dissolve-capped|data-dissolve-rounded/);
+	project();
+	doc.clips[1].dissolve = 0.04;
+	const brief = clean(await renderComponent(SEAM, { clip: doc.clips[1] }));
+	assert.ok(brief.includes(t('timeline.dissolve.tooBrief')));
+	assert.ok(!brief.includes(t('timeline.dissolve.tooShort')));
+	project();
+	doc.clips[0].dur = 0.12;
+	doc.clips[1].dissolve = 1;
+	const short = clean(await renderComponent(SEAM, { clip: doc.clips[1] }));
+	assert.ok(short.includes(t('timeline.dissolve.tooShort')));
+	assert.ok(!short.includes(t('timeline.dissolve.tooBrief')));
 });

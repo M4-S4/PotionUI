@@ -36,10 +36,13 @@
 		</div>
 		{#if applied > 0}
 			<p class="text-xs text-warning" data-dissolve-loss>{t('timeline.dissolve.shorter', { dur: sec(applied) })}</p>
-			{#if limit.by === 'half'}<p class="text-xs text-fg-subtle" data-dissolve-capped>{t('timeline.dissolve.capped', { dur: sec(applied) })}</p>{/if}
+			{#if limit.by === 'half'}<p class="text-xs text-fg-subtle" data-dissolve-capped>{t('timeline.dissolve.capped', { dur: sec(limit.seconds) })}</p>{/if}
 			{#if limit.by === 'grid'}<p class="text-xs text-fg-subtle" data-dissolve-rounded>{t('timeline.dissolve.rounded', { dur: sec(limit.seconds) })}</p>{/if}
+			{#if Math.abs(applied - limit.seconds) > 1e-6}<p class="text-xs text-fg-subtle" data-dissolve-overlap>{t('timeline.dissolve.overlap', { dur: sec(applied), asked: sec(limit.seconds) })}</p>{/if}
 			{#if chained}<p class="text-xs text-fg-subtle" data-dissolve-chained>{t('timeline.dissolve.chained')}</p>{/if}
 			{#if total > applied}<p class="text-xs text-fg-subtle" data-dissolve-total>{t('timeline.dissolve.total', { dur: sec(total) })}</p>{/if}
+		{:else if wanted > 0 && limit.by === 'brief'}
+			<p class="text-xs text-fg-subtle" data-dissolve-brief>{t('timeline.dissolve.tooBrief')}</p>
 		{:else if wanted > 0}
 			<p class="text-xs text-fg-subtle" data-dissolve-capped>{t('timeline.dissolve.tooShort')}</p>
 		{:else}
