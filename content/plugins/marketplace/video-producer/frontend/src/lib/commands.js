@@ -27,9 +27,10 @@ import {
 	directorView,
 	pickAll,
 	clearPicked,
-	relayout
+	relayout,
+	sayLimited
 } from './state.svelte.js';
-import { dissolveOf } from './dissolve.js';
+import { dissolveOf, playedLengths } from './dissolve.js';
 import { compareSeam, cycleTake, labelPreviewed, nudgeDuration, pickShot, previewed, selectedShot, shiftShot, stepShot as bandStep } from './band.svelte.js';
 import { BAND_STEP } from './band.js';
 import { speedOf } from './cadence.js';
@@ -118,6 +119,7 @@ const nudgeTrim = (edge) => () => {
 	const s = selected();
 	if (!s || !('dur' in s)) return toast(t('lib.toast.selectTimelineItem'), 'warning');
 	const dissolved = () => doc.clips.some((c, i) => i > 0 && dissolveOf(doc.clips[i - 1], c) > 0);
+	const played = playedLengths(doc.clips);
 	act(() => {
 		const at = ui.playhead;
 		const start = s.start;
@@ -138,6 +140,7 @@ const nudgeTrim = (edge) => () => {
 			relayout();
 		}
 	});
+	sayLimited(played);
 };
 
 const mixer = () => {

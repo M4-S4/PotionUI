@@ -1,6 +1,6 @@
 <script>
 	import { t } from '../../i18n/index.svelte.js';
-	import { ui, doc, asset, clamp, round, relayout, secs, clipLabel, promptOf, sourceLength, isPicked, pickClip } from '../../lib/state.svelte.js';
+	import { ui, doc, asset, clamp, round, relayout, secs, clipLabel, promptOf, sourceLength, isPicked, pickClip, limitNote, sayLimited } from '../../lib/state.svelte.js';
 	import { takesOf, shotActivity, shotEngineText, shotDurationLimit, fitShot, soundOf } from '../../lib/production.svelte.js';
 	import { activityStep } from '../../lib/generation.js';
 	import { takeLabelOf } from '../../lib/labels.js';
@@ -30,7 +30,7 @@
 	import Icon from '../Icon.svelte';
 	import SoundNote from '../shots/SoundNote.svelte';
 	import ChainChip from './ChainChip.svelte';
-	import { chained, lostSeconds, tailTrim } from '../../lib/dissolve.js';
+	import { chained, lostSeconds, playedLengths, tailTrim } from '../../lib/dissolve.js';
 
 	const HEAD = 120;
 	const SONG = 48;
@@ -113,6 +113,7 @@
 		const d0 = c.dur;
 		const start0 = c.start;
 		const exact = chained(doc.clips);
+		const played = playedLengths(doc.clips);
 		drag(e, {
 			onMove: (dx) => {
 				const end = ui.snapping ? snap((exact ? start0 : c.start) + d0 + dx / pps, c.id) : { t: (exact ? start0 : c.start) + d0 + dx / pps, at: null };
@@ -122,9 +123,12 @@
 				relayout();
 				if (ui.drag) ui.drag.at = end.at;
 				trimText(range, max, d0, c.dur, limit);
+				const note = limitNote(played);
+				if (note && ui.drag) dragText(`${ui.drag.text} · ${note}`, ui.drag.limit);
 			},
 			onEnd: () => {
 				if (fitShot(c, d0)) relayout();
+				sayLimited(played);
 			}
 		});
 	}

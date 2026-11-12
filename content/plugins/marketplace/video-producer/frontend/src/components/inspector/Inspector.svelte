@@ -27,7 +27,8 @@
 		promptEdited,
 		openDirector,
 		pickedClips,
-		deleteVrefTrack
+		deleteVrefTrack,
+		sayLimited
 	} from '../../lib/state.svelte.js';
 	import { VREF_ROLES, videoTracksOf } from '../../lib/vrefs.js';
 	import { lengthChoices, trackFrames, vrefLabel } from '../../lib/vreftracks.js';
@@ -55,7 +56,7 @@
 	import SeamAction from '../takes/SeamAction.svelte';
 	import ChainSwitch from '../shots/ChainSwitch.svelte';
 	import SeamTransition from '../storyboard/SeamTransition.svelte';
-	import { chained, dissolveAfter, dissolveBefore } from '../../lib/dissolve.js';
+	import { chained, dissolveAfter, dissolveBefore, playedLengths } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import TakesSection from './TakesSection.svelte';
 	import DraftsField from '../shots/DraftsField.svelte';
@@ -107,9 +108,11 @@
 	const set = (k, v) => (item[k] = v);
 	const setClipDur = (v) => {
 		const before = item.dur;
+		const played = playedLengths(doc.clips);
 		item.dur = round(clamp(v, 0.4, shotDurationLimit(item).max), 0.04);
 		fitShot(item, before);
 		relayout();
+		sayLimited(played);
 	};
 	const setClipIn = (v) => {
 		const max = sourceLength(item);

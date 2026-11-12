@@ -12,6 +12,8 @@
 		clamp,
 		round,
 		bladeAt,
+		limitNote,
+		sayLimited,
 		undo,
 		redo,
 		history,
@@ -60,7 +62,7 @@
 	import { engineTitle, shotReceptionFor } from '../../lib/references.js';
 	import { LIMITS, VIDEO_TRACKS, leastSeconds } from '../../lib/reception.js';
 	import { TAG_CLASS } from '../../lib/reftags.js';
-	import { chained, dissolveMarks, headTrim, onFrame, shownSpans, tailTrim } from '../../lib/dissolve.js';
+	import { chained, dissolveMarks, headTrim, onFrame, playedLengths, shownSpans, tailTrim } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import Dropdown from '../shell/Dropdown.svelte';
 	import ZoomControls from './ZoomControls.svelte';
@@ -326,6 +328,7 @@
 		const start0 = c.start;
 		const speed = speedOf(c);
 		const exact = chained(doc.clips);
+		const played = playedLengths(doc.clips);
 		drag(e, {
 			onMove: (dx) => {
 				const dt = dx / pps;
@@ -347,9 +350,12 @@
 				}
 				relayout();
 				trimText(range, max, d0, c.dur, limit);
+				const note = limitNote(played);
+				if (note && ui.drag) dragText(`${ui.drag.text} · ${note}`, ui.drag.limit);
 			},
 			onEnd: () => {
 				if (edge === 'end' && fitShot(c, d0)) relayout();
+				sayLimited(played);
 			}
 		});
 	}

@@ -91,6 +91,17 @@ export function headTrim(srcIn, dur, speed, shift) {
 
 export const tailTrim = (start, end, most) => rounded(Math.min(Math.max(finite(end) - finite(start), LEAST_SHOT), Math.max(finite(most), LEAST_SHOT)));
 
+export const playedLengths = (clips) => (chained(clips) ? clips.map((clip, i) => (i > 0 ? dissolveOf(clips[i - 1], clip) : 0)) : null);
+
+export function newlyLimited(before, clips) {
+	if (!before || before.length !== (clips ?? []).length) return [];
+	return clips.flatMap((clip, i) => {
+		if (!i) return [];
+		const limit = limitOf(clips[i - 1], clip);
+		return limit.by === 'half' && limit.seconds > 0 && Math.abs(limit.seconds - before[i]) > EPSILON ? [limit.seconds] : [];
+	});
+}
+
 export const chained = (clips) => (clips ?? []).some((clip, i) => i > 0 && dissolveOf(clips[i - 1], clip) > 0);
 
 export function layout(clips, snap) {

@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { clean, renderComponent } from './svelte-harness.js';
-import { DISSOLVE_CHOICES, headTrim, joins, onFrame, setDissolve, tailTrim } from './dissolve.js';
+import { DISSOLVE_CHOICES, headTrim, joins, onFrame, playedLengths, setDissolve, tailTrim } from './dissolve.js';
 
-const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, dispose } = await import('./state.svelte.js');
+const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, limitNote, sayLimited, dispose } = await import('./state.svelte.js');
 const { commandById } = await import('./commands.js');
 const { t } = await import('../i18n/index.svelte.js');
 
@@ -626,21 +626,27 @@ test('dissolve flow: in a project that dissolves, a trim moves one edge on the g
 	assert.match(inspector, /item\.dur = chained\(doc\.clips\) \? \+fit\.toFixed\(6\) : fit;/);
 });
 
-test('dissolve flow: a trim that shortens a shot below twice its dissolve plays a shorter dissolve and slides the later shots, with no message', () => {
-	const steps = {
-		'keyboard end': () => ((ui.playhead = 2.6), commandById('trim-end').run()),
-		'keyboard start': () => ((ui.playhead = 1.4), commandById('trim-start').run()),
-		'mouse or band end': () => act(() => ((doc.clips[1].dur = tailTrim(1, 2.6, 6)), relayout())),
-		'mouse start': () => act(() => (Object.assign(doc.clips[1], headTrim(0, 2, 1, 0.4)), relayout())),
-		'inspector duration': () => act(() => ((doc.clips[1].dur = 1.6), relayout()))
+test('dissolve flow: a trim that shortens a shot below twice its dissolve plays a shorter dissolve, slides the later shots and says so once', () => {
+	const ended = (run) => {
+		const played = playedLengths(doc.clips);
+		act(run);
+		sayLimited(played);
 	};
-	for (const [name, run] of Object.entries(steps)) {
+	const trims = {
+		'keyboard end': (to) => ((ui.playhead = doc.clips[1].start + to), commandById('trim-end').run()),
+		'keyboard start': (to) => ((ui.playhead = doc.clips[1].start + doc.clips[1].dur - to), commandById('trim-start').run()),
+		'mouse or band end': (to) => ended(() => ((doc.clips[1].dur = tailTrim(doc.clips[1].start, doc.clips[1].start + to, 6)), relayout())),
+		'mouse start': (to) => ended(() => (Object.assign(doc.clips[1], headTrim(doc.clips[1].srcIn, doc.clips[1].dur, 1, doc.clips[1].dur - to)), relayout())),
+		'inspector duration': (to) => ended(() => ((doc.clips[1].dur = to), relayout()))
+	};
+	const heard = () => said.length + ui.toasts.length;
+	const limited = t('timeline.dissolve.trimLimited', { dur: '0.8 s' });
+	for (const [name, trim] of Object.entries(trims)) {
 		project();
 		dissolveB(1);
-		assert.deepEqual(doc.clips.map((c) => c.start), [0, 1, 3]);
 		select('clip', 'b');
-		const toasts = said.length + ui.toasts.length;
-		run();
+		let count = heard();
+		trim(1.6);
 		assert.deepEqual(
 			doc.clips.map((c) => [c.start, c.dur]),
 			[
@@ -652,8 +658,69 @@ test('dissolve flow: a trim that shortens a shot below twice its dissolve plays 
 		);
 		assert.equal(doc.clips[1].dissolve, 1, name);
 		assert.deepEqual(joins(doc.clips), [0, 0.8, 0], name);
-		assert.equal(said.length + ui.toasts.length, toasts, name);
+		assert.equal(heard(), count + 1, name);
+		assert.equal(said.at(-1), limited, name);
+		count = heard();
+		undo();
+		assert.deepEqual(doc.clips.map((c) => c.start), [0, 1, 3], name);
+		assert.equal(heard(), count + (said.at(-1) === t('lib.toast.undone') ? 1 : 0), name);
+		assert.notEqual(said.at(-1), limited, name);
+
+		project();
+		doc.clips[1].dur = 4;
+		dissolveB(1);
+		select('clip', 'b');
+		count = heard();
+		trim(3.6);
+		assert.deepEqual(joins(doc.clips), [0, 1, 0], name);
+		assert.equal(heard(), count, name);
+
+		project();
+		select('clip', 'b');
+		count = heard();
+		trim(1.6);
+		assert.equal(doc.clips[1].dur, 1.6, name);
+		assert.equal(heard(), count, name);
 	}
+	for (const name of ['keyboard end', 'mouse or band end', 'inspector duration']) {
+		project();
+		dissolveB(1);
+		act(() => ((doc.clips[1].dur = 1.6), relayout()));
+		select('clip', 'b');
+		const count = heard();
+		trims[name](2);
+		assert.deepEqual(joins(doc.clips), [0, 1, 0], name);
+		assert.equal(heard(), count, name);
+	}
+	lay([2, 2, 2], [0, 1, 1]);
+	const count = heard();
+	trims['inspector duration'](1.6);
+	assert.deepEqual(joins(doc.clips), [0, 0.8, 0.8]);
+	assert.equal(heard(), count + 1);
+	assert.equal(said.at(-1), t('timeline.dissolve.trimLimitedTwo', { first: '0.8 s', second: '0.8 s' }));
+});
+
+test('dissolve flow: while a trim limits a dissolve, the drag text says so, and the five trims are wired to say it at their end', () => {
+	project();
+	dissolveB(1);
+	const played = playedLengths(doc.clips);
+	assert.equal(limitNote(played), '');
+	act(() => ((doc.clips[1].dur = tailTrim(1, 2.6, 6)), relayout()));
+	assert.equal(limitNote(played), t('timeline.drag.dissolveLimited', { dur: '0.8 s' }));
+	act(() => ((doc.clips[1].dur = 2.4), relayout()));
+	assert.equal(limitNote(played), '');
+	project();
+	assert.equal(playedLengths(doc.clips), null);
+	assert.equal(limitNote(playedLengths(doc.clips)), '');
+	const timeline = readFileSync(new URL(TIMELINE), 'utf-8');
+	const band = readFileSync(new URL('../components/storyboard/BandLanes.svelte', import.meta.url), 'utf-8');
+	for (const source of [timeline, band]) {
+		assert.match(source, /const played = playedLengths\(doc\.clips\);\s+drag\(e, \{/);
+		assert.match(source, /const note = limitNote\(played\);\s+if \(note && ui\.drag\) dragText\(`\$\{ui\.drag\.text\} · \$\{note\}`, ui\.drag\.limit\);/);
+		assert.match(source, /relayout\(\);\s+sayLimited\(played\);\s+\}/);
+	}
+	const inspector = readFileSync(new URL(INSPECTOR), 'utf-8');
+	assert.match(inspector, /const played = playedLengths\(doc\.clips\);\s+item\.dur = round\(clamp\(v, 0\.4, shotDurationLimit\(item\)\.max\), 0\.04\);\s+fitShot\(item, before\);\s+relayout\(\);\s+sayLimited\(played\);/);
 });
 
 test('dissolve flow: in a project that dissolves, the trim handles of a narrow shot share it in halves, and a project without dissolve keeps its handles as they were', async () => {

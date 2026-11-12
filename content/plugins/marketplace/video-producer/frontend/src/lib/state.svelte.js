@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, chained, dissolveOf, indexAt, layout, mixAt, splitKeepsDissolves, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, dissolveOf, indexAt, layout, mixAt, newlyLimited, splitKeepsDissolves, startingAt } from './dissolve.js';
 
 export { newAsset, newClip };
 
@@ -164,6 +164,19 @@ export function tc(sec, fps = 25) {
 	return `${p(Math.floor(whole / 3600))}:${p(Math.floor((whole % 3600) / 60))}:${p(whole % 60)}:${p(f)}`;
 }
 export const secs = (v) => `${formatNumber(+v, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+
+const dissolveSecs = (v) => `${formatNumber(v, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} s`;
+
+export function limitNote(before) {
+	const found = newlyLimited(before, doc.clips);
+	return found.length ? t('timeline.drag.dissolveLimited', { dur: found.map(dissolveSecs).join(' · ') }) : '';
+}
+
+export function sayLimited(before) {
+	const found = newlyLimited(before, doc.clips);
+	if (found.length === 1) toast(t('timeline.dissolve.trimLimited', { dur: dissolveSecs(found[0]) }));
+	if (found.length > 1) toast(t('timeline.dissolve.trimLimitedTwo', { first: dissolveSecs(found[0]), second: dissolveSecs(found[1]) }));
+}
 
 export function seqDuration() {
 	const ends = [...doc.clips.map((c) => c.start + c.dur), ...doc.audio.map((c) => c.start + c.dur), ...doc.titles.map((c) => c.start + c.dur)];
