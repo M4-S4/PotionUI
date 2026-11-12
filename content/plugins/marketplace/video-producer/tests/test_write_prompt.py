@@ -144,7 +144,7 @@ def test_writing_sends_the_request_the_preset_guide_of_the_shot_mode_and_its_two
     response = _write(client, project["id"], _body())
 
     assert response.status_code == 200
-    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0, "images_dropped": 0, "lost_tags": []}
+    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0, "images_dropped": 0, "lost_tags": [], "unknown_tags": []}
     (call,) = writer.calls
     assert call["user_id"] == "user-1"
     assert (call["preset_id"], call["mode"]) == (presets.MINIMAX_H3, "refs")
@@ -575,7 +575,7 @@ def test_the_instruction_stays_within_the_core_limit_and_says_where_the_current_
         ("Here is the prompt:\n```\nThe fisherman lights his lantern.\n```", "The fisherman lights his lantern."),
         ("Sure, here it is:\n```text\nThe fisherman lights his lantern.\n```\nHope it helps!", "The fisherman lights his lantern."),
         ("Here is the shot prompt:\n\nThe fisherman lights his lantern.", "The fisherman lights his lantern."),
-        ("The fisherman <Subject 1> lifts the lantern from <Picture 2> , then waits.", "The fisherman lifts the lantern from, then waits."),
+        ("The fisherman <Subject 1> lifts the lantern from <Picture 2> , then waits.", "The fisherman <Subject 1> lifts the lantern from <Picture 2>, then waits."),
         ("At dusk the fisherman waits: the rain starts.", "At dusk the fisherman waits: the rain starts."),
     ],
 )
@@ -595,3 +595,47 @@ def test_a_reply_too_long_is_cut_at_its_last_whole_sentence_or_at_a_word():
     assert len(by_word) <= prompt_writer.MAX_WRITTEN_CHARS
     assert by_word.endswith("\u2026") and words.startswith(by_word[:-1]) and by_word[:-1].split(" ")[-1] in words.split(" ")
     assert prompt_writer.cleaned("A short one.") == "A short one."
+
+
+def test_a_bare_tag_becomes_the_label_of_the_card_it_numbers_and_an_unknown_one_is_kept_and_reported():
+    names = {"<Subject 1>": "the old fisherman", "<Subject 2>": "the stone quay", "<Picture 1>": "the old fisherman", "<Video 1>": "@vref2"}
+
+    assert prompt_writer.cleaned("<Subject 1> walks toward <Subject 2>.", names) == "The old fisherman walks toward the stone quay."
+    assert prompt_writer.cleaned("Rain falls. <Subject 1> waves, as in <Video 1>.", names) == "Rain falls. The old fisherman waves, as in @vref2."
+    kept = prompt_writer.cleaned("<Subject 3> walks toward <Subject 2> while <Audio 1> plays.", names)
+    assert kept == "<Subject 3> walks toward the stone quay while <Audio 1> plays."
+    assert prompt_writer.unknown_tags(kept) == ["<Subject 3>", "<Audio 1>"]
+    assert prompt_writer.cleaned("<Subject 1> walks toward <Subject 2>.") == "<Subject 1> walks toward <Subject 2>."
+
+
+@pytest.mark.parametrize(
+    ("mode", "reply", "kept", "unknown"),
+    [
+        ("Ref2VA", "<Subject 3> waves at <Subject 1> on <Picture 2>.", "The old fisherman waves at the red-haired woman on the harbour at dawn.", []),
+        ("Ref2VA", "<Subject 2> darkens while <Audio 1> plays.", "The harbour at dawn darkens while <Audio 1> plays.", ["<Audio 1>"]),
+        ("FL2VA", "<Subject 2> waves at <Subject 1> on <Subject 3>.", "The old fisherman waves at the red-haired woman on the harbour at dawn.", []),
+    ],
+)
+def test_the_route_names_the_tags_of_a_reply_by_the_numbering_of_the_shot(core, client, make_doc, make_project, monkeypatch, mode, reply, kept, unknown):
+    core.use_h3()
+    Writer(monkeypatch, reply={"text": reply})
+    project = make_project(doc=_doc(core, make_doc, mode=mode))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 200
+    assert response.json()["data"]["text"] == kept
+    assert response.json()["data"]["unknown_tags"] == unknown
+
+
+def test_a_shot_that_replaced_its_reference_part_keeps_the_tags_of_a_reply_and_reports_them(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    Writer(monkeypatch, reply={"text": "<Subject 1> waves."})
+    doc = _doc(core, make_doc)
+    doc["clips"][0]["referencePrompt"] = {"layout": "refs", "parts": {"subject_definitions": "<Subject 1> is a stranger.", "retention_analysis": "", "citations": ""}, "base": {"subject_definitions": "", "retention_analysis": "", "citations": ""}}
+    project = make_project(doc=doc)
+
+    response = _write(client, project["id"], _body())
+
+    assert response.json()["data"]["text"] == "<Subject 1> waves."
+    assert response.json()["data"]["unknown_tags"] == ["<Subject 1>"]

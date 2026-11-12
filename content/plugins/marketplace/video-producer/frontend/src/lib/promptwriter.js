@@ -25,6 +25,7 @@ export const WRITER_CODES = [
 
 const text = (value) => (typeof value === 'string' ? value : '');
 const VREF_TAG = /^@vref[1-9]$/i;
+const NUMBERED_TAG = /^<(?:Subject|Picture|Video|Audio) \d+>$/;
 
 export function normalizeWriterStatus(value) {
 	if (!isObject(value)) return null;
@@ -42,7 +43,8 @@ export function normalizeWritten(value) {
 	if (!isObject(value) || !text(value.text).trim()) return null;
 	const count = (n) => (Number.isInteger(n) && n > 0 ? n : 0);
 	const lostTags = Array.isArray(value.lost_tags) ? value.lost_tags.filter((tag) => typeof tag === 'string' && VREF_TAG.test(tag)) : [];
-	return { text: value.text.trim(), name: text(value.name) || null, images: count(value.images), imagesSkipped: count(value.images_skipped), imagesDropped: count(value.images_dropped), lostTags };
+	const unknownTags = Array.isArray(value.unknown_tags) ? value.unknown_tags.filter((tag) => typeof tag === 'string' && NUMBERED_TAG.test(tag)) : [];
+	return { text: value.text.trim(), name: text(value.name) || null, images: count(value.images), imagesSkipped: count(value.images_skipped), imagesDropped: count(value.images_dropped), lostTags, unknownTags };
 }
 
 export function writeBody(request, option, doc) {

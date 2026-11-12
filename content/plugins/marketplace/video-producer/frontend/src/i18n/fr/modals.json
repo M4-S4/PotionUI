@@ -293,5 +293,7 @@
 	"shot.writer.error.write_cancelled": "La rédaction a été arrêtée.",
 	"shot.writer.dropped.one": "Une des images du plan n’a pas pu être préparée pour le modèle de langue : il a écrit sans elle.",
 	"shot.writer.dropped.other": "{count} images du plan n’ont pas pu être préparées pour le modèle de langue : il a écrit sans elles.",
-	"shot.cardWords.replaced": "Ce plan remplace à la main sa partie du prompt faite des références : les mots de la fiche ne changent donc rien à ce qu’il envoie. Choisissez Revenir au texte composé pour les utiliser."
+	"shot.cardWords.replaced": "Ce plan remplace à la main sa partie du prompt faite des références : les mots de la fiche ne changent donc rien à ce qu’il envoie. Choisissez Revenir au texte composé pour les utiliser.",
+	"shot.writer.unknownTags.one": "La proposition garde la balise {tags}, que Video Producer numérote lui-même et ne sait pas nommer ici. Remplacez-la par l’étiquette d’une fiche, ou écrivez de nouveau.",
+	"shot.writer.unknownTags.other": "La proposition garde les balises {tags}, que Video Producer numérote lui-même et ne sait pas nommer ici. Remplacez-les par les étiquettes de fiches, ou écrivez de nouveau."
 }

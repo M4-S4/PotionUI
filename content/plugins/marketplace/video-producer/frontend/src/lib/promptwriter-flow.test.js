@@ -293,3 +293,13 @@ test('leaving a parked writing for good stops it', async () => {
 	assert.equal(calls.writes[0].signal.aborted, true);
 	assert.equal(writer.state.phase, 'open');
 });
+
+test('a proposal that keeps a tag the plugin numbers itself says which one before it is used', async () => {
+	const { client } = fakeClient({ answer: async () => ({ ok: true, data: { text: '<Subject 3> waves.', name: 'Qwen3-VL', images: 0, imagesSkipped: 0, imagesDropped: 0, lostTags: [], unknownTags: ['<Subject 3>'] } }) });
+	const writer = await asked(client);
+	await writer.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
+	const html = await renderComponent(PANEL, { writer, text: '', frames: 0 });
+	assert.match(html, /data-writer-unknown-tags="(&lt;|<)Subject 3(&gt;|>)"/);
+	const shown = textOf(html).replaceAll('&lt;', '<').replaceAll('&gt;', '>');
+	assert.ok(shown.includes(t('modals.shot.writer.unknownTags', { tags: '<Subject 3>', count: 1 })));
+});
