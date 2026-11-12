@@ -290,5 +290,7 @@
 	"shot.writer.lostTags.one": "The proposal drops the tag {tags}, which cites a reference video of the shot. Write again, or add it back after you use it.",
 	"shot.writer.lostTags.other": "The proposal drops the tags {tags}, which cite reference videos of the shot. Write again, or add them back after you use it.",
 	"shot.writer.error.write_busy": "A prompt is still being written for you. Wait a moment, then try again.",
-	"shot.writer.error.write_cancelled": "The writing was stopped."
+	"shot.writer.error.write_cancelled": "The writing was stopped.",
+	"shot.writer.dropped.one": "One of the shot’s images could not be prepared for the language model: it was written without it.",
+	"shot.writer.dropped.other": "{count} of the shot’s images could not be prepared for the language model: it was written without them."
 }

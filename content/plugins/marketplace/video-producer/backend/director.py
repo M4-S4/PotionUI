@@ -1372,8 +1372,8 @@ def _frame_media(user: User, doc: Mapping[str, Any], frame: Optional[Mapping[str
 
 def key_frame_media(user: User, doc: Mapping[str, Any], shot_id: str) -> List[Dict[str, Any]]:
     first, last = shot_frames(doc, shot_id)
-    found = [_frame_media(user, doc, frame) for frame in (first, last)]
-    return [media for media in found if media is not None]
+    found = [(role, _frame_media(user, doc, frame)) for role, frame in (("first", first), ("last", last))]
+    return [{**media, "role": role} for role, media in found if media is not None]
 
 
 def bind_frames(

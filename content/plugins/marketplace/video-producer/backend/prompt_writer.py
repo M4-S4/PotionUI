@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import re
+import shutil
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 from fastapi import HTTPException
 
-from . import bible, core_bridge, director
+from . import bible, core_bridge, director, workdir
 from .core_bridge import User
 from .director import DirectorError
 from .responses import fail
@@ -16,6 +18,9 @@ MAX_REQUEST_CHARS = 1000
 MAX_CURRENT_CHARS = 1500
 WRITE_TIMEOUT_S = 120.0
 POLL_S = 0.25
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+IMAGE_EDGE = 1024
+WORK_AREA = "writer"
 
 writing: Set[str] = set()
 
@@ -69,7 +74,7 @@ def instruction(
     seconds: float,
     characters: Sequence[str],
     place: Optional[str],
-    images: int,
+    images: Sequence[str],
 ) -> str:
     lines = [request.strip()[:MAX_REQUEST_CHARS], "", FRAMING]
     lines.append(f"Write in English. The shot lasts {seconds:.1f} seconds.")
@@ -80,10 +85,12 @@ def instruction(
         )
     if place:
         lines.append(f'The shot takes place in "{place}"; name it by that label.')
-    if images == 2:
+    if list(images) == ["first", "last"]:
         lines.append("Image 1 is the shot's first frame and image 2 its last frame: describe the motion from one to the other, not what the images already show.")
-    elif images == 1:
+    elif list(images) == ["first"]:
         lines.append("The image is the shot's first frame: describe the motion forward from it, not what it already shows.")
+    elif list(images) == ["last"]:
+        lines.append("The image is the shot's last frame: describe the motion that leads to it, not what it already shows.")
     text = current.strip()[:MAX_CURRENT_CHARS]
     tags = vref_tags(current)
     if tags:
@@ -126,6 +133,41 @@ def _plan(owner: User, doc: Mapping[str, Any], shot_id: str, preset_id: str, mod
         return preset_id, None, None
     form_data = plan.request.get("form_data") if isinstance(plan.request, Mapping) else None
     return plan.preset_id or preset_id, plan.preset_mode or None, dict(form_data) if isinstance(form_data, Mapping) else None
+
+
+def _shrunk(source: Path, target: Path) -> None:
+    from PIL import Image, ImageOps
+
+    with Image.open(source) as image:
+        picture = ImageOps.exif_transpose(image).convert("RGB")
+        picture.thumbnail((IMAGE_EDGE, IMAGE_EDGE))
+        picture.save(target, "JPEG", quality=90)
+
+
+def fitted(owner: User, media: Sequence[Mapping[str, Any]]) -> Tuple[List[Dict[str, Any]], int, Optional[Path]]:
+    root = core_bridge.storage_directory()
+    sent: List[Dict[str, Any]] = []
+    dropped = 0
+    folder: Optional[Path] = None
+    for index, item in enumerate(media):
+        source = root / str(item.get("value") or "")
+        try:
+            large = source.is_file() and source.stat().st_size > MAX_IMAGE_BYTES
+        except OSError:
+            large = False
+        if not large:
+            sent.append(dict(item))
+            continue
+        try:
+            folder = folder or workdir.scratch(WORK_AREA, owner.id)
+            target = folder / f"frame-{index + 1}.jpg"
+            _shrunk(source, target)
+        except Exception:
+            logger.warning("[VIDEO-PRODUCER] Could not shrink the key frame %s for the prompt writer", item.get("value"), exc_info=True)
+            dropped += 1
+            continue
+        sent.append({**item, "value": target.relative_to(root).as_posix()})
+    return sent, dropped, folder
 
 
 def _seconds(clip: Mapping[str, Any]) -> float:
@@ -190,7 +232,30 @@ async def _write(
     shot_id = str(clip.get("id"))
     preset, mode, form_data = await asyncio.to_thread(_plan, owner, doc, shot_id, preset_id, model_id)
     frames: List[Dict[str, Any]] = await asyncio.to_thread(director.key_frame_media, owner, doc, shot_id)
-    media = frames if found["vision"] else []
+    media, dropped, folder = await asyncio.to_thread(fitted, owner, frames) if found["vision"] else ([], 0, None)
+    try:
+        return await _written(user, found, shot_id, doc, clip, request, current, preset, mode, form_data, frames, media, dropped, gone)
+    finally:
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
+
+
+async def _written(
+    user: User,
+    found: Mapping[str, Any],
+    shot_id: str,
+    doc: Mapping[str, Any],
+    clip: Mapping[str, Any],
+    request: str,
+    current: str,
+    preset: str,
+    mode: Optional[str],
+    form_data: Optional[Dict[str, Any]],
+    frames: Sequence[Mapping[str, Any]],
+    media: List[Dict[str, Any]],
+    dropped: int,
+    gone: Optional[Callable[[], Awaitable[bool]]],
+) -> Dict[str, Any]:
     characters, place = bible.cast_of(doc, clip)
     text = instruction(
         request,
@@ -198,10 +263,11 @@ async def _write(
         seconds=_seconds(clip),
         characters=[card.label for card in characters],
         place=place.label if place is not None else None,
-        images=len(media),
+        images=[str(item.get("role")) for item in media],
     )
+    sent = [{"value": item["value"], "media_type": item["media_type"]} for item in media]
     try:
-        reply = await _answer(core_bridge.write_prompt_for_preset(user.id, text, preset_id=preset, mode=mode, form_data=form_data, media=media), gone)
+        reply = await _answer(core_bridge.write_prompt_for_preset(user.id, text, preset_id=preset, mode=mode, form_data=form_data, media=sent), gone)
     except HTTPException:
         raise
     except core_bridge.PromptWriteRefused as exc:
@@ -216,6 +282,7 @@ async def _write(
         "text": written,
         "name": found["name"],
         "images": len(media),
-        "images_skipped": len(frames) - len(media),
+        "images_skipped": 0 if found["vision"] else len(frames),
+        "images_dropped": dropped,
         "lost_tags": lost_tags(current, written),
     }

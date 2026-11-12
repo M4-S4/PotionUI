@@ -238,3 +238,12 @@ test('a writing still held by the server after a cancel is asked again, and give
 	const html = await renderComponent(PANEL, { writer: stuck, text: '', frames: 0 });
 	assert.ok(textOf(html).includes(t('modals.shot.writer.error.write_busy')));
 });
+
+test('a proposal written without a key frame that could not be prepared says so', async () => {
+	const { client } = fakeClient({ answer: async () => ({ ok: true, data: { text: 'The fisherman walks along the quay.', name: 'Qwen3-VL', images: 1, imagesSkipped: 0, imagesDropped: 1, lostTags: [] } }) });
+	const writer = await asked(client);
+	await writer.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
+	const html = await renderComponent(PANEL, { writer, text: '', frames: 2 });
+	assert.match(html, /data-writer-dropped="1"/);
+	assert.ok(textOf(html).includes(t('modals.shot.writer.dropped', { count: 1 })));
+});

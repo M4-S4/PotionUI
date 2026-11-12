@@ -290,5 +290,7 @@
 	"shot.writer.lostTags.one": "La proposition perd la balise {tags}, qui cite une vidéo de référence du plan. Écrivez de nouveau, ou remettez-la après l’avoir utilisée.",
 	"shot.writer.lostTags.other": "La proposition perd les balises {tags}, qui citent des vidéos de référence du plan. Écrivez de nouveau, ou remettez-les après l’avoir utilisée.",
 	"shot.writer.error.write_busy": "Un prompt est encore en cours d’écriture pour vous. Attendez un instant, puis réessayez.",
-	"shot.writer.error.write_cancelled": "La rédaction a été arrêtée."
+	"shot.writer.error.write_cancelled": "La rédaction a été arrêtée.",
+	"shot.writer.dropped.one": "Une des images du plan n’a pas pu être préparée pour le modèle de langue : il a écrit sans elle.",
+	"shot.writer.dropped.other": "{count} images du plan n’ont pas pu être préparées pour le modèle de langue : il a écrit sans elles."
 }

@@ -51,6 +51,8 @@ class Writer:
         self.calls = []
         self.asked = []
         self.cancelled = []
+        self.root = None
+        self.sizes = []
         monkeypatch.setattr(core_bridge, "prompt_writer_status", self.prompt_writer_status)
         monkeypatch.setattr(core_bridge, "write_prompt_for_preset", self.write_prompt_for_preset)
 
@@ -63,6 +65,8 @@ class Writer:
 
     async def write_prompt_for_preset(self, user_id, instruction, *, preset_id=None, mode=None, form_data=None, media=()):
         self.calls.append({"user_id": user_id, "instruction": instruction, "preset_id": preset_id, "mode": mode, "form_data": form_data, "media": list(media)})
+        if self.root is not None:
+            self.sizes.append([(self.root / item["value"]).stat().st_size for item in media])
         if self.delay:
             try:
                 await asyncio.sleep(self.delay)
@@ -140,7 +144,7 @@ def test_writing_sends_the_request_the_preset_guide_of_the_shot_mode_and_its_two
     response = _write(client, project["id"], _body())
 
     assert response.status_code == 200
-    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0, "lost_tags": []}
+    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0, "images_dropped": 0, "lost_tags": []}
     (call,) = writer.calls
     assert call["user_id"] == "user-1"
     assert (call["preset_id"], call["mode"]) == (presets.MINIMAX_H3, "refs")
@@ -275,9 +279,9 @@ def test_an_unknown_shot_or_another_users_project_is_not_found(core, client, mak
 
 
 def test_the_instruction_keeps_the_reference_video_tags_and_leaves_out_what_the_shot_lacks():
-    text = prompt_writer.instruction("make it rain", current="She walks past @vref1, then @VREF2 again, then @vref1.", seconds=2.5, characters=[], place=None, images=0)
-    bare = prompt_writer.instruction("make it rain", current="", seconds=2.5, characters=[], place=None, images=0)
-    look_alike = prompt_writer.instruction("make it rain", current="Mail me@vref1 or @vref0.", seconds=2.5, characters=[], place=None, images=0)
+    text = prompt_writer.instruction("make it rain", current="She walks past @vref1, then @VREF2 again, then @vref1.", seconds=2.5, characters=[], place=None, images=())
+    bare = prompt_writer.instruction("make it rain", current="", seconds=2.5, characters=[], place=None, images=())
+    look_alike = prompt_writer.instruction("make it rain", current="Mail me@vref1 or @vref0.", seconds=2.5, characters=[], place=None, images=())
 
     assert "Keep the tags @vref1, @vref2 exactly as they are written" in text
     assert "@vref" not in bare
@@ -464,3 +468,73 @@ def test_a_writing_past_the_time_limit_stops_the_language_model_call(core, make_
     assert _error(late) == (504, "write_timeout")
     assert writer.cancelled == ["user-1"]
     assert prompt_writer.writing == set()
+
+
+def _noise_png(path, width=1800, height=1200):
+    import os
+
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.frombytes("RGB", (width, height), os.urandom(width * height * 3)).save(path, "PNG")
+    return path
+
+
+def test_a_key_frame_over_five_megabytes_goes_shrunk_and_the_work_copy_is_removed(core, client, make_doc, make_project, monkeypatch, export_storage):
+    from PIL import Image
+
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    writer.root = export_storage
+    big = _noise_png(export_storage / "uploads" / "start.png")
+    _noise_png(export_storage / "uploads" / "end.png", 64, 36)
+    assert big.stat().st_size > prompt_writer.MAX_IMAGE_BYTES
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 200
+    assert response.json()["data"]["images"] == 2
+    assert response.json()["data"]["images_dropped"] == 0
+    (call,) = writer.calls
+    shrunk, kept = call["media"]
+    assert shrunk["value"].startswith("video_producer/writer/user-1/") and shrunk["value"].endswith(".jpg")
+    assert kept == {"value": "uploads/end.png", "media_type": "image"}
+    assert writer.sizes[0][0] < prompt_writer.MAX_IMAGE_BYTES
+    assert not (export_storage / shrunk["value"]).exists()
+    assert big.exists()
+    with Image.open(big) as image:
+        assert image.size == (1800, 1200)
+
+
+def test_a_key_frame_too_large_that_cannot_be_read_is_left_out_and_the_page_is_told(core, client, make_doc, make_project, monkeypatch, export_storage):
+    import os
+
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    broken = export_storage / "uploads" / "start.png"
+    broken.parent.mkdir(parents=True)
+    broken.write_bytes(os.urandom(prompt_writer.MAX_IMAGE_BYTES + 10))
+    _noise_png(export_storage / "uploads" / "end.png", 64, 36)
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 200
+    assert response.json()["data"]["images"] == 1
+    assert response.json()["data"]["images_dropped"] == 1
+    assert writer.calls[0]["media"] == [{"value": "uploads/end.png", "media_type": "image"}]
+    assert "The image is the shot's last frame" in writer.calls[0]["instruction"]
+
+
+def test_a_shot_with_only_its_last_frame_is_described_toward_it(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    project = make_project(doc=_doc(core, make_doc, frames=("end",)))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 200
+    assert writer.calls[0]["media"] == [{"value": "uploads/end.png", "media_type": "image"}]
+    assert "The image is the shot's last frame: describe the motion that leads to it" in writer.calls[0]["instruction"]
+    assert "first frame" not in writer.calls[0]["instruction"]

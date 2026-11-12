@@ -96,7 +96,7 @@ def test_the_core_status_carries_every_field_the_plugin_reads(core):
 
 def test_the_core_writes_from_the_plugin_instruction_with_the_guide_of_the_shot_mode_and_its_key_frames(core):
     llm = core([_config("llm-1", "Qwen3-VL", True)])
-    instruction = prompt_writer.instruction("he lifts the lantern", current="", seconds=4.0, characters=["the old fisherman"], place=None, images=2)
+    instruction = prompt_writer.instruction("he lifts the lantern", current="", seconds=4.0, characters=["the old fisherman"], place=None, images=["first", "last"])
     media = [{"value": "uploads/start.png", "media_type": "image"}, {"value": "uploads/end.png", "media_type": "image"}]
 
     written = asyncio.run(core_bridge.write_prompt_for_preset("user-1", instruction, preset_id="MiniMax-H3-12GB", mode="refs", form_data={}, media=media))
