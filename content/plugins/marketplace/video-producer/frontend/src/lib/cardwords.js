@@ -8,3 +8,10 @@ export function setCardWords(doc, value) {
 	if (value === DEFAULT_CARD_WORDS) delete doc.cardWords;
 	else doc.cardWords = value;
 }
+
+export const shotCardWordsOf = (clip) => (CARD_WORDS.includes(clip?.cardWords) ? clip.cardWords : null);
+
+export function setShotCardWords(clip, value) {
+	if (CARD_WORDS.includes(value)) clip.cardWords = value;
+	else delete clip.cardWords;
+}

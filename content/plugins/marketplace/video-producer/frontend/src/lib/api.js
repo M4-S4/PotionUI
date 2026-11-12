@@ -7,6 +7,8 @@ import { normalizeLooks } from './looks.js';
 import { normalizeKeyframeEstimate, normalizeKeyframePreset } from './keyframes.js';
 import { STARTER_IMAGES } from './starter.js';
 import { isObject } from './values.js';
+import { normalizeWriterStatus, normalizeWritten } from './promptwriter.js';
+import { CARD_WORDS } from './cardwords.js';
 
 const CODE_BY_STATUS = {
 	400: 'invalid_request',
@@ -440,6 +442,7 @@ function normalizeComposed(value) {
 		engine: ENGINE_FAMILIES.includes(value.engine) ? value.engine : 'other',
 		prompt: text(value.prompt),
 		reference: normalizeReference(value.reference),
+		cardWords: CARD_WORDS.includes(value.card_words) ? value.card_words : null,
 		videoTracks: list(value.video_tracks, normalizeTrackLabel) ?? [],
 		warnings: list(value.warnings, normalizeNote) ?? []
 	};
@@ -877,6 +880,12 @@ export function createClient(api, save) {
 		},
 		async prompts(projectId, body, signal) {
 			return mapped(await call(api, 'post', `${projectPath(projectId)}/prompts`, body, signal), normalizePrompts);
+		},
+		async promptWriter(signal) {
+			return mapped(await call(api, 'get', '/prompt-writer', undefined, signal), normalizeWriterStatus);
+		},
+		async writePrompt(projectId, shotId, body, signal) {
+			return mapped(await call(api, 'post', `${projectPath(projectId)}/shots/${encodeURIComponent(shotId)}/write-prompt`, body, signal), normalizeWritten);
 		},
 		async generate(projectId, body) {
 			return mapped(await call(api, 'post', `${projectPath(projectId)}/generate`, body), (data) => list(data.takes, normalizeTake));

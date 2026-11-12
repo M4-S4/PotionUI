@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Mapping, NoReturn
 
 from fastapi import APIRouter, Body, Depends
 
-from . import access, bible, chaining, director, projects
+from . import access, bible, chaining, director, projects, prompt_writer
 from .core_bridge import User, get_current_active_user
 from .projects import DocError
 from .responses import fail, ok
@@ -75,6 +75,7 @@ def compose_prompts(project_id: str, body: Any = Body(default=None), user: User 
                     "engine": bible.family(plan.preset_id, plan.cloud),
                     "prompt": plan.prompt_text,
                     "reference": plan.reference.summary() if plan.reference is not None else None,
+                    "card_words": plan.reference.card_words if plan.reference is not None else None,
                     "video_tracks": [{"slot": cut.slot, "track_id": cut.track_id, "label": plan.video_labels[cut.slot]} for cut in plan.video if cut.slot in plan.video_labels],
                     "warnings": _own(plans.warnings, plan.shot_id),
                 }
@@ -83,3 +84,54 @@ def compose_prompts(project_id: str, body: Any = Body(default=None), user: User 
             "blocks": list(plans.blocks),
         }
     )
+
+
+def _write_checked(body: Any) -> Dict[str, Any]:
+    if not isinstance(body, dict):
+        _invalid("The request body must be a JSON object.")
+    request = body.get("request")
+    if not isinstance(request, str) or not request.strip():
+        _invalid("request must say what the prompt should be.")
+    if len(request) > prompt_writer.MAX_REQUEST_CHARS:
+        _invalid(f"request must be at most {prompt_writer.MAX_REQUEST_CHARS} characters.")
+    preset_id = body.get("preset_id")
+    if not isinstance(preset_id, str) or not preset_id:
+        _invalid("preset_id must be a preset id.")
+    model_id = body.get("model_id")
+    if model_id is not None and (not isinstance(model_id, str) or not model_id):
+        _invalid("model_id must be a model id or null.")
+    if "doc" in body and not isinstance(body["doc"], dict):
+        _invalid("doc must be a project document.")
+    return body
+
+
+def _own_text(doc: Mapping[str, Any], shot_id: str) -> str:
+    own = next((prompt for prompt in doc.get("prompts") or [] if isinstance(prompt, Mapping) and prompt.get("shotId") == shot_id), None)
+    text = own.get("text") if own is not None else None
+    return text if isinstance(text, str) else ""
+
+
+@router.get("/prompt-writer")
+def prompt_writer_status(user: User = Depends(get_current_active_user)) -> Dict[str, Any]:
+    return ok(prompt_writer.status(user))
+
+
+@router.post("/projects/{project_id}/shots/{shot_id}/write-prompt")
+async def write_prompt(project_id: str, shot_id: str, body: Any = Body(default=None), user: User = Depends(get_current_active_user)) -> Dict[str, Any]:
+    checked = _write_checked(body)
+    project = access.project_for(user, project_id)
+    doc = _document(checked, project["doc"])
+    clip = director.clip_of(doc, shot_id)
+    if clip is None:
+        fail(404, "shot_not_found", "The shot does not exist.")
+    written = await prompt_writer.write(
+        user,
+        access.owner_of(user, project),
+        doc,
+        clip,
+        checked["request"],
+        checked["preset_id"],
+        checked.get("model_id"),
+        _own_text(doc, shot_id),
+    )
+    return ok(written)

@@ -1,0 +1,322 @@
+import asyncio
+import copy
+
+import pytest
+
+from backend import bible, core_bridge, director, presets, prompt_writer
+
+WOMAN = {"id": "c-woman", "label": "the red-haired woman", "text": "A woman in her thirties, short copper hair.", "props": "a brass lantern", "references": ["r-face"]}
+FISHER = {"id": "c-fisher", "label": "the old fisherman", "text": "A man in his seventies, white beard.", "props": "", "references": []}
+HARBOUR = {"id": "p-harbour", "label": "the harbour at dawn", "text": "Wet cobblestones, low mist.", "references": ["r-set"]}
+REFERENCES = [
+    {"id": "r-face", "assetId": "face", "space": "identite", "type": "Personnage", "scope": {"type": "global"}},
+    {"id": "r-set", "assetId": "set", "space": "decors3d", "type": "Décor", "scope": {"type": "global"}},
+]
+READY = {"available": True, "vision": True, "name": "Qwen3-VL", "code": None, "message": None, "models": [{"id": "llm-1", "name": "Qwen3-VL", "vision": True}]}
+WRITTEN = "The red-haired woman lifts her lantern as the old fisherman turns toward the sea."
+
+
+def _pictures(core, *names):
+    assets = []
+    for name in names:
+        core.add_media({"kind": "library", "item_id": f"lib-{name}"}, f"uploads/{name}.png", "image")
+        assets.append({"id": name, "kind": "image", "name": name, "origin": {"kind": "library", "itemId": f"lib-{name}"}})
+    return assets
+
+
+def _doc(core, make_doc, mode="Ref2VA", frames=("start", "end"), prompt="The woman waits.", card_words=None, shot_words=None, pictured=True):
+    doc = make_doc(
+        clips=[{"id": "s1", "start": 0, "dur": 4, "label": "Quay", "cast": {"characters": ["c-woman", "c-fisher"], "place": "p-harbour"}}],
+        prompts=[{"id": "p", "shotId": "s1", "text": prompt}] if prompt is not None else [],
+        frames=[{"id": f"f-{role}", "shotId": "s1", "time": 0 if role == "start" else 4, "assetId": role, "role": "first" if role == "start" else "last"} for role in frames],
+        assets=_pictures(core, "face", "set", "start", "end"),
+        references=copy.deepcopy(REFERENCES),
+        direction={"mode": mode},
+    )
+    cards = (WOMAN, FISHER) if pictured else ({**WOMAN, "references": []}, FISHER)
+    doc["bible"] = {"characters": [dict(card) for card in cards], "places": [dict(HARBOUR if pictured else {**HARBOUR, "references": []})]}
+    if card_words is not None:
+        doc["cardWords"] = card_words
+    if shot_words is not None:
+        doc["clips"][0]["cardWords"] = shot_words
+    return doc
+
+
+class Writer:
+    def __init__(self, monkeypatch, status=READY, reply=None, error=None, delay=0.0):
+        self.status = dict(status)
+        self.reply = {"text": WRITTEN, "reasoning": None, "model_id": None, "llm_id": "llm-1"} if reply is None else reply
+        self.error = error
+        self.delay = delay
+        self.calls = []
+        self.asked = []
+        monkeypatch.setattr(core_bridge, "prompt_writer_status", self.prompt_writer_status)
+        monkeypatch.setattr(core_bridge, "write_prompt_for_preset", self.write_prompt_for_preset)
+
+    def prompt_writer_status(self, user_id):
+        self.asked.append(user_id)
+        if isinstance(self.status, Exception):
+            raise self.status
+        return dict(self.status)
+
+    async def write_prompt_for_preset(self, user_id, instruction, *, preset_id=None, mode=None, form_data=None, media=()):
+        self.calls.append({"user_id": user_id, "instruction": instruction, "preset_id": preset_id, "mode": mode, "form_data": form_data, "media": list(media)})
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.error is not None:
+            raise self.error
+        return dict(self.reply)
+
+
+def _write(client, project_id, body, shot_id="s1"):
+    return client.post(f"/api/plugins/video-producer/projects/{project_id}/shots/{shot_id}/write-prompt", json=body)
+
+
+def _body(**extra):
+    return {"request": "she lifts the lantern", "preset_id": presets.MINIMAX_H3, **extra}
+
+
+def test_the_bridge_hands_the_status_and_the_writing_to_the_core_plugin_api(monkeypatch):
+    seen = {}
+
+    def status(user_id, llm_id=None):
+        seen["status"] = (user_id, llm_id)
+        return {"available": False, "code": "no_llm"}
+
+    async def write(user_id, instruction, *, preset_id=None, mode=None, form_data=None, media=(), llm_id=None):
+        seen["write"] = (user_id, instruction, preset_id, mode, form_data, media, llm_id)
+        return {"text": "A prompt.", "llm_id": "llm-1"}
+
+    monkeypatch.setattr(core_bridge.api_prompts, "prompt_writer_status", status)
+    monkeypatch.setattr(core_bridge.api_prompts, "write_prompt_for_preset", write)
+
+    assert core_bridge.prompt_writer_status("user-1") == {"available": False, "code": "no_llm"}
+    written = asyncio.run(
+        core_bridge.write_prompt_for_preset("user-1", "Say it.", preset_id="p", mode="refs", form_data={"seed": 1}, media=({"value": "uploads/a.png", "media_type": "image"},))
+    )
+
+    assert written == {"text": "A prompt.", "llm_id": "llm-1"}
+    assert seen["status"] == ("user-1", None)
+    assert seen["write"] == ("user-1", "Say it.", "p", "refs", {"seed": 1}, [{"value": "uploads/a.png", "media_type": "image"}], None)
+    assert core_bridge.PromptWriteRefused is core_bridge.api_prompts.PromptWriteRefused
+    assert {"PromptWriteRefused", "prompt_writer_status", "write_prompt_for_preset"} <= set(core_bridge.__all__)
+
+
+def test_the_writer_status_route_tells_the_page_whether_a_model_can_write_and_see(client, monkeypatch):
+    writer = Writer(monkeypatch)
+
+    ready = client.get("/api/plugins/video-producer/prompt-writer")
+    writer.status = {"available": False, "vision": False, "name": None, "code": "llm_disabled", "message": "The language model Ollama is turned off.", "models": []}
+    off = client.get("/api/plugins/video-producer/prompt-writer")
+    writer.status = RuntimeError("AppContainer not initialized yet")
+    broken = client.get("/api/plugins/video-producer/prompt-writer")
+
+    assert ready.json()["data"] == {"available": True, "vision": True, "name": "Qwen3-VL", "code": None, "message": None}
+    assert off.json()["data"] == {"available": False, "vision": False, "name": None, "code": "llm_disabled", "message": "The language model Ollama is turned off."}
+    assert broken.status_code == 200
+    assert broken.json()["data"]["code"] == "writer_unavailable"
+    assert writer.asked == ["user-1", "user-1", "user-1"]
+
+
+def test_writing_sends_the_request_the_preset_guide_of_the_shot_mode_and_its_two_key_frames(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0}
+    (call,) = writer.calls
+    assert call["user_id"] == "user-1"
+    assert (call["preset_id"], call["mode"]) == (presets.MINIMAX_H3, "refs")
+    assert call["media"] == [{"value": "uploads/start.png", "media_type": "image"}, {"value": "uploads/end.png", "media_type": "image"}]
+    assert isinstance(call["form_data"], dict) and "references" in call["form_data"]
+    instruction = call["instruction"]
+    assert instruction.startswith("she lifts the lantern\n\n")
+    assert "Write in English. The shot lasts 4.0 seconds." in instruction
+    assert '"the red-haired woman", "the old fisherman"' in instruction
+    assert '"the harbour at dawn"' in instruction
+    assert "Image 1 is the shot's first frame and image 2 its last frame" in instruction
+    assert 'The shot\'s current prompt, to rewrite as the request says: "The woman waits."' in instruction
+    assert core.submitted == []
+
+
+def test_writing_composes_from_the_unsaved_document_of_the_editor(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    project = make_project(doc=_doc(core, make_doc, frames=()))
+    edited = _doc(core, make_doc, mode="FL2VA", frames=("start",), prompt="A new line.")
+
+    response = _write(client, project["id"], _body(doc=edited))
+
+    assert response.status_code == 200
+    (call,) = writer.calls
+    assert call["mode"] != "refs"
+    assert call["media"] == [{"value": "uploads/start.png", "media_type": "image"}]
+    assert "The image is the shot's first frame" in call["instruction"]
+    assert '"A new line."' in call["instruction"]
+
+
+def test_a_model_that_cannot_see_writes_from_the_words_alone_and_the_page_is_told(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    writer = Writer(monkeypatch, status={**READY, "vision": False})
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.json()["data"]["images"] == 0
+    assert response.json()["data"]["images_skipped"] == 2
+    assert writer.calls[0]["media"] == []
+    assert "Image 1" not in writer.calls[0]["instruction"]
+
+
+def test_without_a_language_model_nothing_is_asked_and_the_reason_comes_back(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    writer = Writer(monkeypatch, status={"available": False, "vision": False, "name": None, "code": "no_llm", "message": "No language model is available to you.", "models": []})
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"] == "no_llm"
+    assert writer.calls == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (core_bridge.PromptWriteRefused("vision_not_supported", "The language model cannot look at images."), 422, "vision_not_supported"),
+        (core_bridge.PromptWriteRefused("blocked", "Refused by a plugin."), 422, "blocked"),
+        (ConnectionError("Ollama is not running"), 502, "write_failed"),
+    ],
+)
+def test_a_refusal_or_a_failure_of_the_language_model_comes_back_with_its_code(core, client, make_doc, make_project, monkeypatch, error, status, code):
+    core.use_h3()
+    Writer(monkeypatch, error=error)
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == status
+    assert response.json()["detail"]["error"] == code
+
+
+def test_a_language_model_past_the_time_limit_is_given_up(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    Writer(monkeypatch, delay=1.0)
+    monkeypatch.setattr(prompt_writer, "WRITE_TIMEOUT_S", 0.05)
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 504
+    assert response.json()["detail"]["error"] == "write_timeout"
+
+
+def test_an_empty_reply_is_an_error_and_a_whole_document_keeps_only_the_shot_text(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    writer = Writer(monkeypatch, reply={"text": "   "})
+    project = make_project(doc=_doc(core, make_doc))
+
+    empty = _write(client, project["id"], _body())
+    writer.reply = {
+        "text": (
+            "subject_definitions: <Subject 1> is the woman in <Picture 1>.\n\n"
+            "detailed_description: Cinematic live action. [Shot 1] The red-haired woman (<Subject 1>) lifts her lantern,\n"
+            "and the camera pushes in slowly.\n\noverall_soundscape: Waves."
+        )
+    }
+    whole = _write(client, project["id"], _body())
+
+    assert empty.status_code == 502
+    assert empty.json()["detail"]["error"] == "empty_reply"
+    assert whole.json()["data"]["text"] == "The red-haired woman lifts her lantern,\nand the camera pushes in slowly."
+
+
+@pytest.mark.parametrize(
+    "body",
+    [None, [], {"preset_id": presets.MINIMAX_H3}, {"request": "  ", "preset_id": presets.MINIMAX_H3}, {"request": "x" * 1001, "preset_id": presets.MINIMAX_H3}, {"request": "a"}, {"request": "a", "preset_id": "p", "model_id": 3}, {"request": "a", "preset_id": "p", "doc": "x"}],
+)
+def test_a_malformed_request_is_refused_before_anything_is_asked(core, client, make_doc, make_project, monkeypatch, body):
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    project = make_project(doc=_doc(core, make_doc))
+
+    response = client.post(f"/api/plugins/video-producer/projects/{project['id']}/shots/s1/write-prompt", json=body)
+
+    assert response.status_code == 422
+    assert writer.calls == []
+
+
+def test_an_unknown_shot_or_another_users_project_is_not_found(core, client, make_doc, make_project, monkeypatch):
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    mine = make_project(doc=_doc(core, make_doc))
+    theirs = make_project(user_id="user-2", doc=_doc(core, make_doc))
+
+    assert _write(client, mine["id"], _body(), shot_id="nope").status_code == 404
+    assert _write(client, theirs["id"], _body()).status_code == 404
+    assert writer.calls == []
+
+
+def test_the_instruction_keeps_the_reference_video_tags_and_leaves_out_what_the_shot_lacks():
+    text = prompt_writer.instruction("make it rain", current="She walks past @V1.", seconds=2.5, characters=[], place=None, images=0)
+    bare = prompt_writer.instruction("make it rain", current="", seconds=2.5, characters=[], place=None, images=0)
+
+    assert "Keep every tag written like @V1 exactly as it is" in text
+    assert "@V1" not in bare
+    assert "current prompt" not in bare
+    assert "Name each character" not in bare
+    assert "takes place" not in bare
+    assert "Image 1" not in bare
+    assert "The shot lasts 2.5 seconds." in bare
+
+
+@pytest.mark.parametrize(
+    ("reply", "kept"),
+    [
+        ("The fisherman lights his lantern.", "The fisherman lights his lantern."),
+        ("[Shot 1] The fisherman lights his lantern.", "The fisherman lights his lantern."),
+        ("integrated_multimodal_description: [Shot 1] Cinematic. The fisherman (<Subject 2>) waits.\noverall_soundscape: Rain.", "Cinematic. The fisherman waits."),
+        ("  The   fisherman\twaits.  ", "The fisherman waits."),
+        (None, ""),
+    ],
+)
+def test_the_reply_is_cut_to_the_text_of_the_shot(reply, kept):
+    assert prompt_writer.cleaned(reply) == kept
+
+
+def _prompts(client, project_id, body):
+    return client.post(f"/api/plugins/video-producer/projects/{project_id}/prompts", json=body)
+
+
+def test_the_prompts_route_says_which_card_words_a_shot_uses_only_when_a_card_picture_goes_with_it(core, client, make_doc, make_project):
+    core.use_h3()
+    project = make_project(doc=_doc(core, make_doc))
+    body = {"shots": ["s1"], "preset_id": presets.MINIMAX_H3}
+
+    project_words = _prompts(client, project["id"], body)
+    labelled = _prompts(client, project["id"], {**body, "doc": _doc(core, make_doc, card_words="label")})
+    shot_wins = _prompts(client, project["id"], {**body, "doc": _doc(core, make_doc, card_words="label", shot_words="picture")})
+    fl2va = _prompts(client, project["id"], {**body, "doc": _doc(core, make_doc, mode="FL2VA", shot_words="picture")})
+    unpictured = _prompts(client, project["id"], {**body, "doc": _doc(core, make_doc, shot_words="picture", pictured=False)})
+
+    assert project_words.json()["data"]["prompts"][0]["card_words"] == "card"
+    assert labelled.json()["data"]["prompts"][0]["card_words"] == "label"
+    (shot,) = shot_wins.json()["data"]["prompts"]
+    assert shot["card_words"] == "picture"
+    assert "<Subject 1> is the character shown in <Picture 1>. " in shot["prompt"]
+    assert fl2va.json()["data"]["prompts"][0]["card_words"] is None
+    assert unpictured.json()["data"]["prompts"][0]["card_words"] is None
+
+
+def test_a_shot_without_card_words_still_follows_the_project_as_before(core, make_doc):
+    core.use_h3()
+    doc = _doc(core, make_doc, card_words="label")
+    plans = director.build_plans(core.users["user-1"], doc, ["s1"], presets.MINIMAX_H3, "draft")
+    (plan,) = plans.shots
+
+    assert plan.reference.card_words == "label"
+    assert "card_words" not in plan.reference.summary()
+    assert bible.card_words(doc, doc["clips"][0]) == "label"
