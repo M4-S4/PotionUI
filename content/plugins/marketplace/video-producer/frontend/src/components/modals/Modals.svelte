@@ -19,6 +19,7 @@
 	import ExportDialog from './ExportDialog.svelte';
 	import MakeFinal from './MakeFinal.svelte';
 	import FinalPass from './FinalPass.svelte';
+	import CutImport from './CutImport.svelte';
 	import { flyingTakes } from '../../lib/takes.svelte.js';
 	import { CROP_LOSS, RESOLUTION_NAMES, deliverySize, framingOf } from '../../lib/formats.js';
 	import { filmRatio, percent } from '../../lib/framing.js';
@@ -112,6 +113,8 @@
 		<MakeFinal takeId={m.take} />
 	{:else if m?.type === 'final-pass'}
 		<FinalPass />
+	{:else if m?.type === 'cuts'}
+		<CutImport assetId={m.assetId ?? null} settings={m.settings ?? null} />
 	{:else if m?.type === 'recap' && recap}
 		<Modal title={t('shell.recap.title')} subtitle="{secs(recap.range[0])} → {secs(recap.range[1])}" icon="list" width={640}>
 			<div class="space-y-3 p-4 text-sm">
