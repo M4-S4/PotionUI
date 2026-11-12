@@ -133,6 +133,8 @@ const nudgeTrim = (edge) => () => {
 		}
 		if (doc.clips.includes(s) && (laid || dissolved())) {
 			s.start = start;
+			s.dur = +s.dur.toFixed(6);
+			if ('srcIn' in s) s.srcIn = +s.srcIn.toFixed(6);
 			relayout();
 		}
 	});

@@ -748,7 +748,7 @@
 	<button
 		type="button"
 		tabindex="-1"
-		class="vp-hit absolute bottom-1 top-6 z-20 -translate-x-1/2 rounded-sm border border-white/50 bg-black/45 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
+		class="vp-hit pointer-events-none absolute bottom-1 top-6 z-20 -translate-x-1/2 rounded-sm border border-white/50 bg-black/45 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
 		style:left="{x(mark.start + mark.dur / 2)}px"
 		style:width="{Math.max(x(mark.dur), 6)}px"
 		aria-label={text}
@@ -757,6 +757,8 @@
 		onpointerdown={(e) => e.stopPropagation()}
 		onclick={() => (select('clip', mark.id), (ui.inspectorOpen = true))}
 	>
+		<span class="pointer-events-auto absolute inset-y-0 left-0" style:right="calc(50% + 8px)" data-dissolve-hit></span>
+		<span class="pointer-events-auto absolute inset-y-0 right-0" style:left="calc(50% + 8px)" data-dissolve-hit></span>
 		<svg class="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
 			<line x1="0" y1="100" x2="100" y2="0" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />
 			<line x1="0" y1="0" x2="100" y2="100" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />

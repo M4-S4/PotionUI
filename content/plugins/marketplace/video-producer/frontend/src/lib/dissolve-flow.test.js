@@ -376,3 +376,58 @@ test('dissolve flow: in a project that dissolves, a prompt and a frame added on 
 	assert.equal(doc.frames.at(-1).time, 4.6);
 	ui.modal = null;
 });
+
+test('dissolve flow: the mark of a dissolve leaves the trim handles of both shots free in its middle', async () => {
+	project();
+	ui.pxPerSec = 100;
+	dissolveB();
+	const html = clean(await renderComponent(TIMELINE));
+	const mark = html.slice(html.indexOf('<button', html.lastIndexOf('<button', html.indexOf('data-dissolve="b"'))), html.indexOf('</button>', html.indexOf('data-dissolve="b"')));
+	assert.match(mark, /class="[^"]*pointer-events-none[^"]*"/);
+	assert.equal((mark.match(/data-dissolve-hit/g) ?? []).length, 2);
+	assert.match(mark, /style="right: calc\(50% \+ 8px\);"/);
+	assert.match(mark, /style="left: calc\(50% \+ 8px\);"/);
+});
+
+test('dissolve flow: in a project that dissolves, the blade cuts a shot off the grid exactly at the playhead and keeps its length and its source', () => {
+	project();
+	doc.clips[0].dur = 3.1;
+	doc.clips[1].dur = 4;
+	doc.clips[1].srcIn = 0.3;
+	dissolveB(1);
+	assert.equal(doc.clips[1].start, 2.1);
+	select('clip', 'b');
+	bladeAt(4.33);
+	assert.deepEqual(
+		doc.clips.map((c) => [c.start, c.dur, c.srcIn]),
+		[
+			[0, 3.1, 0],
+			[2.1, 2.23, 0.3],
+			[4.33, 1.77, 2.53],
+			[6.1, 1, 0]
+		]
+	);
+});
+
+test('dissolve flow: in a project that dissolves, trimming the head of a shot from the keyboard leaves round lengths', () => {
+	project();
+	doc.clips[0].dur = 3.1;
+	dissolveB(1);
+	select('clip', 'c');
+	ui.playhead = 4.43;
+	commandById('trim-start').run();
+	const c = doc.clips[2];
+	assert.deepEqual([c.start, c.dur, c.srcIn], [4.1, 0.67, 0.33]);
+});
+
+test('dissolve flow: a reference frame added just before an off-grid shot start sits on that shot and shows its picture', () => {
+	project();
+	doc.clips[0].dur = 2.539;
+	dissolveB(1);
+	ui.playhead = 3.52;
+	addFrame();
+	assert.deepEqual([doc.frames.at(-1).time, doc.frames.at(-1).shotId, doc.frames.at(-1).assetId], [3.539, 'c', 'mc']);
+	ui.playhead = 3;
+	addFrame();
+	assert.deepEqual([doc.frames.at(-1).shotId, doc.frames.at(-1).assetId], ['b', 'mb']);
+});

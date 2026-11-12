@@ -422,8 +422,11 @@ export function bladeAt(time = ui.playhead) {
 	act(() => {
 		const left = time - c.start;
 		const i = doc.clips.indexOf(c);
-		const kept = round(left, 0.04);
-		const b = { ...$state.snapshot(c), id: ulid(), start: round(c.start + kept, 0.04), dur: round(c.dur - left, 0.04), srcIn: c.srcIn + left * speedOf(c), fadeIn: 0 };
+		const exact = chained(doc.clips);
+		const kept = exact ? +left.toFixed(6) : round(left, 0.04);
+		const b = exact
+			? { ...$state.snapshot(c), id: ulid(), start: +(c.start + kept).toFixed(6), dur: +(c.dur - kept).toFixed(6), srcIn: +(c.srcIn + kept * speedOf(c)).toFixed(6), fadeIn: 0 }
+			: { ...$state.snapshot(c), id: ulid(), start: round(c.start + kept, 0.04), dur: round(c.dur - left, 0.04), srcIn: c.srcIn + left * speedOf(c), fadeIn: 0 };
 		delete b[DISSOLVE_KEY];
 		c.dur = kept;
 		c.fadeOut = 0;
@@ -544,22 +547,22 @@ export function promptEdited(prompt, before) {
 	touch(doc.clips.find((c) => c.id === prompt.shotId));
 }
 
-function placedAt(time) {
-	const shot = chained(doc.clips) ? doc.clips.find((c) => Math.abs(c.start - time) <= 0.02 + 1e-9) : null;
-	return shot ? shot.start : round(time, 0.04);
+function shotStartingNear(time) {
+	return chained(doc.clips) ? (doc.clips.find((c) => Math.abs(c.start - time) <= 0.02 + 1e-9) ?? null) : null;
 }
 
 export function addPrompt(start = ui.playhead, dur = 4) {
-	const at = placedAt(start);
-	const p = { id: ulid(), shotId: shotIdAt(at), start: at, dur, strength: 75, text: '' };
+	const shot = shotStartingNear(start);
+	const p = { id: ulid(), shotId: shot ? shot.id : shotIdAt(start), start: shot ? shot.start : round(start, 0.04), dur, strength: 75, text: '' };
 	act(() => doc.prompts.push(p));
 	select('prompt', p.id);
 	ui.modal = { type: 'prompt', id: p.id, isNew: true };
 }
 
-export function addFrame(assetId = clipAt(ui.playhead)?.assetId ?? null, time = ui.playhead, role = 'Transition') {
-	const at = placedAt(time);
-	const f = { id: ulid(), shotId: shotIdAt(at), time: at, assetId, role, strength: 75 };
+export function addFrame(assetId = undefined, time = ui.playhead, role = 'Transition') {
+	const shot = shotStartingNear(time);
+	const media = assetId === undefined ? ((shot ?? clipAt(ui.playhead))?.assetId ?? null) : assetId;
+	const f = { id: ulid(), shotId: shot ? shot.id : shotIdAt(time), time: shot ? shot.start : round(time, 0.04), assetId: media, role, strength: 75 };
 	act(() => doc.frames.push(f));
 	select('frame', f.id);
 	toast(t('lib.toast.frameAdded'));
