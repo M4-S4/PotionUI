@@ -823,15 +823,26 @@ export function normalizeTool(value) {
 	return { id: value.id, label: text(value.label) || value.id, runnable: value.runnable !== false, params: list(value.params, normalizeToolParam) ?? [] };
 }
 
+export const LIBRARY_FILE = /^\/api\/media\/uploads\/[^/\\?#:.%][^/\\?#:%]*$/;
+
 export async function coreFile(api, path, filename, save) {
 	if (typeof api?.fetchRawFromApp !== 'function') return failure(0, 'no_api');
+	if (typeof path !== 'string' || !LIBRARY_FILE.test(path)) return failure(0, 'invalid_path');
 	let response;
 	try {
 		response = await api.fetchRawFromApp(path, { method: 'GET' });
 	} catch (err) {
 		return thrown(err);
 	}
-	if (!response.ok) return { ok: false, error: normalizeError(null, response.status) };
+	if (!response.ok) {
+		let body = null;
+		try {
+			body = await response.json();
+		} catch {
+			body = null;
+		}
+		return { ok: false, error: normalizeError(body, response.status) };
+	}
 	try {
 		save(filename, await response.blob());
 	} catch (err) {

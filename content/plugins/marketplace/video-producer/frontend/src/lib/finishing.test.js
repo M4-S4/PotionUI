@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MEDIA_TOOLS, createClient, normalizeTool } from './api.js';
+import { LIBRARY_FILE, MEDIA_TOOLS, createClient, normalizeTool } from './api.js';
 import { FINISH_EFFECTS, availability, choicesOf, cleanFinishing, effectByKey, fieldBounds, finishFailure, finishFormat, finishRequest, finishSteps, finishable, finishedName, finishingOf, settingOf, toolsById } from './finishing.js';
 
 const CATALOG = [
@@ -111,6 +111,18 @@ test('finishing: the saved settings keep only known effects, fields and bounds',
 	assert.equal(cleanFinishing(null), null);
 });
 
+test('finishing: a download only goes to a library upload path; any other path from a response is refused before any request', async () => {
+	const calls = [];
+	const client = createClient({ fetchRawFromApp: async (path) => (calls.push(path), { ok: true, status: 200, blob: async () => 'B' }) }, () => {});
+	for (const path of ['https://evil.example/x.mp4', '//evil.example/x.mp4', '/api/plugins/video-producer/exports/1/file', '/api/media/uploads/../db.sqlite', '/api/media/uploads/a/b.mp4', '/api/media/uploads/x.mp4?redirect=1', '/api/media/uploads/%2e%2e', 'javascript:alert(1)', '/api/media/uploads/', null]) {
+		const result = await client.downloadCore(path, 'x.mp4');
+		assert.equal(result.ok, false, String(path));
+		assert.equal(result.error.code, 'invalid_path', String(path));
+	}
+	assert.deepEqual(calls, []);
+	assert.equal(LIBRARY_FILE.test('/api/media/uploads/cb08f73b-1d1f-454c-a9d6-75a39f8e1d91.mp4'), true);
+});
+
 test('finishing: the page reads the core catalog of video tools and downloads a library file, through the host client', async () => {
 	const calls = [];
 	const saved = [];
@@ -118,7 +130,7 @@ test('finishing: the page reads the core catalog of video tools and downloads a 
 		async fetchRawFromApp(path, init) {
 			calls.push([init.method, path]);
 			if (path.startsWith(MEDIA_TOOLS)) return { ok: true, status: 200, json: async () => ({ success: true, data: { tools: [{ id: 'vignette', label: 'Vignette', params: [{ name: 'amount', min: 0, max: 100 }] }, { id: 'x' }] } }) };
-			if (path.endsWith('/gone.mp4')) return { ok: false, status: 404 };
+			if (path.endsWith('/gone.mp4')) return { ok: false, status: 404, json: async () => ({ detail: { success: false, error: 'not_found', message: 'Upload not found' } }) };
 			return { ok: true, status: 200, blob: async () => 'BLOB' };
 		}
 	};
@@ -128,7 +140,7 @@ test('finishing: the page reads the core catalog of video tools and downloads a 
 	assert.deepEqual(listed.data[0].params[0], { name: 'amount', type: '', default: null, min: 0, max: 100, step: null, options: null });
 	assert.deepEqual(await client.downloadCore('/api/media/uploads/f.mp4', 'film_finished.mp4'), { ok: true, data: { filename: 'film_finished.mp4' } });
 	assert.deepEqual(saved, [['film_finished.mp4', 'BLOB']]);
-	assert.equal((await client.downloadCore('/api/media/uploads/gone.mp4', 'x.mp4')).error.status, 404);
+	assert.deepEqual((await client.downloadCore('/api/media/uploads/gone.mp4', 'x.mp4')).error, { status: 404, code: 'not_found', message: 'Upload not found', data: null });
 	assert.deepEqual(calls, [
 		['GET', '/api/media-tools?kind=video'],
 		['GET', '/api/media/uploads/f.mp4'],
