@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { clean, renderComponent } from './svelte-harness.js';
 import { joins, setDissolve } from './dissolve.js';
 
-const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, dispose } = await import('./state.svelte.js');
+const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, dispose } = await import('./state.svelte.js');
 const { commandById } = await import('./commands.js');
 const { t } = await import('../i18n/index.svelte.js');
 
@@ -358,4 +358,21 @@ test('dissolve flow: the cut says why a dissolve plays shorter when the starts o
 	const short = clean(await renderComponent(SEAM, { clip: doc.clips[1] }));
 	assert.ok(short.includes(t('timeline.dissolve.tooShort')));
 	assert.ok(!short.includes(t('timeline.dissolve.tooBrief')));
+});
+
+test('dissolve flow: in a project that dissolves, a prompt and a frame added on the start of a shot off the grid sit on that exact start', () => {
+	project();
+	doc.clips[0].dur = 2.539;
+	dissolveB(1);
+	const c = doc.clips[2];
+	assert.equal(c.start, 3.539);
+	addPrompt(c.start);
+	addFrame(null, c.start);
+	assert.deepEqual([doc.prompts.at(-1).start, doc.prompts.at(-1).shotId], [3.539, 'c']);
+	assert.deepEqual([doc.frames.at(-1).time, doc.frames.at(-1).shotId], [3.539, 'c']);
+	addPrompt(3.55);
+	assert.deepEqual([doc.prompts.at(-1).start, doc.prompts.at(-1).shotId], [3.539, 'c']);
+	addFrame(null, 4.6);
+	assert.equal(doc.frames.at(-1).time, 4.6);
+	ui.modal = null;
 });

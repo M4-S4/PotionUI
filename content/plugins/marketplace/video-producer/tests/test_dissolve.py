@@ -1,5 +1,6 @@
 import json
 import math
+import random
 import re
 import shutil
 import subprocess
@@ -532,6 +533,53 @@ def test_cuts_after_a_dissolve_leave_no_black_lose_no_frame_and_do_not_drift(mak
     expected = sum(clip["dur"] for clip in clips) - sum(dissolve_of(before, clip) for before, clip in zip(clips, clips[1:]))
     assert clips[-1]["start"] + clips[-1]["dur"] == pytest.approx(expected, abs=1e-5)
     _assert_on_time(doc)
+
+
+def test_forty_dissolves_of_0_4_s_on_shots_of_1_01_s_end_the_film_at_24_8_s(make_doc):
+    doc = _run(make_doc, [1.01] * 40, [0] + [0.4] * 39, fps=24)
+    clips = doc["clips"]
+
+    assert clips[-1]["start"] + clips[-1]["dur"] == pytest.approx(24.8, abs=1e-6)
+    assert set(joins(clips)[1:]) == {0.4}
+    assert timeline(doc)[1] == pytest.approx(24.8, abs=1e-6)
+    _assert_on_time(doc)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_a_long_run_drawn_at_random_ends_at_the_sum_of_its_lengths_less_its_dissolves(make_doc, seed):
+    rng = random.Random(seed)
+    durations = [round(rng.uniform(0.16, 6), 2) for _ in range(200)]
+    asks = [0, *(rng.choice([0, 0, 0.4, 0.6, 1, 1.2, 2, round(rng.uniform(0.08, 2), 2)]) for _ in range(199))]
+    doc = _run(make_doc, durations, asks, fps=rng.choice(CADENCES))
+    clips = doc["clips"]
+
+    expected = sum(durations) - sum(dissolve_of(before, clip) for before, clip in zip(clips, clips[1:]))
+    assert clips[-1]["start"] + clips[-1]["dur"] == pytest.approx(expected, abs=1e-4)
+    assert sum(joins(clips)) == pytest.approx(sum(dissolve_of(before, clip) for before, clip in zip(clips, clips[1:])), abs=1e-4)
+    _assert_on_time(doc)
+
+
+def test_the_edl_ends_a_cut_on_the_frame_the_next_shot_starts_on_as_the_video_does(make_doc):
+    doc = _run(make_doc, [1.4, 1.53, 2], [0, 0.4, 0], fps=50)
+    files = {("clips", index): {"name": f"{index}.mp4", "path": f"{index}.mp4"} for index in range(3)}
+
+    assert [clip["start"] for clip in doc["clips"]] == [0, 1, 2.53]
+    events = [line.split() for line in render("edl", doc, files).split("\r\n") if re.match(r"\d{3}  VP", line)]
+    assert events[-2][-1] == events[-1][-2] == "00:00:02:26"
+    _assert_on_time(doc)
+
+
+def test_in_a_project_that_dissolves_a_first_frame_sits_on_the_exact_start_of_its_shot(make_doc):
+    doc = _run(make_doc, [2.539, 2, 2], [0, 1, 0], fps=24)
+    clip = doc["clips"][2]
+
+    edits.place_frame(doc, clip, "first", "image")
+
+    assert clip["start"] == 3.539
+    assert [frame["time"] for frame in doc["frames"]] == [3.539]
+    legacy = _run(make_doc, [2.539, 2], [0, 0], fps=24)
+    edits.place_frame(legacy, legacy["clips"][1], "first", "image")
+    assert [frame["time"] for frame in legacy["frames"]] == [edits.snap(legacy["clips"][1]["start"])]
 
 
 HAND = [
