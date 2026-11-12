@@ -117,7 +117,7 @@ def test_on_boot_keeps_the_work_folder_of_a_writing_that_may_still_run_in_anothe
 
 
 @pytest.mark.parametrize("level", ["owner", "folder"])
-def test_on_boot_never_follows_a_link_in_the_work_area_of_the_prompt_writer(plugin_db, export_storage, tmp_path, level):
+def test_on_boot_never_follows_a_link_in_the_work_area_of_the_prompt_writer(plugin_db, export_storage, tmp_path, caplog, level):
     from backend import prompt_writer
 
     elsewhere = tmp_path / "elsewhere"
@@ -138,6 +138,7 @@ def test_on_boot_never_follows_a_link_in_the_work_area_of_the_prompt_writer(plug
 
     assert (old / "keep.txt").read_bytes() == b"keep"
     assert link.is_symlink()
+    assert "Could not clear the work folder of the prompt writer" not in caplog.text
 
 
 def test_on_boot_logs_and_swallows_a_work_folder_it_cannot_clear(plugin_db, export_storage, monkeypatch, caplog):
