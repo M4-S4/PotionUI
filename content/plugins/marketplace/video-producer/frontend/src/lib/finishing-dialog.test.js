@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { hostUis, renderComponent, textOf } from './svelte-harness.js';
 
 const { doc, ui, replaceDoc, dispose } = await import('./state.svelte.js');
-const { finishState, resetFinishing } = await import('./finishing.svelte.js');
+const { finishState, resetFinishing, disposeFinishing } = await import('./finishing.svelte.js');
 const { normalizeTool } = await import('./api.js');
 const { project } = await import('./project.svelte.js');
 const { emptyDoc, newClip } = await import('./starter.js');
@@ -77,6 +77,20 @@ test('finishing dialog: a saved LUT that is no longer offered is shown as missin
 	assert.match(html, /data-finish-missing="lut"/);
 	assert.ok(text.includes('The saved LUT “gone.cube” is no longer offered by PotionUI: pick another one, or the LUT is left out of the finishing.'));
 	assert.ok(text.endsWith(t('modals.export.export')));
+});
+
+test('finishing dialog: a finishing left running when the page closed does not hold the export when the page opens again', async () => {
+	finishState.tools = TOOLS;
+	doc.master.finishing = { grain: { on: true } };
+	finishState.runs = [{ key: 'job-p1', jobId: 'job-p1', projectId: 'p1', runId: 'run1', status: 'running', cancelling: true, progress: 0.4, item: null, failure: null, message: '', fileName: 'Film_720p.mp4' }];
+	assert.equal(primary(await renderComponent(MODALS)).disabled, true);
+	disposeFinishing();
+	const html = await renderComponent(MODALS);
+	const text = textOf(html);
+	assert.equal(primary(html).disabled, false);
+	assert.ok(text.includes(t('exports.finish.failure.lost')));
+	assert.ok(!text.includes(t('exports.finish.cancelling')));
+	assert.ok(!text.includes(t('exports.finish.step')));
 });
 
 test('finishing dialog: while the catalog loads, and when the core has none of the effects, it says so', async () => {

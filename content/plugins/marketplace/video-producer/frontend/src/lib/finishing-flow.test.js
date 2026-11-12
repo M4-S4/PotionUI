@@ -328,8 +328,8 @@ test('finishing flow: a finishing in a second project leaves the first one runni
 	assert.ok(ui.toasts.some((x) => x.message === 'Finished film ready: Film_720p_finished.mp4'));
 });
 
-test('finishing flow: closing the page stops following a finishing, with no read and no message after', async () => {
-	await open({ finishing: { grain: { on: true } }, reads: () => [{ status: 'running', progress: 0.4 }] });
+test('finishing flow: closing the page stops following a finishing, with no read and no message after, and the page opened again is not held by it', async () => {
+	await open({ finishing: { grain: { on: true } }, reads: (id) => (id === 'run1' ? [{ status: 'running', progress: 0.4 }] : []) });
 	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
 	await pollJob();
 	for (let i = 0; i < 5; i++) await settle();
@@ -339,7 +339,15 @@ test('finishing flow: closing the page stops following a finishing, with no read
 	for (let i = 0; i < 10; i++) await settle();
 	assert.equal(server.calls.filter(([kind]) => kind === 'read').length, reads);
 	assert.equal(ui.toasts.length, toasts);
-	assert.equal(finishShown().status, 'running');
+	assert.deepEqual([finishShown().status, finishShown().failure, finishShown().cancelling], ['failed', 'lost', false]);
+	await resumeExports();
+	await loadFinishing();
+	await cancelFinish();
+	assert.equal(finishShown().cancelling, false);
+	assert.equal(server.calls.some(([kind]) => kind === 'cancel'), false);
+	await exportAndFinish();
+	assert.deepEqual(runs().map(([, body]) => body.inputs[0].item_id), ['item-raw-p1', 'item-raw-p1']);
+	assert.equal(finishShown().status, 'done');
 });
 
 test('finishing flow: a cancel answered by a finished run shows the finished film, not a cancellation', async () => {

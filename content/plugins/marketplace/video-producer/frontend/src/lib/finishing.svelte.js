@@ -155,6 +155,7 @@ export function disposeFinishing() {
 	for (const control of controls.values()) control.stopped = true;
 	controls.clear();
 	planned.clear();
+	for (const run of finishState.runs) if (run.status === 'running') Object.assign(run, { status: 'failed', failure: 'lost', message: '', cancelling: false });
 }
 
 export function resetFinishing() {
