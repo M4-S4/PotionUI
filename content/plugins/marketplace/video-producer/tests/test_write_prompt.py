@@ -852,3 +852,58 @@ def test_a_large_jpeg_frame_is_decoded_reduced(tmp_path, monkeypatch):
 )
 def test_only_a_real_introduction_line_is_taken_for_a_preamble(reply, kept):
     assert prompt_writer.cleaned(reply) == kept
+
+
+def test_the_route_refuses_a_second_writing_of_the_same_user_while_the_first_runs(core, client, make_doc, make_project, monkeypatch):
+    import threading
+    import time
+
+    core.use_h3()
+    writer = Writer(monkeypatch, delay=1.0)
+    project = make_project(doc=_doc(core, make_doc))
+    answers = {}
+
+    def first():
+        answers["first"] = _write(client, project["id"], _body())
+
+    running = threading.Thread(target=first)
+    running.start()
+    for _ in range(200):
+        if writer.calls:
+            break
+        time.sleep(0.01)
+    second = _write(client, project["id"], _body(request="another"))
+    running.join(10)
+
+    assert second.status_code == 409
+    assert second.json()["detail"]["error"] == "write_busy"
+    assert answers["first"].status_code == 200
+    assert [call["instruction"].split("\n", 1)[0] for call in writer.calls] == ["she lifts the lantern"]
+    assert _write(client, project["id"], _body()).status_code == 200
+
+
+def test_the_route_stops_the_language_model_call_when_its_request_disconnects(core, make_doc, make_project, monkeypatch):
+    from fastapi import HTTPException
+
+    from backend import routes_prompts
+
+    core.use_h3()
+    writer = Writer(monkeypatch, delay=30.0)
+    monkeypatch.setattr(prompt_writer, "POLL_S", 0.02)
+    project = make_project(doc=_doc(core, make_doc))
+    asks = []
+
+    class Leaving:
+        async def is_disconnected(self):
+            asks.append(True)
+            return len(asks) >= 3
+
+    async def call():
+        return await routes_prompts.write_prompt(project["id"], "s1", Leaving(), body=_body(), user=core.users["user-1"])
+
+    with pytest.raises(HTTPException) as left:
+        asyncio.run(asyncio.wait_for(call(), 10))
+
+    assert (left.value.status_code, left.value.detail["error"]) == (409, "write_cancelled")
+    assert writer.cancelled == ["user-1"]
+    assert prompt_writer.writing == set()
