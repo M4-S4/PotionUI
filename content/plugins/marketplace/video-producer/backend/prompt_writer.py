@@ -1,7 +1,9 @@
 import asyncio
+import concurrent.futures
 import logging
 import re
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
@@ -25,8 +27,10 @@ POLL_S = 0.25
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_EDGE = 1024
 WORK_AREA = "writer"
+GRACE_S = 1.0
 
 writing: Set[str] = set()
+pool = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="vp-writer")
 
 FRAMING = (
     "You write the prompt of one shot of a video made with Video Producer, for the engine of this preset. "
@@ -203,15 +207,22 @@ def _shrunk(source: Path, target: Path) -> None:
         picture.save(target, "JPEG", quality=90)
 
 
-def fitted(owner: User, media: Sequence[Mapping[str, Any]]) -> Tuple[List[Dict[str, Any]], int, Optional[Path]]:
+def work_folder(owner: User) -> Optional[Path]:
+    try:
+        return workdir.area(WORK_AREA, owner.id) / uuid.uuid4().hex
+    except Exception:
+        logger.warning("[VIDEO-PRODUCER] Could not read the file storage directory for the prompt writer", exc_info=True)
+        return None
+
+
+def fitted(owner: User, media: Sequence[Mapping[str, Any]], folder: Optional[Path]) -> Tuple[List[Dict[str, Any]], int]:
     try:
         root = core_bridge.storage_directory()
     except Exception:
         logger.warning("[VIDEO-PRODUCER] Could not read the file storage directory; the key frames go as they are", exc_info=True)
-        return [dict(item) for item in media], 0, None
+        return [dict(item) for item in media], 0
     sent: List[Dict[str, Any]] = []
     dropped = 0
-    folder: Optional[Path] = None
     for index, item in enumerate(media):
         source = root / str(item.get("value") or "")
         try:
@@ -222,7 +233,9 @@ def fitted(owner: User, media: Sequence[Mapping[str, Any]]) -> Tuple[List[Dict[s
             sent.append(dict(item))
             continue
         try:
-            folder = folder or workdir.scratch(WORK_AREA, owner.id)
+            if folder is None:
+                raise OSError("no work folder")
+            workdir.make(folder)
             target = folder / f"frame-{index + 1}.jpg"
             _shrunk(source, target)
         except Exception:
@@ -230,7 +243,7 @@ def fitted(owner: User, media: Sequence[Mapping[str, Any]]) -> Tuple[List[Dict[s
             dropped += 1
             continue
         sent.append({**item, "value": target.relative_to(root).as_posix()})
-    return sent, dropped, folder
+    return sent, dropped
 
 
 def _seconds(clip: Mapping[str, Any]) -> float:
@@ -238,8 +251,20 @@ def _seconds(clip: Mapping[str, Any]) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else 0.0
 
 
-async def _answer(call: Awaitable[Any], gone: Optional[Callable[[], Awaitable[bool]]]) -> Any:
-    task = asyncio.ensure_future(call)
+def remove_when_done(folder: Path, jobs: Sequence[Any]) -> None:
+    def finished(_: Any = None) -> None:
+        if all(job.done() for job in jobs):
+            shutil.rmtree(folder, ignore_errors=True)
+
+    pending = [job for job in jobs if not job.done()]
+    if not pending:
+        finished()
+        return
+    for job in pending:
+        job.add_done_callback(finished)
+
+
+async def _answer(task: "asyncio.Future[Any]", gone: Optional[Callable[[], Awaitable[bool]]]) -> Any:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + WRITE_TIMEOUT_S
     try:
@@ -255,7 +280,7 @@ async def _answer(call: Awaitable[Any], gone: Optional[Callable[[], Awaitable[bo
     finally:
         if not task.done():
             task.cancel()
-            await asyncio.wait({task}, timeout=1.0)
+            await asyncio.wait({task}, timeout=GRACE_S)
 
 
 async def write(
@@ -295,12 +320,19 @@ async def _write(
     shot_id = str(clip.get("id"))
     preset, mode, form_data, names = await asyncio.to_thread(_plan, owner, doc, shot_id, preset_id, model_id)
     frames: List[Dict[str, Any]] = await asyncio.to_thread(director.key_frame_media, owner, doc, shot_id)
-    media, dropped, folder = await asyncio.to_thread(fitted, owner, frames) if found["vision"] else ([], 0, None)
+    folder = await asyncio.to_thread(work_folder, owner) if found["vision"] else None
+    jobs: List[Any] = []
     try:
-        return await _written(user, found, shot_id, doc, clip, request, current, preset, mode, form_data, names, frames, media, dropped, gone)
+        if found["vision"]:
+            prepared = pool.submit(fitted, owner, frames, folder)
+            jobs.append(prepared)
+            media, dropped = await asyncio.wrap_future(prepared)
+        else:
+            media, dropped = [], 0
+        return await _written(user, found, shot_id, doc, clip, request, current, preset, mode, form_data, names, frames, media, dropped, gone, jobs)
     finally:
         if folder is not None:
-            shutil.rmtree(folder, ignore_errors=True)
+            remove_when_done(folder, jobs)
 
 
 async def _written(
@@ -319,6 +351,7 @@ async def _written(
     media: List[Dict[str, Any]],
     dropped: int,
     gone: Optional[Callable[[], Awaitable[bool]]],
+    jobs: List[Any],
 ) -> Dict[str, Any]:
     characters, place = bible.cast_of(doc, clip)
     text = instruction(
@@ -331,7 +364,9 @@ async def _written(
     )
     sent = [{"value": item["value"], "media_type": item["media_type"]} for item in media]
     try:
-        reply = await _answer(core_bridge.write_prompt_for_preset(user.id, text, preset_id=preset, mode=mode, form_data=form_data, media=sent), gone)
+        call = asyncio.ensure_future(core_bridge.write_prompt_for_preset(user.id, text, preset_id=preset, mode=mode, form_data=form_data, media=sent))
+        jobs.append(call)
+        reply = await _answer(call, gone)
     except HTTPException:
         raise
     except core_bridge.PromptWriteRefused as exc:

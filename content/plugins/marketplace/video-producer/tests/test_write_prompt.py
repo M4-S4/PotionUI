@@ -639,3 +639,91 @@ def test_a_shot_that_replaced_its_reference_part_keeps_the_tags_of_a_reply_and_r
 
     assert response.json()["data"]["text"] == "<Subject 1> waves."
     assert response.json()["data"]["unknown_tags"] == ["<Subject 1>"]
+
+
+def _writer_area(root):
+    area = root / "video_producer" / "writer" / "user-1"
+    return [path for path in area.rglob("*")] if area.exists() else []
+
+
+def test_a_writing_cancelled_while_its_frame_is_shrunk_leaves_no_work_folder(core, make_doc, monkeypatch, export_storage):
+    import threading
+
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    _noise_png(export_storage / "uploads" / "start.png")
+    _noise_png(export_storage / "uploads" / "end.png", 64, 36)
+    started, release = threading.Event(), threading.Event()
+    shrink = prompt_writer._shrunk
+
+    def slow(source, target):
+        started.set()
+        release.wait(5)
+        shrink(source, target)
+
+    monkeypatch.setattr(prompt_writer, "_shrunk", slow)
+    doc, clip = _shot(core, make_doc)
+    user = core.users["user-1"]
+
+    async def scenario():
+        task = asyncio.ensure_future(prompt_writer.write(user, user, doc, clip, "a", presets.MINIMAX_H3, None, ""))
+        await asyncio.get_running_loop().run_in_executor(None, started.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            if not _writer_area(export_storage):
+                break
+
+    asyncio.run(scenario())
+
+    assert started.is_set()
+    assert _writer_area(export_storage) == []
+    assert writer.calls == []
+    assert prompt_writer.writing == set()
+
+
+def test_a_core_call_that_outlives_the_grace_keeps_its_frame_until_it_ends(core, make_doc, monkeypatch, export_storage):
+    from fastapi import HTTPException
+
+    core.use_h3()
+    _noise_png(export_storage / "uploads" / "start.png")
+    _noise_png(export_storage / "uploads" / "end.png", 64, 36)
+    monkeypatch.setattr(prompt_writer, "POLL_S", 0.02)
+    monkeypatch.setattr(prompt_writer, "GRACE_S", 0.05)
+    seen = {}
+
+    async def stubborn(user_id, instruction, *, preset_id=None, mode=None, form_data=None, media=()):
+        shrunk = export_storage / media[0]["value"]
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.4)
+            seen["frame_at_end"] = shrunk.exists()
+        return {"text": WRITTEN}
+
+    monkeypatch.setattr(core_bridge, "prompt_writer_status", lambda user_id: dict(READY))
+    monkeypatch.setattr(core_bridge, "write_prompt_for_preset", stubborn)
+    doc, clip = _shot(core, make_doc)
+    user = core.users["user-1"]
+    asks = []
+
+    async def gone():
+        asks.append(True)
+        return len(asks) >= 2
+
+    async def scenario():
+        with pytest.raises(HTTPException) as left:
+            await prompt_writer.write(user, user, doc, clip, "a", presets.MINIMAX_H3, None, "", gone=gone)
+        during = _writer_area(export_storage)
+        await asyncio.sleep(1.0)
+        return left, during
+
+    left, during = asyncio.run(scenario())
+
+    assert left.value.detail["error"] == "write_cancelled"
+    assert during != []
+    assert seen == {"frame_at_end": True}
+    assert _writer_area(export_storage) == []
