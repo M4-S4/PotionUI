@@ -83,7 +83,7 @@ export function sliceCuts(dur, seconds) {
 export function shotCuts(item, clips) {
 	const end = item.start + item.dur;
 	const bounds = shownSpans(clips ?? [])
-		.flatMap((span) => [span.start, span.start + span.dur])
+		.flatMap((span) => [span.start, span.end])
 		.sort((a, b) => a - b);
 	const cuts = [];
 	for (const at of bounds) {

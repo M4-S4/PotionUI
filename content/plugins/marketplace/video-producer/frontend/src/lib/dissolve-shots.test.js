@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import './svelte-harness.js';
-import { setDissolve, mixAt } from './dissolve.js';
+import { joins, setDissolve, mixAt } from './dissolve.js';
 import { shownShots } from './monitor.js';
 
 globalThis.document ??= { body: {}, querySelector: () => null };
@@ -165,7 +165,7 @@ window.__potionui.notifications.toast = (level, message) => heard.push(message);
 const settled = () => new Promise((resolve) => queueMicrotask(resolve));
 const { shotsIn, checkpoint, settle, adopt, replaceDoc } = await import('./state.svelte.js');
 const { pickTarget } = await import('./production.svelte.js');
-const { placement } = await import('./dissolve.js');
+const { placement, shownSpans } = await import('./dissolve.js');
 const { commandById } = await import('./commands.js');
 const { shotTrim } = await import('./trims.js');
 const { drag } = await import('./timeline.js');
@@ -194,6 +194,14 @@ test('dissolve shots: a range made from a shot target covers the shot as the tim
 	assert.deepEqual(ids(shotsIn([0, 4.01])), ['a', 'b']);
 });
 
+function length(random, pick) {
+	const kind = pick(['grid', 'milli', 'third', 'fine']);
+	if (kind === 'grid') return (3 + Math.floor(random() * 120)) * 0.04;
+	if (kind === 'milli') return (100 + Math.floor(random() * 4800)) / 1000;
+	if (kind === 'third') return (1 + Math.floor(random() * 14)) / 3;
+	return (1280 + Math.floor(random() * 60000)) / 12800;
+}
+
 function seeded(seed) {
 	let a = seed >>> 0;
 	return () => {
@@ -218,8 +226,9 @@ test('dissolve shots: on projects drawn at random, going to a shot gives a time 
 	let met = 0;
 	for (let n = 0; n < 400; n++) {
 		const count = 2 + Math.floor(random() * 6);
-		doc.clips = Array.from({ length: count }, (_, i) => shot(`s${i}`, (4 + Math.floor(random() * 120)) * 0.04, i && random() < 0.7 ? { dissolve: pick([0.08, 0.12, 0.4, 0.6, 1, 1.2, 2]) } : {}));
+		doc.clips = Array.from({ length: count }, (_, i) => shot(`s${i}`, length(random, pick), i && random() < 0.7 ? { dissolve: pick([0.08, 0.12, 0.4, 0.6, 1, 1.2, 2]) } : {}));
 		relayout();
+		if (!joins(doc.clips).some(Boolean)) continue;
 		const places = placement(doc.clips);
 		doc.clips.forEach((c, i) => {
 			const time = entryTime(c);
@@ -229,7 +238,7 @@ test('dissolve shots: on projects drawn at random, going to a shot gives a time 
 			if (place.start + place.overlap < until) {
 				alone += 1;
 				assert.equal(mixAt(doc.clips, time), null, `${c.id} of ${JSON.stringify(doc.clips.map((x) => [x.dur, x.dissolve ?? 0]))}`);
-				assert.equal(clipAt(time)?.id, c.id);
+				assert.equal(clipAt(time)?.id, c.id, `${c.id} at ${time} of ${JSON.stringify(doc.clips.map((x) => [x.start, x.dur, x.dissolve ?? 0]))} spans ${JSON.stringify(shownSpans(doc.clips))}`);
 			} else {
 				met += 1;
 				assert.equal(time, place.start + place.overlap);
@@ -257,7 +266,7 @@ test('dissolve shots: a mouse trim reads the zoom of the moment at each move, as
 	ui.snapping = false;
 	ui.pxPerSec = 100;
 	const fire = (type, x) => window.dispatchEvent(Object.assign(new Event(type), { pointerId: 9, clientX: x, clientY: 0 }));
-	drag({ button: 0, pointerId: 9, clientX: 0, clientY: 0, stopPropagation() {}, currentTarget: null }, shotTrim(doc.clips[1], 'end', () => ui.pxPerSec));
+	drag({ button: 0, pointerId: 9, clientX: 0, clientY: 0, stopPropagation() {}, currentTarget: null }, shotTrim(doc.clips[1], 'end'));
 	fire('pointermove', 20);
 	ui.pxPerSec = 50;
 	fire('pointermove', 20);
@@ -328,4 +337,82 @@ test('dissolve shots: without dissolve, the recap reads the range by time as the
 	assert.ok(dissolving.includes('Alpha walks.') && !dissolving.includes('Bravo runs.'));
 	ui.modal = null;
 	ui.picked = [];
+});
+
+test('dissolve shots: with a first shot of 3.14 s, a range made from either shot keeps that shot alone', () => {
+	scene([0, 0, 0]);
+	doc.clips = [shot('a', 3.14), shot('b', 4, { dissolve: 0.6 }), shot('c', 4)];
+	relayout();
+	assert.deepEqual(doc.clips.map((c) => c.start), [0, 2.54, 6.54]);
+	ui.production.target = 'clip';
+	ui.range = null;
+	select('clip', 'a');
+	pickTarget('range');
+	const first = [ui.range.in, ui.range.out];
+	assert.deepEqual(ids(jobClips()), ['a']);
+	assert.deepEqual(ids(shotsIn(readiness().range)), ['a']);
+	ui.production.target = 'clip';
+	ui.range = null;
+	select('clip', 'b');
+	pickTarget('range');
+	assert.equal(ui.range.in, first[1]);
+	assert.deepEqual(ids(jobClips()), ['b']);
+});
+
+test('dissolve shots: on projects drawn at random, Shot then Range keeps that shot alone, and two neighbouring ranges share no shot', () => {
+	scene([0, 0, 0]);
+	const random = seeded(1111);
+	const pick = (list) => list[Math.floor(random() * list.length)];
+	let checked = 0;
+	let points = 0;
+	for (let n = 0; n < 300; n++) {
+		const count = 2 + Math.floor(random() * 7);
+		doc.clips = Array.from({ length: count }, (_, i) => shot(`s${i}`, random() < 0.1 ? 0.1 : length(random, pick), i && random() < 0.75 ? { dissolve: pick([0.08, 0.12, 0.4, 0.6, 1, 1.2, 2]) } : {}));
+		relayout();
+		if (!joins(doc.clips).some(Boolean)) continue;
+		const ranges = doc.clips.map((c) => {
+			ui.production.target = 'clip';
+			ui.range = null;
+			select('clip', c.id);
+			pickTarget('range');
+			return [ui.range.in, ui.range.out];
+		});
+		const label = JSON.stringify(doc.clips.map((x) => [x.dur, x.dissolve ?? 0]));
+		doc.clips.forEach((c, i) => {
+			const kept = ids(shotsIn(ranges[i]));
+			if (ranges[i][1] - ranges[i][0] > 1e-6) {
+				checked += 1;
+				assert.deepEqual(kept, [c.id], `${c.id} of ${label}: ${ranges[i]}`);
+				ui.production.target = 'range';
+				ui.range = { in: ranges[i][0], out: ranges[i][1] };
+				assert.deepEqual(ids(jobClips()), [c.id]);
+			} else {
+				points += 1;
+				assert.ok(kept.includes(c.id), `${c.id} of ${label}`);
+			}
+			if (i > 0 && ranges[i - 1][1] - ranges[i - 1][0] > 1e-6 && ranges[i][1] - ranges[i][0] > 1e-6) {
+				const before = new Set(ids(shotsIn(ranges[i - 1])));
+				assert.ok(!kept.some((id) => before.has(id)), `${label}: ${ranges[i - 1]} and ${ranges[i]}`);
+			}
+		});
+	}
+	ui.range = null;
+	ui.production.target = 'clip';
+	assert.ok(checked > 800, `${checked} checked, ${points} taken whole`);
+});
+
+test('dissolve shots: a document whose valid dissolve keys sit on starts end to end plays no dissolve, so the recap and the items read as the base', async () => {
+	const { clean, renderComponent } = await import('./svelte-harness.js');
+	const MODALS = new URL('../components/modals/Modals.svelte', import.meta.url).href;
+	scene([0, 0, 0]);
+	doc.clips = [shot('a', 4, { start: 0 }), shot('b', 4, { start: 4, dissolve: 1 }), shot('c', 4, { start: 8, dissolve: 1 })];
+	assert.deepEqual(joins(doc.clips), [0, 0, 0]);
+	doc.prompts = [prompt('pa', 'a', 0, 'Alpha walks.'), prompt('pb', 'b', 4, 'Bravo runs.'), prompt('pc', 'c', 8, 'Charlie jumps.')];
+	select('clip', 'a');
+	ui.picked = ['b', 'c'];
+	ui.modal = { type: 'recap' };
+	const html = clean(await renderComponent(MODALS));
+	assert.ok(html.includes('Alpha walks.') && !html.includes('Bravo runs.'));
+	ui.picked = [];
+	ui.modal = null;
 });

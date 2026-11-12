@@ -10,7 +10,7 @@ import { speedOf } from './cadence.js';
 import { effectiveEngine, projectQuality, shotEngineOf } from './engine.js';
 import { CONDITION, audioBehavior, shotSound } from './sound.js';
 import { fieldTitle, presetFields } from './options.js';
-import { chained, shownSpans } from './dissolve.js';
+import { dissolving, shownSpans } from './dissolve.js';
 import { prioritized } from './queue.js';
 import { laneTitle } from './tracks.js';
 import { clearRemoved, isRemoved, pruneRemoved } from './removedtakes.js';
@@ -317,11 +317,11 @@ function clipsRange(clips) {
 
 export function rangeFromTarget() {
 	const range = productionRange();
-	if (!chained(doc.clips)) return range;
+	if (!dissolving(doc.clips)) return range;
 	const i = doc.clips.findIndex((c) => Math.abs(c.start - range[0]) <= 1e-6 && Math.abs(c.start + c.dur - range[1]) <= 1e-6);
 	if (i < 0) return range;
 	const span = shownSpans(doc.clips)[i];
-	return [span.start, span.start + span.dur];
+	return [span.start, span.end];
 }
 
 export function pickTarget(id) {
@@ -337,7 +337,7 @@ export function pickTarget(id) {
 export function productionItems(range = productionRange(), opts = {}) {
 	const picked = opts.clips?.length ? [] : pickedClips();
 	if (picked.length) return itemsOf(picked);
-	const own = chained(doc.clips) ? (opts.clips?.length ? opts.clips : ui.production.target === 'clip' ? jobClips(range) : null) : null;
+	const own = dissolving(doc.clips) ? (opts.clips?.length ? opts.clips : ui.production.target === 'clip' ? jobClips(range) : null) : null;
 	return own ? itemsOf(own) : itemsIn(range);
 }
 

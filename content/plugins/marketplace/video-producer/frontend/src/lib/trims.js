@@ -9,10 +9,9 @@ function noteLimit(played) {
 	if (note && ui.drag) dragText(`${ui.drag.text} · ${note}`, ui.drag.limit);
 }
 
-const scaleOf = (pps) => (typeof pps === 'function' ? pps : () => pps);
+const scale = () => ui.pxPerSec;
 
-export function shotTrim(c, edge, pps) {
-	const scale = scaleOf(pps);
+export function shotTrim(c, edge) {
 	const max = sourceLength(c);
 	const range = shotDurationLimit(c);
 	const d0 = c.dur;
@@ -50,8 +49,7 @@ export function shotTrim(c, edge, pps) {
 	};
 }
 
-export function bandTrim(c, pps) {
-	const scale = scaleOf(pps);
+export function bandTrim(c) {
 	const range = shotDurationLimit(c);
 	const max = sourceLength(c);
 	const d0 = c.dur;

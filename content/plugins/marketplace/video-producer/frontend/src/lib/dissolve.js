@@ -158,12 +158,17 @@ export function unfaded(clips, i, places = placement(clips)) {
 
 function spans(clips) {
 	const places = placement(clips);
-	if (!places.some((place) => place?.overlap)) return (clips ?? []).map((clip) => ({ start: clip.start, dur: clip.dur, head: 0, tail: 0 }));
+	if (!places.some((place) => place?.overlap)) return (clips ?? []).map((clip) => ({ start: clip.start, end: clip.start + clip.dur, dur: clip.dur, head: 0, tail: 0 }));
+	const starts = places.map((place, i) => (place ? place.start + place.overlap / 2 : finite(clips[i].start)));
+	const ends = places.map((place, i) => (place ? place.end : starts[i]));
+	places.forEach((place, i) => {
+		if (!place || !(places[i + 1]?.overlap > 0)) return;
+		starts[i + 1] = Math.max(starts[i + 1], starts[i]);
+		ends[i] = starts[i + 1];
+	});
 	return places.map((place, i) => {
-		if (!place) return { start: finite(clips[i].start), dur: 0, head: 0, tail: 0 };
-		const head = place.overlap / 2;
-		const tail = (places[i + 1]?.overlap ?? 0) / 2;
-		return { start: place.start + head, dur: Math.max(place.end - place.start - head - tail, 0), head, tail };
+		const end = Math.max(ends[i], starts[i]);
+		return { start: starts[i], end, dur: end - starts[i], head: (place?.overlap ?? 0) / 2, tail: (places[i + 1]?.overlap ?? 0) / 2 };
 	});
 }
 
@@ -172,7 +177,7 @@ export const shownSpans = (clips) => spans(clips);
 export const shownSpan = (clips, i) => spans(clips)[i];
 
 export function indexAt(clips, time) {
-	return spans(clips).findIndex((span) => time >= span.start && time < span.start + span.dur);
+	return spans(clips).findIndex((span) => time >= span.start && time < span.end);
 }
 
 export function holderAt(clips, time, kind) {

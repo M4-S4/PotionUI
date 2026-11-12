@@ -117,9 +117,9 @@ test('dissolve: the fades of a dissolved cut are not played, the others are', ()
 
 test('dissolve: the timeline draws each shot up to the middle of its dissolves and one mark per dissolve', () => {
 	const clips = laidOut([4, 4, 4], [0, 1, 0.6]);
-	assert.deepEqual(shownSpan(clips, 0), { start: 0, dur: 3.5, head: 0, tail: 0.5 });
-	assert.deepEqual(shownSpan(clips, 1), { start: 3.5, dur: 3.2, head: 0.5, tail: 0.3 });
-	assert.deepEqual(shownSpan(clips, 2), { start: 6.7, dur: 3.7, head: 0.3, tail: 0 });
+	assert.deepEqual(shownSpan(clips, 0), { start: 0, end: 3.5, dur: 3.5, head: 0, tail: 0.5 });
+	assert.deepEqual(shownSpan(clips, 1), { start: 3.5, end: 6.7, dur: 3.2, head: 0.5, tail: 0.3 });
+	assert.deepEqual(shownSpan(clips, 2), { start: 6.7, end: 10.4, dur: 3.7, head: 0.3, tail: 0 });
 	assert.deepEqual(
 		dissolveMarks(clips).map((m) => [m.id, m.from.id, m.start, m.dur]),
 		[
@@ -128,7 +128,7 @@ test('dissolve: the timeline draws each shot up to the middle of its dissolves a
 		]
 	);
 	assert.equal(lostSeconds(clips), 1.6);
-	assert.deepEqual(shownSpan(laidOut([4, 3], [0, 0]), 1), { start: 4, dur: 3, head: 0, tail: 0 });
+	assert.deepEqual(shownSpan(laidOut([4, 3], [0, 0]), 1), { start: 4, end: 7, dur: 3, head: 0, tail: 0 });
 });
 
 test('dissolve: the shot at a time is the one the timeline draws there, and an item placed on the start of a shot belongs to it', () => {
@@ -183,7 +183,7 @@ test('dissolve: a document plays the dissolve its starts overlap, and a bare ove
 	assert.deepEqual(dissolveMarks(clips), []);
 	clips[1].start = 3.8;
 	assert.deepEqual(joins(clips), [0, 0.2]);
-	assert.deepEqual(shownSpan(clips, 1), { start: 3.9, dur: 3.9, head: 0.1, tail: 0 });
+	assert.deepEqual(shownSpan(clips, 1), { start: 3.9, end: 7.8, dur: 3.9, head: 0.1, tail: 0 });
 	clips.push({ id: 'c', start: 7, dur: 2 });
 	assert.deepEqual(
 		placement(clips).map((p) => [p.start, p.end]),

@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, chained, dissolveOf, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, onFrame, placement, playedLengths, shownSpans, splitKeepsDissolves, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, dissolveOf, dissolving, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, onFrame, placement, playedLengths, shownSpans, splitKeepsDissolves, startingAt } from './dissolve.js';
 import { roleKind } from './seam.js';
 
 export { newAsset, newClip };
@@ -738,10 +738,17 @@ export function productionRange() {
 	return c ? [c.start, c.start + c.dur] : [0, 0];
 }
 export const overlaps = (s, d, [a, b]) => s < b && s + d > a;
+const SHARED = 1e-6;
 export function shotsIn(range) {
-	if (!chained(doc.clips)) return doc.clips.filter((c) => overlaps(c.start, c.dur, range));
+	if (!dissolving(doc.clips)) return doc.clips.filter((c) => overlaps(c.start, c.dur, range));
 	const spans = shownSpans(doc.clips);
-	return doc.clips.filter((c, i) => (spans[i].dur > 0 ? overlaps(spans[i].start, spans[i].dur, range) : spans[i].start > range[0] && spans[i].start < range[1]));
+	const [from, to] = range;
+	if (to - from <= SHARED) return doc.clips.filter((c, i) => spans[i].end - spans[i].start <= SHARED && Math.abs(spans[i].start - from) <= SHARED);
+	return doc.clips.filter((c, i) => {
+		const span = spans[i];
+		if (span.end - span.start <= SHARED) return span.start > from + SHARED && span.start < to - SHARED;
+		return Math.min(span.end, to) - Math.max(span.start, from) > SHARED;
+	});
 }
 export function itemsOf(clips) {
 	const shots = new Set(clips.map((c) => c.id));

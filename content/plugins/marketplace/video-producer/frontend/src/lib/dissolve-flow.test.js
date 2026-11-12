@@ -640,11 +640,11 @@ test('dissolve flow: in a project that dissolves, a trim moves one edge on the g
 	assert.equal(tailTrim(4.33, 4.4, 6), 0.4);
 	ui.pxPerSec = 100;
 	ui.snapping = false;
-	dragBy(shotTrim(piece, 'start', ui.pxPerSec), 5);
+	dragBy(shotTrim(piece, 'start'), 5);
 	assert.deepEqual([piece.start, piece.dur, piece.srcIn], [4.33, 1.73, 2.57]);
-	dragBy(shotTrim(piece, 'end', ui.pxPerSec), 18);
+	dragBy(shotTrim(piece, 'end'), 18);
 	assert.deepEqual([piece.start, piece.dur, piece.srcIn, +(piece.start + piece.dur).toFixed(6)], [4.33, 1.91, 2.57, 6.24]);
-	dragBy(bandTrim(piece, ui.pxPerSec), -12);
+	dragBy(bandTrim(piece), -12);
 	assert.deepEqual([piece.dur, +(piece.start + piece.dur).toFixed(6)], [1.79, 6.12]);
 	checkpoint();
 	setShotIn(piece, 2.6);
@@ -658,9 +658,9 @@ test('dissolve flow: whatever command shortens a shot so that a dissolve plays s
 	const ways = {
 		'keyboard end': () => ((ui.playhead = doc.clips[1].start + 1.6), commandById('trim-end').run()),
 		'keyboard start': () => ((ui.playhead = doc.clips[1].start + doc.clips[1].dur - 1.6), commandById('trim-start').run()),
-		'mouse end': () => dragBy(shotTrim(doc.clips[1], 'end', ui.pxPerSec), (1.6 - doc.clips[1].dur) * ui.pxPerSec),
-		'mouse start': () => dragBy(shotTrim(doc.clips[1], 'start', ui.pxPerSec), (doc.clips[1].dur - 1.6) * ui.pxPerSec),
-		'band end': () => dragBy(bandTrim(doc.clips[1], ui.pxPerSec), (1.6 - doc.clips[1].dur) * ui.pxPerSec),
+		'mouse end': () => dragBy(shotTrim(doc.clips[1], 'end'), (1.6 - doc.clips[1].dur) * ui.pxPerSec),
+		'mouse start': () => dragBy(shotTrim(doc.clips[1], 'start'), (doc.clips[1].dur - 1.6) * ui.pxPerSec),
+		'band end': () => dragBy(bandTrim(doc.clips[1]), (1.6 - doc.clips[1].dur) * ui.pxPerSec),
 		'inspector duration': () => (checkpoint(), setShotDuration(doc.clips[1], 1.6)),
 		'inspector in': () => (checkpoint(), setShotIn(doc.clips[1], 4.4)),
 		'band nudge': () => ((ui.workspace = 'storyboard'), (ui.storyView = 'band'), select('clip', 'b'), nudgeDuration(-0.5), (ui.workspace = 'media')),
@@ -779,16 +779,16 @@ test('dissolve flow: while a trim limits a dissolve, the drag text says so, with
 	project();
 	dissolveB(1);
 	ui.snapping = false;
-	assert.equal(dragBy(shotTrim(doc.clips[1], 'end', ui.pxPerSec), 10).includes('cross-dissolve'), false);
+	assert.equal(dragBy(shotTrim(doc.clips[1], 'end'), 10).includes('cross-dissolve'), false);
 	project();
 	dissolveB(1);
-	const text = dragBy(shotTrim(doc.clips[1], 'end', ui.pxPerSec), -40);
+	const text = dragBy(shotTrim(doc.clips[1], 'end'), -40);
 	assert.ok(text.endsWith(` · ${t('timeline.drag.dissolveLimited', { dur: '0.8 s' })}`), text);
 	lay([2, 2, 2], [0, 1, 1]);
-	const two = dragBy(bandTrim(doc.clips[1], ui.pxPerSec), -40);
+	const two = dragBy(bandTrim(doc.clips[1]), -40);
 	assert.ok(two.endsWith(` · ${t('timeline.drag.dissolveLimitedMany', { list: '0.8 s and 0.8 s' })}`), two);
 	project();
-	assert.equal(dragBy(shotTrim(doc.clips[1], 'end', ui.pxPerSec), -40).includes('cross-dissolve'), false);
+	assert.equal(dragBy(shotTrim(doc.clips[1], 'end'), -40).includes('cross-dissolve'), false);
 	assert.equal(limitNote(playedLengths(doc.clips)), '');
 	ui.snapping = true;
 });

@@ -103,16 +103,15 @@ def shown(clips: Sequence[Mapping[str, Any]]) -> List[Place]:
     places = placement(clips)
     if not any(place is not None and place.overlap for place in places):
         return [Place(_number(clip.get("start")), _number(clip.get("start")) + _number(clip.get("dur")), 0.0) for clip in clips]
-    result: List[Place] = []
+    starts = [place.start + place.overlap / 2 if place is not None else _number(clips[index].get("start")) for index, place in enumerate(places)]
+    ends = [place.end if place is not None else starts[index] for index, place in enumerate(places)]
     for index, place in enumerate(places):
-        if place is None:
-            start = _number(clips[index].get("start"))
-            result.append(Place(start, start, 0.0))
+        following = places[index + 1] if index + 1 < len(places) else None
+        if place is None or following is None or not following.overlap > 0:
             continue
-        tail = places[index + 1].overlap / 2 if index + 1 < len(places) and places[index + 1] is not None else 0.0
-        start = place.start + place.overlap / 2
-        result.append(Place(start, max(place.end - tail, start), place.overlap))
-    return result
+        starts[index + 1] = max(starts[index + 1], starts[index])
+        ends[index] = starts[index + 1]
+    return [Place(starts[index], max(ends[index], starts[index]), place.overlap if place is not None else 0.0) for index, place in enumerate(places)]
 
 
 def chained(clips: Sequence[Mapping[str, Any]]) -> bool:

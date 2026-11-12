@@ -2,7 +2,7 @@
 	import HostUi from '../../../../../../sdk/HostUi.svelte';
 	import { getLocale, t } from '../../i18n/index.svelte.js';
 	import { ui, doc, act, globalPrompt, itemsIn, productionRange, secs, select, openDirector } from '../../lib/state.svelte.js';
-	import { chained } from '../../lib/dissolve.js';
+	import { dissolving } from '../../lib/dissolve.js';
 	import { productionItems } from '../../lib/production.svelte.js';
 	import { cardWordsOf, setCardWords } from '../../lib/cardwords.js';
 	import { chainByOf, chainOn, ignoresFirstFrame, setChain, setChainBy } from '../../lib/chain.js';
@@ -40,7 +40,7 @@
 	const recap = $derived.by(() => {
 		if (m?.type !== 'recap') return null;
 		const range = productionRange();
-		const it = chained(doc.clips) ? productionItems(range) : itemsIn(range);
+		const it = dissolving(doc.clips) ? productionItems(range) : itemsIn(range);
 		return { range, it, local: it.prompts.map((p) => p.text) };
 	});
 
