@@ -273,10 +273,13 @@ def test_a_document_may_chain_by_the_last_image_or_by_continuation_and_nothing_e
         validate_doc(doc)
 
 
-def test_the_continue_mode_of_the_12_gb_preset_returns_the_new_footage_alone_from_the_fl2va_files():
-    pipeline = yaml.safe_load((PRESET / "modes" / "extend" / "pipeline.yml").read_text(encoding="utf-8"))["pipeline"]
-    manifest = yaml.safe_load((PRESET / "preset.yml").read_text(encoding="utf-8"))
-    generation_tab = (PRESET / "modes" / "extend" / "tabs" / "generation.yml").read_text(encoding="utf-8")
+@pytest.mark.parametrize("folder", ["MiniMax-H3-12GB", "MiniMax-H3-Fast-12GB"])
+def test_the_continue_mode_of_the_12_gb_preset_returns_the_new_footage_alone_from_the_fl2va_files(folder):
+    preset = PRESET.parent / folder
+    pipeline = yaml.safe_load((preset / "modes" / "extend" / "pipeline.yml").read_text(encoding="utf-8"))["pipeline"]
+    manifest = yaml.safe_load((preset / "preset.yml").read_text(encoding="utf-8"))
+    generation_tab = (preset / "modes" / "extend" / "tabs" / "generation.yml").read_text(encoding="utf-8")
+    video_tab = yaml.safe_load((preset / "modes" / "video" / "tabs" / "generation.yml").read_text(encoding="utf-8"))
     generator = next(step for step in pipeline if step["name"] == "generator/video_minimax_h3")
     gallery = next(step for step in pipeline if step["name"] == "gallery")
     fields = {field["name"]: field for field in yaml.safe_load(generation_tab)["fields"][1]["children"] if "name" in field}
@@ -288,4 +291,4 @@ def test_the_continue_mode_of_the_12_gb_preset_returns_the_new_footage_alone_fro
     assert gallery["input"][0] == ["video", "generator", "video"]
     assert not any(step["name"] == "video_concat" for step in pipeline)
     assert fields["frames"]["configuration"]["max"] == director.MAX_CONTINUE_FRAMES
-    assert "models_fl2va.yml" in generation_tab
+    assert yaml.safe_load(generation_tab)["fields"][-1] == video_tab["fields"][-1]
