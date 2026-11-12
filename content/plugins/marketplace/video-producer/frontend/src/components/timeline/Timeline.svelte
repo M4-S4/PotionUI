@@ -60,7 +60,7 @@
 	import { engineTitle, shotReceptionFor } from '../../lib/references.js';
 	import { LIMITS, VIDEO_TRACKS, leastSeconds } from '../../lib/reception.js';
 	import { TAG_CLASS } from '../../lib/reftags.js';
-	import { dissolveMarks, shownSpan } from '../../lib/dissolve.js';
+	import { dissolveMarks, shownSpans } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import Dropdown from '../shell/Dropdown.svelte';
 	import ZoomControls from './ZoomControls.svelte';
@@ -77,6 +77,7 @@
 
 	const pps = $derived(ui.pxPerSec);
 	const tracks = $derived(videoTracksOf(doc));
+	const spans = $derived(shownSpans(doc.clips));
 	const shots = $derived(tracks.length ? doc.clips.map((c) => shotReceptionFor(c)) : []);
 	const total = $derived(Math.max(seqDuration(), ...(doc.vrefItems ?? []).map((item) => item.start + item.dur)));
 	const contentW = $derived(Math.max(viewW - HEAD, (total + 8) * pps));
@@ -619,7 +620,7 @@
 							{#each doc.clips as c, i (c.id)}
 								{@render clip(c, i)}
 							{/each}
-							{#each dissolveMarks(doc.clips, doc.fps) as mark (mark.id)}
+							{#each dissolveMarks(doc.clips) as mark (mark.id)}
 								{@render dissolve(mark)}
 							{/each}
 							{#if reorder}
@@ -766,7 +767,7 @@
 {#snippet clip(c, i)}
 	{@const thumb = clipThumb(c)}
 	{@const media = asset(c.assetId)}
-	{@const span = shownSpan(doc.clips, i, doc.fps)}
+	{@const span = spans[i]}
 	{@const w = x(span.dur)}
 	{@const sel = isSel('clip', c.id)}
 	{@const picked = isPicked(c.id)}

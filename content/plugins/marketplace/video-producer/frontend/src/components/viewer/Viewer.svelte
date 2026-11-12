@@ -33,10 +33,10 @@
 	const box = $derived(w / h > r ? { w: h * r, h } : { w, h: w / r });
 
 	const time = $derived(ui.playhead);
-	const mix = $derived(mixAt(doc.clips, time, doc.fps));
+	const mix = $derived(mixAt(doc.clips, time));
 	const clip = $derived(mix ? mix.from : clipAt(time));
 	const a = $derived(clip ? asset(clip.assetId) : null);
-	const opacity = $derived(clip ? fadeOpacity(unfaded(doc.clips, doc.clips.indexOf(clip), doc.fps), time) : 1);
+	const opacity = $derived(clip ? fadeOpacity(unfaded(doc.clips, doc.clips.indexOf(clip)), time) : 1);
 	let lastMix = $state(null);
 	let ready = $state(null);
 	$effect(() => {

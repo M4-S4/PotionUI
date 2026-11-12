@@ -1,7 +1,7 @@
 import { ulid } from './ulid.js';
 import { speedOf } from './cadence.js';
 import { isObject } from './values.js';
-import { shownSpan } from './dissolve.js';
+import { shownSpans } from './dissolve.js';
 
 export const newVideoTrack = () => ({ mute: false, solo: false });
 
@@ -80,13 +80,10 @@ export function sliceCuts(dur, seconds) {
 	return cuts;
 }
 
-export function shotCuts(item, clips, fps) {
+export function shotCuts(item, clips) {
 	const end = item.start + item.dur;
-	const bounds = (clips ?? [])
-		.flatMap((clip, i) => {
-			const span = shownSpan(clips, i, fps);
-			return [span.start, span.start + span.dur];
-		})
+	const bounds = shownSpans(clips ?? [])
+		.flatMap((span) => [span.start, span.start + span.dur])
 		.sort((a, b) => a - b);
 	const cuts = [];
 	for (const at of bounds) {
@@ -102,8 +99,8 @@ export function sliceItem(item, seconds, makeId = ulid) {
 	return sliceAt(item, sliceCuts(item.dur, seconds), makeId);
 }
 
-export function shotSlices(item, clips, makeId = ulid, fps) {
-	return sliceAt(item, shotCuts(item, clips, fps), makeId);
+export function shotSlices(item, clips, makeId = ulid) {
+	return sliceAt(item, shotCuts(item, clips), makeId);
 }
 
 function sliceAt(item, cuts, makeId) {

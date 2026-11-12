@@ -33,7 +33,7 @@
 	const checks = $derived(doc.clips.length ? bandChecks().length : 0);
 	const colorFixes = $derived(doc.clips.length > 1 ? colorIssues() : 0);
 	const key = (id) => commandById(id)?.key || undefined;
-	const total = $derived(doc.clips.reduce((sum, c) => sum + c.dur, 0) - lostSeconds(doc.clips, doc.fps));
+	const total = $derived(doc.clips.reduce((sum, c) => sum + c.dur, 0) - lostSeconds(doc.clips));
 	const openCut = () => ((ui.storyOpen = true), (ui.storyTab = 'cut'));
 	const noShots = $derived({
 		icon: 'film',

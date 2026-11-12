@@ -29,7 +29,7 @@ import {
 	clearPicked,
 	relayout
 } from './state.svelte.js';
-import { DISSOLVE_KEY } from './dissolve.js';
+import { dissolveOf } from './dissolve.js';
 import { compareSeam, cycleTake, labelPreviewed, nudgeDuration, pickShot, previewed, selectedShot, shiftShot, stepShot as bandStep } from './band.svelte.js';
 import { BAND_STEP } from './band.js';
 import { speedOf } from './cadence.js';
@@ -117,8 +117,11 @@ const flag = (f) => () => {
 const nudgeTrim = (edge) => () => {
 	const s = selected();
 	if (!s || !('dur' in s)) return toast(t('lib.toast.selectTimelineItem'), 'warning');
+	const dissolved = () => doc.clips.some((c, i) => i > 0 && dissolveOf(doc.clips[i - 1], c) > 0);
 	act(() => {
 		const at = ui.playhead;
+		const start = s.start;
+		const laid = doc.clips.includes(s) && dissolved();
 		if (edge === 'start' && at > s.start && at < s.start + s.dur) {
 			s.dur -= at - s.start;
 			if ('srcIn' in s) s.srcIn += (at - s.start) * (doc.clips.includes(s) ? speedOf(s) : 1);
@@ -128,7 +131,10 @@ const nudgeTrim = (edge) => () => {
 			s.dur = at - s.start;
 			if (doc.clips.includes(s)) fitShot(s, before);
 		}
-		if (doc.clips.includes(s) && doc.clips.some((c) => DISSOLVE_KEY in c)) relayout();
+		if (doc.clips.includes(s) && (laid || dissolved())) {
+			s.start = start;
+			relayout();
+		}
 	});
 };
 

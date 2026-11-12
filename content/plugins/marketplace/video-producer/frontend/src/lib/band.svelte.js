@@ -160,7 +160,7 @@ export function openSeam(clip) {
 export function proposalLayout() {
 	if (!ui.storyOpen || ui.storyTab !== 'cut' || !ui.storyProposal?.length) return null;
 	const index = insertIndex(doc.clips, ui.storyAt, selectedShot()?.id ?? null);
-	const layout = ghostLayout(doc.clips, ui.storyProposal, index, lostSeconds(doc.clips.slice(0, index), doc.fps));
+	const layout = ghostLayout(doc.clips, ui.storyProposal, index, lostSeconds(doc.clips.slice(0, index)));
 	return layout.ghosts.length ? layout : null;
 }
 

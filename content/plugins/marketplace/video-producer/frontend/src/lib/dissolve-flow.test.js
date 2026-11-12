@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { clean, renderComponent } from './svelte-harness.js';
-import { setDissolve } from './dissolve.js';
+import { joins, setDissolve } from './dissolve.js';
 
 const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, dispose } = await import('./state.svelte.js');
 const { commandById } = await import('./commands.js');
@@ -35,14 +35,13 @@ function project() {
 
 function dissolveB(seconds = 1) {
 	act(() => {
-		setDissolve(doc.clips, 1, seconds, doc.fps);
+		setDissolve(doc.clips, 1, seconds);
 		relayout();
 	});
 }
 
 for (const c of cases) {
 	test(`dissolve flow: the page lays the shared case "${c.name}" out where the assistant does`, () => {
-		doc.fps = c.fps;
 		doc.clips = c.clips.map((clip, i) => ({ id: `c${i}`, start: 99, srcIn: 0, ...clip }));
 		relayout();
 		assert.ok(
@@ -211,22 +210,23 @@ test('dissolve flow: an incoming shot without media fades the picture to black, 
 	assert.match(html, /<div class="pointer-events-none absolute inset-0 bg-black" data-dissolve-layer="b" style="opacity: 0\.5;"><\/div>/);
 });
 
-test('dissolve flow: the cut says when a dissolve is rounded to whole frames, when it is capped, and when the shot is chained', async () => {
+test('dissolve flow: the cut says when a dissolve is rounded to the grid, when it is capped, and when the shot is chained', async () => {
 	project();
 	doc.fps = 24;
 	act(() => {
-		setDissolve(doc.clips, 1, 0.4, doc.fps);
+		setDissolve(doc.clips, 1, 0.5);
 		relayout();
 	});
 	const rounded = clean(await renderComponent(SEAM, { clip: doc.clips[1] }));
-	assert.ok(rounded.includes(t('timeline.dissolve.rounded', { dur: '0.38 s', frames: 9, fps: 24 })));
+	assert.ok(rounded.includes(t('timeline.dissolve.rounded', { dur: '0.48 s' })));
 	assert.doesNotMatch(rounded, /data-dissolve-capped/);
-	assert.match(rounded, /<option value="0\.416667">/);
+	assert.match(rounded, /<option value="0\.4">/);
+	assert.match(rounded, /<option value="0\.5" selected/);
 	project();
 	doc.clips[1].dur = 1;
 	doc.clips[2].stage = 'source';
 	act(() => {
-		setDissolve(doc.clips, 2, 2, doc.fps);
+		setDissolve(doc.clips, 2, 2);
 		relayout();
 	});
 	const capped = clean(await renderComponent(SEAM, { clip: doc.clips[2] }));
@@ -237,4 +237,98 @@ test('dissolve flow: the cut says when a dissolve is rounded to whole frames, wh
 	doc.firstFromPrevious = false;
 	assert.doesNotMatch(clean(await renderComponent(SEAM, { clip: doc.clips[2] })), /data-dissolve-chained/);
 	delete doc.firstFromPrevious;
+});
+
+test('dissolve flow: changing the cadence of the project keeps every dissolve and every start', async () => {
+	project();
+	doc.clips[1].dur = 3.1;
+	act(() => {
+		setDissolve(doc.clips, 1, 1);
+		setDissolve(doc.clips, 2, 0.6);
+		relayout();
+	});
+	const starts = doc.clips.map((c) => c.start);
+	const played = joins(doc.clips);
+	assert.deepEqual(starts, [0, 1, 3.6]);
+	assert.deepEqual(played, [0, 1, 0.5]);
+	for (const fps of [24, 25, 30, 48, 50, 60]) {
+		doc.fps = fps;
+		assert.deepEqual(joins(doc.clips), played, `${fps} fps`);
+		relayout();
+		assert.deepEqual(
+			doc.clips.map((c) => c.start),
+			starts,
+			`${fps} fps`
+		);
+		ui.playhead = 1.5;
+		assert.match(clean(await renderComponent(VIEWER)), /data-dissolve-layer="b"[^>]*style="opacity: 0\.5;/, `${fps} fps`);
+	}
+});
+
+test('dissolve flow: at 24 and 48 fps the prompts and frames linked to a shot stay on its start', () => {
+	for (const fps of [24, 48]) {
+		project();
+		doc.fps = fps;
+		doc.clips.push(shot('d', 5, 2));
+		doc.prompts = doc.clips.map((c, i) => ({ id: `p${i}`, shotId: c.id, start: c.start, dur: c.dur, strength: 75, text: 'x' }));
+		doc.frames = doc.clips.map((c, i) => ({ id: `f${i}`, shotId: c.id, time: c.start, assetId: null, role: 'First frame', strength: 75 }));
+		act(() => {
+			setDissolve(doc.clips, 1, 0.4);
+			setDissolve(doc.clips, 2, 0.4);
+			setDissolve(doc.clips, 3, 0.4);
+			relayout();
+		});
+		const starts = doc.clips.map((c) => c.start);
+		assert.deepEqual(starts, [0, 1.6, 3.2, 3.8], `${fps} fps`);
+		assert.deepEqual(
+			doc.prompts.map((p) => p.start),
+			starts,
+			`${fps} fps`
+		);
+		assert.deepEqual(
+			doc.frames.map((f) => f.time),
+			starts,
+			`${fps} fps`
+		);
+		assert.deepEqual(
+			starts.map((time) => shotIdAt(time)),
+			['a', 'b', 'c', 'd'],
+			`${fps} fps`
+		);
+	}
+});
+
+test('dissolve flow: trimming the head of a dissolved shot from the keyboard keeps its linked prompt inside it', () => {
+	project();
+	dissolveB(0.4);
+	doc.prompts = [{ id: 'p', shotId: 'b', start: 1.6, dur: 2, strength: 75, text: 'x' }];
+	select('clip', 'b');
+	ui.playhead = 2;
+	commandById('trim-start').run();
+	assert.deepEqual(
+		doc.clips.map((c) => [c.start, c.dur]),
+		[
+			[0, 2],
+			[1.6, 1.6],
+			[3.2, 1]
+		]
+	);
+	assert.equal(doc.prompts[0].start, 1.6);
+	assert.equal(shotIdAt(doc.prompts[0].start), 'b');
+});
+
+test('dissolve flow: a project whose cuts are all too short for a dissolve trims from the keyboard as before', () => {
+	project();
+	doc.clips[1].dissolve = 0.03;
+	select('clip', 'b');
+	ui.playhead = 2.5;
+	commandById('trim-start').run();
+	assert.deepEqual(
+		doc.clips.map((c) => [c.start, c.dur]),
+		[
+			[0, 2],
+			[2.5, 1.5],
+			[4, 1]
+		]
+	);
 });

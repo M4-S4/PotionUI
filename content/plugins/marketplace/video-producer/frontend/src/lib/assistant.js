@@ -35,6 +35,7 @@ export function shotsContext(doc, takeLabelOf, takesOf = () => []) {
 			label: takeLabelOf(c),
 			start: seconds(c.start),
 			dur: seconds(c.dur),
+			...(c.dissolve ? { dissolve: c.dissolve } : {}),
 			stage: c.stage,
 			promptId: p?.id ?? null,
 			prompt: clipped(p?.text),

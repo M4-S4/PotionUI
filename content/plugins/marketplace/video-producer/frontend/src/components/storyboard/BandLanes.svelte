@@ -49,7 +49,7 @@
 	const x = (time) => time * pps;
 	const layout = $derived(proposalLayout());
 	const starts = $derived(doc.clips.map((c, i) => displayStart(c, i, layout)));
-	const cut = $derived(doc.clips.reduce((sum, c) => sum + c.dur, 0) - lostSeconds(doc.clips, doc.fps) + (layout?.shift ?? 0));
+	const cut = $derived(doc.clips.reduce((sum, c) => sum + c.dur, 0) - lostSeconds(doc.clips) + (layout?.shift ?? 0));
 	const song = $derived(musicEnd(doc));
 	const total = $derived(Math.max(cut, song, 1));
 	const laneW = $derived(Math.max(0, viewW));

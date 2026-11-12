@@ -246,7 +246,7 @@ function envelope(c, t) {
 }
 
 function shotGain(clips, i, t) {
-	return envelope(unfaded(clips, i, doc.fps), t) * dissolveGain(clips, i, t, doc.fps);
+	return envelope(unfaded(clips, i), t) * dissolveGain(clips, i, t);
 }
 
 function updateAudio() {

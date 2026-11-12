@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, indexAt, layout, mixAt } from './dissolve.js';
+import { DISSOLVE_KEY, indexAt, layout, mixAt, startingAt } from './dissolve.js';
 
 export { newAsset, newClip };
 
@@ -301,10 +301,10 @@ export function listOf(kind) {
 export const startOf = (item) => ('time' in item ? item.time : item.start);
 
 export function clipAt(time) {
-	return doc.clips[indexAt(doc.clips, time, doc.fps)] ?? null;
+	return doc.clips[indexAt(doc.clips, time)] ?? null;
 }
 export function shotIdAt(time) {
-	return clipAt(time)?.id ?? null;
+	return doc.clips[startingAt(doc.clips, time)]?.id ?? null;
 }
 export function relink(item) {
 	item.shotId = shotIdAt(startOf(item));
@@ -329,7 +329,7 @@ function dropLinked(shotId) {
 
 export function relayout() {
 	const before = new Map(doc.clips.map((c) => [c.id, c.start]));
-	const starts = layout(doc.clips, doc.fps, (at) => round(at, 0.04));
+	const starts = layout(doc.clips, (at) => round(at, 0.04));
 	doc.clips.forEach((c, i) => (c.start = starts[i]));
 	for (const c of doc.clips) {
 		const delta = c.start - (before.get(c.id) ?? c.start);
@@ -415,7 +415,7 @@ export function bladeAt(time = ui.playhead) {
 		}
 	}
 	const c = clipAt(time);
-	if (c && mixAt(doc.clips, time, doc.fps)) return toast(t('timeline.dissolve.noSplit'), 'warning');
+	if (c && mixAt(doc.clips, time)) return toast(t('timeline.dissolve.noSplit'), 'warning');
 	if (!c || time - c.start < 0.1 || c.start + c.dur - time < 0.1) return toast(t('lib.toast.splitOutside'), 'warning');
 	act(() => {
 		const left = time - c.start;
@@ -456,7 +456,7 @@ export function sliceOnShots() {
 	const lane = s?.kind === 'lane' ? (doc.lanes.find((l) => l.id === s.id) ?? null) : null;
 	const items = lane ? doc.audio.filter((x) => x.lane === lane.id) : [selectedAudio()].filter(Boolean);
 	if (!lane && !items.length) return toast(t('lib.toast.selectAudioOrLane'), 'warning');
-	const planned = items.map((a) => ({ a, parts: shotSlices($state.snapshot(a), doc.clips, undefined, doc.fps) }));
+	const planned = items.map((a) => ({ a, parts: shotSlices($state.snapshot(a), doc.clips) }));
 	const done = planned.filter((x) => x.parts?.length);
 	const skipped = planned.filter((x) => x.parts === null).length;
 	if (!done.length) return toast(skipped ? t('lib.toast.shotSliceTooMany', { max: MAX_SLICES }) : t('lib.toast.shotSliceNone'), 'warning');

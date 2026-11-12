@@ -12,7 +12,7 @@
 
 	const clip = $derived(mix.to);
 	const a = $derived(asset(clip.assetId));
-	const shown = $derived(unfaded(doc.clips, mix.index, doc.fps));
+	const shown = $derived(unfaded(doc.clips, mix.index));
 	const opacity = $derived(mix.progress * fadeOpacity(shown, time));
 	const lut = $derived(lutOf(clip));
 	let natural = $state(null);
