@@ -515,6 +515,22 @@ def test_the_two_dissolves_of_a_short_shot_never_overlap_after_shots_off_the_gri
     _assert_on_time(doc)
 
 
+@pytest.mark.parametrize("fps", CADENCES)
+@pytest.mark.parametrize("durations", ([3.1, 2, 2, 2], [1.02] * 12, [1.01, 2.03, 0.97, 3.1, 1.06, 2.99, 1.02]), ids=("3.1 s", "1.02 s", "mixed"))
+def test_cuts_after_a_dissolve_leave_no_black_between_shots_and_do_not_drift(make_doc, fps, durations):
+    doc = _run(make_doc, [2, *durations], [0, 1, *([0] * len(durations))], fps=fps)
+    segments, _ = timeline(doc)
+
+    pieces = [clip is not None for _, clip in segments]
+    assert pieces == [True] * len(doc["clips"]), pieces
+    lost = dissolve_of(doc["clips"][0], doc["clips"][1])
+    at = doc["clips"][0]["dur"] + doc["clips"][1]["dur"]
+    for clip in doc["clips"][2:]:
+        assert clip["start"] == float(f"{edits.snap(at) - lost:.3f}")
+        at += clip["dur"]
+    _assert_on_time(doc)
+
+
 HAND = [
     {"fps": 24, "durations": [3.1, 4, 2], "asks": [0, 1, 0], "starts": [0, 2.12, 6.12], "joins": [0, 0.98, 0], "frames": [0, 51, 147], "total": 195, "bare": []},
     {"fps": 30, "durations": [2, 2, 2, 2], "asks": [0, 0.4, 0.4, 0.4], "starts": [0, 1.6, 3.2, 4.8], "joins": [0, 0.4, 0.4, 0.4], "frames": [0, 48, 96, 144], "total": 204, "bare": []},

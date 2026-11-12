@@ -69,6 +69,8 @@ def placement(clips: Sequence[Mapping[str, Any]]) -> List[Optional[Place]]:
             joined = played(clips[last], clip) if last == index - 1 and before.start == _number(clips[last].get("start")) else 0.0
             if joined:
                 overlap = joined
+            elif before.end + EPSILON < start <= before.end + GRID + EPSILON:
+                places[last] = Place(before.start, start, before.overlap)
             elif start < before.end - EPSILON:
                 if start > before.start + before.overlap + EPSILON:
                     places[last] = Place(before.start, start, before.overlap)
@@ -113,15 +115,18 @@ def _ceiling(value: float) -> float:
 
 def layout(clips: Sequence[Mapping[str, Any]], snap: Callable[[float], float]) -> List[float]:
     starts: List[float] = []
-    at, chained = 0.0, False
+    at, lost = 0.0, 0.0
     for index, clip in enumerate(clips):
         length = dissolve_of(clips[index - 1], clip) if index else 0.0
-        chained = chained or length > 0
-        if not chained:
+        lost += length
+        if not lost:
             starts.append(snap(at))
         else:
-            end = starts[-1] + _number(clips[index - 1].get("dur"))
-            starts.append(float(f"{_ceiling(end) - length:.3f}") if length else snap(end))
+            start = float(f"{snap(at) - lost:.3f}")
+            if length:
+                end = starts[-1] + _number(clips[index - 1].get("dur"))
+                start = max(start, float(f"{_ceiling(end) - length:.3f}"))
+            starts.append(start)
         at += _number(clip.get("dur"))
     return starts
 

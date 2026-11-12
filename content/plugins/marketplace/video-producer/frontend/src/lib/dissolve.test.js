@@ -54,6 +54,8 @@ test('dissolve: seeded documents give on the page the layout, dissolves, drawn s
 		clips.forEach((clip, i) => {
 			if (i && !(String(i) in c.gaps) && dissolveOf(clips[i - 1], clip) > 0) assert.ok(c.joins[i] > 0, `cut ${i} of document ${n} dissolves`);
 			if (i > 1 && c.joins[i - 1] && c.joins[i]) assert.ok(clips[i - 2].start + clips[i - 2].dur <= clip.start + 1e-9, `dissolves around shot ${i - 1} of document ${n}`);
+			const places = placement(clips);
+			if (i && c.joins.some(Boolean) && !(String(i) in c.gaps) && places[i] && places[i - 1]) assert.ok(places[i].start <= places[i - 1].end + 1e-9, `no black before shot ${i} of document ${n}`);
 		});
 	}
 });

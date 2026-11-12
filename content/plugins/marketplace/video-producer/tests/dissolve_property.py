@@ -35,7 +35,7 @@ def documents():
     found = []
     for _ in range(COUNT):
         clips = [_clip(rng) for _ in range(rng.randint(2, 14))]
-        gaps = {index: rng.choice([0.04, 0.2, 1]) for index in range(1, len(clips)) if rng.random() < 0.1}
+        gaps = {index: rng.choice([0.08, 0.2, 1]) for index in range(1, len(clips)) if rng.random() < 0.1}
         bare = sorted(index for index in range(len(clips)) if rng.random() < 0.15)
         found.append({"clips": clips, "gaps": {str(index): gap for index, gap in sorted(gaps.items())}, "bare": bare})
     return found

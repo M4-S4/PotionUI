@@ -47,6 +47,7 @@ export function placement(clips) {
 			const before = places[last];
 			const joined = last === index - 1 && before.start === finite(clips[last].start) ? played(clips[last], clip) : 0;
 			if (joined) overlap = joined;
+			else if (start > before.end + EPSILON && start <= before.end + GRID + EPSILON) places[last] = { start: before.start, end: start, overlap: before.overlap };
 			else if (start < before.end - EPSILON) {
 				if (start > before.start + before.overlap + EPSILON) places[last] = { start: before.start, end: start, overlap: before.overlap };
 				else start = before.end;
@@ -68,13 +69,14 @@ const ceiling = (value) => Math.ceil(value / GRID - STEP_SLACK) * GRID;
 
 export function layout(clips, snap) {
 	let at = 0;
-	let chained = false;
+	let lost = 0;
 	const starts = [];
 	clips.forEach((clip, i) => {
 		const length = i ? dissolveOf(clips[i - 1], clip) : 0;
-		chained = chained || length > 0;
-		const end = i ? starts[i - 1] + finite(clips[i - 1].dur) : 0;
-		starts.push(!chained ? snap(at) : length ? +(ceiling(end) - length).toFixed(3) : snap(end));
+		lost += length;
+		let start = lost ? +(snap(at) - lost).toFixed(3) : snap(at);
+		if (length) start = Math.max(start, +(ceiling(starts[i - 1] + finite(clips[i - 1].dur)) - length).toFixed(3));
+		starts.push(start);
 		at += finite(clip.dur);
 	});
 	return starts;
