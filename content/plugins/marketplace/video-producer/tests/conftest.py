@@ -209,6 +209,7 @@ def peak_cache_reset():
 WAN_ID = "01KX47WANVIDEO0000000000TV"
 H3_ID = "01KX47H3MINIMAX000000000VA"
 H3_12GB_ID = "01M54HN72B0KY7H63BKQ16T253"
+H3_FAST_12GB_ID = "01M54HN72PABVRE54YNQA2Q7ZT"
 LTX25_ID = "01KX47LTX25VIDEO00000000TV"
 SEEDVR2_ID = "01KXB7C553THYMSMKY1QSYESFM"
 RTX_ID = "01KXRTXUPSCALE0000000000RU"
@@ -658,6 +659,16 @@ class FakeCore:
             "MiniMax-H3 (12 GB)",
             {"video": h3_video_fields(), "refs": h3_12gb_refs_fields(), "extend": h3_continue_fields()},
             variables=H3_VARS,
+        )
+
+    def use_h3_fast_12gb_continue(self):
+        director = {**H3_VARS["video_director"], "preset_modes": ["video"]}
+        director.pop("preset_mode_overrides")
+        return self.add_preset(
+            H3_FAST_12GB_ID,
+            "MiniMax-H3-Fast (12 GB)",
+            {"video": h3_video_fields(), "extend": h3_continue_fields()},
+            variables={**H3_VARS, "video_director": director},
         )
 
     def use_h3_variant(self, preset_id, name):

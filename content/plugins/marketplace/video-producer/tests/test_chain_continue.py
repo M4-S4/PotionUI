@@ -274,6 +274,19 @@ def test_a_document_may_chain_by_the_last_image_or_by_continuation_and_nothing_e
         validate_doc(doc)
 
 
+def test_the_fast_12_gb_preset_continues_an_fl2va_shot_with_its_own_extend_mode(core, make_project, slots):
+    project = _project(core, make_project)
+    core.use_h3_fast_12gb_continue()
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], presets.MINIMAX_H3_FAST_12GB)
+    plan = _plan(evaluation)
+
+    assert (plan.request["mode"], plan.request["preset_id"], plan.director_mode) == ("extend", presets.MINIMAX_H3_FAST_12GB, "extend")
+    assert plan.chain == "s1" and plan.chain_video.trace()["frames"] == 56 and plan.chain_video.sound is True
+    assert plan.request["form_data"]["source_video"] == STAND_IN
+    assert _codes(evaluation) == []
+
+
 @pytest.mark.parametrize("folder", ["MiniMax-H3-12GB", "MiniMax-H3-Fast-12GB"])
 def test_the_continue_mode_of_the_12_gb_preset_returns_the_new_footage_alone_from_the_fl2va_files(folder):
     preset = PRESET.parent / folder
