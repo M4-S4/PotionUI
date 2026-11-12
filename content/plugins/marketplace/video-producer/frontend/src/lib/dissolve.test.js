@@ -7,6 +7,7 @@ import { DOMAINS, mergeDomains, translate } from '../i18n/core.js';
 import { DISSOLVE_CHOICES, MAX_DISSOLVE, cuts, dissolveGain, dissolveMarks, dissolveOf, indexAt, joins, layout, limitOf, lostSeconds, mixAt, placement, setDissolve, shownSpan, shownSpans, startingAt, unfaded } from './dissolve.js';
 import { MAKERS } from './exchange.js';
 import { ghostLayout } from './band.js';
+import { shotsContext } from './assistant.js';
 import { shotCuts } from './tracks.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,9 +54,9 @@ test('dissolve: seeded documents give on the page the layout, dissolves, drawn s
 		}
 		clips.forEach((clip, i) => {
 			if (i && !(String(i) in c.gaps) && dissolveOf(clips[i - 1], clip) > 0) assert.ok(c.joins[i] > 0, `cut ${i} of document ${n} dissolves`);
-			if (i > 1 && c.joins[i - 1] && c.joins[i]) assert.ok(clips[i - 2].start + clips[i - 2].dur <= clip.start + 1e-9, `dissolves around shot ${i - 1} of document ${n}`);
+			if (i > 1 && c.joins[i - 1] && c.joins[i]) assert.ok(clips[i - 2].start + clips[i - 2].dur <= clip.start + 1e-6, `dissolves around shot ${i - 1} of document ${n}`);
 			const places = placement(clips);
-			if (i && c.joins.some(Boolean) && !(String(i) in c.gaps) && places[i] && places[i - 1]) assert.ok(places[i].start <= places[i - 1].end + 1e-9, `no black before shot ${i} of document ${n}`);
+			if (i && c.joins.some(Boolean) && !(String(i) in c.gaps) && places[i] && places[i - 1]) assert.ok(places[i].start <= places[i - 1].end + 1e-6, `no black before shot ${i} of document ${n}`);
 		});
 	}
 });
@@ -243,4 +244,33 @@ test('dissolve: the page writes a dissolve the starts overlap and a bare overlap
 	};
 	const edl = MAKERS.edl(doc, { label: (c) => c.id }).split('\r\n');
 	assert.ok(edl.includes('002  BL       V     D    005 00:00:00:00 00:00:03:05 00:00:03:20 00:00:07:00'), edl.join('\n'));
+});
+
+test('dissolve: the page never plays a dissolve longer than the rule, as the server', () => {
+	const shot = (id, start, dur, extra = {}) => ({ id, start, dur, ...extra });
+	assert.deepEqual(joins([shot('a', 0, 150), shot('b', 80, 150, { dissolve: 0.08 })]), [0, 0]);
+	const run = [shot('a', 0, 4), shot('b', 3, 4, { dissolve: 1 }), shot('c', 5.5, 4, { dissolve: 1 })];
+	assert.deepEqual(joins(run), [0, 1, 0]);
+	assert.deepEqual(placement(run).map((place) => [place.start, place.end]), [[0, 4], [3, 5.5], [5.5, 9.5]]);
+	run[2].start = 6.4;
+	assert.deepEqual(joins(run), [0, 1, 0.6]);
+	run[2].start = 6;
+	assert.deepEqual(joins(run), [0, 1, 1]);
+});
+
+test('dissolve: in a project that dissolves, the assistant gets the exact times, so it measures the dissolves the page plays', () => {
+	const doc = { clips: [{ id: 'a', dur: 1.048 }, { id: 'b', dur: 1.226, dissolve: 1 }, { id: 'c', dur: 0.411, dissolve: 1 }], prompts: [], frames: [] };
+	layout(doc.clips, snap).forEach((start, i) => (doc.clips[i].start = start));
+	const shots = shotsContext(doc, (c) => c.id);
+	assert.deepEqual(shots.map((s) => [s.start, s.dur]), [[0, 1.048], [0.528, 1.226], [1.554, 0.411]]);
+	assert.deepEqual(joins(shots), joins(doc.clips));
+	assert.deepEqual(joins(shots), [0, 0.52, 0.2]);
+	const plain = { clips: [{ id: 'a', start: 0, dur: 1.048 }, { id: 'b', start: 1.04, dur: 1.226 }], prompts: [], frames: [] };
+	assert.deepEqual(shotsContext(plain, (c) => c.id).map((s) => [s.start, s.dur]), [[0, 1.05], [1.04, 1.23]]);
+});
+
+test('dissolve: a tie at the millionth rounds away from zero on the page, as on the server', () => {
+	assert.deepEqual([2.0078125, 0.0234375, -2.0078125, 1.5, 10 / 3].map((value) => +value.toFixed(6)), [2.007813, 0.023438, -2.007813, 1.5, 3.333333]);
+	const clips = [{ id: 'a', dur: 3.0078125 }, { id: 'b', dur: 2.0234375, dissolve: 1 }];
+	assert.deepEqual(layout(clips, snap), [0, 2.007813]);
 });

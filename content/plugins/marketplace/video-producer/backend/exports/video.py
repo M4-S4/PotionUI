@@ -13,7 +13,7 @@ import psutil
 
 from .. import core_bridge, director, formats, takes, workdir
 from ..core_bridge import User
-from ..dissolve import dissolving, frames_of, placement
+from ..dissolve import dissolving, frames_of, placement, rounded
 from . import levels, match, media, slug
 from .common import asset_of, fps_of, seq_duration, timing_error
 from .mix import RULE as MIX_RULE, delay_taps, gain_of, pan_of, strip_of, write_impulse
@@ -264,7 +264,7 @@ def _framed(doc: Mapping[str, Any], total: float) -> List[Segment]:
         overlap = cursor - first if joined else 0
         segments.append(((last - first) / rate, {**_unfaded(clip, joined, following), **({JOIN: overlap} if joined else {})}))
         cursor = last
-    end = frames_of(round(total, 6), rate)
+    end = frames_of(rounded(total), rate)
     if end > cursor:
         segments.append(((end - cursor) / rate, None))
     return segments

@@ -11,8 +11,8 @@ import numpy
 import pytest
 
 from backend import core_bridge, projects, takes
-from backend.chat import edits
-from backend.dissolve import MAX_DISSOLVE, cuts, dissolve_of, frames_of, joins, moved, placement, shown
+from backend.chat import context, edits
+from backend.dissolve import MAX_DISSOLVE, cuts, dissolve_of, frames_of, joins, moved, placement, rounded, shown
 from backend.exports import render
 from backend.exports import video
 from backend.exports.common import js_round
@@ -653,7 +653,7 @@ def test_seeded_documents_play_each_shot_on_the_frame_of_its_time_at_every_caden
     assert all(join > 0 for k, (join, before, clip) in enumerate(zip(case["joins"][1:], clips, clips[1:]), 1) if dissolve_of(before, clip) and k not in shifted)
     for k, (before, after) in enumerate(zip(clips, clips[2:])):
         if case["joins"][k + 1] and case["joins"][k + 2]:
-            assert before["start"] + before["dur"] <= after["start"] + 1e-9
+            assert before["start"] + before["dur"] <= after["start"] + 1e-6
     for fps in PROPERTY["fps"]:
         doc["fps"] = fps
         if any(case["joins"]):
@@ -785,3 +785,42 @@ async def test_a_real_export_in_parts_at_24_fps_joins_the_parts_on_the_frames_of
     last = frames_of(places[3].start, 24)
     assert _frame(output, last - 1)[1] > 200 and _frame(output, last - 1)[0] < 60
     assert _frame(output, frames_of(total, 24) - 1)[0] > 200 and _frame(output, frames_of(total, 24) - 1)[1] > 200
+
+
+def test_the_server_rounds_a_tie_to_the_millionth_away_from_zero_as_the_page_does():
+    assert round(2.0078125, 6) == 2.007812
+    assert [rounded(value) for value in (2.0078125, 0.0234375, -2.0078125, 1.5, 10 / 3, 1.048)] == [2.007813, 0.023438, -2.007813, 1.5, 3.333333, 1.048]
+    doc = {"clips": [{"id": "a", "dur": 3.0078125}, {"id": "b", "dur": 2.0234375, "dissolve": 1}], "prompts": [], "frames": []}
+    edits.relayout(doc)
+    assert [clip["start"] for clip in doc["clips"]] == [0, 2.007813]
+    assert [doc for doc in PROPERTY["docs"] if doc["clips"][0]["dur"] == 3.0078125][0]["laid"][:2] == [0, 2.007813]
+
+
+def test_the_export_never_plays_a_dissolve_longer_than_the_rule(make_doc):
+    alone = _doc(make_doc, [{"id": "a", "assetId": "x", "start": 0, "dur": 150}, {"id": "b", "assetId": "y", "start": 80, "dur": 150, "dissolve": 0.08}], fps=25)
+    plain = _doc(make_doc, [{"id": "a", "assetId": "x", "start": 0, "dur": 150}, {"id": "b", "assetId": "y", "start": 80, "dur": 150}], fps=25)
+    assert joins(alone["clips"]) == [0, 0]
+    assert not any("xfade" in part for part in _graph(alone))
+    assert _graph(alone) == _graph(plain)
+    segments = lambda doc: ([(dur, clip and clip["id"]) for dur, clip in timeline(doc)[0]], timeline(doc)[1])
+    assert segments(alone) == segments(plain) == ([(150, "a"), (150, "b")], 230)
+
+    run = _doc(make_doc, [{"id": "a", "assetId": "x", "start": 0, "dur": 4}, {"id": "b", "assetId": "y", "start": 3, "dur": 4, "dissolve": 1}, {"id": "c", "assetId": "z", "start": 5.5, "dur": 4, "dissolve": 1}], fps=25)
+    assert joins(run["clips"]) == [0, 1, 0]
+    assert [(place.start, place.end) for place in placement(run["clips"])] == [(0, 4), (3, 5.5), (5.5, 9.5)]
+    graph = ";".join(_graph(run))
+    assert graph.count("xfade=") == 1 and "xfade=transition=fade:duration=1:" in graph
+    run["clips"][2]["start"] = 6.4
+    assert joins(run["clips"]) == [0, 1, 0.6]
+    run["clips"][2]["start"] = 6
+    assert joins(run["clips"]) == [0, 1, 1]
+
+
+def test_the_assistant_measures_the_dissolves_on_the_exact_times_the_page_sends():
+    shots = [{"id": "a", "start": 0, "dur": 1.048}, {"id": "b", "start": 0.528, "dur": 1.226, "dissolve": 1}, {"id": "c", "start": 1.554, "dur": 0.411, "dissolve": 1}]
+    assert joins(shots) == [0, 0.52, 0.2]
+    hundredths = [{**shot, "start": round(shot["start"], 2), "dur": round(shot["dur"], 2)} for shot in shots]
+    assert joins(hundredths) == [0, 0.52, 0]
+    page = {"projectId": "p1", "name": "Ties", "shots": [{**shot, "label": shot["id"], "stage": "todo"} for shot in shots]}
+    text = context.build_context({"video_producer": page}, None, "u1")
+    assert f"Shots (3, {round(1.048 + 1.226 + 0.411 - 0.72, 2):g} s)" in text

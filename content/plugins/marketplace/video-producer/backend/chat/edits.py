@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from .. import bible, formats
 from ..core_bridge import generate_ulid
 from ..director import FIRST_ROLES, LAST_ROLES, shot_revision
-from ..dissolve import chained, layout
+from ..dissolve import chained, layout, rounded
 
 GRID = 0.04
 PROMPT_STRENGTH = 75
@@ -110,7 +110,7 @@ def relayout(doc: Dict[str, Any]) -> None:
             continue
         for item in _linked(doc, clip["id"]):
             key = "time" if "time" in item else "start"
-            item[key] = round(number(item.get(key)) + delta, 6) if exact else snap(number(item.get(key)) + delta)
+            item[key] = rounded(number(item.get(key)) + delta) if exact else snap(number(item.get(key)) + delta)
 
 
 def _folded(text: Any) -> str:
@@ -223,7 +223,7 @@ def frame_time(clip: Mapping[str, Any], kind: str, exact: bool = False) -> float
     """Where the first or last frame of a shot sits on the timeline."""
     start = number(clip.get("start"))
     at = start + max(0.0, number(clip.get("dur")) - GRID) if kind == LAST else start
-    return round(at, 6) if exact else snap(at)
+    return rounded(at) if exact else snap(at)
 
 
 def frame_asset(doc: Mapping[str, Any], clip: Mapping[str, Any], kind: str) -> Optional[str]:

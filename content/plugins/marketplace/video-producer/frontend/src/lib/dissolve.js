@@ -7,6 +7,7 @@ export const MIN_DISSOLVE = MIN_STEPS * GRID;
 
 const STEP_SLACK = 1e-6;
 const EPSILON = 1e-6;
+const NEAR = 2 * EPSILON;
 const positive = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0);
 const finite = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 const rounded = (value) => +value.toFixed(6);
@@ -29,9 +30,10 @@ export function limitOf(before, clip) {
 export const dissolveOf = (before, clip) => limitOf(before, clip).seconds;
 
 export function played(before, clip) {
-	if (!dissolveOf(before, clip)) return 0;
+	const length = dissolveOf(before, clip);
+	if (!length) return 0;
 	const overlap = finite(before.start) + finite(before.dur) - finite(clip.start);
-	if (overlap <= GRID / 2 || overlap > Math.min(positive(before.dur), positive(clip.dur)) / 2 + EPSILON) return 0;
+	if (overlap <= GRID / 2 || overlap > length + EPSILON) return 0;
 	return rounded(overlap);
 }
 
@@ -170,7 +172,7 @@ export function indexAt(clips, time) {
 }
 
 export function holderAt(clips, time, kind) {
-	const inside = (clips ?? []).flatMap((clip, i) => (time >= finite(clip.start) - EPSILON && time <= finite(clip.start) + finite(clip.dur) + EPSILON ? [i] : []));
+	const inside = (clips ?? []).flatMap((clip, i) => (time >= finite(clip.start) - NEAR && time <= finite(clip.start) + finite(clip.dur) + NEAR ? [i] : []));
 	if (!inside.length) return -1;
 	return kind === 'last' ? inside[0] : inside.at(-1);
 }
@@ -178,7 +180,7 @@ export function holderAt(clips, time, kind) {
 export function startingAt(clips, time) {
 	if (!dissolving(clips)) return indexAt(clips, time);
 	const places = placement(clips);
-	const starting = places.findIndex((place) => place && Math.abs(place.start - time) <= EPSILON);
+	const starting = places.findIndex((place) => place && Math.abs(place.start - time) <= NEAR);
 	return starting >= 0 ? starting : indexAt(clips, time);
 }
 

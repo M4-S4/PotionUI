@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from backend.chat import edits
-from backend.dissolve import cuts, joins, shown
+from backend.dissolve import cuts, joins, rounded, shown
 from backend.exports.common import js_round
 from backend.formats import SLOW_SPEEDS
 
@@ -13,10 +13,16 @@ COUNT = 60
 CADENCES = (24, 25, 30, 48, 50, 60)
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "dissolve_property.json"
 ASKS = (0, 0, 0.4, 0.6, 1, 1.2, 2)
+TIES = (
+    [{"dur": 3.0078125}, {"dur": 2.0234375, "dissolve": 1}, {"dur": 1.5390625, "dissolve": 0.6}, {"dur": 2.0546875, "dissolve": 0.4}],
+    [{"dur": 1.048}, {"dur": 1.226, "dissolve": 1}, {"dur": 0.411, "dissolve": 1}],
+    [{"dur": 3.001}, {"dur": 2.999, "dissolve": 1}, {"dur": 1.003, "dissolve": 0.4}],
+    [{"dur": 10 / 3}, {"dur": 7 / 3, "dissolve": 1}, {"dur": 5 / 3, "dissolve": 0.6}, {"dur": 4 / 3, "dissolve": 0.4}],
+)
 
 
 def _clip(rng):
-    dur = round(rng.choice([rng.uniform(0.08, 6), rng.uniform(0.08, 0.5), rng.choice([0.4, 1, 2, 2.5, 4])]), 2)
+    dur = rng.choice([round(rng.uniform(0.08, 6), 2), round(rng.uniform(0.08, 0.5), 2), rng.choice([0.4, 1, 2, 2.5, 4]), rng.randint(1024, 76800) / 12800, rng.randint(80, 6000) / 1000, rng.randint(1, 18) / 3])
     clip = {"dur": dur}
     ask = rng.choice([*ASKS, round(rng.uniform(0.08, 2), 2)])
     if ask:
@@ -38,7 +44,7 @@ def documents():
         gaps = {index: rng.choice([0.08, 0.2, 1]) for index in range(1, len(clips)) if rng.random() < 0.1}
         bare = sorted(index for index in range(len(clips)) if rng.random() < 0.15)
         found.append({"clips": clips, "gaps": {str(index): gap for index, gap in sorted(gaps.items())}, "bare": bare})
-    return found
+    return found + [{"clips": [dict(clip) for clip in clips], "gaps": {}, "bare": []} for clips in TIES]
 
 
 def laid(case):
@@ -49,7 +55,7 @@ def laid(case):
     for index, clip in enumerate(doc["clips"]):
         shift += case["gaps"].get(str(index), 0)
         if shift:
-            clip["start"] = round(clip["start"] + shift, 6)
+            clip["start"] = rounded(clip["start"] + shift)
     return laid_out, doc["clips"]
 
 

@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Callable, List, Mapping, Optional, Sequence
 
 KEY = "dissolve"
@@ -9,6 +10,7 @@ MIN_STEPS = 2
 MIN_DISSOLVE = MIN_STEPS * GRID
 STEP_SLACK = 1e-6
 EPSILON = 1e-6
+MICRO = Decimal("0.000001")
 
 
 def _seconds(value: Any) -> float:
@@ -25,6 +27,10 @@ def _number(value: Any) -> float:
     return number if math.isfinite(number) else 0.0
 
 
+def rounded(value: float) -> float:
+    return float(Decimal(value).quantize(MICRO, rounding=ROUND_HALF_UP)) if math.isfinite(value) else value
+
+
 def frames_of(seconds: Any, fps: Any) -> int:
     return math.floor(_number(seconds) * _seconds(fps) + 0.5)
 
@@ -37,16 +43,17 @@ def dissolve_of(before: Optional[Mapping[str, Any]], clip: Optional[Mapping[str,
         return 0.0
     length = min(asked, MAX_DISSOLVE, min(_seconds(before.get("dur")), _seconds(clip.get("dur"))) / 2)
     steps = math.floor(length / GRID + STEP_SLACK)
-    return round(steps * GRID, 6) if steps >= MIN_STEPS else 0.0
+    return rounded(steps * GRID) if steps >= MIN_STEPS else 0.0
 
 
 def played(before: Optional[Mapping[str, Any]], clip: Optional[Mapping[str, Any]]) -> float:
-    if not dissolve_of(before, clip):
+    length = dissolve_of(before, clip)
+    if not length:
         return 0.0
     overlap = _number(before.get("start")) + _number(before.get("dur")) - _number(clip.get("start"))
-    if overlap <= GRID / 2 or overlap > min(_seconds(before.get("dur")), _seconds(clip.get("dur"))) / 2 + EPSILON:
+    if overlap <= GRID / 2 or overlap > length + EPSILON:
         return 0.0
-    return round(overlap, 6)
+    return rounded(overlap)
 
 
 @dataclass(frozen=True)
@@ -74,13 +81,13 @@ def placement(clips: Sequence[Mapping[str, Any]]) -> List[Optional[Place]]:
                     places[last] = Place(before.start, start, before.overlap)
                 else:
                     start = before.end
-        places[index] = Place(start, round(start + dur, 6), overlap)
+        places[index] = Place(start, rounded(start + dur), overlap)
         last = index
     return places
 
 
 def moved(clip: Mapping[str, Any], place: Optional[Place]) -> bool:
-    return place is not None and (place.start != _number(clip.get("start")) or place.end != round(place.start + _seconds(clip.get("dur")), 6))
+    return place is not None and (place.start != _number(clip.get("start")) or place.end != rounded(place.start + _seconds(clip.get("dur"))))
 
 
 def joins(clips: Sequence[Mapping[str, Any]]) -> List[float]:
@@ -120,7 +127,7 @@ def layout(clips: Sequence[Mapping[str, Any]], snap: Callable[[float], float]) -
         elif not index:
             starts.append(0.0)
         else:
-            starts.append(round(starts[-1] + _number(clips[index - 1].get("dur")) - dissolve_of(clips[index - 1], clip), 6))
+            starts.append(rounded(starts[-1] + _number(clips[index - 1].get("dur")) - dissolve_of(clips[index - 1], clip)))
         at += _number(clip.get("dur"))
     return starts
 
