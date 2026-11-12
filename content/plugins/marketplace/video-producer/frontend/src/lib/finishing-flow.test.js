@@ -396,6 +396,23 @@ test('finishing flow: closing the page while the run is being started leaves the
 	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'lost']);
 });
 
+test('finishing flow: the list of finishings keeps the last eight, but never drops one still running', async () => {
+	await open({ finishing: { grain: { on: true } } });
+	const old = (key, status) => ({ key, jobId: key, projectId: 'p0', runId: null, status, cancelling: false, progress: 0, item: null, failure: null, message: '', fileName: 'Old.mp4' });
+	finishState.runs = [old('old0', 'running'), ...Array.from({ length: 7 }, (_, i) => old(`old${i + 1}`, 'done'))];
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	for (let i = 0; i < 20; i++) await settle();
+	assert.equal(finishShown().status, 'done');
+	assert.deepEqual(finishState.runs.map((run) => run.key), ['old0', 'old2', 'old3', 'old4', 'old5', 'old6', 'old7', 'job-p1']);
+	finishState.runs = Array.from({ length: 8 }, (_, i) => old(`busy${i}`, 'running'));
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	for (let i = 0; i < 20; i++) await settle();
+	assert.equal(finishState.runs.length, 9);
+	assert.equal(finishShown().status, 'done');
+});
+
 test('finishing flow: a cancel answered by a finished run shows the finished film, not a cancellation', async () => {
 	let asked = 0;
 	await open({ finishing: { grain: { on: true } }, reads: () => [{ status: 'running', progress: 0.9 }], cancelRun: (id) => ({ ok: true, data: { id, status: 'completed', progress: 1, label: '', items: [FINISHED.items[0]], error: null } }) });

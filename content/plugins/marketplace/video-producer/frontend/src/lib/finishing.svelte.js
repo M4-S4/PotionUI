@@ -59,7 +59,12 @@ export function keepFinish(jobId, plan) {
 }
 
 function record(fields) {
-	finishState.runs = [...finishState.runs.filter((run) => run.key !== fields.key), fields].slice(-MAX_FINISH_RUNS);
+	const runs = [...finishState.runs.filter((run) => run.key !== fields.key), fields];
+	for (let i = 0; runs.length > MAX_FINISH_RUNS && i < runs.length - 1; ) {
+		if (runs[i].status === 'running') i += 1;
+		else runs.splice(i, 1);
+	}
+	finishState.runs = runs;
 	return finishState.runs[finishState.runs.length - 1];
 }
 
