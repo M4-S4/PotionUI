@@ -27,7 +27,6 @@ SECTION = re.compile(r"^[ \t]*(?:detailed_description|integrated_multimodal_desc
 NEXT_SECTION = re.compile(r"\n[ \t]*[a-z_]+[ \t]*:")
 SHOT_MARKER = re.compile(r"\[Shot 1\]\s*")
 TAGGED = re.compile(r"\s*\(\s*<(?:Subject|Picture|Video|Audio) \d+>\s*\)")
-VREF_TAG = re.compile(r"@V\d+")
 
 UNAVAILABLE = {
     "available": False,
@@ -81,11 +80,21 @@ def instruction(
     elif images == 1:
         lines.append("The image is the shot's first frame: describe the motion forward from it, not what it already shows.")
     text = current.strip()[:MAX_CURRENT_CHARS]
-    if VREF_TAG.search(text):
-        lines.append("Keep every tag written like @V1 exactly as it is: it cites a reference video of the shot.")
+    tags = vref_tags(current)
+    if tags:
+        lines.append(f"Keep the tags {', '.join(tags)} exactly as they are written, where the action needs them: each one cites a reference video of the shot.")
     if text:
         lines.append(f'The shot\'s current prompt, to rewrite as the request says: "{text}"')
     return "\n".join(lines)
+
+
+def vref_tags(text: str) -> List[str]:
+    return [f"@vref{slot}" for slot in director.cited_slots(text)]
+
+
+def lost_tags(current: str, written: str) -> List[str]:
+    kept = set(director.cited_slots(written))
+    return [f"@vref{slot}" for slot in director.cited_slots(current) if slot not in kept]
 
 
 def cleaned(text: Any) -> str:
@@ -165,4 +174,5 @@ async def write(
         "name": found["name"],
         "images": len(media),
         "images_skipped": len(frames) - len(media),
+        "lost_tags": lost_tags(current, written),
     }

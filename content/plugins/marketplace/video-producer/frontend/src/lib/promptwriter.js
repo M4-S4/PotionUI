@@ -22,6 +22,7 @@ export const WRITER_CODES = [
 ];
 
 const text = (value) => (typeof value === 'string' ? value : '');
+const VREF_TAG = /^@vref[1-9]$/i;
 
 export function normalizeWriterStatus(value) {
 	if (!isObject(value)) return null;
@@ -38,7 +39,8 @@ export function normalizeWriterStatus(value) {
 export function normalizeWritten(value) {
 	if (!isObject(value) || !text(value.text).trim()) return null;
 	const count = (n) => (Number.isInteger(n) && n > 0 ? n : 0);
-	return { text: value.text.trim(), name: text(value.name) || null, images: count(value.images), imagesSkipped: count(value.images_skipped) };
+	const lostTags = Array.isArray(value.lost_tags) ? value.lost_tags.filter((tag) => typeof tag === 'string' && VREF_TAG.test(tag)) : [];
+	return { text: value.text.trim(), name: text(value.name) || null, images: count(value.images), imagesSkipped: count(value.images_skipped), lostTags };
 }
 
 export function writeBody(request, option, doc) {

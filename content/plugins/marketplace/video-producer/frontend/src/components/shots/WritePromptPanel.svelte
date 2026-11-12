@@ -13,6 +13,7 @@
 	const errorCode = $derived(writerCode(view.error));
 	const error = $derived(view.error ? (errorCode ? t(`modals.shot.writer.error.${errorCode}`) : requestCause(view.error)) : '');
 	const proposal = $derived(view.proposal);
+	const lostTags = $derived(proposal?.lostTags ?? []);
 
 	function keydown(event) {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -42,6 +43,7 @@
 			<div class="space-y-1.5" aria-live="polite">
 				<div class="font-medium text-fg-muted">{t('modals.shot.writer.proposal', { name: proposal.name || name })}</div>
 				<p class="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-line bg-surface-2 p-2 leading-5 text-fg" data-writer-proposal>{proposal.text}</p>
+				{#if lostTags.length}<p class="text-warning" data-writer-lost-tags={lostTags.join(' ')}>{t('modals.shot.writer.lostTags', { tags: lostTags.join(', '), count: lostTags.length })}</p>{/if}
 				{#if text.trim()}<p class="text-fg-subtle">{t('modals.shot.writer.replaces')}</p>{/if}
 				<div class="flex flex-wrap items-center gap-1.5">
 					<HostUi name="Button" props={{ variant: 'primary', size: 'xs', icon: 'check', onclick: onaccept }}>{t('modals.shot.writer.accept')}</HostUi>

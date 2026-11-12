@@ -286,5 +286,7 @@
 	"shot.writer.error.media_too_large": "One of the shot’s images is larger than 5 MB.",
 	"shot.writer.error.media_outside_storage": "One of the shot’s images is not in the media storage.",
 	"shot.writer.error.media_unsupported": "One of the shot’s files is not an image.",
-	"shot.cardWords.unused": "No card picture goes with this shot with its engine and profile now: this choice changes nothing until one does."
+	"shot.cardWords.unused": "No card picture goes with this shot with its engine and profile now: this choice changes nothing until one does.",
+	"shot.writer.lostTags.one": "The proposal drops the tag {tags}, which cites a reference video of the shot. Write again, or add it back after you use it.",
+	"shot.writer.lostTags.other": "The proposal drops the tags {tags}, which cite reference videos of the shot. Write again, or add them back after you use it."
 }

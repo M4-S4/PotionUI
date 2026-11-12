@@ -205,3 +205,18 @@ test('the shot editor carries the button beside the prompt library and the card 
 	delete doc.clips[0].cardWords;
 	project.id = null;
 });
+
+test('a proposal that dropped a reference video tag says which one before it is used', async () => {
+	const { client } = fakeClient({ answer: async () => ({ ok: true, data: { text: 'The fisherman walks along the quay.', name: 'Qwen3-VL', images: 0, imagesSkipped: 0, lostTags: ['@vref1', '@vref2'] } }) });
+	const writer = await asked(client);
+	await writer.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
+	const html = await renderComponent(PANEL, { writer, text: 'She walks past @vref1 and @vref2.', frames: 0 });
+	assert.match(html, /data-writer-lost-tags="@vref1 @vref2"/);
+	assert.ok(textOf(html).includes(t('modals.shot.writer.lostTags', { tags: '@vref1, @vref2', count: 2 })));
+	const kept = createWriter({ client: () => fakeClient().client });
+	await kept.check();
+	kept.open();
+	kept.edit('x');
+	await kept.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
+	assert.doesNotMatch(await renderComponent(PANEL, { writer: kept, text: '', frames: 0 }), /data-writer-lost-tags/);
+});

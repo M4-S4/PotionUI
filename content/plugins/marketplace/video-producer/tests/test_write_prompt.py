@@ -126,7 +126,7 @@ def test_writing_sends_the_request_the_preset_guide_of_the_shot_mode_and_its_two
     response = _write(client, project["id"], _body())
 
     assert response.status_code == 200
-    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0}
+    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0, "lost_tags": []}
     (call,) = writer.calls
     assert call["user_id"] == "user-1"
     assert (call["preset_id"], call["mode"]) == (presets.MINIMAX_H3, "refs")
@@ -261,11 +261,13 @@ def test_an_unknown_shot_or_another_users_project_is_not_found(core, client, mak
 
 
 def test_the_instruction_keeps_the_reference_video_tags_and_leaves_out_what_the_shot_lacks():
-    text = prompt_writer.instruction("make it rain", current="She walks past @V1.", seconds=2.5, characters=[], place=None, images=0)
+    text = prompt_writer.instruction("make it rain", current="She walks past @vref1, then @VREF2 again, then @vref1.", seconds=2.5, characters=[], place=None, images=0)
     bare = prompt_writer.instruction("make it rain", current="", seconds=2.5, characters=[], place=None, images=0)
+    look_alike = prompt_writer.instruction("make it rain", current="Mail me@vref1 or @vref0.", seconds=2.5, characters=[], place=None, images=0)
 
-    assert "Keep every tag written like @V1 exactly as it is" in text
-    assert "@V1" not in bare
+    assert "Keep the tags @vref1, @vref2 exactly as they are written" in text
+    assert "@vref" not in bare
+    assert "Keep the tags" not in look_alike
     assert "current prompt" not in bare
     assert "Name each character" not in bare
     assert "takes place" not in bare
@@ -320,3 +322,23 @@ def test_a_shot_without_card_words_still_follows_the_project_as_before(core, mak
     assert plan.reference.card_words == "label"
     assert "card_words" not in plan.reference.summary()
     assert bible.card_words(doc, doc["clips"][0]) == "label"
+
+
+@pytest.mark.parametrize(
+    ("reply", "lost"),
+    [
+        ("The fisherman walks past @vref1 and stops by @vref2.", []),
+        ("The fisherman walks past @VREF1 and stops.", ["@vref2"]),
+        ("The fisherman walks along the quay.", ["@vref1", "@vref2"]),
+    ],
+)
+def test_the_page_is_told_which_reference_video_tags_the_proposal_dropped(core, client, make_doc, make_project, monkeypatch, reply, lost):
+    core.use_h3()
+    writer = Writer(monkeypatch, reply={"text": reply})
+    project = make_project(doc=_doc(core, make_doc, prompt="The woman walks past @vref1, then waits for @vref2."))
+
+    response = _write(client, project["id"], _body())
+
+    assert response.status_code == 200
+    assert response.json()["data"]["lost_tags"] == lost
+    assert "Keep the tags @vref1, @vref2 exactly as they are written" in writer.calls[0]["instruction"]
