@@ -47,7 +47,7 @@ FRAMING = (
 SECTION = re.compile(r"^[ \t]*(?:detailed_description|integrated_multimodal_description)[ \t]*:[ \t]*", re.MULTILINE)
 NEXT_SECTION = re.compile(r"\n[ \t]*[a-z_]+[ \t]*:")
 SHOT_MARKER = re.compile(r"\[Shot 1\]\s*")
-TAGGED = re.compile(r"\s*\(\s*<(?:Subject|Picture|Video|Audio) \d+>\s*\)")
+TAGGED = r"\s*\(\s*<(?:Subject|Picture|Video|Audio) \d+>\s*\)"
 BARE = re.compile(r"<(?:Subject|Picture|Video|Audio) \d+>")
 SPACED = re.compile(r"[ \t]+([,.;:!?])")
 FENCE = re.compile(r"```[A-Za-z]*[ \t]*\n?(.*?)```", re.DOTALL)
@@ -163,7 +163,16 @@ def kept_tags(written: str) -> List[str]:
     return list(dict.fromkeys(BARE.findall(written)))
 
 
-def cleaned(text: Any) -> str:
+def _untagged(text: str, labels: Sequence[str]) -> str:
+    whole = {" ".join(label.split()) for label in labels if isinstance(label, str)}
+    named = {name for label in whole for name in (label, label[:MAX_LABEL_CHARS])} - {""}
+    for label in sorted(named, key=len, reverse=True):
+        spaced = r"\s+".join(re.escape(word) for word in label.split())
+        text = re.sub(rf"(?<!\w)({spaced}){TAGGED}", r"\1", text, flags=re.IGNORECASE)
+    return text
+
+
+def cleaned(text: Any, labels: Sequence[str] = ()) -> str:
     written = text.strip() if isinstance(text, str) else ""
     fence = FENCE.search(written)
     if fence is not None:
@@ -178,7 +187,7 @@ def cleaned(text: Any) -> str:
     marker = SHOT_MARKER.search(written)
     if marker is not None:
         written = written[marker.end():]
-    written = SPACED.sub(r"\1", TAGGED.sub("", written))
+    written = SPACED.sub(r"\1", _untagged(written, labels))
     return bounded("\n".join(" ".join(line.split()) for line in written.strip().splitlines()).strip())
 
 
@@ -431,7 +440,8 @@ async def _written(
     except Exception:
         logger.warning("[VIDEO-PRODUCER] The prompt writer failed for shot %s", shot_id, exc_info=True)
         fail(502, "write_failed", "The language model could not write the prompt.")
-    written = cleaned(reply.get("text") if isinstance(reply, Mapping) else None)
+    labels = [card.label for card in characters] + ([place.label] if place is not None else [])
+    written = cleaned(reply.get("text") if isinstance(reply, Mapping) else None, labels)
     if not written:
         fail(502, "empty_reply", "The language model returned no prompt.")
     return {

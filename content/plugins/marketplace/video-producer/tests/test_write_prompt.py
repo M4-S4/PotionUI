@@ -304,7 +304,7 @@ def test_the_instruction_keeps_the_reference_video_tags_and_leaves_out_what_the_
     ],
 )
 def test_the_reply_is_cut_to_the_text_of_the_shot(reply, kept):
-    assert prompt_writer.cleaned(reply) == kept
+    assert prompt_writer.cleaned(reply, ["the fisherman"]) == kept
 
 
 def _prompts(client, project_id, body):
@@ -595,6 +595,25 @@ def test_a_reply_too_long_is_cut_at_its_last_whole_sentence_or_at_a_word():
     assert len(by_word) <= prompt_writer.MAX_WRITTEN_CHARS
     assert by_word.endswith("\u2026") and words.startswith(by_word[:-1]) and by_word[:-1].split(" ")[-1] in words.split(" ")
     assert prompt_writer.cleaned("A short one.") == "A short one."
+
+
+@pytest.mark.parametrize(
+    ("reply", "kept", "tags"),
+    [
+        ("The red-haired woman (<Subject 1>) lifts her lantern.", "The red-haired woman lifts her lantern.", []),
+        ("The old  fisherman ( <Subject 2> ) waits by the harbour at dawn (<Picture 1>).", "The old fisherman waits by the harbour at dawn.", []),
+        ("She looks at the lighthouse shown in (<Picture 2>).", "She looks at the lighthouse shown in (<Picture 2>).", ["<Picture 2>"]),
+        ("A woman (<Subject 1>) waves at the fisherman (<Subject 2>).", "A woman (<Subject 1>) waves at the fisherman (<Subject 2>).", ["<Subject 1>", "<Subject 2>"]),
+        ("Another red-haired woman's dog (<Subject 1>) barks.", "Another red-haired woman's dog (<Subject 1>) barks.", ["<Subject 1>"]),
+    ],
+)
+def test_a_tag_in_parentheses_goes_only_right_after_a_cast_label_and_any_other_is_kept_and_listed(reply, kept, tags):
+    labels = [WOMAN["label"], FISHER["label"], HARBOUR["label"]]
+
+    written = prompt_writer.cleaned(reply, labels)
+
+    assert written == kept
+    assert prompt_writer.kept_tags(written) == tags
 
 
 def test_tags_in_angle_brackets_are_kept_as_written_and_listed_in_order():

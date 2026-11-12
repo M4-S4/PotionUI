@@ -101,7 +101,7 @@ def test_the_core_writes_from_the_plugin_instruction_with_the_guide_of_the_shot_
 
     written = asyncio.run(core_bridge.write_prompt_for_preset("user-1", instruction, preset_id="MiniMax-H3-12GB", mode="refs", form_data={}, media=media))
 
-    assert prompt_writer.cleaned(written["text"]) == "The fisherman lifts his lantern."
+    assert prompt_writer.cleaned(written["text"], ["the fisherman"]) == "The fisherman lifts his lantern."
     assert written["llm_id"] == "llm-1"
     (call,) = llm.calls
     (message,) = call["messages"]
