@@ -2,7 +2,7 @@ import re
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from .. import formats
-from ..dissolve import joins as joins_of
+from ..dissolve import cuts, moved, placement
 from .common import Timebase, clip_label
 
 _LINE_BREAK = re.compile(r"[\r\n]")
@@ -18,15 +18,23 @@ def render(doc: Mapping[str, Any], files: Mapping[Tuple[str, int], Optional[Dict
     time = Timebase(doc)
     lines = [f"TITLE: {one_line(doc['name']).upper()}", "FCM: NON-DROP FRAME", ""]
     clips = doc["clips"]
-    joins = [*joins_of(clips, time.fps), 0]
+    edits = cuts(clips, time.frames)
+    joins = [*(cut.overlap if cut is not None else 0 for cut in edits), 0]
+    places = placement(clips) if any(joins) else [None] * len(clips)
     for index, clip in enumerate(clips):
         number = str(index + 1).rjust(3, "0")
         entry = files.get(("clips", index))
         reel = f"VP{number}" if entry else "BL"
         source_in, record_in = clip["srcIn"], clip["start"]
         speed = formats.speed_of(clip)
+        shifted = moved(clip, places[index])
+        if shifted:
+            record_in = places[index].start
         if joins[index + 1] > 0:
             record_out = clips[index + 1]["start"]
+            source_out = source_in + (record_out - record_in) * speed
+        elif shifted:
+            record_out = places[index].end
             source_out = source_in + (record_out - record_in) * speed
         else:
             record_out = record_in + clip["dur"]

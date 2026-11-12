@@ -101,7 +101,7 @@ def relayout(doc: Dict[str, Any]) -> None:
     """Lay the shots end to end from zero, moving the prompts and frames linked to each shot with it."""
     clips = clips_of(doc)
     before = {clip["id"]: number(clip.get("start")) for clip in clips}
-    for clip, start in zip(clips, layout(clips, doc.get("fps"), snap)):
+    for clip, start in zip(clips, layout(clips, snap)):
         clip["start"] = start
     for clip in clips:
         delta = clip["start"] - before.get(clip["id"], clip["start"])

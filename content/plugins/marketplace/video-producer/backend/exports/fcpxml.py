@@ -72,7 +72,7 @@ def render(doc: Mapping[str, Any], files: Mapping[Tuple[str, int], Optional[Dict
             f'duration="{time.rational(length)}" hasVideo="1" format="r1">'
             f'<media-rep kind="original-media" src="{media_url(files[("clips", index)])}"/></asset>'
         )
-    edits = cuts(doc["clips"], time.fps, time.frames)
+    edits = cuts(doc["clips"], time.frames)
     effect = len(media) + 2
     if any(cut is not None and cut.overlap for cut in edits):
         assets.append(f'\t\t<effect id="r{effect}" name="{DISSOLVE_NAME}" uid="{DISSOLVE_EFFECT}"/>')

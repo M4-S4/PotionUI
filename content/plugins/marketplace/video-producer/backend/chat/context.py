@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Mapping, Optional
 
 from . import rules
+from ..dissolve import joins, shown
 
 CONTEXT_KEY = "video_producer"
 
@@ -15,8 +16,6 @@ MAX_ISSUES = 20
 MAX_SEAM_LINES = 20
 MAX_CARDS = 12
 MAX_LABEL_CHARS = 60
-
-OVERLAP_SLACK = 0.005
 
 NOT_OPEN = "Video Producer: the page is not open on a project this turn, so there is no project context."
 
@@ -67,9 +66,8 @@ def _frames(shot: Mapping[str, Any]) -> str:
 
 
 def _shot_at(shots: List[Dict[str, Any]], time: float) -> Optional[Dict[str, Any]]:
-    for shot in shots:
-        start = _number(shot.get("start"))
-        if start <= time < start + _number(shot.get("dur")):
+    for shot, span in zip(shots, shown(shots)):
+        if span.start <= time < span.end:
             return shot
     return None
 
@@ -157,13 +155,8 @@ def _shot_line(index: int, shot: Mapping[str, Any], labels: Dict[Any, str]) -> s
     )
 
 
-def _overlap(before: Mapping[str, Any], shot: Mapping[str, Any]) -> float:
-    overlap = _number(before.get("start")) + _number(before.get("dur")) - _number(shot.get("start"))
-    return overlap if "start" in shot and overlap > OVERLAP_SLACK else 0.0
-
-
 def _shots(shots: List[Dict[str, Any]], labels: Dict[Any, str], budget: int) -> List[str]:
-    total = sum(_number(shot.get("dur")) for shot in shots) - sum(_overlap(before, shot) for before, shot in zip(shots, shots[1:]))
+    total = sum(_number(shot.get("dur")) for shot in shots) - sum(joins(shots))
     lines = [f"Shots ({len(shots)}, {_seconds(total)} s), in timeline order:"]
     if not shots:
         return lines + ["  (none yet)"]

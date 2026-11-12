@@ -10,9 +10,10 @@ import pytest
 
 from backend import core_bridge, projects, takes
 from backend.chat import edits
-from backend.dissolve import MAX_DISSOLVE, dissolves, joins
+from backend.dissolve import MAX_DISSOLVE, cuts, dissolve_of, frames_of, joins, placement, shown
 from backend.exports import render
 from backend.exports import video
+from backend.exports.common import js_round
 from backend.exports.media import files_of
 from backend.exports.mix import write_impulse
 from backend.exports.video import build_command, filter_graph, plan_parts, timeline
@@ -23,6 +24,8 @@ HAS_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 EXPORTS = FIXTURES / "exports"
 CASES = json.loads((FIXTURES / "dissolve_cases.json").read_text(encoding="utf-8"))
+PROPERTY = json.loads((FIXTURES / "dissolve_property.json").read_text(encoding="utf-8"))
+CADENCES = (24, 25, 30, 48, 50, 60)
 LEGACY = json.loads((EXPORTS / "legacy-graphs.json").read_text(encoding="utf-8"))
 PATHS = {"ffmpeg": "/usr/bin/ffmpeg", "output": "/tmp/out/mezzanine.mkv", "graph": "/tmp/out/graph.txt"}
 
@@ -61,16 +64,15 @@ def _run(make_doc, durations, joins, **extra):
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
-def test_the_shared_cases_give_the_dissolve_each_cut_plays_in_whole_frames(case):
+def test_the_shared_cases_give_the_dissolve_each_cut_plays_on_the_grid_of_the_document(case):
     clips = _laid(case)
 
-    assert joins(clips, case["fps"]) == case["frames"]
-    assert dissolves(clips, case["fps"]) == pytest.approx(case["applied"], abs=1e-9)
+    assert joins(clips) == pytest.approx(case["joins"], abs=1e-9)
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
 def test_the_assistant_lays_the_shots_out_with_their_dissolves(case):
-    doc = {"fps": case["fps"], "clips": [{**clip, "start": 99} for clip in _clips(case)], "prompts": [], "frames": []}
+    doc = {"clips": [{**clip, "start": 99} for clip in _clips(case)], "prompts": [], "frames": []}
 
     edits.relayout(doc)
 
@@ -236,8 +238,8 @@ def test_the_dissolve_project_is_a_document_the_plugin_stores():
     fixture, _ = _fixture()
 
     projects.validate_doc(fixture["doc"])
-    assert dissolves(fixture["doc"]["clips"], 25) == [0, 1, 0.52, 1.48]
-    assert joins(fixture["doc"]["clips"], 25) == [0, 25, 13, 37]
+    assert joins(fixture["doc"]["clips"]) == [0, 1, 0.52, 1.48]
+    assert [cut.overlap if cut else 0 for cut in cuts(fixture["doc"]["clips"], lambda s: js_round(s * 25))] == [0, 25, 13, 37]
 
 
 @pytest.mark.parametrize("fmt", ("edl", "otio", "fcpxml"))
@@ -389,44 +391,146 @@ def _offsets(graph):
     return found
 
 
-@pytest.mark.parametrize("fps", (24, 25, 30))
-def test_at_every_frame_rate_the_film_the_graph_assembles_lasts_what_the_document_lays_out(make_doc, fps):
+def _positions(doc):
+    rate = doc["fps"]
+    segments, total = timeline(doc)
+    at, found = 0, {}
+    for dur, clip in segments:
+        if clip is not None:
+            at -= clip.get(video.JOIN, 0)
+            found[clip["id"]] = at
+        at += frames_of(dur, rate)
+    return found, at, frames_of(total, rate)
+
+
+def _assert_in_step(doc):
+    rate = doc["fps"]
+    found, end, total = _positions(doc)
+    for clip, place in zip(doc["clips"], placement(doc["clips"])):
+        if place is not None and clip["id"] in found:
+            assert found[clip["id"]] == frames_of(place.start, rate), (rate, clip["id"])
+            assert abs(found[clip["id"]] / rate - place.start) <= 0.5 / rate + 1e-9
+    assert end == total, rate
+
+
+@pytest.mark.parametrize("fps", CADENCES)
+def test_at_every_cadence_each_shot_of_the_graph_starts_on_the_frame_of_its_time_in_the_document(make_doc, fps):
     doc = _run(make_doc, [2] * 11, [0] + [0.4] * 10, fps=fps)
     graph = _graph(doc)
     _, total = timeline(doc)
 
-    duration, offset = _offsets(graph)[-1]
-    assert round((offset + 2) * fps) == round(total * fps)
-    assert round(total * fps) == 11 * 2 * fps - 10 * math.floor(0.4 * fps + 1e-6)
-    assert all(round(d * fps) == math.floor(0.4 * fps + 1e-6) for d, _ in _offsets(graph))
+    assert total == pytest.approx(18)
+    _assert_in_step(doc)
+    starts = [clip["start"] for clip in doc["clips"]]
+    assert [round(offset * fps) for _, offset in _offsets(graph)] == [frames_of(start, fps) for start in starts[1:]]
+    assert [round(duration * fps) for duration, _ in _offsets(graph)] == [frames_of(start + 0.4, fps) - frames_of(start, fps) for start in starts[1:]]
 
 
-def test_at_24_fps_two_dissolves_around_a_short_shot_leave_it_a_frame_of_its_own(make_doc):
+@pytest.mark.parametrize("fps", CADENCES)
+def test_a_shot_of_3_1_s_set_in_the_inspector_keeps_its_dissolve_at_every_cadence(make_doc, fps):
+    doc = _run(make_doc, [3.1, 4, 2], [0, 1, 0], fps=fps)
+
+    assert [clip["start"] for clip in doc["clips"]] == [0, 2.12, 6.12]
+    assert joins(doc["clips"]) == [0, 0.98, 0]
+    assert len(_offsets(_graph(doc))) == 1
+    _assert_in_step(doc)
+
+
+@pytest.mark.parametrize("fps", CADENCES)
+def test_the_shots_of_a_run_last_the_frames_between_their_own_times_so_nothing_drifts(make_doc, fps):
+    doc = _run(make_doc, [1.06] * 30, [0] + [0.4] * 29, fps=fps)
+    segments, _ = timeline(doc)
+    places = placement(doc["clips"])
+
+    lengths = [frames_of(dur, fps) for dur, _ in segments]
+    expected = [frames_of(place.end, fps) - frames_of(place.start, fps) for place in places]
+    assert lengths == expected
+    sounds = [part.split("atrim=duration=")[1].split("[")[0] for part in _graph(doc) if part.startswith("anullsrc")]
+    assert [round(float(dur) * fps) for dur in sounds] == expected
+    _assert_in_step(doc)
+
+
+def test_two_dissolves_around_a_short_shot_meet_when_it_has_no_frame_of_its_own(make_doc):
     doc = _run(make_doc, [4, 0.96, 4], [0, 1, 1], fps=24)
 
-    durations = [round(d * 24) for d, _ in _offsets(_graph(doc))]
-
-    assert durations == [11, 11] and sum(durations) < 23
-    assert [clip["start"] for clip in doc["clips"]] == pytest.approx([0, 4 - 11 / 24, 4.96 - 22 / 24], abs=1e-5)
-
-
-def test_at_24_fps_the_sound_of_the_shots_in_a_run_lasts_their_whole_frames(make_doc):
-    doc = _run(make_doc, [1.04, 1.04, 1], [0, 0.5, 0], fps=24)
-
-    sounds = [part for part in _graph(doc) if part.startswith("anullsrc")]
-
-    assert [part.split("atrim=duration=")[1].split("[")[0] for part in sounds] == ["1.041667", "1.041667", "1"]
+    assert [clip["start"] for clip in doc["clips"]] == [0, 3.52, 4]
+    assert [round(d * 24) for d, _ in _offsets(_graph(doc))] == [12, 12]
+    _assert_in_step(doc)
 
 
-def test_a_document_whose_starts_do_not_match_its_dissolve_plays_it_as_a_cut_everywhere(make_doc):
-    for start in (4, 3.8):
-        doc = _doc(make_doc, [{"id": "a", "assetId": "x", "start": 0, "dur": 4}, {"id": "b", "assetId": "y", "start": start, "dur": 4, "dissolve": 1}], fps=25)
-        files = {("clips", 0): {"name": "a.mp4", "path": "a.mp4"}, ("clips", 1): {"name": "b.mp4", "path": "b.mp4"}}
+@pytest.mark.parametrize("fps", CADENCES)
+def test_changing_the_cadence_after_choosing_a_dissolve_keeps_it_and_its_place(make_doc, fps):
+    doc = _run(make_doc, [2, 2.4, 3], [0, 1, 0.6], fps=25)
+    starts = [clip["start"] for clip in doc["clips"]]
 
-        assert joins(doc["clips"], 25) == [0, 0]
-        assert not any("xfade" in part for part in _graph(doc))
-        assert [dur for dur, _ in timeline(doc)[0]] == [4, 4]
-        assert " D " not in render("edl", doc, files) and "Transition" not in render("otio", doc, files) and "<transition" not in render("fcpxml", doc, files)
+    doc["fps"] = fps
+
+    assert joins(doc["clips"]) == [0, 1, 0.6]
+    edits.relayout(doc)
+    assert [clip["start"] for clip in doc["clips"]] == starts
+    assert len(_offsets(_graph(doc))) == 2
+    _assert_in_step(doc)
+
+
+@pytest.mark.parametrize("fps", (24, 48))
+def test_at_24_and_48_fps_the_prompts_and_frames_linked_to_a_shot_stay_on_its_start(make_doc, fps):
+    doc = _run(make_doc, [2, 2, 2, 2], [0, 0, 0, 0], fps=fps)
+    doc["prompts"] = [{"id": f"p{index}", "shotId": clip["id"], "start": clip["start"], "dur": clip["dur"], "strength": 75, "text": "x"} for index, clip in enumerate(doc["clips"])]
+    doc["frames"] = [{"id": f"f{index}", "shotId": clip["id"], "time": clip["start"], "assetId": None, "role": "First frame", "strength": 75} for index, clip in enumerate(doc["clips"])]
+    for clip, ask in zip(doc["clips"][1:], (0.4, 1, 0.6)):
+        clip["dissolve"] = ask
+
+    edits.relayout(doc)
+
+    starts = [clip["start"] for clip in doc["clips"]]
+    assert starts == [0, 1.6, 2.6, 4]
+    assert [prompt["start"] for prompt in doc["prompts"]] == starts
+    assert [frame["time"] for frame in doc["frames"]] == starts
+
+
+@pytest.mark.parametrize("index", range(len(PROPERTY["docs"])))
+def test_seeded_documents_lay_out_and_play_the_same_on_the_server_the_page_and_the_graph_at_every_cadence(make_doc, index):
+    case = PROPERTY["docs"][index]
+    doc = _doc(make_doc, [{"id": f"c{k}", "assetId": f"a{k}", "start": 99, **clip} for k, clip in enumerate(case["clips"])])
+
+    edits.relayout(doc)
+
+    assert [clip["start"] for clip in doc["clips"]] == case["starts"]
+    assert joins(doc["clips"]) == case["joins"]
+    assert [edge for span in shown(doc["clips"]) for edge in (span.start, span.end)] == pytest.approx([edge for span in case["spans"] for edge in span], abs=1e-9)
+    clips = doc["clips"]
+    assert all(join > 0 for join, before, clip in zip(case["joins"][1:], clips, clips[1:]) if dissolve_of(before, clip))
+    for fps in PROPERTY["fps"]:
+        doc["fps"] = fps
+        assert [None if cut is None else [cut.start, cut.end, cut.overlap, cut.head] for cut in cuts(doc["clips"], lambda s: js_round(s * fps))] == case["cuts"][str(fps)]
+        if any(case["joins"]):
+            _assert_in_step(doc)
+        assert len(_offsets(_graph(doc))) == sum(1 for join in case["joins"] if join)
+
+
+def test_a_document_shows_the_dissolve_its_starts_overlap_and_a_bare_overlap_cuts_at_the_later_start(make_doc):
+    doc = _doc(make_doc, [{"id": "a", "assetId": "x", "start": 0, "dur": 4}, {"id": "b", "assetId": "y", "start": 4, "dur": 4, "dissolve": 1}], fps=25)
+    files = {("clips", 0): {"name": "a.mp4", "path": "a.mp4"}, ("clips", 1): {"name": "b.mp4", "path": "b.mp4"}}
+    assert joins(doc["clips"]) == [0, 0] and not any("xfade" in part for part in _graph(doc))
+    assert " D " not in render("edl", doc, files) and "Transition" not in render("otio", doc, files) and "<transition" not in render("fcpxml", doc, files)
+
+    doc["clips"][1]["start"] = 3.8
+
+    assert joins(doc["clips"]) == [0, 0.2]
+    assert _offsets(_graph(doc)) == [(0.2, 3.8)]
+    assert "002  VP002    V     D    005 00:00:00:00 00:00:04:00 00:00:03:20 00:00:07:20" in render("edl", doc, files).split("
+")
+    _assert_in_step(doc)
+
+    doc["clips"].append({**doc["clips"][1], "id": "c", "assetId": "z", "start": 7, "dur": 2})
+    del doc["clips"][2]["dissolve"]
+    files[("clips", 2)] = {"name": "c.mp4", "path": "c.mp4"}
+
+    assert [(place.start, place.end) for place in placement(doc["clips"])] == [(0, 4), (3.8, 7), (7, 9)]
+    assert [round(dur * 25) for dur, _ in timeline(doc)[0]] == [100, 80, 50]
+    assert "002  VP002    V     D    005 00:00:00:00 00:00:03:05 00:00:03:20 00:00:07:00" in render("edl", doc, files).split("
+")
+    _assert_in_step(doc)
 
 
 def test_the_otio_writes_each_dissolve_as_a_transition_between_clips_cut_at_its_middle():
@@ -442,13 +546,15 @@ def test_the_otio_writes_each_dissolve_as_a_transition_between_clips_cut_at_its_
     assert [item["source_range"]["start_time"]["value"] for item in items] == [0, 16, 0, 24]
 
 
-def test_the_assistant_hears_the_length_of_the_film_less_its_dissolves():
+def test_the_assistant_hears_the_length_of_the_film_less_its_dissolves_and_nothing_else():
     from backend.chat import context
 
-    shots = [{"id": "a", "start": 0, "dur": 4}, {"id": "b", "start": 3, "dur": 4}, {"id": "c", "start": 7, "dur": 2}]
+    shots = [{"id": "a", "start": 0, "dur": 4}, {"id": "b", "start": 3, "dur": 4, "dissolve": 1}, {"id": "c", "start": 7, "dur": 2}]
+    labels = {"a": "A", "b": "B", "c": "C"}
 
-    assert context._shots(shots, {"a": "A", "b": "B", "c": "C"}, 4000)[0] == "Shots (3, 9 s), in timeline order:"
-    assert context._shots([{"id": "a", "start": 0, "dur": 4}, {"id": "b", "start": 4, "dur": 4}], {"a": "A", "b": "B"}, 4000)[0] == "Shots (2, 8 s), in timeline order:"
+    assert context._shots(shots, labels, 4000)[0] == "Shots (3, 9 s), in timeline order:"
+    assert context._shots([{**shot, "dissolve": 0} for shot in shots], labels, 4000)[0] == "Shots (3, 10 s), in timeline order:"
+    assert [context._shot_at(shots, time)["id"] for time in (3.2, 3.5, 4)] == ["a", "b", "b"]
 
 
 @pytest.mark.requires_ffmpeg
@@ -458,6 +564,7 @@ async def test_a_real_export_at_24_fps_lasts_the_frames_the_document_lays_out_wi
         pytest.skip("ffmpeg and ffprobe are not on the PATH")
     sources = [_solid(tmp_path, f"{color}.mp4", color, tone, 2, 24) for color, tone in (("red", 440), ("blue", 880), ("lime", 1320))]
     doc = _run(make_doc, [2, 2, 1], [0, 0.4, 0], fps=24, resolution="720p")
+    assert [clip["start"] for clip in doc["clips"]] == [0, 1.6, 3.6]
     files = {clip["id"]: {"name": path.name, "path": str(path)} for clip, path in zip(doc["clips"], sources)}
     output = tmp_path / "mezzanine.mkv"
     options = {"format": "web", "resolution": "720p", **video.inspect(files), "impulse": str(write_impulse(tmp_path / "reverb.wav", 48000))}
@@ -467,12 +574,13 @@ async def test_a_real_export_at_24_fps_lasts_the_frames_the_document_lays_out_wi
 
     await video.assemble(build_command(doc, files, options, paths), total)
 
-    assert total == pytest.approx(4.625) and _frames(output) == 111
+    assert total == pytest.approx(4.6) and _frames(output) == 110
     middle = _frame(output, 43)
     assert 90 < middle[0] < 170 and 90 < middle[2] < 170
-    assert _frame(output, 38)[0] > 200 and _frame(output, 50)[2] > 200
+    assert _frame(output, 37)[0] > 200 and _frame(output, 49)[2] > 200
+    assert _frame(output, 85)[2] > 200 and _frame(output, 86)[1] > 200 and _frame(output, 86)[2] < 60
     samples = _samples(output)
-    assert len(samples) == pytest.approx(111 / 24 * 48000, abs=48000 * 0.01)
+    assert len(samples) == pytest.approx(110 / 24 * 48000, abs=48000 * 0.01)
     assert _tone(samples, 4.0, 4.5, 1320) > 10 * _tone(samples, 4.0, 4.5, 880)
 
 
@@ -496,3 +604,33 @@ async def test_a_real_export_in_parts_keeps_the_dissolve_between_two_parts(make_
     boundary = _frame(output, 35)
     assert 90 < boundary[2] < 170 and 90 < boundary[1] < 200 and boundary[0] < 60
     assert _frame(output, 26)[2] > 200 and _frame(output, 44)[1] > 200
+
+
+@pytest.mark.requires_ffmpeg
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg and ffprobe are not on the PATH")
+async def test_a_real_export_in_parts_at_24_fps_joins_the_parts_on_the_frames_of_the_document(make_doc, tmp_path, monkeypatch):
+    colors = (("red", 440), ("blue", 880), ("lime", 1320), ("yellow", 660))
+    sources = [_solid(tmp_path, f"{color}.mp4", color, tone, 2, 24) for color, tone in colors]
+    doc = _run(make_doc, [1.1, 1.3, 0.9, 1.22], [0, 0.4, 0.4, 0.4], fps=24, resolution="720p")
+    files = {clip["id"]: {"name": path.name, "path": str(path), "still": False} for clip, path in zip(doc["clips"], sources)}
+    options = {"format": "web", "resolution": "720p", **video.inspect(files), "impulse": str(write_impulse(tmp_path / "reverb.wav", 48000))}
+    output = tmp_path / "mezzanine.mkv"
+    paths = {"ffmpeg": shutil.which("ffmpeg"), "graph_option": video.graph_option(shutil.which("ffmpeg")), "output": str(output), "graph": str(tmp_path / "graph.txt"), "audio": {}}
+    monkeypatch.setattr(video, "PART_INPUTS", 2)
+    places = placement(doc["clips"])
+    _, total = timeline(doc)
+
+    await video.assemble_sequence(doc, files, options, paths, tmp_path, lambda progress, step: True)
+
+    first, second = (tmp_path / video.PART_NAME.format(0, k) for k in (0, 1))
+    assert _frames(first) == frames_of(places[1].end, 24)
+    assert _frames(second) == frames_of(places[3].end, 24) - frames_of(places[2].start, 24)
+    assert _frames(output) == frames_of(total, 24)
+    start, end = frames_of(places[2].start, 24), frames_of(places[1].end, 24)
+    assert _frame(output, start - 1)[2] > 200 and _frame(output, start - 1)[1] < 60
+    middle = _frame(output, (start + end) // 2)
+    assert 60 < middle[2] < 200 and 60 < middle[1] < 220
+    assert _frame(output, end)[1] > 200 and _frame(output, end)[2] < 60
+    last = frames_of(places[3].start, 24)
+    assert _frame(output, last - 1)[1] > 200 and _frame(output, last - 1)[0] < 60
+    assert _frame(output, frames_of(total, 24) - 1)[0] > 200 and _frame(output, frames_of(total, 24) - 1)[1] > 200
