@@ -2,7 +2,6 @@ import asyncio
 import copy
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -27,7 +26,6 @@ PLACED = {
 }
 STILL = {"id": "img", "kind": "image", "src": "/api/media/uploads/harbour.png", "origin": {"kind": "library", "itemId": "it-1"}}
 STAND_IN = "chainvideo:s1"
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 class Ends:
@@ -465,63 +463,8 @@ def test_on_the_12_gb_preset_a_ref2va_shot_at_832_by_480_with_two_pictures_still
     assert encoder.vision_tokens([(1024, 1024), (1344, 768)], [(56, (832, 480))], encoder.max_pixels(1, (832, 480))) == 1895
 
 
-def _shortened_codes(evaluation):
-    return [item for item in evaluation.payload["warnings"] if item["code"] == "chain_video_shortened"]
-
-
-def test_on_the_12_gb_preset_a_ref2va_shot_whose_whole_end_passes_keeps_the_request_it_sent_before(core, make_project, slots, monkeypatch):
-    project = _twelve(core, make_project, monkeypatch, "832x480", [])
-    expected = json.loads((FIXTURES / "chain_end_832_request.json").read_text(encoding="utf-8"))
-
-    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=TWELVE)
-    plan = _plan(evaluation, "s2")
-    form = plan.request["form_data"]
-    monkeypatch.setattr(encoder, "end_lengths", lambda frames: [frames])
-    whole_or_nothing = _plan(_evaluate(core, project, ["s1", "s2"], preset_id=TWELVE), "s2")
-
-    assert {
-        "chain_video": plan.chain_video.trace(),
-        "mode": plan.request["mode"],
-        "preset_id": plan.request["preset_id"],
-        "references": form["references"],
-        "resolution": form["resolution"],
-        "reference_short_edge": form["reference_short_edge"],
-        "warnings": sorted(item["code"] for item in evaluation.payload["warnings"] if (item.get("data") or {}).get("shot_id") == "s2"),
-    } == expected
-    assert (plan.request, plan.chain_video) == (whole_or_nothing.request, whole_or_nothing.chain_video)
-
-
-def test_on_the_12_gb_preset_a_ref2va_shot_at_960_by_544_with_two_pictures_receives_a_shorter_end_and_says_how_long(core, make_project, slots, monkeypatch, ends):
+def test_on_the_12_gb_preset_a_ref2va_shot_at_960_by_544_with_two_pictures_keeps_the_last_image_and_says_why(core, make_project, slots, monkeypatch):
     project = _twelve(core, make_project, monkeypatch, "960x544", [])
-
-    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=TWELVE)
-    plan = _plan(evaluation, "s2")
-    (warning,) = _shortened_codes(evaluation)
-
-    assert plan.chain_video.trace() == {"previous": "s1", "frames": 39, "seconds": round(39 / 24, 6), "size": [960, 544], "sound": False}
-    assert STAND_IN in plan.request["form_data"]["references"]
-    assert warning["data"] == {"shot_id": "s2", "previous": "s1", "frames": 39, "seconds": 1.625, "tokens": 1997, "limit": encoder.LIMIT_12GB}
-    assert _encoder_codes(evaluation) == []
-    assert set(evaluation.waits) == {"s2"}
-    s1, s2 = _start(core, project, ["s1", "s2"], preset_id=TWELVE)
-    core.complete(s1["generation_id"])
-    _tick()
-    assert [call[3:5] for call in ends.calls] == [(39, (960, 544))]
-
-
-def test_on_the_12_gb_preset_a_third_picture_at_832_by_480_shortens_the_end_of_the_previous_take(core, make_project, slots, monkeypatch):
-    project = _twelve(core, make_project, monkeypatch, "832x480", [BOOTS])
-
-    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=TWELVE)
-    (warning,) = _shortened_codes(evaluation)
-
-    assert _plan(evaluation, "s2").chain_video.frames == 39
-    assert (warning["data"]["tokens"], warning["data"]["seconds"]) == (1866, 1.625)
-    assert len(_plan(evaluation, "s2").request["form_data"]["references"]) == 4
-
-
-def test_on_the_12_gb_preset_a_third_picture_at_960_by_544_leaves_out_even_the_shorter_end_and_says_why(core, make_project, slots, monkeypatch):
-    project = _twelve(core, make_project, monkeypatch, "960x544", [BOOTS])
     unchained = copy.deepcopy(project)
     unchained["doc"]["chainBy"] = "frame"
 
@@ -532,9 +475,19 @@ def test_on_the_12_gb_preset_a_third_picture_at_960_by_544_leaves_out_even_the_s
     assert plan.chain_video is None and plan.chain is None
     assert STAND_IN not in json.dumps(plan.request)
     assert plan.request == _plan(_evaluate(core, unchained, ["s1", "s2"], preset_id=TWELVE), "s2").request
-    assert warning["data"] == {"shot_id": "s2", "previous": "s1", "tokens": 2481, "limit": encoder.LIMIT_12GB}
-    assert _shortened_codes(evaluation) == []
+    assert warning["data"] == {"shot_id": "s2", "previous": "s1", "tokens": 2507, "limit": encoder.LIMIT_12GB}
     assert evaluation.waits == {}
+
+
+def test_on_the_12_gb_preset_a_third_picture_at_832_by_480_takes_the_shot_past_what_the_encoder_reads(core, make_project, slots, monkeypatch):
+    project = _twelve(core, make_project, monkeypatch, "832x480", [BOOTS])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=TWELVE)
+    (warning,) = _encoder_codes(evaluation)
+
+    assert _plan(evaluation, "s2").chain_video is None
+    assert warning["data"]["tokens"] == 1895 + 361
+    assert len(_plan(evaluation, "s2").request["form_data"]["references"]) == 3
 
 
 def test_a_picture_of_unknown_size_counts_as_large_as_the_encoder_reads_one():

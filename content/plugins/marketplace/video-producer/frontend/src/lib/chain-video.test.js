@@ -84,11 +84,3 @@ test('the estimate says why a Ref2VA shot does not continue the previous take', 
 	}
 	assert.ok(noteText({ code: 'chain_video_encoder', message: 'server text', data: { shot_id: 's2', tokens: 2507, limit: 2200 } }).includes('2,507'));
 });
-
-test('the estimate says how long the end of the previous take is when the encoder guard shortens it', () => {
-	const text = noteText({ code: 'chain_video_shortened', message: 'server text', data: { shot_id: 's2', previous: 's1', frames: 39, seconds: 1.625, tokens: 1997, limit: 2200 } });
-	assert.notEqual(text, 'server text');
-	assert.equal(text.split('{').length, 1);
-	assert.ok(text.includes('1.6 s') && text.includes('2.3 s'), text);
-	assert.ok(t('generation.warn.chainVideoShortened').length > 0);
-});

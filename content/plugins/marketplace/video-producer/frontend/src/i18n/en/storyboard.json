@@ -33,7 +33,6 @@
 	"chain.extendLong": "A continuation adds at most {seconds} and this shot is longer: it starts from the last frame of “{previous}”.",
 	"chain.continueShort": "In Ref2VA, “{previous}” lasts less than {seconds}, too little to continue: this shot starts from its text and its references.",
 	"chain.continueEncoder": "In Ref2VA on a 12 GB card, the end of the take of “{previous}” and the pictures of this shot would make about {tokens} image tokens for the text encoder, past about {limit}: this shot starts from its text and its references. A smaller size or fewer pictures make room for it.",
-	"chain.continueShortened": "In Ref2VA on a 12 GB card, the whole end of the take of “{previous}” and the pictures of this shot would make too many image tokens for the text encoder: this shot continues from its last {seconds} instead of {whole}.",
 	"chain.references": "In Ref2VA, this shot starts from its text and its references. Chain it by Continuation to send it the end of the take of “{previous}”.",
 	"chain.fromShot": "This switch is set for this shot",
 	"chain.fromProject": "This switch follows the project (File › Project properties…)",

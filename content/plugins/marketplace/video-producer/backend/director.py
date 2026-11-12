@@ -1876,8 +1876,8 @@ def _native_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict
         if auto is not None and preset.id in presets.MINIMAX_H3_12GB_PRESETS:
             limit = encoder.max_pixels(_reference_budget(context, fields), size)
             videos = [(cut.frames, cut.size or size) for cut in video if cut.size or size]
-            frames, tokens = encoder.fitted_end(pictures, videos, auto.frames, auto.size, limit, math.floor(seconds * encoder.FPS))
-            if frames == 0:
+            tokens = encoder.vision_tokens(pictures, [*videos, (min(auto.frames, math.floor(seconds * encoder.FPS)), auto.size)], limit)
+            if tokens > encoder.LIMIT_12GB:
                 warnings.append(
                     note(
                         "chain_video_encoder",
@@ -1890,21 +1890,6 @@ def _native_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict
                 )
                 auto = None
                 sent = reference_media(context.user, doc, shot_id, tracks, [track.cut for track in ready])
-            elif frames < auto.frames:
-                seconds_sent = round(frames / encoder.FPS, 6)
-                warnings.append(
-                    note(
-                        "chain_video_shortened",
-                        f"With the whole end of the previous take the shot would send more vision tokens than a 12 GB card holds: it receives its last {seconds_sent:.2f} s instead.",
-                        shot_id=shot_id,
-                        previous=auto.previous,
-                        frames=frames,
-                        seconds=seconds_sent,
-                        tokens=tokens,
-                        limit=encoder.LIMIT_12GB,
-                    )
-                )
-                auto = replace(auto, frames=frames)
         if engine_options.REFERENCE_SHORT_EDGE in fields:
             edge = sequence.reference_short_edge(size, context.quality == "final", pictures)
         if video or auto is not None:

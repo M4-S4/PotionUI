@@ -95,17 +95,3 @@ export function videoTokens(frames, size, limit) {
 export function visionTokens(pictures, videos, limit) {
 	return pictures.reduce((sum, picture) => sum + imageTokens(picture, limit), 0) + videos.reduce((sum, [frames, size]) => sum + videoTokens(frames, size, limit), 0);
 }
-
-export const SHORT_END_FRAMES = 39;
-
-export const endLengths = (frames) => [frames, ...(SHORT_END_FRAMES < frames ? [SHORT_END_FRAMES] : [])];
-
-export function fittedEnd(pictures, videos, frames, size, limit, readable = null) {
-	let tokens = 0;
-	for (const length of endLengths(frames)) {
-		const read = readable === null ? length : Math.min(length, readable);
-		tokens = visionTokens(pictures, [...videos, [read, size]], limit);
-		if (tokens <= LIMIT_12GB) return { frames: length, tokens };
-	}
-	return { frames: 0, tokens };
-}

@@ -101,16 +101,12 @@ export function chainState(doc, index) {
 
 export const MAX_CONTINUE_FRAMES = 328;
 
-export function continueFallback(doc, index, { references = false, end = null, maxDuration = null, least = 0 } = {}) {
+export function continueFallback(doc, index, { references = false, tokens = null, maxDuration = null, least = 0 } = {}) {
 	const from = doc.clips?.[index - 1];
 	const to = doc.clips?.[index];
 	if (!from || !to) return null;
 	if (sourceSeconds(from) < least) return { state: 'continueShort' };
-	if (references) {
-		if (!end) return null;
-		if (end.frames === 0) return { state: 'continueEncoder', tokens: end.tokens, limit: LIMIT_12GB };
-		return end.frames < end.whole ? { state: 'continueShortened', seconds: end.frames / FPS, tokens: end.tokens } : null;
-	}
+	if (references) return tokens !== null && tokens > LIMIT_12GB ? { state: 'continueEncoder', tokens, limit: LIMIT_12GB } : null;
 	if (seamImage(doc, to.id, 'last') || to.keepFraming === true) return { state: 'continueOwnLast' };
 	const dur = number(to.dur) !== null && to.dur > 0 ? to.dur : null;
 	const wanted = dur !== null && number(maxDuration) !== null && maxDuration > 0 ? Math.min(dur, maxDuration) : dur;

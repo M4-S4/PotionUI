@@ -8,7 +8,7 @@ import { aspectOf, draftResolution, optionFor } from './generation.js';
 import { effectiveEngine } from './engine.js';
 import { frameErrorText, placeSeamFrame, previousShot, seamImage } from './seam.js';
 import { chainByOf, setShotChainBy, chainOn, chainPlan, chainSource, chainState, chainWaiting, continueFallback, frameAsset, ignoresFirstFrame, placesTakeFrame, resetShotChain, seamChain, setShotChain, shotChained, stillAsset, takeFrameAsset } from './chain.js';
-import { FPS, TWELVE_GB_PRESETS, fittedEnd, maxPixels } from './encoder.js';
+import { FPS, TWELVE_GB_PRESETS, maxPixels, visionTokens } from './encoder.js';
 import { chosenSize, parseSize } from './formats.js';
 import { optionsOf, presetFields } from './options.js';
 import { sentReferences } from './shots.js';
@@ -111,11 +111,11 @@ export function seamChainOf(clip) {
 	const references = engine.profile === 'Ref2VA';
 	const modes = option && option.kind !== 'cloud' ? (option.info?.modes ?? []) : [];
 	const continues = chainByOf(doc, doc.clips[i]) === 'video' && (references || (TWELVE_GB_PRESETS.includes(option?.preset) && modes.includes('extend')));
-	const fallback = continues ? continueFallback(doc, i, { references, end: references ? encoderEnd(doc.clips[i], option) : null, maxDuration: option?.info?.limits?.maxDuration ?? null, least: leastSeconds() }) : null;
+	const fallback = continues ? continueFallback(doc, i, { references, tokens: references ? encoderTokens(doc.clips[i], option) : null, maxDuration: option?.info?.limits?.maxDuration ?? null, least: leastSeconds() }) : null;
 	return seamChain(doc, i, takeStore.list, ignoresFirstFrame(option), continues, references, fallback);
 }
 
-export function encoderEnd(clip, option) {
+export function encoderTokens(clip, option) {
 	if (!option || !TWELVE_GB_PRESETS.includes(option.preset)) return null;
 	const size = parseSize(draftResolution(option.info, ui.me?.settings?.draftResolution, aspectOf(doc.aspect, doc.resolution), chosenSize(doc, option.preset, 'draft')));
 	if (!size) return null;
@@ -125,8 +125,8 @@ export function encoderEnd(clip, option) {
 		.map((reference) => (doc.assets ?? []).find((a) => a.id === reference.assetId))
 		.filter((a) => a?.kind === 'image')
 		.map((a) => (a.width > 0 && a.height > 0 ? [a.width, a.height] : null));
-	const whole = VIDEO_TRACKS.minFrames;
-	return { ...fittedEnd(pictures, [], whole, size, maxPixels(budget, size), Math.floor((clip?.dur ?? 0) * FPS)), whole };
+	const frames = Math.min(VIDEO_TRACKS.minFrames, Math.floor((clip?.dur ?? 0) * FPS));
+	return visionTokens(pictures, [[frames, size]], maxPixels(budget, size));
 }
 
 export function waitText(take) {
@@ -164,7 +164,6 @@ export function chainStatusText(state) {
 	if (state.state === 'continueLater') return t('storyboard.chain.continueLater', { previous });
 	if (state.state === 'continueShort') return t('storyboard.chain.continueShort', { previous, seconds });
 	if (state.state === 'continueEncoder') return t('storyboard.chain.continueEncoder', { previous, tokens: formatNumber(state.tokens), limit: formatNumber(state.limit) });
-	if (state.state === 'continueShortened') return t('storyboard.chain.continueShortened', { previous, seconds: secs(state.seconds), whole: seconds });
 	return t('storyboard.chain.later', { previous });
 }
 

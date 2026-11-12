@@ -358,7 +358,6 @@
 	"warn.chainVideoTrimmed": "{shot} : il envoie déjà {limit} vidéos, la fin de la prise précédente n’est donc pas ajoutée.",
 	"warn.chainVideoRows": "{shot} : avec la fin de la prise précédente, il enverrait environ {rows} lignes au modèle, au-delà des {limit} environ que tient une carte de 12 Go : elle n’est donc pas ajoutée.",
 	"warn.chainVideoEncoder": "{shot} : avec la fin de la prise précédente, ses références feraient environ {tokens} jetons d’image pour l’encodeur de texte, au-delà des {limit} environ que lit une carte de 12 Go : la fin n’est donc pas ajoutée et le plan part de son texte et de ses références. Une taille plus petite ou moins d’images lui font de la place.",
-	"warn.chainVideoShortened": "{shot} : la fin entière de « {previous} » et ses références feraient plus de jetons d’image que n’en lit une carte de 12 Go : le plan en reçoit donc seulement les dernières {seconds} au lieu de {whole}.",
 	"warn.chainContinueUnsupported": "{shot} : ce moteur ne sait pas prolonger une vidéo ici, le plan part donc de la dernière image du plan précédent.",
 	"warn.chainContinueStill": "{shot} : le plan précédent montre une image fixe, pas une vidéo, le plan part donc de cette image.",
 	"warn.chainContinueShort": "{shot} : le plan précédent dure moins de {seconds}, trop peu pour être prolongé, le plan part donc de sa dernière image.",
