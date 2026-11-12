@@ -245,10 +245,16 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: content/plugins/package-lock.json
+          cache-dependency-path: |
+            content/plugins/package-lock.json
+            frontend/package-lock.json
 
       - name: npm ci (plugin toolchain)
         working-directory: content/plugins
+        run: npm ci
+
+      - name: npm ci (app frontend, which compiles the page stylesheet of a plugin)
+        working-directory: frontend
         run: npm ci
 
       - name: npm run build + drift check
