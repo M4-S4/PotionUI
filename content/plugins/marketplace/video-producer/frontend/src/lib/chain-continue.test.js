@@ -7,7 +7,7 @@ globalThis.Image = class {
 	set src(value) {}
 };
 
-const { doc, ui, dispose } = await import('./state.svelte.js');
+const { doc, ui, dispose, secs } = await import('./state.svelte.js');
 const { project } = await import('./project.svelte.js');
 const { setTakes } = await import('./takes.svelte.js');
 const { chainStatusText, chooseShotChainBy, seamChainOf } = await import('./chain.svelte.js');
@@ -90,4 +90,79 @@ test('the estimate says why a shot asked to continue starts from the last image'
 		assert.notEqual(text, 'server text', code);
 		assert.equal(text.split('{').length, 1, code);
 	}
+});
+
+const H3_12GB = '01M54HN72B0KY7H63BKQ16T253';
+const FACE = { id: 'face', kind: 'image', name: 'face', src: '/api/media/uploads/face.png', width: 1024, height: 1024 };
+const QUAY = { id: 'quay', kind: 'image', name: 'quay', src: '/api/media/uploads/quay.png', width: 1344, height: 768 };
+const BOOTS = { id: 'boots', kind: 'image', name: 'boots', src: '/api/media/uploads/boots.png', width: 1024, height: 1024 };
+
+function chained({ mode, by = 'video', modes = ['video', 'refs', 'continue'], size = '832x480', pictures = [], first = {}, second = {} }) {
+	ui.me = {
+		engines: [{ id: 'native', kind: 'local', name: 'Local' }],
+		presets: [
+			{
+				id: H3_12GB,
+				name: 'MiniMax-H3 (12 GB)',
+				video: true,
+				cloud: false,
+				listed: true,
+				profiles: ['FL2VA', 'Ref2VA'],
+				modes,
+				directorModes: ['t2v', 'i2v'],
+				resolutions: [{ value: '960x544' }, { value: '832x480' }],
+				limits: { defaultDuration: 5, maxDuration: null },
+				options: { refs: [{ name: 'reference_pixel_budget', type: 'select', default: '1' }] }
+			}
+		]
+	};
+	project.id = 'p1';
+	doc.engine = { backend: 'native', preset: H3_12GB, model: null, sizes: { [H3_12GB]: { draft: size } } };
+	doc.direction = { ...(doc.direction ?? {}), mode };
+	if (by === 'video') doc.chainBy = 'video';
+	else delete doc.chainBy;
+	delete doc.firstFromPrevious;
+	doc.assets = pictures.map((asset) => ({ ...asset }));
+	doc.references = pictures.map((asset) => ({ id: `r-${asset.id}`, assetId: asset.id, space: 'identite', type: 'image', scope: { type: 'global' } }));
+	doc.frames = [];
+	doc.clips = [
+		{ id: 's1', assetId: null, take: null, start: 0, dur: 4, srcIn: 0, stage: 'todo', label: 'One', ...first },
+		{ id: 's2', assetId: null, take: null, start: 4, dur: 3, srcIn: 0, stage: 'todo', label: 'Two', ...second }
+	];
+	setTakes('p1', []);
+	const state = seamChainOf(doc.clips[1]);
+	return { state: state.state, extends: state.extends, tokens: state.tokens ?? null, text: chainStatusText(state) };
+}
+
+test('a chained shot says what the server does in FL2VA and Ref2VA, by the last frame or by continuation, with and without the continue mode', () => {
+	const previous = 'One';
+	assert.deepEqual(chained({ mode: 'FL2VA' }), { state: 'continueLater', extends: true, tokens: null, text: t('storyboard.chain.extendLater', { previous }) });
+	assert.deepEqual(chained({ mode: 'FL2VA', modes: ['video', 'refs'] }), { state: 'later', extends: false, tokens: null, text: t('storyboard.chain.later', { previous }) });
+	assert.deepEqual(chained({ mode: 'FL2VA', by: 'frame' }), { state: 'later', extends: false, tokens: null, text: t('storyboard.chain.later', { previous }) });
+	assert.deepEqual(chained({ mode: 'Ref2VA' }), { state: 'continueLater', extends: false, tokens: null, text: t('storyboard.chain.continueLater', { previous }) });
+	assert.deepEqual(chained({ mode: 'Ref2VA', modes: ['video', 'refs'] }), { state: 'continueLater', extends: false, tokens: null, text: t('storyboard.chain.continueLater', { previous }) });
+	assert.deepEqual(chained({ mode: 'Ref2VA', by: 'frame' }), { state: 'references', extends: false, tokens: null, text: t('storyboard.chain.references', { previous }) });
+	assert.notEqual(t('storyboard.chain.extendLater', { previous }), t('storyboard.chain.later', { previous }));
+});
+
+test('a shot chained by continuation in FL2VA keeps the last frame for the reasons the server falls back on, and says which', () => {
+	const previous = 'One';
+	const seconds = secs(56 / 24);
+	assert.deepEqual(chained({ mode: 'FL2VA', first: { dur: 2 } }), { state: 'continueShort', extends: true, tokens: null, text: t('storyboard.chain.extendShort', { previous, seconds }) });
+	assert.deepEqual(chained({ mode: 'FL2VA', second: { keepFraming: true } }), { state: 'continueOwnLast', extends: true, tokens: null, text: t('storyboard.chain.extendOwnLast', { previous }) });
+	assert.deepEqual(chained({ mode: 'FL2VA', second: { dur: 14 } }), { state: 'continueLong', extends: true, tokens: null, text: t('storyboard.chain.extendLong', { previous, seconds: secs(328 / 24) }) });
+	assert.equal(chained({ mode: 'FL2VA', second: { dur: 13.6 } }).state, 'continueLater');
+	assert.deepEqual(chained({ mode: 'Ref2VA', first: { dur: 2 } }), { state: 'continueShort', extends: false, tokens: null, text: t('storyboard.chain.continueShort', { previous, seconds }) });
+});
+
+test('on the 12 GB preset a Ref2VA shot says the end of the previous take is left out where the encoder guard of the server leaves it out', () => {
+	assert.equal(chained({ mode: 'Ref2VA', size: '832x480', pictures: [FACE, QUAY] }).state, 'continueLater');
+	const refused = chained({ mode: 'Ref2VA', size: '960x544', pictures: [FACE, QUAY] });
+	assert.equal(refused.state, 'continueEncoder');
+	assert.equal(refused.tokens, 2507);
+	assert.ok(refused.text.includes('2,507') && refused.text.includes('2,200'), refused.text);
+	assert.equal(refused.text.split('{').length, 1);
+	const third = chained({ mode: 'Ref2VA', size: '832x480', pictures: [FACE, QUAY, BOOTS] });
+	assert.deepEqual([third.state, third.tokens], ['continueEncoder', 2256]);
+	assert.equal(chained({ mode: 'FL2VA', size: '960x544', pictures: [FACE, QUAY] }).state, 'continueLater');
 });

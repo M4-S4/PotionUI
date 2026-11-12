@@ -15,7 +15,7 @@
 		{ id: 'frame', label: t('shell.properties.chainByFrame') },
 		{ id: 'video', label: t('shell.properties.chainByVideo') }
 	]);
-	const tone = $derived(chain?.state === 'textOnly' || chain?.state === 'stale' || chain?.state === 'continueStill' ? 'text-warning' : 'text-fg-subtle');
+	const tone = $derived(['textOnly', 'stale', 'continueStill', 'continueShort', 'continueOwnLast', 'continueLong', 'continueEncoder'].includes(chain?.state) ? 'text-warning' : 'text-fg-subtle');
 </script>
 
 {#if chain}
@@ -24,6 +24,10 @@
 			<label for={id}>{t('storyboard.chain.label')}</label>
 			<HostUi name="Switch" props={{ id, checked: chain.state !== 'off', size: 'lg', label: t('storyboard.chain.label'), onchange: (v) => setShotChaining(clip, Boolean(v)) }} />
 		</div>
+		<p class="flex flex-wrap items-center gap-x-2 text-2xs text-fg-subtle" data-chain-source={chain.own ? 'shot' : 'project'}>
+			<span>{chain.own ? t('storyboard.chain.fromShot') : t('storyboard.chain.fromProject')}</span>
+			{#if chain.own}<button type="button" class="vp-link-hit text-fg-muted underline decoration-line-hover underline-offset-2 hover:text-fg" onclick={() => followProjectChain(clip)}>{t('storyboard.chain.followProject')}</button>{/if}
+		</p>
 		<p class="text-xs {tone}">{chainStatusText(chain)}</p>
 		{#if choosable}
 			<div class="flex min-h-6 items-center justify-between gap-2 text-xs text-fg-muted" data-chain-by={by}>
@@ -31,9 +35,5 @@
 				<HostUi name="SegmentedControl" props={{ items: choices, selected: by, onSelect: (v) => chooseShotChainBy(clip, v), ariaLabel: t('shell.properties.chainBy'), variant: 'toggle' }} />
 			</div>
 		{/if}
-		<p class="flex flex-wrap items-center gap-x-2 text-2xs text-fg-subtle">
-			<span>{chain.own ? t('storyboard.chain.fromShot') : t('storyboard.chain.fromProject')}</span>
-			{#if chain.own}<button type="button" class="vp-link-hit text-fg-muted underline decoration-line-hover underline-offset-2 hover:text-fg" onclick={() => followProjectChain(clip)}>{t('storyboard.chain.followProject')}</button>{/if}
-		</p>
 	</div>
 {/if}
