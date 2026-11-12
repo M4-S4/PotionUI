@@ -355,6 +355,25 @@ def h3_12gb_refs_fields():
 def h3_continue_fields():
     fields = h3_video_fields()
     fields.pop("upscale_model")
+    fields["speed_profile"] = _plain("select", "custom", ("quality", "turbo", "flex", "custom"))
+    fields["resolution"] = _plain("resolution", "832x480", H3_RESOLUTIONS)
+    fields["steps"] = _plain("slider", 20)
+    fields["frames"] = _plain("stepper", 120)
+    fields["source_video"] = _plain("video", required=True)
+    return fields
+
+
+def h3_fast_12gb_video_fields():
+    fields = h3_video_fields()
+    fields.pop("upscale_model")
+    fields["speed_profile"] = _plain("select", "distilled", ("distilled",))
+    fields["resolution"] = _plain("resolution", "832x480", H3_RESOLUTIONS)
+    fields["steps"] = _plain("slider", 8)
+    return fields
+
+
+def h3_fast_12gb_continue_fields():
+    fields = h3_fast_12gb_video_fields()
     fields["frames"] = _plain("stepper", 120)
     fields["source_video"] = _plain("video", required=True)
     return fields
@@ -667,7 +686,7 @@ class FakeCore:
         return self.add_preset(
             H3_FAST_12GB_ID,
             "MiniMax-H3-Fast (12 GB)",
-            {"video": h3_video_fields(), "extend": h3_continue_fields()},
+            {"video": h3_fast_12gb_video_fields(), "extend": h3_fast_12gb_continue_fields()},
             variables={**H3_VARS, "video_director": director},
         )
 
