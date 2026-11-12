@@ -518,8 +518,7 @@ def test_a_document_shows_the_dissolve_its_starts_overlap_and_a_bare_overlap_cut
 
     assert joins(doc["clips"]) == [0, 0.2]
     assert _offsets(_graph(doc)) == [(0.2, 3.8)]
-    assert "002  VP002    V     D    005 00:00:00:00 00:00:04:00 00:00:03:20 00:00:07:20" in render("edl", doc, files).split("
-")
+    assert "002  VP002    V     D    005 00:00:00:00 00:00:04:00 00:00:03:20 00:00:07:20" in render("edl", doc, files).split("\r\n")
     _assert_in_step(doc)
 
     doc["clips"].append({**doc["clips"][1], "id": "c", "assetId": "z", "start": 7, "dur": 2})
@@ -528,8 +527,7 @@ def test_a_document_shows_the_dissolve_its_starts_overlap_and_a_bare_overlap_cut
 
     assert [(place.start, place.end) for place in placement(doc["clips"])] == [(0, 4), (3.8, 7), (7, 9)]
     assert [round(dur * 25) for dur, _ in timeline(doc)[0]] == [100, 80, 50]
-    assert "002  VP002    V     D    005 00:00:00:00 00:00:03:05 00:00:03:20 00:00:07:00" in render("edl", doc, files).split("
-")
+    assert "002  VP002    V     D    005 00:00:00:00 00:00:03:05 00:00:03:20 00:00:07:00" in render("edl", doc, files).split("\r\n")
     _assert_in_step(doc)
 
 
