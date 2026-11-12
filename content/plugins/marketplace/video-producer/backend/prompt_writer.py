@@ -229,6 +229,14 @@ def work_folder(owner: User) -> Optional[Path]:
         return None
 
 
+def clear_work_area() -> bool:
+    folder = workdir.area(WORK_AREA)
+    if not folder.exists():
+        return False
+    shutil.rmtree(folder)
+    return True
+
+
 def readable(source: Path) -> bool:
     from PIL import Image
 

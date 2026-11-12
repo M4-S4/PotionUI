@@ -67,6 +67,41 @@ def test_on_boot_logs_and_swallows_a_table_error(monkeypatch, caplog):
     assert "Tables ready" not in caplog.text
 
 
+def test_on_boot_clears_the_work_folder_left_by_the_prompt_writer_and_nothing_else(plugin_db, export_storage, caplog):
+    left = export_storage / "video_producer" / "writer" / "user-1" / "0123abcd"
+    left.mkdir(parents=True)
+    (left / "frame-1.jpg").write_bytes(b"jpeg")
+    kept = export_storage / "video_producer" / "exports" / "user-1" / "cut.mp4"
+    kept.parent.mkdir(parents=True)
+    kept.write_bytes(b"mp4")
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        context = _context("plugin.lifecycle.boot")
+        assert lifecycle_hooks.on_boot(context) is context
+
+    assert not (export_storage / "video_producer" / "writer").exists()
+    assert kept.read_bytes() == b"mp4"
+    assert _table_names(plugin_db) == set(tables.TABLE_NAMES)
+    assert "Work folder of the prompt writer cleared" in caplog.text
+
+
+def test_on_boot_logs_and_swallows_a_work_folder_it_cannot_clear(plugin_db, export_storage, monkeypatch, caplog):
+    import shutil
+
+    (export_storage / "video_producer" / "writer" / "user-1").mkdir(parents=True)
+
+    def rmtree(path, *args, **kwargs):
+        raise PermissionError(13, "Access is denied", str(path))
+
+    monkeypatch.setattr(shutil, "rmtree", rmtree)
+    context = _context("plugin.lifecycle.boot")
+
+    assert lifecycle_hooks.on_boot(context) is context
+    assert _table_names(plugin_db) == set(tables.TABLE_NAMES)
+    assert "Could not clear the work folder of the prompt writer" in caplog.text
+    assert "Access is denied" in caplog.text
+
+
 def test_on_ready_starts_the_take_tracker_on_the_application_loop(scheduled, caplog):
     context = _context("plugin.lifecycle.ready", data={"started": True})
 
