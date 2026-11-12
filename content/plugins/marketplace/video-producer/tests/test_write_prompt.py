@@ -732,7 +732,7 @@ def test_a_key_frame_whose_path_leaves_the_file_storage_is_never_opened_and_is_l
     assert opened == []
 
 
-@pytest.mark.parametrize("broken", ["corrupt", "missing", "not_an_image"])
+@pytest.mark.parametrize("broken", ["corrupt", "truncated_jpeg", "missing", "not_an_image"])
 def test_a_small_key_frame_that_is_missing_or_cannot_be_read_is_left_out_and_the_writing_goes_on(core, client, make_doc, make_project, monkeypatch, export_storage, broken):
     core.use_h3()
     writer = Writer(monkeypatch)
@@ -741,6 +741,18 @@ def test_a_small_key_frame_that_is_missing_or_cannot_be_read_is_left_out_and_the
     _noise_png(export_storage / "uploads" / "end.png", 64, 36)
     if broken == "corrupt":
         start.write_bytes(start.read_bytes()[:200])
+    elif broken == "truncated_jpeg":
+        import io
+        import os
+
+        from PIL import Image
+
+        encoded = io.BytesIO()
+        Image.frombytes("RGB", (64, 36), os.urandom(64 * 36 * 3)).save(encoded, "JPEG", quality=95)
+        whole = encoded.getvalue()
+        start.write_bytes(whole[: len(whole) * 2 // 3])
+        with Image.open(start) as header:
+            header.verify()
     elif broken == "missing":
         start.unlink()
     else:

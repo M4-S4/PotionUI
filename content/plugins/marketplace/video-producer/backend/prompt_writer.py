@@ -230,7 +230,8 @@ def readable(source: Path) -> bool:
 
     try:
         with Image.open(source) as image:
-            image.verify()
+            image.draft("RGB", (IMAGE_EDGE, IMAGE_EDGE))
+            image.load()
     except Exception:
         return False
     return True
