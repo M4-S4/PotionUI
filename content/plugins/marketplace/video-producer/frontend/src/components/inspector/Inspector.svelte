@@ -55,7 +55,7 @@
 	import SeamAction from '../takes/SeamAction.svelte';
 	import ChainSwitch from '../shots/ChainSwitch.svelte';
 	import SeamTransition from '../storyboard/SeamTransition.svelte';
-	import { dissolveAfter, dissolveBefore } from '../../lib/dissolve.js';
+	import { chained, dissolveAfter, dissolveBefore } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import TakesSection from './TakesSection.svelte';
 	import DraftsField from '../shots/DraftsField.svelte';
@@ -114,7 +114,8 @@
 	const setClipIn = (v) => {
 		const max = sourceLength(item);
 		item.srcIn = round(clamp(v, 0, max - 0.4), 0.04);
-		item.dur = Math.min(item.dur, (max - item.srcIn) / speedOf(item));
+		const fit = Math.min(item.dur, (max - item.srcIn) / speedOf(item));
+		item.dur = chained(doc.clips) ? +fit.toFixed(6) : fit;
 		relayout();
 	};
 	const speeds = $derived(SPEEDS.map((speed) => ({ id: String(speed), label: t('inspector.speed.value', { value: Math.round(speed * 100) }) })));

@@ -64,6 +64,33 @@ export const joins = (clips) => placement(clips).map((place) => place?.overlap ?
 
 export const dissolving = (clips) => joins(clips).some(Boolean);
 
+export const onFrame = (time, fps) => (positive(fps) ? rounded(Math.round(finite(time) * fps) / fps) : finite(time));
+
+export function splitKeepsDissolves(clips, i, kept) {
+	const clip = clips[i];
+	if (!clip) return true;
+	const before = i > 0 ? clips[i - 1] : null;
+	const after = clips[i + 1] ?? null;
+	const first = { ...clip, dur: kept };
+	const second = { ...clip, dur: rounded(finite(clip.dur) - kept) };
+	delete second[DISSOLVE_KEY];
+	const head = before ? dissolveOf(before, clip) : 0;
+	const tail = after ? dissolveOf(clip, after) : 0;
+	return (!head || dissolveOf(before, first) === head) && (!tail || dissolveOf(second, after) === tail);
+}
+
+export const LEAST_SHOT = 0.4;
+
+export function headTrim(srcIn, dur, speed, shift) {
+	const from = finite(srcIn);
+	const length = finite(dur);
+	const rate = positive(speed) ? speed : 1;
+	const moved = Math.min(Math.max(Math.round(finite(shift) / GRID) * GRID, -from / rate), length - LEAST_SHOT);
+	return { srcIn: rounded(Math.max(from + moved * rate, 0)), dur: rounded(length - moved) };
+}
+
+export const tailTrim = (start, end, most) => rounded(Math.min(Math.max(finite(end) - finite(start), LEAST_SHOT), Math.max(finite(most), LEAST_SHOT)));
+
 export const chained = (clips) => (clips ?? []).some((clip, i) => i > 0 && dissolveOf(clips[i - 1], clip) > 0);
 
 export function layout(clips, snap) {

@@ -133,5 +133,6 @@
 	"dissolve.tip": "Cross-dissolve {dur}: the film is {dur} shorter",
 	"dissolve.rounded": "Rounded down to {dur}, on the 0.04 s grid of the timeline.",
 	"dissolve.chained": "This shot starts from the last frame of the previous one: with a cross-dissolve, the same motion shows twice.",
+	"dissolve.splitShortens": "Cannot split here: a piece would be too short for its {dur} cross-dissolve. Shorten the cross-dissolve, or split further from it.",
 	"dissolve.noSplit": "Cannot split inside a cross-dissolve: move the playhead out of it, or choose Cut first."
 }

@@ -30,7 +30,7 @@
 	import Icon from '../Icon.svelte';
 	import SoundNote from '../shots/SoundNote.svelte';
 	import ChainChip from './ChainChip.svelte';
-	import { lostSeconds } from '../../lib/dissolve.js';
+	import { chained, lostSeconds, tailTrim } from '../../lib/dissolve.js';
 
 	const HEAD = 120;
 	const SONG = 48;
@@ -111,12 +111,14 @@
 		const range = shotDurationLimit(c);
 		const max = sourceLength(c);
 		const d0 = c.dur;
+		const start0 = c.start;
+		const exact = chained(doc.clips);
 		drag(e, {
 			onMove: (dx) => {
-				const end = ui.snapping ? snap(c.start + d0 + dx / pps, c.id) : { t: c.start + d0 + dx / pps, at: null };
+				const end = ui.snapping ? snap((exact ? start0 : c.start) + d0 + dx / pps, c.id) : { t: (exact ? start0 : c.start) + d0 + dx / pps, at: null };
 				const nd = clamp(end.t - c.start, 0.4, range.max);
 				const limit = nd >= range.max - 0.001;
-				c.dur = round(nd, 0.04);
+				c.dur = exact ? tailTrim(start0, ui.snapping ? end.t : round(end.t, 0.04), range.max) : round(nd, 0.04);
 				relayout();
 				if (ui.drag) ui.drag.at = end.at;
 				trimText(range, max, d0, c.dur, limit);

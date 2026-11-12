@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { clean, renderComponent } from './svelte-harness.js';
-import { joins, setDissolve } from './dissolve.js';
+import { DISSOLVE_CHOICES, headTrim, joins, onFrame, setDissolve, tailTrim } from './dissolve.js';
 
 const { doc, ui, act, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, dispose } = await import('./state.svelte.js');
 const { commandById } = await import('./commands.js');
@@ -77,21 +77,22 @@ test('dissolve flow: a dissolve shortens the film by its length, moves the later
 
 test('dissolve flow: the blade keeps the dissolve on the head of a shot and a duplicate starts with a cut', () => {
 	project();
+	doc.clips[1].dur = 4;
 	dissolveB();
 	select('clip', 'b');
-	bladeAt(2);
+	bladeAt(3.5);
 	assert.deepEqual(
 		doc.clips.map((c) => [c.dur, c.dissolve ?? 0]),
 		[
 			[2, 0],
-			[1, 1],
-			[1, 0],
+			[2.5, 1],
+			[1.5, 0],
 			[1, 0]
 		]
 	);
 	assert.deepEqual(
 		doc.clips.map((c) => c.start),
-		[0, 1.52, 2.52, 3.52]
+		[0, 1, 3.5, 5]
 	);
 	project();
 	dissolveB();
@@ -171,14 +172,18 @@ test('dissolve flow: from the middle of a dissolve on, the shot under the playhe
 	const before = JSON.stringify(doc.clips);
 	bladeAt(1.8);
 	assert.equal(JSON.stringify(doc.clips), before);
-	bladeAt(2.6);
+	project();
+	doc.clips[1].dur = 4;
+	dissolveB();
+	select('clip', 'b');
+	bladeAt(3);
 	assert.deepEqual(
-		doc.clips.map((c) => [c.id === 'b' ? 'b' : c.id === 'a' || c.id === 'c' ? c.id : 'new', c.dur]),
+		doc.clips.map((c) => [c.id === 'b' ? 'b' : c.id === 'a' || c.id === 'c' ? c.id : 'new', c.start, c.dur]),
 		[
-			['a', 2],
-			['b', 1.6],
-			['new', 0.4],
-			['c', 1]
+			['a', 0, 2],
+			['b', 1, 2],
+			['new', 3, 2],
+			['c', 5, 1]
 		]
 	);
 });
@@ -377,16 +382,30 @@ test('dissolve flow: in a project that dissolves, a prompt and a frame added on 
 	ui.modal = null;
 });
 
-test('dissolve flow: the mark of a dissolve leaves the trim handles of both shots free in its middle', async () => {
-	project();
-	ui.pxPerSec = 100;
-	dissolveB();
-	const html = clean(await renderComponent(TIMELINE));
-	const mark = html.slice(html.indexOf('<button', html.lastIndexOf('<button', html.indexOf('data-dissolve="b"'))), html.indexOf('</button>', html.indexOf('data-dissolve="b"')));
-	assert.match(mark, /class="[^"]*pointer-events-none[^"]*"/);
-	assert.equal((mark.match(/data-dissolve-hit/g) ?? []).length, 2);
-	assert.match(mark, /style="right: calc\(50% \+ 8px\);"/);
-	assert.match(mark, /style="left: calc\(50% \+ 8px\);"/);
+test('dissolve flow: the mark of a dissolve is a clickable strip at least 12 px wide on its top, and leaves the rest of its box to the trim handles', async () => {
+	const button = (html) => html.match(/<button[^>]*data-dissolve="b"[^>]*>/)?.[0] ?? '';
+	const box = (html) => html.match(/<div[^>]*data-dissolve-box="b"[^>]*>/)?.[0] ?? '';
+	const width = (tag) => +(tag.match(/width: ([\d.]+)px/)?.[1] ?? NaN);
+	for (const [pxPerSec, seconds, wide] of [
+		[34, 0.4, 13.6],
+		[8, 0.4, 12],
+		[8, 1, 12],
+		[100, 1, 100]
+	]) {
+		project();
+		ui.pxPerSec = pxPerSec;
+		dissolveB(seconds);
+		const html = clean(await renderComponent(TIMELINE));
+		const tag = button(html);
+		assert.ok(tag, `no mark at ${pxPerSec} px/s`);
+		const classes = tag.match(/class="([^"]*)"/)[1].split(/\s+/);
+		assert.ok(!classes.includes('pointer-events-none'), tag);
+		assert.ok(!classes.includes('vp-hit'), tag);
+		assert.ok(classes.includes('top-6') && classes.includes('h-3'), tag);
+		assert.ok(width(tag) >= 12 && Math.abs(width(tag) - wide) < 1e-9, tag);
+		assert.ok(box(html).split('class="')[1].split('"')[0].split(/\s+/).includes('pointer-events-none'), box(html));
+		assert.doesNotMatch(html, /data-dissolve-hit/);
+	}
 });
 
 test('dissolve flow: in a project that dissolves, the blade cuts a shot off the grid exactly at the playhead and keeps its length and its source', () => {
@@ -430,4 +449,209 @@ test('dissolve flow: a reference frame added just before an off-grid shot start 
 	ui.playhead = 3;
 	addFrame();
 	assert.deepEqual([doc.frames.at(-1).shotId, doc.frames.at(-1).assetId], ['b', 'mb']);
+});
+
+const said = [];
+window.__potionui.notifications.toast = (level, message) => said.push(message);
+const lastToast = () => said.at(-1) ?? '';
+const refusal = (seconds) => t('timeline.dissolve.splitShortens', { dur: seconds });
+
+function lay(durs, dissolves) {
+	project();
+	doc.clips = durs.map((dur, i) => shot(String.fromCharCode(97 + i), 0, dur, dissolves[i] ? { dissolve: dissolves[i] } : {}));
+	relayout();
+}
+
+test('dissolve flow: the blade refuses a cut that would shorten the dissolve on the head of the shot, and leaves the document as it was', () => {
+	lay([2, 4, 1], [0, 1, 0]);
+	assert.deepEqual(doc.clips.map((c) => c.start), [0, 1, 5]);
+	select('clip', 'b');
+	const before = JSON.stringify(doc.clips);
+	bladeAt(2.6);
+	assert.equal(JSON.stringify(doc.clips), before);
+	assert.equal(lastToast(), refusal('1.0 s'));
+});
+
+test('dissolve flow: the blade refuses a cut that would shorten the dissolve into the next shot', () => {
+	lay([2, 4, 3], [0, 0, 1.2]);
+	assert.deepEqual(doc.clips.map((c) => c.start), [0, 2, 4.8]);
+	select('clip', 'b');
+	const before = JSON.stringify(doc.clips);
+	bladeAt(4.5);
+	assert.equal(JSON.stringify(doc.clips), before);
+	assert.equal(lastToast(), refusal('1.2 s'));
+});
+
+test('dissolve flow: the blade refuses a cut that would remove the only dissolve of the project', () => {
+	lay([2, 2], [0, 0.08]);
+	assert.deepEqual(doc.clips.map((c) => c.start), [0, 1.92]);
+	select('clip', 'a');
+	const before = JSON.stringify(doc.clips);
+	bladeAt(1.8853);
+	assert.equal(JSON.stringify(doc.clips), before);
+	assert.equal(lastToast(), refusal('0.08 s'));
+});
+
+function seeded(seed) {
+	let a = seed >>> 0;
+	return () => {
+		a = (a + 0x6d2b79f5) >>> 0;
+		let x = a;
+		x = Math.imul(x ^ (x >>> 15), x | 1);
+		x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+		return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+test('dissolve flow: on projects drawn at random, every blade the page accepts cuts at the asked time and leaves the later starts and every dissolve length unchanged to the millionth', () => {
+	const random = seeded(116);
+	const pick = (list) => list[Math.floor(random() * list.length)];
+	let accepted = 0;
+	let refused = 0;
+	for (let n = 0; n < 80; n++) {
+		const count = 2 + Math.floor(random() * 5);
+		const durs = Array.from({ length: count }, () => +(0.4 + random() * 5).toFixed(pick([2, 3])));
+		const dissolves = durs.map((_, i) => (i > 0 && random() < 0.6 ? pick([...DISSOLVE_CHOICES, 0.08, 0.12]) : 0));
+		lay(durs, dissolves);
+		doc.fps = pick([24, 25, 30, 50, 60]);
+		if (!joins(doc.clips).some(Boolean)) continue;
+		const clips = JSON.parse(JSON.stringify(doc.clips));
+		const total = seqDuration();
+		for (let k = 0; k < 12; k++) {
+			doc.clips = JSON.parse(JSON.stringify(clips));
+			relayout();
+			const time = random() < 0.5 ? onFrame(random() * total, doc.fps) : +(random() * total).toFixed(6);
+			const c = clipAt(time);
+			if (!c) continue;
+			const i = doc.clips.indexOf(c);
+			const starts = doc.clips.map((x) => x.start);
+			const overlaps = joins(doc.clips);
+			const before = JSON.stringify(doc.clips);
+			select('clip', c.id);
+			bladeAt(time);
+			if (JSON.stringify(doc.clips) === before) {
+				refused += 1;
+				continue;
+			}
+			accepted += 1;
+			const label = `${JSON.stringify(clips.map((x) => [x.dur, x.dissolve ?? 0]))} at ${time}`;
+			assert.equal(doc.clips.length, clips.length + 1, label);
+			assert.ok(Math.abs(doc.clips[i + 1].start - time) <= 1e-6, `${label}: piece at ${doc.clips[i + 1].start}`);
+			const after = doc.clips.map((x) => x.start);
+			const kept = [...starts.slice(0, i + 1), time, ...starts.slice(i + 1)];
+			assert.ok(after.every((start, j) => Math.abs(start - kept[j]) <= 1e-6), `${label}: ${after} against ${kept}`);
+			const lengths = joins(doc.clips);
+			const want = [...overlaps.slice(0, i + 1), 0, ...overlaps.slice(i + 1)];
+			assert.ok(lengths.every((value, j) => Math.abs(value - want[j]) <= 1e-6), `${label}: ${lengths} against ${want}`);
+		}
+	}
+	assert.ok(accepted > 100 && refused > 50, `${accepted} accepted, ${refused} refused`);
+});
+
+test('dissolve flow: in a project that dissolves, a reference frame added away from the playhead, as a double-click does, shows the picture of the shot it lands on', () => {
+	project();
+	dissolveB(1);
+	ui.playhead = 0.5;
+	addFrame(undefined, 2.6);
+	assert.deepEqual([doc.frames.at(-1).shotId, doc.frames.at(-1).assetId], ['b', 'mb']);
+	addFrame(undefined, 3.61);
+	assert.deepEqual([doc.frames.at(-1).time, doc.frames.at(-1).shotId, doc.frames.at(-1).assetId], [3.6, 'c', 'mc']);
+});
+
+test('dissolve flow: in a project without dissolve, a prompt and a reference frame keep the behaviour of the base', () => {
+	project();
+	ui.playhead = 4.5;
+	addPrompt(1.99);
+	assert.deepEqual([doc.prompts.at(-1).start, doc.prompts.at(-1).shotId], [2, 'a']);
+	addPrompt(2.37);
+	assert.deepEqual([doc.prompts.at(-1).start, doc.prompts.at(-1).shotId], [2.36, 'b']);
+	addFrame(undefined, 1.99);
+	assert.deepEqual([doc.frames.at(-1).time, doc.frames.at(-1).shotId, doc.frames.at(-1).assetId], [2, 'a', 'mc']);
+	addFrame(undefined, 2.6);
+	assert.deepEqual([doc.frames.at(-1).time, doc.frames.at(-1).shotId, doc.frames.at(-1).assetId], [2.6, 'b', 'mc']);
+	ui.modal = null;
+});
+
+test('dissolve flow: in a project that dissolves, the mouse blade cuts on the nearest whole frame counted from zero', () => {
+	assert.equal(onFrame(2.137891, 25), 2.12);
+	assert.equal(onFrame(2.141, 25), 2.16);
+	assert.equal(onFrame(4.33, 30), 4.333333);
+	assert.equal(onFrame(1.01, 24), 1);
+	project();
+	doc.clips[1].dur = 4;
+	dissolveB(1);
+	select('clip', 'b');
+	bladeAt(onFrame(3.137891, doc.fps));
+	assert.deepEqual(doc.clips.map((c) => [c.start, c.dur]).slice(1, 3), [
+		[1, 2.12],
+		[3.12, 1.88]
+	]);
+	const source = readFileSync(new URL(TIMELINE), 'utf-8');
+	assert.match(source, /bladeAt\(chained\(doc\.clips\) \? onFrame\(at, doc\.fps\) : at\)/);
+});
+
+test('dissolve flow: in a project that dissolves, a trim moves one edge on the grid and keeps the source point of the other edge to the millionth', () => {
+	project();
+	doc.clips[0].dur = 3.1;
+	doc.clips[1].dur = 4;
+	doc.clips[1].srcIn = 0.3;
+	dissolveB(1);
+	select('clip', 'b');
+	bladeAt(4.33);
+	const piece = doc.clips[2];
+	assert.deepEqual([piece.start, piece.dur, piece.srcIn], [4.33, 1.77, 2.53]);
+	const end = piece.srcIn + piece.dur;
+	for (const shift of [0.013, 0.05, -0.05, 0.31, -2.9, 1.5]) {
+		const next = headTrim(piece.srcIn, piece.dur, 1, shift);
+		assert.ok(Math.abs(next.srcIn + next.dur - end) <= 1e-6, `${shift}: ${JSON.stringify(next)}`);
+		assert.ok(next.dur >= 0.4 && next.srcIn >= 0, `${shift}: ${JSON.stringify(next)}`);
+		assert.equal(next.srcIn, +next.srcIn.toFixed(6));
+	}
+	assert.deepEqual(headTrim(2.53, 1.77, 1, 0.05), { srcIn: 2.57, dur: 1.73 });
+	assert.deepEqual(headTrim(2.53, 1.77, 1, 0.013), { srcIn: 2.53, dur: 1.77 });
+	assert.deepEqual(headTrim(2.53, 1.77, 1, -9), { srcIn: 0, dur: 4.3 });
+	assert.deepEqual(headTrim(2.53, 1.77, 0.5, 0.08), { srcIn: 2.57, dur: 1.69 });
+	assert.equal(tailTrim(4.33, 6.12, 6), 1.79);
+	assert.equal(tailTrim(4.33, 4.4, 6), 0.4);
+	assert.equal(tailTrim(4.33, 20, 6), 6);
+	piece.dur = tailTrim(piece.start, 6.12, 6);
+	relayout();
+	assert.deepEqual([piece.start, piece.dur, piece.srcIn, +(piece.start + piece.dur).toFixed(6)], [4.33, 1.79, 2.53, 6.12]);
+	const timeline = readFileSync(new URL(TIMELINE), 'utf-8');
+	assert.match(timeline, /if \(edge === 'start' && exact\) \{\s+const next = headTrim\(in0, d0, speed, dt\);/);
+	assert.match(timeline, /c\.dur = exact \? tailTrim\(start0, round\(start0 \+ d0 \+ dt, 0\.04\), range\.max\) : round\(nd, 0\.04\);/);
+	const band = readFileSync(new URL('../components/storyboard/BandLanes.svelte', import.meta.url), 'utf-8');
+	assert.match(band, /c\.dur = exact \? tailTrim\(start0, ui\.snapping \? end\.t : round\(end\.t, 0\.04\), range\.max\) : round\(nd, 0\.04\);/);
+	const inspector = readFileSync(new URL(INSPECTOR), 'utf-8');
+	assert.match(inspector, /item\.dur = chained\(doc\.clips\) \? \+fit\.toFixed\(6\) : fit;/);
+});
+
+test('dissolve flow: a trim that shortens a shot below twice its dissolve plays a shorter dissolve and slides the later shots, with no message', () => {
+	const steps = {
+		'keyboard end': () => ((ui.playhead = 2.6), commandById('trim-end').run()),
+		'keyboard start': () => ((ui.playhead = 1.4), commandById('trim-start').run()),
+		'mouse or band end': () => act(() => ((doc.clips[1].dur = tailTrim(1, 2.6, 6)), relayout())),
+		'mouse start': () => act(() => (Object.assign(doc.clips[1], headTrim(0, 2, 1, 0.4)), relayout())),
+		'inspector duration': () => act(() => ((doc.clips[1].dur = 1.6), relayout()))
+	};
+	for (const [name, run] of Object.entries(steps)) {
+		project();
+		dissolveB(1);
+		assert.deepEqual(doc.clips.map((c) => c.start), [0, 1, 3]);
+		select('clip', 'b');
+		const toasts = said.length + ui.toasts.length;
+		run();
+		assert.deepEqual(
+			doc.clips.map((c) => [c.start, c.dur]),
+			[
+				[0, 2],
+				[1.2, 1.6],
+				[2.8, 1]
+			],
+			name
+		);
+		assert.equal(doc.clips[1].dissolve, 1, name);
+		assert.deepEqual(joins(doc.clips), [0, 0.8, 0], name);
+		assert.equal(said.length + ui.toasts.length, toasts, name);
+	}
 });

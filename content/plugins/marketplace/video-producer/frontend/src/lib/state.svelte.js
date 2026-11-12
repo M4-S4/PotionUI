@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, chained, indexAt, layout, mixAt, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, dissolveOf, indexAt, layout, mixAt, splitKeepsDissolves, startingAt } from './dissolve.js';
 
 export { newAsset, newClip };
 
@@ -419,10 +419,19 @@ export function bladeAt(time = ui.playhead) {
 	const c = clipAt(time);
 	if (c && mixAt(doc.clips, time)) return toast(t('timeline.dissolve.noSplit'), 'warning');
 	if (!c || time - c.start < 0.1 || c.start + c.dur - time < 0.1) return toast(t('lib.toast.splitOutside'), 'warning');
+	const exact = chained(doc.clips);
+	if (exact) {
+		const i = doc.clips.indexOf(c);
+		const kept = +(time - c.start).toFixed(6);
+		if (!splitKeepsDissolves(doc.clips, i, kept)) {
+			const head = i > 0 ? dissolveOf(doc.clips[i - 1], c) : 0;
+			const dur = head && dissolveOf(doc.clips[i - 1], { ...c, dur: kept }) !== head ? head : dissolveOf(c, doc.clips[i + 1]);
+			return toast(t('timeline.dissolve.splitShortens', { dur: `${formatNumber(dur, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} s` }), 'warning');
+		}
+	}
 	act(() => {
 		const left = time - c.start;
 		const i = doc.clips.indexOf(c);
-		const exact = chained(doc.clips);
 		const kept = exact ? +left.toFixed(6) : round(left, 0.04);
 		const b = exact
 			? { ...$state.snapshot(c), id: ulid(), start: +(c.start + kept).toFixed(6), dur: +(c.dur - kept).toFixed(6), srcIn: +(c.srcIn + kept * speedOf(c)).toFixed(6), fadeIn: 0 }
@@ -561,8 +570,10 @@ export function addPrompt(start = ui.playhead, dur = 4) {
 
 export function addFrame(assetId = undefined, time = ui.playhead, role = 'Transition') {
 	const shot = shotStartingNear(time);
-	const media = assetId === undefined ? ((shot ?? clipAt(ui.playhead))?.assetId ?? null) : assetId;
-	const f = { id: ulid(), shotId: shot ? shot.id : shotIdAt(time), time: shot ? shot.start : round(time, 0.04), assetId: media, role, strength: 75 };
+	const shotId = shot ? shot.id : shotIdAt(time);
+	const landed = chained(doc.clips) ? doc.clips.find((c) => c.id === shotId) : null;
+	const media = assetId === undefined ? ((shot ?? landed ?? clipAt(ui.playhead))?.assetId ?? null) : assetId;
+	const f = { id: ulid(), shotId, time: shot ? shot.start : round(time, 0.04), assetId: media, role, strength: 75 };
 	act(() => doc.frames.push(f));
 	select('frame', f.id);
 	toast(t('lib.toast.frameAdded'));

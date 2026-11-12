@@ -133,5 +133,6 @@
 	"dissolve.tip": "Fondu enchaîné {dur} : le film raccourcit de {dur}",
 	"dissolve.rounded": "Arrondi à {dur}, sur la grille de 0,04 s de la timeline.",
 	"dissolve.chained": "Ce plan repart de la dernière image du précédent : avec un fondu enchaîné, le même mouvement se voit deux fois.",
+	"dissolve.splitShortens": "Impossible de couper ici : un morceau serait trop court pour son fondu enchaîné de {dur}. Raccourcissez le fondu, ou coupez plus loin.",
 	"dissolve.noSplit": "Impossible de couper dans un fondu enchaîné : sortez la tête de lecture du fondu, ou choisissez d’abord Coupe."
 }

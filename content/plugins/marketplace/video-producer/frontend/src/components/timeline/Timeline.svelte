@@ -60,7 +60,7 @@
 	import { engineTitle, shotReceptionFor } from '../../lib/references.js';
 	import { LIMITS, VIDEO_TRACKS, leastSeconds } from '../../lib/reception.js';
 	import { TAG_CLASS } from '../../lib/reftags.js';
-	import { dissolveMarks, shownSpans } from '../../lib/dissolve.js';
+	import { chained, dissolveMarks, headTrim, onFrame, shownSpans, tailTrim } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import Dropdown from '../shell/Dropdown.svelte';
 	import ZoomControls from './ZoomControls.svelte';
@@ -293,7 +293,8 @@
 		}
 		if (ui.tool === 'blade') {
 			select('clip', c.id);
-			return bladeAt(timeAt(e.clientX));
+			const at = timeAt(e.clientX);
+			return bladeAt(chained(doc.clips) ? onFrame(at, doc.fps) : at);
 		}
 		select('clip', c.id);
 		drag(e, {
@@ -321,12 +322,19 @@
 		const range = shotDurationLimit(c);
 		const d0 = c.dur;
 		const in0 = c.srcIn;
+		const start0 = c.start;
 		const speed = speedOf(c);
+		const exact = chained(doc.clips);
 		drag(e, {
 			onMove: (dx) => {
 				const dt = dx / pps;
 				let limit = false;
-				if (edge === 'start') {
+				if (edge === 'start' && exact) {
+					const next = headTrim(in0, d0, speed, dt);
+					limit = next.srcIn <= 0.001;
+					c.srcIn = next.srcIn;
+					c.dur = next.dur;
+				} else if (edge === 'start') {
 					const nIn = clamp(in0 + dt * speed, 0, in0 + (d0 - 0.4) * speed);
 					limit = nIn <= 0.001;
 					c.srcIn = round(nIn, 0.04);
@@ -334,7 +342,7 @@
 				} else {
 					const nd = clamp(d0 + dt, 0.4, range.max);
 					limit = nd >= range.max - 0.001;
-					c.dur = round(nd, 0.04);
+					c.dur = exact ? tailTrim(start0, round(start0 + d0 + dt, 0.04), range.max) : round(nd, 0.04);
 				}
 				relayout();
 				trimText(range, max, d0, c.dur, limit);
@@ -745,25 +753,31 @@
 
 {#snippet dissolve(mark)}
 	{@const text = t('timeline.dissolve.tip', { dur: `${formatNumber(mark.dur, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} s` })}
+	{@const middle = x(mark.start + mark.dur / 2)}
+	<div
+		class="pointer-events-none absolute bottom-1 top-6 z-20 -translate-x-1/2 rounded-sm border border-white/50 bg-black/45 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
+		style:left="{middle}px"
+		style:width="{Math.max(x(mark.dur), 6)}px"
+		aria-hidden="true"
+		data-dissolve-box={mark.id}
+	>
+		<svg class="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+			<line x1="0" y1="100" x2="100" y2="0" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />
+			<line x1="0" y1="0" x2="100" y2="100" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />
+		</svg>
+	</div>
 	<button
 		type="button"
 		tabindex="-1"
-		class="vp-hit pointer-events-none absolute bottom-1 top-6 z-20 -translate-x-1/2 rounded-sm border border-white/50 bg-black/45 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
-		style:left="{x(mark.start + mark.dur / 2)}px"
-		style:width="{Math.max(x(mark.dur), 6)}px"
+		class="absolute top-6 z-20 h-3 -translate-x-1/2 touch-none rounded-sm border border-white/70 bg-white/30 hover:bg-white/60 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
+		style:left="{middle}px"
+		style:width="{Math.max(x(mark.dur), 12)}px"
 		aria-label={text}
 		title={text}
 		data-dissolve={mark.id}
 		onpointerdown={(e) => e.stopPropagation()}
 		onclick={() => (select('clip', mark.id), (ui.inspectorOpen = true))}
-	>
-		<span class="pointer-events-auto absolute inset-y-0 left-0" style:right="calc(50% + 8px)" data-dissolve-hit></span>
-		<span class="pointer-events-auto absolute inset-y-0 right-0" style:left="calc(50% + 8px)" data-dissolve-hit></span>
-		<svg class="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-			<line x1="0" y1="100" x2="100" y2="0" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />
-			<line x1="0" y1="0" x2="100" y2="100" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />
-		</svg>
-	</button>
+	></button>
 {/snippet}
 
 {#snippet clip(c, i)}
