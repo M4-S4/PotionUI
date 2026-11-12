@@ -747,7 +747,7 @@
 	<button
 		type="button"
 		tabindex="-1"
-		class="vp-hit absolute bottom-1 top-6 z-[15] -translate-x-1/2 rounded-sm border border-white/70 bg-black/45 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
+		class="vp-hit absolute bottom-1 top-6 z-20 -translate-x-1/2 rounded-sm border border-white/50 bg-black/45 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
 		style:left="{x(mark.start + mark.dur / 2)}px"
 		style:width="{Math.max(x(mark.dur), 6)}px"
 		aria-label={text}

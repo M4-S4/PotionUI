@@ -635,6 +635,24 @@ Jobs:
 
 As one measure, on the test server a 29-second sequence at 1080p (the starter project of version 0.1.0, five shots and a test clip) took 11 seconds (about 6 to assemble and mix, about 5 to convert) and gave a 3.2 MB file. A long 4K sequence on a slow machine takes as long as its delivery run needs, with its progress shown.
 
+### Cross-dissolves
+
+A shot may carry `dissolve`, a number of seconds from 0 to 2 (`MAX_DISSOLVE`), which describes the cut between it and the shot before it; absent or 0 is a straight cut, and no migration is needed. The dissolve a cut plays is `min(dissolve, 2, before.dur / 2, shot.dur / 2)`, floored to the 0.04 s grid of the timeline, and 0 under one step or on the first shot (`dissolve_of` in `backend/dissolve.py`, `dissolveOf` in `frontend/src/lib/dissolve.js`; the shared cases are `tests/fixtures/dissolve_cases.json`). A value that is not a number counts as 0.
+
+Layout: `relayout` on the page and in the assistant (`backend/chat/edits.py`) lays each shot at the end of the one before less that dissolve, snapped to the grid, and moves the prompts and frames linked to a shot with it; sounds, titles and markers keep their times. The running time of the sequence is still the latest end of the shots, sounds and titles, so it gets shorter by the dissolves.
+
+Fades: on a dissolved cut, the `fadeOut` of the shot before and the `fadeIn` of the shot after are left out of the picture and of the sound of the shots, at export and on the page; choosing a dissolve on the page sets them to 0.
+
+The assembled video: `timeline()` steps back by the dissolve before a dissolved shot, each segment keeping the full length of its shot; a black gap between two shots cancels the dissolve. In `_assembly`, a run of shots joined by dissolves is chained before the `concat`: the pictures by `xfade=transition=fade:duration=<d>:offset=<o>`, the sounds of the shots by `acrossfade=d=<d>:c1=qsin:c2=qsin`, where `d` is the dissolve in whole frames and `o` is what is already joined less `d`, in frames over the frame rate. The `concat` then takes one pair per run. A sequence without dissolve gives the graph and the command of before, byte for byte (`tests/fixtures/exports/legacy-graphs.json`, written by the code of version 0.3.1). When a sequence is assembled in parts, a part never ends inside a run, and its length is its shots less its dissolves. The crossfade of the master (`master.crossfade`) still joins only the items of the audio lanes.
+
+The exchange files use a cut model: for an overlap of `D` frames starting at frame `s`, the cut sits at `E = s + ⌊D/2⌋`; the shot before ends at `E`, the shot after starts at `E` with its source in advanced by `⌊D/2⌋` frames at its speed, and the transition covers `[s, s + D)` with handles that both shots already play (`cuts` in both files).
+
+- EDL: the event of the shot after has two lines, `C` of zero length on the source of the shot before at `s`, then `D    <D>` with the record in at `s`; the event before ends at `s`; `* FROM CLIP NAME` names the shot before and `* TO CLIP NAME` the shot after.
+- OTIO: a `Transition.1` named `Cross Dissolve`, `transition_type` `SMPTE_Dissolve`, `in_offset` `⌊D/2⌋` and `out_offset` the rest, between the two items.
+- FCPXML: an `effect` resource `Cross Dissolve` (`FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265`) after the assets, and a `transition` at `offset` `s` lasting `D` between the two spine items, with its `filter-video`.
+
+The page writes the same three files byte for byte (`frontend/src/lib/exchange.js`); both are checked against `tests/fixtures/exports/dissolve.*`, made from `dissolve-project.json`.
+
 ### Seam frames
 
 A seam frame is an image taken from a take and stored in the library, that the page sets as the first or last frame of a shot. It lets a shot start from where the previous one ended: the FL2VA profile starts a take on its first frame.

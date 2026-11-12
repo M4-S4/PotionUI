@@ -876,6 +876,20 @@ For another moment than the last image, use **Extract a frame at the playhead**,
 
 The assistant can run more checks on request: shots without a prompt, contradictions with the global direction, durations outside 2 to 15 s, FL2VA shots without a first frame and camera moves that change between two shots, together with the color points above. Its answer is a second **To check** list in the left panel of Director AI (chapter 10).
 
+### Cross-dissolve between two shots
+
+The cut between two shots is a straight cut unless the shot that starts carries a cross-dissolve: the picture of the shot that ends blends into the picture of the shot that starts.
+
+- **Where to choose it.** The **Transition** of the Inspector, for the selected shot that starts, and the cut window of the Storyboard (the cut between two cards). The choices are **Cut** and **Cross-dissolve** of 0.4, 0.6, 1, 1.2 or 2 seconds. A first shot has no cut before it and offers no choice.
+- **The film gets shorter.** The shot that starts begins earlier by the length of the dissolve and overlaps the end of the shot before it. No frame is generated for the dissolve and each take keeps the length of its shot. The later shots move earlier with their prompts and frames, as when a shot is trimmed; sounds, titles, markers and the clips of the reference video tracks stay at their times. Under the choice, the page says "The film is 1.0 s shorter", and how much shorter all the dissolves of the film make it.
+- **Its length.** At most half of the shorter of the two shots, on the 0.04 s grid of the timeline: a 1 s dissolve between a 4 s shot and a 1 s shot lasts 0.48 s, and the page says so. When both shots are too short, the cut stays a cut.
+- **With a fade to black.** A cut carries one transition. On a cut with a cross-dissolve, the fade-out of the shot that ends and the fade-in of the shot that starts are not played; choosing a dissolve sets them to zero, and the Inspector greys the two fields with a sentence. The other fades of the two shots are played as before.
+- **Its sound.** The sound of the two shots crosses over the same time, at equal power, so it stays with its picture. The **Crossfade between neighbouring clips** of the export window is a separate setting, for the clips of the audio tracks only, and changes no duration.
+- **On the timeline.** Each shot is drawn up to the middle of its dissolves, and a crossed box sits on the cut, as long as the dissolve; click it to select the shot that starts and open the Inspector. The fade handle that the dissolve replaces is hidden.
+- **In the viewer and playback.** The picture of the shot that starts is laid over the picture of the shot that ends, more and more opaque across the dissolve.
+- **Editing.** The dissolve belongs to the shot that starts: it moves with the shot when you reorder, a split with the blade keeps it on the first piece, and a duplicated shot starts with a straight cut.
+- **Exports.** The video holds the dissolve, frame for frame. The FCPXML, OpenTimelineIO and EDL files write it as a transition centred on the middle of the overlap.
+
 ## 13. Audio and subtitles
 
 Audio lives in tracks, each with a role: Dialogue, Music, Ambience or SFX. **Audio › Add audio track**, **Audio › Import audio from the library…** and **Audio › Import audio from this computer…** bring sounds in; **Audio › Mixing console** shows the console. In the console each strip has a role, effects (**Equalizer**, **Compressor**, **Filter**; **+ effect** adds one), sends to the reverb and delay buses (R and D), pan, a fader (double-click it to go back to 0 dB), a meter, **M** and **S**; the auxiliary buses and the **Master** follow. The pills at the top, each with its number of tracks, show one role only. The titles of the timeline feed the subtitles (chapter 14).
@@ -982,7 +996,7 @@ Three files, built by the server from your saved project: **FCPXML** (`.fcpxml`)
 - **OpenTimelineIO.** "Video and audio tracks by role; opens in Resolve, Premiere (plugin) and Nuke Studio." The same video row, and one audio track per track of the console, named **A1**, **A2**… as on the timeline, with the position, role and gain of each clip. The audio clips carry no file.
 - **EDL.** "Universal edit list (V1 only), for grading or conforming." One event per shot, with its name and its media file; a shot without media is on a black reel (BL).
 
-These files carry the cut only: no fades, no color settings, no titles and no audio files.
+These files carry the cut only: no fades, no color settings, no titles and no audio files. A cross-dissolve between two shots is the exception: the three files write it as a transition (chapter 12).
 
 **Media paths.** The files point to the real media files of your shots, as the server stores them: "Media paths are the real files on the server, taken from the saved project." The preview shown in the window lists file names, but the file you download holds the full paths on the server. If your editing software runs on another computer, those paths do not exist there: put the videos of your takes (download them from your gallery) and your imported media on that computer and relink them in your software.
 
