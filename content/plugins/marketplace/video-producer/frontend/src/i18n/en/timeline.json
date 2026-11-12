@@ -124,7 +124,7 @@
 	"dissolve.cut": "Cut",
 	"dissolve.value": "Cross-dissolve {value} s",
 	"dissolve.shorter": "The film is {dur} shorter. Later shots move earlier; sounds, titles and markers stay where they are.",
-	"dissolve.capped": "Limited to {dur}: just under half of the shorter of the two shots.",
+	"dissolve.capped": "Limited to {dur}: at most half of the shorter of the two shots, on the 0.04 s grid.",
 	"dissolve.total": "All cross-dissolves together: the film is {dur} shorter.",
 	"dissolve.overlap": "Plays {dur} instead of {asked}: a shot length off the 0.04 s grid moves where the two shots overlap.",
 	"dissolve.tooBrief": "A cross-dissolve lasts at least 0.08 s: this one plays as a cut.",

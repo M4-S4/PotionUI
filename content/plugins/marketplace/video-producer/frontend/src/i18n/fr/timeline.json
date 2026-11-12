@@ -124,7 +124,7 @@
 	"dissolve.cut": "Coupe",
 	"dissolve.value": "Fondu enchaîné {value} s",
 	"dissolve.shorter": "Le film raccourcit de {dur}. Les plans suivants avancent d’autant ; les sons, les titres et les marqueurs restent à leur place.",
-	"dissolve.capped": "Limité à {dur} : un peu moins de la moitié du plus court des deux plans.",
+	"dissolve.capped": "Limité à {dur} : au plus la moitié du plus court des deux plans, sur la grille de 0,04 s.",
 	"dissolve.total": "Tous les fondus enchaînés réunis : le film raccourcit de {dur}.",
 	"dissolve.overlap": "Joue {dur} au lieu de {asked} : une durée de plan hors de la grille de 0,04 s déplace le recouvrement des deux plans.",
 	"dissolve.tooBrief": "Un fondu enchaîné dure au moins 0,08 s : celui-ci se joue en coupe.",
