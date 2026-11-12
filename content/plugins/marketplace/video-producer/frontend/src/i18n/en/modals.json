@@ -294,6 +294,6 @@
 	"shot.writer.dropped.one": "One of the shot’s images could not be prepared for the language model: it was written without it.",
 	"shot.writer.dropped.other": "{count} of the shot’s images could not be prepared for the language model: it was written without them.",
 	"shot.cardWords.replaced": "This shot replaces its prompt part from the references by hand, so the card words change nothing it sends. Choose Back to the composed text to use them.",
-	"shot.writer.unknownTags.one": "The proposal keeps the tag {tags}, which Video Producer numbers itself and cannot name here. Replace it with the label of a card, or write again.",
-	"shot.writer.unknownTags.other": "The proposal keeps the tags {tags}, which Video Producer numbers itself and cannot name here. Replace them with the labels of cards, or write again."
+	"shot.writer.keptTags.one": "The proposal keeps the tag {tags}. Video Producer numbers these tags itself when it composes the prompt, and the model may have meant another card: replace it with the label of the card, or write again.",
+	"shot.writer.keptTags.other": "The proposal keeps the tags {tags}. Video Producer numbers these tags itself when it composes the prompt, and the model may have meant other cards: replace them with the labels of the cards, or write again."
 }

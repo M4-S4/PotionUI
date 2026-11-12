@@ -144,7 +144,7 @@ def test_writing_sends_the_request_the_preset_guide_of_the_shot_mode_and_its_two
     response = _write(client, project["id"], _body())
 
     assert response.status_code == 200
-    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0, "images_dropped": 0, "lost_tags": [], "unknown_tags": []}
+    assert response.json()["data"] == {"text": WRITTEN, "name": "Qwen3-VL", "images": 2, "images_skipped": 0, "images_dropped": 0, "lost_tags": [], "kept_tags": []}
     (call,) = writer.calls
     assert call["user_id"] == "user-1"
     assert (call["preset_id"], call["mode"]) == (presets.MINIMAX_H3, "refs")
@@ -597,48 +597,38 @@ def test_a_reply_too_long_is_cut_at_its_last_whole_sentence_or_at_a_word():
     assert prompt_writer.cleaned("A short one.") == "A short one."
 
 
-def test_a_bare_tag_becomes_the_label_of_the_card_it_numbers_and_an_unknown_one_is_kept_and_reported():
-    names = {"<Subject 1>": "the old fisherman", "<Subject 2>": "the stone quay", "<Picture 1>": "the old fisherman", "<Video 1>": "@vref2"}
+def test_tags_in_angle_brackets_are_kept_as_written_and_listed_in_order():
+    written = prompt_writer.cleaned("<Subject 2> walks toward <Subject 1> while <Audio 1> plays, then <Subject 2> stops.")
 
-    assert prompt_writer.cleaned("<Subject 1> walks toward <Subject 2>.", names) == "The old fisherman walks toward the stone quay."
-    assert prompt_writer.cleaned("Rain falls. <Subject 1> waves, as in <Video 1>.", names) == "Rain falls. The old fisherman waves, as in @vref2."
-    kept = prompt_writer.cleaned("<Subject 3> walks toward <Subject 2> while <Audio 1> plays.", names)
-    assert kept == "<Subject 3> walks toward the stone quay while <Audio 1> plays."
-    assert prompt_writer.unknown_tags(kept) == ["<Subject 3>", "<Audio 1>"]
-    assert prompt_writer.cleaned("<Subject 1> walks toward <Subject 2>.") == "<Subject 1> walks toward <Subject 2>."
+    assert written == "<Subject 2> walks toward <Subject 1> while <Audio 1> plays, then <Subject 2> stops."
+    assert prompt_writer.kept_tags(written) == ["<Subject 2>", "<Subject 1>", "<Audio 1>"]
+    assert prompt_writer.kept_tags("The old fisherman waits.") == []
 
 
 @pytest.mark.parametrize(
-    ("mode", "reply", "kept", "unknown"),
+    ("mode", "reply"),
     [
-        ("Ref2VA", "<Subject 3> waves at <Subject 1> on <Picture 2>.", "The old fisherman waves at the red-haired woman on the harbour at dawn.", []),
-        ("Ref2VA", "<Subject 2> darkens while <Audio 1> plays.", "The harbour at dawn darkens while <Audio 1> plays.", ["<Audio 1>"]),
-        ("FL2VA", "<Subject 2> waves at <Subject 1> on <Subject 3>.", "The old fisherman waves at the red-haired woman on the harbour at dawn.", []),
+        ("Ref2VA", "<Subject 1> lifts his lantern while <Subject 2> watches from the boat."),
+        ("Ref2VA", "<Subject 2> lifts his lantern on <Picture 1>."),
+        ("FL2VA", "<Subject 3> walks toward <Subject 1> along the harbour."),
     ],
 )
-def test_the_route_names_the_tags_of_a_reply_by_the_numbering_of_the_shot(core, client, make_doc, make_project, monkeypatch, mode, reply, kept, unknown):
+def test_a_reply_numbered_its_own_way_is_never_renamed_and_its_tags_are_listed(core, client, make_doc, make_project, monkeypatch, mode, reply):
     core.use_h3()
-    Writer(monkeypatch, reply={"text": reply})
+    writer = Writer(monkeypatch, reply={"text": reply})
     project = make_project(doc=_doc(core, make_doc, mode=mode))
 
     response = _write(client, project["id"], _body())
 
     assert response.status_code == 200
-    assert response.json()["data"]["text"] == kept
-    assert response.json()["data"]["unknown_tags"] == unknown
-
-
-def test_a_shot_that_replaced_its_reference_part_keeps_the_tags_of_a_reply_and_reports_them(core, client, make_doc, make_project, monkeypatch):
-    core.use_h3()
-    Writer(monkeypatch, reply={"text": "<Subject 1> waves."})
-    doc = _doc(core, make_doc)
-    doc["clips"][0]["referencePrompt"] = {"layout": "refs", "parts": {"subject_definitions": "<Subject 1> is a stranger.", "retention_analysis": "", "citations": ""}, "base": {"subject_definitions": "", "retention_analysis": "", "citations": ""}}
-    project = make_project(doc=doc)
-
-    response = _write(client, project["id"], _body())
-
-    assert response.json()["data"]["text"] == "<Subject 1> waves."
-    assert response.json()["data"]["unknown_tags"] == ["<Subject 1>"]
+    data = response.json()["data"]
+    assert data["text"] == reply
+    assert data["kept_tags"] == prompt_writer.kept_tags(reply)
+    assert data["kept_tags"]
+    for label in ("the red-haired woman", "the old fisherman", "the harbour at dawn"):
+        assert label not in data["text"]
+    assert "write no tag in angle brackets at all" in writer.calls[0]["instruction"]
+    assert "Name every character and place by its label" in writer.calls[0]["instruction"]
 
 
 def _writer_area(root):

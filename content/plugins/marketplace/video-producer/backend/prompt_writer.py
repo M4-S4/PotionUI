@@ -39,7 +39,9 @@ FRAMING = (
     "the [Shot 1] marker, the global direction of the film, the cast definitions from the project's bible with their "
     "<Subject N> and <Picture N> tags, the dialogue and the sound. Follow the guide for its vocabulary (camera moves, "
     "framing, motion, light), not for its layout: reply with one to three plain sentences that say what the camera "
-    "sees in this shot, with no section label, no [Shot] marker and no <Subject N>, <Picture N> or <Video N> tag."
+    "sees in this shot, with no section label and no [Shot] marker. Name every character and place by its label, and write "
+    "no tag in angle brackets at all, no <Subject N>, <Picture N>, <Video N> or <Audio N>: Video Producer numbers them itself "
+    "when it composes the prompt."
 )
 
 SECTION = re.compile(r"^[ \t]*(?:detailed_description|integrated_multimodal_description)[ \t]*:[ \t]*", re.MULTILINE)
@@ -47,7 +49,6 @@ NEXT_SECTION = re.compile(r"\n[ \t]*[a-z_]+[ \t]*:")
 SHOT_MARKER = re.compile(r"\[Shot 1\]\s*")
 TAGGED = re.compile(r"\s*\(\s*<(?:Subject|Picture|Video|Audio) \d+>\s*\)")
 BARE = re.compile(r"<(?:Subject|Picture|Video|Audio) \d+>")
-OPENS = re.compile(r"(?:^|[.!?\u2026]\s+)$")
 SPACED = re.compile(r"[ \t]+([,.;:!?])")
 FENCE = re.compile(r"```[A-Za-z]*[ \t]*\n?(.*?)```", re.DOTALL)
 PREAMBLE = re.compile(
@@ -158,21 +159,11 @@ def bounded(text: str) -> str:
     return (cut[: MAX_WRITTEN_CHARS - 1].rsplit(" ", 1)[0] if " " in cut else cut[: MAX_WRITTEN_CHARS - 1]).rstrip() + "\u2026"
 
 
-def _named(text: str, names: Mapping[str, str]) -> str:
-    def name(match: "re.Match[str]") -> str:
-        found = names.get(match.group(0))
-        if not found:
-            return match.group(0)
-        return found[:1].upper() + found[1:] if OPENS.search(text[: match.start()]) else found
-
-    return BARE.sub(name, text)
-
-
-def unknown_tags(written: str) -> List[str]:
+def kept_tags(written: str) -> List[str]:
     return list(dict.fromkeys(BARE.findall(written)))
 
 
-def cleaned(text: Any, names: Optional[Mapping[str, str]] = None) -> str:
+def cleaned(text: Any) -> str:
     written = text.strip() if isinstance(text, str) else ""
     fence = FENCE.search(written)
     if fence is not None:
@@ -187,21 +178,20 @@ def cleaned(text: Any, names: Optional[Mapping[str, str]] = None) -> str:
     marker = SHOT_MARKER.search(written)
     if marker is not None:
         written = written[marker.end():]
-    written = SPACED.sub(r"\1", _named(TAGGED.sub("", written), names or {}))
+    written = SPACED.sub(r"\1", TAGGED.sub("", written))
     return bounded("\n".join(" ".join(line.split()) for line in written.strip().splitlines()).strip())
 
 
-def _plan(owner: User, doc: Mapping[str, Any], shot_id: str, preset_id: str, model_id: Optional[str]) -> Tuple[str, Optional[str], Optional[Dict[str, Any]], Dict[str, str]]:
+def _plan(owner: User, doc: Mapping[str, Any], shot_id: str, preset_id: str, model_id: Optional[str]) -> Tuple[str, Optional[str], Optional[Dict[str, Any]]]:
     try:
         plans = director.build_plans(owner, doc, [shot_id], preset_id, "draft", model_id, overrides=True)
     except DirectorError:
-        return preset_id, None, None, {}
+        return preset_id, None, None
     plan = next((item for item in plans.shots if item.shot_id == shot_id), None)
     if plan is None:
-        return preset_id, None, None, {}
+        return preset_id, None, None
     form_data = plan.request.get("form_data") if isinstance(plan.request, Mapping) else None
-    names = dict(plan.reference.names) if plan.reference is not None else {}
-    return plan.preset_id or preset_id, plan.preset_mode or None, dict(form_data) if isinstance(form_data, Mapping) else None, names
+    return plan.preset_id or preset_id, plan.preset_mode or None, dict(form_data) if isinstance(form_data, Mapping) else None
 
 
 def _flattened(picture: Any) -> Any:
@@ -372,7 +362,7 @@ async def _write(
     if not found["available"]:
         fail(409, found["code"] or "no_llm", found["message"] or "No language model is available to you.")
     shot_id = str(clip.get("id"))
-    preset, mode, form_data, names = await asyncio.to_thread(_plan, owner, doc, shot_id, preset_id, model_id)
+    preset, mode, form_data = await asyncio.to_thread(_plan, owner, doc, shot_id, preset_id, model_id)
     frames: List[Dict[str, Any]] = await asyncio.to_thread(director.key_frame_media, owner, doc, shot_id)
     folder = await asyncio.to_thread(work_folder, owner) if found["vision"] else None
     jobs: List[Any] = []
@@ -383,7 +373,7 @@ async def _write(
             media, dropped = await asyncio.wrap_future(prepared)
         else:
             media, dropped = [], 0
-        return await _written(user, found, shot_id, doc, clip, request, current, preset, mode, form_data, names, frames, media, dropped, gone, jobs)
+        return await _written(user, found, shot_id, doc, clip, request, current, preset, mode, form_data, frames, media, dropped, gone, jobs)
     finally:
         if folder is not None:
             remove_when_done(folder, jobs)
@@ -400,7 +390,6 @@ async def _written(
     preset: str,
     mode: Optional[str],
     form_data: Optional[Dict[str, Any]],
-    names: Mapping[str, str],
     frames: Sequence[Mapping[str, Any]],
     media: List[Dict[str, Any]],
     dropped: int,
@@ -428,7 +417,7 @@ async def _written(
     except Exception:
         logger.warning("[VIDEO-PRODUCER] The prompt writer failed for shot %s", shot_id, exc_info=True)
         fail(502, "write_failed", "The language model could not write the prompt.")
-    written = cleaned(reply.get("text") if isinstance(reply, Mapping) else None, names)
+    written = cleaned(reply.get("text") if isinstance(reply, Mapping) else None)
     if not written:
         fail(502, "empty_reply", "The language model returned no prompt.")
     return {
@@ -438,5 +427,5 @@ async def _written(
         "images_skipped": 0 if found["vision"] else len(frames),
         "images_dropped": dropped,
         "lost_tags": lost_tags(current, written),
-        "unknown_tags": unknown_tags(written),
+        "kept_tags": kept_tags(written),
     }

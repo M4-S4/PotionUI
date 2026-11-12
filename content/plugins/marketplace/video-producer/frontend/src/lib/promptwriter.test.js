@@ -18,10 +18,10 @@ test('the writer status reads the core answer and never says available without a
 });
 
 test('a written prompt needs a text and counts the images sent and left out', () => {
-	assert.deepEqual(normalizeWritten({ text: '  The fisherman lights his lantern.  ', name: 'Qwen3-VL', images: 2, images_skipped: 0 }), { text: 'The fisherman lights his lantern.', name: 'Qwen3-VL', images: 2, imagesSkipped: 0, imagesDropped: 0, lostTags: [], unknownTags: [] });
-	assert.deepEqual(normalizeWritten({ text: 'A wave.', images: -1, images_skipped: 'two' }), { text: 'A wave.', name: null, images: 0, imagesSkipped: 0, imagesDropped: 0, lostTags: [], unknownTags: [] });
+	assert.deepEqual(normalizeWritten({ text: '  The fisherman lights his lantern.  ', name: 'Qwen3-VL', images: 2, images_skipped: 0 }), { text: 'The fisherman lights his lantern.', name: 'Qwen3-VL', images: 2, imagesSkipped: 0, imagesDropped: 0, lostTags: [], keptTags: [] });
+	assert.deepEqual(normalizeWritten({ text: 'A wave.', images: -1, images_skipped: 'two' }), { text: 'A wave.', name: null, images: 0, imagesSkipped: 0, imagesDropped: 0, lostTags: [], keptTags: [] });
 	assert.equal(normalizeWritten({ text: '   ' }), null);
-	assert.deepEqual(normalizeWritten({ text: 'A wave.', unknown_tags: ['<Subject 3>', '<Audio 1>', '<Scene 1>', '@vref1', 4] }).unknownTags, ['<Subject 3>', '<Audio 1>']);
+	assert.deepEqual(normalizeWritten({ text: 'A wave.', kept_tags: ['<Subject 3>', '<Audio 1>', '<Scene 1>', '@vref1', 4] }).keptTags, ['<Subject 3>', '<Audio 1>']);
 	assert.equal(normalizeWritten({ text: 'A wave.', images: 1, images_dropped: 1 }).imagesDropped, 1);
 	assert.deepEqual(normalizeWritten({ text: 'A wave.', lost_tags: ['@vref1', '@VREF2', '@vref0', 'vref3', 7] }).lostTags, ['@vref1', '@VREF2']);
 	assert.equal(normalizeWritten(null), null);

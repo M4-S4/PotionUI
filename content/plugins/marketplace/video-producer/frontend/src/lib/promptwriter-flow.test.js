@@ -294,14 +294,14 @@ test('leaving a parked writing for good stops it', async () => {
 	assert.equal(writer.state.phase, 'open');
 });
 
-test('a proposal that keeps a tag the plugin numbers itself says which one before it is used', async () => {
-	const { client } = fakeClient({ answer: async () => ({ ok: true, data: { text: '<Subject 3> waves.', name: 'Qwen3-VL', images: 0, imagesSkipped: 0, imagesDropped: 0, lostTags: [], unknownTags: ['<Subject 3>'] } }) });
+test('a proposal that keeps a tag in angle brackets says which one before it is used', async () => {
+	const { client } = fakeClient({ answer: async () => ({ ok: true, data: { text: '<Subject 3> waves.', name: 'Qwen3-VL', images: 0, imagesSkipped: 0, imagesDropped: 0, lostTags: [], keptTags: ['<Subject 3>'] } }) });
 	const writer = await asked(client);
 	await writer.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
 	const html = await renderComponent(PANEL, { writer, text: '', frames: 0 });
-	assert.match(html, /data-writer-unknown-tags="(&lt;|<)Subject 3(&gt;|>)"/);
+	assert.match(html, /data-writer-kept-tags="(&lt;|<)Subject 3(&gt;|>)"/);
 	const shown = textOf(html).replaceAll('&lt;', '<').replaceAll('&gt;', '>');
-	assert.ok(shown.includes(t('modals.shot.writer.unknownTags', { tags: '<Subject 3>', count: 1 })));
+	assert.ok(shown.includes(t('modals.shot.writer.keptTags', { tags: '<Subject 3>', count: 1 })));
 });
 
 async function parkedWriting(shotId) {

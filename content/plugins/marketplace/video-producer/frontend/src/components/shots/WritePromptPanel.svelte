@@ -14,7 +14,7 @@
 	const error = $derived(view.error ? (errorCode ? t(`modals.shot.writer.error.${errorCode}`) : requestCause(view.error)) : '');
 	const proposal = $derived(view.proposal);
 	const lostTags = $derived(proposal?.lostTags ?? []);
-	const unknownTags = $derived(proposal?.unknownTags ?? []);
+	const keptTags = $derived(proposal?.keptTags ?? []);
 
 	function keydown(event) {
 		if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -45,7 +45,7 @@
 				<div class="font-medium text-fg-muted">{t('modals.shot.writer.proposal', { name: proposal.name || name })}</div>
 				<p class="max-h-40 overflow-auto whitespace-pre-wrap rounded border border-line bg-surface-2 p-2 leading-5 text-fg" data-writer-proposal>{proposal.text}</p>
 				{#if proposal.imagesDropped}<p class="text-fg-subtle" data-writer-dropped={proposal.imagesDropped}>{t('modals.shot.writer.dropped', { count: proposal.imagesDropped })}</p>{/if}
-				{#if unknownTags.length}<p class="text-warning" data-writer-unknown-tags={unknownTags.join(' ')}>{t('modals.shot.writer.unknownTags', { tags: unknownTags.join(', '), count: unknownTags.length })}</p>{/if}
+				{#if keptTags.length}<p class="text-warning" data-writer-kept-tags={keptTags.join(' ')}>{t('modals.shot.writer.keptTags', { tags: keptTags.join(', '), count: keptTags.length })}</p>{/if}
 				{#if lostTags.length}<p class="text-warning" data-writer-lost-tags={lostTags.join(' ')}>{t('modals.shot.writer.lostTags', { tags: lostTags.join(', '), count: lostTags.length })}</p>{/if}
 				{#if text.trim()}<p class="text-fg-subtle">{t('modals.shot.writer.replaces')}</p>{/if}
 				<div class="flex flex-wrap items-center gap-1.5">

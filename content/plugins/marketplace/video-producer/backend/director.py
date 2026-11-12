@@ -927,7 +927,6 @@ def compose_shot(doc: Mapping[str, Any], clip: Mapping[str, Any], engine: str = 
         reference = bible.reference_part(clip, layout, {bible.SUBJECT_DEFINITIONS: subjects})
         if not reference.overridden:
             instruction = bible.tag_subjects(instruction, characters, numbers)
-            reference = replace(reference, names=subject_names(doc, numbers))
         plain = [line for line in [instruction, spoken, *direction] if line]
         part = reference.sent[bible.SUBJECT_DEFINITIONS]
         return "\n\n".join(text for text in (f"subject_definitions: {part}" if part else "", "\n".join(plain)) if text), reference
@@ -1143,11 +1142,6 @@ def refs_prompt(doc: Mapping[str, Any], clip: Mapping[str, Any], sent: Sequence[
     return compose_refs(doc, clip, sent, seconds)[0]
 
 
-def subject_names(doc: Mapping[str, Any], numbers: Mapping[str, int]) -> Dict[str, str]:
-    found = {card.id: card.label for kind in (bible.CHARACTERS, bible.PLACES) for card in bible.cards(doc, kind)}
-    return {f"<Subject {number}>": found[card_id] for card_id, number in numbers.items() if card_id in found}
-
-
 def _subjects(doc: Mapping[str, Any], clip: Mapping[str, Any], sent: Sequence[SentReference]) -> Dict[str, int]:
     numbers: Dict[str, int] = {}
     subject = 0
@@ -1238,9 +1232,6 @@ def compose_refs(doc: Mapping[str, Any], clip: Mapping[str, Any], sent: Sequence
     )
     if pictured:
         reference = replace(reference, card_words=words)
-    shown = {} if reference.overridden else {label: item["card"].label for item in pictured.values() for label in item["labels"]}
-    tracks = {entry.label: f"@vref{int((entry.item or {})['slot'])}" for entry in sent if entry.origin == VTRACK}
-    reference = replace(reference, names={**({} if reference.overridden else subject_names(doc, numbers)), **shown, **tracks})
     parts = reference.sent
     labels = {int((entry.item or {})["slot"]): entry.label for entry in sent if entry.origin == VTRACK}
     instruction = cite_tracks(shot_instruction(doc, clip), labels)

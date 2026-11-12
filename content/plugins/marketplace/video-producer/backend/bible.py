@@ -1,7 +1,7 @@
 import math
 import re
 import unicodedata
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from . import presets
@@ -96,7 +96,6 @@ class ReferencePart:
     changed: bool = False
     ignored: bool = False
     card_words: Optional[str] = None
-    names: Dict[str, str] = field(default_factory=dict)
 
     def summary(self) -> Dict[str, Any]:
         """The part as the prompts route reports it."""
