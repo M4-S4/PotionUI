@@ -990,7 +990,7 @@ When the export is ready, the page starts the finishing at once, even if you clo
 
 - When it is ready the card says "The finished film is in your library." and offers **Show in the library** and **Download finished**, which saves it as `Lumis_potion_1080p_finished.mp4`. With the window closed, a toast says "Finished film ready: Lumis_potion_1080p_finished.mp4" with **Download finished**.
 - The finished film is a new video of your library, next to the plain export, which does not change. It counts in your storage quota, not in the export folder budget.
-- If the finishing fails or you cancel it, the card says why ("The finishing failed: …", "Eight media tool runs are already waiting in PotionUI, so the finishing could not start.", "Your storage is full, so the finishing could not be saved." or "Finishing cancelled.") followed by "The plain export is still available.", and the export card still offers its **Download**.
+- If the finishing fails or you cancel it, the card says why ("The finishing failed:" followed by the words of PotionUI, "Eight media tool runs are already waiting in PotionUI, so the finishing could not start." or "Finishing cancelled.") followed by "The plain export is still available.", and the export card still offers its **Download**.
 - A new export waits until the finishing ends. If you reload the page during the finishing, it goes on in PotionUI and the finished film arrives in your library, but the window does not show it again.
 
 ### Previous exports

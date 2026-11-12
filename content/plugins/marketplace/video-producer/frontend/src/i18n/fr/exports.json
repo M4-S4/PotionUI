@@ -76,7 +76,6 @@
 	"finish.cancelled": "Finition annulée.",
 	"finish.rawKept": "L’export brut reste disponible.",
 	"finish.failure.busy": "Huit traitements de médias attendent déjà dans PotionUI : la finition n’a pas pu démarrer.",
-	"finish.failure.quota": "Votre espace de stockage est plein : la finition n’a pas pu être enregistrée.",
 	"finish.failure.gone": "Le fichier exporté n’est plus dans la bibliothèque.",
 	"finish.failure.noLibrary": "L’export n’a pas d’élément de bibliothèque à finir.",
 	"finish.failure.failed": "La finition a échoué.",

@@ -403,6 +403,36 @@ test('finishing flow: a cancel asked before PotionUI gave the run its id is sent
 	assert.equal(finishShown().status, 'cancelled');
 });
 
+test('finishing flow: with the window closed, a failed finishing says so and that the plain export is kept', async () => {
+	hostToasts.length = 0;
+	await open({ finishing: { grain: { on: true } }, reads: [{ status: 'failed', error: { code: 'tool_failed', message: 'ffmpeg failed' } }] });
+	await exportAndFinish();
+	assert.ok(hostToasts.includes('The finishing failed: ffmpeg failed The plain export is still available.'));
+});
+
+test('finishing flow: with the window closed, a finishing cancelled in PotionUI says so', async () => {
+	hostToasts.length = 0;
+	await open({ finishing: { grain: { on: true } }, reads: [{ status: 'cancelled' }] });
+	await exportAndFinish();
+	assert.ok(hostToasts.includes('Finishing cancelled. The plain export is still available.'));
+});
+
+test('finishing flow: with the window open, the card tells and no toast is added', async () => {
+	hostToasts.length = 0;
+	await open({ finishing: { grain: { on: true } }, reads: [{ status: 'failed', error: { code: 'tool_failed', message: 'ffmpeg failed' } }] });
+	ui.modal = { type: 'export' };
+	await exportAndFinish();
+	ui.modal = null;
+	assert.equal(finishShown().status, 'failed');
+	assert.deepEqual(hostToasts, []);
+});
+
+test('finishing flow: a refused limit shows the words of PotionUI, not a guess about storage', async () => {
+	await open({ finishing: { grain: { on: true } }, start: { ok: false, error: { status: 403, code: 'limit_exceeded', message: 'Your plan allows 20 media tool runs a day' } } });
+	await exportAndFinish();
+	assert.equal(finishFailureText(finishShown()), 'The finishing failed: Your plan allows 20 media tool runs a day');
+});
+
 test('finishing flow: the choices are kept in the project, one undo step each, and a project without them stays as it was', async () => {
 	await open({});
 	assert.equal('finishing' in doc.master, false);

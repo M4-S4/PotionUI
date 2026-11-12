@@ -108,7 +108,6 @@ export function finishedName(fileName) {
 export function finishFailure(error) {
 	if (!error) return null;
 	if (error.code === 'too_many_queued') return 'busy';
-	if (error.code === 'limit_exceeded') return 'quota';
 	if (error.code === 'not_found') return 'gone';
 	return 'failed';
 }

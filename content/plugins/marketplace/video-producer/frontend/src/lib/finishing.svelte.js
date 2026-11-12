@@ -60,10 +60,14 @@ function close(run, control, status, extra = {}) {
 	if (control.stopped) return null;
 	Object.assign(run, { status, cancelling: false, ...extra });
 	controls.delete(run.key);
-	if (status === 'done' && (ui.modal?.type !== 'export' || run.projectId !== project.id)) {
-		toast(t('exports.finish.toastDone', { file: finishedName(run.fileName) }), 'success', { label: t('exports.finish.download'), run: () => downloadFinished(run) }, 6000);
-	}
+	if (ui.modal?.type !== 'export' || run.projectId !== project.id) tell(run);
 	return status === 'done' ? run.item : null;
+}
+
+function tell(run) {
+	if (run.status === 'done') toast(t('exports.finish.toastDone', { file: finishedName(run.fileName) }), 'success', { label: t('exports.finish.download'), run: () => downloadFinished(run) }, 6000);
+	else if (run.status === 'failed') toast(`${finishFailureText(run)} ${t('exports.finish.rawKept')}`, 'error', undefined, 8000);
+	else if (run.status === 'cancelled') toast(`${t('exports.finish.cancelled')} ${t('exports.finish.rawKept')}`, 'info');
 }
 
 function apply(run, control, data) {
@@ -140,7 +144,6 @@ export async function downloadFinished(run = finishShown()) {
 
 export function finishFailureText(run) {
 	if (run?.failure === 'busy') return t('exports.finish.failure.busy');
-	if (run?.failure === 'quota') return t('exports.finish.failure.quota');
 	if (run?.failure === 'gone') return t('exports.finish.failure.gone');
 	if (run?.failure === 'lost') return t('exports.finish.failure.lost');
 	if (run?.failure === 'noLibrary') return t('exports.finish.failure.noLibrary');

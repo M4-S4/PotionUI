@@ -86,9 +86,9 @@ test('finishing: the request is one run on the library item of the export, makin
 	assert.equal(finishedName(''), 'video-producer_finished.mp4');
 });
 
-test('finishing: failures read as a full queue, a full quota, a missing file or another failure', () => {
+test('finishing: failures read as a full queue, a missing file or another failure, a refused limit keeping its own words', () => {
 	assert.equal(finishFailure({ code: 'too_many_queued' }), 'busy');
-	assert.equal(finishFailure({ code: 'limit_exceeded' }), 'quota');
+	assert.equal(finishFailure({ code: 'limit_exceeded', message: 'Your plan allows 2 GB of uploads' }), 'failed');
 	assert.equal(finishFailure({ code: 'not_found' }), 'gone');
 	assert.equal(finishFailure({ code: 'tool_failed', message: 'x' }), 'failed');
 	assert.equal(finishFailure(null), null);

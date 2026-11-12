@@ -76,7 +76,6 @@
 	"finish.cancelled": "Finishing cancelled.",
 	"finish.rawKept": "The plain export is still available.",
 	"finish.failure.busy": "Eight media tool runs are already waiting in PotionUI, so the finishing could not start.",
-	"finish.failure.quota": "Your storage is full, so the finishing could not be saved.",
 	"finish.failure.gone": "The exported file is no longer in the library.",
 	"finish.failure.noLibrary": "The export has no library item to finish.",
 	"finish.failure.failed": "The finishing failed.",
