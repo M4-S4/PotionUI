@@ -1,7 +1,9 @@
 import asyncio
 import logging
 import re
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
+
+from fastapi import HTTPException
 
 from . import bible, core_bridge, director
 from .core_bridge import User
@@ -13,6 +15,9 @@ logger = logging.getLogger("plugins.video-producer")
 MAX_REQUEST_CHARS = 1000
 MAX_CURRENT_CHARS = 1500
 WRITE_TIMEOUT_S = 120.0
+POLL_S = 0.25
+
+writing: Set[str] = set()
 
 FRAMING = (
     "You write the prompt of one shot of a video made with Video Producer, for the engine of this preset. "
@@ -128,6 +133,26 @@ def _seconds(clip: Mapping[str, Any]) -> float:
     return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else 0.0
 
 
+async def _answer(call: Awaitable[Any], gone: Optional[Callable[[], Awaitable[bool]]]) -> Any:
+    task = asyncio.ensure_future(call)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + WRITE_TIMEOUT_S
+    try:
+        while True:
+            left = deadline - loop.time()
+            if left <= 0:
+                fail(504, "write_timeout", f"The language model did not answer within {WRITE_TIMEOUT_S:.0f} seconds.")
+            done, _ = await asyncio.wait({task}, timeout=min(POLL_S, left))
+            if done:
+                return task.result()
+            if gone is not None and await gone():
+                fail(409, "write_cancelled", "The page stopped waiting for the prompt.")
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.wait({task}, timeout=1.0)
+
+
 async def write(
     user: User,
     owner: User,
@@ -137,6 +162,27 @@ async def write(
     preset_id: str,
     model_id: Optional[str],
     current: str,
+    gone: Optional[Callable[[], Awaitable[bool]]] = None,
+) -> Dict[str, Any]:
+    if user.id in writing:
+        fail(409, "write_busy", "A prompt is already being written for you: wait for it, or cancel it first.")
+    writing.add(user.id)
+    try:
+        return await _write(user, owner, doc, clip, request, preset_id, model_id, current, gone)
+    finally:
+        writing.discard(user.id)
+
+
+async def _write(
+    user: User,
+    owner: User,
+    doc: Mapping[str, Any],
+    clip: Mapping[str, Any],
+    request: str,
+    preset_id: str,
+    model_id: Optional[str],
+    current: str,
+    gone: Optional[Callable[[], Awaitable[bool]]],
 ) -> Dict[str, Any]:
     found = await asyncio.to_thread(status, user)
     if not found["available"]:
@@ -155,12 +201,9 @@ async def write(
         images=len(media),
     )
     try:
-        reply = await asyncio.wait_for(
-            core_bridge.write_prompt_for_preset(user.id, text, preset_id=preset, mode=mode, form_data=form_data, media=media),
-            WRITE_TIMEOUT_S,
-        )
-    except asyncio.TimeoutError:
-        fail(504, "write_timeout", f"The language model did not answer within {WRITE_TIMEOUT_S:.0f} seconds.")
+        reply = await _answer(core_bridge.write_prompt_for_preset(user.id, text, preset_id=preset, mode=mode, form_data=form_data, media=media), gone)
+    except HTTPException:
+        raise
     except core_bridge.PromptWriteRefused as exc:
         fail(422, getattr(exc, "code", None) or "write_refused", str(exc))
     except Exception:

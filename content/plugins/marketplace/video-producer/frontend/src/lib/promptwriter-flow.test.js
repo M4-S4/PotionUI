@@ -220,3 +220,21 @@ test('a proposal that dropped a reference video tag says which one before it is 
 	await kept.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
 	assert.doesNotMatch(await renderComponent(PANEL, { writer: kept, text: '', frames: 0 }), /data-writer-lost-tags/);
 });
+
+test('a writing still held by the server after a cancel is asked again, and given up after a few tries', async () => {
+	const busy = { ok: false, error: { status: 409, code: 'write_busy', message: 'Busy.', data: null } };
+	let answers = [busy, busy, { ok: true, data: { text: 'The fisherman lights his lantern.', name: 'Qwen3-VL', images: 0, imagesSkipped: 0, lostTags: [] } }];
+	const { client, calls } = fakeClient({ answer: async () => answers.shift() });
+	const writer = await asked(client, 'the lantern', { busyDelay: 1 });
+	await writer.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
+	assert.equal(calls.writes.length, 3);
+	assert.equal(writer.state.phase, 'proposed');
+	forgetWriterStatus();
+	const held = fakeClient({ answer: async () => busy });
+	const stuck = await asked(held.client, 'the lantern', { busyDelay: 1 });
+	await stuck.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
+	assert.equal(held.calls.writes.length, 5);
+	assert.deepEqual([stuck.state.phase, stuck.state.error.code], ['failed', 'write_busy']);
+	const html = await renderComponent(PANEL, { writer: stuck, text: '', frames: 0 });
+	assert.ok(textOf(html).includes(t('modals.shot.writer.error.write_busy')));
+});

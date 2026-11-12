@@ -50,6 +50,7 @@ class Writer:
         self.delay = delay
         self.calls = []
         self.asked = []
+        self.cancelled = []
         monkeypatch.setattr(core_bridge, "prompt_writer_status", self.prompt_writer_status)
         monkeypatch.setattr(core_bridge, "write_prompt_for_preset", self.write_prompt_for_preset)
 
@@ -63,7 +64,11 @@ class Writer:
     async def write_prompt_for_preset(self, user_id, instruction, *, preset_id=None, mode=None, form_data=None, media=()):
         self.calls.append({"user_id": user_id, "instruction": instruction, "preset_id": preset_id, "mode": mode, "form_data": form_data, "media": list(media)})
         if self.delay:
-            await asyncio.sleep(self.delay)
+            try:
+                await asyncio.sleep(self.delay)
+            except asyncio.CancelledError:
+                self.cancelled.append(user_id)
+                raise
         if self.error is not None:
             raise self.error
         return dict(self.reply)
@@ -378,3 +383,84 @@ def test_the_project_the_document_and_the_status_are_read_off_the_event_loop(cor
     assert response.status_code == 200
     assert seen == {"project": False, "doc": False}
     assert writer.status_on_loop is False
+
+
+def _shot(core, make_doc):
+    doc = _doc(core, make_doc)
+    return doc, doc["clips"][0]
+
+
+def _error(raised):
+    return raised.value.status_code, raised.value.detail["error"]
+
+
+def test_one_user_writes_one_prompt_at_a_time_and_another_user_is_not_held(core, make_doc, monkeypatch):
+    from fastapi import HTTPException
+
+    core.use_h3()
+    writer = Writer(monkeypatch, delay=0.4)
+    doc, clip = _shot(core, make_doc)
+    one, two = core.users["user-1"], core.users["user-2"]
+
+    async def scenario():
+        first = asyncio.ensure_future(prompt_writer.write(one, one, doc, clip, "a", presets.MINIMAX_H3, None, ""))
+        await asyncio.sleep(0.1)
+        with pytest.raises(HTTPException) as busy:
+            await prompt_writer.write(one, one, doc, clip, "b", presets.MINIMAX_H3, None, "")
+        other = await prompt_writer.write(two, two, doc, clip, "c", presets.MINIMAX_H3, None, "")
+        done = await first
+        again = await prompt_writer.write(one, one, doc, clip, "d", presets.MINIMAX_H3, None, "")
+        return busy, other, done, again
+
+    busy, other, done, again = asyncio.run(scenario())
+
+    assert _error(busy) == (409, "write_busy")
+    assert [other["text"], done["text"], again["text"]] == [WRITTEN, WRITTEN, WRITTEN]
+    assert [call["instruction"][0] for call in writer.calls] == ["a", "c", "d"]
+    assert prompt_writer.writing == set()
+
+
+def test_a_page_that_stops_waiting_stops_the_language_model_call_and_frees_the_user(core, make_doc, monkeypatch):
+    from fastapi import HTTPException
+
+    core.use_h3()
+    writer = Writer(monkeypatch, delay=30.0)
+    monkeypatch.setattr(prompt_writer, "POLL_S", 0.02)
+    doc, clip = _shot(core, make_doc)
+    user = core.users["user-1"]
+    asks = []
+
+    async def gone():
+        asks.append(True)
+        return len(asks) >= 3
+
+    async def scenario():
+        with pytest.raises(HTTPException) as left:
+            await asyncio.wait_for(prompt_writer.write(user, user, doc, clip, "a", presets.MINIMAX_H3, None, "", gone=gone), 5)
+        return left
+
+    left = asyncio.run(scenario())
+
+    assert _error(left) == (409, "write_cancelled")
+    assert writer.cancelled == ["user-1"]
+    assert prompt_writer.writing == set()
+    writer.delay = 0
+    assert asyncio.run(prompt_writer.write(user, user, doc, clip, "b", presets.MINIMAX_H3, None, ""))["text"] == WRITTEN
+
+
+def test_a_writing_past_the_time_limit_stops_the_language_model_call(core, make_doc, monkeypatch):
+    from fastapi import HTTPException
+
+    core.use_h3()
+    writer = Writer(monkeypatch, delay=30.0)
+    monkeypatch.setattr(prompt_writer, "WRITE_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(prompt_writer, "POLL_S", 0.02)
+    doc, clip = _shot(core, make_doc)
+    user = core.users["user-1"]
+
+    with pytest.raises(HTTPException) as late:
+        asyncio.run(asyncio.wait_for(prompt_writer.write(user, user, doc, clip, "a", presets.MINIMAX_H3, None, ""), 5))
+
+    assert _error(late) == (504, "write_timeout")
+    assert writer.cancelled == ["user-1"]
+    assert prompt_writer.writing == set()

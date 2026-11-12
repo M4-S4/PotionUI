@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any, Dict, List, Mapping, NoReturn, Tuple
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Request
 
 from . import access, bible, chaining, director, projects, prompt_writer
 from .core_bridge import User, get_current_active_user
@@ -127,8 +127,8 @@ def _prepared(user: User, project_id: str, shot_id: str, checked: Mapping[str, A
 
 
 @router.post("/projects/{project_id}/shots/{shot_id}/write-prompt")
-async def write_prompt(project_id: str, shot_id: str, body: Any = Body(default=None), user: User = Depends(get_current_active_user)) -> Dict[str, Any]:
+async def write_prompt(project_id: str, shot_id: str, http: Request, body: Any = Body(default=None), user: User = Depends(get_current_active_user)) -> Dict[str, Any]:
     checked = _write_checked(body)
     owner, doc, clip, current = await asyncio.to_thread(_prepared, user, project_id, shot_id, checked)
-    written = await prompt_writer.write(user, owner, doc, clip, checked["request"], checked["preset_id"], checked.get("model_id"), current)
+    written = await prompt_writer.write(user, owner, doc, clip, checked["request"], checked["preset_id"], checked.get("model_id"), current, gone=http.is_disconnected)
     return ok(written)

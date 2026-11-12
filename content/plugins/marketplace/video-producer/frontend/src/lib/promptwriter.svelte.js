@@ -2,6 +2,8 @@ import { getClient } from './project.svelte.js';
 import { WRITE_TIMEOUT_MS, canUndo, canWrite, writeBody, writerIdle, writerStep } from './promptwriter.js';
 
 export const STATUS_TTL_MS = 60000;
+export const BUSY_RETRIES = 4;
+export const BUSY_DELAY_MS = 700;
 
 const known = { status: null, at: 0 };
 
@@ -10,7 +12,7 @@ export function forgetWriterStatus() {
 	known.at = 0;
 }
 
-export function createWriter({ client = getClient, timeout = WRITE_TIMEOUT_MS, now = Date.now } = {}) {
+export function createWriter({ client = getClient, timeout = WRITE_TIMEOUT_MS, now = Date.now, busyDelay = BUSY_DELAY_MS } = {}) {
 	const box = $state({ state: writerIdle(), status: known.status, checking: false });
 	let controller = null;
 
@@ -49,7 +51,13 @@ export function createWriter({ client = getClient, timeout = WRITE_TIMEOUT_MS, n
 			mine.abort();
 			dispatch({ type: 'fail', run, error: { code: 'write_timeout', message: '' } });
 		}, timeout);
-		const result = await api.writePrompt(projectId, shotId, writeBody(box.state.request, option, doc), mine.signal);
+		const body = writeBody(box.state.request, option, doc);
+		let result = await api.writePrompt(projectId, shotId, body, mine.signal);
+		for (let attempt = 0; attempt < BUSY_RETRIES && result.error?.code === 'write_busy' && box.state.run === run && !mine.signal.aborted; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, busyDelay));
+			if (box.state.run !== run || mine.signal.aborted) break;
+			result = await api.writePrompt(projectId, shotId, body, mine.signal);
+		}
 		clearTimeout(timer);
 		if (controller === mine) controller = null;
 		if (result.ok) dispatch({ type: 'done', run, written: result.data });

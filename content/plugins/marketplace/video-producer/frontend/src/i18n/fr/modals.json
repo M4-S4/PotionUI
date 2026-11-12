@@ -288,5 +288,7 @@
 	"shot.writer.error.media_unsupported": "Un des fichiers du plan n’est pas une image.",
 	"shot.cardWords.unused": "Aucune image de fiche ne part avec ce plan avec son moteur et son profil actuels : ce choix ne change rien tant qu’il n’y en a pas.",
 	"shot.writer.lostTags.one": "La proposition perd la balise {tags}, qui cite une vidéo de référence du plan. Écrivez de nouveau, ou remettez-la après l’avoir utilisée.",
-	"shot.writer.lostTags.other": "La proposition perd les balises {tags}, qui citent des vidéos de référence du plan. Écrivez de nouveau, ou remettez-les après l’avoir utilisée."
+	"shot.writer.lostTags.other": "La proposition perd les balises {tags}, qui citent des vidéos de référence du plan. Écrivez de nouveau, ou remettez-les après l’avoir utilisée.",
+	"shot.writer.error.write_busy": "Un prompt est encore en cours d’écriture pour vous. Attendez un instant, puis réessayez.",
+	"shot.writer.error.write_cancelled": "La rédaction a été arrêtée."
 }

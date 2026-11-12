@@ -11,6 +11,8 @@ export const WRITER_CODES = [
 	'writer_unavailable',
 	'preset_not_available',
 	'write_timeout',
+	'write_busy',
+	'write_cancelled',
 	'write_failed',
 	'empty_reply',
 	'blocked',
