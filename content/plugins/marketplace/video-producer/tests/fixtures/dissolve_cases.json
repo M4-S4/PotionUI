@@ -11,10 +11,10 @@
   {"name": "shortest shots", "clips": [{"dur": 0.4}, {"dur": 0.4, "dissolve": 1}], "starts": [0.0, 0.2], "joins": [0.0, 0.2]},
   {"name": "a length off the grid rounds down", "clips": [{"dur": 5}, {"dur": 5, "dissolve": 0.52}, {"dur": 5, "dissolve": 0.5}], "starts": [0.0, 4.48, 9.0], "joins": [0.0, 0.52, 0.48]},
   {"name": "a run", "clips": [{"dur": 2}, {"dur": 2, "dissolve": 0.6}, {"dur": 2, "dissolve": 0.6}, {"dur": 2}], "starts": [0.0, 1.4, 2.8, 4.8], "joins": [0.0, 0.6, 0.6, 0.0]},
-  {"name": "a shot of 3.1 s set in the inspector", "clips": [{"dur": 3.1}, {"dur": 4, "dissolve": 1}], "starts": [0.0, 2.12], "joins": [0.0, 0.98]},
+  {"name": "a shot of 3.1 s set in the inspector", "clips": [{"dur": 3.1}, {"dur": 4, "dissolve": 1}], "starts": [0.0, 2.1], "joins": [0.0, 1.0]},
   {"name": "ten dissolves of 0.4 s", "clips": [{"dur": 2}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}, {"dur": 2, "dissolve": 0.4}], "starts": [0.0, 1.6, 3.2, 4.8, 6.4, 8.0, 9.6, 11.2, 12.8, 14.4, 16.0], "joins": [0.0, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4]},
   {"name": "a short shot between two dissolves", "clips": [{"dur": 4}, {"dur": 0.96, "dissolve": 1}, {"dur": 4, "dissolve": 1}], "starts": [0.0, 3.52, 4.0], "joins": [0.0, 0.48, 0.48]},
-  {"name": "shots off the grid in a run", "clips": [{"dur": 1.06}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}], "starts": [0.0, 0.68, 1.36, 2.04, 2.72, 3.4], "joins": [0.0, 0.38, 0.38, 0.38, 0.38, 0.38]},
-  {"name": "an odd shot of 0.5 s", "clips": [{"dur": 3}, {"dur": 0.5, "dissolve": 2}, {"dur": 3}], "starts": [0.0, 2.76, 3.28], "joins": [0.0, 0.24, 0.0]},
+  {"name": "shots off the grid in a run", "clips": [{"dur": 1.06}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}, {"dur": 1.06, "dissolve": 0.4}], "starts": [0.0, 0.66, 1.32, 1.98, 2.64, 3.3], "joins": [0.0, 0.4, 0.4, 0.4, 0.4, 0.4]},
+  {"name": "an odd shot of 0.5 s", "clips": [{"dur": 3}, {"dur": 0.5, "dissolve": 2}, {"dur": 3}], "starts": [0.0, 2.76, 3.26], "joins": [0.0, 0.24, 0.0]},
   {"name": "a dissolve takes at least two steps of the grid", "clips": [{"dur": 0.12}, {"dur": 4, "dissolve": 1}, {"dur": 0.16, "dissolve": 1}], "starts": [0.0, 0.12, 4.04], "joins": [0.0, 0.0, 0.08]}
 ]

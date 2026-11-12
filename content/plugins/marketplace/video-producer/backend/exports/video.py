@@ -250,6 +250,8 @@ def _framed(doc: Mapping[str, Any], total: float) -> List[Segment]:
     for index in range(1, len(placed)):
         if placed[index][1].overlap:
             bounds[index - 1][1] = max(bounds[index - 1][1], bounds[index][0] + 1)
+        else:
+            bounds[index - 1][1] = min(bounds[index - 1][1], bounds[index][0])
     segments: List[Segment] = []
     cursor = 0
     for index, ((clip, place), (first, last)) in enumerate(zip(placed, bounds)):
@@ -262,7 +264,7 @@ def _framed(doc: Mapping[str, Any], total: float) -> List[Segment]:
         overlap = cursor - first if joined else 0
         segments.append(((last - first) / rate, {**_unfaded(clip, joined, following), **({JOIN: overlap} if joined else {})}))
         cursor = last
-    end = frames_of(total, rate)
+    end = frames_of(round(total, 6), rate)
     if end > cursor:
         segments.append(((end - cursor) / rate, None))
     return segments

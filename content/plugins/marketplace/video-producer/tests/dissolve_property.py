@@ -49,7 +49,7 @@ def laid(case):
     for index, clip in enumerate(doc["clips"]):
         shift += case["gaps"].get(str(index), 0)
         if shift:
-            clip["start"] = float(f"{clip['start'] + shift:.3f}")
+            clip["start"] = round(clip["start"] + shift, 6)
     return laid_out, doc["clips"]
 
 

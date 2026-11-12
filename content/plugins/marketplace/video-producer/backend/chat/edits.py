@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from .. import bible, formats
 from ..core_bridge import generate_ulid
 from ..director import FIRST_ROLES, LAST_ROLES, shot_revision
-from ..dissolve import layout
+from ..dissolve import chained, layout
 
 GRID = 0.04
 PROMPT_STRENGTH = 75
@@ -101,6 +101,7 @@ def relayout(doc: Dict[str, Any]) -> None:
     """Lay the shots end to end from zero, moving the prompts and frames linked to each shot with it."""
     clips = clips_of(doc)
     before = {clip["id"]: number(clip.get("start")) for clip in clips}
+    exact = chained(clips)
     for clip, start in zip(clips, layout(clips, snap)):
         clip["start"] = start
     for clip in clips:
@@ -109,7 +110,7 @@ def relayout(doc: Dict[str, Any]) -> None:
             continue
         for item in _linked(doc, clip["id"]):
             key = "time" if "time" in item else "start"
-            item[key] = snap(number(item.get(key)) + delta)
+            item[key] = round(number(item.get(key)) + delta, 6) if exact else snap(number(item.get(key)) + delta)
 
 
 def _folded(text: Any) -> str:

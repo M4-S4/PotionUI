@@ -78,14 +78,19 @@ test('dissolve: the page says why a dissolve is shorter than asked: half of a sh
 	assert.equal(dissolveOf({ dur: 0.16 }, { dur: 4, dissolve: 1 }), 0.08);
 });
 
-test('dissolve: a shot of 3.1 s keeps its dissolve on the overlap its start shows', () => {
+test('dissolve: after a shot of 3.1 s, a project that dissolves lays every shot end to end exactly, and the dissolve keeps its length', () => {
 	const clips = laidOut([3.1, 4, 2], [0, 1, 0]);
 	assert.deepEqual(
 		clips.map((c) => c.start),
-		[0, 2.12, 6.12]
+		[0, 2.1, 6.1]
 	);
-	assert.deepEqual(joins(clips), [0, 0.98, 0]);
-	assert.equal(lostSeconds(clips), 0.98);
+	assert.deepEqual(joins(clips), [0, 1, 0]);
+	assert.equal(lostSeconds(clips), 1);
+	const cuts = laidOut([3.1, 2, 2], [0, 0, 0]);
+	assert.deepEqual(
+		cuts.map((c) => c.start),
+		[0, 3.12, 5.08]
+	);
 });
 
 test('dissolve: choosing one clears the fade to black on both sides of its cut, only when the cut really dissolves', () => {

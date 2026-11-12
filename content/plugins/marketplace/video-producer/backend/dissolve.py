@@ -69,20 +69,18 @@ def placement(clips: Sequence[Mapping[str, Any]]) -> List[Optional[Place]]:
             joined = played(clips[last], clip) if last == index - 1 and before.start == _number(clips[last].get("start")) else 0.0
             if joined:
                 overlap = joined
-            elif before.end + EPSILON < start <= before.end + GRID + EPSILON:
-                places[last] = Place(before.start, start, before.overlap)
             elif start < before.end - EPSILON:
                 if start > before.start + before.overlap + EPSILON:
                     places[last] = Place(before.start, start, before.overlap)
                 else:
                     start = before.end
-        places[index] = Place(start, start + dur, overlap)
+        places[index] = Place(start, round(start + dur, 6), overlap)
         last = index
     return places
 
 
 def moved(clip: Mapping[str, Any], place: Optional[Place]) -> bool:
-    return place is not None and (place.start != _number(clip.get("start")) or place.end != place.start + _seconds(clip.get("dur")))
+    return place is not None and (place.start != _number(clip.get("start")) or place.end != round(place.start + _seconds(clip.get("dur")), 6))
 
 
 def joins(clips: Sequence[Mapping[str, Any]]) -> List[float]:
@@ -109,24 +107,20 @@ def shown(clips: Sequence[Mapping[str, Any]]) -> List[Place]:
     return result
 
 
-def _ceiling(value: float) -> float:
-    return math.ceil(value / GRID - STEP_SLACK) * GRID
+def chained(clips: Sequence[Mapping[str, Any]]) -> bool:
+    return any(dissolve_of(before, clip) for before, clip in zip(clips, clips[1:]))
 
 
 def layout(clips: Sequence[Mapping[str, Any]], snap: Callable[[float], float]) -> List[float]:
     starts: List[float] = []
-    at, lost = 0.0, 0.0
+    exact, at = chained(clips), 0.0
     for index, clip in enumerate(clips):
-        length = dissolve_of(clips[index - 1], clip) if index else 0.0
-        lost += length
-        if not lost:
+        if not exact:
             starts.append(snap(at))
+        elif not index:
+            starts.append(0.0)
         else:
-            start = float(f"{snap(at) - lost:.3f}")
-            if length:
-                end = starts[-1] + _number(clips[index - 1].get("dur"))
-                start = max(start, float(f"{_ceiling(end) - length:.3f}"))
-            starts.append(start)
+            starts.append(round(starts[-1] + _number(clips[index - 1].get("dur")) - dissolve_of(clips[index - 1], clip), 6))
         at += _number(clip.get("dur"))
     return starts
 
@@ -150,6 +144,8 @@ def cuts(clips: Sequence[Mapping[str, Any]], frames: Callable[[Any], int]) -> Li
         if places[index] is not None and places[index].overlap:
             ends[index - 1] = max(ends[index - 1], starts[index] + 1)
             overlaps[index] = ends[index - 1] - starts[index]
+        elif places[index] is not None:
+            ends[index - 1] = min(ends[index - 1], starts[index])
     edits = [start + overlap // 2 for start, overlap in zip(starts, overlaps)]
     result: List[Optional[Cut]] = []
     for index, clip in enumerate(clips):

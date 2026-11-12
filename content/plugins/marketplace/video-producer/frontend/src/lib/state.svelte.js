@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, indexAt, layout, mixAt, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, indexAt, layout, mixAt, startingAt } from './dissolve.js';
 
 export { newAsset, newClip };
 
@@ -313,10 +313,11 @@ export function relink(item) {
 function linkedTo(shotId) {
 	return LINKED.flatMap((key) => doc[key].filter((x) => x.shotId === shotId));
 }
-function shiftLinked(shotId, delta) {
+function shiftLinked(shotId, delta, exact = false) {
+	const moved = (value) => (exact ? +(value + delta).toFixed(6) : round(value + delta, 0.04));
 	for (const item of linkedTo(shotId)) {
-		if ('time' in item) item.time = round(item.time + delta, 0.04);
-		else item.start = round(item.start + delta, 0.04);
+		if ('time' in item) item.time = moved(item.time);
+		else item.start = moved(item.start);
 	}
 }
 function removeWhere(list, test) {
@@ -329,11 +330,12 @@ function dropLinked(shotId) {
 
 export function relayout() {
 	const before = new Map(doc.clips.map((c) => [c.id, c.start]));
+	const exact = chained(doc.clips);
 	const starts = layout(doc.clips, (at) => round(at, 0.04));
 	doc.clips.forEach((c, i) => (c.start = starts[i]));
 	for (const c of doc.clips) {
 		const delta = c.start - (before.get(c.id) ?? c.start);
-		if (Math.abs(delta) > 1e-6) shiftLinked(c.id, delta);
+		if (Math.abs(delta) > 1e-6) shiftLinked(c.id, delta, exact);
 	}
 }
 

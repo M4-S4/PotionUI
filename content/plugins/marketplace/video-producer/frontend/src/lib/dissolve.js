@@ -47,36 +47,32 @@ export function placement(clips) {
 			const before = places[last];
 			const joined = last === index - 1 && before.start === finite(clips[last].start) ? played(clips[last], clip) : 0;
 			if (joined) overlap = joined;
-			else if (start > before.end + EPSILON && start <= before.end + GRID + EPSILON) places[last] = { start: before.start, end: start, overlap: before.overlap };
 			else if (start < before.end - EPSILON) {
 				if (start > before.start + before.overlap + EPSILON) places[last] = { start: before.start, end: start, overlap: before.overlap };
 				else start = before.end;
 			}
 		}
-		places[index] = { start, end: start + dur, overlap };
+		places[index] = { start, end: rounded(start + dur), overlap };
 		last = index;
 	});
 	return places;
 }
 
-export const moved = (clip, place) => !!place && (place.start !== finite(clip.start) || place.end !== place.start + positive(clip.dur));
+export const moved = (clip, place) => !!place && (place.start !== finite(clip.start) || place.end !== rounded(place.start + positive(clip.dur)));
 
 export const joins = (clips) => placement(clips).map((place) => place?.overlap ?? 0);
 
 export const dissolving = (clips) => joins(clips).some(Boolean);
 
-const ceiling = (value) => Math.ceil(value / GRID - STEP_SLACK) * GRID;
+export const chained = (clips) => (clips ?? []).some((clip, i) => i > 0 && dissolveOf(clips[i - 1], clip) > 0);
 
 export function layout(clips, snap) {
+	const exact = chained(clips);
 	let at = 0;
-	let lost = 0;
 	const starts = [];
 	clips.forEach((clip, i) => {
-		const length = i ? dissolveOf(clips[i - 1], clip) : 0;
-		lost += length;
-		let start = lost ? +(snap(at) - lost).toFixed(3) : snap(at);
-		if (length) start = Math.max(start, +(ceiling(starts[i - 1] + finite(clips[i - 1].dur)) - length).toFixed(3));
-		starts.push(start);
+		if (!exact) starts.push(snap(at));
+		else starts.push(i ? rounded(starts[i - 1] + finite(clips[i - 1].dur) - dissolveOf(clips[i - 1], clip)) : 0);
 		at += finite(clip.dur);
 	});
 	return starts;
@@ -181,7 +177,7 @@ export function cuts(clips, frames) {
 		if (places[i]?.overlap) {
 			ends[i - 1] = Math.max(ends[i - 1], starts[i] + 1);
 			overlaps[i] = ends[i - 1] - starts[i];
-		}
+		} else if (places[i]) ends[i - 1] = Math.min(ends[i - 1], starts[i]);
 	}
 	const edits = starts.map((start, i) => start + Math.floor(overlaps[i] / 2));
 	return clips.map((clip, i) => {

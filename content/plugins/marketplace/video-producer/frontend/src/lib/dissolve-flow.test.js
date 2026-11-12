@@ -249,8 +249,8 @@ test('dissolve flow: changing the cadence of the project keeps every dissolve an
 	});
 	const starts = doc.clips.map((c) => c.start);
 	const played = joins(doc.clips);
-	assert.deepEqual(starts, [0, 1, 3.64]);
-	assert.deepEqual(played, [0, 1, 0.46]);
+	assert.deepEqual(starts, [0, 1, 3.62]);
+	assert.deepEqual(played, [0, 1, 0.48]);
 	for (const fps of [24, 25, 30, 48, 50, 60]) {
 		doc.fps = fps;
 		assert.deepEqual(joins(doc.clips), played, `${fps} fps`);
@@ -333,13 +333,16 @@ test('dissolve flow: a project whose cuts are all too short for a dissolve trims
 	);
 });
 
-test('dissolve flow: the cut says why a dissolve plays shorter after a shot off the grid, and when its value is too brief', async () => {
+test('dissolve flow: the cut says why a dissolve plays shorter when the starts of a document overlap less than asked, and when its value is too brief', async () => {
 	project();
 	doc.clips[0].dur = 3.1;
 	act(() => {
 		setDissolve(doc.clips, 1, 1);
 		relayout();
 	});
+	assert.equal(doc.clips[1].start, 2.1);
+	assert.doesNotMatch(clean(await renderComponent(SEAM, { clip: doc.clips[1] })), /data-dissolve-overlap/);
+	doc.clips[1].start = 2.12;
 	const off = clean(await renderComponent(SEAM, { clip: doc.clips[1] }));
 	assert.ok(off.includes(t('timeline.dissolve.shorter', { dur: '0.98 s' })));
 	assert.ok(off.includes(t('timeline.dissolve.overlap', { dur: '0.98 s', asked: '1.0 s' })));
