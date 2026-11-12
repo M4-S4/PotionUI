@@ -110,6 +110,16 @@ Ctrl+click a shot (⌘+click on a Mac) to add it to the selection, and Shift+cli
 
 **Save** applies everything, and **Edit › Undo** brings it all back. Saving never deletes a take.
 
+#### Write the prompt
+
+**Write the prompt**, above the shot prompt text, lets the language model of PotionUI write the prompt of the shot. Type in a few words what the shot should show, then click **Write** (or press Ctrl+Enter). The model reads your words, the shot's prompt as it stands, its start and end images and the prompting guide of the shot's engine, and proposes a prompt. Nothing changes until you choose: **Use this prompt** puts it in place of the shot prompt text, **Discard** leaves your prompt as it was. **Undo**, under the text, gives back your prompt of before, as long as you have not typed in it since. **Cancel** stops a writing that takes too long.
+
+The model writes only what the camera sees, in English. The page still adds the cast cards, the global direction and the format of the engine, as for a prompt you type yourself. The button is greyed when no language model is set up for you: hover it to read why, and ask an admin to set one up. A model that cannot look at images writes from your words alone.
+
+#### Card words of one shot
+
+When a picture of a cast card goes with the shot (MiniMax-H3 with the Ref2VA profile), the shot editor shows **Card words beside a picture** under **Prompt part from the references**. **As the project** follows **File › Project properties…**; **Description**, **Label** or **Picture only** apply to this shot alone. **Prompt sent to the engine** shows the result.
+
 ### Director AI
 
 Director AI shows one of four views in the center. Open them from the left panel, the **Window** menu or Alt+1 to Alt+4. The left panel sums up the state of each view, the engine of the project, and **To check**: the conflicts with the direction, the cards a shot names without casting them, the failed takes and the seams to fix.
