@@ -24,7 +24,7 @@ def render(doc: Mapping[str, Any], files: Mapping[Tuple[str, int], Optional[Dict
         }
 
     video: List[Dict[str, Any]] = []
-    edits = cuts(doc["clips"], time.frames)
+    edits = cuts(doc["clips"], time.fps, time.frames)
     for index, clip in enumerate(doc["clips"]):
         entry = files.get(("clips", index))
         cut = edits[index]

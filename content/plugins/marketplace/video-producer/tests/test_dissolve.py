@@ -10,7 +10,7 @@ import pytest
 
 from backend import core_bridge, projects, takes
 from backend.chat import edits
-from backend.dissolve import MAX_DISSOLVE, dissolve_of, dissolves
+from backend.dissolve import MAX_DISSOLVE, dissolves, joins
 from backend.exports import render
 from backend.exports import video
 from backend.exports.media import files_of
@@ -29,6 +29,10 @@ PATHS = {"ffmpeg": "/usr/bin/ffmpeg", "output": "/tmp/out/mezzanine.mkv", "graph
 
 def _clips(case):
     return [{"id": f"c{index}", **clip} for index, clip in enumerate(case["clips"])]
+
+
+def _laid(case):
+    return [{**clip, "start": start} for clip, start in zip(_clips(case), case["starts"])]
 
 
 def _options(**fields):
@@ -57,13 +61,16 @@ def _run(make_doc, durations, joins, **extra):
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
-def test_the_shared_cases_give_the_dissolve_each_cut_plays(case):
-    assert dissolves(_clips(case)) == pytest.approx(case["applied"], abs=1e-9)
+def test_the_shared_cases_give_the_dissolve_each_cut_plays_in_whole_frames(case):
+    clips = _laid(case)
+
+    assert joins(clips, case["fps"]) == case["frames"]
+    assert dissolves(clips, case["fps"]) == pytest.approx(case["applied"], abs=1e-9)
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["name"] for case in CASES])
 def test_the_assistant_lays_the_shots_out_with_their_dissolves(case):
-    doc = {"clips": [{**clip, "start": 99} for clip in _clips(case)], "prompts": [], "frames": []}
+    doc = {"fps": case["fps"], "clips": [{**clip, "start": 99} for clip in _clips(case)], "prompts": [], "frames": []}
 
     edits.relayout(doc)
 
@@ -166,11 +173,37 @@ def test_a_dissolve_after_a_gap_or_on_the_first_shot_is_a_cut(make_doc):
     assert [dur for dur, _ in timeline(doc)[0]] == [2, 1, 2]
 
 
-def test_the_parts_of_a_long_sequence_never_cut_inside_a_dissolve(make_doc):
-    doc = _run(make_doc, [2, 2, 2, 2], [0, 1, 0, 1])
+def test_the_limit_of_inputs_per_part_holds_inside_a_long_run_of_dissolves(make_doc):
+    doc = _run(make_doc, [1] * 60, [0] + [0.4] * 59)
     segments, _ = timeline(doc)
 
-    assert [len(group) for group in plan_parts(doc, _files(doc), _options(), segments, 1)] == [2, 2]
+    assert [len(group) for group in plan_parts(doc, _files(doc), _options(), segments)] == [40, 20]
+
+
+async def test_a_long_run_of_dissolves_is_made_in_parts_that_the_last_run_joins_with_the_dissolve_between_them(make_doc, tmp_path, monkeypatch):
+    doc = _run(make_doc, [1] * 60, [0] + [0.4] * 59, fps=25)
+    commands = []
+
+    async def assemble(command, total, on_progress=None, on_process=None, cwd=None, code="ffmpeg_failed"):
+        commands.append((command, total))
+        return ""
+
+    async def part_length(path, nominal):
+        return nominal
+
+    monkeypatch.setattr(video, "assemble", assemble)
+    monkeypatch.setattr(video, "_part_length", part_length)
+    paths = {**PATHS, "output": str(tmp_path / "m.mkv"), "graph": str(tmp_path / "g.txt"), "audio": {}}
+
+    await video.assemble_sequence(doc, _files(doc), _options(), paths, tmp_path, lambda progress, step: True)
+
+    assert [command.count("-i") for command, _ in commands] == [40, 20, 2]
+    assert [total for _, total in commands] == pytest.approx([40 - 39 * 0.4, 20 - 19 * 0.4, 60 - 59 * 0.4])
+    last = Path(paths["graph"]).read_text(encoding="utf-8").split(";")
+    assert f"[v0][v1]xfade=transition=fade:duration=0.4:offset={40 - 39 * 0.4 - 0.4:g}[x0v1]" in last
+    assert "[a0][a1]acrossfade=d=0.4:c1=qsin:c2=qsin[x0a1]" in last
+    first, second = (tmp_path / video.PART_GRAPH.format(0, k) for k in (0, 1))
+    assert first.read_text(encoding="utf-8").count("xfade=") == 39 and second.read_text(encoding="utf-8").count("xfade=") == 19
 
 
 async def test_a_part_lasts_its_shots_less_its_dissolves(make_doc, tmp_path, monkeypatch):
@@ -203,7 +236,8 @@ def test_the_dissolve_project_is_a_document_the_plugin_stores():
     fixture, _ = _fixture()
 
     projects.validate_doc(fixture["doc"])
-    assert dissolves(fixture["doc"]["clips"]) == [0, 1, 0.52, 1.48]
+    assert dissolves(fixture["doc"]["clips"], 25) == [0, 1, 0.52, 1.48]
+    assert joins(fixture["doc"]["clips"], 25) == [0, 25, 13, 37]
 
 
 @pytest.mark.parametrize("fmt", ("edl", "otio", "fcpxml"))
@@ -252,11 +286,11 @@ def test_the_otio_reads_with_opentimelineio_and_places_each_clip_at_its_cut():
     assert track.duration().value == 318
 
 
-def _solid(folder: Path, name: str, color: str, tone: int, seconds: float) -> Path:
+def _solid(folder: Path, name: str, color: str, tone: int, seconds: float, rate: int = 25) -> Path:
     path = folder / name
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-        "-f", "lavfi", "-i", f"color=c={color}:s=320x180:r=25:d={seconds}",
+        "-f", "lavfi", "-i", f"color=c={color}:s=320x180:r={rate}:d={seconds}",
         "-f", "lavfi", "-i", f"sine=frequency={tone}:sample_rate=48000:duration={seconds}",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(path),
     ]
@@ -344,3 +378,121 @@ async def test_render_delivers_a_film_shortened_by_its_dissolves(make_doc, solid
     assert _frames(final) == 100
     middle = _frame(final, 37)
     assert 90 < middle[0] < 170 and 90 < middle[2] < 170
+
+
+def _offsets(graph):
+    found = []
+    for part in graph:
+        if "xfade=" in part:
+            fields = dict(item.split("=", 1) for item in part.split("xfade=", 1)[1].split("[", 1)[0].split(":")[1:])
+            found.append((float(fields["duration"]), float(fields["offset"])))
+    return found
+
+
+@pytest.mark.parametrize("fps", (24, 25, 30))
+def test_at_every_frame_rate_the_film_the_graph_assembles_lasts_what_the_document_lays_out(make_doc, fps):
+    doc = _run(make_doc, [2] * 11, [0] + [0.4] * 10, fps=fps)
+    graph = _graph(doc)
+    _, total = timeline(doc)
+
+    duration, offset = _offsets(graph)[-1]
+    assert round((offset + 2) * fps) == round(total * fps)
+    assert round(total * fps) == 11 * 2 * fps - 10 * math.floor(0.4 * fps + 1e-6)
+    assert all(round(d * fps) == math.floor(0.4 * fps + 1e-6) for d, _ in _offsets(graph))
+
+
+def test_at_24_fps_two_dissolves_around_a_short_shot_leave_it_a_frame_of_its_own(make_doc):
+    doc = _run(make_doc, [4, 0.96, 4], [0, 1, 1], fps=24)
+
+    durations = [round(d * 24) for d, _ in _offsets(_graph(doc))]
+
+    assert durations == [11, 11] and sum(durations) < 23
+    assert [clip["start"] for clip in doc["clips"]] == pytest.approx([0, 4 - 11 / 24, 4.96 - 22 / 24], abs=1e-5)
+
+
+def test_at_24_fps_the_sound_of_the_shots_in_a_run_lasts_their_whole_frames(make_doc):
+    doc = _run(make_doc, [1.04, 1.04, 1], [0, 0.5, 0], fps=24)
+
+    sounds = [part for part in _graph(doc) if part.startswith("anullsrc")]
+
+    assert [part.split("atrim=duration=")[1].split("[")[0] for part in sounds] == ["1.041667", "1.041667", "1"]
+
+
+def test_a_document_whose_starts_do_not_match_its_dissolve_plays_it_as_a_cut_everywhere(make_doc):
+    for start in (4, 3.8):
+        doc = _doc(make_doc, [{"id": "a", "assetId": "x", "start": 0, "dur": 4}, {"id": "b", "assetId": "y", "start": start, "dur": 4, "dissolve": 1}], fps=25)
+        files = {("clips", 0): {"name": "a.mp4", "path": "a.mp4"}, ("clips", 1): {"name": "b.mp4", "path": "b.mp4"}}
+
+        assert joins(doc["clips"], 25) == [0, 0]
+        assert not any("xfade" in part for part in _graph(doc))
+        assert [dur for dur, _ in timeline(doc)[0]] == [4, 4]
+        assert " D " not in render("edl", doc, files) and "Transition" not in render("otio", doc, files) and "<transition" not in render("fcpxml", doc, files)
+
+
+def test_the_otio_writes_each_dissolve_as_a_transition_between_clips_cut_at_its_middle():
+    fixture, files = _fixture()
+
+    children = json.loads(render("otio", fixture["doc"], files))["tracks"]["children"][0]["children"]
+
+    assert [child["OTIO_SCHEMA"] for child in children] == ["Clip.2", "Transition.1", "Clip.2", "Transition.1", "Gap.1", "Transition.1", "Clip.2"]
+    transitions = [child for child in children if child["OTIO_SCHEMA"] == "Transition.1"]
+    assert [(t["transition_type"], t["in_offset"]["value"], t["out_offset"]["value"]) for t in transitions] == [("SMPTE_Dissolve", 12, 13), ("SMPTE_Dissolve", 6, 7), ("SMPTE_Dissolve", 18, 19)]
+    items = [child for child in children if child["OTIO_SCHEMA"] != "Transition.1"]
+    assert [item["source_range"]["duration"]["value"] for item in items] == [112, 86, 50, 70]
+    assert [item["source_range"]["start_time"]["value"] for item in items] == [0, 16, 0, 24]
+
+
+def test_the_assistant_hears_the_length_of_the_film_less_its_dissolves():
+    from backend.chat import context
+
+    shots = [{"id": "a", "start": 0, "dur": 4}, {"id": "b", "start": 3, "dur": 4}, {"id": "c", "start": 7, "dur": 2}]
+
+    assert context._shots(shots, {"a": "A", "b": "B", "c": "C"}, 4000)[0] == "Shots (3, 9 s), in timeline order:"
+    assert context._shots([{"id": "a", "start": 0, "dur": 4}, {"id": "b", "start": 4, "dur": 4}], {"a": "A", "b": "B"}, 4000)[0] == "Shots (2, 8 s), in timeline order:"
+
+
+@pytest.mark.requires_ffmpeg
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg and ffprobe are not on the PATH")
+async def test_a_real_export_at_24_fps_lasts_the_frames_the_document_lays_out_with_its_sound_in_step(make_doc, tmp_path):
+    if not HAS_FFMPEG:
+        pytest.skip("ffmpeg and ffprobe are not on the PATH")
+    sources = [_solid(tmp_path, f"{color}.mp4", color, tone, 2, 24) for color, tone in (("red", 440), ("blue", 880), ("lime", 1320))]
+    doc = _run(make_doc, [2, 2, 1], [0, 0.4, 0], fps=24, resolution="720p")
+    files = {clip["id"]: {"name": path.name, "path": str(path)} for clip, path in zip(doc["clips"], sources)}
+    output = tmp_path / "mezzanine.mkv"
+    options = {"format": "web", "resolution": "720p", **video.inspect(files), "impulse": str(write_impulse(tmp_path / "reverb.wav", 48000))}
+    paths = {"ffmpeg": shutil.which("ffmpeg"), "graph_option": video.graph_option(shutil.which("ffmpeg")), "output": str(output), "graph": str(tmp_path / "graph.txt"), "audio": {}}
+    Path(paths["graph"]).write_text(filter_graph(doc, files, options, paths), encoding="utf-8")
+    _, total = timeline(doc)
+
+    await video.assemble(build_command(doc, files, options, paths), total)
+
+    assert total == pytest.approx(4.625) and _frames(output) == 111
+    middle = _frame(output, 43)
+    assert 90 < middle[0] < 170 and 90 < middle[2] < 170
+    assert _frame(output, 38)[0] > 200 and _frame(output, 50)[2] > 200
+    samples = _samples(output)
+    assert len(samples) == pytest.approx(111 / 24 * 48000, abs=48000 * 0.01)
+    assert _tone(samples, 4.0, 4.5, 1320) > 10 * _tone(samples, 4.0, 4.5, 880)
+
+
+@pytest.mark.requires_ffmpeg
+@pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg and ffprobe are not on the PATH")
+async def test_a_real_export_in_parts_keeps_the_dissolve_between_two_parts(make_doc, tmp_path, monkeypatch):
+    if not HAS_FFMPEG:
+        pytest.skip("ffmpeg and ffprobe are not on the PATH")
+    colors = (("red", 440), ("blue", 880), ("lime", 1320), ("yellow", 660))
+    sources = [_solid(tmp_path, f"{color}.mp4", color, tone, 1) for color, tone in colors]
+    doc = _run(make_doc, [1, 1, 1, 1], [0, 0.4, 0.4, 0.4], fps=25, resolution="720p")
+    files = {clip["id"]: {"name": path.name, "path": str(path), "still": False} for clip, path in zip(doc["clips"], sources)}
+    options = {"format": "web", "resolution": "720p", **video.inspect(files), "impulse": str(write_impulse(tmp_path / "reverb.wav", 48000))}
+    output = tmp_path / "mezzanine.mkv"
+    paths = {"ffmpeg": shutil.which("ffmpeg"), "graph_option": video.graph_option(shutil.which("ffmpeg")), "output": str(output), "graph": str(tmp_path / "graph.txt"), "audio": {}}
+    monkeypatch.setattr(video, "PART_INPUTS", 2)
+
+    await video.assemble_sequence(doc, files, options, paths, tmp_path, lambda progress, step: True)
+
+    assert (tmp_path / video.PART_NAME.format(0, 1)).exists() and _frames(output) == 70
+    boundary = _frame(output, 35)
+    assert 90 < boundary[2] < 170 and 90 < boundary[1] < 200 and boundary[0] < 60
+    assert _frame(output, 26)[2] > 200 and _frame(output, 44)[1] > 200

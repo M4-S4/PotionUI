@@ -13,7 +13,7 @@ import psutil
 
 from .. import core_bridge, director, formats, takes, workdir
 from ..core_bridge import User
-from ..dissolve import dissolve_of, dissolves
+from ..dissolve import frames_of, joined_frames, seconds_of
 from . import levels, match, media, slug
 from .common import asset_of, fps_of, seq_duration, timing_error
 from .mix import RULE as MIX_RULE, delay_taps, gain_of, pan_of, strip_of, write_impulse
@@ -249,7 +249,7 @@ def timeline(doc: Mapping[str, Any]) -> Tuple[List[Segment], float]:
             segments.append((start - cursor, None))
             cursor = start
         if segments:
-            cursor -= dissolve_of(segments[-1][1], clip)
+            cursor -= seconds_of(joined_frames(segments[-1][1], clip, fps_of(doc)), fps_of(doc))
         segments.append((dur, clip))
         cursor += dur
     total = float(seq_duration(doc))
@@ -739,15 +739,21 @@ def _console(doc: Mapping[str, Any], sounds: Mapping[str, str], inputs: _Inputs,
     return chains
 
 
-def joins_of(segments: Sequence[Segment]) -> List[float]:
-    return dissolves([clip for _, clip in segments])
+JOIN = "join"
+
+
+def joins_of(segments: Sequence[Segment], rate: Any) -> List[int]:
+    found = [0]
+    for (_, before), (_, after) in zip(segments, segments[1:]):
+        found.append(int(after[JOIN]) if after is not None and JOIN in after else joined_frames(before, after, rate))
+    return found[: len(segments)]
 
 
 def _unfaded(clip: Mapping[str, Any], head: bool, tail: bool) -> Mapping[str, Any]:
     return {**clip, **({"fadeIn": 0} if head else {}), **({"fadeOut": 0} if tail else {})}
 
 
-def _dissolved(lengths: Sequence[float], joins: Sequence[float], rate: Any) -> Tuple[List[str], List[str]]:
+def _dissolved(lengths: Sequence[float], joins: Sequence[int], rate: Any) -> Tuple[List[str], List[str]]:
     chains: List[str] = []
     pairs: List[str] = []
     k = 0
@@ -759,14 +765,14 @@ def _dissolved(lengths: Sequence[float], joins: Sequence[float], rate: Any) -> T
             pairs.append(f"[v{k}][a{k}]")
             k = end
             continue
-        video, sound, frames = f"[v{k}]", f"[a{k}]", round(lengths[k] * rate)
+        video, sound, frames = f"[v{k}]", f"[a{k}]", frames_of(lengths[k], rate)
         for j in range(k + 1, end):
-            overlap = round(joins[j] * rate)
+            overlap = joins[j]
             joined_video, joined_sound = f"[x{k}v{j}]", f"[x{k}a{j}]"
             chains.append(f"{video}[v{j}]xfade=transition=fade:duration={num(overlap / rate)}:offset={num((frames - overlap) / rate)}{joined_video}")
             chains.append(f"{sound}[a{j}]acrossfade=d={num(overlap / rate)}:c1={CROSSFADE_CURVE}:c2={CROSSFADE_CURVE}{joined_sound}")
             video, sound = joined_video, joined_sound
-            frames += round(lengths[j] * rate) - overlap
+            frames += frames_of(lengths[j], rate) - overlap
         pairs.append(f"{video}{sound}")
         k = end
     return chains, pairs
@@ -780,6 +786,7 @@ def _assembly(
     cwd: Optional[str] = None,
     segments: Optional[Sequence[Segment]] = None,
     mix: bool = True,
+    edges: Tuple[int, int] = (0, 0),
 ) -> Tuple[List[str], List[str]]:
     fmt, resolution = options["format"], options["resolution"]
     width, height = frame_size(doc, fmt, resolution, options.get("ratio"))
@@ -791,12 +798,16 @@ def _assembly(
     pairs: List[str] = []
     segments = timeline(doc)[0] if segments is None else segments
     shots = _shots(doc, files, options, segments)
-    joins = joins_of(segments)
+    joins = joins_of(segments, rate)
+    heads = [edges[0] > 0 if index == 0 else joins[index] > 0 for index in range(len(shots))]
+    tails = [edges[1] > 0 if index + 1 == len(shots) else joins[index + 1] > 0 for index in range(len(shots))]
     mono = set(options.get("mono") or ())
     for index, shot in enumerate(shots):
-        if joins[index] > 0 or (index + 1 < len(joins) and joins[index + 1] > 0):
-            shot = replace(shot, clip=_unfaded(shot.clip, joins[index] > 0, index + 1 < len(joins) and joins[index + 1] > 0))
         length = num(shot.dur)
+        if heads[index] or tails[index]:
+            if shot.clip is not None:
+                shot = replace(shot, clip=_unfaded(shot.clip, heads[index], tails[index]))
+            length = num(frames_of(shot.dur, rate) / rate)
         black = f"color=c=black:s={width}x{height}:r={fps}:d={length},setsar=1,format=yuv420p[v{index}]"
         silence = f"anullsrc=r={SAMPLE_RATE}:cl=stereo,atrim=duration={length}[a{index}]"
         if shot.entry is None:
@@ -856,9 +867,8 @@ def plan_parts(
     groups: List[List[Segment]] = []
     current: List[Segment] = []
     inputs = _Inputs()
-    joins = joins_of(segments)
-    for index, (segment, shot) in enumerate(zip(segments, _shots(doc, files, options, segments))):
-        if current and joins[index] <= 0 and inputs.opens(shot) and inputs.count >= limit:
+    for segment, shot in zip(segments, _shots(doc, files, options, segments)):
+        if current and inputs.opens(shot) and inputs.count >= limit:
             groups.append(current)
             current, inputs = [], _Inputs()
         if shot.entry is not None:
@@ -1132,12 +1142,16 @@ async def assemble_sequence(
         parts: Dict[str, Mapping[str, Any]] = {}
         lengths: Dict[str, float] = {}
         joined: List[Segment] = []
+        joins, first = joins_of(segments, fps), 0
         for index, group in enumerate(groups):
             start = min(done / work * MIX_FROM, ceiling)
             _step(report, start)
-            span = sum(dur for dur, _ in group) - sum(joins_of(group))
+            head, after = joins[first], first + len(group)
+            tail = joins[after] if after < len(joins) else 0
+            first = after
+            span = sum(dur for dur, _ in group) - sum(joins_of(group, fps)) / fps
             graph, output = folder / PART_GRAPH.format(level, index), folder / PART_NAME.format(level, index)
-            inputs, chains = _assembly(doc, files, picks, {}, cwd, group, mix=False)
+            inputs, chains = _assembly(doc, files, picks, {}, cwd, group, mix=False, edges=(head, tail))
             graph.write_text(";".join(chains), encoding="utf-8")
             command = _command({**paths, "graph": str(graph), "output": str(output)}, inputs, PART_ENCODER, fps=fps)
             await assemble(command, span, _progress(report, start, span / work * MIX_FROM, ceiling), on_process, cwd)
@@ -1145,7 +1159,7 @@ async def assemble_sequence(
             key = f"part-{level}-{index}"
             parts[key] = {"name": output.name, "path": str(output), "still": False}
             lengths[key] = await _part_length(output, span)
-            joined.append((lengths[key], {"id": key}))
+            joined.append((lengths[key], {"id": key, **({JOIN: head} if head else {})}))
         files, cwd, segments = parts, str(folder), joined
         picks = {**options, "audio": {key: True for key in parts}, "stills": [], "blind": [], "lengths": lengths}
         groups = plan_parts(doc, files, picks, segments)

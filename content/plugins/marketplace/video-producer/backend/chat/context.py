@@ -16,6 +16,8 @@ MAX_SEAM_LINES = 20
 MAX_CARDS = 12
 MAX_LABEL_CHARS = 60
 
+OVERLAP_SLACK = 0.005
+
 NOT_OPEN = "Video Producer: the page is not open on a project this turn, so there is no project context."
 
 LANGUAGE_NAMES = {"en": "English", "fr": "French"}
@@ -155,8 +157,13 @@ def _shot_line(index: int, shot: Mapping[str, Any], labels: Dict[Any, str]) -> s
     )
 
 
+def _overlap(before: Mapping[str, Any], shot: Mapping[str, Any]) -> float:
+    overlap = _number(before.get("start")) + _number(before.get("dur")) - _number(shot.get("start"))
+    return overlap if "start" in shot and overlap > OVERLAP_SLACK else 0.0
+
+
 def _shots(shots: List[Dict[str, Any]], labels: Dict[Any, str], budget: int) -> List[str]:
-    total = sum(_number(shot.get("dur")) for shot in shots)
+    total = sum(_number(shot.get("dur")) for shot in shots) - sum(_overlap(before, shot) for before, shot in zip(shots, shots[1:]))
     lines = [f"Shots ({len(shots)}, {_seconds(total)} s), in timeline order:"]
     if not shots:
         return lines + ["  (none yet)"]

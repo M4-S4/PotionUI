@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from .. import bible, formats
 from ..core_bridge import generate_ulid
 from ..director import FIRST_ROLES, LAST_ROLES, shot_revision
-from ..dissolve import dissolve_of
+from ..dissolve import layout
 
 GRID = 0.04
 PROMPT_STRENGTH = 75
@@ -101,12 +101,8 @@ def relayout(doc: Dict[str, Any]) -> None:
     """Lay the shots end to end from zero, moving the prompts and frames linked to each shot with it."""
     clips = clips_of(doc)
     before = {clip["id"]: number(clip.get("start")) for clip in clips}
-    at = 0.0
-    for index, clip in enumerate(clips):
-        if index:
-            at -= dissolve_of(clips[index - 1], clip)
-        clip["start"] = snap(at)
-        at += number(clip.get("dur"))
+    for clip, start in zip(clips, layout(clips, doc.get("fps"), snap)):
+        clip["start"] = start
     for clip in clips:
         delta = clip["start"] - before.get(clip["id"], clip["start"])
         if abs(delta) <= 1e-6:

@@ -2,7 +2,7 @@ import re
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from .. import formats
-from ..dissolve import dissolves
+from ..dissolve import joins as joins_of
 from .common import Timebase, clip_label
 
 _LINE_BREAK = re.compile(r"[\r\n]")
@@ -18,7 +18,7 @@ def render(doc: Mapping[str, Any], files: Mapping[Tuple[str, int], Optional[Dict
     time = Timebase(doc)
     lines = [f"TITLE: {one_line(doc['name']).upper()}", "FCM: NON-DROP FRAME", ""]
     clips = doc["clips"]
-    joins = [*dissolves(clips), 0.0]
+    joins = [*joins_of(clips, time.fps), 0]
     for index, clip in enumerate(clips):
         number = str(index + 1).rjust(3, "0")
         entry = files.get(("clips", index))
@@ -35,9 +35,8 @@ def render(doc: Mapping[str, Any], files: Mapping[Tuple[str, int], Optional[Dict
             before = clips[index - 1]
             held = before["srcIn"] + (record_in - before["start"]) * formats.speed_of(before)
             before_reel = f"VP{str(index).rjust(3, '0')}" if files.get(("clips", index - 1)) else "BL"
-            frames = time.frames(before["start"] + before["dur"]) - time.frames(record_in)
             lines.append(f"{number}  {before_reel.ljust(8)} V     C        {time.timecode(held)} {time.timecode(held)} {time.timecode(record_in)} {time.timecode(record_in)}")
-            cut = f"D    {str(frames).rjust(3, '0')}"
+            cut = f"D    {str(joins[index]).rjust(3, '0')}"
         else:
             cut = "C       "
         lines.append(
