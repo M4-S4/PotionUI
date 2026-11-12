@@ -24,6 +24,7 @@ PLACED = {
 STILL = {"id": "img", "kind": "image", "src": "/api/media/uploads/harbour.png", "origin": {"kind": "library", "itemId": "it-1"}}
 OWN = {"id": "own", "kind": "image", "src": "/api/media/uploads/own.png", "origin": {"kind": "library", "itemId": "it-own"}}
 STAND_IN = "chainvideo:s1"
+TWELVE = presets.MINIMAX_H3_12GB
 
 
 class Ends:
@@ -48,8 +49,8 @@ def slots(store):
     store[("max_parallel_jobs", None)] = "4"
 
 
-def _project(core, make_project, chain_by="video", clips=SHOTS, assets=(), frames=(), continues=True, **extra):
-    (core.use_h3_continue if continues else core.use_h3)()
+def _project(core, make_project, chain_by="video", clips=SHOTS, assets=(), frames=(), **extra):
+    core.use_h3_continue()
     core.add_media({"kind": "library", "item_id": "it-1"}, "uploads/harbour.png")
     core.add_media({"kind": "library", "item_id": "it-own"}, "uploads/own.png")
     project = make_project(clips=[dict(clip) for clip in clips], assets=list(assets), frames=list(frames), direction={"mode": "FL2VA"}, **extra)
@@ -58,13 +59,13 @@ def _project(core, make_project, chain_by="video", clips=SHOTS, assets=(), frame
     return project
 
 
-def _order(shots):
-    return Order(shots=list(shots), quality="draft", variants=1, preset_id=presets.MINIMAX_H3)
+def _order(shots, preset_id=TWELVE):
+    return Order(shots=list(shots), quality="draft", variants=1, preset_id=preset_id)
 
 
-def _evaluate(core, project, shots):
+def _evaluate(core, project, shots, preset_id=TWELVE):
     user = core.users["user-1"]
-    return asyncio.run(estimate.evaluate(user, user, project["doc"], _order(shots), project["id"]))
+    return asyncio.run(estimate.evaluate(user, user, project["doc"], _order(shots, preset_id), project["id"]))
 
 
 def _plan(evaluation, shot_id="s2"):
@@ -181,10 +182,10 @@ def test_a_shot_that_cannot_be_continued_starts_from_the_last_image_and_says_why
         clips[0]["dur"] = 2.0
     if case == "long":
         clips[1]["dur"] = 14.0
-    project = _project(core, make_project, clips=clips, assets=[STILL], continues=case != "engine")
+    project = _project(core, make_project, clips=clips, assets=[STILL])
     shots = ["s2"] if case == "still" else ["s1", "s2"]
 
-    evaluation = _evaluate(core, project, shots)
+    evaluation = _evaluate(core, project, shots, presets.MINIMAX_H3 if case == "engine" else TWELVE)
     plan = _plan(evaluation)
 
     assert (plan.request["mode"], plan.director_mode, plan.chain_video) == ("video", mode, None)
@@ -216,12 +217,12 @@ def test_the_final_render_of_a_shot_chained_by_continuation_continues_the_placed
     first = {**SHOTS[0], "assetId": PLACED["id"], "stage": "draft", "take": "t0"}
     project = _project(core, make_project, clips=[first, {**SHOTS[1], "stage": "draft"}], assets=[PLACED])
     source = takes.create_take(
-        {"project_id": project["id"], "shot_id": "s2", "user_id": "user-1", "quality": "draft", "kind": "render", "status": "done", "generation_id": "g-2", "file_id": "f-2", "preset_id": presets.MINIMAX_H3, "seed": 7, "variant": "A", "profile": "FL2VA"}
+        {"project_id": project["id"], "shot_id": "s2", "user_id": "user-1", "quality": "draft", "kind": "render", "status": "done", "generation_id": "g-2", "file_id": "f-2", "preset_id": TWELVE, "seed": 7, "variant": "A", "profile": "FL2VA"}
     )
     user = core.users["user-1"]
 
     plan, _, _ = asyncio.run(generation.final_plan(user, project, source, generation.RENDER, "final"))
-    take = generation.create_final(user, project, source, generation.RENDER, plan, presets.MINIMAX_H3, 0.0)
+    take = generation.create_final(user, project, source, generation.RENDER, plan, TWELVE, 0.0)
 
     assert (plan.request["mode"], plan.chain, plan.quality) == ("extend", "s1", "final")
     assert take["chain"]["state"] == "waiting" and take["chain"]["after"] is None and take["chain"]["video"]["sound"] is True
@@ -273,10 +274,26 @@ def test_a_document_may_chain_by_the_last_image_or_by_continuation_and_nothing_e
         validate_doc(doc)
 
 
-def test_the_continue_mode_of_the_12_gb_preset_returns_the_new_footage_alone_from_the_fl2va_files():
-    pipeline = yaml.safe_load((PRESET / "modes" / "extend" / "pipeline.yml").read_text(encoding="utf-8"))["pipeline"]
-    manifest = yaml.safe_load((PRESET / "preset.yml").read_text(encoding="utf-8"))
-    generation_tab = (PRESET / "modes" / "extend" / "tabs" / "generation.yml").read_text(encoding="utf-8")
+def test_the_fast_12_gb_preset_continues_an_fl2va_shot_with_its_own_extend_mode(core, make_project, slots):
+    project = _project(core, make_project)
+    core.use_h3_fast_12gb_continue()
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], presets.MINIMAX_H3_FAST_12GB)
+    plan = _plan(evaluation)
+
+    assert (plan.request["mode"], plan.request["preset_id"], plan.director_mode) == ("extend", presets.MINIMAX_H3_FAST_12GB, "extend")
+    assert plan.chain == "s1" and plan.chain_video.trace()["frames"] == 56 and plan.chain_video.sound is True
+    assert plan.request["form_data"]["source_video"] == STAND_IN
+    assert _codes(evaluation) == []
+
+
+@pytest.mark.parametrize("folder", ["MiniMax-H3-12GB", "MiniMax-H3-Fast-12GB"])
+def test_the_continue_mode_of_the_12_gb_preset_returns_the_new_footage_alone_from_the_fl2va_files(folder):
+    preset = PRESET.parent / folder
+    pipeline = yaml.safe_load((preset / "modes" / "extend" / "pipeline.yml").read_text(encoding="utf-8"))["pipeline"]
+    manifest = yaml.safe_load((preset / "preset.yml").read_text(encoding="utf-8"))
+    generation_tab = (preset / "modes" / "extend" / "tabs" / "generation.yml").read_text(encoding="utf-8")
+    video_tab = yaml.safe_load((preset / "modes" / "video" / "tabs" / "generation.yml").read_text(encoding="utf-8"))
     generator = next(step for step in pipeline if step["name"] == "generator/video_minimax_h3")
     gallery = next(step for step in pipeline if step["name"] == "gallery")
     fields = {field["name"]: field for field in yaml.safe_load(generation_tab)["fields"][1]["children"] if "name" in field}
@@ -288,4 +305,4 @@ def test_the_continue_mode_of_the_12_gb_preset_returns_the_new_footage_alone_fro
     assert gallery["input"][0] == ["video", "generator", "video"]
     assert not any(step["name"] == "video_concat" for step in pipeline)
     assert fields["frames"]["configuration"]["max"] == director.MAX_CONTINUE_FRAMES
-    assert "models_fl2va.yml" in generation_tab
+    assert yaml.safe_load(generation_tab)["fields"][-1] == video_tab["fields"][-1]
