@@ -26,6 +26,7 @@ WRITE_TIMEOUT_S = 120.0
 POLL_S = 0.25
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_EDGE = 1024
+MAX_PIXELS = 40_000_000
 WORK_AREA = "writer"
 GRACE_S = 1.0
 
@@ -198,12 +199,26 @@ def _plan(owner: User, doc: Mapping[str, Any], shot_id: str, preset_id: str, mod
     return plan.preset_id or preset_id, plan.preset_mode or None, dict(form_data) if isinstance(form_data, Mapping) else None, names
 
 
+def _flattened(picture: Any) -> Any:
+    from PIL import Image
+
+    if picture.mode in ("RGBA", "LA", "PA") or "transparency" in picture.info:
+        layered = picture.convert("RGBA")
+        canvas = Image.new("RGB", layered.size, (255, 255, 255))
+        canvas.paste(layered, mask=layered.getchannel("A"))
+        return canvas
+    return picture.convert("RGB")
+
+
 def _shrunk(source: Path, target: Path) -> None:
     from PIL import Image, ImageOps
 
     with Image.open(source) as image:
-        picture = ImageOps.exif_transpose(image).convert("RGB")
-        picture.thumbnail((IMAGE_EDGE, IMAGE_EDGE))
+        if image.width * image.height > MAX_PIXELS:
+            raise ValueError(f"{image.width}x{image.height} is past {MAX_PIXELS} pixels")
+        image.draft("RGB", (IMAGE_EDGE, IMAGE_EDGE))
+        image.thumbnail((IMAGE_EDGE, IMAGE_EDGE))
+        picture = _flattened(ImageOps.exif_transpose(image))
         picture.save(target, "JPEG", quality=90)
 
 

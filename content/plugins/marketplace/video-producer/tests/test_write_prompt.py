@@ -777,3 +777,63 @@ def test_small_readable_key_frames_go_as_they_are(core, client, make_doc, make_p
 
     assert response.json()["data"]["images_dropped"] == 0
     assert writer.calls[0]["media"] == [{"value": "uploads/start.png", "media_type": "image"}, {"value": "uploads/end.png", "media_type": "image"}]
+
+
+def test_a_large_transparent_frame_is_shrunk_on_a_white_ground(core, monkeypatch, export_storage):
+    import os
+
+    from PIL import Image
+
+    width, height = 1800, 1200
+    picture = Image.frombytes("RGB", (width, height), os.urandom(width * height * 3)).convert("RGBA")
+    alpha = Image.new("L", (width, height), 255)
+    alpha.paste(0, (0, 0, 300, 300))
+    picture.putalpha(alpha)
+    source = export_storage / "uploads" / "clear.png"
+    source.parent.mkdir(parents=True)
+    picture.save(source, "PNG")
+    assert source.stat().st_size > prompt_writer.MAX_IMAGE_BYTES
+    user = core.users["user-1"]
+
+    sent, dropped = prompt_writer.fitted(user, [{"value": "uploads/clear.png", "media_type": "image", "role": "first"}], export_storage / "work")
+
+    assert dropped == 0
+    with Image.open(export_storage / sent[0]["value"]) as shrunk:
+        assert shrunk.mode == "RGB"
+        assert max(shrunk.size) == prompt_writer.IMAGE_EDGE
+        red, green, blue = shrunk.getpixel((20, 20))
+        assert min(red, green, blue) >= 240
+
+
+def test_a_frame_past_the_pixel_bound_is_left_out_without_being_decoded(core, monkeypatch, export_storage):
+    from PIL import Image
+
+    _noise_png(export_storage / "uploads" / "start.png")
+    monkeypatch.setattr(prompt_writer, "MAX_PIXELS", 1_000_000)
+    loads = []
+    load = Image.Image.load
+    monkeypatch.setattr(Image.Image, "load", lambda self, *args: loads.append(self.size) or load(self, *args))
+    user = core.users["user-1"]
+
+    sent, dropped = prompt_writer.fitted(user, [{"value": "uploads/start.png", "media_type": "image", "role": "first"}], export_storage / "work")
+
+    assert (sent, dropped) == ([], 1)
+    assert loads == []
+
+
+def test_a_large_jpeg_frame_is_decoded_reduced(tmp_path, monkeypatch):
+    import os
+
+    from PIL import Image, JpegImagePlugin
+
+    source = tmp_path / "big.jpg"
+    Image.frombytes("RGB", (3000, 2000), os.urandom(3000 * 2000 * 3)).save(source, "JPEG", quality=95)
+    asked = []
+    draft = JpegImagePlugin.JpegImageFile.draft
+    monkeypatch.setattr(JpegImagePlugin.JpegImageFile, "draft", lambda self, mode, size: asked.append((mode, size)) or draft(self, mode, size))
+
+    prompt_writer._shrunk(source, tmp_path / "small.jpg")
+
+    assert asked and asked[0] == ("RGB", (prompt_writer.IMAGE_EDGE, prompt_writer.IMAGE_EDGE))
+    with Image.open(tmp_path / "small.jpg") as small:
+        assert max(small.size) == prompt_writer.IMAGE_EDGE
