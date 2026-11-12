@@ -15,7 +15,11 @@ from .responses import fail
 logger = logging.getLogger("plugins.video-producer")
 
 MAX_REQUEST_CHARS = 1000
-MAX_CURRENT_CHARS = 1500
+MAX_INSTRUCTION_CHARS = 4000
+MAX_LABEL_CHARS = 80
+MAX_LABELS = 12
+CURRENT = "The shot's current prompt, to rewrite as the request says: \"{text}\""
+CUT = "The current prompt is cut short where it ends with an ellipsis: keep what it says, and do not continue it."
 WRITE_TIMEOUT_S = 120.0
 POLL_S = 0.25
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -63,8 +67,21 @@ def status(user: User) -> Dict[str, Any]:
     }
 
 
+def _label(text: str) -> str:
+    return " ".join(text.split())[:MAX_LABEL_CHARS]
+
+
 def _quoted(labels: Sequence[str]) -> str:
-    return ", ".join(f'"{label}"' for label in labels)
+    return ", ".join(f'"{_label(label)}"' for label in labels[:MAX_LABELS])
+
+
+def _shortened(text: str, room: int) -> str:
+    if room <= 1:
+        return ""
+    cut = text[: room - 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip() + "…"
 
 
 def instruction(
@@ -84,20 +101,25 @@ def instruction(
             f"their card in the bible does. The characters: {_quoted(characters)}."
         )
     if place:
-        lines.append(f'The shot takes place in "{place}"; name it by that label.')
+        lines.append(f'The shot takes place in "{_label(place)}"; name it by that label.')
     if list(images) == ["first", "last"]:
         lines.append("Image 1 is the shot's first frame and image 2 its last frame: describe the motion from one to the other, not what the images already show.")
     elif list(images) == ["first"]:
         lines.append("The image is the shot's first frame: describe the motion forward from it, not what it already shows.")
     elif list(images) == ["last"]:
         lines.append("The image is the shot's last frame: describe the motion that leads to it, not what it already shows.")
-    text = current.strip()[:MAX_CURRENT_CHARS]
+    text = current.strip()
     tags = vref_tags(current)
     if tags:
         lines.append(f"Keep the tags {', '.join(tags)} exactly as they are written, where the action needs them: each one cites a reference video of the shot.")
     if text:
-        lines.append(f'The shot\'s current prompt, to rewrite as the request says: "{text}"')
-    return "\n".join(lines)
+        room = MAX_INSTRUCTION_CHARS - len("\n".join(lines)) - len(CURRENT.format(text="")) - 1
+        if len(text) <= room:
+            lines.append(CURRENT.format(text=text))
+        else:
+            lines.append(CURRENT.format(text=_shortened(text, room - len(CUT) - 1)))
+            lines.append(CUT)
+    return "\n".join(lines)[:MAX_INSTRUCTION_CHARS]
 
 
 def vref_tags(text: str) -> List[str]:

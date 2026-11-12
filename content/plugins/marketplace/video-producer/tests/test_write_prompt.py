@@ -538,3 +538,32 @@ def test_a_shot_with_only_its_last_frame_is_described_toward_it(core, client, ma
     assert writer.calls[0]["media"] == [{"value": "uploads/end.png", "media_type": "image"}]
     assert "The image is the shot's last frame: describe the motion that leads to it" in writer.calls[0]["instruction"]
     assert "first frame" not in writer.calls[0]["instruction"]
+
+
+def test_a_current_prompt_longer_than_the_old_cut_goes_whole_when_the_instruction_has_room():
+    current = " ".join(["The old fisherman walks slowly along the wet stone quay toward the lighthouse."] * 30)
+
+    text = prompt_writer.instruction("make it rain", current=current, seconds=4.0, characters=["the old fisherman"], place="the quay", images=("first",))
+
+    assert len(current) > 1500
+    assert f'The shot\'s current prompt, to rewrite as the request says: "{current}"' in text
+    assert prompt_writer.CUT not in text
+    assert len(text) <= prompt_writer.MAX_INSTRUCTION_CHARS
+
+
+def test_the_instruction_stays_within_the_core_limit_and_says_where_the_current_prompt_is_cut():
+    current = "She walks past @vref1. " + " ".join(f"word{index}" for index in range(2000))
+    labels = [f"character number {index} " + "x" * 300 for index in range(30)]
+
+    text = prompt_writer.instruction("r" * 1000, current=current, seconds=4.0, characters=labels, place="p" * 500, images=("first", "last"))
+
+    assert len(text) <= prompt_writer.MAX_INSTRUCTION_CHARS
+    assert text.startswith("r" * 1000 + "\n\n")
+    assert "Keep the tags @vref1 exactly as they are written" in text
+    assert text.endswith("\n" + prompt_writer.CUT)
+    quoted = text.split("rewrite as the request says: \"", 1)[1].split("\"\n", 1)[0]
+    assert quoted.endswith("…")
+    assert current.startswith(quoted[:-1])
+    assert quoted[-2] != " " and quoted[:-1].split(" ")[-1].startswith("word")
+    assert text.count('"character number') == prompt_writer.MAX_LABELS
+    assert '"' + "p" * prompt_writer.MAX_LABEL_CHARS + '"' in text

@@ -121,3 +121,9 @@ def test_the_core_refuses_images_for_a_model_that_cannot_see_with_the_code_the_p
 
     assert refused.value.code == "vision_not_supported"
     assert prompt_writer.status(SimpleNamespace(id="user-1"))["vision"] is False
+
+
+def test_the_plugin_bounds_its_instruction_by_the_limit_the_core_cuts_at():
+    from src.features.prompt_enhancement import operations
+
+    assert prompt_writer.MAX_INSTRUCTION_CHARS == operations.MAX_INSTRUCTION_CHARS
