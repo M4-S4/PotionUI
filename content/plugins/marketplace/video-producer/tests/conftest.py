@@ -226,6 +226,7 @@ H3_RESOLUTIONS = (
     "768x768", "960x544", "544x960", "832x480", "480x832", "640x480", "480x640", "640x640", "736x416", "416x736",
     "608x352", "352x608", "512x384", "384x512",
 )
+H3_12GB_RESOLUTIONS = (*H3_RESOLUTIONS, "960x416", "416x960", "704x480", "480x704", "608x480", "480x608", "480x480")
 UPSCALE_TARGET_OPTIONS = ("x1_5", "x2", "hd720", "fhd1080", "qhd1440", "uhd2160")
 
 WAN_VARS = {
@@ -346,18 +347,26 @@ def h3_refs_fields():
     return fields
 
 
+def _h3_12gb(fields):
+    fields["speed_profile"] = _plain("select", "custom", ("quality", "turbo", "flex", "custom"))
+    fields["resolution"] = _plain("resolution", "832x480", H3_12GB_RESOLUTIONS)
+    fields["steps"] = _plain("slider", 20)
+    return fields
+
+
+def h3_12gb_video_fields():
+    return _h3_12gb(h3_video_fields())
+
+
 def h3_12gb_refs_fields():
-    fields = h3_refs_fields()
+    fields = _h3_12gb(h3_refs_fields())
     fields["reference_pixel_budget"] = _plain("select", "1", ("0", "1", "2", "4"))
     return fields
 
 
 def h3_continue_fields():
-    fields = h3_video_fields()
+    fields = h3_12gb_video_fields()
     fields.pop("upscale_model")
-    fields["speed_profile"] = _plain("select", "custom", ("quality", "turbo", "flex", "custom"))
-    fields["resolution"] = _plain("resolution", "832x480", H3_RESOLUTIONS)
-    fields["steps"] = _plain("slider", 20)
     fields["frames"] = _plain("stepper", 120)
     fields["source_video"] = _plain("video", required=True)
     return fields
@@ -365,7 +374,6 @@ def h3_continue_fields():
 
 def h3_fast_12gb_video_fields():
     fields = h3_video_fields()
-    fields.pop("upscale_model")
     fields["speed_profile"] = _plain("select", "distilled", ("distilled",))
     fields["resolution"] = _plain("resolution", "832x480", H3_RESOLUTIONS)
     fields["steps"] = _plain("slider", 8)
@@ -374,6 +382,7 @@ def h3_fast_12gb_video_fields():
 
 def h3_fast_12gb_continue_fields():
     fields = h3_fast_12gb_video_fields()
+    fields.pop("upscale_model")
     fields["frames"] = _plain("stepper", 120)
     fields["source_video"] = _plain("video", required=True)
     return fields
@@ -664,7 +673,7 @@ class FakeCore:
         return self.add_preset(LTX25_ID, "LTX-2.5", {"video": ltx25_fields()}, variables=LTX25_VARS)
 
     def use_h3_12gb(self):
-        return self.add_preset(H3_12GB_ID, "MiniMax-H3 (12 GB)", {"video": h3_video_fields(), "refs": h3_12gb_refs_fields()}, variables=H3_VARS)
+        return self.add_preset(H3_12GB_ID, "MiniMax-H3 (12 GB)", {"video": h3_12gb_video_fields(), "refs": h3_12gb_refs_fields()}, variables=H3_VARS)
 
     def use_h3_continue(self):
         self.add_preset(
@@ -676,7 +685,7 @@ class FakeCore:
         return self.add_preset(
             H3_12GB_ID,
             "MiniMax-H3 (12 GB)",
-            {"video": h3_video_fields(), "refs": h3_12gb_refs_fields(), "extend": h3_continue_fields()},
+            {"video": h3_12gb_video_fields(), "refs": h3_12gb_refs_fields(), "extend": h3_continue_fields()},
             variables=H3_VARS,
         )
 
