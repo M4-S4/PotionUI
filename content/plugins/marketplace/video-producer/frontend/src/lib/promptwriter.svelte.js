@@ -1,4 +1,5 @@
-import { getClient } from './project.svelte.js';
+import { getClient, onLoaded } from './project.svelte.js';
+import { ui } from './state.svelte.js';
 import { WRITE_TIMEOUT_MS, canUndo, canWrite, writeBody, writerIdle, writerStep } from './promptwriter.js';
 
 export const STATUS_TTL_MS = 60000;
@@ -133,3 +134,30 @@ export function writerFor(shotId, resume = false, options = {}) {
 	kept?.cancel();
 	return createWriter(options);
 }
+
+export const parkedShots = () => [...parked.keys()];
+
+function keptShot(modal) {
+	if (modal?.type === 'library' && modal.target?.returnTo?.type === 'shot') return modal.target.returnTo.id ?? null;
+	if (modal?.type === 'shot') return modal.id ?? null;
+	return null;
+}
+
+export function settleParked(modal) {
+	const keep = keptShot(modal);
+	for (const [shotId, writer] of [...parked]) {
+		if (shotId === keep) continue;
+		parked.delete(shotId);
+		writer.cancel();
+	}
+}
+
+export const dropParked = () => settleParked(null);
+
+onLoaded(() => dropParked());
+
+$effect.root(() => {
+	$effect(() => {
+		settleParked(ui.modal);
+	});
+});

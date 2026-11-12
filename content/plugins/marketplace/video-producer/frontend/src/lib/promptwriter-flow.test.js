@@ -5,7 +5,7 @@ import { hostUis, renderComponent, textOf } from './svelte-harness.js';
 
 const { doc, ui, dispose } = await import('./state.svelte.js');
 const { project, bindClient } = await import('./project.svelte.js');
-const { createWriter, forgetWriterStatus, parkWriter, writerFor } = await import('./promptwriter.svelte.js');
+const { createWriter, forgetWriterStatus, parkWriter, writerFor, parkedShots } = await import('./promptwriter.svelte.js');
 const { t } = await import('../i18n/index.svelte.js');
 
 const BUTTON = new URL('../components/shots/WritePromptButton.svelte', import.meta.url).href;
@@ -302,4 +302,56 @@ test('a proposal that keeps a tag the plugin numbers itself says which one befor
 	assert.match(html, /data-writer-unknown-tags="(&lt;|<)Subject 3(&gt;|>)"/);
 	const shown = textOf(html).replaceAll('&lt;', '<').replaceAll('&gt;', '>');
 	assert.ok(shown.includes(t('modals.shot.writer.unknownTags', { tags: '<Subject 3>', count: 1 })));
+});
+
+async function parkedWriting(shotId) {
+	const { client, calls } = fakeClient({ answer: aborting });
+	const writer = writerFor(shotId, false, { client: () => client });
+	await writer.check();
+	writer.open();
+	writer.edit('the lantern');
+	const pending = writer.write({ projectId: 'p1', shotId, option: OPTION, doc: {} });
+	parkWriter(shotId, writer);
+	return { writer, calls, pending };
+}
+
+test('a parked writing lives while its library is open, and stops when another window opens instead of the shot', async () => {
+	ui.modal = null;
+	await settle();
+	const kept = await parkedWriting('s5');
+	ui.modal = { type: 'library', target: { kind: 'shot', id: 's5', returnTo: { type: 'shot', id: 's5', draft: {}, baseline: {} } } };
+	await settle();
+	assert.equal(kept.calls.writes[0].signal.aborted, false);
+	assert.deepEqual(parkedShots(), ['s5']);
+	ui.modal = { type: 'export' };
+	await settle();
+	await kept.pending;
+	assert.equal(kept.calls.writes[0].signal.aborted, true);
+	assert.deepEqual(parkedShots(), []);
+	assert.notEqual(writerFor('s5', true), kept.writer);
+	ui.modal = null;
+	await settle();
+});
+
+test('a parked writing stops when a project loads and when the page goes away', async () => {
+	ui.modal = null;
+	await settle();
+	const { openProject } = await import('./project.svelte.js');
+	const { dispose } = await import('./state.svelte.js');
+	const loaded = await parkedWriting('s6');
+	ui.modal = { type: 'library', target: { kind: 'shot', id: 's6', returnTo: { type: 'shot', id: 's6', draft: {}, baseline: {} } } };
+	await settle();
+	bindClient({ async getProject(id) { return { ok: true, data: { id, name: 'Other', version: 1, doc: { name: 'Other' }, createdAt: null, updatedAt: null } }; } });
+	await openProject('other-project');
+	await loaded.pending;
+	assert.equal(loaded.calls.writes[0].signal.aborted, true);
+	assert.deepEqual(parkedShots(), []);
+	const left = await parkedWriting('s7');
+	ui.modal = { type: 'library', target: { kind: 'shot', id: 's7', returnTo: { type: 'shot', id: 's7', draft: {}, baseline: {} } } };
+	await settle();
+	dispose();
+	await settle();
+	await left.pending;
+	assert.equal(left.calls.writes[0].signal.aborted, true);
+	assert.deepEqual(parkedShots(), []);
 });
