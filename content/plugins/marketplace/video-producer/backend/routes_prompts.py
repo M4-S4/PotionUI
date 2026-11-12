@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Mapping, NoReturn
+import asyncio
+from typing import Any, Dict, List, Mapping, NoReturn, Tuple
 
 from fastapi import APIRouter, Body, Depends
 
@@ -116,22 +117,18 @@ def prompt_writer_status(user: User = Depends(get_current_active_user)) -> Dict[
     return ok(prompt_writer.status(user))
 
 
-@router.post("/projects/{project_id}/shots/{shot_id}/write-prompt")
-async def write_prompt(project_id: str, shot_id: str, body: Any = Body(default=None), user: User = Depends(get_current_active_user)) -> Dict[str, Any]:
-    checked = _write_checked(body)
+def _prepared(user: User, project_id: str, shot_id: str, checked: Mapping[str, Any]) -> Tuple[User, Dict[str, Any], Dict[str, Any], str]:
     project = access.project_for(user, project_id)
     doc = _document(checked, project["doc"])
     clip = director.clip_of(doc, shot_id)
     if clip is None:
         fail(404, "shot_not_found", "The shot does not exist.")
-    written = await prompt_writer.write(
-        user,
-        access.owner_of(user, project),
-        doc,
-        clip,
-        checked["request"],
-        checked["preset_id"],
-        checked.get("model_id"),
-        _own_text(doc, shot_id),
-    )
+    return access.owner_of(user, project), doc, clip, _own_text(doc, shot_id)
+
+
+@router.post("/projects/{project_id}/shots/{shot_id}/write-prompt")
+async def write_prompt(project_id: str, shot_id: str, body: Any = Body(default=None), user: User = Depends(get_current_active_user)) -> Dict[str, Any]:
+    checked = _write_checked(body)
+    owner, doc, clip, current = await asyncio.to_thread(_prepared, user, project_id, shot_id, checked)
+    written = await prompt_writer.write(user, owner, doc, clip, checked["request"], checked["preset_id"], checked.get("model_id"), current)
     return ok(written)

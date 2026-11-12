@@ -55,6 +55,7 @@ class Writer:
 
     def prompt_writer_status(self, user_id):
         self.asked.append(user_id)
+        self.status_on_loop = _on_loop()
         if isinstance(self.status, Exception):
             raise self.status
         return dict(self.status)
@@ -66,6 +67,14 @@ class Writer:
         if self.error is not None:
             raise self.error
         return dict(self.reply)
+
+
+def _on_loop():
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
 
 
 def _write(client, project_id, body, shot_id="s1"):
@@ -342,3 +351,30 @@ def test_the_page_is_told_which_reference_video_tags_the_proposal_dropped(core, 
     assert response.status_code == 200
     assert response.json()["data"]["lost_tags"] == lost
     assert "Keep the tags @vref1, @vref2 exactly as they are written" in writer.calls[0]["instruction"]
+
+
+def test_the_project_the_document_and_the_status_are_read_off_the_event_loop(core, client, make_doc, make_project, monkeypatch):
+    from backend import access, projects
+
+    core.use_h3()
+    writer = Writer(monkeypatch)
+    project = make_project(doc=_doc(core, make_doc))
+    seen = {}
+    reach, check = access.project_for, projects.validate_doc
+
+    def project_for(user, project_id):
+        seen["project"] = _on_loop()
+        return reach(user, project_id)
+
+    def validate_doc(doc):
+        seen["doc"] = _on_loop()
+        return check(doc)
+
+    monkeypatch.setattr(access, "project_for", project_for)
+    monkeypatch.setattr(projects, "validate_doc", validate_doc)
+
+    response = _write(client, project["id"], _body(doc=_doc(core, make_doc)))
+
+    assert response.status_code == 200
+    assert seen == {"project": False, "doc": False}
+    assert writer.status_on_loop is False

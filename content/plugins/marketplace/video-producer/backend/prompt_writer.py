@@ -138,7 +138,7 @@ async def write(
     model_id: Optional[str],
     current: str,
 ) -> Dict[str, Any]:
-    found = status(user)
+    found = await asyncio.to_thread(status, user)
     if not found["available"]:
         fail(409, found["code"] or "no_llm", found["message"] or "No language model is available to you.")
     shot_id = str(clip.get("id"))
