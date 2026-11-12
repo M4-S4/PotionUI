@@ -244,14 +244,18 @@ def work_folder(owner: User) -> Optional[Path]:
         return None
 
 
+def _plain_folder(path: Path) -> bool:
+    return not path.is_symlink() and not path.is_junction() and path.is_dir()
+
+
 def clear_work_area(now: Optional[float] = None) -> int:
     area = workdir.area(WORK_AREA)
     if not area.is_dir():
         return 0
     limit = (time.time() if now is None else now) - STALE_S
     cleared = 0
-    for owner in [path for path in area.iterdir() if path.is_dir()]:
-        for folder in [path for path in owner.iterdir() if path.is_dir()]:
+    for owner in [path for path in area.iterdir() if _plain_folder(path)]:
+        for folder in [path for path in owner.iterdir() if _plain_folder(path)]:
             if folder.stat().st_mtime < limit:
                 shutil.rmtree(folder)
                 cleared += 1
