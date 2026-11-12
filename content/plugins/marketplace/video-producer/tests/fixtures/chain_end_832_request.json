@@ -1,0 +1,24 @@
+{
+ "chain_video": {
+  "frames": 56,
+  "previous": "s1",
+  "seconds": 2.333333,
+  "size": [
+   832,
+   480
+  ],
+  "sound": false
+ },
+ "mode": "refs",
+ "preset_id": "01M54HN72B0KY7H63BKQ16T253",
+ "reference_short_edge": 477,
+ "references": [
+  "chainvideo:s1",
+  "uploads/face.png",
+  "uploads/quay.png"
+ ],
+ "resolution": "832x480",
+ "warnings": [
+  "vref_step_time"
+ ]
+}

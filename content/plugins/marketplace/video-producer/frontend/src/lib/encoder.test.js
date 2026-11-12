@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LIMIT_12GB, MAX_PIXELS, imageTokens, maxPixels, videoTokens, visionTokens } from './encoder.js';
+import { LIMIT_12GB, MAX_PIXELS, SHORT_END_FRAMES, endLengths, fittedEnd, imageTokens, maxPixels, videoTokens, visionTokens } from './encoder.js';
 
 const PICTURES = [[1024, 1024], [1344, 768]];
 
@@ -20,6 +20,19 @@ test('the page counts the vision tokens of the text encoder as the server does',
 	assert.equal(maxPixels(null, [832, 480]), MAX_PIXELS);
 	assert.equal(visionTokens(PICTURES, [[56, [960, 544]]], maxPixels(0, [960, 544])), 3562);
 	assert.equal(LIMIT_12GB, 2200);
+});
+
+test('the end of the previous take is shortened to two blocks when the whole end would pass what the encoder reads', () => {
+	const small = maxPixels(1, [832, 480]);
+	const large = maxPixels(1, [960, 544]);
+	assert.equal(SHORT_END_FRAMES, 39);
+	assert.deepEqual([endLengths(56), endLengths(39), endLengths(22)], [[56, 39], [39], [22]]);
+	assert.equal(videoTokens(39, [832, 480], small), 780);
+	assert.deepEqual(fittedEnd(PICTURES, [], 56, [832, 480], small), { frames: 56, tokens: 1895 });
+	assert.deepEqual(fittedEnd(PICTURES, [], 56, [960, 544], large), { frames: 39, tokens: 1997 });
+	assert.deepEqual(fittedEnd([...PICTURES, [1024, 1024]], [], 56, [832, 480], small), { frames: 39, tokens: 1866 });
+	assert.deepEqual(fittedEnd([...PICTURES, [1024, 1024]], [], 56, [960, 544], large), { frames: 0, tokens: 2481 });
+	assert.deepEqual(fittedEnd(PICTURES, [], 56, [960, 544], large, 30), { frames: 56, tokens: 1997 });
 });
 
 test('a reference picture far from the 1:4 to 4:1 range is padded into it before it is counted', () => {

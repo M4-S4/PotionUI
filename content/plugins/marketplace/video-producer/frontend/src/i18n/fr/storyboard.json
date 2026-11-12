@@ -33,6 +33,7 @@
 	"chain.extendLong": "Une continuation ajoute au plus {seconds} et ce plan est plus long : il part de la dernière image de « {previous} ».",
 	"chain.continueShort": "En Ref2VA, « {previous} » dure moins de {seconds}, trop peu pour être prolongé : ce plan part de son texte et de ses références.",
 	"chain.continueEncoder": "En Ref2VA sur une carte de 12 Go, la fin de la prise de « {previous} » et les images de ce plan feraient environ {tokens} jetons d’image pour l’encodeur de texte, au-delà des {limit} environ : ce plan part de son texte et de ses références. Une taille plus petite ou moins d’images lui font de la place.",
+	"chain.continueShortened": "En Ref2VA sur une carte de 12 Go, la fin entière de la prise de « {previous} » et les images de ce plan feraient trop de jetons d’image pour l’encodeur de texte : ce plan en reprend seulement les dernières {seconds} au lieu de {whole}.",
 	"chain.references": "En Ref2VA, ce plan part de son texte et de ses références. Enchaînez-le par Continuation pour lui envoyer la fin de la prise de « {previous} ».",
 	"chain.fromShot": "Cet interrupteur est réglé pour ce plan",
 	"chain.fromProject": "Cet interrupteur suit le projet (Fichier › Propriétés du projet…)",

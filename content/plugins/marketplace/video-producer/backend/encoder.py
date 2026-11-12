@@ -94,3 +94,20 @@ def video_tokens(frames: int, size: Size, limit: int) -> int:
 
 def vision_tokens(pictures: Iterable[Optional[Size]], videos: Iterable[Tuple[int, Size]], limit: int) -> int:
     return sum(image_tokens(picture, limit) for picture in pictures) + sum(video_tokens(frames, size, limit) for frames, size in videos)
+
+
+SHORT_END_FRAMES = 39
+
+
+def end_lengths(frames: int) -> List[int]:
+    return [frames, *([SHORT_END_FRAMES] if SHORT_END_FRAMES < frames else [])]
+
+
+def fitted_end(pictures: List[Optional[Size]], videos: List[Tuple[int, Size]], frames: int, size: Size, limit: int, readable: Optional[int] = None) -> Tuple[int, int]:
+    tokens = 0
+    for length in end_lengths(frames):
+        read = min(length, readable) if readable is not None else length
+        tokens = vision_tokens(pictures, [*videos, (read, size)], limit)
+        if tokens <= LIMIT_12GB:
+            return length, tokens
+    return 0, tokens

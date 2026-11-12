@@ -163,14 +163,17 @@ test('a shot chained by continuation in FL2VA keeps the last frame for the reaso
 	assert.deepEqual(chained({ mode: 'Ref2VA', first: { dur: 2 } }), { state: 'continueShort', extends: false, tokens: null, text: t('storyboard.chain.continueShort', { previous, seconds }) });
 });
 
-test('on the 12 GB preset a Ref2VA shot says the end of the previous take is left out where the encoder guard of the server leaves it out', () => {
+test('on the 12 GB preset a Ref2VA shot says where the encoder guard of the server shortens the end of the previous take or leaves it out', () => {
 	assert.equal(chained({ mode: 'Ref2VA', size: '832x480', pictures: [FACE, QUAY] }).state, 'continueLater');
-	const refused = chained({ mode: 'Ref2VA', size: '960x544', pictures: [FACE, QUAY] });
-	assert.equal(refused.state, 'continueEncoder');
-	assert.equal(refused.tokens, 2507);
-	assert.ok(refused.text.includes('2,507') && refused.text.includes('2,200'), refused.text);
-	assert.equal(refused.text.split('{').length, 1);
+	const shortened = chained({ mode: 'Ref2VA', size: '960x544', pictures: [FACE, QUAY] });
+	assert.deepEqual([shortened.state, shortened.tokens], ['continueShortened', 1997]);
+	assert.equal(shortened.text, t('storyboard.chain.continueShortened', { previous: 'One', seconds: secs(39 / 24), whole: secs(56 / 24) }));
+	assert.ok(shortened.text.includes('1.6 s') && shortened.text.includes('2.3 s'), shortened.text);
 	const third = chained({ mode: 'Ref2VA', size: '832x480', pictures: [FACE, QUAY, BOOTS] });
-	assert.deepEqual([third.state, third.tokens], ['continueEncoder', 2256]);
+	assert.deepEqual([third.state, third.tokens], ['continueShortened', 1866]);
+	const refused = chained({ mode: 'Ref2VA', size: '960x544', pictures: [FACE, QUAY, BOOTS] });
+	assert.deepEqual([refused.state, refused.tokens], ['continueEncoder', 2481]);
+	assert.ok(refused.text.includes('2,481') && refused.text.includes('2,200'), refused.text);
+	assert.equal(refused.text.split('{').length, 1);
 	assert.equal(chained({ mode: 'FL2VA', size: '960x544', pictures: [FACE, QUAY] }).state, 'continueLater');
 });

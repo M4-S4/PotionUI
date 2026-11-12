@@ -76,8 +76,19 @@ def test_the_plugin_counts_the_vision_tokens_of_a_reference_picture_as_the_core_
 
 @pytest.mark.parametrize("output", OUTPUTS)
 @pytest.mark.parametrize("budget", BUDGETS)
-@pytest.mark.parametrize("frames", [1, 17, 56, 72, 120])
+@pytest.mark.parametrize("frames", [1, 17, 39, 56, 72, 120])
 def test_the_plugin_counts_the_vision_tokens_of_a_reference_video_as_the_core_makes_them(frames, budget, output):
     limit = encoder.max_pixels(budget, output)
 
     assert encoder.video_tokens(frames, output, limit) == _core_video_tokens(frames, output, limit)
+
+
+def test_the_shorter_end_is_a_length_the_core_encodes_whole_and_reads_in_two_blocks():
+    frames = encoder.SHORT_END_FRAMES
+    indices, blocks = qwen3._sample_reference_video_frames(
+        frames, fps=qwen3.MINIMAX_H3_VIDEO_FPS, sample_fps=qwen3.MINIMAX_H3_VIDEO_SAMPLE_FPS, temporal_patch=qwen3_vl_vision.VISION_TEMPORAL_PATCH_SIZE
+    )
+
+    assert conditioning.snap_reference_video_frames(frames) == frames
+    assert len(blocks) == 2
+    assert encoder.end_lengths(56) == [56, frames]
