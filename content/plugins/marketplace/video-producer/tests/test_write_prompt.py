@@ -567,3 +567,31 @@ def test_the_instruction_stays_within_the_core_limit_and_says_where_the_current_
     assert quoted[-2] != " " and quoted[:-1].split(" ")[-1].startswith("word")
     assert text.count('"character number') == prompt_writer.MAX_LABELS
     assert '"' + "p" * prompt_writer.MAX_LABEL_CHARS + '"' in text
+
+
+@pytest.mark.parametrize(
+    ("reply", "kept"),
+    [
+        ("Here is the prompt:\n```\nThe fisherman lights his lantern.\n```", "The fisherman lights his lantern."),
+        ("Sure, here it is:\n```text\nThe fisherman lights his lantern.\n```\nHope it helps!", "The fisherman lights his lantern."),
+        ("Here is the shot prompt:\n\nThe fisherman lights his lantern.", "The fisherman lights his lantern."),
+        ("The fisherman <Subject 1> lifts the lantern from <Picture 2> , then waits.", "The fisherman lifts the lantern from, then waits."),
+        ("At dusk the fisherman waits: the rain starts.", "At dusk the fisherman waits: the rain starts."),
+    ],
+)
+def test_a_preamble_a_fenced_block_and_bare_subject_or_picture_tags_are_cleaned(reply, kept):
+    assert prompt_writer.cleaned(reply) == kept
+
+
+def test_a_reply_too_long_is_cut_at_its_last_whole_sentence_or_at_a_word():
+    sentences = " ".join(f"The fisherman takes step number {index}." for index in range(200))
+    words = " ".join(f"step{index}" for index in range(600))
+
+    by_sentence = prompt_writer.cleaned(sentences)
+    by_word = prompt_writer.cleaned(words)
+
+    assert len(by_sentence) <= prompt_writer.MAX_WRITTEN_CHARS
+    assert by_sentence.endswith(".") and sentences.startswith(by_sentence)
+    assert len(by_word) <= prompt_writer.MAX_WRITTEN_CHARS
+    assert by_word.endswith("\u2026") and words.startswith(by_word[:-1]) and by_word[:-1].split(" ")[-1] in words.split(" ")
+    assert prompt_writer.cleaned("A short one.") == "A short one."

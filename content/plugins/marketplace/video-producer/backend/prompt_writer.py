@@ -41,6 +41,12 @@ SECTION = re.compile(r"^[ \t]*(?:detailed_description|integrated_multimodal_desc
 NEXT_SECTION = re.compile(r"\n[ \t]*[a-z_]+[ \t]*:")
 SHOT_MARKER = re.compile(r"\[Shot 1\]\s*")
 TAGGED = re.compile(r"\s*\(\s*<(?:Subject|Picture|Video|Audio) \d+>\s*\)")
+BARE = re.compile(r"[ \t]*<(?:Subject|Picture|Video|Audio) \d+>")
+SPACED = re.compile(r"[ \t]+([,.;:!?])")
+FENCE = re.compile(r"```[A-Za-z]*[ \t]*\n?(.*?)```", re.DOTALL)
+PREAMBLE = re.compile(r"^(?:[^\n:]{0,120}):[ \t]*\n+")
+SENTENCE_END = re.compile(r"[.!?\u2026][\"')\]]?(?=\s)")
+MAX_WRITTEN_CHARS = 1500
 
 UNAVAILABLE = {
     "available": False,
@@ -131,18 +137,33 @@ def lost_tags(current: str, written: str) -> List[str]:
     return [f"@vref{slot}" for slot in director.cited_slots(current) if slot not in kept]
 
 
+def bounded(text: str) -> str:
+    if len(text) <= MAX_WRITTEN_CHARS:
+        return text
+    cut = text[:MAX_WRITTEN_CHARS]
+    ends = [match.end() for match in SENTENCE_END.finditer(cut + " ")]
+    if ends and ends[-1] > MAX_WRITTEN_CHARS // 2:
+        return cut[: ends[-1]].strip()
+    return (cut[: MAX_WRITTEN_CHARS - 1].rsplit(" ", 1)[0] if " " in cut else cut[: MAX_WRITTEN_CHARS - 1]).rstrip() + "\u2026"
+
+
 def cleaned(text: Any) -> str:
     written = text.strip() if isinstance(text, str) else ""
+    fence = FENCE.search(written)
+    if fence is not None:
+        written = fence.group(1).strip()
     section = SECTION.search(written)
-    if section is not None:
+    if section is None:
+        written = PREAMBLE.sub("", written, count=1)
+    else:
         rest = written[section.end():]
         following = NEXT_SECTION.search(rest)
         written = rest[: following.start()] if following is not None else rest
     marker = SHOT_MARKER.search(written)
     if marker is not None:
         written = written[marker.end():]
-    written = TAGGED.sub("", written)
-    return "\n".join(" ".join(line.split()) for line in written.strip().splitlines()).strip()
+    written = SPACED.sub(r"\1", BARE.sub("", TAGGED.sub("", written)))
+    return bounded("\n".join(" ".join(line.split()) for line in written.strip().splitlines()).strip())
 
 
 def _plan(owner: User, doc: Mapping[str, Any], shot_id: str, preset_id: str, model_id: Optional[str]) -> Tuple[str, Optional[str], Optional[Dict[str, Any]]]:
