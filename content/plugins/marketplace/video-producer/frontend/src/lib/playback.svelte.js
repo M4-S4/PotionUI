@@ -6,7 +6,7 @@ import { speedOf } from './cadence.js';
 import { advance } from './player.js';
 import mixRule from './mix.json';
 import { gainOf, reverbImpulse, stripOf } from './mix.js';
-import { dissolveGain, unfaded } from './dissolve.js';
+import { dissolveGain, placement, unfaded } from './dissolve.js';
 
 export const meters = $state({ lanes: {}, video: 0, master: [0, 0] });
 
@@ -245,8 +245,8 @@ function envelope(c, t) {
 	return clamp(g, 0, 1) * db(c.gain ?? 0);
 }
 
-function shotGain(clips, i, t) {
-	return envelope(unfaded(clips, i), t) * dissolveGain(clips, i, t);
+function shotGain(clips, i, t, places) {
+	return envelope(unfaded(clips, i, places), t) * dissolveGain(clips, i, t, places);
 }
 
 function updateAudio() {
@@ -294,6 +294,7 @@ function updateAudio() {
 		follow(v, c, t);
 		v.out.gain.setTargetAtTime(envelope(c, t), now, 0.02);
 	}
+	let places = null;
 	for (const [i, c] of doc.clips.entries()) {
 		if (t < c.start - CLIP_LEAD || t >= c.start + c.dur) continue;
 		const src = clipSource(c);
@@ -306,7 +307,7 @@ function updateAudio() {
 			live.delete(c.id);
 			continue;
 		}
-		v.out.gain.setTargetAtTime(clipSoundAudible(doc, c) ? shotGain(doc.clips, i, t) : 0, now, 0.02);
+		v.out.gain.setTargetAtTime(clipSoundAudible(doc, c) ? shotGain(doc.clips, i, t, (places ??= placement(doc.clips))) : 0, now, 0.02);
 	}
 	for (const [id, v] of voices)
 		if (!live.has(id)) {

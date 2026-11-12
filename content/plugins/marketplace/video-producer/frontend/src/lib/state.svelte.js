@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, chained, dissolveBefore, dissolveOf, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, playedLengths, splitKeepsDissolves, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, dissolveBefore, dissolveOf, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, onFrame, playedLengths, splitKeepsDissolves, startingAt } from './dissolve.js';
 import { roleKind } from './seam.js';
 
 export { newAsset, newClip };
@@ -343,6 +343,7 @@ export const startOf = (item) => ('time' in item ? item.time : item.start);
 export function clipAt(time) {
 	return doc.clips[indexAt(doc.clips, time)] ?? null;
 }
+export const bladeTime = (time) => (chained(doc.clips) ? onFrame(time, doc.fps) : time);
 export function entryTime(clip) {
 	const i = doc.clips.findIndex((c) => c.id === clip?.id);
 	const head = i > 0 && chained(doc.clips) ? dissolveBefore(doc.clips, i) : 0;

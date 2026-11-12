@@ -12,6 +12,7 @@
 		clamp,
 		round,
 		bladeAt,
+		bladeTime,
 		undo,
 		redo,
 		history,
@@ -60,7 +61,7 @@
 	import { engineTitle, shotReceptionFor } from '../../lib/references.js';
 	import { LIMITS, VIDEO_TRACKS, leastSeconds } from '../../lib/reception.js';
 	import { TAG_CLASS } from '../../lib/reftags.js';
-	import { chained, dissolveMarks, onFrame, shownSpans } from '../../lib/dissolve.js';
+	import { chained, dissolveMarks, shownSpans } from '../../lib/dissolve.js';
 	import { shotTrim } from '../../lib/trims.js';
 	import Icon from '../Icon.svelte';
 	import Dropdown from '../shell/Dropdown.svelte';
@@ -216,8 +217,7 @@
 	function moveBlock(e, kind, item) {
 		if (ui.tool === 'blade' && kind === 'audio') {
 			select(kind, item.id);
-			const at = timeAt(e.clientX);
-			return bladeAt(chained(doc.clips) ? onFrame(at, doc.fps) : at);
+			return bladeAt(bladeTime(timeAt(e.clientX)));
 		}
 		select(kind, item.id);
 		const s0 = item.start;
@@ -296,8 +296,7 @@
 		}
 		if (ui.tool === 'blade') {
 			select('clip', c.id);
-			const at = timeAt(e.clientX);
-			return bladeAt(chained(doc.clips) ? onFrame(at, doc.fps) : at);
+			return bladeAt(bladeTime(timeAt(e.clientX)));
 		}
 		select('clip', c.id);
 		drag(e, {

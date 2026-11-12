@@ -274,3 +274,22 @@ test('dissolve: a tie at the millionth rounds away from zero on the page, as on 
 	const clips = [{ id: 'a', dur: 3.0078125 }, { id: 'b', dur: 2.0234375, dissolve: 1 }];
 	assert.deepEqual(layout(clips, snap), [0, 2.007813]);
 });
+
+test('dissolve: the sound of a shot reads the placement it is given, so the playback lays the shots once per update', () => {
+	const clips = Array.from({ length: 40 }, (_, i) => ({ id: `c${i}`, dur: 1 + (i % 5) * 0.21, fadeIn: 0.2, fadeOut: 0.2, ...(i % 3 ? { dissolve: 0.4 } : {}) }));
+	layout(clips, snap).forEach((start, i) => (clips[i].start = start));
+	const places = placement(clips);
+	for (let i = 0; i < clips.length; i++) {
+		assert.deepEqual(unfaded(clips, i, places), unfaded(clips, i));
+		for (const at of [clips[i].start, clips[i].start + 0.1, clips[i].start + clips[i].dur / 2, clips[i].start + clips[i].dur - 0.05]) assert.equal(dissolveGain(clips, i, at, places), dissolveGain(clips, i, at));
+	}
+	const busy = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}`, dur: 1 + (i % 7) * 0.13, ...(i ? { dissolve: 0.4 } : {}) }));
+	layout(busy, snap).forEach((start, i) => (busy[i].start = start));
+	const laid = placement(busy);
+	const t0 = performance.now();
+	for (let k = 0; k < 200; k++) dissolveGain(busy, 250, busy[250].start + 0.1, laid);
+	const given = performance.now() - t0;
+	const t1 = performance.now();
+	for (let k = 0; k < 200; k++) dissolveGain(busy, 250, busy[250].start + 0.1);
+	assert.ok(given * 5 < performance.now() - t1, `${given} ms given, ${performance.now() - t1} ms laid each time`);
+});

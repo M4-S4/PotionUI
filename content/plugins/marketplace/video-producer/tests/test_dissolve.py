@@ -127,7 +127,7 @@ def test_a_project_without_dissolve_gives_the_graph_of_before_byte_for_byte(case
     assert filter_graph(doc, files, options, paths) == case["graph"]
     assert build_command(doc, files, options, paths) == case["command"]
     assert (total, [dur for dur, _ in segments]) == (case["total"], case["segments"])
-    assert [len(group) for group in plan_parts(doc, files, options, segments, 1)] == case["parts"]
+    assert [[[dur, clip["id"] if clip else None] for dur, clip in group] for group in plan_parts(doc, files, options, segments, 1)] == case["parts"]
 
 
 def test_the_film_lasts_the_shots_less_their_dissolves(make_doc):

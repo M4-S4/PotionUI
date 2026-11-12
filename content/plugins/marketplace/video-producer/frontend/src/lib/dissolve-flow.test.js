@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { clean, renderComponent } from './svelte-harness.js';
 import { DISSOLVE_CHOICES, headTrim, joins, onFrame, playedLengths, setDissolve, tailTrim } from './dissolve.js';
 
-const { doc, ui, act, adopt, checkpoint, relayout, select, bladeAt, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, limitNote, dispose } = await import('./state.svelte.js');
+const { doc, ui, act, adopt, checkpoint, relayout, select, bladeAt, bladeTime, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, limitNote, dispose } = await import('./state.svelte.js');
 const { drag } = await import('./timeline.js');
 const { shotTrim, bandTrim, setShotDuration, setShotIn } = await import('./trims.js');
 const { nudgeDuration } = await import('./band.svelte.js');
@@ -511,6 +511,8 @@ test('dissolve flow: on projects drawn at random, every blade the page accepts c
 	const pick = (list) => list[Math.floor(random() * list.length)];
 	let accepted = 0;
 	let refused = 0;
+	let byRule = 0;
+	const rule = t('timeline.dissolve.splitShortens', { dur: '@' }).split('@')[0];
 	for (let n = 0; n < 80; n++) {
 		const count = 2 + Math.floor(random() * 5);
 		const durs = Array.from({ length: count }, () => +(0.4 + random() * 5).toFixed(pick([2, 3])));
@@ -531,9 +533,11 @@ test('dissolve flow: on projects drawn at random, every blade the page accepts c
 			const overlaps = joins(doc.clips);
 			const before = JSON.stringify(doc.clips);
 			select('clip', c.id);
+			const heard = said.length;
 			bladeAt(time);
 			if (JSON.stringify(doc.clips) === before) {
 				refused += 1;
+				if (said.length > heard && said.at(-1).startsWith(rule)) byRule += 1;
 				continue;
 			}
 			accepted += 1;
@@ -548,7 +552,7 @@ test('dissolve flow: on projects drawn at random, every blade the page accepts c
 			assert.ok(lengths.every((value, j) => Math.abs(value - want[j]) <= 1e-6), `${label}: ${lengths} against ${want}`);
 		}
 	}
-	assert.ok(accepted > 100 && refused > 50, `${accepted} accepted, ${refused} refused`);
+	assert.ok(accepted > 100 && byRule > 50 && refused > byRule, `${accepted} accepted, ${byRule} refused by the rule, ${refused - byRule} by the guards`);
 });
 
 test('dissolve flow: in a project that dissolves, a reference frame added away from the playhead, as a double-click does, shows the picture of the shot it lands on', () => {
@@ -589,8 +593,13 @@ test('dissolve flow: in a project that dissolves, the mouse blade cuts on the ne
 		[1, 2.12],
 		[3.12, 1.88]
 	]);
-	const source = readFileSync(new URL(TIMELINE), 'utf-8');
-	assert.match(source, /bladeAt\(chained\(doc\.clips\) \? onFrame\(at, doc\.fps\) : at\)/);
+	assert.equal(bladeTime(4.337891), 4.32);
+	assert.equal(bladeTime(4.351), 4.36);
+	doc.fps = 30;
+	assert.equal(bladeTime(4.34), 4.333333);
+	doc.fps = 25;
+	project();
+	assert.equal(bladeTime(4.337891), 4.337891);
 });
 
 function dragBy(handlers, dx) {

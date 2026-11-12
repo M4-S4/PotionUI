@@ -148,9 +148,9 @@ export function setDissolve(clips, i, value) {
 	return true;
 }
 
-export function unfaded(clips, i) {
+export function unfaded(clips, i, places = placement(clips)) {
 	const clip = clips[i];
-	const overlaps = joins(clips);
+	const overlaps = places.map((place) => place?.overlap ?? 0);
 	const head = i > 0 && overlaps[i] > 0;
 	const tail = overlaps[i + 1] > 0;
 	return head || tail ? { ...clip, ...(head ? { fadeIn: 0 } : {}), ...(tail ? { fadeOut: 0 } : {}) } : clip;
@@ -206,8 +206,7 @@ export function mixAt(clips, time) {
 	return null;
 }
 
-export function dissolveGain(clips, i, time) {
-	const places = placement(clips);
+export function dissolveGain(clips, i, time, places = placement(clips)) {
 	const place = places[i];
 	if (!place) return 1;
 	let gain = 1;
