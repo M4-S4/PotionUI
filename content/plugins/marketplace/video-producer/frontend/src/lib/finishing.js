@@ -65,8 +65,10 @@ export function settingOf(finishing, effect, tool) {
 	const setting = { on: saved.on === true, ...values };
 	if (effect.choice) {
 		const choices = choicesOf(effect, tool);
-		const kept = typeof saved.ref === 'string' && choices.some((option) => option.value === saved.ref);
-		setting.ref = kept ? saved.ref : (choices[0]?.value ?? '');
+		const chosen = typeof saved.ref === 'string' && saved.ref ? saved.ref : null;
+		const offered = chosen !== null && choices.some((option) => option.value === chosen);
+		setting.ref = chosen ?? choices[0]?.value ?? '';
+		setting.missing = chosen !== null && !offered;
 	}
 	return setting;
 }
@@ -84,7 +86,7 @@ export function finishSteps(finishing, tools) {
 		const tool = tools.get(effect.tool);
 		if (!tool || availability(effect, tools) !== 'ready') continue;
 		const setting = settingOf(finishing, effect, tool);
-		if (!setting.on) continue;
+		if (!setting.on || setting.missing) continue;
 		const params = { ...(effect.fixed ?? {}), ...Object.fromEntries(effect.fields.map((field) => [field.name, setting[field.name]])) };
 		if (effect.choice) params[effect.choice] = setting.ref;
 		steps.push({ tool: effect.tool, params });

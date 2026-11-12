@@ -84,5 +84,7 @@
 	"finish.cancelling": "Annulation…",
 	"finish.cancelFailed": "Impossible d’annuler la finition : elle continue.",
 	"finish.toolsFailed": "Impossible de lire les effets de PotionUI.",
-	"finish.retry": "Réessayer"
+	"finish.retry": "Réessayer",
+	"finish.missingLut": "La LUT enregistrée « {name} » n’est plus proposée par PotionUI : choisissez-en une autre, sinon la LUT est laissée hors de la finition.",
+	"finish.missingLook": "Le look enregistré « {name} » n’est plus proposé par PotionUI : choisissez-en un autre, sinon le look est laissé hors de la finition."
 }

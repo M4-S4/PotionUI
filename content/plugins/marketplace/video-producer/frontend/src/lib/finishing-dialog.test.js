@@ -68,6 +68,17 @@ test('finishing dialog: a switched-on effect shows its settings, the second enco
 	assert.equal(primary(html).disabled, false);
 });
 
+test('finishing dialog: a saved LUT that is no longer offered is shown as missing, not replaced', async () => {
+	finishState.tools = [...TOOLS.slice(0, 3), normalizeTool({ id: 'lut', params: [{ name: 'lut', type: 'lut', options: [{ label: 'None', value: '' }, { label: 'warm', value: 'warm.cube' }] }, { name: 'strength', min: 0, max: 1 }] }), TOOLS[4]];
+	doc.master.finishing = { lut: { on: true, ref: 'gone.cube', strength: 1 } };
+	const html = await renderComponent(MODALS);
+	const text = textOf(html);
+	assert.match(html, /<option value="gone\.cube" disabled[^>]*>gone\.cube<\/option>/);
+	assert.match(html, /data-finish-missing="lut"/);
+	assert.ok(text.includes('The saved LUT “gone.cube” is no longer offered by PotionUI: pick another one, or the LUT is left out of the finishing.'));
+	assert.ok(text.endsWith(t('modals.export.export')));
+});
+
 test('finishing dialog: while the catalog loads, and when the core has none of the effects, it says so', async () => {
 	let text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes(t('exports.finish.loading')));

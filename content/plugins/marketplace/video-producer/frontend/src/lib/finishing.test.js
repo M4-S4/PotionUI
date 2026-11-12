@@ -49,15 +49,23 @@ test('finishing: values out of the core bounds are brought back, and missing one
 	assert.deepEqual(fieldBounds(grain.fields[0], undefined), { min: 0, max: 100, step: 1, value: 30 });
 });
 
-test('finishing: a LUT or a look comes from the core list; an unknown one falls back to the first, none means unavailable', () => {
+test('finishing: a LUT or a look comes from the core list; a fresh one starts on the first, none means unavailable', () => {
 	const lut = effectByKey('lut');
 	assert.deepEqual(choicesOf(lut, tools.get('lut')).map((x) => x.value), ['warm.cube', 'teal_orange.cube']);
-	assert.equal(settingOf({ lut: { on: true, ref: 'gone.cube' } }, lut, tools.get('lut')).ref, 'warm.cube');
+	assert.deepEqual(settingOf({ lut: { on: true } }, lut, tools.get('lut')), { on: true, strength: 1, ref: 'warm.cube', missing: false });
 	assert.equal(availability(lut, tools), 'ready');
 	assert.equal(availability(effectByKey('look'), tools), 'empty');
 	assert.deepEqual(finishSteps({ look: { on: true, ref: 'mine:1' } }, tools), []);
 	assert.equal(availability(effectByKey('grain'), toolsById([])), 'missing');
 	assert.deepEqual(finishSteps({ grain: { on: true } }, toolsById([])), []);
+});
+
+test('finishing: a saved LUT or look that the core no longer offers is kept as chosen, marked missing, and left out of the run', () => {
+	const lut = effectByKey('lut');
+	assert.deepEqual(settingOf({ lut: { on: true, ref: 'gone.cube', strength: 0.5 } }, lut, tools.get('lut')), { on: true, strength: 0.5, ref: 'gone.cube', missing: true });
+	assert.deepEqual(finishSteps({ lut: { on: true, ref: 'gone.cube' }, grain: { on: true } }, tools), [{ tool: 'film_grain', params: { amount: 30, size: 1.5 } }]);
+	assert.deepEqual(finishSteps({ lut: { on: true, ref: 'teal_orange.cube' } }, tools), [{ tool: 'lut', params: { strength: 1, lut: 'teal_orange.cube' } }]);
+	assert.deepEqual(cleanFinishing({ lut: settingOf({ lut: { on: true, ref: 'gone.cube' } }, lut, tools.get('lut')) }), { lut: { on: true, strength: 1, ref: 'gone.cube' } });
 });
 
 test('finishing: only a finished web or social export with its library item can be finished', () => {

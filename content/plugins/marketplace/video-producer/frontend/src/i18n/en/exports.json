@@ -84,5 +84,7 @@
 	"finish.cancelling": "Cancelling…",
 	"finish.cancelFailed": "Could not cancel the finishing: it goes on.",
 	"finish.toolsFailed": "Could not read the PotionUI effects.",
-	"finish.retry": "Try again"
+	"finish.retry": "Try again",
+	"finish.missingLut": "The saved LUT “{name}” is no longer offered by PotionUI: pick another one, or the LUT is left out of the finishing.",
+	"finish.missingLook": "The saved look “{name}” is no longer offered by PotionUI: pick another one, or the look is left out of the finishing."
 }
