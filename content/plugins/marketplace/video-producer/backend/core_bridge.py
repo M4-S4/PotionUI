@@ -129,7 +129,7 @@ __all__ = [
     "write_prompt_for_preset",
 ]
 
-logger =logging.getLogger("plugins.video-producer")
+logger = logging.getLogger("plugins.video-producer")
 
 NATIVE_DRIVERS = ("native.local", "native.remote")
 
