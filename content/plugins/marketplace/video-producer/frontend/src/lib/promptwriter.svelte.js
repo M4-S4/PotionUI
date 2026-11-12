@@ -117,3 +117,19 @@ export function createWriter({ client = getClient, timeout = WRITE_TIMEOUT_MS, n
 		undo
 	};
 }
+
+const parked = new Map();
+
+export function parkWriter(shotId, writer) {
+	const before = parked.get(shotId);
+	if (before && before !== writer) before.cancel();
+	parked.set(shotId, writer);
+}
+
+export function writerFor(shotId, resume = false, options = {}) {
+	const kept = parked.get(shotId) ?? null;
+	parked.delete(shotId);
+	if (kept && resume) return kept;
+	kept?.cancel();
+	return createWriter(options);
+}

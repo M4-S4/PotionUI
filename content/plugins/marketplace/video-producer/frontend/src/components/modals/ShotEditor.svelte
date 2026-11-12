@@ -21,7 +21,7 @@
 	import { laneTitle } from '../../lib/tracks.js';
 	import { ulid } from '../../lib/ulid.js';
 	import { project } from '../../lib/project.svelte.js';
-	import { createWriter } from '../../lib/promptwriter.svelte.js';
+	import { parkWriter, writerFor } from '../../lib/promptwriter.svelte.js';
 	import { CARD_WORDS, cardWordsOf, shotCardWordsView } from '../../lib/cardwords.js';
 	import Modal from './Modal.svelte';
 	import Icon from '../Icon.svelte';
@@ -210,15 +210,21 @@
 		ui.modal = null;
 	}
 
+	let parking = false;
+
 	function openLibrary() {
+		parking = true;
+		parkWriter(id, writer);
 		ui.modal = { type: 'library', target: { kind: 'shot', id, returnTo: { type: 'shot', id, draft: $state.snapshot(draft), baseline } } };
 	}
 
-	const writer = createWriter();
+	const writer = writerFor(id, Boolean(kept));
 	const writingEngine = $derived(currentEngine());
 	const keyFrames = $derived([draft.first, draft.last].filter(Boolean).length);
 	writer.check();
-	onDestroy(() => writer.cancel());
+	onDestroy(() => {
+		if (!parking) writer.cancel();
+	});
 
 	function writePrompt() {
 		writer.write({ projectId: project.id, shotId: id, option: writingEngine, doc: source });

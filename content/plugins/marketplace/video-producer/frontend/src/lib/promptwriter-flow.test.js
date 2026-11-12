@@ -1,10 +1,11 @@
 import { test, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { hostUis, renderComponent, textOf } from './svelte-harness.js';
 
 const { doc, ui, dispose } = await import('./state.svelte.js');
 const { project, bindClient } = await import('./project.svelte.js');
-const { createWriter, forgetWriterStatus } = await import('./promptwriter.svelte.js');
+const { createWriter, forgetWriterStatus, parkWriter, writerFor } = await import('./promptwriter.svelte.js');
 const { t } = await import('../i18n/index.svelte.js');
 
 const BUTTON = new URL('../components/shots/WritePromptButton.svelte', import.meta.url).href;
@@ -246,4 +247,49 @@ test('a proposal written without a key frame that could not be prepared says so'
 	const html = await renderComponent(PANEL, { writer, text: '', frames: 2 });
 	assert.match(html, /data-writer-dropped="1"/);
 	assert.ok(textOf(html).includes(t('modals.shot.writer.dropped', { count: 1 })));
+});
+
+test('a trip to the prompt library keeps the writing of the shot, its proposal and its undo, and only for that shot', async () => {
+	let release;
+	const { client, calls } = fakeClient({ answer: (signal) => new Promise((resolve) => (release = resolve)) });
+	const writer = writerFor('s1', false, { client: () => client });
+	await writer.check();
+	writer.open();
+	writer.edit('the lantern');
+	const pending = writer.write({ projectId: 'p1', shotId: 's1', option: OPTION, doc: {} });
+	parkWriter('s1', writer);
+	const back = writerFor('s1', true, { client: () => client });
+	assert.equal(back, writer);
+	assert.equal(calls.writes[0].signal.aborted, false);
+	release({ ok: true, data: { text: 'The fisherman lights his lantern.', name: 'Qwen3-VL', images: 0, imagesSkipped: 0, lostTags: [] } });
+	await pending;
+	assert.equal(back.state.phase, 'proposed');
+	const placed = back.accept('Old.');
+	parkWriter('s1', back);
+	const again = writerFor('s1', true, { client: () => client });
+	assert.equal(again.undo(placed), 'Old.');
+	parkWriter('s1', again);
+	const fresh = writerFor('s1', false, { client: () => client });
+	assert.notEqual(fresh, again);
+	assert.equal(fresh.undoable(placed), false);
+	parkWriter('s2', fresh);
+	assert.notEqual(writerFor('s1', true, { client: () => client }), fresh);
+	const source = readFileSync(new URL('../components/modals/ShotEditor.svelte', import.meta.url), 'utf8');
+	assert.match(source, /parkWriter\(id, writer\)/);
+	assert.match(source, /writerFor\(id, Boolean\(kept\)\)/);
+	assert.match(source, /if \(!parking\) writer\.cancel\(\)/);
+});
+
+test('leaving a parked writing for good stops it', async () => {
+	const { client, calls } = fakeClient({ answer: aborting });
+	const writer = writerFor('s3', false, { client: () => client });
+	await writer.check();
+	writer.open();
+	writer.edit('the lantern');
+	const pending = writer.write({ projectId: 'p1', shotId: 's3', option: OPTION, doc: {} });
+	parkWriter('s3', writer);
+	writerFor('s3', false, { client: () => client });
+	await pending;
+	assert.equal(calls.writes[0].signal.aborted, true);
+	assert.equal(writer.state.phase, 'open');
 });
