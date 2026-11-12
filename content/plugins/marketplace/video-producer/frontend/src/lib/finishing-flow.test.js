@@ -90,6 +90,7 @@ function makeServer(script = {}) {
 		async startMediaRun(body) {
 			calls.push(['run', body]);
 			server.runs += 1;
+			if (script.startHeld) await script.startHeld;
 			return script.start ?? { ok: true, data: { id: `run${server.runs}` } };
 		},
 		async mediaRun(id) {
@@ -348,6 +349,22 @@ test('finishing flow: closing the page stops following a finishing, with no read
 	await exportAndFinish();
 	assert.deepEqual(runs().map(([, body]) => body.inputs[0].item_id), ['item-raw-p1', 'item-raw-p1']);
 	assert.equal(finishShown().status, 'done');
+});
+
+test('finishing flow: closing the page while the run is being started leaves the started run going on in PotionUI', async () => {
+	let release;
+	const held = new Promise((resolve) => (release = resolve));
+	await open({ finishing: { grain: { on: true } }, startHeld: held });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	await settle();
+	assert.equal(runs().length, 1);
+	disposeExports();
+	release();
+	for (let i = 0; i < 10; i++) await settle();
+	assert.equal(server.calls.some(([kind]) => kind === 'cancel'), false);
+	assert.equal(server.calls.some(([kind]) => kind === 'read'), false);
+	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'lost']);
 });
 
 test('finishing flow: a cancel answered by a finished run shows the finished film, not a cancellation', async () => {

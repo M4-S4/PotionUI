@@ -91,10 +91,7 @@ export async function finishJob(job, { wait = finishTiming.wait } = {}) {
 	controls.set(run.key, control);
 	if (!finishable(job) || !client) return close(run, control, 'failed', { failure: 'noLibrary' });
 	const started = await client.startMediaRun(finishRequest(job.media.itemId, plan.steps));
-	if (control.stopped) {
-		if (started.ok) await client.cancelMediaRun(started.data.id);
-		return null;
-	}
+	if (control.stopped) return null;
 	if (!started.ok) return close(run, control, 'failed', { failure: finishFailure(started.error), message: started.error?.message ?? '' });
 	run.runId = started.data.id;
 	if (run.cancelling) await askCancel(run);
