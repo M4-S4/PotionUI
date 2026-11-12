@@ -341,7 +341,14 @@ test('a parked writing stops when a project loads and when the page goes away', 
 	const loaded = await parkedWriting('s6');
 	ui.modal = { type: 'library', target: { kind: 'shot', id: 's6', returnTo: { type: 'shot', id: 's6', draft: {}, baseline: {} } } };
 	await settle();
-	bindClient({ async getProject(id) { return { ok: true, data: { id, name: 'Other', version: 1, doc: { name: 'Other' }, createdAt: null, updatedAt: null } }; } });
+	bindClient({
+		async getProject(id) {
+			return { ok: true, data: { id, name: 'Other', version: 1, doc: { name: 'Other' }, createdAt: null, updatedAt: null } };
+		},
+		async saveLastProject() {
+			return { ok: true, data: null };
+		}
+	});
 	await openProject('other-project');
 	await loaded.pending;
 	assert.equal(loaded.calls.writes[0].signal.aborted, true);
