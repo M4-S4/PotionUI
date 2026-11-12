@@ -3,6 +3,7 @@ import concurrent.futures
 import logging
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple
@@ -28,6 +29,7 @@ MAX_IMAGE_BYTES = 5 * 1024 * 1024
 IMAGE_EDGE = 1024
 MAX_PIXELS = 40_000_000
 WORK_AREA = "writer"
+STALE_S = 2 * WRITE_TIMEOUT_S
 GRACE_S = 1.0
 
 writing: Set[str] = set()
@@ -238,12 +240,22 @@ def work_folder(owner: User) -> Optional[Path]:
         return None
 
 
-def clear_work_area() -> bool:
-    folder = workdir.area(WORK_AREA)
-    if not folder.exists():
-        return False
-    shutil.rmtree(folder)
-    return True
+def clear_work_area(now: Optional[float] = None) -> int:
+    area = workdir.area(WORK_AREA)
+    if not area.is_dir():
+        return 0
+    limit = (time.time() if now is None else now) - STALE_S
+    cleared = 0
+    for owner in [path for path in area.iterdir() if path.is_dir()]:
+        for folder in [path for path in owner.iterdir() if path.is_dir()]:
+            if folder.stat().st_mtime < limit:
+                shutil.rmtree(folder)
+                cleared += 1
+        try:
+            owner.rmdir()
+        except OSError:
+            pass
+    return cleared
 
 
 def readable(source: Path) -> bool:

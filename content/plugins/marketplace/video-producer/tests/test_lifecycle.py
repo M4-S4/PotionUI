@@ -67,10 +67,25 @@ def test_on_boot_logs_and_swallows_a_table_error(monkeypatch, caplog):
     assert "Tables ready" not in caplog.text
 
 
-def test_on_boot_clears_the_work_folder_left_by_the_prompt_writer_and_nothing_else(plugin_db, export_storage, caplog):
+def _aged(folder, seconds):
+    import os
+    import time
+
+    moment = time.time() - seconds
+    for path in [folder, *folder.rglob("*")]:
+        os.utime(path, (moment, moment))
+
+
+def test_on_boot_clears_the_work_folders_left_by_the_prompt_writer_and_nothing_else(plugin_db, export_storage, caplog):
+    from backend import prompt_writer
+
     left = export_storage / "video_producer" / "writer" / "user-1" / "0123abcd"
     left.mkdir(parents=True)
     (left / "frame-1.jpg").write_bytes(b"jpeg")
+    _aged(left, prompt_writer.STALE_S + 60)
+    gone_user = export_storage / "video_producer" / "writer" / "user-2" / "4567cdef"
+    gone_user.mkdir(parents=True)
+    _aged(gone_user, prompt_writer.STALE_S + 60)
     kept = export_storage / "video_producer" / "exports" / "user-1" / "cut.mp4"
     kept.parent.mkdir(parents=True)
     kept.write_bytes(b"mp4")
@@ -79,16 +94,36 @@ def test_on_boot_clears_the_work_folder_left_by_the_prompt_writer_and_nothing_el
         context = _context("plugin.lifecycle.boot")
         assert lifecycle_hooks.on_boot(context) is context
 
-    assert not (export_storage / "video_producer" / "writer").exists()
+    assert not left.exists()
+    assert not gone_user.parent.exists()
     assert kept.read_bytes() == b"mp4"
     assert _table_names(plugin_db) == set(tables.TABLE_NAMES)
-    assert "Work folder of the prompt writer cleared" in caplog.text
+    assert "2 work folder(s) of the prompt writer cleared" in caplog.text
+
+
+def test_on_boot_keeps_the_work_folder_of_a_writing_that_may_still_run_in_another_process(plugin_db, export_storage, caplog):
+    from backend import prompt_writer
+
+    running = export_storage / "video_producer" / "writer" / "user-1" / "89abef01"
+    running.mkdir(parents=True)
+    (running / "frame-1.jpg").write_bytes(b"jpeg")
+    _aged(running, prompt_writer.STALE_S - 60)
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        lifecycle_hooks.on_boot(_context("plugin.lifecycle.boot"))
+
+    assert (running / "frame-1.jpg").read_bytes() == b"jpeg"
+    assert "of the prompt writer cleared" not in caplog.text
 
 
 def test_on_boot_logs_and_swallows_a_work_folder_it_cannot_clear(plugin_db, export_storage, monkeypatch, caplog):
     import shutil
 
-    (export_storage / "video_producer" / "writer" / "user-1").mkdir(parents=True)
+    from backend import prompt_writer
+
+    left = export_storage / "video_producer" / "writer" / "user-1" / "0123abcd"
+    left.mkdir(parents=True)
+    _aged(left, prompt_writer.STALE_S + 60)
 
     def rmtree(path, *args, **kwargs):
         raise PermissionError(13, "Access is denied", str(path))

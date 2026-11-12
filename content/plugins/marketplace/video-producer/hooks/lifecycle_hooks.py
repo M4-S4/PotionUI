@@ -20,8 +20,9 @@ def on_boot(context: HookContext) -> HookContext:
     except Exception:
         logger.exception("[VIDEO-PRODUCER] Could not create the plugin's tables")
     try:
-        if prompt_writer.clear_work_area():
-            logger.info("[VIDEO-PRODUCER] Work folder of the prompt writer cleared")
+        cleared = prompt_writer.clear_work_area()
+        if cleared:
+            logger.info("[VIDEO-PRODUCER] %s work folder(s) of the prompt writer cleared", cleared)
     except Exception:
         logger.exception("[VIDEO-PRODUCER] Could not clear the work folder of the prompt writer")
     return context
