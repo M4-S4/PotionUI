@@ -154,5 +154,6 @@
 	"properties.interpolator.auto": "Auto",
 	"properties.interpolator.rife": "RIFE 4.25",
 	"properties.interpolator.rtx": "NVIDIA Frame Generation",
-	"properties.interpolator.help": "Brings takes slower than the film to its frame rate. Auto takes NVIDIA Frame Generation (Medium) when it is installed, RIFE 4.25 otherwise."
+	"properties.interpolator.help": "Brings takes slower than the film to its frame rate. Auto takes NVIDIA Frame Generation (Medium) when it is installed, RIFE 4.25 otherwise.",
+	"project.importCuts": "A cut, split into shots…"
 }

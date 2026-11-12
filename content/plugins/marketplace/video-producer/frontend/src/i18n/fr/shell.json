@@ -154,5 +154,6 @@
 	"properties.interpolator.auto": "Auto",
 	"properties.interpolator.rife": "RIFE 4.25",
 	"properties.interpolator.rtx": "NVIDIA Frame Generation",
-	"properties.interpolator.help": "Pour conformer les prises plus lentes que le film. Auto prend NVIDIA Frame Generation (Medium) quand il est installé, RIFE 4.25 sinon."
+	"properties.interpolator.help": "Pour conformer les prises plus lentes que le film. Auto prend NVIDIA Frame Generation (Medium) quand il est installé, RIFE 4.25 sinon.",
+	"project.importCuts": "Un montage, coupé en plans…"
 }
