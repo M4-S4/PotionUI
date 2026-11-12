@@ -16,7 +16,7 @@ globalThis.window = { __potionui: { confirm: async () => true, notifications: { 
 
 const { doc, ui, undo, dispose } = await import('./state.svelte.js');
 const { bindClient, openProject, project } = await import('./project.svelte.js');
-const { exportState, startVideoExport, pollJob, resumeExports, disposeExports } = await import('./exports.svelte.js');
+const { exportState, startVideoExport, pollJob, listJobs, cancelJob, resumeExports, disposeExports } = await import('./exports.svelte.js');
 const { finishState, finishTiming, finishJob, cancelFinish, loadFinishing, setFinish, downloadFinished, resetFinishing, finishShown } = await import('./finishing.svelte.js');
 const { finishSteps, finishingOf, toolsById } = await import('./finishing.js');
 const { normalizeTool } = await import('./api.js');
@@ -25,6 +25,7 @@ const { setLocale } = await import('../i18n/index.svelte.js');
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const copy = (value) => JSON.parse(JSON.stringify(value));
+const FINISHED = { status: 'completed', progress: 1, items: [{ id: 'item-fin', name: 'Film_720p-grain.mp4', mediaType: 'video', url: '/api/media/uploads/fin.mp4' }] };
 
 const TOOLS = [
 	{ id: 'film_grain', params: [{ name: 'amount', default: 30, min: 0, max: 100, step: 1 }, { name: 'size', default: 1.5, min: 1, max: 3, step: 0.1 }] },
@@ -35,17 +36,26 @@ const TOOLS = [
 
 function makeServer(script = {}) {
 	const calls = [];
-	const stored = { doc: null, version: 1 };
-	const exportJob = (status, extra = {}) => ({ id: 'job1', projectId: 'p1', format: script.format ?? 'web', resolution: '720p', ratio: null, stems: false, status, progress: status === 'done' ? 100 : 10, step: null, file: status === 'done' ? { name: 'Film_720p.mp4', size: 10, url: null } : null, media: status === 'done' && (script.format ?? 'web') !== 'master' ? { kind: 'library', itemId: 'item-raw', url: '/api/media/uploads/raw.mp4' } : null, error: null, createdAt: '2026-11-12T10:00:00Z', finishedAt: null, ...extra });
-	const client = {
+	const docs = new Map();
+	const versions = new Map();
+	const exported = new Set();
+	const server = { calls, docs, status: script.exportEnds ?? 'done', pollAnswer: script.pollAnswer ?? null, cancelAnswer: script.cancelAnswer ?? null, runs: 0 };
+	const exportJob = (projectId, status) => ({ id: `job-${projectId}`, projectId, format: script.format ?? 'web', resolution: '720p', ratio: null, stems: false, status, progress: status === 'done' ? 100 : 10, step: null, file: status === 'done' ? { name: 'Film_720p.mp4', size: 10, url: null } : null, media: status === 'done' && (script.format ?? 'web') !== 'master' ? { kind: 'library', itemId: `item-raw-${projectId}`, url: '/api/media/uploads/raw.mp4' } : null, error: null, createdAt: '2026-11-12T10:00:00Z', finishedAt: null });
+	const nextRead = (id) => {
+		const queue = typeof script.reads === 'function' ? script.reads(id) : script.reads;
+		const next = queue?.shift();
+		if (next?.fail) return { ok: false, error: next.fail };
+		return { ok: true, data: { id, label: '', items: [], error: null, progress: 0, ...(next ?? FINISHED) } };
+	};
+	server.client = {
 		async getProject(id) {
-			return { ok: true, data: { id, name: 'Film', version: stored.version, doc: copy(stored.doc), createdAt: null, updatedAt: null, unchanged: false } };
+			return { ok: true, data: { id, name: 'Film', version: versions.get(id) ?? 1, doc: copy(docs.get(id)), createdAt: null, updatedAt: null, unchanged: false } };
 		},
 		async saveProject(id, next) {
-			stored.doc = copy(next);
-			stored.version += 1;
-			calls.push(['save']);
-			return { ok: true, data: { id, name: 'Film', version: stored.version, doc: null, createdAt: null, updatedAt: null, unchanged: false } };
+			docs.set(id, copy(next));
+			versions.set(id, (versions.get(id) ?? 1) + 1);
+			calls.push(['save', id]);
+			return { ok: true, data: { id, name: 'Film', version: versions.get(id), doc: null, createdAt: null, updatedAt: null, unchanged: false } };
 		},
 		saveLastProject() {},
 		async listTakes() {
@@ -54,50 +64,62 @@ function makeServer(script = {}) {
 		async listRenditions() {
 			return { ok: true, data: [] };
 		},
-		async listExports() {
-			return { ok: true, data: [] };
+		async listExports(projectId) {
+			calls.push(['list', projectId]);
+			return { ok: true, data: exported.has(projectId) ? [exportJob(projectId, server.status)] : [] };
 		},
 		async exportVideo(projectId, body) {
 			calls.push(['export', body]);
-			return { ok: true, data: exportJob('queued') };
+			exported.add(projectId);
+			return { ok: true, data: exportJob(projectId, 'queued') };
 		},
-		async exportJob() {
-			calls.push(['poll']);
-			return { ok: true, data: exportJob(script.exportEnds ?? 'done') };
+		async exportJob(jobId) {
+			calls.push(['poll', jobId]);
+			return server.pollAnswer ?? { ok: true, data: exportJob(jobId.slice(4), server.status) };
+		},
+		async cancelExport(jobId) {
+			calls.push(['cancel-export', jobId]);
+			return server.cancelAnswer ?? { ok: true, data: exportJob(jobId.slice(4), 'cancelled') };
 		},
 		async mediaTools(kind) {
 			calls.push(['tools', kind]);
-			return script.tools === false ? { ok: false, error: { status: 500, code: 'server_error' } } : { ok: true, data: TOOLS };
+			const answer = typeof script.tools === 'function' ? script.tools() : script.tools;
+			return answer === false ? { ok: false, error: { status: 500, code: 'server_error', message: '' } } : { ok: true, data: answer ?? TOOLS };
 		},
 		async startMediaRun(body) {
 			calls.push(['run', body]);
-			return script.start ?? { ok: true, data: { id: 'run1' } };
+			server.runs += 1;
+			return script.start ?? { ok: true, data: { id: `run${server.runs}` } };
 		},
 		async mediaRun(id) {
 			calls.push(['read', id]);
-			const next = (script.reads ?? []).shift() ?? { status: 'completed', progress: 1, items: [{ id: 'item-fin', name: 'Film_720p-grain.mp4', mediaType: 'video', url: '/api/media/uploads/fin.mp4' }] };
-			return { ok: true, data: { id, label: '', items: [], error: null, progress: 0, ...next } };
+			return nextRead(id);
 		},
 		async cancelMediaRun(id) {
 			calls.push(['cancel', id]);
-			return { ok: true, data: { id, status: 'cancelled', progress: 0, label: '', items: [], error: null } };
+			return typeof script.cancelRun === 'function' ? script.cancelRun(id) : { ok: true, data: { id, status: 'cancelled', progress: 0, label: '', items: [], error: null } };
 		},
 		async downloadCore(path, filename) {
 			calls.push(['download', path, filename]);
 			return { ok: true, data: { filename } };
 		}
 	};
-	return { calls, client, stored };
+	return server;
 }
 
 let server = null;
 
-async function open(script) {
-	server = makeServer(script);
+function projectDoc(script) {
 	const start = emptyDoc((key) => key);
 	start.clips = [newClip({ id: 's1', label: 'One', start: 0, dur: 4 })];
 	if (script?.finishing) start.master.finishing = script.finishing;
-	server.stored.doc = start;
+	return start;
+}
+
+async function open(script = {}) {
+	server = makeServer(script);
+	server.docs.set('p1', projectDoc(script));
+	server.docs.set('p2', projectDoc(script));
 	bindClient(server.client);
 	resetFinishing();
 	await openProject('p1');
@@ -105,11 +127,18 @@ async function open(script) {
 	await loadFinishing();
 }
 
+const stepsNow = () => finishSteps(finishingOf(doc), toolsById(finishState.tools));
+const runs = () => server.calls.filter(([kind]) => kind === 'run');
+
+async function drain() {
+	for (let i = 0; i < 100 && finishState.run?.status === 'running'; i++) await settle();
+}
+
 async function exportAndFinish(format = 'web') {
-	const steps = finishSteps(finishingOf(doc), toolsById(finishState.tools));
+	const steps = stepsNow();
 	await startVideoExport({ format, resolution: '720p', finish: steps });
 	await pollJob();
-	for (let i = 0; i < 50 && finishState.run?.status === 'running'; i++) await settle();
+	await drain();
 	return steps;
 }
 
@@ -129,14 +158,14 @@ test('finishing flow: a web export with grain and vignette is finished by one ru
 	await open({ finishing: { grain: { on: true, amount: 50, size: 2 }, vignette: { on: true } } });
 	const steps = await exportAndFinish();
 	assert.deepEqual(steps.map((x) => x.tool), ['vignette', 'film_grain']);
-	const run = server.calls.find(([kind]) => kind === 'run');
-	assert.deepEqual(run[1], { steps: [{ tool: 'vignette', params: { amount: 40, radius: 50 } }, { tool: 'film_grain', params: { amount: 50, size: 2 } }], inputs: [{ item_id: 'item-raw' }], output: { mode: 'new' } });
+	assert.deepEqual(runs()[0][1], { steps: [{ tool: 'vignette', params: { amount: 40, radius: 50 } }, { tool: 'film_grain', params: { amount: 50, size: 2 } }], inputs: [{ item_id: 'item-raw-p1' }], output: { mode: 'new' } });
 	assert.deepEqual(server.calls.find(([kind]) => kind === 'export')[1], { format: 'web', resolution: '720p', stems: false });
-	assert.equal(finishState.run.status, 'done');
-	assert.equal(finishState.run.item.id, 'item-fin');
-	assert.equal(finishState.run.fileName, 'Film_720p.mp4');
+	const run = finishShown();
+	assert.equal(run.status, 'done');
+	assert.equal(run.item.id, 'item-fin');
+	assert.equal(run.fileName, 'Film_720p.mp4');
 	assert.equal(exportState.job.status, 'done');
-	assert.equal(exportState.job.media.itemId, 'item-raw');
+	assert.equal(exportState.job.media.itemId, 'item-raw-p1');
 	await downloadFinished();
 	assert.deepEqual(server.calls.at(-1), ['download', '/api/media/uploads/fin.mp4', 'Film_720p_finished.mp4']);
 	assert.equal(ui.toasts.at(-1).message, 'Finished film ready: Film_720p_finished.mp4');
@@ -146,49 +175,112 @@ test('finishing flow: nothing switched on means a plain export and no run', asyn
 	await open({});
 	const steps = await exportAndFinish();
 	assert.deepEqual(steps, []);
-	assert.equal(server.calls.some(([kind]) => kind === 'run'), false);
+	assert.equal(runs().length, 0);
 	assert.equal(finishShown(), null);
 });
 
 test('finishing flow: a master export is never finished, whatever is switched on', async () => {
 	await open({ format: 'master', finishing: { grain: { on: true } } });
-	await startVideoExport({ format: 'master', resolution: '720p', finish: finishSteps(finishingOf(doc), toolsById(finishState.tools)) });
+	await startVideoExport({ format: 'master', resolution: '720p', finish: stepsNow() });
 	await pollJob();
 	await settle();
-	assert.equal(server.calls.some(([kind]) => kind === 'run'), false);
+	assert.equal(runs().length, 0);
 	assert.equal(finishShown(), null);
 });
 
-test('finishing flow: a failed or cancelled export starts no finishing', async () => {
+test('finishing flow: a failed export starts no finishing', async () => {
 	await open({ exportEnds: 'failed', finishing: { grain: { on: true } } });
 	await exportAndFinish();
-	assert.equal(server.calls.some(([kind]) => kind === 'run'), false);
+	assert.equal(runs().length, 0);
 	assert.equal(finishShown(), null);
+});
+
+test('finishing flow: a cancelled export starts no finishing', async () => {
+	await open({ exportEnds: 'cancelled', finishing: { grain: { on: true } } });
+	await exportAndFinish();
+	assert.equal(runs().length, 0);
+	assert.equal(finishShown(), null);
+});
+
+test('finishing flow: the export seen done by the list of exports, not by the follow-up, is finished', async () => {
+	await open({ exportEnds: 'running', finishing: { grain: { on: true } } });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	server.status = 'done';
+	await listJobs();
+	await drain();
+	assert.equal(runs().length, 1);
+	assert.equal(finishShown().status, 'done');
+});
+
+test('finishing flow: a round trip to another project during the export still finishes it on the way back', async () => {
+	await open({ exportEnds: 'running', finishing: { grain: { on: true } } });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await openProject('p2');
+	await listJobs();
+	server.status = 'done';
+	await openProject('p1');
+	await listJobs();
+	await drain();
+	assert.equal(runs().length, 1);
+	assert.deepEqual(runs()[0][1].inputs, [{ item_id: 'item-raw-p1' }]);
+	assert.equal(finishShown().status, 'done');
+});
+
+test('finishing flow: a follow-up lost in a 404 hands over to the list, which finishes the export', async () => {
+	await open({ finishing: { grain: { on: true } } });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	server.pollAnswer = { ok: false, error: { status: 404, code: 'job_not_found', message: '' } };
+	await pollJob();
+	await drain();
+	assert.equal(runs().length, 1);
+	assert.equal(finishShown().status, 'done');
+});
+
+test('finishing flow: cancelling the export just as it ends starts no finishing', async () => {
+	await open({ exportEnds: 'running', finishing: { grain: { on: true } } });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	server.status = 'done';
+	server.cancelAnswer = { ok: true, data: { ...exportState.job, status: 'done', media: { kind: 'library', itemId: 'item-raw-p1', url: '/u.mp4' }, file: { name: 'Film_720p.mp4', size: 1, url: null } } };
+	await cancelJob(exportState.job);
+	await drain();
+	assert.equal(runs().length, 0);
+	assert.equal(finishShown(), null);
+});
+
+test('finishing flow: a cancel answered 409 then listed done starts no finishing', async () => {
+	await open({ exportEnds: 'running', finishing: { grain: { on: true } } });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	server.status = 'done';
+	server.cancelAnswer = { ok: false, error: { status: 409, code: 'conflict', message: '' } };
+	await cancelJob(exportState.job);
+	await drain();
+	assert.equal(runs().length, 0);
 });
 
 test('finishing flow: a finishing that fails leaves the plain export done and says why', async () => {
 	await open({ finishing: { lut: { on: true, ref: 'warm.cube', strength: 0.7 } }, reads: [{ status: 'failed', error: { code: 'tool_failed', message: 'ffmpeg failed' } }] });
 	await exportAndFinish();
-	assert.deepEqual(server.calls.find(([kind]) => kind === 'run')[1].steps, [{ tool: 'lut', params: { strength: 0.7, lut: 'warm.cube' } }]);
-	assert.deepEqual([finishState.run.status, finishState.run.failure, finishState.run.message], ['failed', 'failed', 'ffmpeg failed']);
+	assert.deepEqual(runs()[0][1].steps, [{ tool: 'lut', params: { strength: 0.7, lut: 'warm.cube' } }]);
+	const run = finishShown();
+	assert.deepEqual([run.status, run.failure, run.message], ['failed', 'failed', 'ffmpeg failed']);
 	assert.equal(exportState.job.status, 'done');
 });
 
 test('finishing flow: a full queue at the start is told as such', async () => {
 	await open({ finishing: { grain: { on: true } }, start: { ok: false, error: { status: 429, code: 'too_many_queued', message: 'You already have 8 runs waiting' } } });
 	await exportAndFinish();
-	assert.deepEqual([finishState.run.status, finishState.run.failure], ['failed', 'busy']);
+	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'busy']);
 });
 
 test('finishing flow: cancelling the finishing cancels the core run and keeps the plain export', async () => {
-	await open({ finishing: { grain: { on: true } }, reads: [{ status: 'running', progress: 0.3 }, { status: 'running', progress: 0.6 }] });
 	let reads = 0;
+	await open({ finishing: { grain: { on: true } }, reads: [{ status: 'running', progress: 0.3 }, { status: 'running', progress: 0.6 }] });
 	finishTiming.wait = async () => {
 		reads += 1;
 		if (reads === 2) await cancelFinish();
 	};
 	await exportAndFinish();
-	assert.equal(finishState.run.status, 'cancelled');
+	assert.equal(finishShown().status, 'cancelled');
 	assert.ok(server.calls.some(([kind, id]) => kind === 'cancel' && id === 'run1'));
 	assert.equal(exportState.job.status, 'done');
 });
@@ -213,7 +305,7 @@ test('finishing flow: without the core catalog nothing is offered and an export 
 	assert.deepEqual(finishState.tools, []);
 	const steps = await exportAndFinish();
 	assert.deepEqual(steps, []);
-	assert.equal(server.calls.some(([kind]) => kind === 'run'), false);
+	assert.equal(runs().length, 0);
 });
 
 test('finishing flow: a job finished without a plan is left alone', async () => {

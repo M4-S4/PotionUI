@@ -80,9 +80,15 @@ function settle(job) {
 	if (finishedNow(before, job) && (!shown() || !canShowLibrary())) {
 		toast(t('exports.toast.done', { file: fileOf(job) }), 'success', { label: t('exports.download'), run: () => downloadJob(job) });
 	}
-	if (finishedNow(before, job)) finishJob(job);
-	else if (!isJobActive(job)) dropFinish(job.id);
+	finishSeen([job]);
 	schedule();
+}
+
+function finishSeen(jobs) {
+	for (const job of jobs) {
+		if (job.status === 'done') finishJob(job);
+		else if (!isJobActive(job)) dropFinish(job.id);
+	}
 }
 
 export async function listJobs() {
@@ -97,6 +103,7 @@ export async function listJobs() {
 		return;
 	}
 	exportState.jobs = sortJobs(result.data);
+	finishSeen(exportState.jobs);
 	const active = currentJob(exportState.jobs);
 	const mine = exportState.job ? exportState.jobs.find((j) => j.id === exportState.job.id) : null;
 	exportState.job = active ?? mine ?? null;
@@ -174,6 +181,7 @@ export function resumeExports() {
 }
 
 export async function cancelJob(job) {
+	dropFinish(job.id);
 	const result = await getClient().cancelExport(job.id);
 	if (!result.ok && result.error.status !== 404 && result.error.status !== 409) return failed(result.error);
 	if (result.ok && result.data) settle(result.data);

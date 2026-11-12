@@ -54,9 +54,8 @@ function ended(status, extra = {}) {
 
 export async function finishJob(job, { wait = finishTiming.wait } = {}) {
 	const plan = planned.get(job?.id);
-	if (!plan) return null;
+	if (!plan || plan.projectId !== project.id) return null;
 	planned.delete(job.id);
-	if (plan.projectId !== project.id) return null;
 	const client = getClient();
 	const mine = ++ticket;
 	const fileName = !job.stems && job.file?.name ? job.file.name : plan.fileName;
