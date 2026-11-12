@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
 
-from . import formats, reception, settings, upscalers
+from . import dissolve, formats, reception, settings, upscalers
 from .bible import LAYOUTS, PARTS, WORDS
 from .catalog import PROFILES
 from .core_bridge import generate_ulid
@@ -240,6 +240,7 @@ CLIP = _object(
         "chainBy": _enum("frame", "video"),
         "keepFraming": FLAG,
         "speed": _enum(*formats.SLOW_SPEEDS),
+        dissolve.KEY: {"type": "number", "minimum": 0, "maximum": dissolve.MAX_DISSOLVE},
     },
 )
 

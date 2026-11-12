@@ -54,6 +54,8 @@
 	import Tabs from '../shell/Tabs.svelte';
 	import SeamAction from '../takes/SeamAction.svelte';
 	import ChainSwitch from '../shots/ChainSwitch.svelte';
+	import SeamTransition from '../storyboard/SeamTransition.svelte';
+	import { dissolveAfter, dissolveBefore } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import TakesSection from './TakesSection.svelte';
 	import DraftsField from '../shots/DraftsField.svelte';
@@ -405,6 +407,12 @@
 						<ChainSwitch clip={item} />
 						<p class="text-xs text-fg-subtle">{t('inspector.frames.hint')}</p>
 					</section>
+					{#if doc.clips.indexOf(item) > 0}
+						<section class="space-y-2">
+							<div class="vp-section-title">{t('timeline.dissolve.label')}</div>
+							<SeamTransition clip={item} />
+						</section>
+					{/if}
 					{@render fadeFields(true)}
 					{#if a?.kind === 'video'}
 						{@const video = videoTrack(doc)}
@@ -715,10 +723,14 @@
 </aside>
 
 {#snippet fadeFields(video)}
+	{@const index = video ? doc.clips.indexOf(item) : -1}
+	{@const joinedIn = index > 0 && dissolveBefore(doc.clips, index) > 0}
+	{@const joinedOut = index >= 0 && dissolveAfter(doc.clips, index) > 0}
 	<section class="space-y-2">
 		<div class="vp-section-title">{t('inspector.section.fades')}</div>
-		<NumField label={t('inspector.field.fadeIn')} value={item.fadeIn} min={0} max={fadeMax} step={0.04} unit="s" onchange={(v) => set('fadeIn', v)} />
-		<NumField label={t('inspector.field.fadeOut')} value={item.fadeOut} min={0} max={fadeMax} step={0.04} unit="s" onchange={(v) => set('fadeOut', v)} />
+		<NumField label={t('inspector.field.fadeIn')} value={joinedIn ? 0 : item.fadeIn} min={0} max={fadeMax} step={0.04} unit="s" disabled={joinedIn} onchange={(v) => set('fadeIn', v)} />
+		<NumField label={t('inspector.field.fadeOut')} value={joinedOut ? 0 : item.fadeOut} min={0} max={fadeMax} step={0.04} unit="s" disabled={joinedOut} onchange={(v) => set('fadeOut', v)} />
 		<p class="text-xs text-fg-subtle">{video ? t('inspector.fades.video') : t('inspector.fades.audio')}</p>
+		{#if joinedIn || joinedOut}<p class="text-xs text-fg-subtle" data-fades-dissolved>{t('inspector.fades.dissolved')}</p>{/if}
 	</section>
 {/snippet}

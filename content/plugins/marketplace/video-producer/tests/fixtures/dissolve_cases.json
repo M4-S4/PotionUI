@@ -1,0 +1,14 @@
+[
+  {"name": "cuts", "clips": [{"dur": 4}, {"dur": 3}], "applied": [0, 0], "starts": [0, 4]},
+  {"name": "one second", "clips": [{"dur": 4}, {"dur": 3, "dissolve": 1}], "applied": [0, 1], "starts": [0, 3]},
+  {"name": "first shot", "clips": [{"dur": 2, "dissolve": 1}, {"dur": 2}], "applied": [0, 0], "starts": [0, 2]},
+  {"name": "half the shorter shot on the grid", "clips": [{"dur": 1.32}, {"dur": 4, "dissolve": 2}], "applied": [0, 0.64], "starts": [0, 0.68]},
+  {"name": "half the shot that starts", "clips": [{"dur": 6}, {"dur": 3, "dissolve": 2}], "applied": [0, 1.48], "starts": [0, 4.52]},
+  {"name": "past the bound", "clips": [{"dur": 8}, {"dur": 8, "dissolve": 5}], "applied": [0, 2], "starts": [0, 6]},
+  {"name": "under one step", "clips": [{"dur": 4}, {"dur": 4, "dissolve": 0.03}], "applied": [0, 0], "starts": [0, 4]},
+  {"name": "both sides of a short shot", "clips": [{"dur": 4}, {"dur": 1, "dissolve": 1}, {"dur": 4, "dissolve": 1}], "applied": [0, 0.48, 0.48], "starts": [0, 3.52, 4.04]},
+  {"name": "not a number", "clips": [{"dur": 4}, {"dur": 4, "dissolve": "1"}, {"dur": 4, "dissolve": true}, {"dur": 4, "dissolve": -1}], "applied": [0, 0, 0, 0], "starts": [0, 4, 8, 12]},
+  {"name": "shortest shots", "clips": [{"dur": 0.4}, {"dur": 0.4, "dissolve": 1}], "applied": [0, 0.2], "starts": [0, 0.2]},
+  {"name": "off the grid", "clips": [{"dur": 5}, {"dur": 5, "dissolve": 0.52}, {"dur": 5, "dissolve": 0.5}], "applied": [0, 0.52, 0.48], "starts": [0, 4.48, 9]},
+  {"name": "a run", "clips": [{"dur": 2}, {"dur": 2, "dissolve": 0.6}, {"dur": 2, "dissolve": 0.6}, {"dur": 2}], "applied": [0, 0.6, 0.6, 0], "starts": [0, 1.4, 2.8, 4.8]}
+]

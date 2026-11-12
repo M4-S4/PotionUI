@@ -119,5 +119,14 @@
 	"vref.takeBusy": "{label} est occupée sous ce plan",
 	"vref.takeMove": "Déplacer dans {label} à {time}",
 	"vref.takeCopy": "Copier dans {label} à {time}",
-	"clip.speedTip": "Ralenti à {value} %"
+	"clip.speedTip": "Ralenti à {value} %",
+	"dissolve.label": "Transition",
+	"dissolve.cut": "Coupe",
+	"dissolve.value": "Fondu enchaîné {value} s",
+	"dissolve.shorter": "Le film raccourcit de {dur}. Les plans suivants avancent d’autant ; les sons, les titres et les marqueurs restent à leur place.",
+	"dissolve.capped": "Limité à {dur} : la moitié du plus court des deux plans.",
+	"dissolve.total": "Tous les fondus enchaînés réunis : le film raccourcit de {dur}.",
+	"dissolve.tooShort": "Ces plans sont trop courts pour un fondu enchaîné : le raccord reste une coupe.",
+	"dissolve.hint": "Un fondu enchaîné mêle ce plan au précédent et raccourcit le film de sa durée.",
+	"dissolve.tip": "Fondu enchaîné {dur} : le film raccourcit de {dur}"
 }

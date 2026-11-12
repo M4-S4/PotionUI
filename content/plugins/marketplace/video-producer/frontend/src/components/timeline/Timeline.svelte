@@ -60,6 +60,7 @@
 	import { engineTitle, shotReceptionFor } from '../../lib/references.js';
 	import { LIMITS, VIDEO_TRACKS, leastSeconds } from '../../lib/reception.js';
 	import { TAG_CLASS } from '../../lib/reftags.js';
+	import { dissolveMarks, shownSpan } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import Dropdown from '../shell/Dropdown.svelte';
 	import ZoomControls from './ZoomControls.svelte';
@@ -615,8 +616,11 @@
 								</button>
 							{/each}
 						{:else if row.id === 'v1'}
-							{#each doc.clips as c (c.id)}
-								{@render clip(c)}
+							{#each doc.clips as c, i (c.id)}
+								{@render clip(c, i)}
+							{/each}
+							{#each dissolveMarks(doc.clips) as mark (mark.id)}
+								{@render dissolve(mark)}
 							{/each}
 							{#if reorder}
 								<div class="absolute inset-y-0 z-20 w-0.5 bg-signal" style:left="{x(reorder.at)}px"></div>
@@ -707,18 +711,18 @@
 	</div>
 {/if}
 
-{#snippet fades(item, kind, w, h, light = false)}
+{#snippet fades(item, kind, w, h, light = false, head = true, tail = true)}
 	<svg class="pointer-events-none absolute inset-0" width={w} height={h} aria-hidden="true">
-		{#if item.fadeIn > 0}
+		{#if head && item.fadeIn > 0}
 			<polygon points="0,0 {x(item.fadeIn)},0 0,{h}" fill="rgb(0 0 0 / {light ? 0.35 : 0.5})" />
 			<line x1="0" y1={h} x2={x(item.fadeIn)} y2="0" stroke="rgb(255 255 255 / 0.7)" />
 		{/if}
-		{#if item.fadeOut > 0}
+		{#if tail && item.fadeOut > 0}
 			<polygon points="{w},0 {w - x(item.fadeOut)},0 {w},{h}" fill="rgb(0 0 0 / {light ? 0.35 : 0.5})" />
 			<line x1={w} y1={h} x2={w - x(item.fadeOut)} y2="0" stroke="rgb(255 255 255 / 0.7)" />
 		{/if}
 	</svg>
-	<button
+	{#if head}<button
 		type="button"
 		tabindex="-1"
 		class="vp-hit absolute top-1.5 z-[25] -ml-[5px] h-2.5 w-2.5 rounded-full border border-black/50 bg-white opacity-0 group-hover:opacity-100 {isSel(kind, item.id) ? 'opacity-100' : ''}"
@@ -726,8 +730,8 @@
 		aria-label={t('timeline.fade.in')}
 		title={t('timeline.fade.inTip', { dur: secs(item.fadeIn) })}
 		onpointerdown={(e) => fadeDrag(e, kind, item, 'in')}
-	></button>
-	<button
+	></button>{/if}
+	{#if tail}<button
 		type="button"
 		tabindex="-1"
 		class="vp-hit absolute top-1.5 z-[25] -ml-[5px] h-2.5 w-2.5 rounded-full border border-black/50 bg-white opacity-0 group-hover:opacity-100 {isSel(kind, item.id) ? 'opacity-100' : ''}"
@@ -735,13 +739,35 @@
 		aria-label={t('timeline.fade.out')}
 		title={t('timeline.fade.outTip', { dur: secs(item.fadeOut) })}
 		onpointerdown={(e) => fadeDrag(e, kind, item, 'out')}
-	></button>
+	></button>{/if}
 {/snippet}
 
-{#snippet clip(c)}
+{#snippet dissolve(mark)}
+	{@const text = t('timeline.dissolve.tip', { dur: `${formatNumber(mark.dur, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} s` })}
+	<button
+		type="button"
+		tabindex="-1"
+		class="vp-hit absolute bottom-1 top-6 z-[15] -translate-x-1/2 rounded-sm border border-white/70 bg-black/45 {isSel('clip', mark.id) ? 'ring-1 ring-signal' : ''}"
+		style:left="{x(mark.start + mark.dur / 2)}px"
+		style:width="{Math.max(x(mark.dur), 6)}px"
+		aria-label={text}
+		title={text}
+		data-dissolve={mark.id}
+		onpointerdown={(e) => e.stopPropagation()}
+		onclick={() => (select('clip', mark.id), (ui.inspectorOpen = true))}
+	>
+		<svg class="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+			<line x1="0" y1="100" x2="100" y2="0" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />
+			<line x1="0" y1="0" x2="100" y2="100" stroke="rgb(255 255 255 / 0.85)" vector-effect="non-scaling-stroke" />
+		</svg>
+	</button>
+{/snippet}
+
+{#snippet clip(c, i)}
 	{@const thumb = clipThumb(c)}
 	{@const media = asset(c.assetId)}
-	{@const w = x(c.dur)}
+	{@const span = shownSpan(doc.clips, i)}
+	{@const w = x(span.dur)}
 	{@const sel = isSel('clip', c.id)}
 	{@const picked = isPicked(c.id)}
 	{@const takes = takesOf(c).length}
@@ -750,7 +776,7 @@
 	{@const ownEngine = shotEngineText(c)}
 	<div
 		class="vp-touch-none group absolute bottom-1 top-1 overflow-hidden rounded border {sel || picked ? 'z-10 border-signal ring-1 ring-signal' : 'border-black/40'} {reorder?.id === c.id ? 'opacity-60' : ''}"
-		style:left="{x(c.start)}px"
+		style:left="{x(span.start)}px"
 		style:width="{w}px"
 		style:transform={reorder?.id === c.id ? `translateX(${reorder.dx}px)` : null}
 		style:background="rgb(var(--viz-1) / 0.35)"
@@ -803,7 +829,7 @@
 				onclick={() => act(() => (c.mute = !c.mute))}
 			><Icon name={c.mute ? 'volume-x' : 'volume'} class="h-3 w-3" /></button>
 		{/if}
-		{@render fades(c, 'clip', w, 52)}
+		{@render fades(c, 'clip', w, 52, false, !span.head, !span.tail)}
 		<button
 			type="button"
 			tabindex="-1"

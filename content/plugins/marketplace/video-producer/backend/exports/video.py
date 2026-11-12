@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Collection, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -13,6 +13,7 @@ import psutil
 
 from .. import core_bridge, director, formats, takes, workdir
 from ..core_bridge import User
+from ..dissolve import dissolve_of, dissolves
 from . import levels, match, media, slug
 from .common import asset_of, fps_of, seq_duration, timing_error
 from .mix import RULE as MIX_RULE, delay_taps, gain_of, pan_of, strip_of, write_impulse
@@ -247,6 +248,8 @@ def timeline(doc: Mapping[str, Any]) -> Tuple[List[Segment], float]:
         if start > cursor + EPSILON:
             segments.append((start - cursor, None))
             cursor = start
+        if segments:
+            cursor -= dissolve_of(segments[-1][1], clip)
         segments.append((dur, clip))
         cursor += dur
     total = float(seq_duration(doc))
@@ -736,6 +739,39 @@ def _console(doc: Mapping[str, Any], sounds: Mapping[str, str], inputs: _Inputs,
     return chains
 
 
+def joins_of(segments: Sequence[Segment]) -> List[float]:
+    return dissolves([clip for _, clip in segments])
+
+
+def _unfaded(clip: Mapping[str, Any], head: bool, tail: bool) -> Mapping[str, Any]:
+    return {**clip, **({"fadeIn": 0} if head else {}), **({"fadeOut": 0} if tail else {})}
+
+
+def _dissolved(lengths: Sequence[float], joins: Sequence[float], rate: Any) -> Tuple[List[str], List[str]]:
+    chains: List[str] = []
+    pairs: List[str] = []
+    k = 0
+    while k < len(lengths):
+        end = k + 1
+        while end < len(lengths) and joins[end] > 0:
+            end += 1
+        if end == k + 1:
+            pairs.append(f"[v{k}][a{k}]")
+            k = end
+            continue
+        video, sound, frames = f"[v{k}]", f"[a{k}]", round(lengths[k] * rate)
+        for j in range(k + 1, end):
+            overlap = round(joins[j] * rate)
+            joined_video, joined_sound = f"[x{k}v{j}]", f"[x{k}a{j}]"
+            chains.append(f"{video}[v{j}]xfade=transition=fade:duration={num(overlap / rate)}:offset={num((frames - overlap) / rate)}{joined_video}")
+            chains.append(f"{sound}[a{j}]acrossfade=d={num(overlap / rate)}:c1={CROSSFADE_CURVE}:c2={CROSSFADE_CURVE}{joined_sound}")
+            video, sound = joined_video, joined_sound
+            frames += round(lengths[j] * rate) - overlap
+        pairs.append(f"{video}{sound}")
+        k = end
+    return chains, pairs
+
+
 def _assembly(
     doc: Mapping[str, Any],
     files: Mapping[str, Optional[Mapping[str, Any]]],
@@ -753,9 +789,13 @@ def _assembly(
     inputs = _Inputs(fps, cwd)
     graph: List[str] = []
     pairs: List[str] = []
-    shots = _shots(doc, files, options, timeline(doc)[0] if segments is None else segments)
+    segments = timeline(doc)[0] if segments is None else segments
+    shots = _shots(doc, files, options, segments)
+    joins = joins_of(segments)
     mono = set(options.get("mono") or ())
     for index, shot in enumerate(shots):
+        if joins[index] > 0 or (index + 1 < len(joins) and joins[index + 1] > 0):
+            shot = replace(shot, clip=_unfaded(shot.clip, joins[index] > 0, index + 1 < len(joins) and joins[index + 1] > 0))
         length = num(shot.dur)
         black = f"color=c=black:s={width}x{height}:r={fps}:d={length},setsar=1,format=yuv420p[v{index}]"
         silence = f"anullsrc=r={SAMPLE_RATE}:cl=stereo,atrim=duration={length}[a{index}]"
@@ -794,7 +834,10 @@ def _assembly(
             else:
                 graph.append(silence)
         pairs.append(f"[v{index}][a{index}]")
-    graph.append(f"{''.join(pairs)}concat=n={len(shots)}:v=1:a=1[vout][{'bed' if mix else 'aout'}]")
+    if any(joins):
+        chains, pairs = _dissolved([shot.dur for shot in shots], joins, rate)
+        graph.extend(chains)
+    graph.append(f"{''.join(pairs)}concat=n={len(pairs)}:v=1:a=1[vout][{'bed' if mix else 'aout'}]")
     if not mix:
         return inputs.args, graph
     graph.extend(_console(doc, sounds, inputs, options))
@@ -813,8 +856,9 @@ def plan_parts(
     groups: List[List[Segment]] = []
     current: List[Segment] = []
     inputs = _Inputs()
-    for segment, shot in zip(segments, _shots(doc, files, options, segments)):
-        if current and inputs.opens(shot) and inputs.count >= limit:
+    joins = joins_of(segments)
+    for index, (segment, shot) in enumerate(zip(segments, _shots(doc, files, options, segments))):
+        if current and joins[index] <= 0 and inputs.opens(shot) and inputs.count >= limit:
             groups.append(current)
             current, inputs = [], _Inputs()
         if shot.entry is not None:
@@ -1091,7 +1135,7 @@ async def assemble_sequence(
         for index, group in enumerate(groups):
             start = min(done / work * MIX_FROM, ceiling)
             _step(report, start)
-            span = sum(dur for dur, _ in group)
+            span = sum(dur for dur, _ in group) - sum(joins_of(group))
             graph, output = folder / PART_GRAPH.format(level, index), folder / PART_NAME.format(level, index)
             inputs, chains = _assembly(doc, files, picks, {}, cwd, group, mix=False)
             graph.write_text(";".join(chains), encoding="utf-8")

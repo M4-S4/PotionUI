@@ -17,6 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
+import { DISSOLVE_KEY, dissolveOf } from './dissolve.js';
 
 export { newAsset, newClip };
 
@@ -329,7 +330,8 @@ function dropLinked(shotId) {
 export function relayout() {
 	const before = new Map(doc.clips.map((c) => [c.id, c.start]));
 	let at = 0;
-	for (const c of doc.clips) {
+	for (const [i, c] of doc.clips.entries()) {
+		if (i) at -= dissolveOf(doc.clips[i - 1], c);
 		c.start = round(at, 0.04);
 		at += c.dur;
 	}
@@ -384,6 +386,7 @@ export function duplicateSelection() {
 	copy.id = ulid();
 	act(() => {
 		if (s.kind === 'clip') {
+			delete copy[DISSOLVE_KEY];
 			list.splice(i + 1, 0, copy);
 			relayout();
 		} else if ('time' in copy) {
@@ -422,6 +425,7 @@ export function bladeAt(time = ui.playhead) {
 		const i = doc.clips.indexOf(c);
 		const kept = round(left, 0.04);
 		const b = { ...$state.snapshot(c), id: ulid(), start: round(c.start + kept, 0.04), dur: round(c.dur - left, 0.04), srcIn: c.srcIn + left * speedOf(c), fadeIn: 0 };
+		delete b[DISSOLVE_KEY];
 		c.dur = kept;
 		c.fadeOut = 0;
 		doc.clips.splice(i + 1, 0, b);

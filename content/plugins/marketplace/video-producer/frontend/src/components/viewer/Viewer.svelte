@@ -19,6 +19,8 @@
 	import { fitClass, formatSections, framed, sizeOf } from '../../lib/framing.js';
 	import { formatGroupText, setFormat, setResolution } from '../../lib/framing.svelte.js';
 	import MatchCanvas from './MatchCanvas.svelte';
+	import DissolveLayer from './DissolveLayer.svelte';
+	import { mixAt, unfaded } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 
 	let { player = false } = $props();
@@ -33,6 +35,8 @@
 	const time = $derived(ui.playhead);
 	const clip = $derived(clipAt(time));
 	const a = $derived(clip ? asset(clip.assetId) : null);
+	const mix = $derived(mixAt(doc.clips, time));
+	const opacity = $derived(clip ? fadeOpacity(unfaded(doc.clips, doc.clips.indexOf(clip)), time) : 1);
 
 	const title = $derived(doc.titles.find((x) => time >= x.start && time < x.start + x.dur));
 
@@ -225,16 +229,16 @@
 							playsinline
 							preload="auto"
 							aria-label={a.name}
-							style:opacity={fadeOpacity(clip, time)}
+							style:opacity={opacity}
 							style:filter={clipFilter(clip)}
 							onerror={(e) => mark(liveVideo, e.currentTarget)}
 							onloadedmetadata={(e) => (mark(liveVideo, e.currentTarget, true), measure(liveVideo, e.currentTarget))}
 						></video>
-						{#if lut && video}<MatchCanvas source={video} {lut} filter={clipFilter(clip)} fade={fadeOpacity(clip, time)} cover={liveFit !== BARS} />{/if}
+						{#if lut && video}<MatchCanvas source={video} {lut} filter={clipFilter(clip)} fade={opacity} cover={liveFit !== BARS} />{/if}
 					{/key}
 				{:else if liveImage}
-					<img bind:this={picture} src={liveImage} alt={a.name} class="h-full w-full {fitClass(liveFit)}" style:opacity={fadeOpacity(clip, time)} style:filter={clipFilter(clip)} onload={(e) => measure(liveImage, e.currentTarget)} />
-					{#if lut && picture}<MatchCanvas source={picture} {lut} filter={clipFilter(clip)} fade={fadeOpacity(clip, time)} cover={liveFit !== BARS} />{/if}
+					<img bind:this={picture} src={liveImage} alt={a.name} class="h-full w-full {fitClass(liveFit)}" style:opacity={opacity} style:filter={clipFilter(clip)} onload={(e) => measure(liveImage, e.currentTarget)} />
+					{#if lut && picture}<MatchCanvas source={picture} {lut} filter={clipFilter(clip)} fade={opacity} cover={liveFit !== BARS} />{/if}
 				{:else if clip && a}
 					<div class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-8 text-center text-white/70">
 						<Icon name="film" class="h-7 w-7" />
@@ -247,6 +251,10 @@
 					</div>
 				{:else}
 					<div class="flex h-full items-center justify-center text-sm {bare ? 'text-fg-muted' : 'text-white/60'}">{t('viewer.end')}</div>
+				{/if}
+
+				{#if mix && mode === 'sequence'}
+					<DissolveLayer {mix} {time} />
 				{/if}
 
 				{#if title && mode === 'sequence'}

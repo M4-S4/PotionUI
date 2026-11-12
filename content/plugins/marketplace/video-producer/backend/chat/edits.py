@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from .. import bible, formats
 from ..core_bridge import generate_ulid
 from ..director import FIRST_ROLES, LAST_ROLES, shot_revision
+from ..dissolve import dissolve_of
 
 GRID = 0.04
 PROMPT_STRENGTH = 75
@@ -101,7 +102,9 @@ def relayout(doc: Dict[str, Any]) -> None:
     clips = clips_of(doc)
     before = {clip["id"]: number(clip.get("start")) for clip in clips}
     at = 0.0
-    for clip in clips:
+    for index, clip in enumerate(clips):
+        if index:
+            at -= dissolve_of(clips[index - 1], clip)
         clip["start"] = snap(at)
         at += number(clip.get("dur"))
     for clip in clips:
