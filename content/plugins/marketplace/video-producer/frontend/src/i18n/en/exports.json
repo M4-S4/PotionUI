@@ -81,5 +81,7 @@
 	"finish.failure.noLibrary": "The export has no library item to finish.",
 	"finish.failure.failed": "The finishing failed.",
 	"finish.failure.failedWith": "The finishing failed: {message}",
-	"finish.failure.lost": "The page lost track of the finishing. It may still end in PotionUI: look for the finished film in your library."
+	"finish.failure.lost": "The page lost track of the finishing. It may still end in PotionUI: look for the finished film in your library.",
+	"finish.cancelling": "Cancelling…",
+	"finish.cancelFailed": "Could not cancel the finishing: it goes on."
 }

@@ -12,7 +12,8 @@ export async function load(url, context, next) {
 }`;
 register(`data:text/javascript,${encodeURIComponent(hooks)}`, import.meta.url);
 
-globalThis.window = { __potionui: { confirm: async () => true, notifications: { toast() {} } } };
+const hostToasts = [];
+globalThis.window = { __potionui: { confirm: async () => true, notifications: { toast: (level, message) => hostToasts.push(message) } } };
 
 const { doc, ui, undo, dispose } = await import('./state.svelte.js');
 const { bindClient, openProject, project } = await import('./project.svelte.js');
@@ -339,6 +340,67 @@ test('finishing flow: closing the page stops following a finishing, with no read
 	assert.equal(server.calls.filter(([kind]) => kind === 'read').length, reads);
 	assert.equal(ui.toasts.length, toasts);
 	assert.equal(finishShown().status, 'running');
+});
+
+test('finishing flow: a cancel answered by a finished run shows the finished film, not a cancellation', async () => {
+	let asked = 0;
+	await open({ finishing: { grain: { on: true } }, reads: () => [{ status: 'running', progress: 0.9 }], cancelRun: (id) => ({ ok: true, data: { id, status: 'completed', progress: 1, label: '', items: [FINISHED.items[0]], error: null } }) });
+	finishTiming.wait = async () => {
+		asked += 1;
+		if (asked === 2) await cancelFinish();
+		await settle();
+	};
+	await exportAndFinish();
+	assert.deepEqual([finishShown().status, finishShown().item.id], ['done', 'item-fin']);
+});
+
+test('finishing flow: a cancel that fails leaves the finishing running, says so, and the finishing still ends', async () => {
+	let asked = 0;
+	const reads = [{ status: 'running', progress: 0.2 }, { status: 'running', progress: 0.5 }];
+	await open({ finishing: { grain: { on: true } }, reads, cancelRun: () => ({ ok: false, error: { status: 0, code: 'network_error', message: 'offline' } }) });
+	finishTiming.wait = async () => {
+		asked += 1;
+		if (asked === 2) {
+			await cancelFinish();
+			assert.deepEqual([finishShown().status, finishShown().cancelling], ['running', false]);
+		}
+		await settle();
+	};
+	await exportAndFinish();
+	assert.ok(hostToasts.includes('Could not cancel the finishing: it goes on.'));
+	assert.equal(finishShown().status, 'done');
+});
+
+test('finishing flow: the window says Cancelling until PotionUI answers', async () => {
+	let answer = null;
+	await open({ finishing: { grain: { on: true } }, reads: () => [{ status: 'running', progress: 0.3 }], cancelRun: (id) => new Promise((resolve) => (answer = () => resolve({ ok: true, data: { id, status: 'cancelled', progress: 0.3, label: '', items: [], error: null } }))) });
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	for (let i = 0; i < 5; i++) await settle();
+	const pending = cancelFinish();
+	await settle();
+	assert.deepEqual([finishShown().status, finishShown().cancelling], ['running', true]);
+	answer();
+	await pending;
+	assert.deepEqual([finishShown().status, finishShown().cancelling], ['cancelled', false]);
+});
+
+test('finishing flow: a cancel asked before PotionUI gave the run its id is sent as soon as the id comes', async () => {
+	let started = null;
+	await open({ finishing: { grain: { on: true } } });
+	server.client.startMediaRun = (body) => {
+		server.calls.push(['run', body]);
+		return new Promise((resolve) => (started = () => resolve({ ok: true, data: { id: 'late' } })));
+	};
+	await startVideoExport({ format: 'web', resolution: '720p', finish: stepsNow() });
+	await pollJob();
+	await settle();
+	await cancelFinish();
+	assert.equal(finishShown().cancelling, true);
+	started();
+	await drain();
+	assert.ok(server.calls.some(([kind, id]) => kind === 'cancel' && id === 'late'));
+	assert.equal(finishShown().status, 'cancelled');
 });
 
 test('finishing flow: the choices are kept in the project, one undo step each, and a project without them stays as it was', async () => {

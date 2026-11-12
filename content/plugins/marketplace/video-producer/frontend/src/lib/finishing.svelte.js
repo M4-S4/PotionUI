@@ -58,7 +58,7 @@ function record(fields) {
 
 function close(run, control, status, extra = {}) {
 	if (control.stopped) return null;
-	Object.assign(run, { status, ...extra });
+	Object.assign(run, { status, cancelling: false, ...extra });
 	controls.delete(run.key);
 	if (status === 'done' && (ui.modal?.type !== 'export' || run.projectId !== project.id)) {
 		toast(t('exports.finish.toastDone', { file: finishedName(run.fileName) }), 'success', { label: t('exports.finish.download'), run: () => downloadFinished(run) }, 6000);
@@ -82,7 +82,7 @@ export async function finishJob(job, { wait = finishTiming.wait } = {}) {
 	const client = getClient();
 	const fileName = !job.stems && job.file?.name ? job.file.name : plan.fileName;
 	const control = { stopped: false };
-	const run = record({ key: job.id, jobId: job.id, projectId: plan.projectId, runId: null, status: 'running', progress: 0, item: null, failure: null, message: '', fileName });
+	const run = record({ key: job.id, jobId: job.id, projectId: plan.projectId, runId: null, status: 'running', cancelling: false, progress: 0, item: null, failure: null, message: '', fileName });
 	controls.set(run.key, control);
 	if (!finishable(job) || !client) return close(run, control, 'failed', { failure: 'noLibrary' });
 	const started = await client.startMediaRun(finishRequest(job.media.itemId, plan.steps));
@@ -92,6 +92,7 @@ export async function finishJob(job, { wait = finishTiming.wait } = {}) {
 	}
 	if (!started.ok) return close(run, control, 'failed', { failure: finishFailure(started.error), message: started.error?.message ?? '' });
 	run.runId = started.data.id;
+	if (run.cancelling) await askCancel(run);
 	let misses = 0;
 	while (run.status === 'running') {
 		await wait(FINISH_POLL_MS);
@@ -110,15 +111,24 @@ export async function finishJob(job, { wait = finishTiming.wait } = {}) {
 	return run.status === 'done' ? run.item : null;
 }
 
+async function askCancel(run) {
+	const control = controls.get(run.key);
+	if (!control) return;
+	const result = await getClient()?.cancelMediaRun(run.runId);
+	if (control.stopped || run.status !== 'running') return;
+	if (!result?.ok) {
+		run.cancelling = false;
+		if (result?.error?.status === 404) return close(run, control, 'failed', { failure: 'lost', message: '' });
+		return toast(t('exports.finish.cancelFailed'), 'error');
+	}
+	apply(run, control, result.data);
+}
+
 export async function cancelFinish() {
 	const run = finishShown();
-	if (!run || run.status !== 'running') return;
-	const control = controls.get(run.key);
-	const runId = run.runId;
-	if (control) control.stopped = true;
-	controls.delete(run.key);
-	run.status = 'cancelled';
-	if (runId) await getClient()?.cancelMediaRun(runId);
+	if (!run || run.status !== 'running' || run.cancelling) return;
+	run.cancelling = true;
+	if (run.runId) await askCancel(run);
 }
 
 export async function downloadFinished(run = finishShown()) {

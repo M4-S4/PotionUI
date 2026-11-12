@@ -387,7 +387,7 @@
 							<div class="h-full rounded-full bg-signal transition-[width] duration-150" style:width="{finishRun.progress * 100}%"></div>
 						</div>
 						<div class="mt-2 flex justify-end">
-							<HostUi name="Button" props={{ variant: 'ghost', size: 'xs', onclick: cancelFinish }}>{t('exports.finish.cancel')}</HostUi>
+							<HostUi name="Button" props={{ variant: 'ghost', size: 'xs', disabled: finishRun.cancelling, onclick: cancelFinish }}>{finishRun.cancelling ? t('exports.finish.cancelling') : t('exports.finish.cancel')}</HostUi>
 						</div>
 					{:else if finishRun.status === 'done'}
 						<div class="mt-2 flex items-center gap-2" role="status">
