@@ -219,10 +219,11 @@ def frames_of(doc: Mapping[str, Any], clip: Mapping[str, Any], kind: str) -> Lis
     return [frame for frame in dicts(doc.get("frames")) if frame.get("shotId") == clip.get("id") and role_kind(frame.get("role")) == kind]
 
 
-def frame_time(clip: Mapping[str, Any], kind: str) -> float:
+def frame_time(clip: Mapping[str, Any], kind: str, exact: bool = False) -> float:
     """Where the first or last frame of a shot sits on the timeline."""
     start = number(clip.get("start"))
-    return snap(start + max(0.0, number(clip.get("dur")) - GRID)) if kind == LAST else snap(start)
+    at = start + max(0.0, number(clip.get("dur")) - GRID) if kind == LAST else start
+    return round(at, 6) if exact else snap(at)
 
 
 def frame_asset(doc: Mapping[str, Any], clip: Mapping[str, Any], kind: str) -> Optional[str]:
@@ -237,7 +238,7 @@ def place_frame(doc: Dict[str, Any], clip: Mapping[str, Any], kind: str, asset_i
     if not asset_id:
         doc["frames"] = [frame for frame in frames if not any(frame is item for item in existing)]
         return
-    fields = {"shotId": clip["id"], "time": frame_time(clip, kind), "assetId": asset_id, "role": kind, "strength": existing[0].get("strength", FRAME_STRENGTH) if existing else FRAME_STRENGTH}
+    fields = {"shotId": clip["id"], "time": frame_time(clip, kind, chained(clips_of(doc))), "assetId": asset_id, "role": kind, "strength": existing[0].get("strength", FRAME_STRENGTH) if existing else FRAME_STRENGTH}
     if existing:
         existing[0].update(fields)
         doc["frames"] = [frame for frame in frames if not any(frame is item for item in existing[1:])]

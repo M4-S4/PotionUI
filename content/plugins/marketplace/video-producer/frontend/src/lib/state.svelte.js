@@ -544,15 +544,22 @@ export function promptEdited(prompt, before) {
 	touch(doc.clips.find((c) => c.id === prompt.shotId));
 }
 
+function placedAt(time) {
+	const shot = chained(doc.clips) ? doc.clips.find((c) => Math.abs(c.start - time) <= 0.02 + 1e-9) : null;
+	return shot ? shot.start : round(time, 0.04);
+}
+
 export function addPrompt(start = ui.playhead, dur = 4) {
-	const p = { id: ulid(), shotId: shotIdAt(start), start: round(start, 0.04), dur, strength: 75, text: '' };
+	const at = placedAt(start);
+	const p = { id: ulid(), shotId: shotIdAt(at), start: at, dur, strength: 75, text: '' };
 	act(() => doc.prompts.push(p));
 	select('prompt', p.id);
 	ui.modal = { type: 'prompt', id: p.id, isNew: true };
 }
 
 export function addFrame(assetId = clipAt(ui.playhead)?.assetId ?? null, time = ui.playhead, role = 'Transition') {
-	const f = { id: ulid(), shotId: shotIdAt(time), time: round(time, 0.04), assetId, role, strength: 75 };
+	const at = placedAt(time);
+	const f = { id: ulid(), shotId: shotIdAt(at), time: at, assetId, role, strength: 75 };
 	act(() => doc.frames.push(f));
 	select('frame', f.id);
 	toast(t('lib.toast.frameAdded'));
