@@ -124,7 +124,10 @@
 	}
 
 	const emptyText = (key) => (key === 'lut' ? t('exports.finish.noLut') : t('exports.finish.noLook'));
-	const finishStatus = (run) => (run.status === 'running' ? t('exports.finish.running') : run.status === 'done' ? t('exports.status.done') : run.status === 'failed' ? t('lib.status.failed') : t('lib.status.cancelled'));
+	const finishLost = (run) => run.status === 'failed' && run.failure === 'lost';
+	const finishStatus = (run) => (run.status === 'running' ? t('exports.finish.running') : run.status === 'done' ? t('exports.status.done') : finishLost(run) ? t('exports.finish.notFollowed') : run.status === 'failed' ? t('lib.status.failed') : t('lib.status.cancelled'));
+	const finishTone = (run) => (finishLost(run) ? 'text-warning' : tone(run.status));
+	const finishDot = (run) => (finishLost(run) ? 'bg-warning' : dot(run.status));
 
 	function setSound(key, value) {
 		act(() => {
@@ -383,7 +386,7 @@
 				<section class="rounded-lg border border-line-strong p-3" aria-label={t('exports.finish.progress')} data-finish-run={finishRun.status}>
 					<div class="flex items-center gap-2 text-sm">
 						<span class="min-w-0 flex-1 truncate text-fg">{finishedName(finishRun.fileName)}</span>
-						<span class="flex shrink-0 items-center gap-1 text-xs {tone(finishRun.status)}"><span class="h-1.5 w-1.5 rounded-full {dot(finishRun.status)}"></span>{finishStatus(finishRun)}</span>
+						<span class="flex shrink-0 items-center gap-1 text-xs {finishTone(finishRun)}"><span class="h-1.5 w-1.5 rounded-full {finishDot(finishRun)}"></span>{finishStatus(finishRun)}</span>
 					</div>
 					{#if finishRun.status === 'running'}
 						<div class="mt-2 flex justify-between gap-2 text-xs">
@@ -406,7 +409,11 @@
 							<HostUi name="Button" props={{ variant: 'primary', size: 'xs', icon: hostIconName('export'), onclick: downloadFinished }}>{t('exports.finish.download')}</HostUi>
 						</div>
 					{:else if finishRun.status === 'failed'}
-						<p class="mt-1.5 text-xs text-danger" role="alert">{finishFailureText(finishRun)} {t('exports.finish.rawKept')}</p>
+						{#if finishLost(finishRun)}
+							<p class="mt-1.5 text-xs text-fg-muted" role="status">{finishFailureText(finishRun)} {t('exports.finish.rawKept')}</p>
+						{:else}
+							<p class="mt-1.5 text-xs text-danger" role="alert">{finishFailureText(finishRun)} {t('exports.finish.rawKept')}</p>
+						{/if}
 					{:else}
 						<p class="mt-1.5 text-xs text-fg-muted">{t('exports.finish.cancelled')} {t('exports.finish.rawKept')}</p>
 					{/if}

@@ -78,7 +78,7 @@ function close(run, control, status, extra = {}) {
 
 function tell(run) {
 	if (run.status === 'done') toast(t('exports.finish.toastDone', { file: finishedName(run.fileName) }), 'success', { label: t('exports.finish.download'), run: () => downloadFinished(run) }, 6000);
-	else if (run.status === 'failed') toast(`${finishFailureText(run)} ${t('exports.finish.rawKept')}`, 'error', undefined, 8000);
+	else if (run.status === 'failed') toast(`${finishFailureText(run)} ${t('exports.finish.rawKept')}`, run.failure === 'lost' ? 'warning' : 'error', undefined, 8000);
 	else if (run.status === 'cancelled') toast(`${t('exports.finish.cancelled')} ${t('exports.finish.rawKept')}`, 'info');
 }
 

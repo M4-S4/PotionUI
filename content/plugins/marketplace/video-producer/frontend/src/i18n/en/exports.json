@@ -87,5 +87,6 @@
 	"finish.retry": "Try again",
 	"finish.missingLut": "The saved LUT “{name}” is no longer offered by PotionUI: pick another one, or the LUT is left out of the finishing.",
 	"finish.missingLook": "The saved look is no longer offered by PotionUI: pick another one, or the look is left out of the finishing.",
-	"finish.missingLookOption": "Saved look, no longer offered"
+	"finish.missingLookOption": "Saved look, no longer offered",
+	"finish.notFollowed": "Not followed"
 }

@@ -13,7 +13,8 @@ export async function load(url, context, next) {
 register(`data:text/javascript,${encodeURIComponent(hooks)}`, import.meta.url);
 
 const hostToasts = [];
-globalThis.window = { __potionui: { confirm: async () => true, notifications: { toast: (level, message) => hostToasts.push(message) } } };
+const hostLevels = [];
+globalThis.window = { __potionui: { confirm: async () => true, notifications: { toast: (level, message) => (hostToasts.push(message), hostLevels.push([level, message])) } } };
 
 const { doc, ui, undo, dispose } = await import('./state.svelte.js');
 const { bindClient, openProject, project } = await import('./project.svelte.js');
@@ -350,6 +351,15 @@ test('finishing flow: a missed read is tried again after a wait doubled each tim
 	await exportAndFinish();
 	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'lost']);
 	assert.deepEqual(waits, [1000, 2000, 4000, 8000, 16000]);
+});
+
+test('finishing flow: with the window closed, a finishing the page lost track of is told as a warning, not as a failure', async () => {
+	const offline = { fail: { status: 0, code: 'network_error', message: '' } };
+	await open({ finishing: { grain: { on: true } }, reads: [offline, offline, offline, offline, offline] });
+	hostLevels.length = 0;
+	await exportAndFinish();
+	assert.deepEqual([finishShown().status, finishShown().failure], ['failed', 'lost']);
+	assert.deepEqual(hostLevels.at(-1), ['warning', 'The page lost track of the finishing. It may still end in PotionUI: look for the finished film in your library. The plain export is still available.']);
 });
 
 test('finishing flow: a finishing in a second project leaves the first one running to its end', async () => {

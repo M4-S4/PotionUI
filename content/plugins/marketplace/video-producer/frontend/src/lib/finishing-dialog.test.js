@@ -104,6 +104,23 @@ test('finishing dialog: a saved look that is no longer offered is told without i
 	assert.ok(!text.includes('01M77QZK4V'));
 });
 
+test('finishing dialog: a finishing the page lost track of reads as not followed, not as failed', async () => {
+	finishState.tools = TOOLS;
+	const run = (failure) => ({ key: 'job-p1', jobId: 'job-p1', projectId: 'p1', runId: 'run1', status: 'failed', cancelling: false, progress: 0.4, item: null, failure, message: '', fileName: 'Film_720p.mp4' });
+	const card = (html) => html.match(/<section[^>]*data-finish-run[\s\S]*?<\/section>/)[0];
+	finishState.runs = [run('lost')];
+	let html = card(await renderComponent(MODALS));
+	assert.ok(textOf(html).includes(t('exports.finish.notFollowed')));
+	assert.ok(!textOf(html).includes(t('lib.status.failed')));
+	assert.ok(!html.includes('danger'));
+	assert.match(html, /text-warning/);
+	assert.match(html, /role="status"[^>]*>[^<]*The page lost track/);
+	finishState.runs = [run('failed')];
+	html = card(await renderComponent(MODALS));
+	assert.ok(textOf(html).includes(t('lib.status.failed')));
+	assert.match(html, /text-danger/);
+});
+
 test('finishing dialog: while the catalog loads, and when the core has none of the effects, it says so', async () => {
 	let text = textOf(await renderComponent(MODALS));
 	assert.ok(text.includes(t('exports.finish.loading')));
