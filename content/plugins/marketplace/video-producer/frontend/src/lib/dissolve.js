@@ -87,22 +87,26 @@ export function headTrim(srcIn, dur, speed, shift) {
 	const from = finite(srcIn);
 	const length = finite(dur);
 	const rate = positive(speed) ? speed : 1;
-	const moved = Math.min(Math.max(Math.round(finite(shift) / GRID) * GRID, -from / rate), length - LEAST_SHOT);
+	const moved = Math.min(Math.max(Math.round(finite(shift) / GRID) * GRID, -from / rate), Math.max(length - LEAST_SHOT, 0));
 	return { srcIn: rounded(Math.max(from + moved * rate, 0)), dur: rounded(length - moved) };
 }
 
 export const tailTrim = (start, end, most) => rounded(Math.min(Math.max(finite(end) - finite(start), LEAST_SHOT), Math.max(finite(most), LEAST_SHOT)));
 
-export const playedLengths = (clips) => (chained(clips) ? clips.map((clip, i) => (i > 0 ? dissolveOf(clips[i - 1], clip) : 0)) : null);
+export const playedLengths = (clips) => (chained(clips) ? Object.fromEntries(clips.map((clip, i) => [clip.id, i > 0 ? dissolveOf(clips[i - 1], clip) : 0])) : null);
 
-export function newlyLimited(before, clips) {
-	if (!before || before.length !== (clips ?? []).length) return [];
-	return clips.flatMap((clip, i) => {
-		if (!i) return [];
+function limitedSince(before, clips, kept) {
+	if (!before) return [];
+	return (clips ?? []).flatMap((clip, i) => {
+		if (!i || !(clip.id in before)) return [];
 		const limit = limitOf(clips[i - 1], clip);
-		return limit.by === 'half' && limit.seconds > 0 && Math.abs(limit.seconds - before[i]) > EPSILON ? [limit.seconds] : [];
+		return limit.by === 'half' && kept(limit.seconds, before[clip.id]) ? [limit.seconds] : [];
 	});
 }
+
+export const newlyLimited = (before, clips) => limitedSince(before, clips, (now, was) => Math.abs(now - was) > EPSILON);
+
+export const droppedDissolves = (before, clips) => limitedSince(before, clips, (now, was) => now < was - EPSILON);
 
 export const chained = (clips) => (clips ?? []).some((clip, i) => i > 0 && dissolveOf(clips[i - 1], clip) > 0);
 

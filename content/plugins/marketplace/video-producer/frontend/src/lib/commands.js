@@ -28,10 +28,9 @@ import {
 	pickAll,
 	clearPicked,
 	relayout,
-	sayLimited,
 	entryTime
 } from './state.svelte.js';
-import { dissolveOf, playedLengths } from './dissolve.js';
+import { LEAST_SHOT, dissolveOf } from './dissolve.js';
 import { compareSeam, cycleTake, labelPreviewed, nudgeDuration, pickShot, previewed, selectedShot, shiftShot, stepShot as bandStep } from './band.svelte.js';
 import { BAND_STEP } from './band.js';
 import { speedOf } from './cadence.js';
@@ -120,18 +119,18 @@ const nudgeTrim = (edge) => () => {
 	const s = selected();
 	if (!s || !('dur' in s)) return toast(t('lib.toast.selectTimelineItem'), 'warning');
 	const dissolved = () => doc.clips.some((c, i) => i > 0 && dissolveOf(doc.clips[i - 1], c) > 0);
-	const played = playedLengths(doc.clips);
 	act(() => {
 		const at = ui.playhead;
 		const start = s.start;
 		const laid = doc.clips.includes(s) && dissolved();
 		if (edge === 'start' && at > s.start && at < s.start + s.dur) {
-			s.dur -= at - s.start;
-			if ('srcIn' in s) s.srcIn += (at - s.start) * (doc.clips.includes(s) ? speedOf(s) : 1);
-			s.start = at;
+			const cut = laid ? Math.min(at - s.start, Math.max(s.dur - LEAST_SHOT, 0)) : at - s.start;
+			s.dur -= cut;
+			if ('srcIn' in s) s.srcIn += cut * (doc.clips.includes(s) ? speedOf(s) : 1);
+			s.start += cut;
 		} else if (edge === 'end' && at > s.start) {
 			const before = s.dur;
-			s.dur = at - s.start;
+			s.dur = laid ? Math.max(at - s.start, Math.min(LEAST_SHOT, before)) : at - s.start;
 			if (doc.clips.includes(s)) fitShot(s, before);
 		}
 		if (doc.clips.includes(s) && (laid || dissolved())) {
@@ -141,7 +140,6 @@ const nudgeTrim = (edge) => () => {
 			relayout();
 		}
 	});
-	sayLimited(played);
 };
 
 const mixer = () => {

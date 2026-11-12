@@ -1,5 +1,5 @@
 import { formatNumber, t } from '../i18n/index.svelte.js';
-import { ui, doc, checkpoint, discardLast, round, clamp, secs } from './state.svelte.js';
+import { ui, doc, checkpoint, discardLast, round, clamp, secs, settle } from './state.svelte.js';
 import { overrunsTake } from './shots.js';
 
 let release = null;
@@ -43,6 +43,7 @@ export function drag(e, { onMove, onEnd, onClick, onCancel, undoable = true }) {
 		if (started) onEnd?.(ev);
 		else onClick?.(ev);
 		ui.drag = null;
+		settle();
 	};
 	const cancel = (ev) => {
 		if (!mine(ev)) return;
@@ -52,6 +53,7 @@ export function drag(e, { onMove, onEnd, onClick, onCancel, undoable = true }) {
 			onCancel?.(ev);
 		}
 		ui.drag = null;
+		settle();
 	};
 	release = () => {
 		window.removeEventListener('pointermove', move);

@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, chained, dissolveBefore, dissolveOf, holderAt, indexAt, layout, mixAt, newlyLimited, splitKeepsDissolves, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, dissolveBefore, dissolveOf, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, playedLengths, splitKeepsDissolves, startingAt } from './dissolve.js';
 import { roleKind } from './seam.js';
 
 export { newAsset, newClip };
@@ -170,13 +170,18 @@ const dissolveSecs = (v) => `${formatNumber(v, { minimumFractionDigits: 1, maxim
 
 export function limitNote(before) {
 	const found = newlyLimited(before, doc.clips);
-	return found.length ? t('timeline.drag.dissolveLimited', { dur: found.map(dissolveSecs).join(' · ') }) : '';
+	if (!found.length) return '';
+	if (found.some((seconds) => !seconds)) return t('timeline.drag.dissolveStopped');
+	if (found.length === 1) return t('timeline.drag.dissolveLimited', { dur: dissolveSecs(found[0]) });
+	return t('timeline.drag.dissolveLimitedTwo', { first: dissolveSecs(found[0]), second: dissolveSecs(found[1]) });
 }
 
 export function sayLimited(before) {
-	const found = newlyLimited(before, doc.clips);
-	if (found.length === 1) toast(t('timeline.dissolve.trimLimited', { dur: dissolveSecs(found[0]) }));
-	if (found.length > 1) toast(t('timeline.dissolve.trimLimitedTwo', { first: dissolveSecs(found[0]), second: dissolveSecs(found[1]) }));
+	const found = droppedDissolves(before, doc.clips);
+	if (!found.length) return;
+	if (found.some((seconds) => !seconds)) return toast(t('timeline.dissolve.trimStopped'));
+	if (found.length === 1) return toast(t('timeline.dissolve.trimLimited', { dur: dissolveSecs(found[0]) }));
+	toast(t('timeline.dissolve.trimLimitedTwo', { first: dissolveSecs(found[0]), second: dissolveSecs(found[1]) }));
 }
 
 export function seqDuration() {
@@ -207,11 +212,24 @@ export const history = {
 		return future.length > 0;
 	}
 };
+let watched = null;
+let acting = 0;
+
 export function checkpoint() {
 	past.push(JSON.stringify($state.snapshot(doc)));
 	if (past.length > 100) past.shift();
 	future.length = 0;
 	ui.dirty = true;
+	if (!watched) {
+		watched = { played: playedLengths(doc.clips) };
+		queueMicrotask(settle);
+	}
+}
+export function settle() {
+	if (!watched || acting || ui.drag) return;
+	const { played } = watched;
+	watched = null;
+	sayLimited(played);
 }
 function restore(json) {
 	const d = JSON.parse(json);
@@ -235,9 +253,17 @@ export function redo() {
 export function discardLast() {
 	if (past.length) restore(past.pop());
 }
-export function act(fn) {
+export function act(fn, say = true) {
+	const had = watched;
 	checkpoint();
-	fn();
+	acting += 1;
+	try {
+		fn();
+	} finally {
+		acting -= 1;
+	}
+	if (!say && !had) watched = null;
+	settle();
 }
 export function adopt(next) {
 	const known = new Set(doc.clips.map((c) => c.id));
@@ -245,7 +271,7 @@ export function adopt(next) {
 		for (const k of Object.keys(doc)) if (!(k in next)) delete doc[k];
 		for (const k of Object.keys(next)) if (!same($state.snapshot(doc[k]), next[k])) doc[k] = next[k];
 		shotsAdded(doc.clips.filter((c) => !known.has(c.id)));
-	});
+	}, false);
 	if (ui.selection && !selected()) ui.selection = null;
 	for (const listener of restoreListeners) listener();
 }

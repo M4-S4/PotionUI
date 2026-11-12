@@ -12,8 +12,6 @@
 		clamp,
 		round,
 		bladeAt,
-		limitNote,
-		sayLimited,
 		undo,
 		redo,
 		history,
@@ -62,7 +60,8 @@
 	import { engineTitle, shotReceptionFor } from '../../lib/references.js';
 	import { LIMITS, VIDEO_TRACKS, leastSeconds } from '../../lib/reception.js';
 	import { TAG_CLASS } from '../../lib/reftags.js';
-	import { chained, dissolveMarks, headTrim, onFrame, playedLengths, shownSpans, tailTrim } from '../../lib/dissolve.js';
+	import { chained, dissolveMarks, onFrame, shownSpans } from '../../lib/dissolve.js';
+	import { shotTrim } from '../../lib/trims.js';
 	import Icon from '../Icon.svelte';
 	import Dropdown from '../shell/Dropdown.svelte';
 	import ZoomControls from './ZoomControls.svelte';
@@ -217,7 +216,8 @@
 	function moveBlock(e, kind, item) {
 		if (ui.tool === 'blade' && kind === 'audio') {
 			select(kind, item.id);
-			return bladeAt(timeAt(e.clientX));
+			const at = timeAt(e.clientX);
+			return bladeAt(chained(doc.clips) ? onFrame(at, doc.fps) : at);
 		}
 		select(kind, item.id);
 		const s0 = item.start;
@@ -321,43 +321,7 @@
 	}
 	function clipTrim(e, c, edge) {
 		select('clip', c.id);
-		const max = sourceLength(c);
-		const range = shotDurationLimit(c);
-		const d0 = c.dur;
-		const in0 = c.srcIn;
-		const start0 = c.start;
-		const speed = speedOf(c);
-		const exact = chained(doc.clips);
-		const played = playedLengths(doc.clips);
-		drag(e, {
-			onMove: (dx) => {
-				const dt = dx / pps;
-				let limit = false;
-				if (edge === 'start' && exact) {
-					const next = headTrim(in0, d0, speed, dt);
-					limit = next.srcIn <= 0.001;
-					c.srcIn = next.srcIn;
-					c.dur = next.dur;
-				} else if (edge === 'start') {
-					const nIn = clamp(in0 + dt * speed, 0, in0 + (d0 - 0.4) * speed);
-					limit = nIn <= 0.001;
-					c.srcIn = round(nIn, 0.04);
-					c.dur = round(d0 - (nIn - in0) / speed, 0.04);
-				} else {
-					const nd = clamp(d0 + dt, 0.4, range.max);
-					limit = nd >= range.max - 0.001;
-					c.dur = exact ? tailTrim(start0, round(start0 + d0 + dt, 0.04), range.max) : round(nd, 0.04);
-				}
-				relayout();
-				trimText(range, max, d0, c.dur, limit);
-				const note = limitNote(played);
-				if (note && ui.drag) dragText(`${ui.drag.text} · ${note}`, ui.drag.limit);
-			},
-			onEnd: () => {
-				if (edge === 'end' && fitShot(c, d0)) relayout();
-				sayLimited(played);
-			}
-		});
+		drag(e, shotTrim(c, edge, pps));
 	}
 
 	function frameDown(e, f) {

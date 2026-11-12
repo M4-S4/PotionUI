@@ -137,5 +137,8 @@
 	"drag.dissolveLimited": "fondu limité à {dur}",
 	"dissolve.trimLimited": "Fondu enchaîné limité à {dur} : au plus la moitié du plus court des deux plans, sur la grille de 0,04 s.",
 	"dissolve.trimLimitedTwo": "Fondus enchaînés limités à {first} et {second} : au plus la moitié du plus court des deux plans, sur la grille de 0,04 s.",
+	"drag.dissolveLimitedTwo": "fondus limités à {first} et {second}",
+	"drag.dissolveStopped": "le fondu ne joue plus",
+	"dissolve.trimStopped": "Le fondu enchaîné ne joue plus : la moitié du plus court des deux plans est sous 0,08 s.",
 	"dissolve.noSplit": "Impossible de couper dans un fondu enchaîné : sortez la tête de lecture du fondu, ou choisissez d’abord Coupe."
 }

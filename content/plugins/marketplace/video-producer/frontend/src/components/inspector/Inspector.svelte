@@ -27,9 +27,9 @@
 		promptEdited,
 		openDirector,
 		pickedClips,
-		deleteVrefTrack,
-		sayLimited
+		deleteVrefTrack
 	} from '../../lib/state.svelte.js';
+	import { setShotDuration, setShotIn } from '../../lib/trims.js';
 	import { VREF_ROLES, videoTracksOf } from '../../lib/vrefs.js';
 	import { lengthChoices, trackFrames, vrefLabel } from '../../lib/vreftracks.js';
 	import { renameTrack, roleLabel, setTrackLength, setTrackRole, toggleTrack, trackName } from '../../lib/vreftracks.svelte.js';
@@ -56,7 +56,7 @@
 	import SeamAction from '../takes/SeamAction.svelte';
 	import ChainSwitch from '../shots/ChainSwitch.svelte';
 	import SeamTransition from '../storyboard/SeamTransition.svelte';
-	import { chained, dissolveAfter, dissolveBefore, playedLengths } from '../../lib/dissolve.js';
+	import { dissolveAfter, dissolveBefore } from '../../lib/dissolve.js';
 	import Icon from '../Icon.svelte';
 	import TakesSection from './TakesSection.svelte';
 	import DraftsField from '../shots/DraftsField.svelte';
@@ -106,21 +106,8 @@
 
 	const busy = $derived(s?.kind === 'clip' && item ? shotActivity(item.id).state === 'running' : false);
 	const set = (k, v) => (item[k] = v);
-	const setClipDur = (v) => {
-		const before = item.dur;
-		const played = playedLengths(doc.clips);
-		item.dur = round(clamp(v, 0.4, shotDurationLimit(item).max), 0.04);
-		fitShot(item, before);
-		relayout();
-		sayLimited(played);
-	};
-	const setClipIn = (v) => {
-		const max = sourceLength(item);
-		item.srcIn = round(clamp(v, 0, max - 0.4), 0.04);
-		const fit = Math.min(item.dur, (max - item.srcIn) / speedOf(item));
-		item.dur = chained(doc.clips) ? +fit.toFixed(6) : fit;
-		relayout();
-	};
+	const setClipDur = (v) => setShotDuration(item, v);
+	const setClipIn = (v) => setShotIn(item, v);
 	const speeds = $derived(SPEEDS.map((speed) => ({ id: String(speed), label: t('inspector.speed.value', { value: Math.round(speed * 100) }) })));
 	const interpolator = $derived(pickInterpolator(interpolatorChoice(doc), ui.me));
 	function slowText(found) {
