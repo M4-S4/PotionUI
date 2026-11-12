@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import patch
+import weakref
 
 import numpy as np
 import pytest
@@ -12,7 +13,7 @@ import torch
 
 from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.kernels import disable_weight_init
-from src.platform.runtime.native.errors import DecodeNumericsError
+from src.platform.runtime.native.errors import DecodeNumericsError, SamplingCancelled
 from src.platform.settings import runtime_flags
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D, LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.causal_3d_v2 import LATENTS_MEAN as WAN22_LATENTS_MEAN, LATENTS_STD as WAN22_LATENTS_STD
@@ -1051,7 +1052,7 @@ def test_generate_one_offloads_active_expert_on_denoise_error():
 
 # -- torch.compile hook: a resident expert is offered to maybe_compile_dit --
 #
-# ExpertRouter has no NativeGenerator instance to call the image path's
+# _ExpertRouter has no NativeGenerator instance to call the image path's
 # private ``_maybe_compile()`` on, so it calls the same gated, reversible
 # ``maybe_compile_dit`` directly the moment an expert lands FULLY resident.
 
@@ -1167,200 +1168,41 @@ def test_router_resident_placement_routes_through_guarded_move(monkeypatch):
     assert high.moved == []   # never called dit.move_to directly -- routed through the guard
 
 
-class _LoggedPlaceDiT(_PlaceDiT):
-    def __init__(self, tag, events, resident_gb=None, device="cpu"):
-        super().__init__(tag, est_gb=14.29)
-        self.events = events
+class _ActivationHoldingExpert:
+    def __init__(self, error):
+        self.error = error
+        self.device = "cpu"
+        self.activations = []
+        self.freed_at_offload = []
+
+    def module(self, x, t, context, **extra):
+        activation = torch.ones(64, 64)
+        self.activations.append(weakref.ref(activation))
+        raise self.error
+
+    def move_to(self, device):
         self.device = device
-        if resident_gb is not None:
-            self._streamer = SimpleNamespace(active=True)
-            self.last_stream_plan = SimpleNamespace(resident_gb=resident_gb, streamed_gb=14.29 - resident_gb)
 
     def offload(self):
-        super().offload()
-        self.events.append(f"offload {self.tag}")
+        self.freed_at_offload.append(all(ref() is None for ref in self.activations))
 
 
-class _ParkablePlaceDiT(_LoggedPlaceDiT):
-    is_streaming = True
-
-    def __init__(self, tag, events, parks):
-        super().__init__(tag, events, resident_gb=5.79)
-        self.parks = parks
-
-    def park(self):
-        self.events.append(f"park {self.tag}")
-        return self.parks
-
-
-def _switch_experts(monkeypatch, high, events):
-    def _free(device):
-        events.append("free")
-        return 10.0
-
-    _patch_placement(monkeypatch, free_gb=10.0)
-    monkeypatch.setattr(_wan_mod, "free_vram_gb", _free)
-    monkeypatch.setattr(_wan_mod, "_release_idle_pool", lambda device: None)
-    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
-    low = _LoggedPlaceDiT("low", events)
-    shape = (1, 16, 5, 60, 104)
-    router = ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
-    router(torch.zeros(shape), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
-    events.clear()
-    router(torch.zeros(shape), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
-
-
-def test_router_tears_down_an_expert_that_was_not_streamed(monkeypatch):
-    events = []
-    _switch_experts(monkeypatch, _LoggedPlaceDiT("high", events, device="cuda:0"), events)
-
-    assert events[:2] == ["offload high", "free"]
-    assert "empty_cache" not in events
-
-
+@pytest.mark.parametrize("make_error", [
+    pytest.param(lambda: torch.cuda.OutOfMemoryError("CUDA out of memory"), id="out-of-memory"),
+    pytest.param(lambda: SamplingCancelled(step_index=0), id="cancelled"),
+])
 @patch("src.pipelines.pipes.generator.txt2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
-@patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise", lambda mf, latents, c, u, **k: latents)
-def test_generate_one_hands_the_last_resident_experts_pool_back_before_the_vae_decode(monkeypatch):
-    events = []
-    pipe = _pipe(device="cpu", preview=False, resolution="64x64", frames=5)
+def test_a_failed_sampling_drops_its_activations_before_the_expert_is_offloaded(make_error):
+    pipe = _pipe(device="cpu", preview=False, resolution="64x64", frames=5, steps=2)
     ctx = pipe.build_context(_pipe_input())
-    ctx.extra.router.active = _ParkablePlaceDiT("low", events, parks=True)
-    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
-    monkeypatch.setattr("src.pipelines.pipes.generator.txt2vid_wan22.main.decode_wan_video",
-                        lambda c, latent: events.append("decode") or np.zeros((1, 64, 64, 3), dtype=np.uint8))
+    ctx.is_cancelled = lambda: False
+    error = make_error()
+    expert = _ActivationHoldingExpert(error)
+    ctx.extra.router.high = expert
+    ctx.extra.router.low = expert
 
-    pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
+    with pytest.raises(type(error)):
+        pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
 
-    assert events == ["offload low", "empty_cache", "decode"]
-
-
-def test_router_stream_driver_oom_falls_back_to_zero_budget(monkeypatch):
-    _patch_placement(monkeypatch, free_gb=30.0)
-
-    class _DriverOOMOnceDiT(_PlaceDiT):
-        def stream_to(self, d, budget):
-            self.streamed.append((d, budget))
-            if len(self.streamed) == 1:
-                raise torch.AcceleratorError("CUDA error: out of memory")
-
-    high = _DriverOOMOnceDiT("high", est_gb=27.0)
-    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
-    router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
-
-    assert len(high.streamed) == 2
-    assert high.streamed[1][1] == 0.0
-    assert high.offloaded == 1
-
-
-def test_router_stream_wsl_driver_error_falls_back_to_zero_budget(monkeypatch):
-    _patch_placement(monkeypatch, free_gb=30.0)
-
-    class _DriverNotReadyOnceDiT(_PlaceDiT):
-        def stream_to(self, d, budget):
-            self.streamed.append((d, budget))
-            if len(self.streamed) == 1:
-                raise RuntimeError("CUDA driver error: device not ready")
-
-    high = _DriverNotReadyOnceDiT("high", est_gb=27.0)
-    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
-    router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
-
-    assert len(high.streamed) == 2
-    assert high.streamed[1][1] == 0.0
-    assert high.offloaded == 1
-
-
-def test_router_stream_error_that_is_not_an_oom_propagates(monkeypatch):
-    _patch_placement(monkeypatch, free_gb=30.0)
-
-    class _BrokenDiT(_PlaceDiT):
-        def stream_to(self, d, budget):
-            self.streamed.append((d, budget))
-            raise torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
-
-    high = _BrokenDiT("high", est_gb=27.0)
-    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
-
-    with pytest.raises(torch.AcceleratorError, match="illegal memory access"):
-        router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
-    assert len(high.streamed) == 1
-
-
-@patch("src.pipelines.pipes.generator.txt2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
-def test_a_failed_sampling_frees_its_tensors_before_the_expert_is_offloaded():
-    import weakref
-
-    pipe = _pipe(device="cpu", preview=False, resolution="64x64", frames=5)
-    ctx = pipe.build_context(_pipe_input())
-    held = {}
-    seen = {}
-
-    class _Expert(_FakeDiT):
-        def offload(self):
-            seen["activation_alive"] = held["activation"]() is not None
-            super().offload()
-
-    expert = _Expert("high")
-
-    def failing_denoise(model_forward, latents, cond, uncond, **kw):
-        model_forward.active = expert
-        activation = torch.empty(1024)
-        held["activation"] = weakref.ref(activation)
-        raise torch.cuda.OutOfMemoryError("mid-sampling OOM")
-
-    with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise", side_effect=failing_denoise):
-        with pytest.raises(torch.cuda.OutOfMemoryError):
-            pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
-
-    assert expert.offloaded == 1
-    assert seen["activation_alive"] is False
-
-
-class _RecordingLogger:
-    def __init__(self):
-        self.infos = []
-
-    def info(self, message, *args):
-        self.infos.append(message % args)
-
-    def warning(self, message, *args):
-        pass
-
-
-def test_router_logs_the_budget_and_the_split_of_each_expert_placement(monkeypatch):
-    _patch_placement(monkeypatch, free_gb=10.0)
-    recorder = _RecordingLogger()
-    monkeypatch.setattr(_wan_mod, "logger", recorder)
-    high = _PlaceDiT("high", est_gb=14.29)
-    low = _PlaceDiT("low", est_gb=14.29)
-    for dit in (high, low):
-        dit._streamer = SimpleNamespace(active=True)
-        dit.last_stream_plan = SimpleNamespace(resident_gb=6.9, streamed_gb=7.39)
-    shape = (1, 16, 5, 60, 104)
-    router = ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
-
-    router(torch.zeros(shape), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
-    router(torch.zeros(shape), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
-
-    budget_lines = [line for line in recorder.infos if "weight budget" in line]
-    assert budget_lines == [
-        f"[WAN PLACEMENT] {tag} expert 14.29GB: latent 5x60x104, activation reserve 3.05GB, "
-        "weight budget 6.95GB of 10.00GB free"
-        for tag in ("high", "low")
-    ]
-    placed = [line for line in recorder.infos if "placed in" in line]
-    assert [line.split(" expert")[0] for line in placed] == ["[WAN PLACEMENT] high", "[WAN PLACEMENT] low"]
-    assert all(line.endswith("6.90GB resident, 7.39GB streamed") for line in placed)
-
-
-def test_router_without_a_latent_shape_logs_no_placement(monkeypatch):
-    recorder = _RecordingLogger()
-    monkeypatch.setattr(_wan_mod, "logger", recorder)
-    high = _PlaceDiT("high", est_gb=14.0)
-    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0")
-
-    router(torch.zeros(1, 16, 1, 8, 8), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
-
-    assert recorder.infos == []
+    assert len(expert.activations) == 1
+    assert expert.freed_at_offload == [True]

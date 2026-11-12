@@ -891,7 +891,7 @@ def test_an_older_ref2va_shot_whose_only_reference_was_its_3d_guide_gets_its_vid
     assert _sections(plan.prompt_text)["subject_definitions"] == "<Video 1> is the source of the motion of [Shot 1]."
 
 
-def test_the_six_sections_keep_their_english_labels_and_markers_and_follow_the_prompt_language(core, make_doc):
+def test_the_six_sections_are_english_in_a_project_once_set_to_french_and_keep_its_words(core, make_doc):
     core.use_h3()
     references = [{"id": "r1", "assetId": "walk", "space": "mouvement", "scope": None}]
     doc = _guided(core, make_doc, references=references, language="fr", prompt="La cabane à l'aube")
@@ -900,11 +900,11 @@ def test_the_six_sections_keep_their_english_labels_and_markers_and_follow_the_p
     (plan,) = _plans(core, doc, preset_id=presets.MINIMAX_H3).shots
 
     assert _sections(plan.prompt_text) == {
-        "subject_definitions": "<Video 1> est la source du mouvement de [Shot 1].",
-        "summary": "[reference generation] Un plan de 4,5 secondes fait d'après la description ci-dessous et ses références.",
-        "retention_analysis": "<Video 1> (mouvement de [Shot 1]): attribute_transfer - son mouvement est repris par les sujets du plan.",
+        "subject_definitions": "<Video 1> is the source of the motion of [Shot 1].",
+        "summary": "[reference generation] A 4.5-second shot made from the description below and its references.",
+        "retention_analysis": "<Video 1> (motion of [Shot 1]): attribute_transfer - its motion is carried over to the subjects of the shot.",
         "detailed_description": "[Shot 1] La cabane à l'aube.",
-        "overall_soundscape": "Le son ambiant naturel du lieu et les sons physiques de l'action décrite plus haut.",
+        "overall_soundscape": "The natural ambient sound of the place and the physical sounds of the action described above.",
         "non_diegetic_music": "N/A",
     }
 

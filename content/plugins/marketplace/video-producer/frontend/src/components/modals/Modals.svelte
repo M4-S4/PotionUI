@@ -2,7 +2,6 @@
 	import HostUi from '../../../../../../sdk/HostUi.svelte';
 	import { getLocale, t } from '../../i18n/index.svelte.js';
 	import { ui, doc, act, globalPrompt, itemsIn, productionRange, secs, select, openDirector } from '../../lib/state.svelte.js';
-	import { promptLanguageOf } from '../../lib/starter.js';
 	import { cardWordsOf, setCardWords } from '../../lib/cardwords.js';
 	import { chainByOf, chainOn, ignoresFirstFrame, setChain, setChainBy } from '../../lib/chain.js';
 	import { engineOptions, optionFor } from '../../lib/generation.js';
@@ -68,7 +67,6 @@
 		{ id: 'fr', label: t('shell.locale.fr') }
 	]);
 
-	const promptLanguage = $derived(promptLanguageOf(doc.promptLanguage));
 	const framings = $derived([
 		{ id: 'auto', label: t('project.framing.auto') },
 		{ id: 'crop', label: t('project.framing.crop') },
@@ -93,10 +91,6 @@
 	]);
 	const cardWordsHelp = $derived(cardWords === 'picture' ? t('project.cardWords.pictureHelp') : cardWords === 'label' ? t('project.cardWords.labelHelp') : t('project.cardWords.cardHelp'));
 	const deliveryText = (resolution) => deliverySize(filmRatio(doc), resolution).join('×');
-
-	function setPromptLanguage(id) {
-		if (id !== promptLanguage) act(() => (doc.promptLanguage = id));
-	}
 
 	function chooseCardWords(id) {
 		if (id !== cardWords) act(() => setCardWords(doc, id));
@@ -179,10 +173,6 @@
 					<span>{t('shell.prefs.language')}</span>
 					<HostUi name="SegmentedControl" props={{ items: languages, selected: getLocale(), onSelect: setLanguage, ariaLabel: t('shell.prefs.language'), variant: 'toggle' }} />
 				</div>
-				<div class="flex items-center justify-between gap-3 text-sm">
-					<span class="min-w-0"><span class="block">{t('project.promptLanguage.label')}</span><span class="block text-xs text-fg-subtle">{t('project.promptLanguage.hint')}</span></span>
-					<HostUi name="SegmentedControl" props={{ items: languages, selected: promptLanguage, onSelect: setPromptLanguage, ariaLabel: t('project.promptLanguage.label'), variant: 'toggle' }} />
-				</div>
 				<label class="flex items-center justify-between text-sm">
 					{t('shell.prefs.quality')}
 					<select class="input vp-dense w-40" bind:value={ui.previewQuality}>
@@ -236,13 +226,6 @@
 						<HostUi name="SegmentedControl" props={{ items: framings, selected: framingOf(doc), onSelect: setFraming, ariaLabel: t('project.framing.label'), variant: 'toggle' }} />
 					</div>
 					<p class="text-xs text-fg-subtle">{framingHelp}</p>
-				</div>
-				<div class="space-y-1">
-					<div class="flex items-center justify-between gap-3">
-						<span class="vp-label">{t('project.promptLanguage.label')}</span>
-						<HostUi name="SegmentedControl" props={{ items: languages, selected: promptLanguage, onSelect: setPromptLanguage, ariaLabel: t('project.promptLanguage.label'), variant: 'toggle' }} />
-					</div>
-					<p class="text-xs text-fg-subtle">{t('project.promptLanguage.help')}</p>
 				</div>
 				<div class="space-y-1" data-card-words={cardWords}>
 					<div class="flex items-center justify-between gap-3">

@@ -1,43 +1,31 @@
-"""Identity vectors of faces from AuraFace, an ArcFace face recognition model run by onnxruntime on the CPU, each face aligned on the five landmarks YuNet finds."""
-
 import importlib
-import threading
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple, Union
+from typing import Any, List, Sequence, Tuple
 
-from PIL import Image
+from src.platform.util.face_boxes import ImageInput, displayed, readable
 
 TEMPLATE = ((38.2946, 51.6963), (73.5318, 51.5014), (56.0252, 71.7366), (41.5493, 92.3655), (70.7299, 92.2041))
 SIZE = 112
 THREADS = 2
+MODEL_KEY = "media/face-identity/auraface"
+_BYTES_PER_GB = 1024 ** 3
 
-Face = Tuple[Union[str, Path, Image.Image], Sequence[Sequence[float]]]
-
-_sessions: Dict[str, Any] = {}
-_sessions_lock = threading.Lock()
-
-
-def _rgb(image: Union[str, Path, Image.Image]) -> Image.Image:
-    if isinstance(image, Image.Image):
-        return image.convert("RGB")
-    with Image.open(image) as opened:
-        return opened.convert("RGB")
+Face = Tuple[ImageInput, Sequence[Sequence[float]]]
 
 
-def align(image: Union[str, Path, Image.Image], landmarks: Sequence[Sequence[float]]) -> Any:
-    """The face of an image turned, scaled and moved so that its five landmarks sit on the ArcFace template, as a 112×112 RGB array; ValueError when the landmarks give no alignment."""
+def align(image: ImageInput, landmarks: Sequence[Sequence[float]]) -> Any:
     import cv2
     import numpy as np
 
     points = np.asarray(landmarks, dtype=np.float32).reshape(5, 2)
     matrix, _ = cv2.estimateAffinePartial2D(points, np.asarray(TEMPLATE, dtype=np.float32), method=cv2.LMEDS)
     if matrix is None:
-        raise ValueError("The five landmarks of the face give no alignment.")
-    return cv2.warpAffine(np.asarray(_rgb(image)), matrix, (SIZE, SIZE), borderValue=0)
+        raise ValueError("The five landmarks of the face give no alignment")
+    return cv2.warpAffine(np.asarray(displayed(image)), matrix, (SIZE, SIZE), borderValue=0)
 
 
 def runtime_imports() -> bool:
-    """Whether onnxruntime, which runs the model, imports in this process."""
     try:
         importlib.import_module("onnxruntime")
     except ImportError:
@@ -45,19 +33,7 @@ def runtime_imports() -> bool:
     return True
 
 
-def _session(model: Path) -> Any:
-    key = str(model)
-    session = _sessions.get(key)
-    if session is not None:
-        return session
-    with _sessions_lock:
-        session = _sessions.get(key)
-        if session is None:
-            session = _sessions[key] = _new_session(key)
-    return session
-
-
-def _new_session(path: str) -> Any:
+def new_session(path: str) -> Any:
     import onnxruntime
 
     options = onnxruntime.SessionOptions()
@@ -66,18 +42,39 @@ def _new_session(path: str) -> Any:
     return onnxruntime.InferenceSession(path, options, providers=["CPUExecutionProvider"])
 
 
-def embed(model: Path, faces: Sequence[Face]) -> List[List[float]]:
-    """The L2-normalized identity vector of each face, given as an image and the five landmarks of that face in it, one face at a time; the model file is given, never downloaded."""
+def _fingerprint(model: Path) -> str:
+    stat = model.stat()
+    return f"{model}|{stat.st_mtime_ns}|{stat.st_size}"
+
+
+def _unit(vector: Any) -> List[float]:
     import numpy as np
 
-    if not faces:
+    vector = np.asarray(vector, dtype=np.float32)
+    norm = float(np.linalg.norm(vector))
+    return (vector / norm if norm else vector).tolist()
+
+
+def embed(models: Any, model: Path, faces: Sequence[Face]) -> List[List[float]]:
+    import numpy as np
+
+    inputs = [
+        ((align(readable(image, f"faces[{index}]", displayed), landmarks).astype(np.float32) - 127.5) / 127.5).transpose(2, 0, 1)[None]
+        for index, (image, landmarks) in enumerate(faces)
+    ]
+    if not inputs:
         return []
-    session = _session(model)
-    name = session.get_inputs()[0].name
-    vectors = []
-    for image, landmarks in faces:
-        aligned = (align(image, landmarks).astype(np.float32) - 127.5) / 127.5
-        vector = np.asarray(session.run(None, {name: aligned.transpose(2, 0, 1)[None]})[0][0], dtype=np.float32)
-        norm = float(np.linalg.norm(vector))
-        vectors.append((vector / norm if norm else vector).tolist())
-    return vectors
+    lease = f"face-identity-{uuid.uuid4().hex}"
+    models.begin_generation(None)
+    models.begin_lease(lease)
+    try:
+        session = models.acquire(
+            MODEL_KEY,
+            _fingerprint(model),
+            lambda: new_session(str(model)),
+            estimated_vram_gb=model.stat().st_size / _BYTES_PER_GB,
+        )
+        name = session.get_inputs()[0].name
+        return [_unit(session.run(None, {name: tensor})[0][0]) for tensor in inputs]
+    finally:
+        models.end_lease(lease)

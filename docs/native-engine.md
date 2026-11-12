@@ -98,7 +98,7 @@ One line per package, in loading order:
 | `vae/` | `AutoEncoder2D` (Flux-family 2D VAE: `flux_ae`/`flux2_ae`) + `tiling.py` (its spatial tiled encode/decode, not yet 3D-aware); `AutoEncoderCausal3D` (Wan 2.1-shaped, 16ch — Qwen-Image's and Krea-2's VAE) and `AutoEncoderCausal3D_2_2` (Wan 2.2-shaped, 48ch, patchified) for the causal-3D family; `load_vae`/`load_causal3d_vae`/`load_causal3d_v2_vae` entry points. |
 | `sampling/` | `denoise()` — the one loop — plus `flow_schedule.build_sigmas`, `cfg.py`'s guidance strategies (`EmbeddedGuidance`/`TrueCFG`/`NoCFG`), the step algorithms (`euler`/`dpmpp_2m`/`unipc`), and `hooks.py`'s per-step `StepHook` protocol. The algorithms and the schedules are both registries (`registry.py`): core registers its own at import time, a plugin adds more through the `samplers:` / `schedules:` manifest roots, and `denoise()`/`build_sigmas()` dispatch through them — there is no other list of sampler or schedule names. |
 | `memory/` | `device_plan.make_device_plan` (which CUDA device each component lives on), `tiering.plan_placement` (residency/ops-mode per component from VRAM + component sizes), and `text_encoder.py` with `tiering.plan_text_encoder_placement` (whole move or partial residency for the prompt encode). |
-| `cancellation.py` | `cancellation_scope` puts a run's cancel probe in a `ContextVar`: `GenerationEngine` opens one around each pipe, and `denoise()`, `denoise_prenoised()` and the samplers that own their step loop open one that also knows the step. `raise_if_cancelled(i)` raises `SamplingCancelled` when the probe says so and does nothing outside a scope. |
+| `cancellation.py` | `cancellation_scope` puts a run's cancel probe in a `ContextVar`: `GenerationEngine` opens one around each pipe, and `denoise()`, `denoise_prenoised()` and the samplers that own their step loop open one that also knows the step. `raise_if_cancelled(i)` raises `SamplingCancelled` when the probe says so and does nothing outside a scope. Any `Exception` that leaves a scope, a cancel or a failure, has the frames of its traceback cleared, so the activations of the forward it interrupted are freed before the pipe's GPU cleanup runs; `KeyboardInterrupt`, `SystemExit` and the other `BaseException`s are left as they are. |
 | `lora/` | `key_mapping.map_lora_keys` (normalizes comfy/kohya/diffusers/PEFT LoRA key dialects onto native param names) and `apply.apply_loras`/`remove_loras` (in-place or cast-mode runtime patching). |
 
 ### The kernel layer
@@ -552,8 +552,8 @@ The BYO-loop families (MiniMax-H3, LTX) build their hooks before placement and p
 `place_dit_for_sequence(preview_reserve_gb=...)`. It is added to `extra_reserve_gb`, and the
 over-commit warning, the fit hint and the sampling OOM detail each report it separately. The Wan
 expert router takes it from its `preview_reserve_gb` attribute and adds it to the activation reserve,
-so it counts in what the router evicts room for as well as in the expert's weight budget, and the
-router's `[WAN PLACEMENT]` line reports the sum as its activation reserve. `NativeGenerator.sample` computes it
+so it counts in what the router evicts room for as well as in the expert's weight budget.
+`NativeGenerator.sample` computes it
 from its own `hooks`, so every image family that passes a decoder hook is covered without extra
 wiring. Without a decoder hook (the colour projection or previews off) the reserve is 0.0 and
 placement does not change.

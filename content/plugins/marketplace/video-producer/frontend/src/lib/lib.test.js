@@ -116,8 +116,8 @@ function translator(locale, missing) {
 	return (key, params) => translate(dictionaries, locale, key, params, (k, l) => missing.push(`${l}:${k}`));
 }
 
-const starterImage = (name, itemId) => ({ itemId, url: `/api/media/uploads/${itemId}.jpg`, filename: `${name}.jpg`, width: 1024, height: 1024 });
-const starterImages = () => ({ lumi: starterImage('lumi', 'i-lumi'), bottle: starterImage('bottle', 'i-bottle'), 'bottle-gold': starterImage('bottle-gold', 'i-gold') });
+const starterImage = (name, itemId, height) => ({ itemId, url: `/api/media/uploads/${itemId}.jpg`, filename: `${name}.jpg`, width: 1024, height });
+const starterImages = () => ({ lumi: starterImage('lumi', 'i-lumi', 1024), bottle: starterImage('bottle', 'i-bottle', 576), 'bottle-gold': starterImage('bottle-gold', 'i-gold', 576) });
 
 test('starterDoc: Lumi in four shots of 5 seconds, one function each, with a title, a marker and four empty lanes', () => {
 	const missing = [];
@@ -127,8 +127,13 @@ test('starterDoc: Lumi in four shots of 5 seconds, one function each, with a tit
 	assert.equal(fr.name, 'La potion de Lumi');
 	assert.equal(en.name, 'Lumi’s potion');
 	assert.deepEqual([fr.fps, fr.aspect, fr.resolution, fr.direction.mode], [25, '16:9', '1080p', 'FL2VA']);
-	assert.match(fr.synopsis, /^La nuit, dans l’atelier de sa chaumière, la jeune sorcière Lumi/);
-	assert.match(en.synopsis, /^At night, in her cottage workshop, the young witch Lumi/);
+	assert.match(fr.synopsis, /^La nuit, dans l’atelier de sa chaumière, la sorcière Lumi/);
+	assert.match(en.synopsis, /^At night, in her cottage workshop, the witch Lumi/);
+	assert.match(en.direction.personnages, /^Lumi, a witch in her thirties,/);
+	assert.match(fr.direction.personnages, /^Lumi, une sorcière d’une trentaine d’années,/);
+	for (const doc of [fr, en]) assert.doesNotMatch([doc.synopsis, doc.direction.personnages, doc.bible.characters[0].text].join(' '), /young|youthful|jeune|juvénile/i);
+	assert.deepEqual([0, 1, 2, 3].map((i) => /at night/.test(en.prompts[i].text)), [true, false, true, false]);
+	assert.deepEqual([0, 1, 2, 3].map((i) => /la nuit/.test(fr.prompts[i].text)), [true, false, true, false]);
 	for (const key of ['univers', 'personnages', 'photographie', 'palette', 'rythme']) assert.ok(fr.direction[key].length > 40 && en.direction[key].length > 40, key);
 	assert.deepEqual(
 		fr.clips.map((c) => [c.start, c.dur, c.stage, c.assetId, c.take]),
@@ -203,8 +208,10 @@ test('starterDoc: shot 1 from its text, shot 2 chained, shot 3 casts the card of
 	const [lumi] = doc.bible.characters;
 	const [workshop] = doc.bible.places;
 	assert.deepEqual([doc.bible.characters.length, doc.bible.places.length], [1, 1]);
-	assert.deepEqual([lumi.label, lumi.props], ['Lumi', 'a small glowing violet potion bottle']);
-	assert.match(lumi.text, /^a young witch in her early thirties, with a youthful face/);
+	assert.deepEqual([lumi.label, lumi.props], ['Lumi', 'a straight glass potion bottle with a cork stopper, a blank cream paper label and a glowing violet liquid']);
+	assert.ok(doc.prompts[0].text.includes(lumi.props), doc.prompts[0].text);
+	assert.match(lumi.text, /^a woman in her thirties, with fair skin and light freckles, amber eyes/);
+	assert.match(lumi.text, /a worn midnight-blue pointed witch's hat of felt with a golden star pin/);
 	assert.equal(workshop.label, 'Workshop');
 	assert.match(workshop.text, /^an old witch's cottage workshop with rough timber beams/);
 	assert.deepEqual(workshop.references, []);
@@ -240,8 +247,8 @@ test('starterDoc: the three images become the media of the project, the referenc
 		doc.assets.map((a) => [a.kind, a.name, a.src, a.origin, a.width, a.height, a.res, a.generated, a.role]),
 		[
 			['image', 'lumi.jpg', '/api/media/uploads/i-lumi.jpg', { kind: 'library', itemId: 'i-lumi' }, 1024, 1024, '1024×1024', false, null],
-			['image', 'bottle.jpg', '/api/media/uploads/i-bottle.jpg', { kind: 'library', itemId: 'i-bottle' }, 1024, 1024, '1024×1024', false, null],
-			['image', 'bottle-gold.jpg', '/api/media/uploads/i-gold.jpg', { kind: 'library', itemId: 'i-gold' }, 1024, 1024, '1024×1024', false, null]
+			['image', 'bottle.jpg', '/api/media/uploads/i-bottle.jpg', { kind: 'library', itemId: 'i-bottle' }, 1024, 576, '1024×576', false, null],
+			['image', 'bottle-gold.jpg', '/api/media/uploads/i-gold.jpg', { kind: 'library', itemId: 'i-gold' }, 1024, 576, '1024×576', false, null]
 		]
 	);
 	const seam = seamAsset(images.lumi, 'x');
@@ -262,7 +269,7 @@ test('starterDoc: the three images become the media of the project, the referenc
 	const fr = translator('fr', missing);
 	assert.deepEqual(
 		starterDoc(fr, fr, 'fr', images).references.map((r) => r.name),
-		['Lumi', 'Fiole de potion']
+		['Lumi', 'Flacon de potion']
 	);
 	assert.deepEqual(missing, []);
 });
@@ -540,7 +547,7 @@ test('newAsset: every field of the persisted asset contract, null when it does n
 	assert.notEqual(newAsset().id, newAsset().id);
 });
 
-test('prompt language: a project setting, English by default, that only decides the language of the starter direction, cards and prompts', () => {
+test('prompt language: always English, the interface language only names the starter project, its shots, title and marker', () => {
 	const missing = [];
 	const fr = translator('fr', missing);
 	const en = translator('en', missing);
@@ -555,15 +562,11 @@ test('prompt language: a project setting, English by default, that only decides 
 	assert.match(doc.prompts[0].text, /^Wide establishing shot of the empty workshop/);
 	assert.deepEqual(doc.direction, starterDoc(en, en, 'en').direction);
 	assert.deepEqual([doc.bible.characters[0].text, doc.bible.places[0].label, doc.references[1].name], [en('starter.card.lumi.text'), 'Workshop', 'Potion bottle']);
-	const french = starterDoc(fr, fr, 'fr');
-	assert.match(french.prompts[0].text, /^Plan d’ensemble de l’atelier vide/);
-	assert.match(french.bible.characters[0].text, /^une jeune sorcière d’une trentaine d’années/);
-	assert.equal(french.bible.places[0].label, 'Atelier');
-	assert.equal(french.promptLanguage, 'fr');
+	assert.equal(starterDoc(fr, en, 'fr').promptLanguage, 'en');
 	assert.equal(starterDoc(fr).promptLanguage, 'en');
 	assert.equal(emptyDoc(fr).promptLanguage, 'en');
-	assert.equal(emptyDoc(fr, 'fr').promptLanguage, 'fr');
-	assert.deepEqual(['en', 'fr', 'de', undefined, null].map(promptLanguageOf), ['en', 'fr', 'en', 'en', 'en']);
+	assert.equal(emptyDoc(fr, 'fr').promptLanguage, 'en');
+	assert.deepEqual(['en', 'fr', 'de', undefined, null].map(promptLanguageOf), ['en', 'en', 'en', 'en', 'en']);
 });
 
 test('window layers: Escape closes only the foreground window, a replaced window hands its return focus on', () => {
