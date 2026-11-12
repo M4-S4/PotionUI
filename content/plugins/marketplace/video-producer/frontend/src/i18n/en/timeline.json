@@ -136,9 +136,11 @@
 	"dissolve.splitShortens": "Cannot split here: a piece would be too short for its {dur} cross-dissolve. Shorten the cross-dissolve, or split further from it.",
 	"drag.dissolveLimited": "cross-dissolve limited to {dur}",
 	"dissolve.trimLimited": "Cross-dissolve limited to {dur}: at most half of the shorter of the two shots, on the 0.04 s grid.",
-	"dissolve.trimLimitedTwo": "Cross-dissolves limited to {first} and {second}: at most half of the shorter of the two shots, on the 0.04 s grid.",
-	"drag.dissolveLimitedTwo": "cross-dissolves limited to {first} and {second}",
 	"drag.dissolveStopped": "cross-dissolve no longer plays",
 	"dissolve.trimStopped": "Cross-dissolve no longer plays: half of the shorter of the two shots is under 0.08 s.",
+	"drag.dissolveLimitedMany": "cross-dissolves limited to {list}",
+	"drag.dissolvesStopped": "{count} cross-dissolves no longer play",
+	"dissolve.trimLimitedMany": "Cross-dissolves limited to {list}: at most half of the shorter of the two shots, on the 0.04 s grid.",
+	"dissolve.trimStoppedMany": "{count} cross-dissolves no longer play: half of the shorter of the two shots is under 0.08 s.",
 	"dissolve.noSplit": "Cannot split inside a cross-dissolve: move the playhead out of it, or choose Cut first."
 }

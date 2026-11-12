@@ -824,3 +824,10 @@ def test_the_assistant_measures_the_dissolves_on_the_exact_times_the_page_sends(
     page = {"projectId": "p1", "name": "Ties", "shots": [{**shot, "label": shot["id"], "stage": "todo"} for shot in shots]}
     text = context.build_context({"video_producer": page}, None, "u1")
     assert f"Shots (3, {round(1.048 + 1.226 + 0.411 - 0.72, 2):g} s)" in text
+
+
+def test_a_huge_length_the_schema_accepts_never_breaks_the_rounding_nor_the_assistant():
+    assert [rounded(value) for value in (1e22, -1e30, 1e15, 123456789.1234565)] == [1e22, -1e30, 1e15, 123456789.123456]
+    shots = [{"id": "a", "label": "a", "stage": "todo", "start": 0, "dur": 1e22}, {"id": "b", "label": "b", "stage": "todo", "start": 1e22, "dur": 4, "dissolve": 1}]
+    assert joins(shots) == [0, 0]
+    assert "Shots (2," in context.build_context({"video_producer": {"projectId": "p1", "name": "Huge", "shots": shots}}, None, "u1")

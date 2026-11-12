@@ -1,4 +1,4 @@
-import { formatNumber, t } from '../i18n/index.svelte.js';
+import { formatNumber, getLocale, t } from '../i18n/index.svelte.js';
 import { emptyDoc, migrate, newAsset, newClip, promptLanguageOf } from './starter.js';
 import { confirm, toast as hostToast } from './host.js';
 import { ulid } from './ulid.js';
@@ -17,7 +17,7 @@ import { citingShots, removeVrefTrack, trackOf, vrefLabel } from './vreftracks.j
 import { viewport } from './viewport.svelte.js';
 import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
-import { DISSOLVE_KEY, chained, dissolveBefore, dissolveOf, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, onFrame, playedLengths, splitKeepsDissolves, startingAt } from './dissolve.js';
+import { DISSOLVE_KEY, chained, dissolveOf, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, onFrame, placement, playedLengths, shownSpans, splitKeepsDissolves, startingAt } from './dissolve.js';
 import { roleKind } from './seam.js';
 
 export { newAsset, newClip };
@@ -168,20 +168,30 @@ export const secs = (v) => `${formatNumber(+v, { minimumFractionDigits: 1, maxim
 
 const dissolveSecs = (v) => `${formatNumber(v, { minimumFractionDigits: 1, maximumFractionDigits: 2 })} s`;
 
+const spoken = (items) => new Intl.ListFormat(getLocale(), { type: 'conjunction' }).format(items.map(dissolveSecs));
+
 export function limitNote(before) {
 	const found = newlyLimited(before, doc.clips);
-	if (!found.length) return '';
-	if (found.some((seconds) => !seconds)) return t('timeline.drag.dissolveStopped');
-	if (found.length === 1) return t('timeline.drag.dissolveLimited', { dur: dissolveSecs(found[0]) });
-	return t('timeline.drag.dissolveLimitedTwo', { first: dissolveSecs(found[0]), second: dissolveSecs(found[1]) });
+	const limited = found.filter(Boolean);
+	const stopped = found.length - limited.length;
+	const texts = [];
+	if (stopped === 1) texts.push(t('timeline.drag.dissolveStopped'));
+	if (stopped > 1) texts.push(t('timeline.drag.dissolvesStopped', { count: stopped }));
+	if (limited.length === 1) texts.push(t('timeline.drag.dissolveLimited', { dur: dissolveSecs(limited[0]) }));
+	if (limited.length > 1) texts.push(t('timeline.drag.dissolveLimitedMany', { list: spoken(limited) }));
+	return texts.join(' · ');
 }
 
 export function sayLimited(before) {
 	const found = droppedDissolves(before, doc.clips);
-	if (!found.length) return;
-	if (found.some((seconds) => !seconds)) return toast(t('timeline.dissolve.trimStopped'));
-	if (found.length === 1) return toast(t('timeline.dissolve.trimLimited', { dur: dissolveSecs(found[0]) }));
-	toast(t('timeline.dissolve.trimLimitedTwo', { first: dissolveSecs(found[0]), second: dissolveSecs(found[1]) }));
+	const limited = found.filter(Boolean);
+	const stopped = found.length - limited.length;
+	const texts = [];
+	if (stopped === 1) texts.push(t('timeline.dissolve.trimStopped'));
+	if (stopped > 1) texts.push(t('timeline.dissolve.trimStoppedMany', { count: stopped }));
+	if (limited.length === 1) texts.push(t('timeline.dissolve.trimLimited', { dur: dissolveSecs(limited[0]) }));
+	if (limited.length > 1) texts.push(t('timeline.dissolve.trimLimitedMany', { list: spoken(limited) }));
+	if (texts.length) toast(texts.join(' '));
 }
 
 export function seqDuration() {
@@ -262,6 +272,7 @@ export function act(fn, say = true) {
 	} finally {
 		acting -= 1;
 	}
+	if (!say && had) had.played = playedLengths(doc.clips);
 	if (!say && !had) watched = null;
 	settle();
 }
@@ -346,8 +357,8 @@ export function clipAt(time) {
 export const bladeTime = (time) => (chained(doc.clips) ? onFrame(time, doc.fps) : time);
 export function entryTime(clip) {
 	const i = doc.clips.findIndex((c) => c.id === clip?.id);
-	const head = i > 0 && chained(doc.clips) ? dissolveBefore(doc.clips, i) : 0;
-	return head > 0 ? +(doc.clips[i].start + head).toFixed(6) : clip.start + 0.01;
+	const place = i > 0 && chained(doc.clips) ? placement(doc.clips)[i] : null;
+	return place?.overlap > 0 ? place.start + place.overlap : clip.start + 0.01;
 }
 export function playsAlone(clip, time) {
 	return clipAt(time)?.id === clip?.id && !mixAt(doc.clips, time);
@@ -728,7 +739,9 @@ export function productionRange() {
 }
 export const overlaps = (s, d, [a, b]) => s < b && s + d > a;
 export function shotsIn(range) {
-	return doc.clips.filter((c) => overlaps(c.start, c.dur, range));
+	if (!chained(doc.clips)) return doc.clips.filter((c) => overlaps(c.start, c.dur, range));
+	const spans = shownSpans(doc.clips);
+	return doc.clips.filter((c, i) => (spans[i].dur > 0 ? overlaps(spans[i].start, spans[i].dur, range) : spans[i].start > range[0] && spans[i].start < range[1]));
 }
 export function itemsOf(clips) {
 	const shots = new Set(clips.map((c) => c.id));
@@ -876,6 +889,7 @@ export function replaceDoc(next) {
 	Object.assign(doc, incoming);
 	past.length = 0;
 	future.length = 0;
+	watched = null;
 	Object.assign(ui, { selection: null, picked: [], preview: null, compare: null, range: null, drag: null, storyProposal: null, seamCompare: null, reviewMonitor: false, selectedIn: null, issue: null, reveal: null, reviewPick: null, dirty: false });
 	Object.assign(ui.production, { state: 'ready', progress: 0, running: 0, step: '', lastCount: 0, startedAt: null, lastSeconds: null, failed: 0, failedVariant: null, failedTake: null });
 	resetTakes();

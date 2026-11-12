@@ -744,7 +744,7 @@ test('dissolve flow: whatever command shortens a shot so that a dissolve plays s
 	await settled();
 	assert.deepEqual(joins(doc.clips), [0, 0.8, 0.8]);
 	assert.equal(heard(), count + 1);
-	assert.equal(said.at(-1), t('timeline.dissolve.trimLimitedTwo', { first: '0.8 s', second: '0.8 s' }));
+	assert.equal(said.at(-1), t('timeline.dissolve.trimLimitedMany', { list: '0.8 s and 0.8 s' }));
 });
 
 test('dissolve flow: in a project that dissolves, a keyboard trim stops at 0.4 s, and a shot already shorter is not shortened further', () => {
@@ -786,7 +786,7 @@ test('dissolve flow: while a trim limits a dissolve, the drag text says so, with
 	assert.ok(text.endsWith(` · ${t('timeline.drag.dissolveLimited', { dur: '0.8 s' })}`), text);
 	lay([2, 2, 2], [0, 1, 1]);
 	const two = dragBy(bandTrim(doc.clips[1], ui.pxPerSec), -40);
-	assert.ok(two.endsWith(` · ${t('timeline.drag.dissolveLimitedTwo', { first: '0.8 s', second: '0.8 s' })}`), two);
+	assert.ok(two.endsWith(` · ${t('timeline.drag.dissolveLimitedMany', { list: '0.8 s and 0.8 s' })}`), two);
 	project();
 	assert.equal(dragBy(shotTrim(doc.clips[1], 'end', ui.pxPerSec), -40).includes('cross-dissolve'), false);
 	assert.equal(limitNote(playedLengths(doc.clips)), '');

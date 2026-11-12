@@ -7,7 +7,8 @@ const reviewing = () => ui.workspace === 'director' && directorView() === 'revie
 
 function bringUnder(clip) {
 	if (ui.selection?.kind !== 'clip' || ui.selection.id !== clip.id) select('clip', clip.id);
-	if (!playsAlone(clip, ui.playhead)) seek(entryTime(clip));
+	const entry = entryTime(clip);
+	if (!playsAlone(clip, ui.playhead) && ui.playhead !== entry) seek(entry);
 }
 
 export function showShot(clip) {

@@ -109,7 +109,7 @@
 
 	function trimDown(e, c) {
 		pickShot(c, false);
-		drag(e, bandTrim(c, pps));
+		drag(e, bandTrim(c, () => pps));
 	}
 
 	function wheel(e) {

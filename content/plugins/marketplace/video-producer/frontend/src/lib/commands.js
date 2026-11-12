@@ -127,7 +127,7 @@ const nudgeTrim = (edge) => () => {
 			const cut = laid ? Math.min(at - s.start, Math.max(s.dur - LEAST_SHOT, 0)) : at - s.start;
 			s.dur -= cut;
 			if ('srcIn' in s) s.srcIn += cut * (doc.clips.includes(s) ? speedOf(s) : 1);
-			s.start += cut;
+			s.start = laid ? s.start + cut : at;
 		} else if (edge === 'end' && at > s.start) {
 			const before = s.dur;
 			s.dur = laid ? Math.max(at - s.start, Math.min(LEAST_SHOT, before)) : at - s.start;

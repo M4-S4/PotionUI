@@ -9,7 +9,10 @@ function noteLimit(played) {
 	if (note && ui.drag) dragText(`${ui.drag.text} · ${note}`, ui.drag.limit);
 }
 
+const scaleOf = (pps) => (typeof pps === 'function' ? pps : () => pps);
+
 export function shotTrim(c, edge, pps) {
+	const scale = scaleOf(pps);
 	const max = sourceLength(c);
 	const range = shotDurationLimit(c);
 	const d0 = c.dur;
@@ -20,7 +23,7 @@ export function shotTrim(c, edge, pps) {
 	const played = playedLengths(doc.clips);
 	return {
 		onMove: (dx) => {
-			const dt = dx / pps;
+			const dt = dx / scale();
 			let limit = false;
 			if (edge === 'start' && exact) {
 				const next = headTrim(in0, d0, speed, dt);
@@ -48,6 +51,7 @@ export function shotTrim(c, edge, pps) {
 }
 
 export function bandTrim(c, pps) {
+	const scale = scaleOf(pps);
 	const range = shotDurationLimit(c);
 	const max = sourceLength(c);
 	const d0 = c.dur;
@@ -56,7 +60,7 @@ export function bandTrim(c, pps) {
 	const played = playedLengths(doc.clips);
 	return {
 		onMove: (dx) => {
-			const end = ui.snapping ? snap((exact ? start0 : c.start) + d0 + dx / pps, c.id) : { t: (exact ? start0 : c.start) + d0 + dx / pps, at: null };
+			const end = ui.snapping ? snap((exact ? start0 : c.start) + d0 + dx / scale(), c.id) : { t: (exact ? start0 : c.start) + d0 + dx / scale(), at: null };
 			const nd = clamp(end.t - c.start, 0.4, range.max);
 			const limit = nd >= range.max - 0.001;
 			c.dur = exact ? tailTrim(start0, ui.snapping ? end.t : round(end.t, 0.04), range.max) : round(nd, 0.04);

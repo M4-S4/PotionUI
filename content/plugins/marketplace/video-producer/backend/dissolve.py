@@ -11,6 +11,7 @@ MIN_DISSOLVE = MIN_STEPS * GRID
 STEP_SLACK = 1e-6
 EPSILON = 1e-6
 MICRO = Decimal("0.000001")
+COARSE = 1e15
 
 
 def _seconds(value: Any) -> float:
@@ -28,7 +29,7 @@ def _number(value: Any) -> float:
 
 
 def rounded(value: float) -> float:
-    return float(Decimal(value).quantize(MICRO, rounding=ROUND_HALF_UP)) if math.isfinite(value) else value
+    return float(Decimal(value).quantize(MICRO, rounding=ROUND_HALF_UP)) if math.isfinite(value) and abs(value) < COARSE else value
 
 
 def frames_of(seconds: Any, fps: Any) -> int:

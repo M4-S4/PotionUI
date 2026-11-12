@@ -320,7 +320,7 @@
 	}
 	function clipTrim(e, c, edge) {
 		select('clip', c.id);
-		drag(e, shotTrim(c, edge, pps));
+		drag(e, shotTrim(c, edge, () => pps));
 	}
 
 	function frameDown(e, f) {
