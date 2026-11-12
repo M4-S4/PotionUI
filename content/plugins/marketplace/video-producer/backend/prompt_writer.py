@@ -208,6 +208,8 @@ def _plan(owner: User, doc: Mapping[str, Any], shot_id: str, preset_id: str, mod
 def _flattened(picture: Any) -> Any:
     from PIL import Image
 
+    if picture.mode == "I":
+        return picture.point(lambda value: value * (1 / 256)).convert("L").convert("RGB")
     if picture.mode in ("RGBA", "LA", "PA") or "transparency" in picture.info:
         layered = picture.convert("RGBA")
         canvas = Image.new("RGB", layered.size, (255, 255, 255))
@@ -227,6 +229,8 @@ def _shrunk(source: Path, target: Path) -> None:
     with Image.open(source) as image:
         _within(image)
         image.draft("RGB", (IMAGE_EDGE, IMAGE_EDGE))
+        if image.mode.startswith("I;16"):
+            image = image.convert("I")
         image.thumbnail((IMAGE_EDGE, IMAGE_EDGE))
         picture = _flattened(ImageOps.exif_transpose(image))
         picture.save(target, "JPEG", quality=90)

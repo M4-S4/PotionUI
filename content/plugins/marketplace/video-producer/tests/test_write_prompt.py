@@ -864,6 +864,27 @@ def test_a_small_frame_past_the_pixel_bound_is_left_out_without_being_decoded(co
     assert loads == []
 
 
+def test_a_large_sixteen_bit_frame_is_shrunk_with_its_tones_scaled_not_clipped(core, monkeypatch, export_storage):
+    import os
+
+    from PIL import Image, ImageStat
+
+    width, height = 2000, 1500
+    source = export_storage / "uploads" / "deep.png"
+    source.parent.mkdir(parents=True)
+    Image.frombytes("I;16", (width, height), os.urandom(width * height * 2)).save(source, "PNG")
+    assert source.stat().st_size > prompt_writer.MAX_IMAGE_BYTES
+    user = core.users["user-1"]
+
+    sent, dropped = prompt_writer.fitted(user, [{"value": "uploads/deep.png", "media_type": "image", "role": "first"}], export_storage / "work")
+
+    assert dropped == 0
+    with Image.open(export_storage / sent[0]["value"]) as shrunk:
+        assert shrunk.mode == "RGB"
+        assert max(shrunk.size) == prompt_writer.IMAGE_EDGE
+        assert 100 < ImageStat.Stat(shrunk).mean[0] < 155
+
+
 def test_a_large_jpeg_frame_is_decoded_reduced(tmp_path, monkeypatch):
     import os
 
