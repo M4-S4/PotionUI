@@ -110,6 +110,16 @@ Ctrl+click a shot (⌘+click on a Mac) to add it to the selection, and Shift+cli
 
 **Save** applies everything, and **Edit › Undo** brings it all back. Saving never deletes a take.
 
+#### Write the prompt
+
+**Write the prompt**, above the shot prompt text, lets the language model of PotionUI write the prompt of the shot. Type in a few words what the shot should show, then click **Write** (or press Ctrl+Enter). The model reads your words, the shot's prompt as it stands, its start and end images and the prompting guide of the shot's engine, and proposes a prompt. Nothing changes until you choose: **Use this prompt** puts it in place of the shot prompt text, **Discard** leaves your prompt as it was. **Undo**, under the text, gives back your prompt of before, as long as you have not typed in it since. **Cancel** stops a writing that takes too long.
+
+The model writes only what the camera sees, in English. The page still adds the cast cards, the global direction and the format of the engine, as for a prompt you type yourself. The button is greyed when no language model is set up for you: hover it to read why, and ask an admin to set one up. A model that cannot look at images writes from your words alone.
+
+#### Card words of one shot
+
+When a picture of a cast card goes with the shot (MiniMax-H3 with the Ref2VA profile), the shot editor shows **Card words beside a picture** under **Prompt part from the references**. **As the project** follows **File › Project properties…**; **Description**, **Label** or **Picture only** apply to this shot alone. **Prompt sent to the engine** shows the result.
+
 ### Director AI
 
 Director AI shows one of four views in the center. Open them from the left panel, the **Window** menu or Alt+1 to Alt+4. The left panel sums up the state of each view, the engine of the project, and **To check**: the conflicts with the direction, the cards a shot names without casting them, the failed takes and the seams to fix.
@@ -457,6 +467,10 @@ The video holds the shots with their color and fades, and the sound as the conso
 The export runs on the server, in the background: you can close the window or leave the page. Its card shows the step and the progress, and **Cancel** stops it. When it is ready, the card offers **Download** and PotionUI sends a notification. A web or social video is also copied to your library. The master and the archive stay in the export folder: download them from the window.
 
 **Previous exports** lists the earlier exports of the project, with a download and a delete button. Your administrator sets a size budget for your exports; when it is full, your oldest exports are deleted to make room.
+
+### Finishing
+
+Under **Sound**, **Finishing** gives a web or social video a last touch with PotionUI's own effects: **Fix colours** (neutral whites and full contrast), a **LUT** your administrator installed, one of your **Looks**, a **Vignette** and **Film grain**. All are off by default: switch on the ones you want and set their strength. **Export** then reads **Export and finish**. When the export is ready, PotionUI encodes the film a second time with the finishing and saves it to your library as a new video. A second card follows the finishing, with **Cancel finishing**; when it is ready it offers **Download finished** and **Show in the library**. The plain export is always kept: if the finishing fails or you cancel it, the window says so and the plain file stays ready to download. The master and the archive are never finished. Your choices are saved with the project.
 
 ### To other software
 
