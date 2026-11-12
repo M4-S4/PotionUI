@@ -1,10 +1,11 @@
 import asyncio
+import copy
 import json
 import subprocess
 
 import pytest
 
-from backend import chainvideo, estimate, generation, presets, sequence, takes, tracker
+from backend import chainvideo, encoder, estimate, generation, presets, sequence, takes, tracker
 from backend.estimate import Order
 from backend.frame_grab import FrameError
 
@@ -426,3 +427,73 @@ def test_the_end_of_a_take_cut_with_its_sound_keeps_the_sound_of_those_frames(co
     assert kept["frames"] == 56
     assert set(kept["streams"]) == {"video", "audio"}
     assert abs(kept["streams"]["audio"] - 56 / 24) < 0.1
+
+
+TWELVE = presets.MINIMAX_H3_12GB
+QUAY = {"id": "quay", "kind": "image", "name": "quay", "origin": {"kind": "library", "itemId": "lib-quay"}, "width": 1344, "height": 768}
+BOOTS = {"id": "boots", "kind": "image", "name": "boots", "origin": {"kind": "library", "itemId": "lib-boots"}, "width": 1024, "height": 1024}
+
+
+def _twelve(core, make_project, monkeypatch, size, pictures):
+    monkeypatch.setattr(sequence, "CEILING", 10**6)
+    core.use_h3_12gb()
+    sized = [{**FACE, "width": 1024, "height": 1024}, QUAY, *pictures]
+    for asset in sized:
+        core.add_media({"kind": "library", "item_id": asset["origin"]["itemId"]}, f"uploads/{asset['id']}.png", "image")
+    references = [{"id": f"r-{asset['id']}", "assetId": asset["id"], "space": "identite", "scope": {"type": "global"}} for asset in sized]
+    project = make_project(clips=[dict(clip) for clip in SHOTS], assets=sized, references=references, direction={"mode": "Ref2VA"})
+    project["doc"]["chainBy"] = "video"
+    project["doc"].setdefault("engine", {})["sizes"] = {TWELVE: {"draft": size}}
+    return project
+
+
+def _encoder_codes(evaluation):
+    return [item for item in evaluation.payload["warnings"] if item["code"] == "chain_video_encoder"]
+
+
+def test_on_the_12_gb_preset_a_ref2va_shot_at_832_by_480_with_two_pictures_still_receives_the_end_of_the_previous_take(core, make_project, slots, monkeypatch):
+    project = _twelve(core, make_project, monkeypatch, "832x480", [])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=TWELVE)
+    plan = _plan(evaluation, "s2")
+
+    assert plan.chain_video is not None and plan.chain_video.size == (832, 480)
+    assert STAND_IN in plan.request["form_data"]["references"]
+    assert _encoder_codes(evaluation) == []
+    assert encoder.vision_tokens([(1024, 1024), (1344, 768)], [(56, (832, 480))], encoder.max_pixels(1, (832, 480))) == 1895
+
+
+def test_on_the_12_gb_preset_a_ref2va_shot_at_960_by_544_with_two_pictures_keeps_the_last_image_and_says_why(core, make_project, slots, monkeypatch):
+    project = _twelve(core, make_project, monkeypatch, "960x544", [])
+    unchained = copy.deepcopy(project)
+    unchained["doc"]["chainBy"] = "frame"
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=TWELVE)
+    plan = _plan(evaluation, "s2")
+    (warning,) = _encoder_codes(evaluation)
+
+    assert plan.chain_video is None and plan.chain is None
+    assert STAND_IN not in json.dumps(plan.request)
+    assert plan.request == _plan(_evaluate(core, unchained, ["s1", "s2"], preset_id=TWELVE), "s2").request
+    assert warning["data"] == {"shot_id": "s2", "previous": "s1", "tokens": 2507, "limit": encoder.LIMIT_12GB}
+    assert evaluation.waits == {}
+
+
+def test_on_the_12_gb_preset_a_third_picture_at_832_by_480_takes_the_shot_past_what_the_encoder_reads(core, make_project, slots, monkeypatch):
+    project = _twelve(core, make_project, monkeypatch, "832x480", [BOOTS])
+
+    evaluation = _evaluate(core, project, ["s1", "s2"], preset_id=TWELVE)
+    (warning,) = _encoder_codes(evaluation)
+
+    assert _plan(evaluation, "s2").chain_video is None
+    assert warning["data"]["tokens"] == 1895 + 361
+    assert len(_plan(evaluation, "s2").request["form_data"]["references"]) == 3
+
+
+def test_a_picture_of_unknown_size_counts_as_large_as_the_encoder_reads_one():
+    limit = encoder.max_pixels(1, (832, 480))
+
+    assert encoder.image_tokens(None, limit) == 390
+    assert encoder.image_tokens((1024, 1024), limit) == 361
+    assert encoder.image_tokens((1024, 1024), encoder.max_pixels(None, (832, 480))) == 1024
+    assert encoder.max_pixels(0, (832, 480)) == encoder.MAX_PIXELS

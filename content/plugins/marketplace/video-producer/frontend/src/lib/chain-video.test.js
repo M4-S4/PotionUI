@@ -74,11 +74,13 @@ test('the estimate says why a Ref2VA shot does not continue the previous take', 
 		['chain_video_still', 'generation.warn.chainVideoStill'],
 		['chain_video_short', 'generation.warn.chainVideoShort'],
 		['chain_video_trimmed', 'generation.warn.chainVideoTrimmed'],
-		['chain_video_rows', 'generation.warn.chainVideoRows']
+		['chain_video_rows', 'generation.warn.chainVideoRows'],
+		['chain_video_encoder', 'generation.warn.chainVideoEncoder']
 	]) {
-		const text = noteText({ code, message: 'server text', data: { shot_id: 's2', previous: 's1', slot: 1, rows: 30000, limit: 28000 } });
+		const text = noteText({ code, message: 'server text', data: { shot_id: 's2', previous: 's1', slot: 1, rows: 30000, tokens: 2507, limit: 28000 } });
 		assert.notEqual(text, 'server text', code);
 		assert.equal(text.split('{').length, 1, code);
 		assert.ok(t(key).length > 0 && text.length > 20, code);
 	}
+	assert.ok(noteText({ code: 'chain_video_encoder', message: 'server text', data: { shot_id: 's2', tokens: 2507, limit: 2200 } }).includes('2,507'));
 });

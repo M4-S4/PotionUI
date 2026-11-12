@@ -795,24 +795,24 @@ def test_ref2va_with_picture_words_ties_a_pictured_card_to_its_picture_alone_and
     assert plan.request["form_data"]["references"] == ["uploads/face.png", "uploads/set.png"]
 
 
-def test_the_card_words_of_a_shot_win_over_the_project_and_follow_the_prompt_language(core, make_doc):
+def test_the_card_words_of_a_shot_win_over_the_project_in_english_whatever_language_the_project_names(core, make_doc):
     core.use_h3()
     doc = _pictured_doc(core, make_doc, card_words="label", shot_words="picture", language="fr")
 
     plan, _ = _plan(core, doc, presets.MINIMAX_H3)
 
     assert _sections(plan.prompt_text)["subject_definitions"].startswith(
-        "<Subject 1> est le personnage montré par <Picture 1>. <Subject 2> est le décor montré par <Picture 2>. "
+        "<Subject 1> is the character shown in <Picture 1>. <Subject 2> is the setting shown in <Picture 2>. "
     )
 
 
-def test_label_words_in_french_keep_the_props_after_the_label(core, make_doc):
+def test_label_words_keep_the_props_after_the_label_in_english_whatever_language_the_project_names(core, make_doc):
     core.use_h3()
 
     plan, _ = _plan(core, _pictured_doc(core, make_doc, card_words="label", language="fr"), presets.MINIMAX_H3)
 
     assert _sections(plan.prompt_text)["subject_definitions"].startswith(
-        "<Subject 1> est le personnage montré par <Picture 1>, the red-haired woman. Accessoires : a brass lantern. "
+        "<Subject 1> is the character shown in <Picture 1>, the red-haired woman. Props: a brass lantern. "
     )
 
 

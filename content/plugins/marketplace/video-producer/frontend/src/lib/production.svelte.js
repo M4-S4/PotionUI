@@ -262,6 +262,7 @@ function baseNoteText(note) {
 	if (code === 'chain_video_still') return t('generation.warn.chainVideoStill', { shot: shotName(data.shot_id), previous: shotName(data.previous) });
 	if (code === 'chain_video_short') return t('generation.warn.chainVideoShort', { shot: shotName(data.shot_id), previous: shotName(data.previous), seconds: secs(leastSeconds()) });
 	if (code === 'chain_video_trimmed') return t('generation.warn.chainVideoTrimmed', { shot: shotName(data.shot_id), limit: LIMITS.video });
+	if (code === 'chain_video_encoder') return t('generation.warn.chainVideoEncoder', { shot: shotName(data.shot_id), tokens: formatNumber(Number(data.tokens) || 0), limit: formatNumber(Number(data.limit) || 0) });
 	if (code === 'chain_video_rows') return t('generation.warn.chainVideoRows', { shot: shotName(data.shot_id), rows: formatNumber(Number(data.rows) || 0), limit: formatNumber(Number(data.limit) || 0) });
 	if (code === 'chain_continue_unsupported') return t('generation.warn.chainContinueUnsupported', { shot: shotName(data.shot_id) });
 	if (code === 'chain_continue_still') return t('generation.warn.chainContinueStill', { shot: shotName(data.shot_id) });

@@ -6,7 +6,7 @@ import shutil
 from dataclasses import dataclass, field, replace
 from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
-from . import bible, catalog, core_bridge, dialogue, engine_options, formats, keepframing, models, presets, reception, sequence, settings, upscalers, workdir
+from . import bible, catalog, core_bridge, dialogue, encoder, engine_options, formats, keepframing, models, presets, reception, sequence, settings, upscalers, workdir
 from .catalog import FL2VA, PROFILES, REF2VA, REFS_MODE
 from .core_bridge import CLOUD_ENGINE, DirectorBindingError, MediaRefError, User
 
@@ -1789,6 +1789,17 @@ def _native_form(fields: models.Fields, document: Dict[str, Any], resolution: Op
     return form
 
 
+def _reference_budget(context: _Context, fields: models.Fields) -> Optional[float]:
+    spec = fields.get(engine_options.REFERENCE_PIXEL_BUDGET)
+    if spec is None:
+        return None
+    value = engine_options.chosen(context.doc, context.preset.id, fields, context.preset.cloud).values.get(engine_options.REFERENCE_PIXEL_BUDGET, spec.get("default"))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def project_options(context: _Context, fields: models.Fields, warnings: List[Dict[str, Any]]) -> engine_options.Chosen:
     """The options the project sets for the preset of a plan, a warning naming those that no longer fit their field and are left out."""
     chosen = engine_options.chosen(context.doc, context.preset.id, fields, context.preset.cloud)
@@ -1862,6 +1873,23 @@ def _native_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict
             )
         size = models.parse_size(resolution)
         pictures = [_picture_size(doc, str((entry.item or {}).get("assetId"))) for entry in sent if entry.kind == "image"]
+        if auto is not None and preset.id in presets.MINIMAX_H3_12GB_PRESETS:
+            limit = encoder.max_pixels(_reference_budget(context, fields), size)
+            videos = [(cut.frames, cut.size or size) for cut in video if cut.size or size]
+            tokens = encoder.vision_tokens(pictures, [*videos, (min(auto.frames, math.floor(seconds * encoder.FPS)), auto.size)], limit)
+            if tokens > encoder.LIMIT_12GB:
+                warnings.append(
+                    note(
+                        "chain_video_encoder",
+                        f"With the end of the previous take the shot would send about {tokens} vision tokens to the text encoder, past about {encoder.LIMIT_12GB} that a 12 GB card holds: it is not added.",
+                        shot_id=shot_id,
+                        previous=auto.previous,
+                        tokens=tokens,
+                        limit=encoder.LIMIT_12GB,
+                    )
+                )
+                auto = None
+                sent = reference_media(context.user, doc, shot_id, tracks, [track.cut for track in ready])
         if engine_options.REFERENCE_SHORT_EDGE in fields:
             edge = sequence.reference_short_edge(size, context.quality == "final", pictures)
         if video or auto is not None:
