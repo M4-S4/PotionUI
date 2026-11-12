@@ -54,7 +54,7 @@ All eight steps work for real, and your projects are saved as you work (chapter 
 The page has five levels of controls, from the widest to the most local, around a left panel, a center area, the Inspector and the timeline:
 
 - **Menu bar.** Ten menus, in this order: **Video Producer**, **File**, **Edit**, **Cut**, **Shot**, **Production**, **Audio**, **View**, **Window**, **Help**. The **Video Producer** menu holds **About Video Producer**, **Preferences…**, **Keyboard shortcuts** and **Search commands…**. A menu shows "…" only when the command opens a window that asks for something, and a check mark in front of a state that is on.
-- **Project bar.** On the left, the button that shows or hides the side panel, the project name (click it to rename the project) and its save state ("Saving…", "Saved at" and the time, "Modified · click to save" or "Not saved — retry"; chapter 5). In the middle, the workspace selector: **Media**, **Storyboard**, **Director AI**, **Mix**, **Play**. On the right, **Import** (a menu with **From the library…** and **From this computer…**, chapter 6), **Export**, **Assistant** (it opens the PotionUI chat, chapter 10), a search button for the commands and the button that shows or hides the Inspector. Under 1280 pixels of window width the words of **Import**, **Export** and **Assistant** hide and only their icons stay, and under 900 pixels the names of the workspaces hide too (they stay in the tooltips).
+- **Project bar.** On the left, the button that shows or hides the side panel, the project name (click it to rename the project) and its save state ("Saving…", "Saved at" and the time, "Modified · click to save" or "Not saved — retry"; chapter 5). In the middle, the workspace selector: **Media**, **Storyboard**, **Director AI**, **Mix**, **Play**. On the right, **Import** (a menu with **From the library…**, **From this computer…** and **A cut, split into shots…**, chapter 6), **Export**, **Assistant** (it opens the PotionUI chat, chapter 10), a search button for the commands and the button that shows or hides the Inspector. Under 1280 pixels of window width the words of **Import**, **Export** and **Assistant** hide and only their icons stay, and under 900 pixels the names of the workspaces hide too (they stay in the tooltips).
 - **Production deck.** At the bottom, under the timeline. It says what the next generation will make, holds the one main button of the page, the round **Generate selection** mark (chapter 8), and keeps the settings of the engine behind its chip. It shows in **Storyboard** and **Director AI** only; Ctrl+G queues from every workspace, even while takes are running. A few messages, and the accessible name of the deck, still call it the “Production bar”.
 - **Area headers and the timeline toolbar.** An icon, a title and a counter on the left, small icons on the right. The headers, the rows of tabs and the timeline toolbar are all 40 pixels high.
 - **Content.** Small buttons that appear when you hover or select.
@@ -66,7 +66,7 @@ The ten menus group all the commands of the page. The command search (**Search c
 | Menu | What it holds |
 |---|---|
 | **Video Producer** | About, Preferences, Keyboard shortcuts, command search. |
-| **File** | New project, Open, Save, Version history, Import from the library, Import from this computer, From the PotionUI gallery, Project properties, the three exports. |
+| **File** | New project, Open, Save, Version history, Import from the library, Import from this computer, From the PotionUI gallery, Import a cut as shots, Project properties, the three exports. |
 | **Edit** | Undo, Redo, Copy, Paste, Duplicate, Delete, Search media. |
 | **Cut** | The three tools, Split at playhead, trims, Change duration, in and out points, Clear range, Add marker, Add title, Fade in and out. |
 | **Shot** | New shot, Info, Show source, Shot takes, Shot editor, Final render of the take…, Shot color, Match color to previous shot, Favorite, Reject, Remove flag. |
@@ -287,6 +287,32 @@ The files from the computer are sent to your PotionUI library one at a time. The
 In each picker you tick several files and confirm them together. The files then appear in the Media panel and the page shows, for example, "2 files imported". A media that is already in the project (same origin) is not imported again: the page counts it apart, for example "2 files imported · 1 file already in the project", or "1 file already in the project" when nothing is new. When some cannot be imported it adds, for example, "1 file could not be imported": the file is no longer available, or its kind is not accepted by the window. If your server has no picker, the page says "The media picker is not available on this server."
 
 An import from the library or the gallery copies nothing: the project keeps a reference to the library item or the gallery file, and the address the page uses to show it. A file from the computer is copied once, into your library, and the project keeps a reference to that item. If you delete the file from PotionUI, the project can no longer show or play it.
+
+### Import a cut as shots
+
+**File › Import a cut as shots…** opens the window **Import a cut as shots** ("PotionUI finds the cuts of a video and makes one shot per cut."). The **Import** menu of the project bar offers the same command as **A cut, split into shots…**, and the Media panel shows **Split into shots…** under a selected video that PotionUI can read (one from the library or the gallery), which opens the window on that video. The command has no shortcut.
+
+- **Video.** A list of the videos of the project that PotionUI can read ("Choose a video"), and two buttons, **From the library…** and **From this computer…**. The window closes while you pick and opens again with the chosen video and your settings, also when you cancel the pick. A video you pick this way joins the media of the project, like any import. When the project has none: "This project has no video to split yet. Bring one in from the library or from this computer."
+- **Sensitivity**, 0 to 100 by steps of 5, 50 by default: "Higher finds more cuts, softer ones included."
+- **Shortest shot**, 0.1 to 30 s, 0.5 s by default: "Two cuts closer than this count as one."
+- **Each piece becomes**: **The shot's source** (the default), "Each piece is placed on its shot with its sound: you get the original cut, ready to be replaced shot by shot."; or **Its motion reference**, "Each shot is left to generate and keeps its piece as a Motion video reference, which MiniMax-H3 follows in Ref2VA. The sound of the pieces is not placed." The reference is the shot's own reference of the **Motion guides** family, of type Control video, as one made by hand in Director AI › References; the other engines ignore it, like any motion reference (chapter 8).
+- **Place the shots**: **At the end** (the default), or **After shot N** when a shot is selected.
+- A line recalls that "The pieces are saved in your PotionUI library."
+
+**Find cuts** starts the search; it is greyed, with "Choose a video from the library or from the gallery to split it.", while no video PotionUI can read is chosen. The window then shows "Finding the cuts…" with a percentage and a bar. **Stop**, Esc or the cross stops the search, and nothing is placed.
+
+When it ends, Video Producer adds one shot per piece, in a single change, and opens the Storyboard on the first new shot. Each shot is named after the video, followed by its number, and lasts as long as its piece. The new shots do not start from the end of the previous shot: a cut is a break. The message says what was added, for example "4 shots added from “trailer”, each with its piece." or "4 shots to generate added from “trailer”, each with its piece as motion reference.", with **Undo**. One **Undo** (or Ctrl+Z) removes all the new shots, their media and their references; **Redo** brings them back. In source mode each shot plays the sound of its piece, which a take placed on the shot later replaces.
+
+What can go wrong:
+
+- "No cut was found. Raise the sensitivity or shorten the shortest shot." Nothing is created.
+- "More than 200 shots were found. Lower the sensitivity or lengthen the shortest shot." PotionUI refuses before it splits anything.
+- "Eight media tool runs are already waiting in PotionUI. Let one finish, then try again."
+- "The cut finder failed:" followed by PotionUI's message.
+- When the search ends while another project is open, nothing is placed, and the page says that the pieces are in your library.
+- Reloading the page during the search does not resume it: the search ends in PotionUI and its pieces stay in your library.
+
+**The pieces in your library.** Each search makes one library item per piece, named after the video ("trailer — part 1 of 4.mp4", and so on). Nothing tidies them up: an **Undo** takes the shots out of the project but leaves the pieces in your library, and a new try with other settings makes a new series. They count in your PotionUI storage plan; delete the ones you no longer need from the library.
 
 ### In the Media panel
 
@@ -524,6 +550,8 @@ Two words are easy to mix up, so here they are once: a take is **Selected** when
 
 - On a take in progress, **Cancel** stops it. On a failed one, **Retry** starts a new take.
 - Under a take that is not in progress, **Reject**, **Candidate** and **Selected** set its label (see Labels).
+
+For a one-off retouch of a take (a free crop, a speed-up, an effect), open it from **History**: in the take's **Tools** menu, choose **Edit**, then the tool you need. The take opens in PotionUI's Video editor with that tool ready. Saving puts the result in your library, and **Import › From the library…** brings it into the project.
 
 ### Labels
 
