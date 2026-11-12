@@ -36,6 +36,9 @@ def render(doc: Mapping[str, Any], files: Mapping[Tuple[str, int], Optional[Dict
         elif shifted:
             record_out = places[index].end
             source_out = source_in + (record_out - record_in) * speed
+        elif places[index] is not None:
+            record_out = places[index].end
+            source_out = source_in + clip["dur"] * speed
         else:
             record_out = record_in + clip["dur"]
             source_out = source_in + clip["dur"] * speed

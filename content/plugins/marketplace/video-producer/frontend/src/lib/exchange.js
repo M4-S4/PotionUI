@@ -186,7 +186,7 @@ export function edl(doc, { label }) {
 		const speed = speedOf(c);
 		const shifted = moved(c, places[i]);
 		const recordIn = shifted ? places[i].start : c.start;
-		const recordOut = joins[i + 1] > 0 ? doc.clips[i + 1].start : shifted ? places[i].end : c.start + c.dur;
+		const recordOut = joins[i + 1] > 0 ? doc.clips[i + 1].start : places[i] ? places[i].end : c.start + c.dur;
 		const sourceOut = joins[i + 1] > 0 || shifted ? c.srcIn + (recordOut - recordIn) * speed : c.srcIn + c.dur * speed;
 		let cut = 'C       ';
 		if (joins[i] > 0) {
