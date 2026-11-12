@@ -114,7 +114,7 @@ export function seamChainOf(clip) {
 	const continues = chainByOf(doc, doc.clips[i]) === 'video' && (references || extendable);
 	const fallback = continues ? continueFallback(doc, i, { references, tokens: references ? encoderTokens(doc.clips[i], option) : null, maxDuration: option?.info?.limits?.maxDuration ?? null, least: leastSeconds() }) : null;
 	const state = seamChain(doc, i, takeStore.list, ignoresFirstFrame(option), continues, references, fallback);
-	if (state && state.state !== 'off' && option && !presetProfiles(option.info).includes(engine.profile)) return { ...state, state: 'profileUnsupported', profile: engine.profile, extends: false };
+	if (state && !['off', 'waiting'].includes(state.state) && option && !presetProfiles(option.info).includes(engine.profile)) return { ...state, state: 'profileUnsupported', profile: engine.profile, extends: false };
 	return state;
 }
 
