@@ -1650,7 +1650,7 @@ def test_the_shipped_h3_presets_keep_the_director_and_prompt_help_of_the_core_pr
         assert preset.configuration == source.configuration
         guides = {mode: guide for mode, guide in source.llm.get("modes", {}).items() if mode in shipped.modes}
         assert preset.llm == {**{key: value for key, value in source.llm.items() if key != "modes"}, **({"modes": guides} if guides else {})}
-        assert preset.prompt_syntax == {mode: source.prompt_syntax[mode] for mode in shipped.modes}
+        assert preset.prompt_syntax == {mode: source.prompt_syntax[mode] for mode in (*shipped.modes, *shipped.own_modes)}
         assert preset.prompt_resources == {mode: entries for mode, entries in (source.prompt_resources or {}).items() if mode in shipped.modes}
         assert preset.formulas["groups"] == {name: group for name, group in source.formulas["groups"].items() if name != "memory"}
 
