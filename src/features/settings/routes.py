@@ -1,13 +1,17 @@
 import asyncio
 import os
 import sys
-from typing import Dict, Any, NoReturn, Optional, List, Union, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.security.api_scopes import ApiScope, key_access, SESSION_ONLY
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.settings.settings import Settings
 from src.platform.settings.runtime_flags import apply_saved_settings, validate_runtime_flag
+from src.features.api_keys.settings import KEY_MANAGEMENT_SETTING_KEYS, validate_setting as validate_api_keys_setting
+from src.features.settings import legacy_mcp_switch
+from src.features.settings.legacy_mcp_switch import LegacyMcpUserSwitch
 from src.features.backup.settings import validate_setting as validate_backup_setting
 from src.features.generation.thumbnail_profile import validate_setting as validate_thumbnail_setting
 from src.features.housekeeping.settings import validate_setting as validate_housekeeping_setting
@@ -37,17 +41,6 @@ if TYPE_CHECKING:
 # Never add a secret or anything sensitive here - only display/behavior toggles.
 PUBLIC_SYSTEM_SETTING_KEYS = frozenset({"workbench_single_result_gallery"})
 
-ADMIN_CONTROLLED_USER_SETTING_KEYS = frozenset({"mcp_user_enabled"})
-
-
-def _refuse_admin_controlled_setting(controller: "SettingsController", key: str) -> NoReturn:
-    controller.error_response(
-        error="forbidden",
-        message=f"Setting '{key}' is controlled by an administrator and cannot be changed here",
-        status_code=403
-    )
-
-
 def _is_stored_secret_mask(key: str, value: Any) -> bool:
     """Whether this write is the mask a read handed out, meaning "unchanged".
 
@@ -59,15 +52,41 @@ def _is_stored_secret_mask(key: str, value: Any) -> bool:
     return is_secret_key(key) and value == SECRET_MASK
 
 
+def _refuse_key_managed_setting(controller: "SettingsController", user: Optional[User], keys) -> None:
+    managed = KEY_MANAGEMENT_SETTING_KEYS | {legacy_mcp_switch.KEY}
+    if user is not None and user.key is not None and any(key in managed for key in keys):
+        controller.error_response(
+            error="key_not_allowed",
+            message="API key and MCP switches can only be changed from a browser session",
+            status_code=403,
+        )
+
+
+def _refuse_legacy_mcp_switch(controller: "SettingsController", user: Optional[User], keys) -> None:
+    if (
+        controller.legacy_mcp is not None
+        and user is not None
+        and user.account_type != AccountType.ADMIN
+        and legacy_mcp_switch.KEY in keys
+    ):
+        controller.error_response(
+            error="forbidden",
+            message=f"Setting '{legacy_mcp_switch.KEY}' is controlled by an administrator and cannot be changed here",
+            status_code=403
+        )
+
+
 class SettingsController(BaseController):
     def __init__(
         self,
         settings: Settings,
         setting_repository: SettingRepository,
         gpu_monitor: GpuMonitor,
-        backend_registry: BackendRegistry
+        backend_registry: BackendRegistry,
+        legacy_mcp: Optional[LegacyMcpUserSwitch] = None
     ):
         super().__init__()
+        self.legacy_mcp = legacy_mcp
         self.settings = settings
         self.setting_repository = setting_repository
         self.gpu_monitor = gpu_monitor
@@ -106,6 +125,9 @@ class SettingsController(BaseController):
 
                 result[setting.key] = mask_secret_value(setting.key, value)
 
+            if self.legacy_mcp is not None:
+                result[legacy_mcp_switch.KEY] = self.legacy_mcp.read(user.id)
+
             return self.success_response(data=result)
 
         except Exception as e:
@@ -122,17 +144,16 @@ class SettingsController(BaseController):
         passes are the writes applied in a single DB transaction. A rejected or
         failed batch persists nothing - no key is ever half-applied.
         """
-        if user:
-            for key in settings:
-                if key in ADMIN_CONTROLLED_USER_SETTING_KEYS:
-                    _refuse_admin_controlled_setting(self, key)
-
+        _refuse_key_managed_setting(self, user, settings)
+        _refuse_legacy_mcp_switch(self, user, settings)
         try:
             if not user:
                 return self.error_response(
                     error="authentication_required",
                     message="Authentication required to update settings"
                 )
+
+            legacy_write = None
 
             from src.platform.settings.records import Setting
 
@@ -143,6 +164,12 @@ class SettingsController(BaseController):
 
             # Validate the entire batch before writing anything.
             for key, value in settings.items():
+                if key == legacy_mcp_switch.KEY and self.legacy_mcp is not None:
+                    legacy_write = legacy_mcp_switch.parse(value)
+                    if legacy_write is None:
+                        errors.append(f"Invalid value for '{key}': must be true or false")
+                    continue
+
                 setting = self.setting_repository.get_setting_by_key(key)
                 if not setting:
                     errors.append(f"Setting '{key}' not found")
@@ -160,6 +187,7 @@ class SettingsController(BaseController):
                     or validate_housekeeping_setting(key, value)
                     or validate_backup_setting(key, value)
                     or validate_content_safety_setting(key, value)
+                    or validate_api_keys_setting(key, value)
                     or validate_runtime_flag(key, value)
                 )
                 if rejected:
@@ -188,9 +216,13 @@ class SettingsController(BaseController):
 
             self.setting_repository.apply_bulk_updates(system_updates, user_updates)
             apply_saved_settings(saved_system_values)
+            updated_count = len(system_updates) + len(user_updates)
+            if legacy_write is not None:
+                self.legacy_mcp.write(user.id, legacy_write)
+                updated_count += 1
 
             return self.success_response(
-                message=f"Successfully updated {len(system_updates) + len(user_updates)} settings"
+                message=f"Successfully updated {updated_count} settings"
             )
 
         except Exception as e:
@@ -226,6 +258,13 @@ class SettingsController(BaseController):
                     updated_at=setting.updated_at
                 ).dict())
 
+            if (
+                self.legacy_mcp is not None
+                and user is not None
+                and type_filter in (None, SettingType.USER)
+            ):
+                settings_data.append(SettingResponse(**self.legacy_mcp.detail(user.id)).dict())
+
             return self.success_response(data=settings_data)
 
         except Exception as e:
@@ -237,6 +276,20 @@ class SettingsController(BaseController):
     async def get_setting_by_key(self, key: str, user: Optional[User] = None) -> APIResponse:
         """Get a specific setting by key"""
         try:
+            if key == legacy_mcp_switch.KEY and self.legacy_mcp is not None:
+                if not user:
+                    return self.error_response(
+                        error="authentication_required",
+                        message="Authentication required to access user settings"
+                    )
+                return self.success_response(data={
+                    "key": key,
+                    "value": self.legacy_mcp.read(user.id),
+                    "value_type": legacy_mcp_switch.VALUE_TYPE,
+                    "description": legacy_mcp_switch.DESCRIPTION,
+                    "type": legacy_mcp_switch.SETTING_TYPE
+                })
+
             # Get setting details first to determine type
             setting = self.setting_repository.get_setting_by_key(key)
             if not setting:
@@ -290,10 +343,24 @@ class SettingsController(BaseController):
         user: Optional[User] = None
     ) -> APIResponse:
         """Update a specific setting by key"""
-        if key in ADMIN_CONTROLLED_USER_SETTING_KEYS:
-            _refuse_admin_controlled_setting(self, key)
-
+        _refuse_key_managed_setting(self, user, [key])
+        _refuse_legacy_mcp_switch(self, user, [key])
         try:
+            if key == legacy_mcp_switch.KEY and self.legacy_mcp is not None:
+                if not user:
+                    return self.error_response(
+                        error="authentication_required",
+                        message="Authentication required to modify user settings"
+                    )
+                enabled = legacy_mcp_switch.parse(update_data.value)
+                if enabled is None:
+                    return self.error_response(
+                        error="setting_update_rejected",
+                        message=f"Invalid value for '{key}': must be true or false"
+                    )
+                self.legacy_mcp.write(user.id, enabled)
+                return self.success_response(message=f"Setting '{key}' updated successfully")
+
             # Get setting details first to determine type
             setting = self.setting_repository.get_setting_by_key(key)
             if not setting:
@@ -320,6 +387,7 @@ class SettingsController(BaseController):
                     or validate_housekeeping_setting(key, update_data.value)
                     or validate_backup_setting(key, update_data.value)
                     or validate_content_safety_setting(key, update_data.value)
+                    or validate_api_keys_setting(key, update_data.value)
                     or validate_runtime_flag(key, update_data.value)
                 )
                 if rejected:
@@ -385,6 +453,11 @@ class SettingsController(BaseController):
                         updated_at=user_setting.updated_at
                     ).dict())
 
+            if self.legacy_mcp is not None:
+                override = self.legacy_mcp.override(user.id)
+                if override is not None:
+                    settings_data.append(UserSettingResponse(**override).dict())
+
             return self.success_response(data=settings_data)
 
         except Exception as e:
@@ -395,10 +468,14 @@ class SettingsController(BaseController):
 
     async def delete_user_setting(self, key: str, user: User) -> APIResponse:
         """Delete a user setting override, reverting to system default"""
-        if key in ADMIN_CONTROLLED_USER_SETTING_KEYS:
-            _refuse_admin_controlled_setting(self, key)
-
+        _refuse_legacy_mcp_switch(self, user, [key])
         try:
+            if key == legacy_mcp_switch.KEY and self.legacy_mcp is not None:
+                self.legacy_mcp.write(user.id, True)
+                return self.success_response(
+                    message=f"User setting '{key}' deleted, reverted to system default"
+                )
+
             success = self.settings.delete_user_setting(key, user.id)
 
             if not success:
@@ -443,13 +520,14 @@ def _build_settings_controller(container: "AppContainer") -> SettingsController:
         container.setting_repository,
         container.gpu_monitor,
         container.backend_registry,
+        LegacyMcpUserSwitch(container.api_key_collaborators.access),
     )
 
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = _build_settings_controller(container)
 
-    router = APIRouter(prefix="/api/settings", tags=["Settings"])
+    router = APIRouter(prefix="/api/settings", tags=["Settings"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.ADMIN)])
 
     @router.get("", response_model=APIResponse, summary="Get Application Settings")
     async def get_settings(current_user = Depends(get_current_active_user)):
@@ -485,7 +563,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Update a specific setting by key. Creates user override if user is authenticated."""
         return await controller.update_setting_by_key(key, update_data, current_user)
 
-    @router.delete("/user/{key}", response_model=APIResponse, summary="Delete User Setting Override")
+    @router.delete("/user/{key}", response_model=APIResponse, summary="Delete User Setting Override", dependencies=[SESSION_ONLY])
     async def delete_user_setting(key: str, current_user = Depends(get_current_active_user)):
         """Delete a user setting override, reverting to system default."""
         return await controller.delete_user_setting(key, current_user)
@@ -498,7 +576,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     restarting isn't a setting, it's an operation."""
     controller = _build_settings_controller(container)
 
-    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"])
+    admin_router = APIRouter(prefix="/api/admin", tags=["Settings"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.post("/restart", response_model=APIResponse, summary="Restart Application")
     async def restart_app(current_user = Depends(get_current_active_user)):

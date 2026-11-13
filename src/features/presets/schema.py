@@ -793,6 +793,8 @@ class PromptResourceSpec(BaseModel):
     source: Optional[str] = None
     label: Optional[str] = None
     token: str
+    limit: Optional[int] = Field(default=None, ge=1)
+    limit_total: Optional[int] = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _validate_shape(self) -> "PromptResourceSpec":
@@ -837,6 +839,8 @@ def _validate_prompt_resources(prompt_resources: Dict[str, List[PromptResourceSp
             seen.add(pair)
     return problems
 
+
+PROMPT_SYNTAX_DEFAULT_KEY = "*"
 
 PROMPT_SYNTAX_TONES = ("signal", "success", "warning", "info", "accent", "danger", "muted")
 

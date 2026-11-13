@@ -276,6 +276,10 @@ from src.features.media_tools.routes import MediaToolController
 from src.features.media_tools.service import MediaToolService
 from src.features.library import LibraryCollaborators, LibraryRepository
 from src.features.library.routes import LibraryController
+from src.features.kits import KitRepository
+from src.features.kits.expansion import KitExpander
+from src.features.kits.resource_provider import KitsResourceProvider
+from src.features.kits.routes import KitController
 from src.features.inspirations import InspirationCollaborators, InspirationRepository
 from src.features.inspirations.routes import InspirationController
 from src.features.presets.routes import PresetController
@@ -289,9 +293,15 @@ from src.features.prompt_database.routes import PromptDatabaseController
 from src.features.prompt_enhancement import PromptEnhancementCollaborators
 from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
 from src.features.llm.tools.base import ToolServices
-from src.features.mcp.repository import McpTokenRepository
+from src.features.llm.tools.domains import DomainServices
+from src.features.mcp.operations.tools import counts_for_keys
+from src.features.mcp.tool_repository import McpToolRepository
+from src.features.api_keys.operations.keys import ApiKeyCollaborators
+from src.features.api_keys.operations.resolver import ApiKeyResolver
+from src.features.api_keys.repository import ApiKeyEventRepository, ApiKeyRepository, UserApiAccessRepository
 from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
 from src.features.docs.routes import DocsController
+from src.features.sessions.generate import SessionRequests
 from src.features.sessions.routes import SessionController
 from src.features.sessions.version_repository import SessionVersionRepository
 from src.features.formulas.collaborators import FormulaCollaborators
@@ -414,7 +424,9 @@ class AppContainer:
     llm_controller: "LLMController"
     tool_governance_repository: "ToolGovernanceRepository"
     tool_governance_controller: "ToolGovernanceController"
-    mcp_token_repository: "McpTokenRepository"
+    api_key_collaborators: "ApiKeyCollaborators"
+    api_key_resolver: "ApiKeyResolver"
+    mcp_tool_counts: Callable
     mcp_tool_collaborators: "McpToolCollaborators"
 
     # Auth
@@ -532,6 +544,10 @@ class AppContainer:
     library_collaborators: "LibraryCollaborators"
     library_controller: "LibraryController"
 
+    kit_repository: "KitRepository"
+    kit_expander: "KitExpander"
+    kit_controller: "KitController"
+
     # Inspirations
     inspiration_repository: "InspirationRepository"
     inspiration_collaborators: "InspirationCollaborators"
@@ -573,6 +589,7 @@ class AppContainer:
     # (migration 092); see src/features/sessions/manager.py.
     session_version_repository: "SessionVersionRepository"
     session_controller: "SessionController"
+    session_requests: "SessionRequests"
     formula_controller: "FormulaController"
     filter_controller: "FilterController"
     organize_registry: OrganizeRegistry
@@ -639,7 +656,7 @@ def _bind_model_types(repository: ModelRootRepository, resolver: ModelRootResolv
     resolver.invalidate()
 
 
-def build_container() -> AppContainer:
+def build_container(generation_engine_factory: Optional[Callable[[], Any]] = None) -> AppContainer:
     # Initialize settings repository and manager first
     setting_repository = SettingRepository()
     settings = Settings(setting_repository)
@@ -746,6 +763,9 @@ def build_container() -> AppContainer:
 
     resource_registry = ResourceRegistry()
     register_builtin_resource_providers(resource_registry)
+    kit_repository = KitRepository()
+    kit_expander = KitExpander(kit_repository)
+    resource_registry.register(KitsResourceProvider(kit_repository), source="builtin")
 
     # Automation module node-type registry (src.platform.plugins.automation_nodes) -
     # created before the plugin registry so plugin-provided
@@ -821,8 +841,9 @@ def build_container() -> AppContainer:
     from src.features.presets.repository import DatabasePresetRepository
 
     database_preset_repository = DatabasePresetRepository()
+    presets_root = os.getenv("POTIONUI_PRESETS_DIR", "content/presets")
     preset_template_loader = PresetTemplateLoader(
-        ["content/presets/marketplace", "content/presets/local"],
+        [f"{presets_root}/marketplace", f"{presets_root}/local"],
         plugin_registry=plugin_registry,
         overlay_source=functools.partial(read_overlays, database_preset_repository),
     )
@@ -981,7 +1002,7 @@ def build_container() -> AppContainer:
         )
 
     backend_registry = BackendRegistry(
-        generation_engine_factory=make_generation_engine,
+        generation_engine_factory=generation_engine_factory or make_generation_engine,
         plugin_registry=plugin_registry,
         pipe_catalog=pipe_catalog,
         model_locator=model_locator,
@@ -1334,6 +1355,7 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         fixed_prompt_repository=preset_fixed_prompt_repository,
         applied_prompt_repository=generation_applied_prompt_repository,
+        kit_expander=kit_expander,
     )
 
     # Initialize generation history manager
@@ -1630,6 +1652,13 @@ def build_container() -> AppContainer:
     library_controller = LibraryController(library_collaborators)
     from src.features.library import operations as library_operations
 
+    kit_controller = KitController(
+        kit_repository, kit_expander, preset_template_loader.load_preset_by_id, media_store,
+        copy_to_library=lambda file_id, user_id: library_operations.copy_generation_file(
+            library_collaborators, file_id, user_id
+        ).id,
+    )
+
     collection_controller = CollectionController(
         collection_repository,
         {
@@ -1808,6 +1837,8 @@ def build_container() -> AppContainer:
         model_index=model_index_manager,
         gpu_monitor=gpu_monitor,
     )
+    generation_orchestrator.router.bind_load(generation_orchestrator.load_ledger)
+    generation_orchestrator.router.bind_health(generation_orchestrator.backend_health)
 
     # Prompt enhancement pipeline (used by the enhance_prompt tool)
 
@@ -1834,6 +1865,16 @@ def build_container() -> AppContainer:
 
     session_repository = SessionRepository()
     session_version_repository = SessionVersionRepository()
+    session_requests = SessionRequests(
+        sessions=session_repository,
+        versions=session_version_repository,
+        preset_loader=preset_template_loader,
+        preset_db=database_preset_repository,
+        users=user_repository,
+        models=model_access_policy,
+        settings=settings,
+        prompt_batch=backend_registry.engine_supports_prompt_batch,
+    )
     elixirs = build_elixirs(
         users=user_repository,
         orchestrator=generation_orchestrator,
@@ -1862,7 +1903,17 @@ def build_container() -> AppContainer:
         storage_root=settings.get_file_storage_directory,
     )
 
-    mcp_token_repository = McpTokenRepository()
+    api_key_repository = ApiKeyRepository()
+    user_api_access_repository = UserApiAccessRepository()
+    api_key_collaborators = ApiKeyCollaborators(
+        keys=api_key_repository,
+        events=ApiKeyEventRepository(),
+        access=user_api_access_repository,
+        settings=settings,
+    )
+    api_key_resolver = ApiKeyResolver(
+        api_key_repository, user_api_access_repository, user_repository, settings
+    )
     tool_services = ToolServices(
         segment_category_repository=segment_category_repo,
         saved_segment_repository=saved_segment_repo,
@@ -1887,14 +1938,26 @@ def build_container() -> AppContainer:
         tab_drafts=tab_draft_manager,
         media_tool_service=media_tool_service,
         elixirs=elixir_assistant,
+        sessions=session_requests,
+        media_store=media_store,
+        domains=DomainServices(
+            automation=automation_controller,
+            library=library_controller,
+            notifications=notification_controller,
+            inspirations=inspiration_controller,
+            downloads=download_queue,
+            elixirs=elixirs,
+        ),
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,
-        tool_governance_repository=tool_governance_repository,
+        tool_repository=McpToolRepository(),
+        settings=settings,
         services=tool_services,
     )
 
 
+    mcp_tool_counts = functools.partial(counts_for_keys, mcp_tool_collaborators)
     mcp_tools_documenter = McpToolsDocumenter(mcp_tool_collaborators)
     docs_controller = DocsController(
         plugin_registry,

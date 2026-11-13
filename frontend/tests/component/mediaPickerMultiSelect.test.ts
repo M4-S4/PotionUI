@@ -4,6 +4,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 const apiMocks = vi.hoisted(() => ({
 	getGenerationHistory: vi.fn(),
 	listLibraryItems: vi.fn(),
+	listCollections: vi.fn(),
 	getTags: vi.fn(),
 	getClient: () => ({ get: vi.fn().mockResolvedValue({ data: { data: {} } }) })
 }));
@@ -114,6 +115,7 @@ function isChecked(el: HTMLInputElement): boolean {
 }
 
 beforeEach(() => {
+	Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1440 });
 	restoreWidth = stubClientWidth(1000);
 	apiMocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: GENERATIONS, total: 2 } });
 	apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 3 } });
@@ -157,7 +159,9 @@ describe('GenerationHistoryModal multi-select', () => {
 		await tick();
 		const calls = apiMocks.getGenerationHistory.mock.calls.length;
 
-		buttonByText('7 Days')!.click();
+		document.querySelector<HTMLButtonElement>('[data-filters-trigger]')!.click();
+		await vi.waitFor(() => expect(document.querySelector('[data-date="last_week"]')).not.toBeNull());
+		document.querySelector<HTMLButtonElement>('[data-date="last_week"]')!.click();
 		await vi.waitFor(() => expect(apiMocks.getGenerationHistory.mock.calls.length).toBeGreaterThan(calls));
 		await vi.waitFor(() => expect(document.querySelector('input[aria-label^="Select a.png"]')).not.toBeNull());
 
@@ -178,6 +182,102 @@ describe('GenerationHistoryModal multi-select', () => {
 		expect(isChecked(historyCheckbox('b.png'))).toBe(true);
 		expect(isChecked(historyCheckbox('c.mp4'))).toBe(true);
 		expect(count()).toBe('2 selected');
+	});
+
+	describe('Library filters', () => {
+		const lastQuery = () => apiMocks.listLibraryItems.mock.calls.at(-1)![0] as Record<string, unknown>;
+		const loaded = () => {
+			const calls = apiMocks.listLibraryItems.mock.calls.length;
+			return vi.waitFor(() => expect(apiMocks.listLibraryItems.mock.calls.length).toBeGreaterThan(calls), { timeout: 3000 });
+		};
+
+		beforeEach(() => {
+			apiMocks.getTags.mockResolvedValue({ success: true, data: { tags: [{ id: 't1', name: 'Mara', color: '#88aaff' }] } });
+			apiMocks.listCollections.mockResolvedValue({
+				success: true,
+				data: { collections: [{ id: 'c1', name: 'Faces', parent_id: null }] }
+			});
+		});
+
+		it('passes the chosen kind, collection and tag to the list query', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+
+			let pending = loaded();
+			buttonByText('Videos')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ media_type: 'video' });
+
+			pending = loaded();
+			document.querySelector<HTMLButtonElement>('[data-collection-filter]')!.click();
+			await vi.waitFor(() => expect(document.querySelector('[role="option"]')).not.toBeNull());
+			await vi.waitFor(() => expect(document.body.textContent).toContain('Faces'));
+			[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((el) => el.textContent?.includes('Faces'))!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ media_type: 'video', collection_id: 'c1' });
+
+			pending = loaded();
+			document.querySelector<HTMLButtonElement>('[data-filter-tags]')!.click();
+			await vi.waitFor(() => expect([...document.querySelectorAll('[role="option"]')].some((el) => el.textContent?.includes('Mara'))).toBe(true));
+			[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((el) => el.textContent?.includes('Mara'))!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ media_type: 'video', collection_id: 'c1', tag_ids: 't1' });
+		});
+
+		it('offers Unsorted and Favorites and sends them', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+
+			let pending = loaded();
+			document.querySelector<HTMLButtonElement>('[data-favorites-filter]')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ favorites_only: true });
+
+			pending = loaded();
+			document.querySelector<HTMLButtonElement>('[data-collection-filter]')!.click();
+			await vi.waitFor(() => expect([...document.querySelectorAll('[role="option"]')].some((el) => el.textContent?.trim() === 'Unsorted')).toBe(true));
+			[...document.querySelectorAll<HTMLElement>('[role="option"]')].find((el) => el.textContent?.trim() === 'Unsorted')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ unsorted: true });
+		});
+
+		it('keeps the selection when a filter changes', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+			checkbox('one.png').click();
+			await tick();
+
+			apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: [LIBRARY[2]], total: 1 } });
+			const pending = loaded();
+			buttonByText('Videos')!.click();
+			await pending;
+			await vi.waitFor(() => expect(document.querySelector('input[data-file="one.png"]')).toBeNull());
+			expect(count()).toBe('1 selected');
+
+			apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 3 } });
+			buttonByText('All')!.click();
+			await vi.waitFor(() => expect(document.querySelector('input[data-file="one.png"]')).not.toBeNull());
+			expect(checkbox('one.png').checked).toBe(true);
+		});
+
+		it('hides the kind filter when the caller already fixed the kind', async () => {
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn(), mediaType: 'image' });
+			await settle();
+			expect(buttonByText('Videos')).toBeUndefined();
+			expect(lastQuery()).toMatchObject({ media_type: 'image' });
+		});
+
+		it('pages with numbered pagination and a bounded page size', async () => {
+			apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 55 } });
+			mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn() });
+			await settle();
+			expect(lastQuery()).toMatchObject({ limit: 20, offset: 0 });
+			expect(document.querySelector('nav[aria-label="Pagination"]')).not.toBeNull();
+			const pending = loaded();
+			buttonByText('2')!.click();
+			await pending;
+			expect(lastQuery()).toMatchObject({ limit: 20, offset: 20 });
+		});
 	});
 
 	it('dims files outside the media type constraint and explains why', async () => {
@@ -237,18 +337,6 @@ describe('GenerationHistoryModal multi-select', () => {
 		expect(onConfirm).not.toHaveBeenCalled();
 	});
 
-	it('previewing a file does not select it', async () => {
-		const onSelectionChange = vi.fn();
-		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
-		await settle();
-
-		document.querySelector<HTMLElement>('button[aria-label="Preview a.png (Preset)"]')!.click();
-		await tick();
-
-		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
-		expect(onSelectionChange).not.toHaveBeenCalled();
-	});
-
 	it('clicking the tile image toggles the selection', async () => {
 		const onSelectionChange = vi.fn();
 		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
@@ -258,7 +346,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		tileButton.click();
 		await tick();
 		expect(historyCheckbox('a.png').checked).toBe(true);
-		expect(document.querySelector('[data-testid="picker-preview"]')).toBeNull();
+		expect(document.querySelector('button[aria-label^="Preview"]')).toBeNull();
 		tileButton.click();
 		await tick();
 		expect(historyCheckbox('a.png').checked).toBe(false);
@@ -311,7 +399,7 @@ describe('GenerationHistoryModal multi-select', () => {
 });
 
 describe('UploadLibraryModal multi-select', () => {
-	it('clicking the tile image toggles the selection and the preview button only previews', async () => {
+	it('clicking the tile image toggles the selection and no tile offers a preview button', async () => {
 		const onSelectionChange = vi.fn();
 		mountPicker(UploadLibraryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
 		await settle();
@@ -319,12 +407,7 @@ describe('UploadLibraryModal multi-select', () => {
 		document.querySelector<HTMLElement>('button[aria-hidden="true"][data-file="one.png"]')!.click();
 		await tick();
 		expect(checkbox('one.png').checked).toBe(true);
-		expect(document.querySelector('[data-testid="picker-preview"]')).toBeNull();
-
-		document.querySelector<HTMLElement>('button[aria-label="Preview one.png"]')!.click();
-		await tick();
-		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
-		expect(checkbox('one.png').checked).toBe(true);
+		expect(document.querySelector('button[aria-label^="Preview"]')).toBeNull();
 	});
 
 	it('reports typed keys and items for library selections', async () => {
@@ -423,7 +506,7 @@ describe('UploadLibraryModal multi-select', () => {
 		await settle();
 
 		expect(document.querySelector('input[type="checkbox"]')).toBeNull();
-		document.querySelector<HTMLButtonElement>('[aria-label="Use one.png"]')!.click();
+		document.querySelector<HTMLButtonElement>('[aria-label="Select one.png"]')!.click();
 		expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'l1' }));
 	});
 });

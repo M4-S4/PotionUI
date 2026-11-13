@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import hashlib
 import json
@@ -50,7 +51,7 @@ class Harness:
             settings=Mock(get_setting=Mock(return_value="/outputs")),
             output_processor=Mock(process_output=AsyncMock(return_value={"handler": "H", "processed": True})),
             preset_template_loader=loader,
-            status_tracker=self.tracker,
+            status_tracker=self.tracker, kit_expander=inert_kit_expander(),
         )
 
     def request(self, key=None, prompt="a cat", form_data=None):
@@ -93,7 +94,7 @@ async def test_a_second_submit_with_the_same_key_returns_the_first_and_starts_no
 async def test_concurrent_submits_with_one_key_make_exactly_one_generation(harness):
     routed = []
 
-    async def slow_route(routing_request):
+    async def slow_route(routing_request, reserve=False):
         routed.append(routing_request)
         await asyncio.sleep(0.01)
         return Mock(

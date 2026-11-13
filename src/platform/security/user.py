@@ -8,10 +8,13 @@ routes, and features and plugins alike receive it as their caller.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from enum import Enum
 
 from src.platform.database.rows import dt_column, dt_iso
+
+if TYPE_CHECKING:
+    from src.platform.security.principal import KeyGrant
 
 class AccountType(Enum):
     USER = "USER"
@@ -29,6 +32,12 @@ class User:
     last_login: Optional[datetime] = None
     avatar_filename: Optional[str] = None
     has_local_password: bool = True
+    key: Optional["KeyGrant"] = None
+    owner_account_type: Optional[AccountType] = None
+
+    def __post_init__(self):
+        if self.owner_account_type is None:
+            self.owner_account_type = self.account_type
 
     @classmethod
     def from_row(cls, row) -> 'User':
@@ -63,3 +72,9 @@ class User:
         if not exclude_password:
             data['password_hash'] = self.password_hash
         return data
+
+def owner_is_admin(user) -> bool:
+    owner = getattr(user, "owner_account_type", None)
+    if not isinstance(owner, AccountType):
+        owner = getattr(user, "account_type", None)
+    return owner == AccountType.ADMIN

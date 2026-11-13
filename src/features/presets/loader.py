@@ -43,9 +43,11 @@ from src.features.presets.templates import (
 from src.features.presets.overlays import PresetOverlays, apply_overlays
 from src.features.presets.mode_fields import resolve_requirement_fields
 from src.features.presets.extensions import apply_preset_extensions, contained, duplicate_anchor_errors, plugin_preset_extensions
+from src.features.presets.pipeline_source import load_mode_pipeline
 from src.platform.filesystem.yaml_io import load_yaml_file
 from src.features.prompt.resource_sources import declared_prompt_resource_sources
 from .schema import (
+    PROMPT_SYNTAX_DEFAULT_KEY,
     validate_manifest,
     validate_pipeline_file,
     validate_form_file,
@@ -185,6 +187,22 @@ def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
         value = data.get(key)
         naming[key] = (value.strip() or None) if isinstance(value, str) else None
     return naming
+
+
+def resolve_prompt_syntax(declared, modes) -> Dict[str, List[Dict[str, Any]]]:
+    declared = declared or {}
+    default = declared.get(PROMPT_SYNTAX_DEFAULT_KEY)
+    resolved: Dict[str, List[Dict[str, Any]]] = {}
+    for mode_name, entries in declared.items():
+        if mode_name != PROMPT_SYNTAX_DEFAULT_KEY:
+            resolved[mode_name] = [entry.model_dump(exclude_none=True) for entry in entries]
+    if default is None:
+        return resolved
+    for mode_name, mode_template in modes.items():
+        if mode_name in resolved or getattr(mode_template, 'prompt', None) == 'none':
+            continue
+        resolved[mode_name] = [entry.model_dump(exclude_none=True) for entry in default]
+    return resolved
 
 
 def read_mode_prompting(mode_dir: Path) -> Dict[str, Any]:
@@ -407,10 +425,7 @@ class PresetTemplateLoader:
             mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
             for mode_name, entries in (manifest.prompt_resources or {}).items()
         }
-        prompt_syntax = {
-            mode_name: [entry.model_dump(exclude_none=True) for entry in entries]
-            for mode_name, entries in (manifest.prompt_syntax or {}).items()
-        }
+        prompt_syntax = resolve_prompt_syntax(manifest.prompt_syntax, modes_dict)
         styles, styles_preview = self._load_styles(preset_path)
 
         template = PresetTemplate(
@@ -493,9 +508,11 @@ class PresetTemplateLoader:
             return None, [f"modes/{mode_name}/pipeline.yml: file not found"]
 
         try:
-            pipeline_data = load_yaml_file(pipeline_file) or {}
+            pipeline_data, pointer_errors = load_mode_pipeline(mode_dir)
         except Exception as e:
             return None, [f"modes/{mode_name}/pipeline.yml: failed to parse: {e}"]
+        if pointer_errors:
+            return None, [f"modes/{mode_name}/pipeline.yml: {problem}" for problem in pointer_errors]
 
         _, pipeline_errors = validate_pipeline_file(pipeline_data, prefix=f"modes/{mode_name}/pipeline.yml")
 

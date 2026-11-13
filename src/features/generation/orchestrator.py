@@ -38,7 +38,7 @@ import time
 import traceback
 from contextlib import asynccontextmanager
 from functools import partial
-from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Callable, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.features.presets.repository import DatabasePresetRepository
@@ -69,11 +69,15 @@ from src.features.generation.output_processor import OutputProcessor
 from src.features.generation.prompt_batch import PROMPT_BATCH_SPLIT_NOTICE, PromptBatch, check_prompt_batch
 from src.features.generation.prompt_batch_split_repository import PromptBatchSplitRepository
 from src.features.generation.output_bridge import OutputBridge
+from src.features.generation.backend_balancer import BackendBalancer
 from src.features.generation.queue import QueuedGeneration
+from src.features.generation.routing.health import BackendHealthTracker
+from src.features.generation.routing.load import BackendLoadLedger
 from src.features.generation.queue_dispatcher import CancelledBeforeStart, QueueDispatcher
 from src.features.generation.scheduling import FAIR, SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.fixed_prompt import FixedPromptRun, apply_fixed_prompt, fixed_prompt_applies
+from src.features.generation.parameter_meta import ParamMetaStamp
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.grids.repository import grid_repo
 from src.features.generation.policy import GenerationPolicy
@@ -104,11 +108,13 @@ from src.features.models.form_refs import (
 )
 from src.features.models.exceptions import ModelAccessDeniedException
 from src.features.presets.exceptions import PresetNotFoundException
+from src.features.presets.mode_fields import model_fields
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
 from src.features.generation.dto import GenerationStatus
 from src.features.generation.exceptions import (
+    AdminAuthorityRequired,
     DuplicateIdempotencyKey,
     IdempotencyKeyConflict,
     InvalidGenerationSourceException,
@@ -128,6 +134,11 @@ from src.features.video_director import (
     compile_shot_plan,
     normalize_video_director,
 )
+from src.features.video_director.simple_modes import (
+    build_simple_mode_document,
+    is_director_backed,
+    simple_mode_spec,
+)
 from src.features.music_director import (
     apply_preset_mode_overlay as apply_music_director_mode_overlay,
     compile_sections_to_lyrics,
@@ -142,6 +153,8 @@ from src.features.forms.binding import bind_form, form_field_index, FormBindingE
 from src.features.prompt.resource_sources import BundleMembersResolver, member_kinds_resolver, prompt_resource_sources
 from src.platform.plugins.prompt_resource_sources import PromptResourceCaller, PromptResourceSourceRegistry
 from src.features.prompt.resources import mode_prompt_resources, resolve_generation_prompts
+from src.features.kits.expansion import KitExpander, split_kit_rows
+from src.features.kits.generation import expand_request as expand_kits_in_request
 from src.features.generation.memory_advisory import (
     _WEIGHT_LOAD_MARGIN,
     _activation_headroom_gb,
@@ -181,7 +194,8 @@ def _check_ltx_two_stage_geometry(preset_template, mode: str, form_data: Dict[st
     hardcoded preset id, so any current/future LTX-tagged preset sharing this
     `upscale`/`resolution` form shape is covered.
     """
-    if mode != "video" or "ltx" not in (getattr(preset_template, "tags", None) or []):
+    director_capabilities = (getattr(preset_template, "vars", None) or {}).get("video_director")
+    if not is_director_backed(director_capabilities, mode) or "ltx" not in (getattr(preset_template, "tags", None) or []):
         return
     scale = _LTX_UPSCALE_SCALES.get(form_data.get("upscale"))
     if scale is None:
@@ -236,6 +250,15 @@ def _is_form_default(preset_template: PresetTemplate, mode: str, field_name: str
     return field is not None and value == field.default
 
 
+def _request_prompt_pair(request) -> Tuple[str, str]:
+    prompts = getattr(request, 'prompts', None)
+    if not isinstance(prompts, (list, tuple)) or not prompts:
+        return '', ''
+    positive = getattr(prompts[0], 'positive', '')
+    negative = getattr(prompts[0], 'negative', '')
+    return (positive if isinstance(positive, str) else ''), (negative if isinstance(negative, str) else '')
+
+
 def _prepare_director_form_data(
     preset_template: PresetTemplate,
     mode: str,
@@ -245,6 +268,8 @@ def _prepare_director_form_data(
     model_overlay: Optional[Callable[[Any], Optional[Dict[str, Any]]]] = None,
     bundle_members: Optional[BundleMembersResolver] = None,
     model_sha256: Optional[Callable[[Any], Optional[str]]] = None,
+    prompt_pair: Optional[Tuple[str, str]] = None,
+    dry_run: bool = False,
 ) -> Dict[str, Any]:
     """Pure Video/Music Director canonicalization, shared by `start_generation`
     and `GenerationOrchestrator.preview_memory` so a preview's active loader
@@ -269,6 +294,14 @@ def _prepare_director_form_data(
             the API boundary), never something silently swallowed.
     """
     form_data = dict(form_data or {})
+
+    simple_spec = simple_mode_spec((preset_template.vars or {}).get('video_director'), mode)
+    if simple_spec is not None:
+        positive, negative = prompt_pair or ('', '')
+        form_data['video_director'] = build_simple_mode_document(
+            simple_spec, (preset_template.vars or {}).get('video_director'), form_data, positive, negative,
+            placeholders=dry_run,
+        )
 
     if isinstance(form_data.get('video_director'), dict):
         capabilities = (preset_template.vars or {}).get('video_director') or {}
@@ -566,6 +599,8 @@ class GenerationOrchestrator:
         prompt_resource_source_registry: Optional[PromptResourceSourceRegistry] = None,
         fixed_prompt_repository: Optional['PresetFixedPromptRepository'] = None,
         applied_prompt_repository: Optional['GenerationAppliedPromptRepository'] = None,
+        *,
+        kit_expander: KitExpander,
     ):
         """
         Initialize the generation orchestrator.
@@ -627,7 +662,9 @@ class GenerationOrchestrator:
         self._prompt_batch_splitter = PromptBatchSplitRepository()
         self.fixed_prompt_repository = fixed_prompt_repository
         self.applied_prompt_repository = applied_prompt_repository
+        self.kit_expander = kit_expander
         self._fixed_prompt_runs: Dict[str, FixedPromptRun] = {}
+        self._param_meta: Dict[str, ParamMetaStamp] = {}
         self.generation_stats_repository = generation_stats_repository
         # Cheap stateless wrapper over `preset_template_loader`, used solely to
         # resolve a preset's display name at generation_stats write time (see
@@ -653,12 +690,32 @@ class GenerationOrchestrator:
         self.status_tracker = status_tracker or GenerationStatusTracker()
 
         self._scheduling_policy_for = scheduling_policy_for or (lambda backend_id: SchedulingPolicy())
+        self.backend_health = BackendHealthTracker()
         self._queue_dispatcher = QueueDispatcher(
             status_tracker=self.status_tracker,
             dispatch=self._start_generation,
             policy_for=scheduling_policy_for,
             capacity_for=self._backend_capacity,
+            hold_reason=self._hold_reason,
         )
+        self.load_ledger = BackendLoadLedger(
+            counts=self._queue_dispatcher.queue.counts, capacity=self._backend_capacity
+        )
+        self._balancer = BackendBalancer(
+            dispatcher=self._queue_dispatcher,
+            get_router=lambda: self.router,
+            status_tracker=self.status_tracker,
+            health=self.backend_health,
+            get_backend=backend_registry.get_backend,
+            list_backends=backend_registry.get_all_backends,
+            fail_job=self._record_failure,
+            run_backend_for=lambda generation_id: self._run_backends.get(generation_id),
+            resolve_form=lambda form, backend: resolve_form_model_refs(form, backend, self.model_locator),
+        )
+        self.backend_health.add_listener(self._balancer.on_health_changed)
+        register_departure = getattr(backend_registry, 'add_departure_listener', None)
+        if callable(register_departure):
+            register_departure(self._balancer.on_backend_departed)
         self._prompt_expander = PromptExpander(plugin_registry=plugin_registry)
         self._notifier = GenerationNotifier(notification_manager=notification_manager, grids=grid_repo)
 
@@ -689,6 +746,29 @@ class GenerationOrchestrator:
         """The single generation queue, owned by the QueueDispatcher."""
         return self._queue_dispatcher.queue
 
+    def start_backend_probes(self) -> None:
+        self._balancer.start_probing()
+
+    async def stop_backend_probes(self) -> None:
+        await self._balancer.stop_probing()
+
+    def _hold_reason(self, backend_id: str) -> Optional[str]:
+        if self.backend_health.is_healthy(backend_id):
+            return None
+        return self.backend_health.reason(backend_id) or 'unhealthy'
+
+    def backend_load_snapshot(self, backend_id: str) -> Dict[str, Any]:
+        load = self.load_ledger.load(backend_id)
+        return {
+            'queued': load.queued,
+            'running': load.running,
+            'max_concurrent_runs': load.capacity,
+            'unhealthy_reason': self._hold_reason(backend_id),
+        }
+
+    def get_queue_info(self, generation_id: str) -> Optional[Dict[str, Any]]:
+        return self._queue_dispatcher.queue_info(generation_id)
+
     def _read_vram_gb(self) -> tuple:
         if self.gpu_monitor is None or not getattr(self.gpu_monitor, "available", True):
             return None, None
@@ -708,6 +788,7 @@ class GenerationOrchestrator:
         preset_template: PresetTemplate,
         mode: str,
         user_id: Optional[str],
+        request,
     ) -> Optional[str]:
         """The model identity a queued generation is scheduled against (the
         "fair" policy's affinity key - see `docs/backends.md` "Scheduling
@@ -738,6 +819,7 @@ class GenerationOrchestrator:
                 mode=mode,
                 form_name=bound.form_name,
                 user_id=user_id,
+                acts_as_admin=request._acts_as_admin,
             )
         except Exception:
             logger.debug("Model-identity pipeline build failed; affinity disabled", exc_info=True)
@@ -758,7 +840,30 @@ class GenerationOrchestrator:
             self.database_preset_repository, user_id, preset_id, GenerationPolicy.is_admin(user)
         )
 
-    def _enforce_model_access(self, bound, user_id: str) -> None:
+    def _enforce_admin_authority(
+        self, preset_template: PresetTemplate, mode: str, bound, user_id: str, request
+    ) -> None:
+        if request._acts_as_admin or self.user_repository is None:
+            return
+        owner = self.user_repository.get_by_id(user_id)
+        if not GenerationPolicy.is_admin(owner):
+            return
+        try:
+            built = self.pipeline_builder.build_pipeline(
+                preset_id=preset_template,
+                form_data=bound.values,
+                mode=mode,
+                form_name=bound.form_name,
+                user_id=user_id,
+                acts_as_admin=False,
+            )
+        except Exception:
+            logger.debug("Authority check could not build the pipeline", exc_info=True)
+            return
+        if built.needs_admin_authority:
+            raise AdminAuthorityRequired("This preset is restricted to administrators")
+
+    def _enforce_model_access(self, bound, user_id: str, preset_template=None, mode: Optional[str] = None) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
         `user_id` may reach, skipping references that live only under a
         field name in `bound.admin_pinned`.
@@ -781,7 +886,9 @@ class GenerationOrchestrator:
                 continue
             model_ids.update(collect_model_ids(value))
 
-        if not model_ids:
+        slot_files = self._unresolved_slot_files(bound, pinned, preset_template, mode)
+
+        if not model_ids and not slot_files:
             return
 
         user = self.user_repository.get_by_id(user_id)
@@ -790,6 +897,23 @@ class GenerationOrchestrator:
 
         for model_id in model_ids:
             self.model_access_policy.verify_model_access(model_id, user)
+        for value, model_types in slot_files:
+            self.model_access_policy.verify_filename_access(value, model_types, user)
+
+    @staticmethod
+    def _unresolved_slot_files(bound, pinned: set, preset_template, mode: Optional[str]) -> list:
+        mode_template = ((getattr(preset_template, "modes", None) or {}).get(mode)) if preset_template is not None else None
+        if mode_template is None:
+            return []
+        found = []
+        for name, spec in model_fields(mode_template).items():
+            value = bound.values.get(name)
+            if name in pinned or not isinstance(value, str) or not value.strip() or is_model_ref(value):
+                continue
+            configuration = spec.configuration or {}
+            types = configuration.get("model_types") or ([configuration["model_type"]] if configuration.get("model_type") else [])
+            found.append((value, [str(item) for item in types]))
+        return found
 
     def _bind(
         self,
@@ -854,7 +978,7 @@ class GenerationOrchestrator:
 
         return overlay
 
-    async def preview_memory(self, request, user_id: str) -> Dict[str, Any]:
+    async def preview_memory(self, request, user_id: str, acts_as_admin: bool = False) -> Dict[str, Any]:
         """A non-blocking request memory advisory for a request that has NOT
         started: binds the form, canonicalizes any Video/Music Director
         document, and resolves the backend exactly as `start_generation`
@@ -889,6 +1013,7 @@ class GenerationOrchestrator:
             NoBackendForEngineError / NoEligibleBackendError: no backend
                 available for this preset's engine / request.
         """
+        request._acts_as_admin = bool(acts_as_admin)
         self._enforce_preset_access(request.preset_id, user_id)
         preset_template = self.preset_template_loader.load_preset_by_id(request.preset_id)
         if not preset_template:
@@ -903,7 +1028,8 @@ class GenerationOrchestrator:
                 request.preset_id
             ).get(mode, {})
         bound = self._bind(
-            preset_template, mode, getattr(request, 'form_name', None), request.form_data,
+            preset_template, mode, getattr(request, 'form_name', None),
+            split_kit_rows(request.form_data)[0],
             user_id, storage_dir, field_overrides,
         )
 
@@ -926,6 +1052,7 @@ class GenerationOrchestrator:
                 model_overlay=self._director_model_overlay(preset_template),
                 bundle_members=self._bundle_members(user_id),
                 model_sha256=self._model_sha256,
+                prompt_pair=_request_prompt_pair(request),
             )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
@@ -933,6 +1060,7 @@ class GenerationOrchestrator:
                 mode=mode,
                 form_name=bound.form_name,
                 user_id=user_id,
+                acts_as_admin=request._acts_as_admin,
             )
             pipes = built.pipes
         except Exception:
@@ -978,8 +1106,10 @@ class GenerationOrchestrator:
         request,
         user_id: str,
         output_callback: Optional[Callable[[str, GenerationOutput], Any]] = None,
-        grid_cell: Optional['GridCellRef'] = None
+        grid_cell: Optional['GridCellRef'] = None,
+        acts_as_admin: bool = False,
     ) -> Dict[str, Any]:
+        request._acts_as_admin = bool(acts_as_admin)
         key = getattr(request, 'idempotency_key', None)
         if not isinstance(key, str) or not key:
             return await self._submit_generation(request, user_id, output_callback, grid_cell=grid_cell)
@@ -1073,7 +1203,7 @@ class GenerationOrchestrator:
             form_data=form_data or {},
             user_id=user_id,
             mode=mode,
-        ))
+        ), reserve=True)
         return decision.chosen, decision, decision.summary()
 
     def _persist_side_records(
@@ -1183,6 +1313,7 @@ class GenerationOrchestrator:
 
         self._enforce_preset_access(request.preset_id, user_id)
         admitted_ref: Optional[str] = None
+        reserved_backend_id: Optional[str] = None
         try:
             logger.info(f"Starting generation for user={user_id}, preset={request.preset_id}")
 
@@ -1209,11 +1340,15 @@ class GenerationOrchestrator:
                 field_overrides = self.database_preset_repository.get_preset_form_overrides(
                     request.preset_id
                 ).get(mode, {})
+            form_for_bind, loaded_kits = split_kit_rows(request.form_data)
             bound = self._bind(
-                preset_template, mode, getattr(request, 'form_name', None), request.form_data,
+                preset_template, mode, getattr(request, 'form_name', None), form_for_bind,
                 user_id, storage_dir, field_overrides,
             )
             request.form_data = bound.values
+            kit_expansion = await asyncio.to_thread(
+                expand_kits_in_request, self.kit_expander, user_id, request, preset_template, mode, loaded_kits,
+            )
 
             if self.content_safety is not None:
                 self.content_safety.preflight(user_id)
@@ -1225,7 +1360,8 @@ class GenerationOrchestrator:
             # scope by design). Raises ModelNotFoundException/
             # ModelAccessDeniedException, mapped by the controller to the house
             # 404-not-403 pattern.
-            self._enforce_model_access(bound, user_id)
+            self._enforce_model_access(bound, user_id, preset_template, mode)
+            self._enforce_admin_authority(preset_template, mode, bound, user_id, request)
 
             # Video/Music Director documents, if present, are untrusted client
             # input: validate + canonicalize against what this preset
@@ -1241,7 +1377,11 @@ class GenerationOrchestrator:
                     model_overlay=self._director_model_overlay(preset_template),
                     bundle_members=self._bundle_members(user_id),
                     model_sha256=self._model_sha256,
+                    prompt_pair=_request_prompt_pair(request),
                 )
+                request._one_shot_director = simple_mode_spec(
+                    (preset_template.vars or {}).get('video_director'), mode,
+                ) is not None
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)
             # stage-1 render, when the picked resolution/upscale combination
@@ -1260,9 +1400,12 @@ class GenerationOrchestrator:
             if generation_origins:
                 _validate_generation_origins(generation_origins, user_id)
 
+            routed_form_data = request.form_data
             backend, decision, routing_summary = await self._route(
-                engine, preset_template, request.form_data, user_id, mode
+                engine, preset_template, routed_form_data, user_id, mode
             )
+            if getattr(decision, 'reserved', False) is True:
+                reserved_backend_id = backend.backend_id
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")
 
@@ -1433,7 +1576,7 @@ class GenerationOrchestrator:
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
                 model_key=(
-                    self._resolve_model_key(bound, preset_template, mode, user_id)
+                    self._resolve_model_key(bound, preset_template, mode, user_id, request)
                     if self._scheduling_policy_for(backend.backend_id).name == FAIR
                     else None
                 ),
@@ -1442,9 +1585,18 @@ class GenerationOrchestrator:
                     'backend': backend,
                     'db_generation': db_generation,
                     'output_callback': output_callback,
+                    'routing': RoutingRequest(
+                        engine=engine,
+                        preset=preset_template,
+                        form_data=routed_form_data or {},
+                        user_id=user_id,
+                        mode=mode,
+                    ),
                 },
             ))
             admitted_ref = None
+            self._release_reservation(reserved_backend_id)
+            reserved_backend_id = None
 
             await self._queue_dispatcher.publish_positions()
 
@@ -1455,18 +1607,33 @@ class GenerationOrchestrator:
                    else f"started on {backend.name}")
             )
 
-            return {
+            submitted = {
                 'generation_id': generation_id,
                 'status': record.model_dump(),
                 'queue_position': queue_position,
             }
+            if kit_expansion.touched:
+                submitted['kits'] = {
+                    'used': kit_expansion.used,
+                    'notices': [notice.to_dict() for notice in kit_expansion.notices],
+                }
+                if kit_expansion.notices:
+                    self._notifier.notify_warning(
+                        generation_id, user_id, " ".join(notice.message for notice in kit_expansion.notices),
+                    )
+            return submitted
 
         except BaseException as e:
+            self._release_reservation(reserved_backend_id)
             if admitted_ref is not None:
                 self.limit_guard.refund(admitted_ref)
             if isinstance(e, Exception):
                 logger.error(f"Failed to start generation: {str(e)}", exc_info=True)
             raise
+
+    def _release_reservation(self, backend_id: Optional[str]) -> None:
+        if backend_id is not None and self.router is not None:
+            self.router.release(backend_id)
 
     def set_queue_listener(self, listener: Callable[[str, Dict[str, Any]], Any]) -> None:
         """Register the callback that broadcasts `queue_update` messages."""
@@ -1589,6 +1756,7 @@ class GenerationOrchestrator:
                 prompts=prompts,
                 form_name=getattr(request, 'form_name', None),
                 user_id=db_generation.user_id,
+                acts_as_admin=request._acts_as_admin,
             )
             if batch is not None:
                 batch.apply_to_pipes(built_pipeline.pipes)
@@ -1597,6 +1765,11 @@ class GenerationOrchestrator:
                 if self.applied_prompt_repository is not None:
                     self.applied_prompt_repository.save(generation_id, fixed_run.records())
                 self._fixed_prompt_runs[generation_id] = fixed_run
+            param_meta = ParamMetaStamp.plan(
+                built_pipeline.preset_template, mode, getattr(request, 'form_name', None)
+            )
+            if param_meta is not None:
+                self._param_meta[generation_id] = param_meta
         except Exception as e:
             logger.error(f"Failed to build pipeline: {str(e)}", exc_info=True)
             failure = failure_from_exception(e, traceback.format_exc())
@@ -1765,6 +1938,9 @@ class GenerationOrchestrator:
         fixed_run = self._fixed_prompt_runs.get(generation_id)
         if fixed_run is not None:
             fixed_run.mask(output)
+        param_meta = self._param_meta.get(generation_id)
+        if param_meta is not None:
+            param_meta.stamp(output)
 
         if output_type_registry.is_server_only(output):
             try:
@@ -1903,6 +2079,7 @@ class GenerationOrchestrator:
         backend = self._run_backends.pop(generation_id, None)
         prompt_batch = self._prompt_batches.pop(generation_id, None)
         self._fixed_prompt_runs.pop(generation_id, None)
+        self._param_meta.pop(generation_id, None)
         record = self.status_tracker.get(generation_id)
         if record is None:
             return
@@ -2224,6 +2401,7 @@ class GenerationOrchestrator:
         self._cancel_requested.discard(generation_id)
         self._prompt_batches.pop(generation_id, None)
         self._fixed_prompt_runs.pop(generation_id, None)
+        self._param_meta.pop(generation_id, None)
         self._content_tally.pop(generation_id, None)
 
     async def clear_tab_queue(self, user_id: str, tab_id: str) -> List[str]:

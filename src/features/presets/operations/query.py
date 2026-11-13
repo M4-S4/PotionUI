@@ -16,6 +16,7 @@ from src.features.presets.mappers import admin_list_fields, missing_mirror_entry
 from src.features.presets.overlays import MIRROR_OK
 from src.features.presets.mode_labels import mode_display_icon, mode_display_name
 from src.features.presets.quantity import mode_quantity_fields
+from src.features.presets.retired_modes import replacement_for
 from src.features.prompt.resource_sources import with_source_specs
 from src.features.presets.exceptions import (
     InvalidModeDataException,
@@ -24,10 +25,11 @@ from src.features.presets.exceptions import (
     PresetNotFoundException,
 )
 from src.features.presets.requirements.context_builder import backend_infos_for_engine, resolve_backend_id
+from src.features.presets.requirements.user_scope import user_missing_by_mode
 from src.features.presets.templates import ModeTemplate, GenerationMode, sorted_forms, default_form_name
 from src.pipelines.graph import build_graph, PipelineGraph
 from src.platform.plugins.requirement_checkers import requirement_checker_registry
-from src.platform.security.user import User, AccountType
+from src.platform.security.user import User, AccountType, owner_is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +226,31 @@ def get_available_modes(collaborators: PresetCollaborators, preset_id: str) -> D
     }
 
 
+def apply_user_model_scope(collaborators: PresetCollaborators, preset_id: str, data: Dict[str, Any], user: Optional[User]) -> None:
+    index = collaborators.model_index
+    if user is None or index is None or owner_is_admin(user):
+        return
+    template = collaborators.file_repo.find_preset_by_id(preset_id)
+    if template is None:
+        return
+    allowed = index.access.get_allowed_model_ids(user, all_models=False)
+    if not isinstance(allowed, (list, tuple, set)):
+        return
+    overrides = collaborators.db_repo.get_preset_form_overrides(preset_id) or {} if collaborators.db_repo is not None else {}
+    lacking = user_missing_by_mode(
+        requirement_checker_registry,
+        template.requirements or [],
+        index.model_repo,
+        getattr(index, "digests", None),
+        overrides,
+        allowed,
+    )
+    for mode in data.get("modes") or []:
+        extra = [entry for entry in lacking.get(mode["name"], []) if entry not in (mode.get("requirements_missing") or [])]
+        if extra:
+            mode["requirements_missing"] = [*(mode.get("requirements_missing") or []), *extra]
+
+
 def _mode_short_description(mode_data: ModeTemplate) -> Optional[str]:
     default_name = default_form_name(mode_data)
     for form in mode_data.forms:
@@ -289,7 +316,7 @@ def get_form_schema(
 
     mode_data = found_preset.modes.get(mode)
     if mode_data is None:
-        raise ModeNotFoundException(preset_id, mode)
+        raise ModeNotFoundException(preset_id, mode, replaced_by=replacement_for(getattr(found_preset, 'vars', None), mode))
 
     # Get form configuration
     form_config = _get_form_config(mode_data, mode, form_name, preset_id)

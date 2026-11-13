@@ -290,7 +290,7 @@ for (const size of SIZES) {
 			});
 			const zone = host.locator('[data-media-dropzone]');
 			await expect(zone).toBeVisible();
-			await expect(zone.getByRole('button', { name: 'Browse' })).toBeVisible();
+			await expect(zone.getByRole('button', { name: 'Upload file' })).toBeVisible();
 			await expect(zone.getByRole('button', { name: 'Paste' })).toBeVisible();
 			await expect(zone.getByRole('button', { name: 'History' })).toBeVisible();
 			await expect(zone.getByRole('button', { name: 'Library' })).toBeVisible();
@@ -318,16 +318,29 @@ for (const size of SIZES) {
 			await screenshot(page, JOURNEY, `single-image-${size.tag}`);
 		});
 
-		test('tab order walks the preview, Tools, Replace and Remove', async ({ page }) => {
+		test('Replace opens the same named sources the empty tile offers, with Kits as one item', async ({ page }) => {
+			const host = await mountField(page, size, {
+				config: { title: 'Image', accept: 'image/*' },
+				value: imageItem(1)
+			});
+			await host.getByRole('button', { name: 'Replace' }).click();
+			const menu = page.locator('[data-source-menu="change"]');
+			await expect(menu.getByText('Replace image')).toBeVisible();
+			await expect(menu.getByRole('menuitem')).toHaveText([/Upload file/, /History/, /Library/, /Kits.*one item/, /Paste/, /Draw/]);
+			await page.keyboard.press('Escape');
+			await expect(menu).toHaveCount(0);
+		});
+
+		test('tab order walks the preview, Replace, Tools and Remove', async ({ page }) => {
 			const host = await mountField(page, size, {
 				config: { title: 'Image', accept: 'image/*' },
 				value: imageItem(1)
 			});
 			await host.getByRole('button', { name: 'View full size' }).focus();
 			await page.keyboard.press('Tab');
-			await expect(host.locator('[data-tools-trigger]')).toBeFocused();
-			await page.keyboard.press('Tab');
 			await expect(host.getByRole('button', { name: 'Replace' })).toBeFocused();
+			await page.keyboard.press('Tab');
+			await expect(host.locator('[data-tools-trigger]')).toBeFocused();
 			await page.keyboard.press('Tab');
 			await expect(host.getByRole('button', { name: 'Remove' })).toBeFocused();
 		});
@@ -480,7 +493,7 @@ for (const size of SIZES) {
 			await tiles.nth(1).click();
 			await expect(host.locator('[data-media-tile="1"]')).toHaveAttribute('data-selected', 'true');
 			await expectNoOverflow(page, host);
-			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'earlier', 'later', 'replace', 'remove-all'], `tools-multi-${size.tag}`);
+			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'earlier', 'later', 'remove-all'], `tools-multi-${size.tag}`);
 			await screenshot(page, JOURNEY, `multi-three-${size.tag}`);
 		});
 
@@ -640,7 +653,7 @@ for (const size of SIZES) {
 
 			const single = await mountField(page, size, { config: { title: 'Voice', accept: 'audio/*' }, value: null });
 			await single.getByRole('button', { name: 'History' }).click();
-			const modalTitle = page.getByText('Select Audio from Generation History');
+			const modalTitle = page.getByRole('heading', { name: 'Choose audio' });
 			await expect(modalTitle).toBeVisible();
 			const historyCards = page.getByRole('dialog').locator('[data-testid="history-file-tile"] button');
 			await expect(historyCards).toHaveCount(1);
@@ -659,7 +672,7 @@ for (const size of SIZES) {
 			const mixed = await mountField(page, size, { config: MIXED, value: [imageItem(1)] });
 			await mixed.locator('[data-media-add="audio"]').click();
 			await page.locator('[data-source-menu] [data-source="history"]').click();
-			await expect(page.getByText('Select Audio from Generation History')).toBeVisible();
+			await expect(page.getByRole('heading', { name: 'Choose audio' })).toBeVisible();
 			const mixedDialog = page.getByRole('dialog');
 			const mixedChecks = mixedDialog.getByRole('checkbox');
 			await expect(mixedChecks).toHaveCount(1);
@@ -681,7 +694,7 @@ for (const size of SIZES) {
 			const box = await row.boundingBox();
 			expect(box!.height).toBeLessThan(64);
 			await expectNoOverflow(page, host);
-			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'replace', 'remove']);
+			await expectToolsReachable(page, host, ['edit', 'crop', 'full', 'remove']);
 			await screenshot(page, JOURNEY, `compact-single-${size.tag}`);
 		});
 

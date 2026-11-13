@@ -59,6 +59,7 @@ from src.features.media.routes import (
 )
 from src.features.media_tools.routes import build_router as build_media_tools_router
 from src.features.library.routes import build_router as build_library_router
+from src.features.kits.routes import build_router as build_kits_router
 from src.features.inspirations.routes import (
     build_router as build_inspiration_router,
     build_media_router as build_inspiration_media_router,
@@ -98,7 +99,12 @@ from src.features.automation.routes import (
     build_router as build_automation_router,
     build_ws_router as build_automation_ws_router,
 )
-from src.features.mcp.routes import build_router as build_mcp_router
+from src.features.api_keys.routes import (
+    build_admin_router as build_api_keys_admin_router,
+    build_router as build_api_keys_router,
+)
+from src.features.mcp.legacy_routes import build_legacy_router as build_mcp_legacy_router
+from src.features.mcp.routes import build_admin_router as build_mcp_admin_router, build_router as build_mcp_router
 
 
 def register_routers(app: FastAPI, container: AppContainer) -> None:
@@ -144,6 +150,7 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_media_router(container))  # Media endpoints
     app.include_router(build_media_tools_router(container))
     app.include_router(build_library_router(container))  # User media library
+    app.include_router(build_kits_router(container))
     app.include_router(build_inspiration_router(container))  # Inspirations - cross-user publishing
     app.include_router(build_inspiration_media_router(container))  # Serves copied inspiration media
     app.include_router(build_system_router(container))
@@ -176,4 +183,8 @@ def register_routers(app: FastAPI, container: AppContainer) -> None:
     app.include_router(build_notification_ws_router(container))  # Notification WebSocket endpoint
     app.include_router(build_automation_router(container))  # Automation endpoints
     app.include_router(build_automation_ws_router(container))  # Automation WebSocket endpoint
-    app.include_router(build_mcp_router(container))  # MCP tokens + JSON-RPC endpoint
+    app.include_router(build_api_keys_router(container))
+    app.include_router(build_api_keys_admin_router(container))
+    app.include_router(build_mcp_router(container))
+    app.include_router(build_mcp_admin_router(container))
+    app.include_router(build_mcp_legacy_router(container))

@@ -29,9 +29,13 @@ from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from .children_refs import parse_children_ref, read_children_fragment
 from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
 from .extensions import plugin_preset_extensions, read_extension_file, resolve_pipe
-from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming
+from src.features.video_director.normalize import apply_preset_mode_overlay
+from src.features.video_director.simple_modes import simple_mode_problems
+from .pipeline_source import pointer_problems, resolve_mode_pipeline_file
+from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming, read_mode_prompting
 from .mode_labels import fallback_mode_label, is_known_mode, known_icon_names
 from .schema import (
+    PROMPT_SYNTAX_DEFAULT_KEY,
     SPEED_PROFILE_KNOWN_KEYS,
     validate_manifest,
     validate_form_file,
@@ -485,6 +489,13 @@ class PresetLinter:
                     LintIssue("error", preset_str, f"modes/{mode_name}: directory not found")
                 )
                 continue
+            pointer_issues = [
+                LintIssue("error", preset_str, f"modes/{mode_name}/pipeline.yml: {problem}")
+                for problem in pointer_problems(mode_dir)
+            ]
+            if pointer_issues:
+                issues.extend(pointer_issues)
+                continue
             issues.extend(self._lint_option_file_refs(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_children_refs(preset_file, mode_dir, mode_name))
             issues.extend(self._lint_form_variants(preset_file, mode_dir, mode_name))
@@ -517,6 +528,8 @@ class PresetLinter:
         issues.extend(self._lint_driver_registered(preset_file, manifest))
 
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
+
+        issues.extend(self._lint_simple_modes(preset_file, manifest))
 
         issues.extend(self._lint_mode_descriptions(preset_file, manifest))
 
@@ -891,11 +904,31 @@ class PresetLinter:
     def _lint_prompt_syntax(self, preset_file: Path, manifest) -> List[LintIssue]:
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
-        for mode_name, entries in (getattr(manifest, "prompt_syntax", None) or {}).items():
+        declared = getattr(manifest, "prompt_syntax", None) or {}
+        for mode_name, entries in declared.items():
+            if mode_name == PROMPT_SYNTAX_DEFAULT_KEY:
+                continue
             loc = f"preset.yml: prompt_syntax.{mode_name}"
             mode_dir = preset_file.parent / "modes" / mode_name
             if mode_name not in manifest.modes or not mode_dir.exists():
                 issues.append(LintIssue("error", preset_str, f"{loc}: '{mode_name}' is not a mode of this preset"))
+        if not declared or PROMPT_SYNTAX_DEFAULT_KEY in declared:
+            return issues
+        for mode_name in manifest.modes:
+            if mode_name in declared:
+                continue
+            mode_dir = preset_file.parent / "modes" / mode_name
+            if not mode_dir.exists() or read_mode_prompting(mode_dir).get("prompt") == "none":
+                continue
+            issues.append(
+                LintIssue(
+                    "warning",
+                    preset_str,
+                    f"preset.yml: prompt_syntax declares syntax for other modes but mode '{mode_name}' has a prompt "
+                    f"field and neither a '{mode_name}' entry nor a '{PROMPT_SYNTAX_DEFAULT_KEY}' default "
+                    f"(use '{mode_name}: []' to opt out)",
+                )
+            )
         return issues
 
     def _lint_prompt_resources(self, preset_file: Path, manifest) -> List[LintIssue]:
@@ -1046,7 +1079,7 @@ class PresetLinter:
     @staticmethod
     def _pipeline_has_stage(mode_dir: Path, prefix: str) -> bool:
         try:
-            data = load_yaml_file(mode_dir / "pipeline.yml")
+            data = load_yaml_file(resolve_mode_pipeline_file(mode_dir))
         except Exception:
             return False
         pipes = data.get("pipeline") if isinstance(data, dict) else None
@@ -1335,7 +1368,7 @@ class PresetLinter:
 
         for mode_name in manifest.modes:
             mode_dir = preset_root / "modes" / mode_name
-            pipeline_file = mode_dir / "pipeline.yml"
+            pipeline_file = resolve_mode_pipeline_file(mode_dir)
             if not pipeline_file.exists():
                 continue
             loc = f"modes/{mode_name}"
@@ -1414,7 +1447,7 @@ class PresetLinter:
 
         has_comfyui_pipe = False
         for mode_name in manifest.modes:
-            pipeline_file = preset_file.parent / "modes" / mode_name / "pipeline.yml"
+            pipeline_file = resolve_mode_pipeline_file(preset_file.parent / "modes" / mode_name)
             if not pipeline_file.exists():
                 continue
             try:
@@ -1595,7 +1628,7 @@ class PresetLinter:
         """
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if not pipeline_file.exists():
             return issues
 
@@ -1722,7 +1755,7 @@ class PresetLinter:
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
         preset_root = preset_file.parent
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if not pipeline_file.exists():
             return issues
 
@@ -1781,7 +1814,7 @@ class PresetLinter:
         preset_level = manifest.negative_prompt.model_dump()["applies_when"] if manifest.negative_prompt else None
 
         pipeline_data: Any = None
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if pipeline_file.exists():
             try:
                 pipeline_data = load_yaml_file(pipeline_file)
@@ -1870,7 +1903,7 @@ class PresetLinter:
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
         preset_root = preset_file.parent
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if not pipeline_file.exists():
             return issues
 
@@ -1935,7 +1968,7 @@ class PresetLinter:
         """
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if not pipeline_file.exists():
             return issues
 
@@ -1989,7 +2022,7 @@ class PresetLinter:
         """
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if not pipeline_file.exists():
             return issues
 
@@ -2074,7 +2107,7 @@ class PresetLinter:
         """
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if not pipeline_file.exists():
             return issues
 
@@ -2207,7 +2240,7 @@ class PresetLinter:
         """
         issues: List[LintIssue] = []
         preset_str = str(preset_file)
-        pipeline_file = mode_dir / "pipeline.yml"
+        pipeline_file = resolve_mode_pipeline_file(mode_dir)
         if not pipeline_file.exists():
             return issues
 
@@ -2443,6 +2476,46 @@ class PresetLinter:
                 if name not in known_fields and name not in missing:
                     missing.append(name)
         return missing
+
+    def _lint_simple_modes(self, preset_file: Path, manifest) -> List[LintIssue]:
+        capabilities = (manifest.vars or {}).get("video_director")
+        table = capabilities.get("simple_modes") if isinstance(capabilities, dict) else None
+        if table is None:
+            return []
+        preset_str = str(preset_file)
+        problems = simple_mode_problems(table)
+        if problems:
+            return [LintIssue("error", preset_str, f"vars.video_director: {problem}") for problem in problems]
+
+        issues: List[LintIssue] = []
+        editor_modes = capabilities.get("preset_modes") or []
+        overrides = capabilities.get("preset_mode_overrides") or {}
+        for mode_name, spec in table.items():
+            loc = f"vars.video_director.simple_modes.{mode_name}"
+            if mode_name not in manifest.modes:
+                issues.append(LintIssue("error", preset_str, f"{loc}: not a mode of this preset"))
+                continue
+            if mode_name in editor_modes:
+                issues.append(LintIssue("error", preset_str, f"{loc}: a mode cannot be both a simple mode and a Director editor mode (preset_modes)"))
+            composition = spec["composition"]
+            effective = apply_preset_mode_overlay(capabilities, mode_name)
+            if composition not in (effective.get("modes") or {}):
+                issues.append(LintIssue("error", preset_str, f"{loc}: composition '{composition}' is not declared in the Director capabilities"))
+            leaked = sorted(set(effective.get("modes") or {}) - {composition})
+            if leaked and mode_name in overrides:
+                issues.append(LintIssue("warning", preset_str, f"{loc}: the override leaves {leaked} enabled; the adapter only ever builds '{composition}'"))
+            mode_dir = preset_file.parent / "modes" / mode_name
+            try:
+                form_data = load_yaml_file(mode_dir / "form.yml") or {}
+            except Exception:
+                continue
+            names: set = set()
+            self._collect_field_names(form_data.get("fields", []), preset_file.parent, names)
+            for key in ("first", "last", "duration_field"):
+                field = spec.get(key) if key != "duration_field" else spec.get("duration_field", "duration")
+                if isinstance(field, str) and field not in names:
+                    issues.append(LintIssue("error", preset_str, f"{loc}.{key}: form field '{field}' does not exist in modes/{mode_name}"))
+        return issues
 
     def _lint_mode_descriptions(self, preset_file: Path, manifest) -> List[LintIssue]:
         issues: List[LintIssue] = []

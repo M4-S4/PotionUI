@@ -20,6 +20,7 @@ export const iconPaths: Record<string, string | string[]> = {
 	// Canonical crossing-arrows shuffle glyph -- distinct silhouette from `refresh`'s
 	// circular arrows, so an action ("shuffle now") never reads as a state loop.
 	shuffle: ['M16 3h5v5', 'M4 20L21 3', 'M21 16v5h-5', 'M15 15L21 21', 'M4 4L9 9'],
+	swap: ['M8 7h12m0 0l-4-4m4 4l-4 4', 'M16 17H4m0 0l4-4m-4 4l4 4'],
 	download: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4',
 	upload: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
 	copy: 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z',
@@ -201,6 +202,8 @@ export const iconPaths: Record<string, string | string[]> = {
 	concat: ['M3 8h8v8H3z', 'M13 8h8v8h-8z', 'M11 12h2'],
 	cuts: ['M3 6h6v12H3z', 'M15 6h6v12h-6z', 'M12 3v18'],
 	plug: ['M12 22v-5', 'M9 8V2', 'M15 8V2', 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z'],
+	key: 'M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z',
+	ban: 'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636',
 	database: [
 		'M21 5a9 3 0 1 1 -18 0a9 3 0 0 1 18 0z',
 		'M3 5V19A9 3 0 0 0 21 19V5',

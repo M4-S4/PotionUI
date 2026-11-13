@@ -1,3 +1,4 @@
+from tests.fixtures.kits import inert_kit_expander
 import asyncio
 import threading
 import time
@@ -106,7 +107,7 @@ def orchestrator(backend):
         connection_hub=Mock(),
         settings=Mock(),
         output_processor=processor,
-        preset_template_loader=loader,
+        preset_template_loader=loader, kit_expander=inert_kit_expander(),
     )
 
 
@@ -300,7 +301,8 @@ def test_a_timed_out_smoke_on_the_app_loop_leaves_its_backend_free(
     engine.release.set()
 
     assert result.success is False
-    assert "timed out waiting for completion after 1s" in result.safe_error_detail
+    assert result.safe_error_detail == "The test didn't finish: it took longer than 1 second."
+    assert result.technical_detail == "timed out waiting for completion after 1s"
     assert asyncio.run_coroutine_threadsafe(
         _settled(orchestrator, 'gen_smoke'), app_loop
     ).result(10) == GenerationState.CANCELLED

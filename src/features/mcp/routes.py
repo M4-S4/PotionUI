@@ -1,91 +1,24 @@
-"""HTTP surface for MCP: user token CRUD, self-service + admin status, and the
-stateless JSON-RPC `/api/mcp` endpoint external MCP clients connect to with
-`Authorization: Bearer <token>`.
-
-The global on/off (`mcp_enabled`) is an ordinary SYSTEM setting, edited
-through the existing admin settings surface (`/api/settings`) — no dedicated
-route for it here. Token CRUD and the two status/toggle routes use the app's
-usual `APIResponse` envelope; `/api/mcp` itself does not — it must speak raw
-JSON-RPC 2.0.
-
-Mutations and toggle reads go through `src.features.mcp.operations`
-(formerly `McpManager`); `McpController` holds the token/settings/user
-repositories and passes them in.
-"""
-
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from src.features.mcp import operations
-from src.features.mcp.dto import McpTokenCreateRequest, McpUserToggleRequest
-from src.features.mcp.mappers import token_to_dict
+from src.features.api_keys.errors import ApiKeyError
+from src.features.api_keys.operations.keys import ApiKeyCollaborators
+from src.features.mcp.dto import McpKeyToolsPatchRequest, McpToolsPatchRequest
+from src.features.mcp.errors import McpToolError
+from src.features.mcp.operations import tools as tool_operations
 from src.features.mcp.protocol import JsonRpcError, McpToolCollaborators, handle_method, parse_jsonrpc_request
-from src.features.mcp.repository import McpTokenRepository
 from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.api_scopes import SESSION_ONLY, ApiScope, key_scope
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import AccountType, User
-from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 logger = logging.getLogger(__name__)
-
-
-class McpController(BaseController):
-    def __init__(
-        self,
-        token_repository: McpTokenRepository,
-        settings: Settings,
-        user_repository,
-    ):
-        super().__init__()
-        self._tokens = token_repository
-        self._settings = settings
-        self._users = user_repository
-
-    async def list_tokens(self, user: User) -> APIResponse:
-        tokens = self._tokens.list_for_user(user.id)
-        return self.success_response(data=[token_to_dict(t) for t in tokens])
-
-    async def create_token(self, request: McpTokenCreateRequest, user: User) -> APIResponse:
-        name = (request.name or "").strip()
-        if not name:
-            return self.error_api_response(error="invalid_name", message="name is required")
-        token, plaintext = operations.mint_token(self._tokens, user.id, name)
-        return self.success_response(data={**token_to_dict(token), "token": plaintext})
-
-    async def revoke_token(self, token_id: str, user: User) -> APIResponse:
-        revoked = operations.revoke_token(self._tokens, user.id, token_id)
-        if not revoked:
-            self.error_response(error="token_not_found", message="Token not found", status_code=404)
-        return self.success_response(data={"id": token_id, "revoked": True})
-
-    async def get_status(self, user: User) -> APIResponse:
-        global_enabled = operations.is_globally_enabled(self._settings)
-        user_enabled = operations.is_user_enabled(self._settings, user.id)
-        return self.success_response(data={
-            "enabled": global_enabled and user_enabled,
-            "global_enabled": global_enabled,
-            "user_enabled": user_enabled,
-        })
-
-    async def get_user_toggle(self, user_id: str) -> APIResponse:
-        if not self._users.get_by_id(user_id):
-            self.error_response(error="user_not_found", message="User not found", status_code=404)
-        return self.success_response(
-            data={"user_id": user_id, "enabled": operations.is_user_enabled(self._settings, user_id)}
-        )
-
-    async def set_user_toggle(self, user_id: str, enabled: bool) -> APIResponse:
-        try:
-            operations.set_user_enabled(self._settings, self._users, user_id, enabled)
-        except ValueError:
-            self.error_response(error="user_not_found", message="User not found", status_code=404)
-        return self.success_response(data={"user_id": user_id, "enabled": enabled})
 
 
 def _jsonrpc_error(request_id, code: int, message: str) -> JSONResponse:
@@ -103,82 +36,115 @@ def request_origin(request: Request) -> str:
     return f"{scheme}://{host}" if host else ""
 
 
+async def require_key_caller(current_user: User = Depends(get_current_active_user)) -> User:
+    if current_user.key is None:
+        raise HTTPException(
+            status_code=401,
+            detail={"success": False, "error": "api_key_required", "message": "MCP needs an API key"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return current_user
+
+
+class McpToolsController(BaseController):
+    def __init__(self, collaborators: McpToolCollaborators, keys: ApiKeyCollaborators):
+        super().__init__()
+        self._c = collaborators
+        self._keys = keys
+
+    def _fail(self, exc: Union[McpToolError, ApiKeyError]):
+        self.error_response(error=exc.error, message=exc.message, status_code=exc.status_code)
+
+    async def default_listing(self, user: User) -> APIResponse:
+        return self.success_response(data=tool_operations.default_listing(self._c, user.id))
+
+    async def patch_default(self, request: McpToolsPatchRequest, user: User) -> APIResponse:
+        try:
+            listing = tool_operations.patch_default(self._c, user.id, request.policy, request.overrides)
+        except (McpToolError, ApiKeyError) as exc:
+            self._fail(exc)
+        return self.success_response(data=listing)
+
+    async def key_listing(self, key_id: str, user: User) -> APIResponse:
+        try:
+            key = tool_operations.key_for_tools(self._keys, user, key_id)
+        except (McpToolError, ApiKeyError) as exc:
+            self._fail(exc)
+        return self.success_response(data=tool_operations.key_listing(self._c, user.id, key.id))
+
+    async def patch_key(self, key_id: str, request: McpKeyToolsPatchRequest, user: User) -> APIResponse:
+        try:
+            listing = tool_operations.patch_key(
+                self._c, self._keys, user, key_id, request.overrides, bool(request.reset)
+            )
+        except (McpToolError, ApiKeyError) as exc:
+            self._fail(exc)
+        return self.success_response(data=listing)
+
+    async def ceiling_listing(self) -> APIResponse:
+        return self.success_response(data=tool_operations.ceiling_listing(self._c))
+
+    async def patch_ceiling(self, request: McpToolsPatchRequest, admin: User) -> APIResponse:
+        try:
+            listing = tool_operations.patch_ceiling(self._c, admin.id, request.policy, request.overrides)
+        except McpToolError as exc:
+            self._fail(exc)
+        return self.success_response(data=listing)
+
+
+def build_admin_router(container: "AppContainer") -> APIRouter:
+    controller = McpToolsController(container.mcp_tool_collaborators, container.api_key_collaborators)
+    router = APIRouter(prefix="/api/admin/mcp", tags=["MCP Admin"], dependencies=[SESSION_ONLY])
+
+    @router.get("/tools", response_model=APIResponse, summary="MCP tools the administrator allows")
+    async def get_ceiling(_admin: User = Depends(get_current_admin_user)) -> APIResponse:
+        return await controller.ceiling_listing()
+
+    @router.patch("/tools", response_model=APIResponse, summary="Change which MCP tools users may expose")
+    async def patch_ceiling(
+        request: McpToolsPatchRequest, admin: User = Depends(get_current_admin_user)
+    ) -> APIResponse:
+        return await controller.patch_ceiling(request, admin)
+
+    return router
+
+
 def build_router(container: "AppContainer") -> APIRouter:
-    token_repository = container.mcp_token_repository
-    settings = container.settings
-    user_repository = container.user_repository
     collaborators: McpToolCollaborators = container.mcp_tool_collaborators
-    controller = McpController(
-        token_repository=token_repository, settings=settings, user_repository=user_repository,
-    )
+    controller = McpToolsController(collaborators, container.api_key_collaborators)
 
     router = APIRouter(prefix="/api/mcp", tags=["MCP"])
 
-    # --- self-service: status + token CRUD ---
+    @router.get("/tools", response_model=APIResponse, summary="Your default MCP tools", dependencies=[SESSION_ONLY])
+    async def get_default_tools(current_user: User = Depends(get_current_active_user)) -> APIResponse:
+        return await controller.default_listing(current_user)
 
-    @router.get("/status", response_model=APIResponse)
-    async def get_status(current_user: User = Depends(get_current_active_user)) -> APIResponse:
-        return await controller.get_status(current_user)
-
-    @router.get("/tokens", response_model=APIResponse)
-    async def list_tokens(current_user: User = Depends(get_current_active_user)) -> APIResponse:
-        return await controller.list_tokens(current_user)
-
-    @router.post("/tokens", response_model=APIResponse)
-    async def create_token(
-        request: McpTokenCreateRequest, current_user: User = Depends(get_current_active_user)
+    @router.patch(
+        "/tools", response_model=APIResponse, summary="Change your default MCP tools", dependencies=[SESSION_ONLY]
+    )
+    async def patch_default_tools(
+        request: McpToolsPatchRequest, current_user: User = Depends(get_current_active_user)
     ) -> APIResponse:
-        return await controller.create_token(request, current_user)
+        return await controller.patch_default(request, current_user)
 
-    @router.delete("/tokens/{token_id}", response_model=APIResponse)
-    async def revoke_token(token_id: str, current_user: User = Depends(get_current_active_user)) -> APIResponse:
-        return await controller.revoke_token(token_id, current_user)
+    @router.get(
+        "/keys/{key_id}/tools", response_model=APIResponse, summary="The MCP tools of one API key",
+        dependencies=[SESSION_ONLY],
+    )
+    async def get_key_tools(key_id: str, current_user: User = Depends(get_current_active_user)) -> APIResponse:
+        return await controller.key_listing(key_id, current_user)
 
-    # --- admin per-user toggle ---
-
-    @router.get("/admin/users/{user_id}", response_model=APIResponse)
-    async def get_user_toggle(user_id: str, _admin: User = Depends(get_current_admin_user)) -> APIResponse:
-        return await controller.get_user_toggle(user_id)
-
-    @router.put("/admin/users/{user_id}", response_model=APIResponse)
-    async def set_user_toggle(
-        user_id: str, request: McpUserToggleRequest, _admin: User = Depends(get_current_admin_user)
+    @router.patch(
+        "/keys/{key_id}/tools", response_model=APIResponse, summary="Narrow the MCP tools of one API key",
+        dependencies=[SESSION_ONLY],
+    )
+    async def patch_key_tools(
+        key_id: str, request: McpKeyToolsPatchRequest, current_user: User = Depends(get_current_active_user)
     ) -> APIResponse:
-        return await controller.set_user_toggle(user_id, request.enabled)
+        return await controller.patch_key(key_id, request, current_user)
 
-    # --- the MCP endpoint itself ---
-
-    async def _authenticate(request: Request):
-        """Bearer-token auth for MCP requests: resolves an active token to its
-        owning user, enforcing both the global and per-user MCP toggles.
-        Raises HTTPException (never returns a falsy user)."""
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header.lower().startswith("bearer "):
-            raise HTTPException(
-                status_code=401, detail="Missing bearer token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        plaintext = auth_header[len("bearer "):].strip()
-        token = operations.resolve_active_token(token_repository, plaintext)
-        if token is None:
-            raise HTTPException(
-                status_code=401, detail="Invalid or revoked token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        if not operations.is_globally_enabled(settings):
-            raise HTTPException(status_code=403, detail="MCP is disabled on this instance")
-        if not operations.is_user_enabled(settings, token.user_id):
-            raise HTTPException(status_code=403, detail="MCP is disabled for this user")
-        user = user_repository.get_by_id(token.user_id)
-        if user is None:
-            raise HTTPException(status_code=401, detail="Token owner no longer exists")
-        operations.record_use(token_repository, token)
-        return user
-
-    @router.post("")
-    async def mcp_endpoint(request: Request):
-        current_user = await _authenticate(request)
-
+    @router.post("", dependencies=[key_scope(ApiScope.MCP)])
+    async def mcp_endpoint(request: Request, current_user: User = Depends(require_key_caller)):
         try:
             body = await request.json()
         except Exception:
@@ -194,7 +160,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         try:
             result = await handle_method(
                 collaborators, method, params, current_user.id,
-                is_admin=current_user.account_type == AccountType.ADMIN,
+                key_id=current_user.key.key_id,
+                is_admin=current_user.owner_account_type == AccountType.ADMIN,
+                acts_as_admin=current_user.account_type == AccountType.ADMIN,
                 request_origin=request_origin(request),
             )
         except JsonRpcError as exc:

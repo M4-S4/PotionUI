@@ -8,33 +8,25 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { resolveReusePresetLabel } from '$lib/utils/historyReuse';
-	import { generationRunSummary, generationQueueLabel } from '$lib/utils/generationTime';
+	import { formatHumanDuration, formatRunLine, formatShortDay, generationQueueLabel } from '$lib/utils/generationTime';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import { isTypingInField } from '$lib/utils/editableTarget';
-	import portal from '$lib/actions/portal';
 	import { plainLetter, windowOwnsKeys } from '$lib/utils/shortcutGuard';
 	import { canReturnToDetails, rememberDetailsScroll, takeDetailsScroll } from '$lib/tools/detailsReturn';
-	import { restoreScroll } from '$lib/utils/restoreScroll';
-	import BaseModal from './BaseModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
-	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
-	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
-	import type { AudioTrack, AudioTrackType } from '$lib/types/audio';
 	import StarRating from '$lib/components/StarRating.svelte';
 	import { historyStore } from '$lib/stores/history';
+	import { requestAddToKit } from '$lib/stores/kitAddRequests';
 	import { libraryStore } from '$lib/stores/library';
 	import { summarizeCopyOutcome } from '$lib/library/copyToLibrary';
 	import { toasts } from '$lib/stores/toast';
 	import { nsfwFilterStore, visibleMediaFiles, shouldBlurFile, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
-	import { Badge, Button, Spinner, CopyButton, IconButton, Switch } from '$lib/components/ui';
+	import { Badge, Button, CopyButton, Spinner, IconButton, Switch } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import LoopToggle from '$lib/components/media/LoopToggle.svelte';
-	import { loopVideos } from '$lib/stores/loopVideos';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import ProvenanceLine from '$lib/components/organize/ProvenanceLine.svelte';
 	import { startRuleFrom } from '$lib/organize/handoff';
@@ -45,6 +37,23 @@
 	import { showAlphaCheckerboard } from '$lib/utils/imageAlpha';
 	import type { DetailsExtraSection, DetailsFileChange } from './generationDetailsExtras';
 	import { withAxisParams } from '$lib/generation/compare/view/gridModel';
+	import MediaDetailsShell from '$lib/components/media-details/MediaDetailsShell.svelte';
+	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
+	import MediaDetailsHeader from '$lib/components/media-details/MediaDetailsHeader.svelte';
+	import { libraryItemIcon } from '$lib/library/libraryItemMeta';
+	import MediaStage from '$lib/components/media-details/MediaStage.svelte';
+	import { audioTracksFor, isAudioFile, isMeshFile, isVideoFile, resolveAudioFormat } from '$lib/components/media-details/mediaFile';
+	import ParametersView from '$lib/components/generation/ParametersView.svelte';
+	import ParameterTextBlock from '$lib/components/generation/ParameterTextBlock.svelte';
+	import DetailsSection from '$lib/components/generation/DetailsSection.svelte';
+	import GenerationFailureAlert from '$lib/components/generation/GenerationFailureAlert.svelte';
+	import { failureNotice } from '$lib/components/generation/failureNotice';
+	import { authStore } from '$lib/stores/auth';
+	import { middleEllipsis } from '$lib/components/generation/idDisplay';
+	import FoldedList from '$lib/components/generation/FoldedList.svelte';
+	import { countParameters } from '$lib/components/generation/parametersModel';
+	import { loadDetailsPrefs } from '$lib/components/generation/detailsPrefs';
+	import type { GenerationParameterMeta } from '$lib/types/generation';
 
 	// Support both ways of passing generation data
 	export let generation: GenerationHistoryItem | null = null;
@@ -69,6 +78,8 @@
 		| undefined = undefined;
 	export let axisTags: Record<string, string> = {};
 	export let axisValues: Record<string, string> = {};
+	export let axisParamMeta: Record<string, GenerationParameterMeta> = {};
+	$: hostTitle = title !== 'Generation Details';
 
 	const dispatch = createEventDispatcher();
 
@@ -161,6 +172,9 @@
 	let currentParams: Record<string, any> = {};
 	$: shownParams = withAxisParams(currentParams, axisTags, axisValues);
 	let currentModels: any[] = [];
+	let currentParamMeta: Record<string, GenerationParameterMeta> | null = null;
+	let currentParamOrder: string[] | null = null;
+	$: shownParamMeta = mergeParamMeta(axisParamMeta, currentParamMeta);
 	let paramsLoading = false;
 	let loadedParamsKey = '';
 
@@ -169,8 +183,34 @@
 	let selectedTags: Array<{ id: string; name: string }> = [];
 	let isSavingTags: boolean = false;
 
-	$: runSummary = activeGeneration ? generationRunSummary(activeGeneration) : null;
-	$: queueWait = activeGeneration ? generationQueueLabel(activeGeneration) : null;
+	$: failure = activeGeneration ? failureNotice(activeGeneration, $authStore.user?.account_type === 'ADMIN') : null;
+	$: statusVariant = getStatusVariant(activeGeneration?.status ?? '');
+	$: statusIconClass = STATUS_ICON_CLASS[statusVariant];
+	$: statusBoxClass = STATUS_BOX_CLASS[statusVariant];
+	$: statusName = activeGeneration?.status ? activeGeneration.status.charAt(0).toUpperCase() + activeGeneration.status.slice(1) : '';
+	$: headerIcon = headerIconName !== 'image' || !currentFile ? headerIconName : libraryItemIcon(currentFile.file_type);
+	$: headerKindLabel = headerIconName === 'grid' ? 'Compare grid' : currentFile?.file_type ? currentFile.file_type.charAt(0).toUpperCase() + currentFile.file_type.slice(1) : 'Generation';
+	$: paramCount = countParameters({ params: shownParams, meta: shownParamMeta, order: currentParamOrder, models: currentModels });
+	$: runLine = activeGeneration ? formatRunLine(activeGeneration) : null;
+	$: phoneWhen = activeGeneration ? formatShortDay(activeGeneration.completed_at ?? activeGeneration.created_at) : '';
+	$: runDetail = (runLine?.detail ?? '').replace(/^took /, '');
+	$: phoneDetail = (runLine?.detail?.split(' · ')[0] ?? '').replace(/^took /, '').replace(/^(failed|cancelled) after /, '$1 ');
+	$: runTime =
+		activeGeneration && activeGeneration.status === 'completed' && activeGeneration.completed_at
+			? formatHumanDuration(activeGeneration.run_seconds)
+			: null;
+	$: queuedTime =
+		activeGeneration && generationQueueLabel(activeGeneration)
+			? formatHumanDuration(activeGeneration.queued_seconds)
+			: null;
+	$: exactTimes = [
+		`Created ${activeGeneration ? formatDate(activeGeneration.created_at) : ''}`,
+		activeGeneration?.completed_at ? `Completed ${formatDate(activeGeneration.completed_at)}` : '',
+		queuedTime ? `Queued ${queuedTime}` : '',
+		runTime ? `Run time ${runTime}` : ''
+	]
+		.filter(Boolean)
+		.join(' · ');
 	// Structured prompt segments recorded with this generation (may be absent on
 	// old rows). Split by channel for display.
 	$: segments = activeGeneration?.segments ?? [];
@@ -195,52 +235,7 @@
 	$: directorKeyframeCount = (videoDirectorDoc?.media ?? []).filter((m) => m.role === 'keyframe').length;
 	$: directorAudioCount = videoDirectorDoc?.audio?.length ?? 0;
 
-	// Collapse state for director shot descriptions, keyed by shot id. A shot
-	// only gets a toggle once `overflowCheck` below has measured it as taller
-	// than the collapsed max-height.
-	let expandedShots: Record<string, boolean> = {};
-	let overflowingShots: Record<string, boolean> = {};
-
-	// The Segments card is collapsed by default -- multi-segment generations can
-	// run to dozens of chips and dominate the modal. Not persisted; it resets to
-	// collapsed on every open.
-	let segmentsExpanded = false;
-
-	function toggleShotExpanded(id: string) {
-		expandedShots = { ...expandedShots, [id]: !expandedShots[id] };
-	}
-
-	/** Marks `id` as overflowing once its collapsed box can't fit its content,
-	 * so the "Show full description" toggle only appears when it does something.
-	 * jsdom (component tests) has no ResizeObserver, so this degrades to a
-	 * one-shot measurement there rather than throwing. */
-	function overflowCheck(node: HTMLElement, id: string) {
-		const measure = () => {
-			const isOverflowing = node.scrollHeight > node.clientHeight + 1;
-			if (overflowingShots[id] !== isOverflowing) {
-				overflowingShots = { ...overflowingShots, [id]: isOverflowing };
-			}
-		};
-		measure();
-		const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-		ro?.observe(node);
-		return {
-			update: measure,
-			destroy: () => ro?.disconnect()
-		};
-	}
-
-	// A director shot description is free-form text that may embed its own
-	// `field_name: value` structure (e.g. from an LLM-authored shot brief).
-	// Detected generically off the leading-token shape rather than a fixed
-	// field list, since the field set is per-family/per-preset.
-	const DESCRIPTION_FIELD_PREFIX = /^([a-z][a-z0-9_]{2,63}):\s*(.*)$/i;
-	function describeLines(text: string): Array<{ label: string | null; text: string }> {
-		return text.split('\n').map((line) => {
-			const match = line.match(DESCRIPTION_FIELD_PREFIX);
-			return match ? { label: match[1], text: match[2] } : { label: null, text: line };
-		});
-	}
+	loadDetailsPrefs();
 
 	// Reactive computed values; hide mode drops nsfw files from navigation.
 	$: mediaFiles = visibleMediaFiles(activeGeneration?.files || [], $nsfwFilterStore.mode).filter(
@@ -252,9 +247,6 @@
 		renderedGenerationId = activeGenerationId;
 		currentFileIndex =
 			initialFileIndex < 0 ? Math.max(0, mediaFiles.length - 1) : initialFileIndex;
-		expandedShots = {};
-		overflowingShots = {};
-		segmentsExpanded = false;
 		showPublishModal = false;
 	}
 
@@ -333,6 +325,17 @@
 		}
 	}
 
+	function mergeParamMeta(
+		axis: Record<string, GenerationParameterMeta>,
+		recorded: Record<string, GenerationParameterMeta> | null
+	): Record<string, GenerationParameterMeta> | null {
+		const fields = Object.keys(axis);
+		if (fields.length === 0) return recorded;
+		const merged: Record<string, GenerationParameterMeta> = { ...recorded };
+		for (const field of fields) merged[field] = { ...axis[field], ...recorded?.[field] };
+		return merged;
+	}
+
 	async function loadParametersForCurrentFile() {
 		if (!activeGenerationId) return;
 
@@ -342,11 +345,15 @@
 			if (response.success && response.data) {
 				currentParams = response.data.parameters || {};
 				currentModels = response.data.models || [];
+				currentParamMeta = response.data.parameter_meta ?? null;
+				currentParamOrder = response.data.parameter_order ?? null;
 			}
 		} catch (error) {
 			logger.error('Failed to load parameters:', error);
 			currentParams = {};
 			currentModels = [];
+			currentParamMeta = null;
+			currentParamOrder = null;
 		} finally {
 			paramsLoading = false;
 		}
@@ -394,51 +401,29 @@
 		return `/api/media/generations/${activeGenerationId}/${filename}`;
 	}
 
-	function isVideoFile(file: any) {
-		return file?.file_type?.toLowerCase?.() === 'video';
-	}
-
-	function isMeshFile(file: any) {
-		return file?.file_type?.toLowerCase?.() === 'mesh';
-	}
-
-	function isAudioFile(file: any) {
-		return file?.file_type?.toLowerCase?.() === 'audio';
-	}
-
-	// No format column is persisted server-side for history rows at all (see
-	// GenerationFile's track_type/sample_rate/channels comments - format never
-	// made that list either) - derived from the filename exactly like
-	// mapGenerationFiles' mesh_format fallback, so a container format still
-	// shows without one.
-	function resolveAudioFormat(file: any): string {
-		const basename = typeof file?.file_path === 'string' ? file.file_path.split('/').pop() : null;
-		const ext = basename && basename.includes('.') ? basename.split('.').pop() : null;
-		return (ext || 'wav').toLowerCase();
-	}
-
-	function currentAudioTracks(file: any): AudioTrack[] {
-		if (!file) return [];
-		const url = getImageUrl(file);
-		return [
-			{
-				type: (file.track_type as AudioTrackType) || 'mixed',
-				url,
-				originalUrl: url,
-				duration: file.duration_seconds,
-				sample_rate: file.sample_rate,
-				channels: file.channels,
-				format: resolveAudioFormat(file)
-			}
-		];
-	}
-
 	function formatDate(dateString?: string) {
 		if (!dateString) return 'N/A';
 		return parseServerDate(dateString)?.toLocaleString() ?? 'N/A';
 	}
 
 	type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'signal';
+
+	const STATUS_ICON_CLASS: Record<BadgeVariant, string> = {
+		success: 'text-success',
+		danger: 'text-danger',
+		warning: 'text-warning',
+		signal: 'text-signal',
+		info: 'text-info',
+		neutral: 'text-fg-muted'
+	};
+	const STATUS_BOX_CLASS: Record<BadgeVariant, string> = {
+		success: 'border-success/30 bg-success/10',
+		danger: 'border-danger/30 bg-danger/10',
+		warning: 'border-warning/30 bg-warning/10',
+		signal: 'border-signal/30 bg-signal/10',
+		info: 'border-info/30 bg-info/10',
+		neutral: 'border-line bg-surface-2'
+	};
 
 	function getStatusVariant(status: string): BadgeVariant {
 		switch (status) {
@@ -609,7 +594,21 @@
 				loading: copying,
 				onclick: handleCopyToLibrary
 			});
+			actions.push({
+				id: 'add-to-kit',
+				label: 'Add to kit',
+				icon: 'layers',
+				tooltip: 'Add this file to a kit',
+				onclick: () => currentFile && requestAddToKit([currentFile])
+			});
 		}
+		actions.push({
+			id: 'auto-file',
+			label: 'Auto-file…',
+			icon: 'sparkles',
+			tooltip: 'Create a rule that files items like this one',
+			onclick: () => activeGeneration && startRuleFrom(generationItemRule(activeGeneration))
+		});
 		return actions;
 	}
 
@@ -689,435 +688,239 @@
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeyDown} />
-
-<!-- Callers may mount this from inside a slide-out drawer or another modal;
-     an ancestor with a `transform` (the drawer's slide animation) becomes the
-     containing block for `position: fixed`, so the dialog must portal to
-     <body> to stay viewport-sized regardless of where it's mounted from. -->
-<div use:portal>
-<BaseModal
+<MediaDetailsShell
 	{isOpen}
 	{title}
-	sizeClass="md:w-[85vw] md:h-[85vh]"
-	on:close={handleClose}
+	{headerIconName}
+	onClose={handleClose}
+	onKeyDown={handleKeyDown}
+	customHeader
+	{loading}
+	ready={!!activeGeneration}
+	scrollRestore={() => takeDetailsScroll(activeGenerationId)}
+	bind:root={detailsRoot}
+	bind:column={infoPanel}
 >
-	<svelte:fragment slot="headerIcon">
-		<div class="w-[30px] h-[30px] rounded bg-surface-2 border border-line flex items-center justify-center flex-shrink-0">
-			<Icon name={headerIconName} className="w-4 h-4 text-fg-muted" />
-		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="header">
+	{#snippet iconBox()}
+		<button
+			type="button"
+			class="flex h-[30px] w-[30px] flex-shrink-0 cursor-default items-center justify-center rounded border {statusBoxClass}"
+			aria-label={statusName ? `${headerKindLabel}, ${statusName.toLowerCase()}` : headerKindLabel}
+			data-details-status={activeGeneration?.status ?? ''}
+			use:tooltip={statusName}
+		>
+			<Icon name={headerIcon} className="h-4 w-4 {statusIconClass}" />
+		</button>
+	{/snippet}
+
+	{#snippet headerRight()}
 		{#if activeGeneration}
-			<code class="font-mono text-2xs text-fg-disabled flex-shrink-0 hidden sm:inline">{shortGenerationId}</code>
-		{/if}
-		<div class="flex-1"></div>
-		{#if activeGeneration}
-			<Badge variant={getStatusVariant(activeGeneration.status)} dot class="flex-shrink-0 uppercase tracking-wide">
-				{activeGeneration.status}
-			</Badge>
-		{/if}
-		{#if activeGeneration && currentFile}
-			<div class="flex-shrink-0">
-				<PluginSlot
-					hookName="generation.detail.actions"
-					tooltips
-					context={{
-						generationId: activeGenerationId,
-						presetId: activeGeneration.preset_id ?? null,
-						mode: activeGeneration.mode,
-						fileIndex: currentFileIndex,
-						filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
-						fileUrl: getImageUrl(currentFile),
-						fileType: currentFile.file_type
-					}}
-				/>
-			</div>
-		{/if}
-		{#if canNavigate}
-			<div class="flex items-center gap-1 flex-shrink-0">
-				<Tooltip text="Previous generation" kbd="Shift+←" position="bottom">
-					<IconButton
-						icon="chevron-left"
-						label="Previous generation"
-						disabled={!hasPrevious || navigating}
-						onclick={() => navigate(-1)}
-					/>
-				</Tooltip>
-				{#if position}
-					<span class="font-mono tabular-nums text-xs text-fg-subtle" data-generation-position>
-						{position.index} / {position.total}
+			<MediaDetailsHeader title={hostTitle ? title : presetLabel}>
+				{#snippet version()}
+					{#if !hostTitle && activeGeneration.preset_version}<span class="font-normal text-fg-muted">{' v'}{activeGeneration.preset_version}</span>{/if}
+				{/snippet}
+				{#snippet rating()}
+					<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
+				{/snippet}
+				{#snippet tools()}
+					{#if currentFile}
+						<div class="flex-shrink-0">
+							<PluginSlot
+								hookName="generation.detail.actions"
+								tooltips
+								context={{
+									generationId: activeGenerationId,
+									presetId: activeGeneration.preset_id ?? null,
+									mode: activeGeneration.mode,
+									fileIndex: currentFileIndex,
+									filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
+									fileUrl: getImageUrl(currentFile),
+									fileType: currentFile.file_type
+								}}
+							/>
+						</div>
+					{/if}
+					{#if canNavigate}
+						<div class="flex flex-shrink-0 items-center gap-1">
+							<Tooltip text="Previous generation" kbd="Shift+←" position="bottom">
+								<IconButton
+									icon="chevron-left"
+									label="Previous generation"
+									disabled={!hasPrevious || navigating}
+									onclick={() => navigate(-1)}
+								/>
+							</Tooltip>
+							{#if position}
+								<span class="font-mono tabular-nums text-xs text-fg-subtle max-sm:hidden" data-generation-position>
+									{position.index} / {position.total}
+								</span>
+							{/if}
+							<Tooltip text="Next generation" kbd="Shift+→" position="bottom">
+								<IconButton
+									icon="chevron-right"
+									label="Next generation"
+									disabled={!hasNext || navigating}
+									onclick={() => navigate(1)}
+								/>
+							</Tooltip>
+						</div>
+					{/if}
+				{/snippet}
+				{#snippet meta()}
+					{#if hostTitle && presetLabel}
+						<span class="max-w-[40%] shrink-0 truncate font-medium text-fg max-sm:hidden">{presetLabel}</span>
+					{/if}
+					<button
+						type="button"
+						class="inline-flex min-w-0 cursor-default items-center gap-1 rounded text-left"
+						data-testid="detail-run-line"
+						use:tooltip={{ text: exactTimes, focusSelf: true, wrap: true }}
+					>
+						<span aria-hidden="true" class="flex-shrink-0 text-fg-subtle"><Icon name="calendar" className="h-3.5 w-3.5" /></span>
+						<span class="whitespace-nowrap max-sm:hidden">{runLine?.when}</span><span class="whitespace-nowrap sm:hidden">{phoneWhen}</span>
+					</button>
+					{#if runLine?.detail}
+						<span class="inline-flex min-w-0 items-center gap-1">
+							<span aria-hidden="true" class="flex-shrink-0 text-fg-subtle"><Icon name="clock" className="h-3.5 w-3.5" /></span>
+							<span class="whitespace-nowrap max-sm:hidden" data-testid="detail-generation-time">{runDetail}</span>
+							<span class="whitespace-nowrap sm:hidden">{phoneDetail}</span>
+						</span>
+					{/if}
+					<span class="inline-flex flex-shrink-0 items-center gap-1">
+						<span aria-hidden="true" class="text-fg-subtle max-sm:hidden"><Icon name="hash" className="h-3.5 w-3.5" /></span>
+						<code class="hidden font-mono tabular-nums sm:inline">{middleEllipsis(activeGenerationId, 17)}</code>
+						<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" class="flex-shrink-0" />
 					</span>
-				{/if}
-				<Tooltip text="Next generation" kbd="Shift+→" position="bottom">
-					<IconButton
-						icon="chevron-right"
-						label="Next generation"
-						disabled={!hasNext || navigating}
-						onclick={() => navigate(1)}
-					/>
-				</Tooltip>
-			</div>
+				{/snippet}
+			</MediaDetailsHeader>
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 
-	<!-- Body (height must fill the modal) -->
-	{#if loading}
-		<div class="flex-1 flex items-center justify-center h-full">
-			<div class="flex flex-col items-center gap-3">
-				<Spinner size="lg" />
-				<p class="text-sm text-fg-muted">Loading...</p>
-			</div>
-		</div>
-	{:else if activeGeneration}
-		<div class="flex flex-col md:flex-row h-full min-h-0" bind:this={detailsRoot} data-details-window>
-			<!-- Left Side - Media -->
-			<div class="group relative flex min-h-0 min-w-0 flex-1 flex-col">
-				{#if currentFile}
-					<DetailsActionBar
-						bind:this={actionBar}
-						items={rowItems}
-						context={rowContext}
-						scope="history"
-						favorite={{ active: !!activeGeneration.is_favorite, onToggle: handleFavoriteToggle }}
-						tags={{ selectedIds: selectedTagIds, onChange: handleBarTagsChange }}
-						pageActions={generationActions}
-						{downloadActions}
-						{moreActions}
-						pluginContext={pluginActionContext}
-						onLaunch={handleLaunch}
-						onOpenedInTab={handleClose}
-					/>
-				{/if}
-			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">
-				{#if currentFile}
-					<!-- Navigation Arrows -->
-					{#if canGoPrev}
-						<IconButton icon="chevron-left" label="Previous file" variant="overlay" onclick={goToPreviousFile} class="absolute left-4 top-1/2 -translate-y-1/2 z-10" />
+	{#snippet toolbar()}
+		{#if activeGeneration && currentFile}
+			<DetailsActionBar
+				bind:this={actionBar}
+				items={rowItems}
+				context={rowContext}
+				scope="history"
+				favorite={{ active: !!activeGeneration.is_favorite, onToggle: handleFavoriteToggle }}
+				tags={{ selectedIds: selectedTagIds, onChange: handleBarTagsChange }}
+				pageActions={generationActions}
+				{downloadActions}
+				{moreActions}
+				pluginContext={pluginActionContext}
+				onLaunch={handleLaunch}
+				onOpenedInTab={handleClose}
+			/>
+		{/if}
+	{/snippet}
+
+	{#snippet stage()}
+		{#if currentFile}
+			<MediaStage
+				file={currentFile}
+				src={getImageUrl(currentFile)}
+				alt={`Output ${currentFileIndex + 1}`}
+				fileCount={mediaFiles.length}
+				fileIndex={currentFileIndex}
+				canPrev={canGoPrev}
+				canNext={canGoNext}
+				onPrev={goToPreviousFile}
+				onNext={goToNextFile}
+				blur={detailBlur}
+				onReveal={() => nsfwRevealStore.reveal(currentRevealKey)}
+				alphaCheckerboard={currentFileAlphaCheckerboard}
+				imageLoading={stageImageLoading}
+				bind:imageEl={detailImg}
+				onImageSettled={() => (loadedStageSrc = stageImageSrc ?? undefined)}
+				audioTracks={audioTracksFor(currentFile, getImageUrl(currentFile))}
+				tagNames={selectedTags.map((tag) => tag.name)}
+			/>
+		{:else}
+			<slot name="stageEmpty" />
+		{/if}
+	{/snippet}
+
+	{#snippet columnContent()}
+		{#if activeGeneration}
+				<div class="pb-4">
+					{#if failure}
+						<div class="px-4 pb-4 pt-4">
+							<GenerationFailureAlert notice={failure} />
+						</div>
 					{/if}
 
-					{#if canGoNext}
-						<IconButton icon="chevron-right" label="Next file" variant="overlay" onclick={goToNextFile} class="absolute right-4 top-1/2 -translate-y-1/2 z-10" />
+					{#if $$slots.afterInformation}
+						<div class="px-4 pb-4 pt-4 empty:hidden">
+							<slot name="afterInformation" />
+						</div>
 					{/if}
 
-					<div class="absolute top-4 left-4 z-20 max-w-[calc(100%-2rem)] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-						<div class="flex flex-col gap-2">
-							<div data-stage-meta class="flex flex-wrap items-center gap-2">
-								{#if mediaFiles.length > 1}
-									<div data-file-counter class="bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded text-sm font-medium shadow-lg">
-										<span class="font-mono tabular-nums">
-											{currentFileIndex + 1} / {mediaFiles.length}
-										</span>
-									</div>
-								{/if}
+					<div data-details-panel>
+						<DetailsSection id="parameters" strip title="Parameters" note={mediaFiles.length > 1 ? `image ${currentFileIndex + 1}` : undefined} count={paramsLoading ? undefined : paramCount} icon="sliders" collapsible={false}>
+							<ParametersView
+								params={shownParams}
+								meta={shownParamMeta}
+								order={currentParamOrder}
+								models={currentModels}
+								{axisTags}
+								formData={activeGeneration.form_data ?? null}
+								loading={paramsLoading}
+							/>
+						</DetailsSection>
 
-								{#if currentFile.width && currentFile.height}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
-										{currentFile.width} × {currentFile.height}
-									</span>
-								{/if}
-
-								{#if currentFile.file_size}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
-										{formatBytes(currentFile.file_size)}
-									</span>
-								{/if}
-
-								{#if currentFile.file_type}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg uppercase">
-										{isVideoFile(currentFile) ? 'MP4' : isMeshFile(currentFile) ? resolveMeshFormat(currentFile).toUpperCase() : isAudioFile(currentFile) ? resolveAudioFormat(currentFile).toUpperCase() : 'PNG'}
-									</span>
-								{/if}
-							</div>
-
-							{#if selectedTags.length > 0}
-								<div class="flex flex-wrap gap-1">
-									{#each selectedTags as tag}
-										<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg">
-											{tag.name}
-										</span>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					</div>
-
-					{#if isVideoFile(currentFile)}
-						<video
-							src={getImageUrl(currentFile)}
-							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''}"
-							controls={!detailBlur}
-							loop={$loopVideos}
-							playsinline
-						>
-							<track kind="captions" />
-						</video>
-						{#if !detailBlur}
-							<LoopToggle class="absolute top-4 right-4 z-20" />
-						{/if}
-					{:else if isMeshFile(currentFile)}
-						<div class="absolute inset-0 h-full w-full p-3 md:p-6">
-							<MeshPreview file={{ url: getImageUrl(currentFile), originalUrl: getImageUrl(currentFile) }} />
-						</div>
-					{:else if isAudioFile(currentFile)}
-						<div class="absolute inset-0 h-full w-full flex items-center justify-center p-3 md:p-6">
-							<div class="w-full max-w-2xl">
-								<AudioPlayer tracks={currentAudioTracks(currentFile)} showWaveform={true} showDownload={false} />
-							</div>
-						</div>
-					{:else}
-						{#if stageImageLoading}
-							<div class="absolute inset-0 z-[1] bg-surface-2 animate-pulse" data-stage-skeleton></div>
-						{/if}
-						<img
-							bind:this={detailImg}
-							on:load={() => (loadedStageSrc = stageImageSrc ?? undefined)}
-							on:error={() => (loadedStageSrc = stageImageSrc ?? undefined)}
-							src={getImageUrl(currentFile)}
-							alt={`Output ${currentFileIndex + 1}`}
-							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''} {currentFileAlphaCheckerboard ? 'alpha-checkerboard' : ''}"
-						/>
-					{/if}
-					{#if detailBlur}
-						<button
-							type="button"
-							class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-canvas/40 text-fg cursor-pointer"
-							aria-label="Sensitive content, click to reveal"
-							on:click|stopPropagation={() => nsfwRevealStore.reveal(currentRevealKey)}
-						>
-							<Icon name="eyes" className="w-8 h-8" strokeWidth={1.5} />
-							<span class="text-sm font-medium">Sensitive content</span>
-							<span class="text-xs text-fg-muted">Click to reveal</span>
-						</button>
-					{/if}
-				{:else}
-					<slot name="stageEmpty" />
-				{/if}
-			</div>
-			</div>
-
-			<!-- Right Side - Information -->
-			<div bind:this={infoPanel} use:restoreScroll={takeDetailsScroll(activeGenerationId)} data-details-info class="w-full md:w-[400px] shrink-0 max-h-[45vh] md:max-h-none border-t md:border-t-0 md:border-l border-line bg-surface-1 overflow-y-auto min-h-0">
-				<div class="p-4 space-y-3">
-					<!-- Information Section -->
-					<div class="bg-surface-2 rounded-lg overflow-hidden">
-						<div class="flex items-center justify-between px-3 py-2.5 border-b border-line">
-							<div class="flex items-center gap-2">
-								<Icon name="information-circle" className="w-4 h-4 text-info" />
-								<h3 class="text-sm font-semibold text-fg">Information</h3>
-							</div>
-							<StarRating value={activeGeneration.rating} onChange={handleRatingChange} />
-						</div>
-						<div class="divide-y divide-line">
-							<div class="flex items-center justify-between px-3 py-2">
-								<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">ID</span>
-								<div class="flex items-center gap-1">
-									<code class="font-mono text-xs text-fg">{shortGenerationId}...</code>
-									<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" />
-								</div>
-							</div>
-							{#if activeGeneration.preset_id}
-								<div class="flex items-center justify-between px-3 py-2">
-									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Preset</span>
-									<div class="flex items-center gap-1">
-										<Tooltip text={presetLabel} wrapperClass="min-w-0">
-										<span class="font-mono text-xs text-fg truncate max-w-[220px] block">{presetLabel}</span>
-									</Tooltip>
-										<CopyButton
-											text={activeGeneration.preset_id ?? ''}
-											ariaLabel="Copy preset"
-											size="xs"
-											class="flex-shrink-0"
-										/>
-									</div>
-								</div>
-							{/if}
-							{#if activeGeneration.preset_version}
-								<div class="flex items-center justify-between px-3 py-2">
-									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Version</span>
-									<span class="font-mono text-xs text-fg">{activeGeneration.preset_version}</span>
-								</div>
-							{/if}
-							<div class="flex items-center justify-between px-3 py-2">
-								<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Created</span>
-								<span class="font-mono text-xs tabular-nums text-fg">{formatDate(activeGeneration.created_at)}</span>
-							</div>
-							{#if activeGeneration.completed_at}
-								<div class="flex items-center justify-between px-3 py-2">
-									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Completed</span>
-									<span class="font-mono text-xs tabular-nums text-fg">{formatDate(activeGeneration.completed_at)}</span>
-								</div>
-							{/if}
-							{#if runSummary}
-								<div class="flex items-center justify-between px-3 py-2" data-testid="detail-generation-time">
-									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Generation time</span>
-									<span class="font-mono text-xs tabular-nums text-fg">
-										{runSummary}{#if queueWait}<span class="text-fg-muted">{' · '}queued {queueWait}</span>{/if}
-									</span>
-								</div>
-							{/if}
-						</div>
-						<div class="space-y-1.5 border-t border-line px-3 py-2">
-							<ProvenanceLine itemType="generation" itemId={activeGenerationId} />
-							<button
-								type="button"
-								class="flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg"
-								on:click={() => startRuleFrom(generationItemRule(activeGeneration))}
-							>
-								<Icon name="sparkles" className="h-3 w-3" />
-								Auto-file items like this…
-							</button>
-						</div>
-					</div>
-
-					<slot name="afterInformation" />
-
-					{#each extraSections as section (section.id)}
-						<div class="bg-surface-2 rounded-lg overflow-hidden" data-extra-section={section.id}>
-							<div class="flex items-center gap-2 px-3 py-2.5 border-b border-line">
-								{#if section.icon}
-									<Icon name={section.icon} className="w-4 h-4 text-signal" />
-								{/if}
-								<h3 class="text-sm font-semibold text-fg">{section.title}</h3>
-							</div>
-							{#if section.rows?.length}
-								<ul class="divide-y divide-line">
-									{#each section.rows as row (row.id)}
-										<li>
-											<label class="flex min-h-[2.25rem] cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-fg {row.disabled ? 'opacity-60' : ''}">
-												<Switch
-													size="sm"
-													checked={row.checked}
-													disabled={row.disabled}
-													label={row.label}
-													onchange={(checked) => row.onToggle(checked)}
-												/>
-												<span class="min-w-0 flex-1 truncate">{row.label}</span>
-											</label>
-										</li>
-									{/each}
-								</ul>
-							{/if}
-							{#if section.actions?.length}
-								<div class="flex flex-wrap items-center gap-2 px-3 py-2">
-									{#each section.actions as action (action.id)}
-										<Button variant="secondary" size="sm" icon={action.icon} onclick={action.onClick}>{action.label}</Button>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					{/each}
-
-					<!-- Segments Section -->
-					{#if segments.length > 0}
-						<div class="bg-surface-2 rounded-lg overflow-hidden">
-							<button
-								type="button"
-								class="flex w-full items-center justify-between px-3 py-2.5 {segmentsExpanded ? 'border-b border-line' : ''} transition-colors hover:bg-surface-3"
-								on:click={() => (segmentsExpanded = !segmentsExpanded)}
-								aria-expanded={segmentsExpanded}
-							>
-								<div class="flex items-center gap-2">
-									<Icon name="document" className="w-4 h-4 text-signal" />
-									<h3 class="text-sm font-semibold text-fg">Segments</h3>
-								</div>
-								<div class="flex items-center gap-2">
-									<Badge variant="neutral" size="sm">{segments.length}</Badge>
-									<Icon
-										name="chevron-down"
-										className="w-3.5 h-3.5 text-fg-subtle transition-transform {segmentsExpanded ? 'rotate-180' : ''}"
-									/>
-								</div>
-							</button>
-
-							{#if segmentsExpanded}
-							<div class="p-3 space-y-2">
-								{#each [...positiveSegments, ...negativeSegments] as seg (seg.prompt_index + '-' + seg.segment_index + '-' + seg.channel)}
-									<div class="bg-surface-3 rounded-lg p-2.5 {seg.is_disabled ? 'opacity-50' : ''}">
-										<div class="flex items-center gap-1.5 mb-1.5">
-											<span
-												class="w-1.5 h-1.5 rounded-full flex-shrink-0 {seg.channel === 'negative' ? 'bg-danger' : 'bg-success'}"
-											></span>
-											<span class="font-mono text-2xs uppercase tracking-wider text-fg-subtle">
-												{seg.channel === 'negative' ? 'Negative' : 'Positive'}
-											</span>
-											<CopyButton
-												text={seg.text || ''}
-												ariaLabel="Copy segment"
-												size="xs"
-												class="ml-auto"
-											/>
+						{#if segments.length > 0}
+							<DetailsSection id="segments" title="Segments" icon="document" count={segments.length} defaultOpen={false}>
+								<FoldedList id="segments" items={[...positiveSegments, ...negativeSegments]} above={5} show={3}>
+									{#snippet item(seg)}
+										<div class={seg.is_disabled ? 'opacity-50' : ''}>
+											<ParameterTextBlock
+												formData={activeGeneration.form_data ?? null}
+												label={seg.name || (seg.channel === 'negative' ? 'Negative' : 'Positive')}
+												text={seg.text || '(empty)'}
+												raw={seg.text || ''}
+											>
+												{#snippet prefix()}
+													<span class="h-1.5 w-1.5 shrink-0 rounded-full {seg.channel === 'negative' ? 'bg-danger' : 'bg-success'}"></span>
+													{#if seg.color}
+														<span class="h-2 w-2 shrink-0 rounded-full" style="background-color: {seg.color}"></span>
+													{/if}
+												{/snippet}
+												{#snippet suffix()}
+													{#if seg.name}
+														<span class="font-normal text-fg-subtle">{seg.channel === 'negative' ? 'Negative' : 'Positive'}</span>
+													{/if}
+												{/snippet}
+												{#snippet footer()}
+													{#if seg.description}
+														<p class="mt-1.5 break-words text-sm leading-relaxed text-fg-muted">{seg.description}</p>
+													{/if}
+													{#if seg.phrasebooks && seg.phrasebooks.length > 0}
+														<div class="mt-1.5 flex flex-wrap gap-1">
+															{#each seg.phrasebooks as ac}
+																<Badge variant="info" size="sm">
+																	<span use:tooltip={ac.category_path ? `${ac.category_path} → ${ac.value}` : ac.value}>
+																		{#if ac.category_path}
+																			<span class="text-fg-subtle">{ac.category_path}</span>
+																			<span class="mx-0.5 text-fg-subtle">·</span>
+																		{/if}{ac.value}
+																	</span>
+																</Badge>
+															{/each}
+														</div>
+													{/if}
+												{/snippet}
+											</ParameterTextBlock>
 										</div>
+									{/snippet}
+								</FoldedList>
+							</DetailsSection>
+						{/if}
 
-										{#if seg.name || seg.color}
-											<div class="flex items-center gap-1.5 mb-1">
-												{#if seg.color}
-													<span
-														class="w-2 h-2 rounded-full flex-shrink-0"
-														style="background-color: {seg.color}"
-													></span>
-												{/if}
-												{#if seg.name}
-													<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
-														{seg.name}
-													</p>
-												{/if}
-											</div>
-										{/if}
-
-										{#if seg.text}
-											<div class="bg-surface-1 border border-line rounded p-2.5 text-xs text-fg leading-relaxed break-words">
-												{seg.text}
-											</div>
-										{:else}
-											<div class="bg-surface-1 border border-dashed border-line-strong rounded p-2.5 text-xs italic text-fg-disabled">
-												(empty)
-											</div>
-										{/if}
-
-										{#if seg.description}
-											<p class="mt-1.5 text-2xs text-fg-muted leading-relaxed break-words">
-												{seg.description}
-											</p>
-										{/if}
-
-										<!-- `text` above is the resolved prompt; these chips are the
-										     phrasebook categories it was resolved from. -->
-										{#if seg.phrasebooks && seg.phrasebooks.length > 0}
-											<div class="flex flex-wrap gap-1 mt-1.5">
-												{#each seg.phrasebooks as ac}
-													<Badge variant="info" size="sm">
-														<span use:tooltip={ac.category_path ? `${ac.category_path} → ${ac.value}` : ac.value}>
-															{#if ac.category_path}
-																<span class="text-fg-subtle">{ac.category_path}</span>
-																<span class="text-fg-subtle mx-0.5">·</span>
-															{/if}{ac.value}
-														</span>
-													</Badge>
-												{/each}
-											</div>
-										{/if}
-									</div>
-								{/each}
-							</div>
-							{/if}
-						</div>
-					{/if}
-
-					<!-- Video Director Section -->
-					{#if directorSegments.length > 0}
-						<div class="bg-surface-2 rounded-lg overflow-hidden">
-							<div class="flex items-center justify-between px-3 py-2.5 border-b border-line">
-								<div class="flex items-center gap-2">
-									<Icon name="document" className="w-4 h-4 text-signal" />
-									<h3 class="text-sm font-semibold text-fg">Director shots</h3>
-								</div>
-								<Badge variant="neutral" size="sm">{directorSegments.length}</Badge>
-							</div>
-
-							<div class="p-3 space-y-2">
+						{#if directorSegments.length > 0}
+							<DetailsSection id="director" title="Director shots" icon="document" count={directorSegments.length}>
 								{#if directorKeyframeCount > 0 || directorAudioCount > 0}
-									<div class="flex flex-wrap gap-1">
+									<div class="flex flex-wrap gap-1 px-3 pb-2">
 										{#if directorKeyframeCount > 0}
 											<Badge variant="neutral" size="sm">{directorKeyframeCount} keyframe{directorKeyframeCount === 1 ? '' : 's'}</Badge>
 										{/if}
@@ -1126,209 +929,116 @@
 										{/if}
 									</div>
 								{/if}
-
-								{#each directorSegments as seg, i (seg.id)}
-									<div class="bg-surface-3 rounded-lg p-2.5">
-										<div class="flex items-center gap-1.5 mb-1.5 flex-wrap">
-											<Badge variant="signal" size="sm">SHOT {i + 1}</Badge>
-											{#if seg.sub_type}
-												<Badge variant="signal" size="sm">{seg.sub_type}</Badge>
-											{/if}
-											<CopyButton
-												text={seg.prompt || ''}
-												ariaLabel="Copy shot description"
-												size="xs"
-												class="ml-auto"
-											/>
-										</div>
-
-										{#if seg.prompt}
-											<div class="relative">
-												<div
-													class="bg-surface-1 border border-line rounded p-2.5 text-xs text-fg leading-relaxed break-words {expandedShots[seg.id] ? '' : 'max-h-[150px] overflow-hidden'}"
-													use:overflowCheck={seg.id}
-												>
-													{#each describeLines(seg.prompt) as line}
-														{#if line.label}<span class="text-fg-subtle">{line.label}:</span>{/if}{line.text}<br />
-													{/each}
-												</div>
-												{#if !expandedShots[seg.id] && overflowingShots[seg.id]}
-													<div class="absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-surface-1 to-transparent pointer-events-none rounded-b"></div>
+								<FoldedList id="director" items={directorSegments} above={5} show={3}>
+									{#snippet item(seg, i)}
+										<ParameterTextBlock formData={activeGeneration.form_data ?? null} label="Shot {i + 1}" text={seg.prompt || '(empty)'} raw={seg.prompt || ''}>
+											{#snippet suffix()}
+												{#if seg.sub_type}
+													<Badge variant="signal" size="sm">{seg.sub_type}</Badge>
 												{/if}
-											</div>
-											{#if overflowingShots[seg.id]}
-												<button
-													type="button"
-													class="w-full text-center text-2xs text-signal/80 hover:text-signal mt-1 transition-colors"
-													on:click={() => toggleShotExpanded(seg.id)}
-												>
-													{expandedShots[seg.id] ? 'Show less ▴' : 'Show full description ▾'}
-												</button>
-											{/if}
-										{:else}
-											<div class="bg-surface-1 border border-dashed border-line-strong rounded p-2.5 text-xs italic text-fg-disabled">
-												(empty)
-											</div>
-										{/if}
-
-										{#if seg.negative_prompt}
-											<p class="mt-1.5 text-2xs text-danger leading-relaxed break-words">
-												{seg.negative_prompt}
-											</p>
-										{/if}
-									</div>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					<!-- System tags (auto-tagger output, distinct from user tags) -->
-					{#if systemTags.length > 0}
-						<div class="bg-surface-2 rounded-lg overflow-hidden">
-							<div class="flex items-center justify-between px-3 py-2.5 border-b border-line">
-								<div class="flex items-center gap-2">
-									<Icon name="sparkles" className="w-4 h-4 text-fg-subtle" />
-									<h3 class="text-sm font-semibold text-fg">Auto tags</h3>
-								</div>
-								<Badge variant="neutral" size="sm">{systemTags.length}</Badge>
-							</div>
-							<div class="p-3 flex flex-wrap gap-1">
-								{#each systemTags as st (st.tag)}
-									<button
-										type="button"
-										class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-line hover:border-line-hover bg-surface-3 text-2xs text-fg-muted hover:text-fg transition-colors"
-										use:tooltip={`Filter history by “${st.tag}”`}
-										on:click={() => handleSystemTagClick(st.tag)}
-									>
-										<span class="truncate max-w-[10rem]">{st.tag.replace(/_/g, ' ')}</span>
-										<span class="font-mono tabular-nums text-fg-subtle">{Math.round(st.confidence * 100)}%</span>
-									</button>
-								{/each}
-							</div>
-						</div>
-					{/if}
-
-					<!-- Parameters Section -->
-					<div class="bg-surface-2 rounded-lg overflow-hidden">
-						<div class="flex items-center justify-between px-3 py-2.5 border-b border-line">
-							<div class="flex items-center gap-2">
-								<Icon name="sliders" className="w-4 h-4 text-success" />
-								<h3 class="text-sm font-semibold text-fg">Parameters</h3>
-							</div>
-							{#if currentFile}
-								<Badge variant="neutral" size="sm" class="font-mono">#{currentFileIndex + 1}</Badge>
-							{/if}
-						</div>
-
-						{#if paramsLoading}
-							<div class="flex items-center justify-center py-4">
-								<Spinner size="sm" />
-							</div>
-						{:else if Object.keys(shownParams).length > 0}
-							<div class="grid grid-cols-2 gap-px bg-line">
-								{#each Object.entries(shownParams) as [key, value]}
-									<div class="bg-surface-2 hover:bg-surface-3 p-2.5 transition-colors group">
-										<div class="flex items-center justify-between mb-1">
-											<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">
-												{key.replace(/_/g, ' ')}
-											</span>
-											{#if axisTags[key]}
-												<span
-													data-testid="axis-tag"
-													class="mr-auto ml-1.5 rounded border border-signal/40 bg-signal/10 px-1 font-mono text-xs text-signal"
-												>
-													{axisTags[key]}
-												</span>
-											{/if}
-											<CopyButton
-												text={String(value)}
-												ariaLabel="Copy {key}"
-												size="xs"
-												class="opacity-0 group-hover:opacity-100"
-											/>
-										</div>
-										<div
-											class="font-mono tabular-nums text-xs font-semibold text-fg truncate"
-											use:tooltip={{ text: typeof value === 'object' ? JSON.stringify(value) : String(value), truncateOnly: true }}
-										>
-											{typeof value === 'object' ? JSON.stringify(value) : String(value)}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<p class="text-xs text-fg-subtle p-3">No parameters</p>
+											{/snippet}
+											{#snippet footer()}
+												{#if seg.negative_prompt}
+													<p class="mt-1.5 break-words text-sm leading-relaxed text-danger">{seg.negative_prompt}</p>
+												{/if}
+											{/snippet}
+										</ParameterTextBlock>
+									{/snippet}
+								</FoldedList>
+							</DetailsSection>
 						{/if}
-					</div>
 
-					<!-- Models Section -->
-					<div class="bg-surface-2 rounded-lg overflow-hidden">
-						<div class="flex items-center justify-between px-3 py-2.5 border-b border-line">
-							<div class="flex items-center gap-2">
-								<Icon name="model" className="w-4 h-4 text-warning" />
-								<h3 class="text-sm font-semibold text-fg">Models</h3>
-							</div>
-							{#if currentModels.length > 0}
-								<Badge variant="warning" size="sm">{currentModels.length}</Badge>
-							{/if}
-						</div>
-
-						{#if paramsLoading}
-							<div class="flex items-center justify-center py-4">
-								<Spinner size="sm" />
-							</div>
-						{:else if currentModels.length > 0}
-							<div class="p-3 space-y-2">
-								{#each currentModels as model}
-									<button
-										type="button"
-										class="w-full bg-surface-3 rounded-lg p-2 hover:border-line-hover border border-transparent transition-colors text-left"
-										on:click={() => openModelInTab(model)}
-										disabled={!model.id}
-									>
-										<div class="flex gap-2 items-center">
-											<!-- Model Thumbnail -->
+						<DetailsSection id="models" title="Models" icon="model" count={currentModels.length > 0 ? currentModels.length : undefined}>
+							{#if paramsLoading}
+								<div class="flex items-center justify-center py-4">
+									<Spinner size="sm" />
+								</div>
+							{:else if currentModels.length > 0}
+								<FoldedList id="models" items={currentModels} above={5} show={3} class="grid gap-1 px-3">
+									{#snippet item(model)}
+										<button
+											type="button"
+											class="flex w-full items-center gap-2.5 rounded px-2 py-1 text-left enabled:hover:bg-surface-2"
+											on:click={() => openModelInTab(model)}
+											disabled={!model.id}
+										>
 											{#if modelThumbnailUrl(model)}
-												<div class="w-11 h-11 flex-shrink-0 rounded overflow-hidden">
-													<img
-														src={modelThumbnailUrl(model)}
-														alt={modelDisplayName(model)}
-														class="w-full h-full object-cover"
-													/>
+												<div class="h-8 w-8 flex-shrink-0 overflow-hidden rounded">
+													<img src={modelThumbnailUrl(model)} alt={modelDisplayName(model)} class="h-full w-full object-cover" />
 												</div>
 											{:else}
-												<div class="w-11 h-11 flex-shrink-0 bg-surface-1 rounded flex items-center justify-center">
-													<Icon name="model" className="w-6 h-6 text-fg-subtle" />
+												<div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded border border-line bg-surface-1">
+													<Icon name="model" className="h-4 w-4 text-fg-subtle" />
 												</div>
 											{/if}
-
-											<!-- Model Info -->
-											<div class="flex-1 min-w-0">
-												<h4 class="font-semibold text-xs text-fg truncate">
-													{modelDisplayName(model)}
-												</h4>
-												<div class="flex items-center gap-1.5 mt-0.5">
-													<Badge variant="signal" size="sm">{model.model_type}</Badge>
-												</div>
-											</div>
-
+											<span class="min-w-0 flex-1 text-base text-fg [overflow-wrap:anywhere]">{modelDisplayName(model)}</span>
+											<Badge variant="signal" size="sm">{model.model_type}</Badge>
 											{#if model.id}
-												<Icon name="external-link" className="w-3.5 h-3.5 text-fg-subtle flex-shrink-0" />
+												<Icon name="external-link" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
 											{/if}
+										</button>
+									{/snippet}
+								</FoldedList>
+							{:else}
+								<p class="px-3 text-sm text-fg-subtle">No models</p>
+							{/if}
+						</DetailsSection>
+
+						{#each extraSections as section (section.id)}
+							<div data-extra-section={section.id}>
+								<DetailsSection id="x-{section.id}" title={section.title} icon={section.icon ?? 'plug'}>
+									{#if section.rows?.length}
+										<ul>
+											{#each section.rows as row (row.id)}
+												<li>
+													<label class="flex min-h-[2.25rem] cursor-pointer items-center gap-2.5 px-3 py-1.5 text-md text-fg {row.disabled ? 'opacity-60' : ''}">
+														<Switch
+															size="sm"
+															checked={row.checked}
+															disabled={row.disabled}
+															label={row.label}
+															onchange={(checked) => row.onToggle(checked)}
+														/>
+														<span class="min-w-0 flex-1 truncate">{row.label}</span>
+													</label>
+												</li>
+											{/each}
+										</ul>
+									{/if}
+									{#if section.actions?.length}
+										<div class="flex flex-wrap items-center gap-2 px-3 py-1">
+											{#each section.actions as action (action.id)}
+												<Button variant="secondary" size="sm" icon={action.icon} onclick={action.onClick}>{action.label}</Button>
+											{/each}
 										</div>
-									</button>
-								{/each}
+									{/if}
+								</DetailsSection>
 							</div>
-						{:else}
-							<p class="text-xs text-fg-subtle p-3">No models</p>
+						{/each}
+
+						{#if systemTags.length > 0}
+							<DetailsSection id="autotags" title="Auto tags" icon="sparkles" count={systemTags.length} defaultOpen={false}>
+								<FoldedList id="autotags" items={systemTags} above={8} show={6} class="flex flex-wrap gap-1 px-3">
+									{#snippet item(st)}
+										<button
+											type="button"
+											class="inline-flex min-h-6 items-center gap-1.5 rounded border border-dashed border-line-strong bg-surface-3 px-2 py-0.5 text-sm text-fg-muted transition-colors hover:text-fg"
+											use:tooltip={`Filter history by “${st.tag}”`}
+											on:click={() => handleSystemTagClick(st.tag)}
+										>
+											<span class="max-w-[10rem] truncate">{st.tag.replace(/_/g, ' ')}</span>
+											<span class="font-mono tabular-nums text-fg-subtle">{Math.round(st.confidence * 100)}%</span>
+										</button>
+									{/snippet}
+								</FoldedList>
+							</DetailsSection>
 						{/if}
 					</div>
+					<div class="mx-4 mt-4 empty:hidden"><ProvenanceLine itemType="generation" itemId={activeGenerationId} /></div>
 				</div>
-			</div>
-		</div>
-	{/if}
-</BaseModal>
-</div>
+		{/if}
+	{/snippet}
+</MediaDetailsShell>
 
 {#if showPublishModal && activeGeneration}
 	<PublishToInspirationsModal
@@ -1336,16 +1046,3 @@
 		onClose={() => (showPublishModal = false)}
 	/>
 {/if}
-
-<style>
-	.alpha-checkerboard {
-		background-image:
-			linear-gradient(45deg, rgb(var(--surface-3)) 25%, transparent 25%),
-			linear-gradient(-45deg, rgb(var(--surface-3)) 25%, transparent 25%),
-			linear-gradient(45deg, transparent 75%, rgb(var(--surface-3)) 75%),
-			linear-gradient(-45deg, transparent 75%, rgb(var(--surface-3)) 75%);
-		background-size: 16px 16px;
-		background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-		background-color: rgb(var(--surface-2));
-	}
-</style>

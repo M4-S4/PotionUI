@@ -12,8 +12,10 @@
 	import { toasts } from '$lib/stores/toast';
 	import { logger } from '$lib/utils/logger';
 	import { buildImportBundleTabData, buildReuseTabTitle, resolveReusePresetLabel } from '$lib/utils/historyReuse';
+	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
+	import { buildModelOptions, modelFilterLabel } from '$lib/utils/historyModelFilter';
 	import { PageHeader, PageTitle, IconButton, ModelPickTrigger } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -183,8 +185,14 @@
 		isModelPickerOpen = true;
 	}
 
-	function handleModelPicked(model: { filename?: string } | null) {
+	let pickedModelLabels: Record<string, string> = {};
+
+	$: modelOptions = buildModelOptions(facets.models);
+	$: modelFilterText = modelFilterLabel(currentState.filters.modelName ?? '', modelOptions, pickedModelLabels);
+
+	function handleModelPicked(model: { filename?: string; name?: string } | null) {
 		isModelPickerOpen = false;
+		if (model?.filename && model.name) pickedModelLabels = { ...pickedModelLabels, [model.filename]: model.name };
 		handleModelChange(model?.filename ?? '');
 	}
 
@@ -266,8 +274,9 @@
 			}
 
 			const tabName = buildReuseTabTitle('Imported', reuse, resolvePresetName);
-			const { tabData } = buildImportBundleTabData(reuse);
-			tabsStore.addTabWithData(tabName, tabData);
+			const imported = buildImportBundleTabData(reuse);
+			tabsStore.addTabWithData(tabName, imported.tabData);
+			announceReuseConversion(imported);
 			goto('/generate');
 		} catch (e) {
 			logger.error('Import bundle failed:', e);
@@ -536,7 +545,7 @@
 							<ModelPickTrigger
 								id="history-filter-model"
 								class="text-xs py-1.5 px-2 bg-surface-3/50"
-								value={currentState.filters.modelName || null}
+								value={currentState.filters.modelName ? modelFilterText : null}
 								placeholder="All Models"
 								onopen={() => {
 								close();
@@ -622,7 +631,7 @@
 							role="radio"
 							aria-checked={$historyTileSize === size.value}
 							use:tooltip={size.title}
-							class="w-6 py-1 font-mono text-2xs rounded-sm transition-colors duration-100 {$historyTileSize === size.value
+							class="w-7 py-1 font-mono text-sm rounded-sm transition-colors duration-100 {$historyTileSize === size.value
 								? 'bg-signal/10 text-signal'
 								: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
 							on:click={() => historyTileSize.set(size.value)}
@@ -765,7 +774,7 @@
 						aria-label="Clear model filter"
 						on:click={() => handleModelChange('')}
 					>
-						<span class="truncate max-w-[8rem]">{currentState.filters.modelName}</span>
+						<span class="truncate max-w-[8rem]">{modelFilterText}</span>
 						<Icon name="close" className="w-3 h-3" />
 					</button>
 				{/if}

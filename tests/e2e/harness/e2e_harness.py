@@ -498,6 +498,7 @@ def build_backend_env(
     # unset) simply prevent .env from setting them instead.
     env.setdefault("POTIONUI_AUTH_SECRET_KEY", secrets.token_urlsafe(48))
     env["DEBUG"] = env.get("DEBUG", "false")
+    env.setdefault("POTIONUI_WS_TICKETS_PER_WINDOW", "1000")
     if extra_env:
         env.update(extra_env)
     return env
@@ -507,6 +508,7 @@ def spawn_backend(
     instance: EphemeralInstance,
     repo_root: Path,
     extra_env: Optional[Dict[str, str]] = None,
+    app_module: str = "api:app",
 ) -> subprocess.Popen:
     interpreter, site_packages = resolve_backend_launch(repo_root)
     env = build_backend_env(instance, site_packages, repo_root, extra_env=extra_env)
@@ -516,7 +518,7 @@ def spawn_backend(
         interpreter,
         "-m",
         "uvicorn",
-        "api:app",
+        app_module,
         "--host",
         "127.0.0.1",
         "--port",
@@ -603,8 +605,10 @@ class ThrowawayApp:
         extra_env: Optional[Dict[str, str]] = None,
         repo_root: Path = REPO_ROOT,
         claim: bool = True,
+        app_module: str = "api:app",
     ):
         self.claim = claim
+        self.app_module = app_module
         self.models_source = Path(models_dir).expanduser().resolve() if models_dir else DEFAULT_TEST_MODELS_DIR
         self.recipes_source = (
             Path(recipes_dir).expanduser().resolve()
@@ -654,7 +658,7 @@ class ThrowawayApp:
 
             mirror_recipes_dir_readonly(self.recipes_source, instance.recipes_dir)
 
-            spawn_backend(instance, self.repo_root, extra_env=self.extra_env)
+            spawn_backend(instance, self.repo_root, extra_env=self.extra_env, app_module=self.app_module)
 
             self.client = SetupClient(self.base_url)
             stage_wait_for_health(self.client)

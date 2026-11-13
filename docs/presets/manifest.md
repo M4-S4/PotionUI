@@ -34,8 +34,11 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `formulas` | no | mapping | The groups of form settings a user may save as a formula, in display order. See [Formulas](#formulas). |
 | `llm` | no | mapping | Preset/family-level prompting guide + chat-workspace context knobs. See [LLM context](#llm-context). |
 | `requires` | no | mapping | Optional VRAM/RAM guidance shown at preset-choice time. See [Hardware requirements](#hardware-requirements). |
+| `configuration` | no | mapping | Admin-set knobs the preset exposes. See [Configuration (admin-set)](#configuration-admin-set). |
+| `requirements` | no | list | Typed requirements checked live against the instance. See [Requirements](requirements.md). |
+| `negative_prompt` | no | mapping | `applies_when`: whether the preset takes a negative prompt. See [When the negative prompt applies](../presets.md#when-the-negative-prompt-applies). |
 | `prompt_resources` | no | mapping | Per mode, the media picker fields a prompt may reference with `@`. See [Prompt resources](#prompt-resources). |
-| `prompt_syntax` | no | mapping | Per mode, the inline prompt notation the model actually understands (speaker markers, weighting, `BREAK`, ...), highlighted in the segment editor and offered with `/`. See [Prompt syntax](#prompt-syntax). |
+| `prompt_syntax` | no | mapping | Per mode (or `"*"` for every mode), the inline prompt notation the model actually understands (speaker markers, weighting, `BREAK`, ...), highlighted in the segment editor and offered with `/`. See [Prompt syntax](#prompt-syntax). |
 | `modes` | yes | list | Non-empty **list** of mode-name strings (each needs a `modes/<name>/` dir). |
 
 **Removed / rejected** (do not use — they fail validation): a top-level `form:`, an inline
@@ -72,6 +75,8 @@ native video preset supports, plus per-mode capability flags (director audio/IC-
 chain per-segment LoRAs, keyframe limits) and defaults (fps, duration). See
 [Video Director → Preset capability declaration](../video-director.md#preset-capability-declaration)
 for the full schema and worked examples.
+`simple_modes` in the same block turns preset modes into plain single-clip forms backed by the same pipeline (see
+[Single-clip modes](../video-director.md#single-clip-modes-simple_modes)).
 
 A cloud video preset adds `model_field: "model"`: the chosen model's own capabilities
 (allowed clip lengths, start and end pictures, shot count) are then merged on top of the block
@@ -126,6 +131,24 @@ A mode listed in both `promptless_modes` and `optional_prompt_modes` is promptle
 hint like `promptless_modes`; the backend rejects nothing when the prompt is empty. The prompt
 can be read by the pipeline, but with nothing written `generation.prompts.first` is
 `{'positive': '', 'negative': ''}`, so the pipeline must handle an empty prompt.
+
+### `vars.retired_modes` (modes a preset no longer has)
+
+When a release removes a mode, saved data and API callers may still name it. List the old
+mode and the mode that replaced it, and every refusal for the old name says so instead of
+only saying the mode does not exist:
+
+```yaml
+vars:
+  retired_modes: { long: video }
+```
+
+A generate call, a form lookup or an MCP `start_generation` naming `long` is answered with
+`No form configuration found for mode 'long' in preset '<id>'. Mode 'long' was replaced by 'video'`
+(HTTP 404, error `form_not_found`). A plugin `preset_extensions` entry that lists a retired mode
+is applied to its other modes and the retired one is skipped with a log line, instead of the
+whole extension being rejected. The entry is only a message and a tolerance: nothing is
+converted, because the replacement takes a different form.
 
 ### What the prompt is for (`prompt_label`, `prompt_placeholder`)
 
@@ -219,6 +242,14 @@ mapped once per kind (MiniMax-H3's `references` holds images, videos and audio):
 covers only that kind's items, and `@` is the item's position among the field's items of that
 kind. The marker carries no kind; it comes from the item's `type`, else its file extension.
 
+An entry may also carry `limit:` (the most items of its kind a kit expansion adds to the field) and
+`limit_total:` (the most items of any kind in the field). Items already loaded in the field count
+against them, and a bare kit citation fills the field up to these limits and reports what did not
+fit. An entry without a limit takes the form field's own maximum for the mode (`max_items`,
+`max_items_by_kind`, or one item for a field that is not `multi`), so a kit can never put more
+items in a field than could be loaded by hand. Where neither exists a field takes at most 8 items
+from kits. Declare `limit:` explicitly when the model's maximum is below the form's.
+
 An entry with a `source:` maps a field whose rows are bundles a prompt resource source reads,
 instead of a media picker. A source is registered by a plugin (manifest `prompt_resource_sources:`,
 see [the plugin API](../plugin-api.md#contributing-a-prompt-resource-source)) and names the
@@ -257,7 +288,7 @@ trained on (see its `llm:` guide or model notes); leave a field out rather than 
 `prompt_syntax:` declares the inline notation a preset's own model was trained on — speaker
 markers, dialogue tags, section labels, attention weighting, `BREAK` — so the segment editor can
 highlight it and offer it through a `/` picker instead of the user having to memorize or copy it
-from the `llm:` guide. Keys are mode names; each entry is one token:
+from the `llm:` guide. Keys are mode names, plus the optional `"*"` default; each entry is one token:
 
 ```yaml
 prompt_syntax:
@@ -268,6 +299,21 @@ prompt_syntax:
       insert: "(S1)"                      # template inserted by the / picker; {} = selection/caret, {name=default} = an editable param
       help: "Stable speaker ID, established at first appearance"
       tone: "accent"                      # signal | success | warning | info | accent | danger | muted; omit to use the kind's default
+```
+
+The `"*"` key is a preset-wide default: every mode with a prompt field (a mode whose `form.yml`
+sets `prompt: "none"` gets nothing) that has no entry of its own uses it, so a mode added later
+inherits the family's notation without anyone remembering to list it. A mode's own entry replaces
+the default entirely, and `<mode>: []` opts that mode out. A preset with no `"*"` key resolves
+exactly as before: a mode without an entry gets no syntax. `scripts/preset_lint.py` warns when a
+preset declares syntax for some modes, has no `"*"` default, and a mode with a prompt field has
+no entry of its own.
+
+```yaml
+prompt_syntax:
+  "*": [...]            # every mode without its own entry
+  loop: [...]           # replaces the default for this mode
+  remix: []             # no notation here
 ```
 
 `tone` picks one of the design system's semantic colors. For a preset whose own notation calls for
@@ -494,7 +540,7 @@ configuration:
   of strings) as a single `invalid_configuration` error citing every problem found. A successful
   PUT merges into (not replaces) previously-set keys, and returns the same shape as the GET.
 
-Values live in the `presets` table's `configuration` JSON column (migration `081`), keyed by the
+Values live in the `presets` table's `configuration` JSON column, keyed by the
 installed preset's YAML `preset_id` — see `src/features/presets/configuration.py` for the
 validation/merge helpers and `operations.get_preset_configuration`/`set_preset_configuration`.
 
