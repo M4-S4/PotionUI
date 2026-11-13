@@ -1,3 +1,5 @@
+import { onStep } from './grid.js';
+
 export const DISSOLVE_KEY = 'dissolve';
 export const MAX_DISSOLVE = 2;
 export const DISSOLVE_CHOICES = [0.4, 0.6, 1, 1.2, 2];
@@ -93,7 +95,7 @@ export function headTrim(srcIn, dur, speed, shift) {
 	const from = finite(srcIn);
 	const length = finite(dur);
 	const rate = positive(speed) ? speed : 1;
-	const moved = Math.min(Math.max(Math.round(finite(shift) / GRID) * GRID, -from / rate), Math.max(length - LEAST_SHOT, 0));
+	const moved = Math.min(Math.max(onStep(finite(shift), GRID), -from / rate), Math.max(length - LEAST_SHOT, 0));
 	return { srcIn: rounded(Math.max(from + moved * rate, 0)), dur: rounded(length - moved) };
 }
 

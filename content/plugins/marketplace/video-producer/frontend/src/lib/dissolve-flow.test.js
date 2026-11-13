@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { clean, renderComponent } from './svelte-harness.js';
 import { DISSOLVE_CHOICES, headTrim, joins, onFrame, playedLengths, setDissolve, tailTrim } from './dissolve.js';
 
-const { doc, ui, act, adopt, checkpoint, relayout, select, bladeAt, bladeTime, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, limitNote, dispose } = await import('./state.svelte.js');
+const { doc, ui, act, adopt, checkpoint, relayout, select, bladeAt, bladeTime, duplicateSelection, undo, seqDuration, clipAt, shotIdAt, addPrompt, addFrame, limitNote, dispose, round } = await import('./state.svelte.js');
 const { drag } = await import('./timeline.js');
 const { shotTrim, bandTrim, setShotDuration, setShotIn } = await import('./trims.js');
 const { nudgeDuration } = await import('./band.svelte.js');
@@ -429,6 +429,18 @@ test('dissolve flow: in a project that dissolves, the blade cuts a shot off the 
 			[6.1, 1, 0]
 		]
 	);
+});
+
+test('dissolve flow: the layout rounds a time to the step as the server does, a half step up even when the sum that gives it falls just below', () => {
+	const cases = JSON.parse(readFileSync(join(here, '..', '..', '..', 'tests', 'fixtures', 'snap_cases.json'), 'utf-8'));
+	for (const [value, snapped] of cases) assert.equal(round(value, 0.04), snapped, String(value));
+	assert.equal(round(1.02 + 0.84, 0.04), 1.88);
+	const random = seeded(11);
+	for (let n = 0; n < 2000; n++) {
+		const x = +(random() * 50).toFixed(n % 2 ? 3 : 2);
+		const steps = Math.floor(random() * 400);
+		assert.equal(round(x + steps * 0.04, 0.04), +(round(x, 0.04) + steps * 0.04).toFixed(3), `${x} + ${steps}`);
+	}
 });
 
 test('dissolve flow: in a project that dissolves, trimming the head of a shot from the keyboard leaves round lengths', () => {

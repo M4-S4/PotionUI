@@ -318,6 +318,40 @@ def test_each_exchange_format_writes_the_dissolves_as_its_golden_file(fmt):
     assert render(fmt, fixture["doc"], files).encode("utf-8") == (EXPORTS / f"dissolve.{fmt}").read_bytes()
 
 
+def test_the_layout_rounds_a_time_to_the_step_as_the_page_does_a_half_step_up_even_when_the_sum_that_gives_it_falls_just_below():
+    cases = json.loads((FIXTURES / "snap_cases.json").read_text(encoding="utf-8"))
+
+    assert [edits.snap(value) for value, _ in cases] == [snapped for _, snapped in cases]
+    assert edits.snap(1.02 + 0.84) == 1.88
+    pick = random.Random("120 snap shift")
+    for _ in range(2000):
+        x = round(pick.uniform(0, 50), pick.choice((2, 3)))
+        steps = pick.randint(0, 400)
+        assert edits.snap(x + steps * 0.04) == round(edits.snap(x) + steps * 0.04, 3), (x, steps)
+
+
+def test_the_last_frame_of_a_shot_and_a_length_the_assistant_asks_are_rounded_as_the_page_rounds_them():
+    assert edits.frame_time({"start": 1.48, "dur": 0.42}, "last") == 1.88
+    doc = {"clips": [{"id": "c", "assetId": None, "start": 0, "dur": 5, "srcIn": 0}], "prompts": [], "frames": [], "assets": []}
+    edits.resize(doc, doc["clips"][0], 0.58)
+    assert doc["clips"][0]["dur"] == 0.6
+
+
+def test_a_project_whose_lengths_sit_on_the_grid_keeps_its_layout_and_after_a_cut_the_next_shot_starts_where_the_one_before_ends():
+    pick = random.Random("120 grid layout")
+    for _ in range(300):
+        durations = [round(pick.randint(5, 100) * 0.04, 2) for _ in range(pick.randint(2, 30))]
+        doc = {"clips": [{"id": f"c{index}", "dur": dur} for index, dur in enumerate(durations)]}
+        edits.relayout(doc)
+        at = 0.0
+        for clip, dur in zip(doc["clips"], durations):
+            assert clip["start"] == round(at, 2)
+            at += dur
+    doc = {"clips": [{"id": "a", "dur": 1.02}, {"id": "b1", "dur": 0.84}, {"id": "b2", "dur": 1.56}]}
+    edits.relayout(doc)
+    assert [clip["start"] for clip in doc["clips"]] == [0, 1.04, 1.88]
+
+
 @pytest.mark.parametrize("fmt", ("edl", "otio", "fcpxml"))
 def test_each_exchange_format_closes_the_gaps_of_the_layout_as_the_video_in_its_golden_file(fmt):
     fixture = json.loads((EXPORTS / "gap-project.json").read_text(encoding="utf-8"))

@@ -19,6 +19,7 @@ import { isPlayer } from './workspaces.js';
 import sharedRules from './rules.json';
 import { DISSOLVE_KEY, chained, dissolveOf, dissolving, droppedDissolves, holderAt, indexAt, layout, mixAt, newlyLimited, onFrame, placement, playedLengths, shownSpans, splitKeepsDissolves, startingAt } from './dissolve.js';
 import { roleKind } from './seam.js';
+import { onStep } from './grid.js';
 
 export { newAsset, newClip };
 
@@ -122,7 +123,7 @@ export function applyMe(me) {
 }
 
 export const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-export const round = (v, s = 0.1) => +(Math.round(v / s) * s).toFixed(3);
+export const round = onStep;
 
 export const bandView = () => ui.workspace === 'storyboard' && ui.storyView === 'band';
 export const drawerMode = () => viewport.narrow && !isPlayer(ui.workspace);
