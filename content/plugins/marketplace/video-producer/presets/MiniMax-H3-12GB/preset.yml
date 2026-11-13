@@ -250,7 +250,7 @@ prompt_resources:
       token: "<Audio @>"
 
 prompt_syntax:
-  video:
+  "*":
     - token: "integrated_multimodal_description:"
       kind: "label"
       help: "Opens the three-field document: shots, camera, speakers and dialogue"
