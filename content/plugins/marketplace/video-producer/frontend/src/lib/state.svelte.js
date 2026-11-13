@@ -496,14 +496,13 @@ export function bladeAt(time = ui.playhead) {
 		const left = time - c.start;
 		const i = doc.clips.indexOf(c);
 		const kept = exact ? +left.toFixed(6) : round(left, 0.04);
-		const b = exact
-			? { ...$state.snapshot(c), id: ulid(), start: +(c.start + kept).toFixed(6), dur: +(c.dur - kept).toFixed(6), srcIn: +(c.srcIn + kept * speedOf(c)).toFixed(6), fadeIn: 0 }
-			: { ...$state.snapshot(c), id: ulid(), start: round(c.start + kept, 0.04), dur: round(c.dur - left, 0.04), srcIn: c.srcIn + left * speedOf(c), fadeIn: 0 };
+		const b = { ...$state.snapshot(c), id: ulid(), start: +(c.start + kept).toFixed(6), dur: +(c.dur - kept).toFixed(6), srcIn: +(c.srcIn + kept * speedOf(c)).toFixed(6), fadeIn: 0 };
+		const cut = exact ? time : b.start;
 		delete b[DISSOLVE_KEY];
 		c.dur = kept;
 		c.fadeOut = 0;
 		doc.clips.splice(i + 1, 0, b);
-		for (const item of linkedTo(c.id)) if (startOf(item) >= time) item.shotId = b.id;
+		for (const item of linkedTo(c.id)) if (startOf(item) >= cut) item.shotId = b.id;
 		relayout();
 	});
 	toast(t('lib.toast.shotSplit'));
