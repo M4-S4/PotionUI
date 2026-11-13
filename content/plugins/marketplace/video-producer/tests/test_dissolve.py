@@ -318,6 +318,37 @@ def test_each_exchange_format_writes_the_dissolves_as_its_golden_file(fmt):
     assert render(fmt, fixture["doc"], files).encode("utf-8") == (EXPORTS / f"dissolve.{fmt}").read_bytes()
 
 
+@pytest.mark.parametrize("fmt", ("edl", "otio", "fcpxml"))
+def test_each_exchange_format_closes_the_gaps_of_the_layout_as_the_video_in_its_golden_file(fmt):
+    fixture = json.loads((EXPORTS / "gap-project.json").read_text(encoding="utf-8"))
+    files = files_of(fixture["doc"], fixture["takes"], FixtureResolver(fixture["uploads"]), media="name")
+
+    assert render(fmt, fixture["doc"], files).encode("utf-8") == (EXPORTS / f"gap.{fmt}").read_bytes()
+
+
+@pytest.mark.parametrize("fmt", ("edl", "otio", "fcpxml"))
+def test_each_exchange_format_of_a_project_that_only_overlaps_off_the_grid_follows_the_video_in_its_golden_file(fmt):
+    fixture = json.loads((EXPORTS / "overlap-project.json").read_text(encoding="utf-8"))
+    files = files_of(fixture["doc"], fixture["takes"], FixtureResolver(fixture["uploads"]), media="name")
+
+    assert render(fmt, fixture["doc"], files).encode("utf-8") == (EXPORTS / f"overlap.{fmt}").read_bytes()
+
+
+def test_the_edl_of_a_project_that_only_overlaps_cuts_on_the_frames_of_the_video_and_reads_the_sources_where_the_video_does():
+    fixture = json.loads((EXPORTS / "overlap-project.json").read_text(encoding="utf-8"))
+    files = files_of(fixture["doc"], fixture["takes"], FixtureResolver(fixture["uploads"]), media="name")
+    doc = fixture["doc"]
+    starts, _ = _read_graph(_graph(doc), doc["fps"])
+
+    lines = render("edl", doc, files).split("\r\n")
+
+    assert list(starts.values())[:4] == [0, 25, 61, 85]
+    assert "001  VP001    V     C        00:00:00:12 00:00:01:13 00:00:00:00 00:00:01:01" in lines
+    assert "004  VP004    V     C        00:00:00:00 00:00:02:01 00:00:03:13 00:00:05:14" in lines
+    last = next(part for part in _graph(doc) if part.endswith("[v3]"))
+    assert "trim=start=0:" in last and "tpad=start_mode" not in last
+
+
 def test_the_edl_writes_a_dissolve_as_a_zero_length_cut_then_a_d_event_in_frames():
     fixture, files = _fixture()
 
