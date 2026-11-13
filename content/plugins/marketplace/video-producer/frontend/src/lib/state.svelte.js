@@ -470,9 +470,10 @@ export function bladeAt(time = ui.playhead) {
 		const a = doc.audio.find((x) => x.id === s.id);
 		if (a && time > a.start + 0.1 && time < a.start + a.dur - 0.1) {
 			act(() => {
-				const left = time - a.start;
-				const b = { ...$state.snapshot(a), id: ulid(), start: round(time, 0.04), dur: a.dur - left, srcIn: a.srcIn + left, fadeIn: 0 };
-				a.dur = left;
+				const cut = round(time, 0.04);
+				const kept = +(cut - a.start).toFixed(6);
+				const b = { ...$state.snapshot(a), id: ulid(), start: cut, dur: +(a.dur - kept).toFixed(6), srcIn: +(a.srcIn + kept).toFixed(6), fadeIn: 0 };
+				a.dur = kept;
 				a.fadeOut = 0;
 				doc.audio.push(b);
 			});

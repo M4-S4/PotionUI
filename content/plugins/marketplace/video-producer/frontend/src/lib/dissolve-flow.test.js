@@ -514,6 +514,57 @@ test('dissolve flow: the layout rounds a time to the step as the server does, a 
 	}
 });
 
+function music(start, dur, srcIn = 0, extra = {}) {
+	project();
+	doc.audio = [{ id: 'm', assetId: null, lane: 'A1', start, dur, srcIn, fadeIn: 0.3, fadeOut: 0.5, gain: -2, ...extra }];
+	select('audio', 'm');
+}
+
+test('dissolve flow: the blade of a sound clip cuts exactly at its point on the grid, so a music of 4 s cut at 1.01 s gives pieces of 1 and 3 s that read on in the source', () => {
+	music(0, 4);
+	bladeAt(1.01);
+	assert.deepEqual(
+		doc.audio.map((a) => [a.start, a.dur, a.srcIn, a.fadeIn, a.fadeOut, a.gain]),
+		[
+			[0, 1, 0, 0.3, 0, -2],
+			[1, 3, 1, 0, 0.5, -2]
+		]
+	);
+});
+
+test('dissolve flow: the blade of a sound clip on the grid gives the document of before', () => {
+	music(0.4, 4, 0.2, { reference: true });
+	bladeAt(2.4);
+	assert.deepEqual(
+		doc.audio.map((a) => [a.start, a.dur, a.srcIn, a.fadeIn, a.fadeOut, a.reference]),
+		[
+			[0.4, 2, 0.2, 0.3, 0, true],
+			[2.4, 2, 2.2, 0, 0.5, true]
+		]
+	);
+});
+
+test('dissolve flow: at positions drawn at random, the blade of a sound clip cuts on the grid, the two pieces make the clip and the second reads on from the end of the first', () => {
+	const random = seeded(121);
+	for (let n = 0; n < 600; n++) {
+		const start = +(random() * 3).toFixed(3);
+		const dur = +(0.3 + random() * 6).toFixed(3);
+		const srcIn = +(random() * 2).toFixed(3);
+		music(start, dur, srcIn);
+		const at = +(start + 0.11 + random() * (dur - 0.22)).toFixed(3);
+		const cut = +(Math.floor((2 * Math.round(at * 1e6) + 40000) / 80000) * 0.04).toFixed(3);
+		bladeAt(at);
+		const label = `${start} + ${dur} at ${at}`;
+		assert.equal(doc.audio.length, 2, label);
+		const [first, second] = doc.audio;
+		assert.equal(second.start, cut, label);
+		assert.ok(Math.abs(first.start + first.dur - cut) < 1e-6, label);
+		assert.ok(first.dur > 0 && second.dur > 0, label);
+		assert.ok(Math.abs(first.dur + second.dur - dur) < 1e-6, label);
+		assert.ok(Math.abs(second.srcIn - (srcIn + first.dur)) < 1e-6, label);
+	}
+});
+
 test('dissolve flow: in a project that dissolves, trimming the head of a shot from the keyboard leaves round lengths', () => {
 	project();
 	doc.clips[0].dur = 3.1;
