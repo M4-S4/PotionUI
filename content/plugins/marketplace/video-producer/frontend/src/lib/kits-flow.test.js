@@ -1,7 +1,7 @@
 import { test, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -51,8 +51,8 @@ const { bindClient } = await import('./project.svelte.js');
 const importer = await import('./importer.js');
 const { emptyDoc, newAsset } = await import('./starter.js');
 const { setLocale } = await import('../i18n/index.svelte.js');
-const { addCardImages } = await import('./references.js');
-const { commandById, menus, shown } = await import('./commands.js');
+const { addCardImage, addCardImages } = await import('./references.js');
+const { PALETTE_SIZE, commandById, menus, paletteCommands, shown } = await import('./commands.js');
 const { mediaOf, rateOf } = await import('../../../tests/fixtures/make_kit_picks.mjs');
 
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'tests', 'fixtures', 'kit_picks.json'), 'utf-8'));
@@ -65,7 +65,7 @@ after(() => {
 });
 
 const resolved = [];
-const server = { gate: null, lie: null };
+const server = { gate: null, lie: null, rateHang: false };
 bindClient({
 	async resolveMedia(origin) {
 		resolved.push(origin);
@@ -75,6 +75,7 @@ bindClient({
 		return { ok: true, data: server.lie ? { ...media, mediaType: server.lie } : media };
 	},
 	async libraryItem(itemId) {
+		if (server.rateHang) return new Promise(() => {});
 		return { ok: true, data: { fps: rateOf(itemId) } };
 	}
 });
@@ -118,6 +119,7 @@ beforeEach(() => {
 	resolved.length = 0;
 	server.gate = null;
 	server.lie = null;
+	server.rateHang = false;
 	for (const key of Object.keys(components)) delete components[key];
 	components.MediaPickerModal = modal('MediaPickerModal');
 	components.UploadLibraryModal = modal('UploadLibraryModal');
@@ -481,7 +483,7 @@ test('a host whose kit item lacks media_ref (its form changed) is not told the f
 	await twice();
 	assert.deepEqual(toasts, [
 		['warning', '“odd” could not be read: this PotionUI sends kit items in a form Video Producer does not know.'],
-		['warning', '1 kit item left out: 1 this PotionUI sends in a form Video Producer cannot read']
+		['warning', '1 kit item left out: 1 in a form Video Producer cannot read']
 	]);
 });
 
@@ -577,4 +579,60 @@ test('the palette, the File and Audio menus get the kit imports, hidden on a hos
 	assert.equal(inMenu('file', 'import-kit'), false);
 	assert.equal(inMenu('audio', 'audio-import-kit'), false);
 	assert.equal(shown(commandById('import')), true);
+});
+
+const turns = async (n = 30) => {
+	for (let i = 0; i < n; i += 1) await Promise.resolve();
+};
+
+test('a frame rate the library never answers delays the import by RATE_WAIT_MS at most: the video then enters without one, as when the call fails', async (t) => {
+	server.rateHang = true;
+	importer.openKitImport();
+	last().props.onConfirm(['kit:it_walk'], [picked(byId('it_walk'))]);
+	t.mock.timers.enable({ apis: ['setTimeout'] });
+	await turns();
+	assert.equal(doc.assets.length, 0);
+	t.mock.timers.tick(importer.RATE_WAIT_MS - 1);
+	await turns();
+	assert.equal(doc.assets.length, 0);
+	t.mock.timers.tick(1);
+	await turns();
+	t.mock.timers.reset();
+	assert.equal(importer.RATE_WAIT_MS, 4000);
+	assert.deepEqual(doc.assets.map((a) => [a.origin.itemId, a.fps]), [['up-video-2', null]]);
+	assert.deepEqual(toasts, [['success', '1 file imported']]);
+});
+
+test('the command search shows, before anything is typed, the same commands with or without kits, and finds the two kit imports when asked', () => {
+	const ids = (list) => list.map((c) => c.id);
+	const withKits = ids(paletteCommands(''));
+	delete components.MediaPickerModal;
+	const without = ids(paletteCommands(''));
+	components.MediaPickerModal = { mount() {}, update() {}, unmount() {} };
+	assert.equal(without.length, PALETTE_SIZE);
+	assert.deepEqual(withKits, without);
+	assert.ok(without.includes('import-cuts'));
+	assert.deepEqual(ids(paletteCommands('kit')), ['import-kit', 'audio-import-kit']);
+	assert.deepEqual(ids(paletteCommands('KIT')), ['import-kit', 'audio-import-kit']);
+	delete components.MediaPickerModal;
+	assert.deepEqual(ids(paletteCommands('kit')), []);
+});
+
+test('a picker that adds (many) refuses to work without onpickall, and every one the page mounts has it, so a whole kit is never one undo step per item', () => {
+	assert.throws(() => importer.requireAll(true, null), /needs onpickall/);
+	assert.doesNotThrow(() => importer.requireAll(true, () => {}));
+	assert.doesNotThrow(() => importer.requireAll(false, null));
+	const components = join(dirname(fileURLToPath(import.meta.url)), '..', 'components');
+	const tags = [];
+	for (const dir of readdirSync(components)) {
+		const folder = join(components, dir);
+		if (!statSync(folder).isDirectory()) continue;
+		for (const file of readdirSync(folder).filter((name) => name.endsWith('.svelte'))) {
+			const text = readFileSync(join(folder, file), 'utf-8');
+			for (const tag of text.match(/<(MediaPicker|AudioPicker)\s[\s\S]*?\/>/g) ?? []) tags.push([file, tag]);
+		}
+	}
+	const many = tags.filter(([, tag]) => /\smany[\s/>]/.test(tag));
+	assert.deepEqual(many.map(([file]) => file).sort(), ['BibleAside.svelte', 'ShotEditor.svelte', 'ShotEditor.svelte']);
+	assert.deepEqual(many.filter(([, tag]) => !tag.includes('onpickall=')), []);
 });

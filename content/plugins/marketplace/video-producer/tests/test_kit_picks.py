@@ -33,7 +33,7 @@ def _doc(assets):
     return doc
 
 
-def test_the_fixture_covers_full_and_empty_kits_every_kind_deleted_files_repeated_names_and_one_file_in_two_kits():
+def test_the_fixture_covers_full_and_empty_kits_every_kind_deleted_files_repeated_names_one_file_in_two_items_of_a_kit_and_one_file_in_two_kits():
     cases = PICKS["cases"]
     kits = [kit for case in cases for kit in case["kits"]]
     assert len(cases) == 8
@@ -42,6 +42,7 @@ def test_the_fixture_covers_full_and_empty_kits_every_kind_deleted_files_repeate
     assert {item["kind"] for item in items} == {"image", "video", "audio", "text"}
     assert any(item["missing"] and item["media_ref"] is None for item in items)
     assert any(max(Counter(item["name"] for item in kit["items"]).values(), default=0) > 1 for kit in kits)
+    assert any(max(Counter(item["media_ref"] for item in kit["items"] if item["media_ref"]).values(), default=0) > 1 for kit in kits)
     two = [case for case in cases if len(case["kits"]) == 2]
     assert two and set.intersection(*({item["media_ref"] for item in kit["items"] if item["media_ref"]} for kit in two[0]["kits"]))
 

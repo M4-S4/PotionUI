@@ -12,6 +12,7 @@ import { placeOnTrack } from './vreftracks.svelte.js';
 import { KIT_PICKER, LEFT_REASONS, emptyLeft, fromPicked, gatherPicks, kindSet, leftTotal, pickKey } from './kits.js';
 
 const KINDS = { media: ['image', 'video'], audio: ['audio'] };
+export const RATE_WAIT_MS = 4000;
 const probing = new Map();
 const probed = new Set();
 
@@ -167,8 +168,15 @@ function reportLeft(left, kinds) {
 async function resolveWithRate(client, origin) {
 	const result = await client.resolveMedia(origin);
 	if (!result?.ok || result.data?.mediaType !== 'video' || origin.kind !== 'library' || typeof client.libraryItem !== 'function') return result;
-	const item = await client.libraryItem(origin.itemId);
+	let timer = null;
+	const late = new Promise((resolve) => (timer = setTimeout(() => resolve(null), RATE_WAIT_MS)));
+	const item = await Promise.race([client.libraryItem(origin.itemId), late]);
+	clearTimeout(timer);
 	return { ...result, fps: item?.ok ? fpsOf({ item: item.data }) : null };
+}
+
+export function requireAll(many, onpickall) {
+	if (many && typeof onpickall !== 'function') throw new Error('A MediaPicker or AudioPicker with many needs onpickall, which adds every picked item in one undo step.');
 }
 
 async function importPicks(picks, allowed) {

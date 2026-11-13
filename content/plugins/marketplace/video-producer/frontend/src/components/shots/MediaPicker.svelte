@@ -3,7 +3,7 @@
 	import { t } from '../../i18n/index.svelte.js';
 	import { doc, asset } from '../../lib/state.svelte.js';
 	import { assetThumb } from '../../lib/media.js';
-	import { kitsAvailable, libraryAvailable, pickKitMany, pickKitMedia, pickMedia, pickLocalMedia } from '../../lib/importer.js';
+	import { kitsAvailable, libraryAvailable, pickKitMany, pickKitMedia, pickMedia, pickLocalMedia, requireAll } from '../../lib/importer.js';
 	import Icon from '../Icon.svelte';
 
 	let { value = null, title, onpick, onpickall = null, removable = true, compact = false, kind = 'image', many = false } = $props();
@@ -19,12 +19,12 @@
 		onpick(id);
 	}
 
+	requireAll(many, onpickall);
+
 	function chooseAll(ids) {
-		const pick = onpick;
 		const pickAll = onpickall;
 		open = false;
-		if (pickAll) return pickAll(ids);
-		for (const id of ids) pick(id);
+		pickAll(ids);
 	}
 
 	const fromKit = () => (many ? pickKitMany(kind, title, chooseAll) : pickKitMedia(kind, title, choose));

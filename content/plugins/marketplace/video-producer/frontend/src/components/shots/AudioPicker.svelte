@@ -2,10 +2,10 @@
 	import HostUi from '../../../../../../sdk/HostUi.svelte';
 	import { t } from '../../i18n/index.svelte.js';
 	import { doc, asset, secs } from '../../lib/state.svelte.js';
-	import { kitsAvailable, libraryAvailable, pickKitMany, pickKitMedia, pickMedia, pickLocalMedia } from '../../lib/importer.js';
+	import { kitsAvailable, libraryAvailable, pickKitMany, pickKitMedia, pickMedia, pickLocalMedia, requireAll } from '../../lib/importer.js';
 	import Icon from '../Icon.svelte';
 
-	let { value = null, title, onpick, removable = true, many = false } = $props();
+	let { value = null, title, onpick, onpickall = null, removable = true, many = false } = $props();
 
 	let open = $state(false);
 	const current = $derived(value ? asset(value) : null);
@@ -16,10 +16,12 @@
 		onpick(id);
 	}
 
+	requireAll(many, onpickall);
+
 	function chooseAll(ids) {
-		const pick = onpick;
+		const pickAll = onpickall;
 		open = false;
-		for (const id of ids) pick(id);
+		pickAll(ids);
 	}
 
 	const fromKit = () => (many ? pickKitMany('audio', title, chooseAll) : pickKitMedia('audio', title, choose));

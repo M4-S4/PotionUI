@@ -68,11 +68,12 @@ export function pointerShortcuts() {
 	];
 }
 
-function command(id, run, { keys = null, alias = null, check = null, global = false, claim = false, typing = false, press = null, repeat = false, vars = null, hidden = null } = {}) {
+function command(id, run, { keys = null, alias = null, check = null, global = false, claim = false, typing = false, press = null, repeat = false, vars = null, hidden = null, searchOnly = false } = {}) {
 	return {
 		id,
 		run,
 		hidden,
+		searchOnly,
 		keys,
 		alias,
 		check,
@@ -230,7 +231,7 @@ export const menus = [
 			command('save', () => save(), { keys: 'mod+s' }),
 			command('versions', modal('versions'))
 		],
-		[command('import', () => openImport(), { keys: 'mod+i' }), command('import-kit', () => openKitImport(), { hidden: noKits }), command('import-local', () => openLocalImport(), { keys: 'ctrl+mod+i' }), command('import-gallery', gallery), command('import-cuts', modal('cuts')), command('project-props', modal('project'))],
+		[command('import', () => openImport(), { keys: 'mod+i' }), command('import-kit', () => openKitImport(), { hidden: noKits, searchOnly: true }), command('import-local', () => openLocalImport(), { keys: 'ctrl+mod+i' }), command('import-gallery', gallery), command('import-cuts', modal('cuts')), command('project-props', modal('project'))],
 		[
 			command('export', modal('export', { tab: 'video' }), { keys: 'mod+e' }),
 			command('export-xml', modal('export', { tab: 'exchange' }), { keys: 'shift+mod+e' }),
@@ -289,7 +290,7 @@ export const menus = [
 		[command('engine', openEngineSettings)]
 	]),
 	menu('audio', [
-		[command('audio-add', addAudioLane), command('audio-import', () => openImport('audio')), command('audio-import-kit', () => openKitImport('audio'), { hidden: noKits }), command('audio-import-local', () => openLocalImport('audio')), command('audio-mixer', mixer)]
+		[command('audio-add', addAudioLane), command('audio-import', () => openImport('audio')), command('audio-import-kit', () => openKitImport('audio'), { hidden: noKits, searchOnly: true }), command('audio-import-local', () => openLocalImport('audio')), command('audio-mixer', mixer)]
 	]),
 	menu('view', [
 		[
@@ -345,6 +346,14 @@ export const menus = [
 ];
 
 export const allCommands = menus.flatMap((m) => m.groups.flat());
+
+export const PALETTE_SIZE = 12;
+const folded = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+export function paletteCommands(query = '') {
+	const words = folded(query);
+	return allCommands.filter((c) => shown(c) && (words ? folded(`${c.label} ${c.menu}`).includes(words) : !c.searchOnly)).slice(0, PALETTE_SIZE);
+}
 
 export function commandById(id) {
 	return allCommands.find((x) => x.id === id) ?? null;
