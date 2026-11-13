@@ -44,6 +44,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getGenerationById: vi.fn().mockResolvedValue({ success: false, error: 'not mocked' }),
 		getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } }),
 		getBaseURL: vi.fn(() => ''),
+		getFileURL: vi.fn((id: string) => `/api/media/files/${id}`),
 		getToken: vi.fn(() => null),
 		setOnAuthExpired: vi.fn(),
 		setOnTokenRefreshed: vi.fn()
@@ -164,6 +165,8 @@ describe('GenerationDetailsModal action bar', () => {
 			'tags',
 			'reuse',
 			'copy-to-library',
+			'add-to-kit',
+			'auto-file',
 			'download',
 			'more'
 		]);
@@ -224,7 +227,7 @@ describe('GenerationDetailsModal action bar', () => {
 	it('shows nothing to edit for a mesh but keeps the generation actions', async () => {
 		await open(generation('mesh'));
 
-		expect(barIds()).toEqual(['favorite', 'tags', 'reuse', 'download', 'more']);
+		expect(barIds()).toEqual(['favorite', 'tags', 'reuse', 'auto-file', 'download', 'more']);
 	});
 
 	it('leaves the media corner with only what describes the media', async () => {
@@ -304,12 +307,26 @@ describe('GenerationDetailsModal generation actions', () => {
 
 		expect(barButton('reuse').textContent).toContain('Reuse settings');
 		expect(barButton('copy-to-library').textContent).toContain('Copy to Library');
+		expect(barButton('add-to-kit').textContent).toContain('Add to kit');
+	});
+
+	it('sends the shown file to the kit dialog from Add to kit', async () => {
+		const { kitAddRequest } = await import('$lib/stores/kitAddRequests');
+		kitAddRequest.set(null);
+		await open(generation('image'));
+
+		barButton('add-to-kit').click();
+		flushSync();
+
+		let picks: Array<{ historyFileId?: string | null; kind: string }> | null = null;
+		kitAddRequest.subscribe((value) => (picks = value))();
+		expect(picks).toEqual([expect.objectContaining({ kind: 'image', historyFileId: '42' })]);
 	});
 
 	it('leaves out Reuse settings for a generation with no preset', async () => {
 		await open(generation('image', { preset_id: null }));
 
-		expect(barIds()).toEqual(['edit', 'effects', 'favorite', 'tags', 'copy-to-library', 'download', 'more']);
+		expect(barIds()).toEqual(['edit', 'effects', 'favorite', 'tags', 'copy-to-library', 'add-to-kit', 'auto-file', 'download', 'more']);
 	});
 
 	it('dispatches reuse with the generation when Reuse settings is pressed', async () => {

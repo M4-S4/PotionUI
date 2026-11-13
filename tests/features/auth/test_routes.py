@@ -12,7 +12,7 @@ from src.features.auth.routes import AuthController
 from src.platform.security.current_user import (
     get_current_user,
     get_current_active_user,
-    authenticate_websocket_token,
+    get_principal,
     set_auth,
 )
 from src.platform.http.base_controller import APIResponse
@@ -20,6 +20,12 @@ from src.features.auth.dto import ChangePasswordRequest, UserCreate, Token, User
 from src.platform.security.token import TokenData
 from src.platform.security import Auth, AuthConfig, LoginHandoffStore, PasswordHasher, TokenCodec
 from src.platform.security.user import User, AccountType
+
+
+def _request():
+    from starlette.requests import Request
+
+    return Request({"type": "http", "method": "GET", "path": "/", "headers": []})
 
 
 class TestAuthController:
@@ -328,7 +334,7 @@ class TestAuthController:
         """Test get_current_user with valid token."""
         mock_auth_manager.get_user_from_token.return_value = sample_user
 
-        result = await get_current_user("valid.jwt.token")
+        result = await get_current_user(await get_principal(_request(), "valid.jwt.token"))
 
         assert result == sample_user
         mock_auth_manager.get_user_from_token.assert_called_once_with("valid.jwt.token")
@@ -339,7 +345,7 @@ class TestAuthController:
         mock_auth_manager.get_user_from_token.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user("invalid.token")
+            await get_current_user(await get_principal(_request(), "invalid.token"))
 
         assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
         assert "Could not validate credentials" in exc_info.value.detail
@@ -351,35 +357,6 @@ class TestAuthController:
         """Test get_current_active_user passes through user."""
         result = await get_current_active_user(sample_user)
         assert result == sample_user
-
-    # WebSocket authentication tests
-
-    def test_authenticate_websocket_token_valid(self, auth_controller, mock_auth_manager, sample_user):
-        """Test WebSocket auth with valid token."""
-        mock_auth_manager.authenticate_websocket.return_value = (sample_user, None)
-
-        user, error = authenticate_websocket_token("valid.token")
-
-        assert user == sample_user
-        assert error is None
-
-    def test_authenticate_websocket_token_no_token(self, auth_controller, mock_auth_manager):
-        """Test WebSocket auth with no token."""
-        mock_auth_manager.authenticate_websocket.return_value = (None, "Authentication required")
-
-        user, error = authenticate_websocket_token(None)
-
-        assert user is None
-        assert error == "Authentication required"
-
-    def test_authenticate_websocket_token_invalid(self, auth_controller, mock_auth_manager):
-        """Test WebSocket auth with invalid token."""
-        mock_auth_manager.authenticate_websocket.return_value = (None, "Invalid token")
-
-        user, error = authenticate_websocket_token("invalid.token")
-
-        assert user is None
-        assert error == "Invalid token"
 
     # DTO model tests
 

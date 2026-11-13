@@ -16,10 +16,12 @@
 		type MediaToolGroup
 	} from '$lib/tools/tools';
 	import { mediaToolRegistrations } from '$lib/tools/pluginTools';
+	import type { LibraryItem } from '$lib/services/api/library';
 
 	// Self-contained: reads/writes libraryStore directly. Only the bulk delete
 	// confirmation lives on the page (it needs shared modal state).
 	export let onBulkDeleteClick: () => void;
+	export let onAddToKit: (items: LibraryItem[]) => void = () => {};
 	export let onToolSelect: (tool: MediaTool, context: MediaToolContext) => void;
 
 	$: state = $libraryStore;
@@ -71,7 +73,7 @@
 	<svelte:fragment slot="actionsAfterCollection" let:activeMenu let:toggleMenu let:closeMenus>
 		{#if activeCollectionId}
 			<button
-				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
+				class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
 				use:tooltip={'Remove the selected items from this collection'}
 				on:click={handleRemoveFromCollection}
 			>
@@ -79,6 +81,16 @@
 				Remove from collection
 			</button>
 		{/if}
+
+		<button
+			class="whitespace-nowrap px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-50"
+			disabled={selectedItems.length === 0}
+			data-add-to-kit
+			on:click={() => onAddToKit(selectedItems)}
+		>
+			<Icon name="layers" className="w-4 h-4" />
+			Add to kit
+		</button>
 
 		<ToolsMenu
 			open={activeMenu === 'tools'}
@@ -90,8 +102,11 @@
 			onPick={(tool) => onToolSelect(tool, toolContext)}
 		/>
 
+	</svelte:fragment>
+
+	<svelte:fragment slot="pinnedActions">
 		<button
-			class="px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
+			class="whitespace-nowrap px-4 py-1.5 bg-danger-solid text-white text-sm rounded hover:bg-danger-solid/90 transition-colors flex items-center gap-2 font-medium"
 			on:click={onBulkDeleteClick}
 		>
 			<Icon name="trash" className="w-4 h-4" />

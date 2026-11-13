@@ -22,7 +22,7 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, MCP_NEEDS_LIVE_FORM
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.video_director import apply_preset_mode_overlay
 
@@ -590,6 +590,7 @@ class GetVideoDirectorTool(BaseTool):
         return video_director_active(form_state)
 
     name = "get_video_director"
+    mcp_unavailable = MCP_NEEDS_LIVE_FORM
     read_only = True
     group = "Form & segments"
     user_description = "Reads the Video Director document on your generation form."
@@ -598,7 +599,9 @@ class GetVideoDirectorTool(BaseTool):
     def description(self) -> str:
         return (
             "Read the Video Director document currently loaded on the user's generation "
-            "form, if the active preset/mode exposes one. Video Director composes a video "
+            "form, if the active preset/mode exposes one (only the Video Director mode does; "
+            "a preset's single-clip modes such as text to video or image to video have none). "
+            "Video Director composes a video "
             "generation in one of four modes: 't2v' (text only, no media), 'i2v' (one start "
             "image), 'flf' (a first+last frame pair), or 'director' -- a multi-part "
             "composition whose shape depends on the preset's capabilities rather than its "

@@ -614,7 +614,7 @@ from without the profile.
 Every other family — no `family` declared, or any value besides `minimax_h3`/`wan` — keeps
 the legacy raw-frame axis unconditionally.
 
-The Director console's stage rail (`frontend/.../stage-rail/railModel.ts`) mirrors both
+The Director console's stage rail (`frontend/src/lib/components/video-director/stage-rail/railModel.ts`) mirrors both
 halves of this. For `minimax_h3` it's a small pure TypeScript port of
 `resolve_window_geometry`, selected by `family === "minimax_h3"` read off the parsed
 capabilities, so a rail block's width and a seam's overlap shoulder show the SAME emitted
@@ -900,6 +900,33 @@ Merge rules:
 
 This is generic machinery, not specific to the `references` capability — any capability
 key can differ per preset mode this way.
+
+### Single-clip modes (`simple_modes`)
+
+A preset can offer plain forms for the three single-shot compositions next to the Director,
+without a second pipeline. `simple_modes` maps a preset mode id to the composition it builds
+and the form fields that carry its pictures:
+
+```yaml
+video_director:
+  simple_modes:
+    txt2video: {composition: "t2v"}
+    img2video: {composition: "i2v", first: "start_image"}
+    first_last: {composition: "flf", first: "start_image", last: "end_image"}
+  preset_mode_overrides:
+    txt2video: {modes: {i2v: null, flf: null, director: null}}
+```
+
+For a mode in this table the orchestrator (`_prepare_director_form_data`) builds the document
+the editor sends for the same single shot (one segment `seg-1` carrying the request's prompt,
+`settings.duration` from the form's `duration` field in seconds, `settings.fps` from
+`limits.default_fps`, a `first` and a `last` media entry for the picture fields) and runs the
+ordinary normalizer and capability overlay on it, so the mode's pipeline (`pipeline_from:
+video` in its `pipeline.yml`) sees the same normalized document either way. A missing picture
+is refused by field name. The mode must not be in `preset_modes`: those name the modes that show
+the Director editor. `simple_modes` modes also take part in the LTX two-stage geometry
+preflight. The linter checks the table (`vars.video_director.simple_modes`) against the mode
+forms.
 
 ### Example: a Wan-like preset (chain-style director)
 

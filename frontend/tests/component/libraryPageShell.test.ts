@@ -144,7 +144,7 @@ describe('library page', () => {
 		await settle();
 
 		expect(mounted.text()).toContain('sunset.png');
-		expect(mounted.text()).toContain('1024×512');
+		expect(mounted.text()).toContain('1024 × 512');
 
 		document.body.querySelector<HTMLElement>('[data-bar-item="more"]')!.click();
 		await settle();
@@ -168,5 +168,20 @@ describe('library page', () => {
 
 		expect(api.uploadLibraryMedia).toHaveBeenCalled();
 		expect(vi.mocked(api.listLibraryItems).mock.calls.length).toBeGreaterThan(before);
+	});
+
+	it('bounds its height and scrolls only the content column so the sidebar and header stay put', async () => {
+		mounted = mountPage();
+		await settle();
+
+		const shell = mounted.target.querySelector<HTMLElement>('[data-library-shell]')!;
+		const column = mounted.target.querySelector<HTMLElement>('[data-library-scroll]')!;
+		expect(shell.className).toContain('md:h-[100dvh]');
+		expect(shell.className).not.toContain('min-h-screen');
+		expect(shell.contains(column)).toBe(true);
+		expect(column.parentElement).toBe(shell);
+		expect(column.classList.contains('overflow-y-auto')).toBe(true);
+		expect(column.classList.contains('min-h-0')).toBe(true);
+		expect(column.querySelector('.sticky')).not.toBeNull();
 	});
 });

@@ -61,7 +61,7 @@ itself exports.
 
 | Group | Module | Exports |
 |---|---|---|
-| **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `get_user` (a user by id, or `None`, for background work that acts as a known user), `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
+| **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `ApiScope`, `key_access`, `key_scope`, `SESSION_ONLY` (see [API keys on plugin routes](#api-keys-on-plugin-routes)), `authenticate_websocket` and the deprecated `authenticate_websocket_token` (see [WebSocket authentication](#websocket-authentication)), `get_user` (a user by id, or `None`, for background work that acts as a known user), `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context`, `is_certificate_error`, `certificate_failure_message`, `HttpMarketplaceProvider`, `register_provider`, `retry_after_from_headers` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `ToolApprovalPreview`, `PreChatAction` |
@@ -347,6 +347,48 @@ settings:
 
 `href` and `link_label` are optional. `/admin?tab=settings&view=<group>` opens Admin →
 Settings on that group.
+
+## API keys on plugin routes
+
+A script can call the app with an API key instead of a browser session. A key carries scopes (`read`, `generate`, `content`, `admin`, `mcp`), and a route accepts a key only if it says which scope it needs. **A plugin route that declares nothing refuses every key** with `403 key_not_allowed`; browser sessions are unaffected. Declare what your routes need from `src.plugin_api.identity`:
+
+```python
+from src.plugin_api.identity import ApiScope, SESSION_ONLY, key_access, key_scope
+
+router = APIRouter(
+    prefix="/api/plugins/my-plugin",
+    dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)],
+)
+
+@router.post("/render", dependencies=[key_scope(ApiScope.GENERATE)])
+async def render(...): ...
+
+@router.post("/connect", dependencies=[SESSION_ONLY])
+async def connect(...): ...
+```
+
+- `key_access(read=..., write=...)` on the router sets the scope for GET and HEAD, and for every other method. `None` means keys cannot use that half.
+- `key_scope(...)` on one route overrides the router for every method. Give several scopes to accept any of them.
+- `SESSION_ONLY` refuses keys on that route whatever else is declared. Use it for anything that manages credentials or keys.
+- A route that depends on `get_current_admin_user` needs a key with `admin` automatically.
+- A key without `admin` sees its owner as a regular user, so an inline `account_type` check refuses it. Keep admin-only logic on `get_current_admin_user` or on that check.
+
+## WebSocket authentication
+
+`authenticate_websocket(websocket)` authenticates a plugin WebSocket by hand, before `accept()`. It reads a single-use `?ticket=` (minted by `POST /api/auth/ws-ticket`, the browser path), an `Authorization: Bearer` header (a session token or an API key), and, for plugins written against v0.1.0, a session token in `?token=`. The order is ticket, header, then `?token=`. A key in `?token=` is always refused. Declare what an API key needs on the route with `key_scope`.
+
+```python
+@ws_router.websocket("/ws/plugins/my-plugin", dependencies=[key_scope(ApiScope.READ)])
+async def endpoint(websocket: WebSocket):
+    user, error = await authenticate_websocket(websocket)
+    if user is None:
+        await websocket.accept()
+        await websocket.close(code=4001, reason=error or "Authentication failed")
+        return
+    await websocket.accept()
+```
+
+`authenticate_websocket_token(token)` is the v0.1.0 helper and keeps its signature and behaviour: it takes the bare session token you read from `?token=` and returns `(user, error)` synchronously. It is deprecated; it never accepts a ticket, a header or an API key. A `?token=` connection logs one deprecation line per process with the token redacted.
 
 ## Login providers
 
@@ -1177,7 +1219,15 @@ after the cancel is dropped. Besides `ok` and
 `fail`, a step can return `StepResult.awaiting(consent_request)` to park the run until an
 admin explicitly approves — that is how a multi-GB download gets a go-ahead. Failure
 messages are read by a non-technical owner mid-setup, so write them as a plain sentence
-and put any admin-shaped fix in `suggested_repair`.
+and put any admin-shaped fix in `suggested_repair`. Keep exception text out of that sentence: pass
+it as `StepResult.fail(..., technical_detail="...")`, which the wizard and Admin → Recipes show
+only behind a "Details" disclosure.
+
+A step kind can set a class attribute `advisory = True` to make its failure advisory: the attempt
+is recorded as `action_required` ("Needs attention") with the same sentence, repair hint and
+technical text, and the run carries on with the next step instead of failing. Use it for a check
+whose failure should not strand an install, such as core's `generation.smoke` test picture. A
+step that is not advisory still fails the run.
 
 Registration makes the kind both runnable and lintable: `scripts/recipe_lint.py` and the
 running catalog accept recipes using it, while an unregistered kind stays an unknown-kind
@@ -2798,7 +2848,7 @@ the tab never stores them inline.
 
 ## Extending the image editor
 
-The media loader's image editor (**Edit** on a loaded image, **Draw a new image** on an empty
+The media loader's image editor (**Edit** on a loaded image, **Draw** on an empty
 field) is built on registries a plugin frontend can
 extend through `window.__potionui.imageEditor`. Every `register*` call returns an unregister
 function. Registrations are global and survive editor sessions, so register once when your
@@ -2932,7 +2982,7 @@ before anything is sent.
 | `fetchRaw(path, init?)` | your `init` (`method`, `headers`, `body`, `signal`, plus `timeout` and `onUploadProgress`) | the `Response` itself, for binary bodies and ranges. Never throws on a status |
 | `fetchRawFromApp(path, init?)` | as `fetchRaw`, on an app route taken from the site root (`/api/media/upload`) | as `fetchRaw` |
 | `download(path, filename?)` | `GET` through `fetchRaw`, then saves the body as a file | once the browser has been asked to save it. Throws on an error status |
-| `getToken()` | — | the current token, or `null`. HTTP calls never need it; it is only for a WebSocket you open yourself (a browser WebSocket cannot send headers, so pass it as `?token=`) |
+| `getToken()` | — | the current token, or `null`. HTTP calls never need it. A WebSocket you open yourself can still pass it as `?token=` (deprecated, and a deprecation line is logged once per process); prefer `POST /api/auth/ws-ticket` with `{"path": "/ws/generation"}` and open the socket with the single-use `?ticket=` it returns. An API key is never accepted in the URL |
 
 **Errors.** `get`, `post`, `put`, `delete`, `uploadFile` and `fetchFromApp` do not look at the
 HTTP status: they resolve with the parsed JSON of any response, error responses included, or
@@ -3406,6 +3456,38 @@ const handle = modal.mount(el, {
 });
 ```
 
+### Media pickers
+
+Every place the app picks existing media (media loader fields, the editors, kits, Elixirs) opens
+one picker, `MediaPickerModal`: source tabs History, Library and Kits on the title row, one
+filter row (search, kind, collection, tags, favourites, a Filters popover, sort, tile size), a
+grid that scrolls on its own and a one-row footer with numeric pagination. Single select has no
+confirm button: a click on a tile picks it. Multi select adds a checkbox to every tile, an
+`n of m selected` count and a confirm button. The tile size (S / M / L) is the setting the
+History and Library pages already use.
+
+`GenerationHistoryModal` and `UploadLibraryModal` stay as documented below: they are the same
+picker with the source fixed (History or Library, no tab strip), with the same props, callbacks
+and key shapes they have always had. `MediaPickerModal` is available to plugins the same way
+(`window.__potionui.components.MediaPickerModal`, loaded on first use):
+
+| Prop | Meaning |
+| --- | --- |
+| `isOpen`, `onClose`, `title` | As for the two wrappers. The default title is `Choose image`, `Choose video` and so on. |
+| `sources` | Any of `['history', 'library', 'kits']`, default `['history', 'library']`. One entry hides the tab strip. |
+| `initialSource` | The tab shown on open. |
+| `mediaType`, `mediaTypes` | The kind, or the kinds, that are listed. The kind switch is shown only when more than one is listed. |
+| `selectableMediaTypes` | Kinds that can be selected; other listed files are dimmed with the reason. |
+| `multiple`, `maxCount` | Multi select, and an optional cap. Unselected tiles are dimmed with `Limit of n reached` at the cap. |
+| `selectedKeys`, `onSelectionChange(keys, items)`, `onConfirm(keys, items)`, `confirmLabel` | As documented below; `confirmLabel` replaces `Use selected`. |
+| `onPick(item)` | Single select: called with one item (the shape below) for every source. |
+| `kits` | `{accepted?, mediaRoom?, loadedIds?, onLoad?(kits)}`. With `onLoad` and `multiple`, a kit card gets a checkbox that means "use the whole kit" and counts the kit's acceptable items against `maxCount`; `onLoad` receives the kit details on confirm. |
+
+On the Kits tab a kit is a card: it opens to its items, which are picked like any other tile;
+items and kits the caller cannot take are dimmed with the reason. A picked kit item has
+`origin: {kind: 'kit', kitId, itemId}`, `kitItem` and `kit`, and the key `kit:<itemId>`; a whole
+kit is the key `kit:all:<kitId>`, which is never reported through `onConfirm`.
+
 ### Media pickers with multi-select
 
 `GenerationHistoryModal` and `UploadLibraryModal` are mountable from a plugin
@@ -3415,7 +3497,8 @@ Both keep their single-select behaviour unless `multiple` is set:
 | Prop | Meaning |
 | --- | --- |
 | `isOpen`, `onClose`, `title`, `mediaType` | As for single-select. `mediaType` filters what is listed. |
-| `multiple` | Switches to multi-select: every file gets its own checkbox, a separate preview button, a selected count and Cancel / Use selected buttons. `onSelect` is not called. |
+| `onSelect` | Single select only: `(generation, file)` from `GenerationHistoryModal`, `(item)` from `UploadLibraryModal`. The host closes the picker. |
+| `multiple` | Switches to multi-select: every file gets its own checkbox, a selected count and Cancel / Use selected buttons. `onSelect` is not called. |
 | `selectedKeys` | The selection, as a string array. Optional; when given the picker follows it, so a plugin can keep the selection across closing and reopening, and across switching between the two pickers. |
 | `onSelectionChange(keys, items)` | Called on every toggle with the new keys and the picked items the picker has seen. |
 | `onConfirm(keys, items)` | Called by Use selected, which is disabled while nothing is selected; the picker then calls `onClose`. |
@@ -3424,8 +3507,7 @@ Both keep their single-select behaviour unless `multiple` is set:
 Keys are `generation_id:file_id` in History (every file of a generation is selectable on its own)
 and the item id in the Library. Each item is `{key, mediaType, filename, origin, generation?, file?,
 item?}`, where `origin` is `{kind: 'history', generationId, fileId}` or `{kind: 'library', itemId}`.
-`generationId`, `fileId` and `itemId` are strings, the ids the API uses (on a host that predates
-this, `fileId` was `NaN` for a file the picker had not loaded). Cancel, the close button, Escape and the backdrop all restore the selection the picker was opened
+Cancel, the close button, Escape and the backdrop all restore the selection the picker was opened
 with before calling `onClose`. Selected keys survive paging, searching and filtering. `items` always
 lines up with `keys`: for a file the picker has not loaded since it was mounted, the item carries
 only `key` and `origin`, and `mediaType` and `filename` are `null`.

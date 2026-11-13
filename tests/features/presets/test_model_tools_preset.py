@@ -195,3 +195,17 @@ def test_backend_injected_keys_do_not_break_pipe_validation(template, mode):
         config.setdefault(key, value)
     validated = validate_pipe_configuration(pipe, config)
     assert validated["mode"] == mode
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_preset_asks_for_admin_authority_and_takes_it_from_the_caller_not_the_owners_row(template, mode):
+    data = {"prompts": [], "mode": mode, "form_data": FORMS[mode]}
+    users = {"a": Mock(account_type=AccountType.ADMIN)}
+
+    denied_probe, granted_probe = [], []
+    denied = processor(users).process(template, data, user_id="a", acts_as_admin=False, authority_probe=denied_probe)
+    granted = processor(users).process(template, data, user_id="a", acts_as_admin=True, authority_probe=granted_probe)
+
+    assert denied_probe and granted_probe
+    assert next(p for p in denied if p["name"] == "model_tools")["config"]["is_admin"] is False
+    assert next(p for p in granted if p["name"] == "model_tools")["config"]["is_admin"] is True

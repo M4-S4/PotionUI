@@ -17,6 +17,7 @@ resolutions/video.yml) offers several resolutions that DO fail at 1.5x
 ("HQ Landscape") is used here as the concrete failing repro.
 """
 
+from tests.fixtures.kits import inert_kit_expander
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -77,7 +78,7 @@ def orchestrator(
         connection_hub=mock_connection_manager,
         settings=mock_settings,
         output_processor=mock_output_processor,
-        preset_template_loader=mock_preset_template_loader,
+        preset_template_loader=mock_preset_template_loader, kit_expander=inert_kit_expander(),
     )
 
 
@@ -212,3 +213,107 @@ class TestGeometryPreflightNoOp:
             result = await orchestrator.start_generation(request, 'user_123')
 
         assert result['generation_id'] == 'gen_geom_7'
+
+
+class TestGeometryPreflightOnSimpleModes:
+    SIMPLE = {
+        'modes': {'t2v': {}},
+        'limits': {'default_duration': 5, 'default_fps': 24, 'max_duration': 15},
+        'simple_modes': {'txt2video': {'composition': 't2v'}},
+    }
+
+    @pytest.fixture
+    def with_simple_mode(self, mock_preset_template_loader):
+        preset = mock_preset_template_loader.load_preset_by_id.return_value
+        preset.vars = {'video_director': self.SIMPLE}
+        preset.prompt_resources = {}
+
+    @pytest.mark.asyncio
+    async def test_a_simple_mode_is_checked_like_the_director_mode(
+        self, orchestrator, mock_generation_repo, with_simple_mode
+    ):
+        request = _request({'resolution': '960x544', 'upscale': '1.5x', 'duration': 5}, mode='txt2video')
+
+        with pytest.raises(ValueError, match="not achievable"):
+            await orchestrator.start_generation(request, 'user_123')
+
+        mock_generation_repo.create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_a_simple_mode_with_a_reachable_resolution_goes_through(
+        self, orchestrator, mock_generation_repo, with_simple_mode
+    ):
+        request = _request({'resolution': '768x512', 'upscale': '1.5x', 'duration': 5}, mode='txt2video')
+
+        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_geom_7'):
+            result = await orchestrator.start_generation(request, 'user_123')
+
+        assert result['generation_id'] == 'gen_geom_7'
+
+    @pytest.mark.asyncio
+    async def test_a_mode_that_is_not_a_simple_mode_stays_unchecked(
+        self, orchestrator, mock_generation_repo, with_simple_mode
+    ):
+        request = _request({'resolution': '960x544', 'upscale': '1.5x'}, mode='upscale')
+
+        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_geom_8'):
+            result = await orchestrator.start_generation(request, 'user_123')
+
+        assert result['generation_id'] == 'gen_geom_8'
+
+
+def _real_director_presets():
+    from src.features.presets.loader import PresetTemplateLoader
+
+    loader = PresetTemplateLoader(["content/presets"])
+    loader.load_presets()
+    return {p.id: p for p in loader.presets}
+
+
+REAL = {"ltx25": "01KX47LTX25VIDEO00000000TV", "ltx2": "01KX47LTXVIDEO0000000000TV", "wan": "01KX47WANVIDEO0000000000TV"}
+
+
+def _wire_document():
+    return {
+        'schema_version': 1, 'mode': 't2v', 'settings': {'fps': 24, 'duration': 5, 'seed': -1},
+        'segments': [{'id': 'seg-1', 'prompt': 'a calm lake', 'negative_prompt': '', 'start': 0, 'end': 5,
+                      'frames': None, 'seed': None, 'steps': None, 'cfg': None, 'loras': None}],
+        'media': [], 'audio': [], 'ic_lora': [],
+    }
+
+
+class TestDirectorRequestsOfEveryFamilyAreNormalizedOnEveryEntryPath:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('family', sorted(REAL))
+    async def test_a_submitted_request_reaches_the_builder_with_a_normalized_document(
+        self, orchestrator, mock_preset_template_loader, mock_pipeline_builder, mock_generation_repo, family
+    ):
+        template = _real_director_presets()[REAL[family]]
+        mock_preset_template_loader.load_preset_by_id.return_value = template
+        request = _request({'seed': 5, 'video_director': _wire_document()}, mode='video')
+
+        with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_norm_1'):
+            await orchestrator.start_generation(request, 'user_123')
+
+        document = mock_pipeline_builder.build_pipeline.call_args.kwargs['form_data']['video_director']
+        assert 'audio' in document and 'ic_lora' in document and 'media' in document
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('family', sorted(REAL))
+    async def test_a_memory_preview_builds_from_the_same_normalized_document(
+        self, orchestrator, mock_preset_template_loader, mock_pipeline_builder, family
+    ):
+        template = _real_director_presets()[REAL[family]]
+        mock_preset_template_loader.load_preset_by_id.return_value = template
+        request = _request({'seed': 5, 'video_director': _wire_document()}, mode='video')
+        request._acts_as_admin = False
+        orchestrator.router = None
+        orchestrator.gpu_monitor = None
+
+        try:
+            await orchestrator.preview_memory(request, 'user_123')
+        except Exception:
+            pass
+
+        document = mock_pipeline_builder.build_pipeline.call_args.kwargs['form_data']['video_director']
+        assert 'audio' in document and 'ic_lora' in document

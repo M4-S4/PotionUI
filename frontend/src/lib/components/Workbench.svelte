@@ -20,12 +20,13 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
-	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { pluginStore } from '$lib/stores/plugins';
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
 	import { batchCaption } from '$lib/components/workbench/promptGroups';
+	import type { GenerationParameterMeta, GenerationParamModel } from '$lib/types/generation';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
 	import { authStore } from '$lib/stores/auth';
@@ -307,6 +308,9 @@
 	}
 
 	let fetchedParams: Record<string, any> = {};
+	let fetchedParamMeta: Record<string, GenerationParameterMeta> | null = null;
+	let fetchedParamOrder: string[] | null = null;
+	let fetchedParamModels: GenerationParamModel[] = [];
 	let imageMetadata: MediaMetadata | null = null;
 	let generationFiles: any[] = [];
 
@@ -573,11 +577,17 @@
 
 			if (response.success && response.data) {
 				fetchedParams = response.data.parameters || {};
+				fetchedParamMeta = response.data.parameter_meta ?? null;
+				fetchedParamOrder = response.data.parameter_order ?? null;
+				fetchedParamModels = response.data.models ?? [];
 				lastFetchedParamsKey = `${currentGeneration.id}-${workbenchIndex}`;
 			} else {
 				const currentItem = getCurrentWorkbenchItem();
 				if (currentItem) {
 					fetchedParams = buildParamsFromItem(currentItem);
+					fetchedParamMeta = null;
+					fetchedParamOrder = null;
+					fetchedParamModels = [];
 				}
 				lastFetchedParamsKey = `${currentGeneration.id}-${workbenchIndex}`;
 			}
@@ -586,6 +596,9 @@
 			const currentItem = getCurrentWorkbenchItem();
 			if (currentItem) {
 				fetchedParams = buildParamsFromItem(currentItem);
+				fetchedParamMeta = null;
+				fetchedParamOrder = null;
+				fetchedParamModels = [];
 			}
 			lastFetchedParamsKey = `${currentGeneration.id}-${workbenchIndex}`;
 		}
@@ -1350,12 +1363,18 @@
 </div>
 
 <!-- Generation History Modal for Image Comparison -->
-<GenerationHistoryModal
+<MediaPickerModal
 	isOpen={showCompareModal}
 	onClose={() => showCompareModal = false}
-	onSelect={displayFileType === 'video' ? handleSelectComparisonVideo : handleSelectComparisonImage}
-	mediaType={displayFileType === 'video' ? 'video' : 'image'}
-	title={displayFileType === 'video' ? 'Select Video for Comparison' : 'Select Image for Comparison'}
+	sources={['history']}
+	mediaTypes={[displayFileType === 'video' ? 'video' : 'image']}
+	title={displayFileType === 'video' ? 'Choose video to compare' : 'Choose image to compare'}
+	closeOnPick={false}
+	onPick={(picked) => {
+		if (!picked.generation || !picked.file) return;
+		if (displayFileType === 'video') handleSelectComparisonVideo(picked.generation, picked.file);
+		else handleSelectComparisonImage(picked.generation, picked.file);
+	}}
 />
 
 <!-- Image/Video Preview Modal -->
@@ -1468,6 +1487,9 @@
 <WorkbenchParametersModal
 	isOpen={showParamsModal}
 	params={fetchedParams}
+	meta={fetchedParamMeta}
+	order={fetchedParamOrder}
+	models={fetchedParamModels}
 	metadata={imageMetadata}
 	index={workbenchIndex}
 	on:close={() => (showParamsModal = false)}

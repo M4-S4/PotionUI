@@ -135,6 +135,15 @@ report = {
             t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
         ),
     },
+    "mcp_domain_wiring": {
+        "uploads_use_the_container_media_store": c.mcp_tool_collaborators.services.media_store is c.media_store,
+        "automation_is_the_container_controller": c.mcp_tool_collaborators.services.domains.automation is c.automation_controller,
+        "library_is_the_container_controller": c.mcp_tool_collaborators.services.domains.library is c.library_controller,
+        "notifications_are_the_container_controller": c.mcp_tool_collaborators.services.domains.notifications is c.notification_controller,
+        "inspirations_are_the_container_controller": c.mcp_tool_collaborators.services.domains.inspirations is c.inspiration_controller,
+        "downloads_are_the_container_queue": c.mcp_tool_collaborators.services.domains.downloads is c.download_queue,
+        "elixirs_are_the_container_components": c.mcp_tool_collaborators.services.domains.elixirs is c.elixirs,
+    },
     "media_tool_wiring": {
         "chat_tools_use_the_container_service": c.chat_runtime.tool_services.media_tool_service is c.media_tool_service,
         "mcp_tools_use_the_container_service": c.mcp_tool_collaborators.services.media_tool_service is c.media_tool_service,
@@ -271,6 +280,67 @@ report["organize_instance_wiring"] = {
         for pid, _ in c.plugin_registry.hook_chain._handlers.get("model_index.after_digests", [])
     ),
 }
+from src.platform.security.api_scopes import ApiScope, required_scopes
+from src.platform.security.current_user import require_media_viewer as _media_viewer
+
+
+def _walk(dependant):
+    yield dependant
+    for child in dependant.dependencies:
+        yield from _walk(child)
+
+
+def _methods(route):
+    return sorted(m for m in route.methods if m not in ("HEAD", "OPTIONS"))
+
+
+api_routes = [r for r in elixir_app.routes if hasattr(r, "dependant")]
+media_viewer_routes = [
+    r for r in api_routes if any(d.call is _media_viewer for d in _walk(r.dependant))
+]
+from tests.manual.api_key_scopes import render as render_key_scopes
+report["api_key_scopes"] = render_key_scopes(elixir_app)
+report["api_keys_wiring"] = {
+    "routes": sorted(
+        f"{method} {route.path}"
+        for route in api_routes
+        if route.path.startswith(("/api/keys", "/api/admin/keys", "/api/admin/users/{user_id}/api-access"))
+        for method in _methods(route)
+    ),
+    "mcp_routes": sorted(f"{m} {r.path}" for r in api_routes if r.path == "/api/mcp" for m in _methods(r)),
+    "mcp_tool_routes": sorted(
+        f"{m} {r.path}" for r in api_routes
+        if r.path.startswith(("/api/mcp/", "/api/admin/mcp/")) for m in _methods(r)
+    ),
+    "mcp_tool_routes_a_key_can_reach": [
+        f"{m} {r.path}" for r in api_routes
+        if r.path.startswith(("/api/mcp/", "/api/admin/mcp/")) for m in _methods(r)
+        if required_scopes(r, m) is not None
+    ],
+    "mcp_tool_policy_is_built_on_the_container_settings_and_registry": (
+        c.mcp_tool_collaborators.settings is c.settings and c.mcp_tool_collaborators.tool_registry is c.tool_registry
+    ),
+    "the_collaborators_use_the_container_settings_and_users": (
+        c.api_key_collaborators.settings is c.settings and c.api_key_resolver._users is c.user_repository
+    ),
+    "media_viewer_route_count": len(media_viewer_routes),
+    "media_viewer_routes_not_open_to_read_or_mcp": [
+        r.path for r in media_viewer_routes
+        if required_scopes(r, "GET") != frozenset({ApiScope.READ, ApiScope.MCP})
+    ],
+    "user_key_routes_are_session_only": [
+        f"{m} {r.path}" for r in api_routes if r.path.startswith("/api/keys") for m in _methods(r)
+        if required_scopes(r, m) is not None
+    ],
+    "admin_key_routes_a_key_can_reach": [
+        f"{m} {r.path}" for r in api_routes
+        if r.path.startswith(("/api/admin/keys", "/api/admin/users/{user_id}/api-access")) for m in _methods(r)
+        if required_scopes(r, m) is not None
+    ],
+    "mcp_endpoint_needs_mcp": [
+        sorted(s.value for s in required_scopes(r, "POST")) for r in api_routes if r.path == "/api/mcp"
+    ],
+}
 report["recipe_smoke_wiring"] = {
     "the_smoke_asks_the_registry_for_the_app_loop": c.recipe_runner._executor_registry.get_executor("generation.smoke").app_loop is runtime_registries.get_app_loop,
 }
@@ -356,6 +426,10 @@ def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):
 
 def test_chat_mcp_and_automation_run_media_tools_through_the_one_service_and_catalog(report):
     assert [k for k, v in report["media_tool_wiring"].items() if not v] == []
+
+
+def test_the_mcp_tools_reach_the_container_services_their_http_routes_use(report):
+    assert [k for k, v in report["mcp_domain_wiring"].items() if not v] == []
 
 
 def test_chat_turns_are_stored_durably_by_the_one_container_store(report):
@@ -467,3 +541,70 @@ def test_build_chat_passes_every_dependency_to_the_runtime():
     assert dropped == []
     assert components.chat_runtime.pre_chat_action_registry is components.pre_chat_action_registry
     assert components.chat_controller.chat_runtime is components.chat_runtime
+
+
+def test_api_keys_are_composed_and_mounted_with_their_scopes(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["routes"] == [
+        "DELETE /api/admin/keys/{key_id}",
+        "DELETE /api/keys/{key_id}",
+        "GET /api/admin/keys",
+        "GET /api/admin/keys/{key_id}/events",
+        "GET /api/admin/users/{user_id}/api-access",
+        "GET /api/keys",
+        "GET /api/keys/{key_id}/events",
+        "PATCH /api/keys/{key_id}",
+        "POST /api/keys",
+        "PUT /api/admin/users/{user_id}/api-access",
+    ]
+    assert wiring["the_collaborators_use_the_container_settings_and_users"] is True
+    assert wiring["user_key_routes_are_session_only"] == []
+    assert wiring["admin_key_routes_a_key_can_reach"] == []
+
+
+def test_the_mcp_endpoint_is_the_only_mcp_route_and_needs_the_mcp_scope(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["mcp_routes"] == ["POST /api/mcp"]
+    assert wiring["mcp_endpoint_needs_mcp"] == [["mcp"]]
+
+
+def test_the_mcp_tool_routes_are_mounted_and_session_only(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["mcp_tool_routes"] == [
+        "DELETE /api/mcp/tokens/{token_id}",
+        "GET /api/admin/mcp/tools",
+        "GET /api/mcp/admin/users/{user_id}",
+        "GET /api/mcp/keys/{key_id}/tools",
+        "GET /api/mcp/status",
+        "GET /api/mcp/tokens",
+        "GET /api/mcp/tools",
+        "PATCH /api/admin/mcp/tools",
+        "PATCH /api/mcp/keys/{key_id}/tools",
+        "PATCH /api/mcp/tools",
+        "POST /api/mcp/tokens",
+        "PUT /api/mcp/admin/users/{user_id}",
+    ]
+    assert wiring["mcp_tool_routes_a_key_can_reach"] == []
+    assert wiring["mcp_tool_policy_is_built_on_the_container_settings_and_registry"] is True
+
+
+def test_every_media_viewer_route_accepts_a_read_or_mcp_key(report):
+    wiring = report["api_keys_wiring"]
+    assert wiring["media_viewer_route_count"] >= 8
+    assert wiring["media_viewer_routes_not_open_to_read_or_mcp"] == []
+
+
+GOLDEN_KEY_SCOPES = ROOT / "tests" / "golden" / "api_key_scopes.tsv"
+
+
+def test_the_key_scope_table_matches_the_golden_file(report):
+    import difflib
+
+    current = "\n".join(report["api_key_scopes"]) + "\n"
+    golden = GOLDEN_KEY_SCOPES.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    if current != golden:
+        diff = "\n".join(list(difflib.unified_diff(golden.splitlines(), current.splitlines(), "golden", "current", lineterm=""))[:60])
+        pytest.fail(
+            "What API keys may reach changed. Review the diff, then regenerate with "
+            "`python tests/manual/api_key_scopes.py` and commit tests/golden/api_key_scopes.tsv.\n" + diff
+        )

@@ -114,6 +114,7 @@ vars:
   fps: 24
   default_frames: 124
   optional_prompt_modes: ["talk", "upscale", "motion_transfer"]
+  retired_modes: { long: video }
   motion_identity: "first_frame"
 
   prompt:
@@ -122,6 +123,7 @@ vars:
       remix: { segment_templates: [] }
       talk: { segment_templates: [] }
       motion_transfer: { segment_templates: [] }
+      loop: { segment_templates: [] }
     segment_templates:
       - name: "H3 prompt document"
         description: "The three labeled fields MiniMax-H3 was trained on, in order."
@@ -205,6 +207,10 @@ vars:
     # different capability set -- see `preset_mode_overrides` below
     # (apply_preset_mode_overlay(), src/features/video_director/normalize.py).
     preset_modes: ["video", "refs"]
+    simple_modes:
+      txt2video: {composition: "t2v"}
+      img2video: {composition: "i2v", first: "start_image"}
+      first_last: {composition: "flf", first: "start_image", last: "end_image"}
     # Resolve each segment to a t2v/i2v/flf/chain sub-type. The generator reads
     # exactly that: `chain` is the only sub-type that continues from the
     # previous window's tail, and a segment carrying its own start image is a
@@ -222,10 +228,7 @@ vars:
         # on this preset's form for the Director to bind to, so the console
         # shows it as a locked fact rather than an editable setting.
         fps_locked: true
-        # Six shots of up to ~10.8s is ~65s of finished video, and every shot
-        # is a full-canvas H3 generation -- past that a run stops being
-        # something a user waits through.
-        max_segments: 6
+        max_segments: 30
         # 345 frames is 17*20+5 -- on the VAE's lattice, so it snaps to
         # itself, and 14.375s at 24 fps: the longest single window the pipe
         # allows (a 15s ceiling; there is no enforced floor per window). A
@@ -252,6 +255,12 @@ vars:
     # apply_preset_mode_overlay()'s docstring). `video` mode is byte-identical
     # to what it was before this key existed.
     preset_mode_overrides:
+      txt2video:
+        modes: {i2v: null, flf: null, director: null}
+      img2video:
+        modes: {t2v: null, flf: null, director: null}
+      first_last:
+        modes: {t2v: null, i2v: null, director: null}
       refs:
         # ref2va's whole-film reference pool lives on the References tab's own
         # picker fields (modes/refs/tabs/references.yml), never duplicated
@@ -260,6 +269,7 @@ vars:
         reference_fields: ["references"]
         modes:
           director:
+            max_segments: 6
             # ref2va's own reference pickers already condition the model on
             # images/video/audio; the director timeline's own keyframe/audio
             # lanes are a SEPARATE conditioning path video mode uses instead,
@@ -340,6 +350,57 @@ llm:
   #
   # Distilled from MiniMax's own VIDEO_PROMPT_WRITING_GUIDE_ref_en.md.
   modes:
+    txt2video:
+      guide: &h3_one_clip_guide |
+        The prompt IS a structured document the model was trained on - write it in
+        exactly this shape, three labeled fields in this order:
+
+        integrated_multimodal_description: [Shot 1] <style>, <initial composition>...
+        (the whole timeline: visuals, actions, cuts, camera, speakers, dialogue,
+        in-scene sound)
+
+        overall_soundscape: 1-4 sentences of ambient sound, physical action sounds and
+        non-verbal human sounds across the whole video (no dialogue or music here);
+        "N/A" only if the user wants total silence.
+
+        non_diegetic_music: 1-3 sentences of background score by instrumentation,
+        tempo, rhythm and dynamics - never abstract mood words; "N/A" when no score.
+
+        Rules for the multimodal description:
+        - Open [Shot 1] with the overall style (Cinematic, live-action, 2D-animated,
+          3D CG, claymation, watercolor, vintage film) and initial composition; no
+          timestamp on Shot 1.
+        - Later shots: "[Shot 2] At 00:03.500, the camera cuts to..." with strictly
+          increasing times inside the duration. Cut only to introduce new subject,
+          space, state, viewpoint or time; for smaller changes prefer camera motion.
+        - Camera motion as natural English inside the shot: zoom in/out, push in /
+          pull out, pan left/right, truck left/right, tilt up/down, pedestal up/down,
+          arc shot, tracking shot, static shot, POV, roll clockwise/counterclockwise,
+          shake slightly/strongly - optionally "with small/large amplitude" and
+          "at slow/fast speed" (omit medium amplitude / normal speed).
+        - Speakers get stable IDs (S1), (S2) ((S1,S2) when together); establish the
+          voice at first appearance (age, gender, pitch, timbre, pace). Identifying
+          phrase, ID and action go outside the tag; exact words inside:
+          (S1) says: <d>[English] I get off at the next station.</d> Preserve the
+          user's words and punctuation verbatim, never translate. Voiceover uses
+          exactly "says in an off-screen voiceover" and states the on-screen lips
+          stay closed. <scenetrans> marks a line crossing a cut; <cutoff> marks
+          speech truncated by the video's end.
+        - On-screen text (signs, labels) goes verbatim in double quotes.
+        - Reference-image modes: the first line, followed by a blank line, is the
+          alignment instruction. First frame: "For the target video, at 0.00 seconds
+          into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
+          First+last: "How the reference pictures align with the target video -
+          Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target
+          video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the
+          target video." Then describe the motion path between anchors - never
+          re-describe the static image content.
+        Natural prose throughout, no tag lists. The whole video is one clip: put every
+        shot inside this one prompt with [Shot] markers.
+    img2video:
+      guide: *h3_one_clip_guide
+    first_last:
+      guide: *h3_one_clip_guide
     refs:
       guide: |
         Reference mode uses a SIX-SECTION prompt that REPLACES the three-field format.
@@ -422,6 +483,25 @@ llm:
         look and the kind of action ("dancing"), never the individual moves; the
         Video supplies those. Length follows the Video, up to 15 seconds.
 
+    loop:
+      guide: |
+        Perfect loop mode: the preset writes the structured request itself, so
+        never write the three-field document here. The prompt is plain English
+        saying only what moves and how ("the lake ripples and the reeds sway in a
+        light breeze", "steam rises from the cup"). Describe movement that can
+        repeat: swaying, drifting, flickering, flowing, breathing. Avoid anything
+        that starts, ends or travels across the frame (a person walking in, a car
+        driving past, a door opening), and never ask for camera movement: the
+        camera is fixed so the loop can close. With a Start picture, do not
+        describe the scene again; the picture supplies it. Loops close best
+        when the motion renews itself or stays in place: flowing or falling
+        water, waves, rain, snow, fire, steam, grass or leaves swaying. Warn
+        about anything large that slowly travels one way (drifting clouds, a
+        moving shadow or patch of light, a boat crossing): the loop has to pull
+        it back to where it started and it can visibly snap back. In a dark,
+        nearly still scene where only fog, haze or reflections drift, the
+        restart can show as a faint tick: suggest more visible motion or Lively.
+
     upscale:
       guide: |
         Utility mode -- upscales and refines an EXISTING MiniMax-H3 video, not a
@@ -437,26 +517,33 @@ prompt_resources:
       kind: "image"
       label: "Pictures"
       token: "<Picture @>"
+      limit: 9
+      limit_total: 12
     - field: "references"
       kind: "video"
       label: "Videos"
       token: "<Video @>"
+      limit: 3
     - field: "references"
       kind: "audio"
       label: "Audio"
       token: "<Audio @>"
+      limit: 3
 
 prompt_syntax:
-  video:
-    - token: "integrated_multimodal_description:"
+  "*": &h3_prompt_syntax
+    - &h3_syntax_description
+      token: "integrated_multimodal_description:"
       kind: "label"
       help: "Opens the three-field document: shots, camera, speakers and dialogue"
       color: "cornflowerblue"
-    - token: "overall_soundscape:"
+    - &h3_syntax_soundscape
+      token: "overall_soundscape:"
       kind: "label"
       help: "Ambient sound and physical action sounds for the whole video (no dialogue or music)"
       color: "cornflowerblue"
-    - token: "non_diegetic_music:"
+    - &h3_syntax_music
+      token: "non_diegetic_music:"
       kind: "label"
       help: "Background score by instrumentation, tempo, rhythm and dynamics"
       color: "cornflowerblue"
@@ -476,6 +563,18 @@ prompt_syntax:
       insert: "<d>{}</d>"
       help: "Wraps a speaker's exact words, preserved verbatim"
       color: "mediumseagreen"
+  loop:
+    - *h3_syntax_description
+    - *h3_syntax_soundscape
+    - *h3_syntax_music
+    - token: "[Shot 1]"
+      kind: "marker"
+      pattern: '\[Shot 1\]'
+      help: "The one shot of a loop; a loop is a single continuous shot, so there is no [Shot 2]"
+      color: "goldenrod"
+  remix: []
+  talk: []
+  motion_transfer: []
   refs:
     - token: "subject_definitions:"
       kind: "label"
@@ -543,6 +642,9 @@ prompt_syntax:
       color: "cadetblue"
 
 modes:
+  - txt2video
+  - img2video
+  - first_last
   - video
   - refs
   - upscale
@@ -550,8 +652,8 @@ modes:
   - extend
   - remix
   - talk
-  - long
   - motion_transfer
+  - loop
 
 media:
   cover: "public/cover-h35m40se.webm"

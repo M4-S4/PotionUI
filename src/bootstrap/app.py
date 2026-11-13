@@ -10,7 +10,6 @@ them in order.
 """
 
 import asyncio
-import functools
 import logging
 import os
 import threading
@@ -25,15 +24,17 @@ from src.bootstrap.container import AppContainer, build_container
 from src.bootstrap.secrets_preflight import run_secret_preflight
 from src.bootstrap.errors import register_error_handlers
 from src.bootstrap.middleware import register_middleware
+from src.bootstrap.openapi import install_api_key_scheme
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 from src.features.generation.memory_advisory import resolve_device_evidence
 from src.features.providers.registry import ensure_providers_discovered
+from src.platform.runtime.guarded_import import warm_up_heavy_imports
 from src.platform.runtime.cuda_allocator import CudaAllocatorDamaged, allocator_damage
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
-from src.platform.security.current_user import set_auth, set_media_bearer_fallback
+from src.platform.security.current_user import set_auth, set_key_resolver
 from src.platform.version import POTIONUI_VERSION
 from src.platform.websocket.notification_connection_hub import notification_connection_hub
 from src.platform.websocket.automation_connection_hub import automation_connection_hub
@@ -281,14 +282,7 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
     """Bind process-wide dependencies that live outside the router factories."""
     # Auth dependency (get_current_active_user) resolves through this Auth.
     set_auth(container.auth)
-    from src.features.mcp.operations import resolve_media_user
-
-    set_media_bearer_fallback(functools.partial(
-        resolve_media_user,
-        container.mcp_token_repository,
-        container.settings,
-        container.user_repository,
-    ))
+    set_key_resolver(container.api_key_resolver)
 
     try:
         from src.features.backends.backend_config import NATIVE_LOCAL_DRIVER
@@ -303,10 +297,6 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
     except Exception as e:
         logging.warning(f"Could not load the native backend's engine settings: {e}")
 
-    # Setup claim token lifecycle. While the instance has no owner, ensure a
-    # one-time token exists on disk (0600) so a remote operator can claim it via
-    # the bootstrap CLI; once claimed, make sure no stale token lingers. Never
-    # logs the token value itself (only its path, inside ClaimTokenStore).
     try:
         if container.instance_claim_repository.is_claimed():
             container.claim_token_store.clear()
@@ -314,6 +304,26 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
             container.claim_token_store.ensure_token()
     except Exception as e:
         logging.warning(f"Could not initialize the setup claim token: {e}")
+
+
+def announce_claim_code(container: AppContainer) -> bool:
+    try:
+        if container.instance_claim_repository.is_claimed():
+            return False
+        code = container.claim_token_store.ensure_token()
+    except Exception as e:
+        logging.warning(f"Could not read the setup claim token: {e}")
+        return False
+    if not code:
+        return False
+    print("This instance has no owner yet.", flush=True)
+    print(f"Claim code: {code}", flush=True)
+    print(
+        "The claim code is asked for when the first account is created from another computer. "
+        "It stops working once the owner exists.",
+        flush=True,
+    )
+    return True
 
 
 def mount_plugin_routers(app: FastAPI, container: AppContainer) -> None:
@@ -359,6 +369,22 @@ def warm_up(container: AppContainer, ready: threading.Event) -> None:
         logging.exception("Warming up at startup failed; reporting ready anyway")
     finally:
         ready.set()
+
+
+def start_import_warm_up(app: FastAPI) -> asyncio.Task:
+    task = asyncio.create_task(asyncio.to_thread(warm_up_heavy_imports))
+    app.state.import_warm_up_task = task
+    return task
+
+
+async def stop_import_warm_up(app: FastAPI) -> None:
+    task = getattr(app.state, "import_warm_up_task", None)
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    app.state.import_warm_up_task = None
 
 
 def start_warm_up(app: FastAPI, container: AppContainer, ready: threading.Event) -> asyncio.Task:
@@ -426,6 +452,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         from src.bootstrap.middleware import DEBUG_MODE
         from src.platform.database.database import Database
         logging.info("Starting PotionUI API server...")
+        start_import_warm_up(app)
         logging.info(f"DEBUG mode: {'ENABLED' if DEBUG_MODE else 'DISABLED'} (set DEBUG=true to enable verbose logging)")
         # Note: Migrations are run synchronously before app creation (see run_migrations_sync())
 
@@ -457,15 +484,19 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         if reconciled:
             logging.info(f"Reconciled {reconciled} interrupted generation(s) as failed after restart")
 
+        resume_run_id = None
         try:
-            if container.recipe_runner.reconcile_interrupted():
-                logging.info("Marked a recipe run interrupted by the restart as failed; it can be retried")
+            resume_run_id = container.recipe_runner.reconcile_interrupted()
         except Exception as exc:
             logging.error(f"Reconciling interrupted recipe runs failed at startup: {exc}")
 
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
         start_warm_up(app, container, warmed_up)
+
+        if resume_run_id:
+            logging.info("Resuming the setup run the restart interrupted")
+            container.recipe_runner.drive_async(resume_run_id)
 
         try:
             await ensure_providers_discovered()
@@ -538,6 +569,10 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.elixirs.runtime.start()
 
+        container.generation_orchestrator.start_backend_probes()
+
+        announce_claim_code(container)
+
         yield
 
         # Shutdown
@@ -546,10 +581,12 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         await asyncio.to_thread(container.model_index_manager.indexing.shutdown)
         await asyncio.to_thread(container.model_index_manager.digests.stop)
         await stop_warm_up(app)
+        await stop_import_warm_up(app)
         await asyncio.to_thread(container.media_tool_service.shutdown)
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()
         container.organize_manager.shutdown()
+        await container.generation_orchestrator.stop_backend_probes()
         await container.elixirs.runtime.stop()
         await container.content_safety.stop()
         await container.compute_status_monitor.stop()
@@ -572,6 +609,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         openapi_tags=tags_metadata,
         redirect_slashes=False,
     )
+
+    install_api_key_scheme(app)
 
     # Global exception handlers for better error reporting
     register_error_handlers(app)

@@ -18,7 +18,7 @@
 	import { buildUploadedMediaItem, postUpload, type UploadedMediaItem } from './mediaLoaderUpload';
 	import { fetchMediaMetadata } from './mediaLoaderMetadata';
 	import { readSingleValue, type SingleValue } from './mediaLoaderValue';
-	import { pickFromGeneration, pickFromUpload } from './mediaLoaderPicks';
+	import { pickFromGeneration, pickFromUpload, type MediaPick } from './mediaLoaderPicks';
 	import { clickIsOutside, fileDrop, readPastedImage } from './mediaFieldInput';
 	import { itemLimitFor, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
 	import { kindFromMimeType, kindFromFilename, kindOfMediaItem } from './mediaLoaderKind';
@@ -44,13 +44,21 @@
 	import { FIELD_TOOL_EDITORS, fieldToolGroupsFor, matchToolShortcut } from './mediaFieldTools';
 	import { openFieldInEditor } from '$lib/tool-tabs/openShortcut';
 	import { globalBindingFor } from '$lib/services/keyboard';
-	import type { MediaSource } from './mediaFieldSources';
+	import { currentSourceOf, type MediaSource } from './mediaFieldSources';
 	import MediaDropzone from './MediaDropzone.svelte';
 	import MediaFieldEditors from './MediaFieldEditors.svelte';
-	import MediaFieldPickers from './MediaFieldPickers.svelte';
+	import MediaPickerModal from '$lib/components/modals/mediaPicker/MediaPickerModal.svelte';
+	import { libraryItemOf, routePicked } from '$lib/components/modals/mediaPicker/pickedMedia';
+	import type { PickerSourceId } from '$lib/components/modals/mediaPicker/pickerModel';
 	import { historyTileLabel, type PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import MediaInspector from './MediaInspector.svelte';
 	import MediaStrip from './MediaStrip.svelte';
+	import LoadedKitHost from '$lib/components/kits/LoadedKitHost.svelte';
+	import { acceptedFrom, mediaCountOf } from '$lib/kits/kitCounts';
+	import { addKitRow, removeKitRow, snapshotOf, splitKitRows, withKitRows } from '$lib/kits/kitMarker';
+	import type { KitDetail, KitRow } from '$lib/kits/types';
+	import { ensureKits, kitDirectory } from '$lib/stores/kits';
+	import { KIT_ROWS_HOSTED_CONTEXT_KEY, NOT_HOSTED } from '$lib/kits/hostContext';
 	import MediaRow from './MediaRow.svelte';
 	import { findResourceSpec, mediaItemKey, resourceHandleLabel } from '$lib/utils/promptResources';
 	import { isTypingInField } from '$lib/utils/editableTarget';
@@ -86,11 +94,26 @@
 
 	$: limits = readMediaLoaderConfig(config);
 	$: kinds = limits.kinds;
-	$: soleKind = kinds.length === 1 ? kinds[0] : null;
 	$: acceptedTypes = limits.accept;
 	$: multiple = limits.multiple;
 	$: byKindLimits = Object.keys(limits.maxItemsByKind).length > 0;
-	$: multiItems = multiple && Array.isArray(value) ? (value as Item[]) : [];
+	$: rawMulti = multiple && Array.isArray(value) ? (value as Item[]) : [];
+	$: split = splitKitRows(rawMulti);
+	$: multiItems = split.media;
+	$: kitRows = split.kits;
+	$: kitIds = kitRows.map((row) => row.kit);
+	$: void ensureKits(kitIds);
+	$: kitSpecKinds = name ? $resourceUsage.specs.filter((spec) => spec.field === name).map((spec) => spec.kind) : [];
+	$: kitAccepted = acceptedFrom(kitSpecKinds);
+	$: kitMedia = kitRows.reduce((sum, row) => {
+		const detail = $kitDirectory.get(row.kit);
+		return sum + (detail ? mediaCountOf(detail.items, kitAccepted) : 0);
+	}, 0);
+	$: canKits = multiple && !!name && kitSpecKinds.length > 0;
+	const kitRowsHosted = getContext<Readable<boolean> | undefined>(KIT_ROWS_HOSTED_CONTEXT_KEY) ?? NOT_HOSTED;
+	onMount(() => {
+		if (kitIds.length > 0) void ensureKits(kitIds, { refresh: true });
+	});
 	$: groupLimits = byKindLimits || kinds.length === 1 ? limits : NO_LIMITS;
 	$: totalFull = !byKindLimits && kinds.length > 1 && limits.maxItems != null && multiItems.length >= limits.maxItems;
 	$: groups = buildMediaGroups(multiItems, kinds, groupLimits, (item: Item) => kindOfMediaItem(item)).map((group) =>
@@ -127,6 +150,8 @@
 	let inspectorBroken = false;
 	let replaceTarget: number | null = null;
 	let pendingKind: MediaKind | null = null;
+	let replacing: { index: number | null } | null = null;
+	let pasteReplace: { index: number | null } | null = null;
 
 	function reject(reason: string, detail: string | null = null) {
 		rejection = { reasons: [reason], detail };
@@ -163,8 +188,8 @@
 	}
 
 	let isPasteActive = autoPaste;
-	let showHistoryModal = false;
-	let showUploadLibraryModal = false;
+	let pickerOpen = false;
+	let pickerSource: PickerSourceId = 'history';
 
 	let existingMaskUrl: string | null = null;
 	let maskSubject: string | null = null;
@@ -240,8 +265,14 @@
 		return summarizeContents(held, (item) => kindOfMediaItem(item), itemDuration);
 	}
 
-	function admit(candidate: MediaCandidate): boolean {
-		const verdict = evaluateCandidate(candidate, limits, currentContents(), { fieldName: name });
+	function contentsWithout(index: number | null) {
+		const held = multiple ? multiItems.filter((_: Item, i: number) => i !== index) : [];
+		return summarizeContents(held, (item) => kindOfMediaItem(item), itemDuration);
+	}
+
+	function admit(candidate: MediaCandidate, replace: { index: number | null } | null = null): boolean {
+		const contents = replace ? contentsWithout(replace.index) : currentContents();
+		const verdict = evaluateCandidate(candidate, limits, contents, { fieldName: name });
 		if (!verdict.accepted) {
 			rejection = { reasons: verdict.reasons, detail: describeCandidate(candidate) };
 			return false;
@@ -252,14 +283,16 @@
 
 	function handlePaste(e: ClipboardEvent) {
 		if (!isPasteActive) return;
-		if ((!multiple && previewUrl) || allFull || showHistoryModal || showUploadLibraryModal) return;
+		const swap = pasteReplace;
+		if (!swap && ((!multiple && previewUrl) || allFull)) return;
+		if (pickerOpen) return;
 
 		e.preventDefault();
 		e.stopPropagation();
 
 		const outcome = readPastedImage(e.clipboardData?.items);
 		if ('file' in outcome) {
-			uploadFile(outcome.file);
+			uploadFile(outcome.file, swap ? swap.index : null, swap !== null);
 			isPasteActive = false;
 		} else {
 			reject(outcome.error, outcome.detail);
@@ -269,6 +302,8 @@
 	function handleClickOutside(event: MouseEvent) {
 		if (clickIsOutside(uploadAreaRef, event.target as Node)) isPasteActive = false;
 	}
+
+	$: if (!isPasteActive) pasteReplace = null;
 
 	function selectItem(flatIndex: number) {
 		selected = flatIndex;
@@ -301,9 +336,11 @@
 		const file = target.files?.[0];
 		target.value = '';
 		const slot = replaceTarget;
+		const swap = replacing !== null;
 		replaceTarget = null;
+		replacing = null;
 		if (file) {
-			await uploadFile(file, slot);
+			await uploadFile(file, slot, swap);
 		}
 	}
 
@@ -312,7 +349,7 @@
 		if (file) uploadFile(file);
 	}
 
-	async function uploadFile(file: File, replaceIndex: number | null = null) {
+	async function uploadFile(file: File, replaceIndex: number | null = null, replace: boolean = replaceIndex !== null) {
 		const kind = kindFromMimeType(file.type) ?? kindFromFilename(file.name);
 		const probed = await probeMediaFile(file, kind);
 		const candidate: MediaCandidate = {
@@ -324,7 +361,7 @@
 			height: probed.height ?? null,
 			durationSeconds: probed.durationSeconds ?? null
 		};
-		if (replaceIndex === null && !admit(candidate)) return;
+		if (!admit(candidate, replace ? { index: replaceIndex } : null)) return;
 
 		isUploading = true;
 		uploadProgress = 0;
@@ -462,7 +499,7 @@
 			} else {
 				next.push(...built);
 			}
-			onChange(name, next);
+			emitMulti(next);
 			return;
 		}
 
@@ -474,6 +511,22 @@
 		applyEditedItem(built[0], null);
 	}
 
+	function emitMulti(next: (Item | UploadedMediaItem)[]) {
+		if (!name) return;
+		onChange(name, withKitRows(next, kitRows));
+	}
+
+	function handleKitsLoaded(kits: KitDetail[]) {
+		if (!name) return;
+		const rows = kits.reduce<KitRow[]>((held, kit) => addKitRow(held, { kit: kit.id, snapshot: snapshotOf(kit) }), kitRows);
+		onChange(name, withKitRows(multiItems, rows));
+	}
+
+	function removeKit(row: KitRow) {
+		if (!name) return;
+		onChange(name, withKitRows(multiItems, removeKitRow(kitRows, row.kit)));
+	}
+
 	function groupFor(kind: MediaKind | null) {
 		return groups.find((group) => group.kind === kind);
 	}
@@ -481,7 +534,7 @@
 	function appendMultiItem(item: Item | UploadedMediaItem) {
 		if (!name || groupFor(kindOfMediaItem(item))?.full || totalFull) return;
 		selected = multiItems.length;
-		onChange(name, [...multiItems, item]);
+		emitMulti([...multiItems, item]);
 	}
 
 	function replaceMultiItem(index: number, item: Item | UploadedMediaItem) {
@@ -489,30 +542,30 @@
 		const next = multiItems.map((existing: Item, i: number) =>
 			i === index ? { ...item, ...(existing.label ? { label: existing.label } : {}) } : existing
 		);
-		onChange(name, next);
+		emitMulti(next);
 	}
 
 	function removeMultiItem(index: number) {
 		if (!name) return;
-		onChange(name, multiItems.filter((_: unknown, i: number) => i !== index));
+		emitMulti(multiItems.filter((_: unknown, i: number) => i !== index));
 	}
 
 	function clearAllItems() {
 		if (!name) return;
-		onChange(name, []);
+		emitMulti([]);
 	}
 
 	function updateMultiLabel(index: number, text: string) {
 		if (!name) return;
 		const cleaned = text.slice(0, MAX_LABEL_LENGTH);
 		const next = multiItems.map((item: Item, i: number) => (i === index ? { ...item, label: cleaned } : item));
-		onChange(name, next);
+		emitMulti(next);
 	}
 
 	function reorderItems(next: Item[], flatIndex: number) {
 		if (!name) return;
 		selected = flatIndex;
-		onChange(name, next);
+		emitMulti(next);
 	}
 
 	let selectionSeeded = false;
@@ -529,21 +582,28 @@
 		.flatMap((group) => group.items.map((entry) => ({ group, entry })))
 		.find((found) => found.entry.flatIndex === selected);
 
-	function handleHistoryConfirm(items: PickedMedia[]) {
-		if (!name) {
-			showHistoryModal = false;
-			return;
+	function closePicker() {
+		pickerOpen = false;
+		replacing = null;
+	}
+
+	function pickOf(picked: PickedMedia): MediaPick | null {
+		if (picked.generation && picked.file) {
+			return pickFromGeneration(picked.file, historyTileLabel(picked.generation, picked.file).label);
 		}
-		if (!multiple) {
-			const first = items.find((picked) => picked.file && picked.generation);
-			if (first) handleGeneration(first.generation, first.file);
-			else showHistoryModal = false;
+		const library = libraryItemOf(picked);
+		return library ? pickFromUpload(library as UploadFileInfo) : null;
+	}
+
+	function handlePickerConfirm(items: PickedMedia[]) {
+		if (!name) {
+			closePicker();
 			return;
 		}
 		const accepted: Item[] = [];
 		for (const picked of items) {
-			if (!picked.file || !picked.generation) continue;
-			const pick = pickFromGeneration(picked.file, historyTileLabel(picked.generation, picked.file).label);
+			const pick = pickOf(picked);
+			if (!pick) continue;
 			const verdict = evaluateCandidate(
 				pick.candidate,
 				limits,
@@ -562,24 +622,33 @@
 		if (accepted.length > 0) {
 			if (accepted.length === items.length) rejection = null;
 			selected = multiItems.length + accepted.length - 1;
-			onChange(name, [...multiItems, ...accepted]);
+			emitMulti([...multiItems, ...accepted]);
 		}
-		showHistoryModal = false;
+		closePicker();
+	}
+
+	function handlePicked(picked: PickedMedia) {
+		routePicked(picked, {
+			history: handleGeneration,
+			library: (item) => handleSelectFromUpload(item as UploadFileInfo)
+		});
 	}
 
 	function handleGeneration(generation: any, file: any) {
 		if (!file) return;
+		const swap = replacing;
 		const pick = pickFromGeneration(file, historyTileLabel(generation, file).label);
-		if (!admit(pick.candidate)) return;
+		if (!admit(pick.candidate, swap)) return;
 
 		if (multiple) {
-			appendMultiItem(pick.item);
+			if (swap && swap.index !== null) replaceMultiItem(swap.index, pick.item);
+			else appendMultiItem(pick.item);
 		} else if (name) {
 			commitSingle(pick.item);
 			setOriginKey(generation.id, originFileIndex(generation, file));
 			clearMask();
 		}
-		showHistoryModal = false;
+		closePicker();
 	}
 
 	function commitSingle(item: Item) {
@@ -592,28 +661,26 @@
 		onChange(name, item);
 	}
 
-	function openHistoryModal(kind: MediaKind | null = null) {
+	function openPicker(kind: MediaKind | null, source: PickerSourceId) {
 		pendingKind = kind;
-		showHistoryModal = true;
+		pickerSource = source;
+		pickerOpen = true;
 	}
 
 	function handleSelectFromUpload(upload: UploadFileInfo) {
+		const swap = replacing;
 		const pick = pickFromUpload(upload);
-		if (!admit(pick.candidate)) return;
+		if (!admit(pick.candidate, swap)) return;
 
 		if (multiple) {
-			appendMultiItem(pick.item);
+			if (swap && swap.index !== null) replaceMultiItem(swap.index, pick.item);
+			else appendMultiItem(pick.item);
 		} else {
 			commitSingle(pick.item);
 			clearOriginKey();
 			clearMask();
 		}
-		showUploadLibraryModal = false;
-	}
-
-	function openUploadLibraryModal(kind: MediaKind | null = null) {
-		pendingKind = kind;
-		showUploadLibraryModal = true;
+		closePicker();
 	}
 
 	function applyMaskPath(maskPath: string) {
@@ -623,7 +690,8 @@
 		maskSubject = maskSubjectKey(value);
 	}
 
-	$: pickerKind = pendingKind ?? soleKind;
+	$: pickerKinds = pendingKind ? [pendingKind] : kinds;
+	$: pickerNoun = pickerKinds.length === 1 ? pickerKinds[0] : 'media';
 	$: sizeHint = limits.maxFileSizeBytes ? `max ${formatBytes(limits.maxFileSizeBytes, 0)}` : null;
 
 	$: face = chooseFace({
@@ -742,9 +810,6 @@
 				if (moved) reorderItems(moved.items, moved.flatIndex);
 				break;
 			}
-			case 'replace':
-				openFilePicker(kind, multiple ? flatIndex : null);
-				break;
 			case 'remove':
 				if (multiple) removeMultiItem(flatIndex);
 				else handleClear();
@@ -757,24 +822,30 @@
 		}
 	}
 
-	function handleSource(kind: MediaKind | null, source: MediaSource) {
+	function handleSource(kind: MediaKind | null, source: MediaSource, swap: { index: number | null } | null = null) {
+		replacing = swap;
 		switch (source) {
 			case 'browse':
-				openFilePicker(kind);
+				openFilePicker(kind, swap ? swap.index : null);
 				break;
 			case 'paste':
+				pasteReplace = swap;
 				isPasteActive = true;
 				break;
 			case 'history':
-				openHistoryModal(kind);
-				break;
 			case 'library':
-				openUploadLibraryModal(kind);
+			case 'kits':
+				openPicker(kind, source);
 				break;
 			case 'draw':
 				editors?.draw();
 				break;
 		}
+	}
+
+	function replaceVia(flatIndex: number | null, source: MediaSource) {
+		const item = multiple ? (flatIndex === null ? null : (multiItems[flatIndex] ?? null)) : singleRecord;
+		handleSource(item ? kindOfMediaItem(item) : null, source, { index: multiple ? flatIndex : null });
 	}
 
 	let pointerInside = false;
@@ -808,7 +879,8 @@
 		}
 	}
 
-	$: countText = multiple && countLimit !== null ? formatCount(multiItems.length, countLimit) : null;
+	$: countText = multiple && countLimit !== null ? formatCount(multiItems.length + kitMedia, countLimit) : null;
+	$: kitRoom = countLimit === null ? null : Math.max(0, countLimit - multiItems.length - kitMedia);
 </script>
 
 <svelte:window on:keydown|capture={handleWindowKeydown} />
@@ -892,13 +964,15 @@
 				dragging={isDragging}
 				pasteArmed={isPasteActive}
 				offersDraw={canDraw}
+				offersKits={true}
 				maxLabelLength={MAX_LABEL_LENGTH}
 				toolGroupsFor={(flatIndex) => rowToolGroups(toolEnv, flatIndex)}
 				handleFor={rowHandle}
 				onTool={runFieldTool}
 				onLabel={updateMultiLabel}
 				onReorder={reorderItems}
-				onSource={handleSource}
+				onSource={(kind, source) => handleSource(kind, source)}
+				onChangeSource={replaceVia}
 				onPreview={(flatIndex) => {
 					const item = multiple ? (multiItems[flatIndex] ?? null) : singleRecord;
 					const kind = item ? kindOfMediaItem(item) : null;
@@ -927,7 +1001,10 @@
 				onLabel={(text) => selected !== null && updateMultiLabel(selected, text)}
 				onTool={(tool) => runFieldTool(tool, multiple ? (selected ?? 0) : 0)}
 				onClearMask={clearMask}
-				onReplace={() => openFilePicker(null, null)}
+				current={currentSourceOf(multiple ? selectedItem : singleRecord)}
+				offersDraw={canDraw}
+				offersKits={true}
+				onSource={(source) => replaceVia(multiple ? selected : null, source)}
 				onRemove={() => (multiple ? selected !== null && removeMultiItem(selected) : handleClear())}
 				onPreview={() => inspectorKind && openPreview(inspectorKind, multiple ? selectedItem : singleRecord)}
 			/>
@@ -942,6 +1019,7 @@
 					adding={addingKind}
 					addingProgress={uploadProgress}
 					offersDraw={false}
+					offersKits={true}
 					onSelect={selectItem}
 					onReorder={reorderItems}
 					onRemove={removeMultiItem}
@@ -954,25 +1032,36 @@
 				dragging={isDragging}
 				pasteArmed={isPasteActive}
 				offersDraw={canDraw}
+				offersKits={true}
 				{sizeHint}
 				onSource={(source) => handleSource(null, source)}
 			/>
 		{/if}
 	{/if}
 
+	{#if multiple && kitRows.length > 0 && !$kitRowsHosted}
+		<div class="space-y-2 {compact ? 'mt-2' : 'mt-3'}" data-loaded-kits>
+			{#each kitRows as row (row.kit)}
+				<LoadedKitHost {row} accepted={kitAccepted} {compact} onRemove={removeKit} onChoose={() => openPicker(null, 'kits')} />
+			{/each}
+		</div>
+	{/if}
+
 	<input bind:this={fileInput} type="file" on:change={handleFileSelect} accept={acceptedTypes} class="hidden" />
 </div>
 
-<MediaFieldPickers
-	historyOpen={showHistoryModal}
-	libraryOpen={showUploadLibraryModal}
-	kind={pickerKind}
-	onHistoryClose={() => (showHistoryModal = false)}
-	onLibraryClose={() => (showUploadLibraryModal = false)}
-	onHistorySelect={handleGeneration}
-	historyMultiple={multiple}
-	onHistoryConfirm={handleHistoryConfirm}
-	onLibrarySelect={handleSelectFromUpload}
+<MediaPickerModal
+	isOpen={pickerOpen}
+	onClose={closePicker}
+	title={replacing !== null ? `Replace ${pickerNoun}` : undefined}
+	sources={['history', 'library', 'kits']}
+	initialSource={pickerSource}
+	mediaTypes={pickerKinds}
+	multiple={multiple && replacing === null}
+	maxCount={multiple && replacing === null ? kitRoom : null}
+	kits={canKits ? { accepted: kitAccepted, loadedIds: kitIds, onLoad: handleKitsLoaded } : undefined}
+	onPick={handlePicked}
+	onConfirm={(_keys, items) => handlePickerConfirm(items)}
 />
 
 <MediaFieldEditors

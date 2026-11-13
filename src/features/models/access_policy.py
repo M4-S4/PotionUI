@@ -11,7 +11,7 @@ from src.features.models.exceptions import (
 )
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
-from src.platform.security.user import User, AccountType
+from src.platform.security.user import User, owner_is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class ModelAccessPolicy:
         An admin asking for `all_models` is unrestricted (None); everyone else is
         scoped to the models assigned to them.
         """
-        if all_models and user.account_type == AccountType.ADMIN:
+        if all_models and owner_is_admin(user):
             return None
         return self.model_repo.get_available_model_ids_for_user(user.id)
 
@@ -47,12 +47,29 @@ class ModelAccessPolicy:
         if not model:
             raise ModelNotFoundException(f"Model '{model_id}' not found")
 
-        if user.account_type != AccountType.ADMIN:
+        if not owner_is_admin(user):
             allowed_ids = self.model_repo.get_available_model_ids_for_user(user.id)
             if model_id not in allowed_ids:
                 raise ModelAccessDeniedException(f"Access denied to model '{model_id}'")
 
         return model
+
+    def verify_filename_access(self, value: str, model_types: List[str], user: User) -> None:
+        if owner_is_admin(user):
+            return
+        filename = value.replace("\\", "/").rsplit("/", 1)[-1]
+        if not filename:
+            return
+        matches = [
+            model
+            for model in self.model_repo.get_by_filename(filename)
+            if getattr(model, "is_available", True) and (not model_types or model.model_type in model_types)
+        ]
+        if not matches:
+            return
+        allowed = set(self.model_repo.get_available_model_ids_for_user(user.id))
+        if not any(model.id in allowed for model in matches):
+            raise ModelAccessDeniedException(f"Access denied to model '{filename}'")
 
     def explain_assignment_failure(self, model_id: str, user_id: str) -> ModelAssignmentException:
         """Turn a failed insert into an exception that says what actually went wrong.

@@ -8,7 +8,7 @@
 	import { primaryModifier } from '$lib/utils/platform';
 	import { mediaItemKey } from '$lib/utils/promptResources';
 	import MediaSourceMenu from './MediaSourceMenu.svelte';
-	import type { MediaSource } from './mediaFieldSources';
+	import { currentSourceOf, type MediaSource } from './mediaFieldSources';
 	import {
 		ADD_LABELS,
 		GROUP_TITLES,
@@ -37,6 +37,7 @@
 		dragging,
 		pasteArmed,
 		offersDraw,
+		offersKits = false,
 		maxLabelLength = 64,
 		toolGroupsFor,
 		handleFor,
@@ -45,6 +46,7 @@
 		onLabel,
 		onReorder,
 		onSource,
+		onChangeSource,
 		onPreview
 	}: {
 		multiple: boolean;
@@ -57,6 +59,7 @@
 		dragging: boolean;
 		pasteArmed: boolean;
 		offersDraw: boolean;
+		offersKits?: boolean;
 		maxLabelLength?: number;
 		toolGroupsFor: (flatIndex: number) => MediaToolGroup[];
 		handleFor: (flatIndex: number) => string | null;
@@ -65,6 +68,7 @@
 		onLabel: (flatIndex: number, label: string) => void;
 		onReorder: (items: Item[], flatIndex: number) => void;
 		onSource: (kind: MediaKind | null, source: MediaSource) => void;
+		onChangeSource?: (flatIndex: number, source: MediaSource) => void;
 		onPreview: (flatIndex: number) => void;
 	} = $props();
 
@@ -207,6 +211,29 @@
 						</span>
 					</div>
 
+					{#if onChangeSource}
+						<MediaSourceMenu
+							kind={group.kind}
+							intent="change"
+							current={currentSourceOf(item)}
+							offersDraw={offersDraw && !multiple}
+							{offersKits}
+							align="right"
+							onPick={(source) => onChangeSource(entry.flatIndex, source)}
+						>
+							{#snippet trigger({ toggle, open })}
+								<IconButton
+									icon="refresh"
+									label="Replace"
+									size="sm"
+									ariaExpanded={open}
+									data-media-replace={entry.flatIndex}
+									onclick={toggle}
+								/>
+							{/snippet}
+						</MediaSourceMenu>
+					{/if}
+
 					<ToolsMenu
 						open={openMenu === entry.flatIndex}
 						scope="field"
@@ -244,7 +271,7 @@
 				: 'border-line-strong bg-surface-1'}"
 			data-media-row-add
 		>
-			<MediaSourceMenu kind={addKind} {offersDraw} onPick={(source) => onSource(addKind, source)}>
+			<MediaSourceMenu kind={addKind} {offersDraw} {offersKits} onPick={(source) => onSource(addKind, source)}>
 				{#snippet trigger({ toggle, open })}
 					<div class="inline-flex shrink-0">
 						<Button variant="secondary" size="xs" icon="plus" class="rounded-r-none" onclick={() => onSource(addKind, 'browse')}>

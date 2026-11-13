@@ -13,6 +13,7 @@ import aiofiles
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.api_scopes import ApiScope, key_access, key_scope
 from src.platform.security.current_user import (
     get_current_active_user,
     get_current_admin_user,
@@ -344,10 +345,10 @@ class MediaController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.media_controller
-    router = APIRouter(prefix="/api/media", tags=["Media"])
+    router = APIRouter(prefix="/api/media", tags=["Media"], dependencies=[key_access(read=ApiScope.READ, write=ApiScope.CONTENT)])
 
-    @router.get("/generations/{generation_id}/{filename}", summary="Serve Generation Media")
-    @router.head("/generations/{generation_id}/{filename}", summary="Get Generation Media Headers")
+    @router.get("/generations/{generation_id}/{filename}", summary="Serve Generation Media", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
+    @router.head("/generations/{generation_id}/{filename}", summary="Get Generation Media Headers", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def serve_generation_media(
         generation_id: str,
         filename: str,
@@ -361,11 +362,11 @@ def build_router(container: "AppContainer") -> APIRouter:
             generation_id, filename, viewer, request, size, animated
         )
 
-    @router.get("/tmp/{filename}", summary="Serve Temporary Media")
+    @router.get("/tmp/{filename}", summary="Serve Temporary Media", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def serve_temp_media(filename: str, viewer=Depends(require_media_viewer)):
         return await controller.serve_temp_media(filename, viewer)
 
-    @router.get("/uploads/{filename}", summary="Serve Uploaded Media")
+    @router.get("/uploads/{filename}", summary="Serve Uploaded Media", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def serve_uploaded_media(
         filename: str,
         size: Optional[str] = None,
@@ -382,7 +383,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Get best-effort metadata for an already-uploaded file"""
         return await controller.get_upload_info(filename, current_user)
 
-    @router.post("/upload", response_model=APIResponse, summary="Upload Media")
+    @router.post("/upload", response_model=APIResponse, summary="Upload Media", description="Uploads an input file (multipart field file). The answer carries relative_path, which goes into a media field of form_data when you start a generation.", dependencies=[key_scope(ApiScope.GENERATE)])
     async def upload_media(
         file: UploadFile = File(...),
         purpose: Optional[str] = Form(None),
@@ -425,7 +426,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Delete all media files for a generation"""
         return await controller.delete_generation_media(generation_id, current_user)
 
-    @router.get("/files/{file_id}", summary="Serve File by ID")
+    @router.get("/files/{file_id}", summary="Serve File by ID", description="The bytes of a generated file or an upload, by the file id that history returns. Optional width, height or size ask for a smaller version.", dependencies=[key_scope({ApiScope.READ, ApiScope.MCP})])
     async def serve_file_by_id(
         file_id: str,
         width: Optional[int] = None,
@@ -527,7 +528,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     under /api/admin alongside the other admin-only operations."""
     controller = ThumbnailAdminController(container.settings, container.thumbnail_regeneration)
 
-    admin_router = APIRouter(prefix="/api/admin", tags=["Media"])
+    admin_router = APIRouter(prefix="/api/admin", tags=["Media"], dependencies=[key_access(read=ApiScope.ADMIN, write=ApiScope.ADMIN)])
 
     @admin_router.get("/thumbnails", response_model=APIResponse, summary="Get Thumbnail Settings")
     async def get_thumbnails(current_user=Depends(get_current_admin_user)):

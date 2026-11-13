@@ -109,7 +109,9 @@ async def submit_generation(
         request = GenerationRequest.model_validate(request)
     container = get_container()
     _require_available_preset(container, user, request.preset_id)
-    result = await container.generation_orchestrator.start_generation(request, user.id)
+    result = await container.generation_orchestrator.start_generation(
+        request, user.id, acts_as_admin=GenerationPolicy.is_admin(user)
+    )
     status = result.get("status")
     return {
         "generation_id": result["generation_id"],
@@ -125,7 +127,9 @@ async def preview_memory(user, request: Union[GenerationRequest, Dict[str, Any]]
         request = GenerationRequest.model_validate(request)
     container = get_container()
     _require_available_preset(container, user, request.preset_id)
-    return await container.generation_orchestrator.preview_memory(request, user.id)
+    return await container.generation_orchestrator.preview_memory(
+        request, user.id, acts_as_admin=GenerationPolicy.is_admin(user)
+    )
 
 
 async def cancel_generation(user, generation_id: str) -> bool:

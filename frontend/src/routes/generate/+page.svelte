@@ -60,7 +60,7 @@
 	import { createDisconnectBanner } from '$lib/utils/disconnectBanner';
 	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
-	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
+	import { missingModelByTab, missingModelFor, missingModelMessage } from '$lib/generation/requiredModelField';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { attachChatStartedGeneration } from '$lib/generation/restore/chatGeneration';
 	import { setGenerationAttachHost } from '$lib/generation/restore/attachHost';
@@ -119,12 +119,16 @@
 	import { resolvePresetSegmentTemplates } from '$lib/utils/presetSegmentTemplates';
 	import { toasts } from '$lib/stores/toast';
 	import { buildActiveTabReuseUpdate } from '$lib/utils/historyReuse';
+	import { announceReuseConversion } from '$lib/utils/reuseNotice';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { formValidationStore } from '$lib/stores/formValidation';
 	import { classifyGenerationStartError } from '$lib/utils/formValidationErrors';
 	import { getPresetPromptResources } from '$lib/utils/presetPromptResourcesCache';
 	import { tabMergedMarkerUpdates } from '$lib/utils/mergedFieldMarkers';
+	import { announceKitNotices } from '$lib/kits/kitSubmit';
+	import { kitNotices, effectiveNotices, pruneKitNotices } from '$lib/stores/kitNotices';
+	import { summarizeSkips } from '$lib/kits/kitResolver';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import { firstResourceIssue } from '$lib/utils/generationResourceReadiness';
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
@@ -340,6 +344,7 @@
 		try {
 			const response = await api.startGeneration(request);
 			if (response.success && response.data) {
+				announceKitNotices(tabId, response.data);
 				const { generation_id, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 				const liveTab = findGenerationTab($tabsStore.tabs, tabId) || tab;
@@ -669,6 +674,7 @@
 
 	// Reactive subscriptions
 	$: tabs = generationTabs($tabsStore.tabs);
+	$: pruneKitNotices($tabsStore.tabs.map((entry) => entry.id));
 	$: activeTabId = $activeTab.id;
 	$: currentTab = $activeTab;
 	$: stepBar = $activeToolTab ? $stepBars[$activeToolTab.id] ?? null : null;
@@ -1263,7 +1269,7 @@
 	function handleReuseInActiveTab(generation: GenerationHistoryItem) {
 		if (!generation.preset_id) return;
 		const tab = currentTab;
-		const { tabData, presetChanged } = buildActiveTabReuseUpdate(generation, tab);
+		const { tabData, presetChanged, converted } = buildActiveTabReuseUpdate(generation, tab);
 
 		if (presetChanged) {
 			// Drop the stale mode manifest so the mode dropdown doesn't flash the
@@ -1278,6 +1284,7 @@
 		tabsStore.updateTab(tab.id, tabData);
 
 		toasts.success(`Reused generation from ${timeAgo(generation.created_at)}`);
+		announceReuseConversion({ converted });
 	}
 
 	function createTabHandlers(tabId: string) {
@@ -1489,6 +1496,7 @@
 			const response = await api.startGeneration(request);
 
 			if (response.success && response.data) {
+				announceKitNotices(activeTabId, response.data);
 				const { generation_id, status, queue_position } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 
@@ -1815,7 +1823,7 @@
 				: unavailable ||
 					resourceIssue ||
 					(batchBlocked ? BATCH_CAP_MESSAGE : !hasPrompt ? noPromptReason : limitGate?.reason) ||
-					(missingModelField ? `Select ${missingModelField.label} to generate` : undefined);
+					(missingModelField ? missingModelMessage(missingModelField) : undefined);
 	}
 
 	// Workbench event handlers
@@ -2103,6 +2111,7 @@
 	{#if !toolTabActive}
 	{#key currentTab.id}
 		<GenerationPanel
+			kitSkip={summarizeSkips(effectiveNotices($kitNotices[currentTab.id]))}
 			bind:this={generationPanelRef}
 			generation={generation}
 			{isGenerating}

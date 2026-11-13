@@ -19,6 +19,8 @@ from pathlib import Path
 
 from rich.logging import RichHandler
 
+from src.platform.security.redaction import redact_api_keys
+
 FILE_FORMAT = "%(asctime)s | %(levelname)8s | %(name)s | %(message)s"
 FILE_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -44,14 +46,14 @@ _FILE_MARK = "_potionui_file_handler"
 # them propagate puts every line through the same two handlers.
 _UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
-_SECRET_QUERY_PARAMS = ("token", "access_token", "api_key")
+_SECRET_QUERY_PARAMS = ("token", "access_token", "api_key", "ticket")
 _SECRET_QUERY_PATTERN = re.compile(
     r"(?i)\b(" + "|".join(_SECRET_QUERY_PARAMS) + r")=([^&\s\"']+)"
 )
 
 
 def _redact_secret_query_params(text: str) -> str:
-    return _SECRET_QUERY_PATTERN.sub(lambda m: f"{m.group(1)}=***", text)
+    return redact_api_keys(_SECRET_QUERY_PATTERN.sub(lambda m: f"{m.group(1)}=***", text))
 
 
 class _SecretQueryParamFilter(logging.Filter):

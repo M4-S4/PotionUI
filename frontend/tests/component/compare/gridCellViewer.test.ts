@@ -110,9 +110,18 @@ describe('grid cell viewer', () => {
 		for (let i = 0; i < 5; i += 1) await flush();
 		const tags = [...document.body.querySelectorAll('[data-testid="axis-tag"]')];
 		expect(tags.map((tag) => tag.textContent?.trim())).toEqual(['X', 'Y']);
-		const rows = tags.map((tag) => tag.parentElement?.parentElement?.textContent?.replace(/\s+/g, ' ').trim());
+		const rows = tags.map((tag) => tag.closest('[data-param-cell]')?.textContent?.replace(/\s+/g, ' ').trim());
 		expect(rows[0]).toContain('er_sde');
 		expect(rows[1]).toContain('beta');
+	});
+
+	it('puts the This cell card above the Information and Parameters panel', async () => {
+		mounted = mountViewer({});
+		await flush();
+		const card = document.body.querySelector('[data-testid="cell-viewer-card"]') as HTMLElement;
+		const panel = document.body.querySelector('[data-details-panel]') as HTMLElement;
+		expect(card.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+		expect(card.parentElement?.className).toContain('empty:hidden');
 	});
 
 	it('lists the seed once, labelled by the axis, when the seed is an axis', async () => {
@@ -323,7 +332,7 @@ describe('grid cell viewer', () => {
 		await flush();
 		(mounted.button('Open generation details') as HTMLButtonElement).click();
 		await flush();
-		expect(mounted.text()).toContain('Generation Details');
+		expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Generation Details');
 		expect(document.body.querySelector('[data-testid="grid-details-card"]')).not.toBeNull();
 		(mounted.button('Back to compare view') as HTMLButtonElement).click();
 		await flush();
