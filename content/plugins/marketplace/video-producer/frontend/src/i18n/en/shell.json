@@ -23,6 +23,7 @@
 	"project.import": "Import",
 	"project.importTip": "Import media",
 	"project.importLibrary": "From the library…",
+	"project.importKit": "From a kit…",
 	"project.importLocal": "From this computer…",
 	"project.export": "Export",
 	"project.exportTip": "Export and share",

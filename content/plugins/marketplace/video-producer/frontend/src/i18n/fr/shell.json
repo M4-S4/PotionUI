@@ -23,6 +23,7 @@
 	"project.import": "Importer",
 	"project.importTip": "Importer des médias",
 	"project.importLibrary": "Depuis la bibliothèque…",
+	"project.importKit": "Depuis un kit…",
 	"project.importLocal": "Depuis l’ordinateur…",
 	"project.export": "Exporter",
 	"project.exportTip": "Exporter et partager",
