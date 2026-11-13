@@ -5,13 +5,13 @@
 	import { ms } from '../../lib/motion.js';
 	import { overlayLayer } from '../../lib/host.js';
 	import { ui } from '../../lib/state.svelte.js';
-	import { allCommands } from '../../lib/commands.js';
+	import { allCommands, shown } from '../../lib/commands.js';
 	import Icon from '../Icon.svelte';
 
 	let q = $state('');
 	let idx = $state(0);
 	const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-	const results = $derived(allCommands.filter((c) => !q || norm(`${c.label} ${c.menu}`).includes(norm(q))).slice(0, 12));
+	const results = $derived(allCommands.filter((c) => shown(c) && (!q || norm(`${c.label} ${c.menu}`).includes(norm(q)))).slice(0, 12));
 
 	function run(c) {
 		ui.paletteOpen = false;

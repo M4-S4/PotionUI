@@ -6,7 +6,7 @@
 	import { chainByOf, chainOn, ignoresFirstFrame, setChain, setChainBy } from '../../lib/chain.js';
 	import { engineOptions, optionFor } from '../../lib/generation.js';
 	import { seek } from '../../lib/playback.svelte.js';
-	import { allCommands, pointerShortcuts } from '../../lib/commands.js';
+	import { allCommands, pointerShortcuts, shown } from '../../lib/commands.js';
 	import { frameRoleLabel } from '../../lib/catalog.js';
 	import { openReferences } from '../../lib/references.js';
 	import Modal from './Modal.svelte';
@@ -35,7 +35,7 @@
 	const projectEngine = $derived(optionFor(engineOptions(ui.me), doc.engine));
 	const close = () => (ui.modal = null);
 
-	const shortcutList = $derived(allCommands.filter((c) => c.keys));
+	const shortcutList = $derived(allCommands.filter((c) => c.keys && shown(c)));
 
 	const tour = $derived([
 		[t('shell.tour.project.title'), t('shell.tour.project.text'), () => (ui.modal = { type: 'project' })],

@@ -36,13 +36,13 @@ test('fromPicked: a library file and a history file keep the origin the plugin a
 	assert.deepEqual(fromPicked({ key: 'g1:f1', mediaType: 'image', filename: 'a.png', origin: { kind: 'history', generationId: 'g1', fileId: '01KF' } }), { origin: { kind: 'history', generationId: 'g1', fileId: '01KF' }, filename: 'a.png', mediaType: 'image' });
 });
 
-test('fromPicked: a text item, an item whose library file was deleted and a kit origin without its item are left with their reason', () => {
+test('fromPicked: a text item and an item whose library file was deleted are left with their reason, and a shape the page does not know is left as unread', () => {
 	assert.deepEqual(fromPicked(kitPicked(item({ kind: 'text', media_ref: null, url: null, text: 'Mara is tall.' }))), { left: 'text' });
 	assert.deepEqual(fromPicked(kitPicked(item({ media_ref: null, url: null, missing: true }))), { left: 'missing' });
 	assert.deepEqual(fromPicked(kitPicked(item({ missing: true }))), { left: 'missing' });
-	assert.deepEqual(fromPicked({ key: 'kit:it_1', mediaType: null, filename: null, origin: { kind: 'kit', kitId: '', itemId: 'it_1' } }), { left: 'missing' });
-	assert.deepEqual(fromPicked(null), { left: 'missing' });
-	assert.deepEqual(fromKitItem(undefined), { left: 'missing' });
+	assert.deepEqual(fromPicked({ key: 'kit:it_1', mediaType: null, filename: null, origin: { kind: 'kit', kitId: '', itemId: 'it_1' } }), { left: 'unread' });
+	assert.deepEqual(fromPicked(null), { left: 'unread' });
+	assert.deepEqual(fromKitItem(undefined), { left: 'unread' });
 });
 
 test('gatherPicks: the whole kit gives its accepted media in kit order and counts what it leaves, by reason', () => {
@@ -58,7 +58,7 @@ test('gatherPicks: the whole kit gives its accepted media in kit order and count
 	};
 	const { picks, left } = gatherPicks({ kits: [kit] }, ['image']);
 	assert.deepEqual(picks.map((p) => p.origin.itemId), ['up-a', 'up-c']);
-	assert.deepEqual(left, { text: 1, missing: 1, kind: 1 });
+	assert.deepEqual(left, { text: 1, missing: 1, kind: 1, unread: 0 });
 	assert.equal(leftTotal(left), 3);
 	assert.equal(leftTotal(emptyLeft()), 0);
 });

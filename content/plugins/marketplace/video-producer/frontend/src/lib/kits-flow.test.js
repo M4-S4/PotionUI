@@ -46,12 +46,14 @@ globalThis.window = { __potionui: { confirm: async () => true, notifications: { 
 globalThis.document = { body: { appendChild: (node) => node }, createElement: () => new Media(), querySelector: () => null };
 globalThis.Image = Media;
 
-const { doc, ui, replaceDoc, dispose } = await import('./state.svelte.js');
+const { doc, ui, replaceDoc, dispose, undo } = await import('./state.svelte.js');
 const { bindClient } = await import('./project.svelte.js');
 const importer = await import('./importer.js');
 const { emptyDoc, newAsset } = await import('./starter.js');
 const { setLocale } = await import('../i18n/index.svelte.js');
-const { mediaOf, seededKits } = await import('../../../tests/fixtures/make_kit_picks.mjs');
+const { addCardImages } = await import('./references.js');
+const { commandById, menus, shown } = await import('./commands.js');
+const { mediaOf, rateOf } = await import('../../../tests/fixtures/make_kit_picks.mjs');
 
 const fixture = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'tests', 'fixtures', 'kit_picks.json'), 'utf-8'));
 
@@ -63,11 +65,17 @@ after(() => {
 });
 
 const resolved = [];
+const server = { gate: null, lie: null };
 bindClient({
 	async resolveMedia(origin) {
 		resolved.push(origin);
+		if (server.gate) await server.gate;
 		if (origin.kind !== 'library' || !origin.itemId.startsWith('up-')) return { ok: false, error: { status: 404 } };
-		return { ok: true, data: mediaOf(origin) };
+		const media = mediaOf(origin);
+		return { ok: true, data: server.lie ? { ...media, mediaType: server.lie } : media };
+	},
+	async libraryItem(itemId) {
+		return { ok: true, data: { fps: rateOf(itemId) } };
 	}
 });
 
@@ -108,6 +116,8 @@ beforeEach(() => {
 	toasts.length = 0;
 	mounted.length = 0;
 	resolved.length = 0;
+	server.gate = null;
+	server.lie = null;
 	for (const key of Object.keys(components)) delete components[key];
 	components.MediaPickerModal = modal('MediaPickerModal');
 	components.UploadLibraryModal = modal('UploadLibraryModal');
@@ -124,13 +134,13 @@ test('the kit import opens the host picker on the Kits source only, multiple, fo
 	assert.equal(props.multiple, true);
 	assert.equal(typeof props.kits.onLoad, 'function');
 	assert.equal('accepted' in props.kits, false);
-	assert.equal(props.title, 'Take images and videos from a kit');
+	assert.equal(props.title, 'Import images and videos from a kit');
 	assert.equal(ui.hostModal, true);
 	close(last());
 	assert.equal(ui.hostModal, false);
 	importer.openKitImport('audio');
 	assert.deepEqual(last().props.mediaTypes, ['audio']);
-	assert.equal(last().props.title, 'Take audio from a kit');
+	assert.equal(last().props.title, 'Import audio from a kit');
 });
 
 test('several kit items picked: each becomes an ordinary library asset of its media_ref, in the order picked, and the document gains no other key', async () => {
@@ -162,7 +172,7 @@ test('the whole kit: its accepted media in kit order, then a warning that says h
 	]);
 	assert.deepEqual(toasts, [
 		['success', '3 files imported'],
-		['warning', '3 kit items left out: 1 text, 1 file deleted from the library, 1 of a kind this place does not take']
+		['warning', '3 kit items left out: 1 text, 1 file deleted from the library, 1 not an image or a video']
 	]);
 });
 
@@ -248,7 +258,7 @@ test('a single slot refuses a text, a deleted file and a wrong kind with a warni
 	assert.deepEqual(toasts, [
 		['warning', '“bio” is a text, not a media file.'],
 		['warning', '“gone” has no file: it was deleted from the library.'],
-		['warning', '“walk” is of a kind this place does not take.']
+		['warning', '“walk” is not an image.']
 	]);
 	handle.props.onPick(picked(byId('it_coat')));
 	await settle();
@@ -274,7 +284,7 @@ test('a place that adds (a bible card, a new reference or sound of a shot): many
 	close(handle);
 	await settle();
 	assert.deepEqual(got.map((id) => doc.assets.find((a) => a.id === id).origin.itemId), ['up-image-1', 'up-image-3']);
-	assert.deepEqual(toasts, [['warning', '4 kit items left out: 1 text, 1 file deleted from the library, 2 of a kind this place does not take']]);
+	assert.deepEqual(toasts, [['warning', '4 kit items left out: 1 text, 1 file deleted from the library, 2 not images']]);
 });
 
 test('a place that adds, with a file the project already has: the existing asset id is given, no new asset', async () => {
@@ -322,19 +332,249 @@ test('the Library picker of a single slot still opens UploadLibraryModal with on
 	assert.equal(last().props.sources, undefined);
 });
 
-test('on the seeded kits, the whole-kit import builds the assets of tests/fixtures/kit_picks.json, which the server schema accepts', async () => {
-	const cases = seededKits();
-	for (const [n, { kit, allowed }] of cases.entries()) {
+test('on the kits of tests/fixtures/kit_picks.json, the whole-kit import builds the assets the fixture holds, which the server schema accepts', async () => {
+	for (const [n, { kits, allowed }] of fixture.cases.entries()) {
 		replaceDoc(emptyDoc((key) => key));
 		toasts.length = 0;
 		const kind = allowed.length > 1 ? 'media' : allowed[0];
 		if (kind === 'media' || kind === 'audio') importer.openKitImport(kind);
 		else importer.pickKitMany(kind, 'Place', () => {});
 		const handle = last();
-		handle.props.kits.onLoad([kit]);
+		handle.props.kits.onLoad(kits);
 		close(handle);
 		await settle();
 		const strip = (assets) => JSON.parse(JSON.stringify(assets)).map(({ id, ...rest }) => rest);
 		assert.deepEqual(strip(doc.assets), strip(fixture.cases[n].assets), `kit ${n}`);
 	}
+});
+
+const twice = () => settle().then(settle);
+function undoSteps() {
+	let steps = 0;
+	while ((doc.assets.length || doc.references.length) && steps < 60) {
+		undo();
+		steps += 1;
+	}
+	return steps;
+}
+const imageKit = (n, first = 0) => ({ id: 'kt_many', name: 'Many', handle: 'many', items: Array.from({ length: n }, (_, i) => item({ id: `it_${i}`, name: `n${i}`, position: i, media_ref: `up-image-${first + i}` })) });
+
+test('closing the picker while the host still loads a kit: what arrives afterwards enters nothing and says nothing', async () => {
+	importer.openKitImport();
+	const handle = last();
+	close(handle);
+	handle.props.onConfirm(['kit:it_coat'], [picked(byId('it_coat'))]);
+	handle.props.kits.onLoad([MARA]);
+	await twice();
+	assert.equal(doc.assets.length, 0);
+	assert.deepEqual(toasts, []);
+	assert.equal(resolved.length, 0);
+});
+
+test('closing the picker while a kit loads, at a place that adds: the caller hears it was dismissed, once, and gets no ids', async () => {
+	const calls = [];
+	importer.pickKitMany('image', 'Add an image', (ids) => calls.push(['picked', ids.length]), () => calls.push(['dismissed']));
+	const handle = last();
+	close(handle);
+	handle.props.kits.onLoad([imageKit(2)]);
+	await twice();
+	assert.deepEqual(calls, [['dismissed']]);
+	assert.equal(doc.assets.length, 0);
+});
+
+test('a single slot closed by the user: a pick that arrives afterwards does nothing', async () => {
+	const got = [];
+	importer.pickKitMedia('image', 'Card', (id) => got.push(id), () => got.push('dismissed'));
+	const handle = last();
+	close(handle);
+	handle.props.onPick(picked(byId('it_coat')));
+	await twice();
+	assert.deepEqual(got, ['dismissed']);
+	assert.equal(doc.assets.length, 0);
+});
+
+test('two confirms that overlap, the second while the first still resolves: one asset per file, and the second batch says the file is already there', async () => {
+	let release;
+	server.gate = new Promise((resolve) => (release = resolve));
+	importer.openKitImport();
+	const handle = last();
+	handle.props.onConfirm(['kit:it_face'], [picked(byId('it_face'))]);
+	await settle();
+	handle.props.kits.onLoad([MARA]);
+	await settle();
+	release();
+	await twice();
+	await twice();
+	assert.deepEqual(doc.assets.map((a) => a.origin.itemId), ['up-image-1', 'up-image-3', 'up-video-2']);
+	assert.deepEqual(toasts.filter(([level]) => level === 'success'), [['success', '1 file imported'], ['success', '2 files imported · 1 file already in the project']]);
+});
+
+test('after a first batch, the second confirm counts only what it brings: the first batch is not counted again', async () => {
+	importer.openKitImport();
+	const handle = last();
+	handle.props.onConfirm(['kit:it_face'], [picked(byId('it_face'))]);
+	await twice();
+	handle.props.onConfirm(['kit:it_coat'], [picked(byId('it_coat'))]);
+	await twice();
+	assert.deepEqual(toasts, [['success', '1 file imported'], ['success', '1 file imported']]);
+});
+
+test('the whole kit on a bible card is one undo step, assets and references together, and so is a card that only links files the project has', async () => {
+	const card = { id: 'card', label: 'Lumi', references: [] };
+	doc.bible = { characters: [card], places: [] };
+	importer.pickKitMany('image', 'Add an image', (ids) => addCardImages(doc.bible.characters[0], 'identite', ids));
+	last().props.kits.onLoad([imageKit(9)]);
+	await twice();
+	assert.equal(doc.assets.length, 9);
+	assert.equal(doc.references.length, 9);
+	assert.equal(doc.bible.characters[0].references.length, 9);
+	assert.equal(undoSteps(), 1);
+	replaceDoc({ ...emptyDoc((key) => key), assets: [newAsset({ id: 'have', kind: 'image', name: 'face.png', src: '/f.png', origin: lib('up-image-0') })] });
+	ui.hostModal = false;
+	doc.bible = { characters: [{ id: 'card', label: 'Lumi', references: [] }], places: [] };
+	importer.pickKitMany('image', 'Add an image', (ids) => addCardImages(doc.bible.characters[0], 'identite', ids));
+	last().props.kits.onLoad([imageKit(1)]);
+	await twice();
+	assert.equal(doc.references.length, 1);
+	undo();
+	assert.equal(doc.references.length, 0);
+	assert.equal(doc.assets.length, 1);
+});
+
+test('a place that keeps its picks in a draft (the shot editor): the new assets are one undo step and stay in the project if the draft is dropped, as with the Library', async () => {
+	const draft = [];
+	importer.pickKitMany('image', 'New reference', (ids) => ids.forEach((id) => draft.push(id)));
+	last().props.kits.onLoad([imageKit(5)]);
+	await twice();
+	assert.equal(draft.length, 5);
+	assert.equal(doc.assets.length, 5);
+	undo();
+	assert.equal(doc.assets.length, 0);
+});
+
+test('the same video taken by the Library import and from a kit becomes the same asset, frame rate included', async () => {
+	importer.openImport();
+	last().props.onConfirm(['up-video-2'], [{ key: 'up-video-2', mediaType: 'video', filename: 'hands.mp4', origin: lib('up-video-2'), item: { id: 'up-video-2', fps: rateOf('up-video-2') } }]);
+	await twice();
+	const strip = (a) => {
+		const { id, ...rest } = JSON.parse(JSON.stringify(a));
+		return rest;
+	};
+	const fromLibrary = strip(doc.assets[0]);
+	replaceDoc(emptyDoc((key) => key));
+	ui.hostModal = false;
+	importer.openKitImport();
+	last().props.onConfirm(['kit:it_walk'], [picked(byId('it_walk'))]);
+	await twice();
+	assert.equal(fromLibrary.fps, 26);
+	assert.deepEqual(strip(doc.assets[0]), fromLibrary);
+});
+
+test('a host whose kit item lacks media_ref (its form changed) is not told the file was deleted, but that the item could not be read', async () => {
+	importer.pickKitMedia('image', 'Card', () => {});
+	const odd = item({ id: 'it_odd', name: 'odd' });
+	delete odd.media_ref;
+	last().props.onPick(picked(odd));
+	ui.hostModal = false;
+	importer.openKitImport();
+	last().props.kits.onLoad([{ ...MARA, items: [odd] }]);
+	await twice();
+	assert.deepEqual(toasts, [
+		['warning', '“odd” could not be read: this PotionUI sends kit items in a form Video Producer does not know.'],
+		['warning', '1 kit item left out: 1 this PotionUI sends in a form Video Producer cannot read']
+	]);
+});
+
+test('what is left says the type the place takes, in English and in French', async () => {
+	for (const locale of ['en', 'fr']) {
+		setLocale(locale);
+		toasts.length = 0;
+		ui.hostModal = false;
+		importer.openKitImport('audio');
+		last().props.kits.onLoad([MARA]);
+		await twice();
+		const audio = toasts.at(-1)[1];
+		toasts.length = 0;
+		ui.hostModal = false;
+		importer.openKitImport();
+		last().props.kits.onLoad([MARA]);
+		await twice();
+		const media = toasts.at(-1)[1];
+		if (locale === 'en') {
+			assert.equal(audio, '5 kit items left out: 1 text, 1 file deleted from the library, 3 not sounds');
+			assert.equal(media, '3 kit items left out: 1 text, 1 file deleted from the library, 1 not an image or a video');
+		} else {
+			assert.equal(audio, '5 éléments du kit laissés : 1 texte, 1 fichier supprimé de la bibliothèque, 3 qui ne sont pas des sons');
+			assert.equal(media, '3 éléments du kit laissés : 1 texte, 1 fichier supprimé de la bibliothèque, 1 qui n’est ni une image ni une vidéo');
+		}
+	}
+	setLocale('en');
+});
+
+test('an item with no file whose missing flag is not set is still left as deleted, never sent as an origin without a file', async () => {
+	importer.openKitImport();
+	last().props.kits.onLoad([{ ...MARA, items: [item({ id: 'it_x', media_ref: null, missing: false })] }]);
+	await twice();
+	assert.equal(doc.assets.length, 0);
+	assert.equal(resolved.length, 0);
+	assert.deepEqual(toasts, [['warning', '1 kit item left out: 1 file deleted from the library']]);
+});
+
+test('a second kit picker while one is open, or a Library picker, opens nothing', () => {
+	importer.openKitImport();
+	assert.equal(mounted.length, 1);
+	importer.openKitImport('audio');
+	importer.pickKitMedia('image', 'Card', () => {});
+	importer.pickKitMany('image', 'Add', () => {});
+	assert.equal(mounted.length, 1);
+});
+
+test('a file the server resolves to another type than the kit said is not imported, and is counted as failed', async () => {
+	server.lie = 'audio';
+	importer.openKitImport();
+	last().props.onConfirm(['kit:it_face'], [picked(byId('it_face'))]);
+	await twice();
+	assert.equal(doc.assets.length, 0);
+	assert.deepEqual(toasts, [['warning', '1 file could not be imported']]);
+});
+
+test('a place that adds says when a file could not be imported', async () => {
+	const got = [];
+	importer.pickKitMany('image', 'Add an image', (ids) => got.push(...ids), () => got.push('dismissed'));
+	last().props.onConfirm(['kit:it_x'], [picked(item({ id: 'it_x', media_ref: 'gone-1' }))]);
+	await twice();
+	assert.deepEqual(toasts, [['warning', '1 file could not be imported']]);
+	assert.deepEqual(got, ['dismissed']);
+});
+
+test('a host without MediaPickerModal: a single slot or a place that adds hears it was dismissed', () => {
+	delete components.MediaPickerModal;
+	const got = [];
+	importer.pickKitMedia('image', 'Card', () => got.push('picked'), () => got.push('single'));
+	importer.pickKitMany('image', 'Add', () => got.push('picked'), () => got.push('many'));
+	assert.deepEqual(got, ['single', 'many']);
+});
+
+test('the palette, the File and Audio menus get the kit imports, hidden on a host without MediaPickerModal, with no new shortcut', () => {
+	const ids = ['import-kit', 'audio-import-kit'];
+	const inMenu = (menuId, id) => menus.find((m) => m.id === menuId).groups.flat().filter(shown).some((c) => c.id === id);
+	for (const id of ids) {
+		assert.equal(commandById(id).keys, null);
+		assert.equal(shown(commandById(id)), true);
+	}
+	assert.equal(inMenu('file', 'import-kit'), true);
+	assert.equal(inMenu('audio', 'audio-import-kit'), true);
+	assert.equal(commandById('import-kit').label, 'Import from a kit…');
+	commandById('import-kit').run();
+	assert.equal(last().name, 'MediaPickerModal');
+	assert.deepEqual(last().props.mediaTypes, ['image', 'video']);
+	close(last());
+	commandById('audio-import-kit').run();
+	assert.deepEqual(last().props.mediaTypes, ['audio']);
+	close(last());
+	delete components.MediaPickerModal;
+	for (const id of ids) assert.equal(shown(commandById(id)), false);
+	assert.equal(inMenu('file', 'import-kit'), false);
+	assert.equal(inMenu('audio', 'audio-import-kit'), false);
+	assert.equal(shown(commandById('import')), true);
 });

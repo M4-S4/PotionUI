@@ -9,7 +9,7 @@ import { trackUploads, updateUpload } from './uploads.svelte.js';
 import { fitSounds, laneCode, newSound } from './tracks.js';
 import { fitVrefItems } from './vreftracks.js';
 import { placeOnTrack } from './vreftracks.svelte.js';
-import { KIT_PICKER, LEFT_REASONS, emptyLeft, fromPicked, gatherPicks, leftTotal, pickKey } from './kits.js';
+import { KIT_PICKER, LEFT_REASONS, emptyLeft, fromPicked, gatherPicks, kindSet, leftTotal, pickKey } from './kits.js';
 
 const KINDS = { media: ['image', 'video'], audio: ['audio'] };
 const probing = new Map();
@@ -81,14 +81,21 @@ function openKitPicker({ title, kinds, multiple, onPicks, onDismissed = null }) 
 	if (ui.hostModal) return;
 	let settled = false;
 	let queued = false;
+	let closed = false;
 	let close = null;
+	let running = Promise.resolve();
 	const batch = { items: [], kits: [] };
+	const run = (picks, left) => {
+		const next = running.then(() => onPicks(picks, left));
+		running = next.catch(() => {});
+		return next;
+	};
 	const flush = () => {
 		queued = false;
 		const gathered = gatherPicks(batch, kinds);
 		batch.items = [];
 		batch.kits = [];
-		onPicks(gathered.picks, gathered.left);
+		return run(gathered.picks, gathered.left);
 	};
 	const queue = () => {
 		settled = true;
@@ -101,11 +108,13 @@ function openKitPicker({ title, kinds, multiple, onPicks, onDismissed = null }) 
 				multiple: true,
 				selectedKeys: [],
 				onConfirm: (keys, items) => {
+					if (closed) return;
 					batch.items.push(...(items ?? []));
 					queue();
 				},
 				kits: {
 					onLoad: (kits) => {
+						if (closed) return;
 						batch.kits.push(...(kits ?? []));
 						queue();
 					}
@@ -114,12 +123,14 @@ function openKitPicker({ title, kinds, multiple, onPicks, onDismissed = null }) 
 		: {
 				closeOnPick: false,
 				onPick: (picked) => {
+					if (closed) return;
 					const pick = fromPicked(picked);
 					const reason = pick.left ?? (pick.mediaType && !kinds.includes(pick.mediaType) ? 'kind' : null);
-					if (reason) return toast(t(`project.kits.leftOne.${reason}`, { name: picked?.filename || t('project.import.untitled') }), 'warning');
+					const name = picked?.filename || t('project.import.untitled');
+					if (reason) return toast(t(`project.kits.leftOne.${leftCode(reason, kinds)}`, { name }), 'warning');
 					settled = true;
 					close?.();
-					onPicks([pick], emptyLeft());
+					run([pick], emptyLeft());
 				}
 			};
 	close = openHostModal(KIT_PICKER, {
@@ -130,6 +141,7 @@ function openKitPicker({ title, kinds, multiple, onPicks, onDismissed = null }) 
 		selectableMediaTypes: kinds,
 		...choice,
 		onClosed: () => {
+			closed = true;
 			ui.hostModal = false;
 			if (!settled) onDismissed?.();
 		}
@@ -143,18 +155,27 @@ function openKitPicker({ title, kinds, multiple, onPicks, onDismissed = null }) 
 	ui.paletteOpen = false;
 }
 
-function reportLeft(left) {
+const leftCode = (reason, kinds) => (reason === 'kind' ? `kind.${kindSet(kinds)}` : reason);
+
+function reportLeft(left, kinds) {
 	const count = leftTotal(left);
 	if (!count) return;
-	const reasons = LEFT_REASONS.filter((reason) => left[reason]).map((reason) => t(`project.kits.reason.${reason}`, { count: left[reason] }));
+	const reasons = LEFT_REASONS.filter((reason) => left[reason]).map((reason) => t(`project.kits.reason.${leftCode(reason, kinds)}`, { count: left[reason] }));
 	toast(t('project.kits.left', { count, reasons: reasons.join(', ') }), 'warning');
+}
+
+async function resolveWithRate(client, origin) {
+	const result = await client.resolveMedia(origin);
+	if (!result?.ok || result.data?.mediaType !== 'video' || origin.kind !== 'library' || typeof client.libraryItem !== 'function') return result;
+	const item = await client.libraryItem(origin.itemId);
+	return { ...result, fps: item?.ok ? fpsOf({ item: item.data }) : null };
 }
 
 async function importPicks(picks, allowed) {
 	const client = getClient();
 	if (!client || !picks.length) return { ids: [], made: [], present: 0, failed: 0 };
 	const byKey = new Map(doc.assets.map((a) => [pickKey(a.origin), a.id]).filter(([key]) => key));
-	const results = await Promise.all(picks.map((pick) => (byKey.has(pickKey(pick.origin)) ? null : client.resolveMedia(pick.origin))));
+	const results = await Promise.all(picks.map((pick) => (byKey.has(pickKey(pick.origin)) ? null : resolveWithRate(client, pick.origin))));
 	const ids = [];
 	const made = [];
 	let present = 0;
@@ -171,7 +192,7 @@ async function importPicks(picks, allowed) {
 			failed += 1;
 			return;
 		}
-		const a = newAsset({ kind: media.mediaType, name: media.filename || pick.filename || t('project.import.untitled'), src: media.url, origin: pick.origin });
+		const a = newAsset({ kind: media.mediaType, name: media.filename || pick.filename || t('project.import.untitled'), src: media.url, origin: pick.origin, fps: results[i].fps ?? null });
 		made.push(a);
 		ids.push(a.id);
 	});
@@ -188,7 +209,7 @@ export function openKitImport(kind = 'media') {
 			const { made, present, failed } = await importPicks(picks, allowed);
 			addAssets(made);
 			report(made.length, present, failed);
-			reportLeft(left);
+			reportLeft(left, allowed);
 		}
 	});
 }
@@ -215,14 +236,15 @@ export function pickKitMany(kind, title, onPicked, onDismissed = null) {
 		onDismissed,
 		onPicks: async (picks, left) => {
 			const { ids, made, failed } = await importPicks(picks, [kind]);
-			if (made.length) {
-				act(() => doc.assets.push(...made));
-				for (const a of made) probeAsset(a.id);
-			}
 			if (failed) toast(t('project.toast.importFailed', { count: failed }), 'warning');
-			reportLeft(left);
-			if (ids.length) onPicked(ids);
-			else onDismissed?.();
+			reportLeft(left, [kind]);
+			if (!ids.length) return onDismissed?.();
+			if (!made.length) return onPicked(ids);
+			act(() => {
+				doc.assets.push(...made);
+				onPicked(ids);
+			});
+			for (const a of made) probeAsset(a.id);
 		}
 	});
 }
