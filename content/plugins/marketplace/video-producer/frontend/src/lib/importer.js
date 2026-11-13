@@ -80,17 +80,20 @@ export const pickImage = (title, onPicked) => pickMedia('image', title, onPicked
 function openKitPicker({ title, kinds, multiple, onPicks, onDismissed = null }) {
 	if (ui.hostModal) return;
 	let settled = false;
+	let queued = false;
 	let close = null;
 	const batch = { items: [], kits: [] };
 	const flush = () => {
+		queued = false;
 		const gathered = gatherPicks(batch, kinds);
 		batch.items = [];
 		batch.kits = [];
 		onPicks(gathered.picks, gathered.left);
 	};
 	const queue = () => {
-		if (settled) return;
 		settled = true;
+		if (queued) return;
+		queued = true;
 		queueMicrotask(flush);
 	};
 	const choice = multiple

@@ -177,6 +177,19 @@ test('picked items and a whole kit confirmed together: picked first, then the ki
 	assert.equal(resolved.length, 3);
 });
 
+test('a kit the host could not load leaves the picker open, and the next confirm imports what it brings, not only the first one', async () => {
+	importer.openKitImport();
+	const handle = last();
+	handle.props.onConfirm(['kit:it_coat'], [picked(byId('it_coat'))]);
+	await settle();
+	assert.deepEqual(doc.assets.map((a) => a.origin.itemId), ['up-image-3']);
+	handle.props.kits.onLoad([MARA]);
+	close(handle);
+	await settle();
+	assert.deepEqual(doc.assets.map((a) => a.origin.itemId), ['up-image-3', 'up-image-1', 'up-video-2']);
+	assert.equal(ui.hostModal, false);
+});
+
 test('a file already in the project, from the Library or from a kit, stays one asset and is counted already present', async () => {
 	replaceDoc({ ...emptyDoc((key) => key), assets: [newAsset({ id: 'have', kind: 'image', name: 'hands.png', src: '/api/media/uploads/hands.png', origin: lib('up-image-1') })] });
 	importer.openKitImport();
