@@ -30,6 +30,8 @@ CASES = json.loads((FIXTURES / "dissolve_cases.json").read_text(encoding="utf-8"
 PROPERTY = json.loads((FIXTURES / "dissolve_property.json").read_text(encoding="utf-8"))
 CADENCES = (24, 25, 30, 48, 50, 60)
 LEGACY = json.loads((EXPORTS / "legacy-graphs.json").read_text(encoding="utf-8"))
+ON_GRID = json.loads((EXPORTS / "on-grid-graphs.json").read_text(encoding="utf-8"))
+ON_GRID_FRAMES = json.loads((EXPORTS / "on-grid-graphs-24-30.json").read_text(encoding="utf-8"))
 PATHS = {"ffmpeg": "/usr/bin/ffmpeg", "output": "/tmp/out/mezzanine.mkv", "graph": "/tmp/out/graph.txt"}
 
 
@@ -119,15 +121,76 @@ def test_a_dissolve_never_needs_a_migration(make_doc):
     assert projects.migrate(doc) is doc
 
 
-@pytest.mark.parametrize("case", LEGACY, ids=[case["name"] for case in LEGACY])
-def test_a_project_without_dissolve_gives_the_graph_of_before_byte_for_byte(case):
+async def _runs(case, limit, folder, monkeypatch):
+    found = []
+
+    def clean(text):
+        return text.replace(str(folder), "<work>").replace("<work>\\", "<work>/")
+
+    def relative(text):
+        return "./" + text[2:] if text.startswith(".\\") else text
+
+    async def assemble(command, total, on_progress=None, on_process=None, cwd=None, code="ffmpeg_failed"):
+        option = next(argument for argument in command if argument in (video.GRAPH_OPTION, video.LEGACY_GRAPH_OPTION))
+        graph = Path(command[command.index(option) + 1]).read_text(encoding="utf-8")
+        found.append({"command": [relative(clean(argument)) for argument in command], "graph": clean(graph), "total": round(total, 9)})
+        return ""
+
+    async def part_length(path, nominal):
+        return nominal
+
+    with monkeypatch.context() as patch:
+        patch.setattr(video, "assemble", assemble)
+        patch.setattr(video, "_part_length", part_length)
+        if limit is not None:
+            patch.setattr(video, "PART_INPUTS", limit)
+        paths = {**case["paths"], "output": str(folder / "mezzanine.mkv"), "graph": str(folder / "graph.txt"), "audio": {}}
+        await video.assemble_sequence(case["doc"], case["files"], case["options"], paths, folder, lambda progress, step: True)
+    return found
+
+
+@pytest.mark.parametrize("case", ON_GRID, ids=[case["name"] for case in ON_GRID])
+async def test_a_project_on_the_grid_without_dissolve_gives_the_export_of_before_byte_for_byte_with_its_parts(case, tmp_path, monkeypatch):
     doc, files, options, paths = case["doc"], case["files"], case["options"], case["paths"]
     segments, total = timeline(doc)
 
     assert filter_graph(doc, files, options, paths) == case["graph"]
     assert build_command(doc, files, options, paths) == case["command"]
-    assert (total, [dur for dur, _ in segments]) == (case["total"], case["segments"])
-    assert [[[dur, clip["id"] if clip else None] for dur, clip in group] for group in plan_parts(doc, files, options, segments, 1)] == case["parts"]
+    assert total == case["total"]
+    assert [[round(dur, 9), clip["id"] if clip else None] for dur, clip in segments] == case["segments"]
+    assert [[[round(dur, 9), clip["id"] if clip else None] for dur, clip in group] for group in plan_parts(doc, files, options, segments, 1)] == case["parts of one input"]
+    whole, halves = tmp_path / "whole", tmp_path / "halves"
+    whole.mkdir()
+    halves.mkdir()
+    assert await _runs(case, None, whole, monkeypatch) == case["runs"]
+    assert await _runs(case, 2, halves, monkeypatch) == case["runs in parts of two inputs"]
+
+
+@pytest.mark.parametrize("case", ON_GRID_FRAMES, ids=[case["name"] for case in ON_GRID_FRAMES])
+async def test_a_project_on_the_grid_at_24_or_30_fps_keeps_the_export_on_whole_frames_of_version_0_5_1(case, tmp_path, monkeypatch):
+    await test_a_project_on_the_grid_without_dissolve_gives_the_export_of_before_byte_for_byte_with_its_parts(case, tmp_path, monkeypatch)
+
+
+def _last_shot_on_whole_frames(chain):
+    return re.sub(r"(?<=[=])3\.5(?=[,\[:]|$)", "3.52", chain)
+
+
+@pytest.mark.parametrize("case", LEGACY, ids=[case["name"] for case in LEGACY])
+def test_a_project_of_before_whose_film_ends_on_half_a_frame_changes_only_its_last_shot_which_now_lasts_its_whole_frames(case):
+    doc, files, options, paths = case["doc"], case["files"], case["options"], case["paths"]
+    segments, total = timeline(doc)
+    before, after = case["graph"].split(";"), filter_graph(doc, files, options, paths).split(";")
+    last = len(segments) - 1
+
+    assert (total, case["segments"][-1], segments[-1][0]) == (case["total"], 3.5, pytest.approx(3.52))
+    assert [round(dur, 9) for dur, _ in segments[:-1]] == [round(dur, 9) for dur in case["segments"][:-1]]
+    assert len(before) == len(after)
+    changed = [index for index, (old, new) in enumerate(zip(before, after)) if old != new]
+    assert [re.findall(r"\[[av]\d+\]$", after[index])[0] for index in changed] == [f"[v{last}]", f"[a{last}]"]
+    assert all(_last_shot_on_whole_frames(before[index]) == after[index] for index in changed)
+    command = build_command(doc, files, options, paths)
+    assert [(old, new) for old, new in zip(case["command"], command) if old != new] == ([("3.75", "3.77")] if case["name"] == "gap-social-stills" else [])
+    assert [len(group) for group in plan_parts(doc, files, options, segments, 1)] == [len(group) for group in case["parts"]]
 
 
 def test_the_film_lasts_the_shots_less_their_dissolves(make_doc):
@@ -803,7 +866,7 @@ def test_the_export_never_plays_a_dissolve_longer_than_the_rule(make_doc):
     assert not any("xfade" in part for part in _graph(alone))
     assert _graph(alone) == _graph(plain)
     segments = lambda doc: ([(dur, clip and clip["id"]) for dur, clip in timeline(doc)[0]], timeline(doc)[1])
-    assert segments(alone) == segments(plain) == ([(150, "a"), (150, "b")], 230)
+    assert segments(alone) == segments(plain) == ([(80, "a"), (150, "b")], 230)
 
     run = _doc(make_doc, [{"id": "a", "assetId": "x", "start": 0, "dur": 4}, {"id": "b", "assetId": "y", "start": 3, "dur": 4, "dissolve": 1}, {"id": "c", "assetId": "z", "start": 5.5, "dur": 4, "dissolve": 1}], fps=25)
     assert joins(run["clips"]) == [0, 1, 0]
