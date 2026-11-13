@@ -118,7 +118,7 @@
 					{:else}
 						<p class="text-xs text-fg-subtle">{noReferences(kind)}</p>
 					{/if}
-					<MediaPicker title={t('panels.director.aside.addImage')} onpick={(id) => addCardImage(card, SPACES[kind], id)} removable={false} compact />
+					<MediaPicker title={t('panels.director.aside.addImage')} onpick={(id) => addCardImage(card, SPACES[kind], id)} removable={false} compact many />
 					<p class="text-xs text-fg-subtle">{referencesHint(kind)}</p>
 				</section>
 				<section class="space-y-2" data-card-reception>

@@ -9,6 +9,7 @@ import { trackUploads, updateUpload } from './uploads.svelte.js';
 import { fitSounds, laneCode, newSound } from './tracks.js';
 import { fitVrefItems } from './vreftracks.js';
 import { placeOnTrack } from './vreftracks.svelte.js';
+import { KIT_PICKER, LEFT_REASONS, emptyLeft, fromPicked, gatherPicks, leftTotal, pickKey } from './kits.js';
 
 const KINDS = { media: ['image', 'video'], audio: ['audio'] };
 const probing = new Map();
@@ -38,6 +39,8 @@ export function openImport(kind = 'media') {
 export function openGallery() {
 	open('GenerationHistoryModal', { title: t('project.import.titleGallery') }, KINDS.media);
 }
+
+export { kitsAvailable } from './kits.js';
 
 export function libraryAvailable() {
 	return typeof window !== 'undefined' && Boolean(window.__potionui?.components?.UploadLibraryModal);
@@ -73,6 +76,153 @@ export function pickMedia(kind, title, onPicked, onDismissed = null) {
 }
 
 export const pickImage = (title, onPicked) => pickMedia('image', title, onPicked);
+
+function openKitPicker({ title, kinds, multiple, onPicks, onDismissed = null }) {
+	if (ui.hostModal) return;
+	let settled = false;
+	let close = null;
+	const batch = { items: [], kits: [] };
+	const flush = () => {
+		const gathered = gatherPicks(batch, kinds);
+		batch.items = [];
+		batch.kits = [];
+		onPicks(gathered.picks, gathered.left);
+	};
+	const queue = () => {
+		if (settled) return;
+		settled = true;
+		queueMicrotask(flush);
+	};
+	const choice = multiple
+		? {
+				multiple: true,
+				selectedKeys: [],
+				onConfirm: (keys, items) => {
+					batch.items.push(...(items ?? []));
+					queue();
+				},
+				kits: {
+					onLoad: (kits) => {
+						batch.kits.push(...(kits ?? []));
+						queue();
+					}
+				}
+			}
+		: {
+				closeOnPick: false,
+				onPick: (picked) => {
+					const pick = fromPicked(picked);
+					const reason = pick.left ?? (pick.mediaType && !kinds.includes(pick.mediaType) ? 'kind' : null);
+					if (reason) return toast(t(`project.kits.leftOne.${reason}`, { name: picked?.filename || t('project.import.untitled') }), 'warning');
+					settled = true;
+					close?.();
+					onPicks([pick], emptyLeft());
+				}
+			};
+	close = openHostModal(KIT_PICKER, {
+		title,
+		sources: ['kits'],
+		initialSource: 'kits',
+		mediaTypes: kinds,
+		selectableMediaTypes: kinds,
+		...choice,
+		onClosed: () => {
+			ui.hostModal = false;
+			if (!settled) onDismissed?.();
+		}
+	});
+	if (!close) {
+		onDismissed?.();
+		return toast(t('project.toast.pickerMissing'), 'warning');
+	}
+	ui.hostModal = true;
+	ui.menuOpen = null;
+	ui.paletteOpen = false;
+}
+
+function reportLeft(left) {
+	const count = leftTotal(left);
+	if (!count) return;
+	const reasons = LEFT_REASONS.filter((reason) => left[reason]).map((reason) => t(`project.kits.reason.${reason}`, { count: left[reason] }));
+	toast(t('project.kits.left', { count, reasons: reasons.join(', ') }), 'warning');
+}
+
+async function importPicks(picks, allowed) {
+	const client = getClient();
+	if (!client || !picks.length) return { ids: [], made: [], present: 0, failed: 0 };
+	const byKey = new Map(doc.assets.map((a) => [pickKey(a.origin), a.id]).filter(([key]) => key));
+	const results = await Promise.all(picks.map((pick) => (byKey.has(pickKey(pick.origin)) ? null : client.resolveMedia(pick.origin))));
+	const ids = [];
+	const made = [];
+	let present = 0;
+	let failed = 0;
+	picks.forEach((pick, i) => {
+		const existing = byKey.get(pickKey(pick.origin));
+		if (existing) {
+			present += 1;
+			ids.push(existing);
+			return;
+		}
+		const media = results[i]?.ok ? results[i].data : null;
+		if (!media || !allowed.includes(media.mediaType)) {
+			failed += 1;
+			return;
+		}
+		const a = newAsset({ kind: media.mediaType, name: media.filename || pick.filename || t('project.import.untitled'), src: media.url, origin: pick.origin });
+		made.push(a);
+		ids.push(a.id);
+	});
+	return { ids, made, present, failed };
+}
+
+export function openKitImport(kind = 'media') {
+	const allowed = KINDS[kind] ?? KINDS.media;
+	openKitPicker({
+		title: kind === 'audio' ? t('project.kits.titleAudio') : t('project.kits.titleMedia'),
+		kinds: allowed,
+		multiple: true,
+		onPicks: async (picks, left) => {
+			const { made, present, failed } = await importPicks(picks, allowed);
+			addAssets(made);
+			report(made.length, present, failed);
+			reportLeft(left);
+		}
+	});
+}
+
+export function pickKitMedia(kind, title, onPicked, onDismissed = null) {
+	openKitPicker({
+		title,
+		kinds: [kind],
+		multiple: false,
+		onDismissed,
+		onPicks: async ([pick]) => {
+			const id = await importPicked(pick, kind);
+			if (id) onPicked(id);
+			else onDismissed?.();
+		}
+	});
+}
+
+export function pickKitMany(kind, title, onPicked, onDismissed = null) {
+	openKitPicker({
+		title,
+		kinds: [kind],
+		multiple: true,
+		onDismissed,
+		onPicks: async (picks, left) => {
+			const { ids, made, failed } = await importPicks(picks, [kind]);
+			if (made.length) {
+				act(() => doc.assets.push(...made));
+				for (const a of made) probeAsset(a.id);
+			}
+			if (failed) toast(t('project.toast.importFailed', { count: failed }), 'warning');
+			reportLeft(left);
+			if (ids.length) onPicked(ids);
+			else onDismissed?.();
+		}
+	});
+}
 
 async function importPicked(item, kind) {
 	const origin = normalizeOrigin(item?.origin);
