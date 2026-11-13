@@ -3507,8 +3507,7 @@ Both keep their single-select behaviour unless `multiple` is set:
 Keys are `generation_id:file_id` in History (every file of a generation is selectable on its own)
 and the item id in the Library. Each item is `{key, mediaType, filename, origin, generation?, file?,
 item?}`, where `origin` is `{kind: 'history', generationId, fileId}` or `{kind: 'library', itemId}`.
-`generationId`, `fileId` and `itemId` are strings, the ids the API uses (on a host that predates
-this, `fileId` was `NaN` for a file the picker had not loaded). Cancel, the close button, Escape and the backdrop all restore the selection the picker was opened
+Cancel, the close button, Escape and the backdrop all restore the selection the picker was opened
 with before calling `onClose`. Selected keys survive paging, searching and filtering. `items` always
 lines up with `keys`: for a file the picker has not loaded since it was mounted, the item carries
 only `key` and `origin`, and `mediaType` and `filename` are `null`.

@@ -22,7 +22,7 @@ const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
 const { stubClientWidth } = await import('./helpers/stubClientWidth');
 
-function file(id: string, type: string, name: string, width?: number, height?: number) {
+function file(id: number, type: string, name: string, width?: number, height?: number) {
 	return {
 		id,
 		width,
@@ -50,8 +50,8 @@ function generation(id: string, files: ReturnType<typeof file>[]) {
 }
 
 const GENERATIONS = [
-	generation('g1', [file('01F1', 'image', 'a.png', 1024, 576), file('01F2', 'image', 'b.png', 576, 1024)]),
-	generation('g2', [file('01F3', 'video', 'c.mp4', 1024, 576)])
+	generation('g1', [file(1, 'image', 'a.png', 1024, 576), file(2, 'image', 'b.png', 576, 1024)]),
+	generation('g2', [file(3, 'video', 'c.mp4', 1024, 576)])
 ];
 
 function libraryItem(id: string, mediaType: string, name: string) {
@@ -140,13 +140,13 @@ describe('GenerationHistoryModal multi-select', () => {
 		historyCheckbox('b.png').click();
 		await tick();
 
-		expect(onSelectionChange).toHaveBeenLastCalledWith(['g1:01F1', 'g1:01F2'], expect.any(Array));
+		expect(onSelectionChange).toHaveBeenLastCalledWith(['g1:1', 'g1:2'], expect.any(Array));
 		const items = onSelectionChange.mock.calls.at(-1)![1];
 		expect(items[0]).toMatchObject({
-			key: 'g1:01F1',
+			key: 'g1:1',
 			mediaType: 'image',
 			filename: 'a.png',
-			origin: { kind: 'history', generationId: 'g1', fileId: '01F1' }
+			origin: { kind: 'history', generationId: 'g1', fileId: 1 }
 		});
 		expect(count()).toBe('2 selected');
 		expect(isChecked(historyCheckbox('c.mp4'))).toBe(false);
@@ -171,13 +171,13 @@ describe('GenerationHistoryModal multi-select', () => {
 	});
 
 	it('shows a controlled selection after the picker is reopened', async () => {
-		const first = mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), selectedKeys: ['g1:01F2'] });
+		const first = mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), selectedKeys: ['g1:2'] });
 		await settle();
 		expect(isChecked(historyCheckbox('b.png'))).toBe(true);
 		first.$destroy();
 		document.body.innerHTML = '';
 
-		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), selectedKeys: ['g1:01F2', 'g2:01F3'] });
+		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), selectedKeys: ['g1:2', 'g2:3'] });
 		await settle();
 		expect(isChecked(historyCheckbox('b.png'))).toBe(true);
 		expect(isChecked(historyCheckbox('c.mp4'))).toBe(true);
@@ -311,7 +311,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		await tick();
 		expect(buttonByText('Use selected')!.disabled).toBe(false);
 		buttonByText('Use selected')!.click();
-		expect(onConfirm).toHaveBeenCalledWith(['g1:01F1'], expect.any(Array));
+		expect(onConfirm).toHaveBeenCalledWith(['g1:1'], expect.any(Array));
 		expect(onClose).toHaveBeenCalled();
 	});
 
@@ -324,7 +324,7 @@ describe('GenerationHistoryModal multi-select', () => {
 			onClose,
 			onConfirm,
 			onSelectionChange,
-			selectedKeys: ['g1:01F1']
+			selectedKeys: ['g1:1']
 		});
 		await settle();
 
@@ -332,7 +332,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		await tick();
 		buttonByText('Cancel')!.click();
 
-		expect(onSelectionChange.mock.calls.at(-1)![0]).toEqual(['g1:01F1']);
+		expect(onSelectionChange.mock.calls.at(-1)![0]).toEqual(['g1:1']);
 		expect(onClose).toHaveBeenCalled();
 		expect(onConfirm).not.toHaveBeenCalled();
 	});
@@ -373,27 +373,27 @@ describe('GenerationHistoryModal multi-select', () => {
 		tiles[1].click();
 		expect(onSelect).toHaveBeenCalledTimes(1);
 		expect(onSelect.mock.calls[0][0]).toMatchObject({ id: 'g1' });
-		expect(onSelect.mock.calls[0][1]).toMatchObject({ id: '01F2' });
+		expect(onSelect.mock.calls[0][1]).toMatchObject({ id: 2 });
 
 		tiles[2].click();
 		expect(onSelect.mock.calls[1][0]).toMatchObject({ id: 'g2' });
-		expect(onSelect.mock.calls[1][1]).toMatchObject({ id: '01F3' });
+		expect(onSelect.mock.calls[1][1]).toMatchObject({ id: 3 });
 	});
 
 	it('confirm reports an item for every key, including ones never loaded', async () => {
 		const onConfirm = vi.fn();
-		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onConfirm, selectedKeys: ['g1:01F1', 'old:01F9'] });
+		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onConfirm, selectedKeys: ['g1:1', 'old:9'] });
 		await settle();
 
 		buttonByText('Use selected')!.click();
 		const [keys, items] = onConfirm.mock.calls[0];
 		expect(items).toHaveLength(keys.length);
-		expect(items[0]).toMatchObject({ key: 'g1:01F1', filename: 'a.png', mediaType: 'image' });
+		expect(items[0]).toMatchObject({ key: 'g1:1', filename: 'a.png', mediaType: 'image' });
 		expect(items[1]).toEqual({
-			key: 'old:01F9',
+			key: 'old:9',
 			mediaType: null,
 			filename: null,
-			origin: { kind: 'history', generationId: 'old', fileId: '01F9' }
+			origin: { kind: 'history', generationId: 'old', fileId: 9 }
 		});
 	});
 });

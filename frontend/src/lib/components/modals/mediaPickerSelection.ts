@@ -6,7 +6,7 @@ import { get, writable, type Readable } from 'svelte/store';
 export type PickerMediaType = 'image' | 'video' | 'audio' | 'mesh';
 
 export type PickedMediaOrigin =
-	| { kind: 'history'; generationId: string; fileId: string }
+	| { kind: 'history'; generationId: string; fileId: number }
 	| { kind: 'library'; itemId: string }
 	| { kind: 'kit'; kitId: string; itemId: string };
 
@@ -22,7 +22,7 @@ export interface PickedMedia {
 	kitItem?: KitItem;
 }
 
-export function historyMediaKey(generationId: string, fileId: string): string {
+export function historyMediaKey(generationId: string, fileId: number): string {
 	return `${generationId}:${fileId}`;
 }
 
@@ -39,12 +39,11 @@ export function mediaTypeOfFile(file: { file_type?: string | null }): string {
 }
 
 export function pickedFromHistoryFile(generation: GenerationHistoryItem, file: GenerationFile): PickedMedia {
-	const fileId = String(file.id);
 	return {
-		key: historyMediaKey(generation.id, fileId),
+		key: historyMediaKey(generation.id, file.id),
 		mediaType: mediaTypeOfFile(file),
 		filename: (file.file_path ?? '').split('/').pop() || file.file_path,
-		origin: { kind: 'history', generationId: generation.id, fileId },
+		origin: { kind: 'history', generationId: generation.id, fileId: file.id },
 		generation,
 		file
 	};
@@ -141,7 +140,7 @@ export function pickedFromKey(key: string, source: PickerSource | 'any'): Picked
 		origin: {
 			kind: 'history',
 			generationId: split === -1 ? key : key.slice(0, split),
-			fileId: split === -1 ? '' : key.slice(split + 1)
+			fileId: split === -1 ? NaN : Number(key.slice(split + 1))
 		}
 	};
 }
