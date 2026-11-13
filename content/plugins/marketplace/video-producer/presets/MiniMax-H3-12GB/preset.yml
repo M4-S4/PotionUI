@@ -125,6 +125,7 @@ vars:
             audio: false
             continuation: null
             max_overlap_frames: null
+            max_segments: 6
 
   video_producer:
     profile: "12 GB · 64 GB RAM"

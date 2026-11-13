@@ -1645,7 +1645,11 @@ def test_the_backend_knows_the_shipped_presets_and_reads_their_profile(shipped_p
 def test_the_shipped_h3_presets_keep_the_director_and_prompt_help_of_the_core_presets(shipped_presets, core_presets):
     for preset_id, shipped in H3_PRESETS.items():
         preset, source = shipped_presets[preset_id], core_presets[shipped.source_id]
-        assert preset.vars["video_director"] == source.vars["video_director"]
+        director = source.vars["video_director"]
+        overrides = {mode: value for mode, value in director.get("preset_mode_overrides", {}).items() if mode in shipped.modes}
+        cap = {**director["modes"]["director"], "max_segments": 6}
+        expected = {key: value for key, value in director.items() if key not in ("simple_modes", "preset_mode_overrides")}
+        assert preset.vars["video_director"] == {**expected, "modes": {**director["modes"], "director": cap}, **({"preset_mode_overrides": overrides} if overrides else {})}
         assert preset.vars["prompt"]["segment_templates"] == source.vars["prompt"]["segment_templates"][:1]
         assert preset.configuration == source.configuration
         guides = {mode: guide for mode, guide in source.llm.get("modes", {}).items() if mode in shipped.modes}
