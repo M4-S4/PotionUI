@@ -74,6 +74,7 @@
 	const noticeLabel = $derived(notes.length > 1 ? t('production.notices', { count: notes.length, text: notes[0] }) : (notes[0] ?? ''));
 	const gapClip = $derived(blocked ? null : (ready.gaps.map((id) => doc.clips.find((c) => c.id === id)).find((c) => c && doc.clips.indexOf(c) > 0) ?? null));
 	const cropClip = $derived(blocked ? null : (ready.crops.map((id) => doc.clips.find((c) => c.id === id)).find(Boolean) ?? null));
+	const cropEnd = $derived(Boolean(cropClip) && ready.cropEnds.includes(cropClip.id) && ready.crops.filter((id) => id === cropClip.id).length === ready.cropEnds.filter((id) => id === cropClip.id).length);
 	const picked = $derived(pickedClips().length);
 	const target = $derived(picked ? 'picked' : p.target);
 	const numbers = $derived(shotNumbers(doc, clips));
@@ -421,8 +422,8 @@
 					{/if}
 					{#if !busy && gapClip}<SeamAction clip={gapClip} variant="icon" />{/if}
 					{#if !busy && cropClip}
-						<HostUi name="Tooltip" props={{ text: t('production.deck.startImageTip', { shot: clipLabel(cropClip) }) }}>
-							<button type="button" class="vp-deck-inline-action" data-crop-start-image onclick={() => startImage(cropClip)}><Icon name="image" class="h-3 w-3" />{t('production.deck.startImage')}</button>
+						<HostUi name="Tooltip" props={{ text: cropEnd ? t('production.deck.endImageTip', { shot: clipLabel(cropClip) }) : t('production.deck.startImageTip', { shot: clipLabel(cropClip) }) }}>
+							<button type="button" class="vp-deck-inline-action" data-crop-start-image onclick={() => startImage(cropClip)}><Icon name="image" class="h-3 w-3" />{cropEnd ? t('production.deck.endImage') : t('production.deck.startImage')}</button>
 						</HostUi>
 					{/if}
 					{#if !busy && ready.noEngine && ui.isAdmin}

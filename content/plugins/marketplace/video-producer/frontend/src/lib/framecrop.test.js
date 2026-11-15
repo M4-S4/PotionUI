@@ -16,7 +16,7 @@ const source = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 const { doc, ui, dispose } = await import('./state.svelte.js');
 const { project } = await import('./project.svelte.js');
-const { estimateState, noteText, readiness } = await import('./production.svelte.js');
+const { MAX_MEGAPIXELS, estimateState, noteText, readiness } = await import('./production.svelte.js');
 const { t } = await import('../i18n/index.svelte.js');
 const WAN = '01KX47WANVIDEO0000000000TV';
 
@@ -142,11 +142,12 @@ test('an image that could not be cropped is said to be sent as it is, with its c
 	const first = t('generation.warn.notCroppedImageFirst', { shot: 'Opening' });
 	assert.equal(said({ cause: 'storage_full' }), t('generation.warn.frameNotCroppedStorage', { image: first }));
 	assert.equal(said({ cause: 'upload_too_large' }), t('generation.warn.frameNotCroppedUpload', { image: first }));
-	assert.equal(said({ cause: 'too_many_pixels' }), t('generation.warn.frameNotCroppedPixels', { image: first }));
+	assert.equal(said({ cause: 'too_many_pixels' }), t('generation.warn.frameNotCroppedPixels', { image: first, max: MAX_MEGAPIXELS }));
 	assert.equal(said({ cause: 'failed' }), t('generation.warn.frameNotCropped', { image: first }));
 	assert.equal(said({ cause: 'storage_full', roles: ['last'] }), t('generation.warn.frameNotCroppedStorage', { image: t('generation.warn.notCroppedImageLast', { shot: 'Opening' }) }));
 	assert.equal(said({ cause: 'failed', chained: true }), t('generation.warn.frameNotCropped', { image: t('generation.warn.notCroppedImageChained', { shot: 'Opening' }) }));
-	assert.equal(said({ cause: 'storage_full' }), 'The start image of “Opening” is sent as it is, not cropped to the frame of the take: the storage is full.');
+	assert.equal(said({ cause: 'storage_full' }), 'The start image of “Opening” is sent as it is, not cropped to the frame of the take: the storage of the project\'s owner is full.');
+	assert.equal(said({ cause: 'upload_too_large' }), 'The start image of “Opening” is sent as it is, not cropped to the frame of the take: its crop is larger than the largest file the project\'s owner may upload.');
 	for (const locale of LOCALES) {
 		for (const key of ['frameNotCropped', 'frameNotCroppedStorage', 'frameNotCroppedUpload', 'frameNotCroppedPixels']) assert.match(dictionaries[locale][`generation.warn.${key}`], /^\{image\} /, `${locale} ${key}`);
 		assert.ok(dictionaries[locale]['generation.card.notCropped'], locale);
@@ -174,4 +175,29 @@ test('the stills of the seam monitor and of the seam review have the ratio of th
 	const review = source('../components/director/ReviewSeam.svelte');
 	assert.match(review, /<span class="block overflow-hidden rounded bg-surface-3" style=\{frameBox\(doc\)\} data-seam-still>/);
 	assert.doesNotMatch(review, /block aspect-video w-full overflow-hidden rounded bg-surface-3/);
+});
+
+test('the pixel ceiling the page names is the one of the formats table, in every language', async () => {
+	const table = (await import('./formatstable.js')).default;
+	assert.equal(MAX_MEGAPIXELS, Math.floor(table.startImages.maxPixels / 1_000_000));
+	scene();
+	assert.match(noteText({ code: 'frame_not_cropped', data: { shot_id: 's1', roles: ['first'], cause: 'too_many_pixels' } }), new RegExp(`more than ${MAX_MEGAPIXELS} million pixels`));
+	for (const locale of LOCALES) {
+		assert.match(dictionaries[locale]['generation.warn.frameNotCroppedPixels'], /\{max\}/, locale);
+		assert.doesNotMatch(dictionaries[locale]['generation.warn.frameNotCroppedPixels'], /\d/, locale);
+	}
+});
+
+test('a strong warning that cuts only the end image of a shot offers to make an end image', () => {
+	scene();
+	const strong = (roles) => ({ code: 'frame_cropped_large', data: { shot_id: 's1', roles, size: '1024x1024', aspect: '16:9', loss: 42, chained: false } });
+	estimateState.data = { blocks: [], warnings: [strong(['last'])] };
+	assert.deepEqual([readiness().crops, readiness().cropEnds], [['s1'], ['s1']]);
+	estimateState.data = { blocks: [], warnings: [strong(['first']), strong(['last'])] };
+	assert.deepEqual([readiness().crops, readiness().cropEnds], [['s1', 's1'], ['s1']]);
+	estimateState.data = null;
+	const deck = source('../components/production/ProductionDeck.svelte');
+	assert.match(deck, /\{cropEnd \? t\('production\.deck\.endImage'\) : t\('production\.deck\.startImage'\)\}/);
+	assert.match(deck, /cropEnd \? t\('production\.deck\.endImageTip', \{ shot: clipLabel\(cropClip\) \}\)/);
+	for (const locale of LOCALES) assert.match(dictionaries[locale]['production.deck.endImageTip'], /\{shot\}/, locale);
 });
