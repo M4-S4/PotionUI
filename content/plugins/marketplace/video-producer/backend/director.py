@@ -1435,7 +1435,7 @@ def frame_sources(user: User, doc: Mapping[str, Any], shot_id: str) -> Dict[str,
             continue
         found[str(resolved["value"])] = {
             "ref": ref,
-            "name": resolved.get("original_filename") or asset.get("name") or "",
+            "name": asset.get("name") or resolved.get("original_filename") or "",
             "width": asset.get("width"),
             "height": asset.get("height"),
         }
@@ -1453,7 +1453,9 @@ def _source_size(user: User, source: Mapping[str, Any]) -> Optional[Tuple[int, i
         path = core_bridge.media_file_path(user, source["ref"])
     except Exception:
         path = None
-    return framefit.picture_size(Path(path) if path else None) or _declared(source.get("width"), source.get("height"))
+    if path and Path(path).is_file():
+        return framefit.picture_size(Path(path))
+    return _declared(source.get("width"), source.get("height"))
 
 
 def _chained_size(doc: Mapping[str, Any], shot_id: str) -> Optional[Tuple[int, int]]:
@@ -1473,14 +1475,15 @@ def crop_warnings(user: User, doc: Mapping[str, Any], shot_id: str, request: Map
         if size is None:
             continue
         loss = framefit.lost(size[0], size[1], ratio)
-        if loss <= formats.EXACT_LOSS:
+        if loss <= formats.EXACT_LOSS or framefit.crop_box(size[0], size[1], ratio) is None or framefit.too_large(*size):
             continue
         lost = round(loss * 100)
         image = "last image of the previous shot" if chained else "start image of the shot" if "first" in bound_as else "end image of the shot"
         frame = formats.ratio_text(ratio[0] / ratio[1])
         data = {"shot_id": shot_id, "roles": bound_as, "size": f"{size[0]}x{size[1]}", "aspect": frame, "loss": lost, "chained": chained}
         if loss > formats.CROP_LOSS:
-            _add(warnings, note("frame_cropped_large", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre and loses {lost} % of the picture. Make a start image in the frame of the film instead.", **data))
+            wanted = "an end image" if bound_as == ["last"] and not chained else "a start image"
+            _add(warnings, note("frame_cropped_large", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre and loses {lost} % of the picture. Make {wanted} in the frame of the film instead.", **data))
         else:
             _add(warnings, note("frame_cropped", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre ({lost} % of the picture).", **data))
 

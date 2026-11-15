@@ -134,6 +134,14 @@ async def with_sound(owner: User, project: Mapping[str, Any], plans: List[ShotPl
         raise Blocked([note(exc.code, exc.message, shot_id=exc.shot_id)]) from None
 
 
+async def _fitted(owner: User, plan: ShotPlan, ratio: framefit.Ratio, value: str, ref: Mapping[str, Any], name: str) -> str:
+    try:
+        fitted = await framefit.fit(owner, value, ref, ratio, name)
+    except framefit.CropError as exc:
+        raise Blocked([note(exc.code, exc.message, shot_id=plan.shot_id, cause=exc.cause)]) from None
+    return value if fitted is None else fitted.value
+
+
 async def with_frames(owner: User, project: Mapping[str, Any], plans: List[ShotPlan]) -> None:
     doc = project["doc"]
     for plan in plans:
@@ -145,12 +153,9 @@ async def with_frames(owner: User, project: Mapping[str, Any], plans: List[ShotP
             source = sources.get(value)
             if source is None:
                 continue
-            try:
-                fitted = await framefit.fit(owner, value, source["ref"], ratio, source["name"])
-            except framefit.CropError as exc:
-                raise Blocked([note(exc.code, exc.message, shot_id=plan.shot_id)]) from None
-            if fitted is not None:
-                plan.request = framefit.replace(plan.request, value, fitted.value)
+            fitted = await _fitted(owner, plan, ratio, value, source["ref"], source["name"])
+            if fitted != value:
+                plan.request = framefit.replace(plan.request, value, fitted)
 
 
 def create(
@@ -693,7 +698,13 @@ def _continued(project: Mapping[str, Any], shot_id: str) -> Dict[str, chaining.W
     return chaining.waits(project["id"], doc, [shot_id])
 
 
-async def with_first(owner: User, pairs: List[Tuple[Mapping[str, Any], ShotPlan]]) -> None:
+def _first_frame_name(project: Mapping[str, Any], shot_id: str) -> str:
+    clip = director.clip_of(project.get("doc") or {}, shot_id)
+    label = str((clip or {}).get("label") or "").strip() or shot_id
+    return f"{label}-first-frame"
+
+
+async def with_first(owner: User, project: Mapping[str, Any], pairs: List[Tuple[Mapping[str, Any], ShotPlan]]) -> None:
     """Bind the first frame of the video of its take to each guided plan that has none yet, stored as the owner's upload; Blocked by the first that cannot be, in the order of the plans."""
     for source, plan in pairs:
         if not director.is_guided(plan) or director.has_first(plan):
@@ -701,7 +712,15 @@ async def with_first(owner: User, pairs: List[Tuple[Mapping[str, Any], ShotPlan]
         ref = {"kind": "history", "generation_id": str(source.get("generation_id")), "file_id": str(source.get("file_id"))}
         try:
             stored = await core_bridge.extract_frame(owner, ref, at=0.0)
-            director.bind_first(owner, plan, {"value": stored["value"], "media_type": "image"})
+        except Exception:
+            logger.warning("[VIDEO-PRODUCER] Could not take the first frame of take %s", source.get("id"), exc_info=True)
+            raise Blocked([note("guided_frame_failed", "The first frame of the take could not be taken.", shot_id=plan.shot_id)]) from None
+        value = str(stored["value"])
+        ratio = framefit.plan_ratio(plan)
+        if ratio is not None and stored.get("ref"):
+            value = await _fitted(owner, plan, ratio, value, stored["ref"], _first_frame_name(project, plan.shot_id))
+        try:
+            director.bind_first(owner, plan, {"value": value, "media_type": "image"})
         except DirectorError as exc:
             raise Blocked([exc.note()]) from None
         except Exception:
@@ -749,7 +768,7 @@ async def final(
             raise Blocked([cadence.missing_note(cadence.choice_of(project.get("doc") or {}))])
     minutes = _checked(plan, preset_id, native, owner, source.get("backend_id"))
     await with_sound(owner, project, [plan])
-    await with_first(owner, [(source, plan)])
+    await with_first(owner, project, [(source, plan)])
     await with_frames(owner, project, [plan])
     with reserving(owner, minutes) as reserve:
         take = create_final(owner, project, source, method, plan, preset_id, minutes if reserve else 0.0)
@@ -786,7 +805,7 @@ async def retry(owner: User, project: Mapping[str, Any], source: Mapping[str, An
     minutes = _checked(plan, preset_id, native, owner, source.get("backend_id"))
     await with_sound(owner, project, [plan])
     if parent is not None:
-        await with_first(owner, [(parent, plan)])
+        await with_first(owner, project, [(parent, plan)])
     await with_frames(owner, project, [plan])
     with reserving(owner, minutes) as reserve:
         take = create(

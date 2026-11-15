@@ -48,20 +48,20 @@ class Pictures:
         self.stored = []
         self.error = None
 
-    def add(self, asset_id, size, color=RED, kind="library"):
+    def add(self, asset_id, size, color=RED, kind="library", suffix=".png"):
         if kind == "library":
             ref = {"kind": "library", "item_id": f"lib-{asset_id}"}
-            value = f"uploads/{asset_id}.png"
+            value = f"uploads/{asset_id}{suffix}"
             origin = {"kind": "library", "itemId": f"lib-{asset_id}"}
         else:
             ref = {"kind": "history", "generation_id": f"g-{asset_id}", "file_id": "1"}
             value = f"generations/g-{asset_id}/1.png"
             origin = {"kind": "history", "generationId": f"g-{asset_id}", "fileId": "1"}
-        path = self.folder / f"{asset_id}.png"
+        path = self.folder / f"{asset_id}{suffix}"
         _disc(size, color).save(path)
         self.core.add_media(ref, value, "image")
         self.files[_ref_key(ref)] = path
-        return {"id": asset_id, "kind": "image", "name": f"{asset_id}.png", "origin": origin, "width": size[0], "height": size[1]}
+        return {"id": asset_id, "kind": "image", "name": f"{asset_id}{suffix}", "origin": origin, "width": size[0], "height": size[1]}
 
     def path(self, user, ref):
         found = self.files.get(_ref_key(ref))
@@ -165,6 +165,9 @@ def test_the_tolerance_is_the_one_of_the_formats_table():
         ((1344, 768), (26, 15), None),
         ((832, 480), (26, 15), None),
         ((1, 1), (16, 9), None),
+        ((31, 31), (26, 15), None),
+        ((3, 1000), (16, 9), None),
+        ((400, 400), (26, 15), (0, 85, 400, 230)),
     ],
 )
 def test_the_crop_keeps_the_centre_in_the_ratio_with_even_sides_and_leaves_a_picture_within_the_tolerance(size, ratio, box):
@@ -192,14 +195,14 @@ def test_the_crop_file_is_the_centre_at_the_resolution_of_the_picture_and_its_di
     assert _disc_ratio(output) == pytest.approx(1.0, abs=0.01)
 
 
-def test_a_cmyk_picture_is_cropped_to_an_rgb_png(tmp_path):
+def test_a_cmyk_picture_is_cropped_to_an_rgb_picture(tmp_path):
     source = tmp_path / "print.jpg"
     _disc((600, 600)).convert("CMYK").save(source)
 
     output = framefit.crop_file(source, framefit.crop_box(600, 600, (16, 9)), tmp_path, "print.jpg")
 
     with Image.open(output) as image:
-        assert image.mode == "RGB" and image.size == (600, 338)
+        assert image.mode == "RGB" and image.size == (600, 338) and image.format == "JPEG"
 
 
 def test_a_picture_is_cropped_and_stored_once_for_a_ratio_and_found_again(core, pictures):
@@ -228,7 +231,7 @@ def test_a_stored_crop_the_library_lost_is_made_again(core, pictures):
     again = asyncio.run(framefit.fit(user, "uploads/square.png", ref, (26, 15), "square.png"))
 
     assert again.value != first.value and len(pictures.stored) == 2
-    assert framefit.recorded(user.id, "uploads/square.png", (26, 15)) == again
+    assert framefit.recorded(user.id, "uploads/square.png", (26, 15)).fitted == again
 
 
 def test_the_crops_of_one_user_are_not_the_crops_of_another(core, pictures):
@@ -262,7 +265,8 @@ def test_a_crop_the_library_refuses_raises_a_crop_error(core, pictures):
     with pytest.raises(framefit.CropError) as raised:
         asyncio.run(framefit.fit(core.users["user-1"], "uploads/square.png", {"kind": "library", "item_id": "lib-square"}, (26, 15), "square.png"))
 
-    assert raised.value.code == "frame_crop_failed" and raised.value.message == "The library is full."
+    assert (raised.value.code, raised.value.cause) == ("frame_crop_failed", "failed")
+    assert raised.value.message == "The start or end image could not be cropped to the frame of the take and stored."
 
 
 def test_a_minimax_h3_take_starts_from_its_first_image_cropped_to_the_ratio_of_the_take(core, make_doc, make_project, pictures):
@@ -346,7 +350,7 @@ def test_a_start_image_kept_from_the_candidates_is_cropped_like_any_other(core, 
 
     _start(core, project, presets.MINIMAX_H3_12GB)
 
-    assert _paths(core.submitted[0][1]) == [("first", "uploads/stored-1-1-crop-1024x590.png")]
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/stored-1-candidate-crop-1024x590.png")]
 
 
 def test_a_cloud_take_starts_from_its_first_image_cropped_to_the_aspect_ratio_it_sends(core, make_doc, make_project, pictures):
@@ -391,7 +395,9 @@ def test_a_crop_that_cannot_be_stored_blocks_the_request_and_makes_no_take(core,
     with pytest.raises(generation.Blocked) as raised:
         _start(core, project, presets.MINIMAX_H3_12GB)
 
-    assert raised.value.blocks == [{"code": "frame_crop_failed", "message": "The library is full.", "data": {"shot_id": "s1"}}]
+    assert raised.value.blocks == [
+        {"code": "frame_crop_failed", "message": "The start or end image could not be cropped to the frame of the take and stored.", "data": {"shot_id": "s1", "cause": "failed"}}
+    ]
     assert takes.list_takes(project["id"]) == [] and core.submitted == []
 
 
@@ -425,3 +431,291 @@ def test_the_last_image_of_a_previous_shot_in_another_ratio_is_cropped_before_th
     assert _paths(request) == [("first", "uploads/stored-1-gen-" + first["id"] + "-frame-4s-crop-768x444.png")]
     assert taken["chain"]["frame"]["origin"] == {"kind": "library", "itemId": f"lib-gen-{first['id']}-frame-4s"}
     assert taken["request"] == request
+
+
+def _done(core, take):
+    core.complete(take["generation_id"])
+    ref = {"kind": "history", "generation_id": take["generation_id"], "file_id": f"file-{take['generation_id']}"}
+    core.add_media(ref, f"generations/x/{take['generation_id']}.mp4", "VIDEO")
+    _tick()
+    done = takes.get_take(take["id"])
+    assert done["status"] == "done"
+    return done
+
+
+def _cropped_square(request):
+    ratio = framefit.ratio_of(request["form_data"]["resolution"])
+    box = framefit.crop_box(1024, 1024, ratio)
+    return f"square-crop-{box[2]}x{box[3]}.png"
+
+
+def test_a_final_render_of_a_take_starts_from_its_first_image_cropped_to_the_ratio_of_the_final(core, make_doc, make_project, pictures):
+    core.use_h3_12gb()
+    project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
+    done = _done(core, take)
+
+    asyncio.run(generation.final(core.users["user-1"], project, done, "render", "hd720"))
+
+    (_, request) = core.submitted[-1]
+    ((role, path),) = _paths(request)
+    assert role == "first" and path.startswith("uploads/stored-") and path.endswith(_cropped_square(request))
+
+
+def test_a_final_pass_render_starts_from_the_first_image_cropped_to_the_ratio_of_the_final(core, make_doc, make_project, pictures):
+    from backend import final_pass
+
+    core.use_h3_12gb()
+    project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
+    done = _done(core, take)
+    user = core.users["user-1"]
+    evaluation = asyncio.run(final_pass.evaluate(user, project, final_pass.Order(takes=[done["id"]], method="render", target="hd720"), [done]))
+
+    asyncio.run(final_pass.start(user, project, evaluation))
+
+    (_, request) = core.submitted[-1]
+    ((role, path),) = _paths(request)
+    assert role == "first" and path.startswith("uploads/stored-") and path.endswith(_cropped_square(request))
+
+
+def test_a_guided_final_starts_from_the_first_frame_of_its_draft_cropped_to_the_ratio_of_the_final(core, make_doc, make_project, pictures, monkeypatch):
+    from types import SimpleNamespace
+
+    core.use_ltx25()
+    core.use_wan()
+    project = make_project(doc=make_doc(clips=[SHOT], prompts=PROMPTS))
+    (take,) = _start(core, project, presets.WAN)
+    done = _done(core, take)
+
+    async def extract_frame(user, ref, at="last"):
+        pictures.add("draft-first", (832, 480))
+        return {"value": "uploads/draft-first.png", "media_type": "image", "original_filename": "draft-first.png", "ref": {"kind": "library", "item_id": "lib-draft-first"}}
+
+    monkeypatch.setattr(core_bridge, "extract_frame", extract_frame)
+    monkeypatch.setattr(core_bridge, "local_media_file", lambda user, ref, folder: Path(f"/storage/{ref['generation_id']}.mp4") if ref.get("kind") == "history" else None)
+    monkeypatch.setattr(core_bridge, "probe_video", lambda path: SimpleNamespace(has_audio=False))
+
+    asyncio.run(generation.final(core.users["user-1"], project, done, "guided", "hd720"))
+
+    (_, request) = core.submitted[-1]
+    assert request["form_data"]["resolution"] == "1280x704"
+    assert _paths(request) == [("first", "uploads/stored-1-Opening-first-frame-crop-832x458.png")]
+    assert _disc_ratio(pictures.stored_path("uploads/stored-1-Opening-first-frame-crop-832x458.png")) == pytest.approx(1.0, abs=0.02)
+
+
+def test_a_photo_in_jpeg_is_cropped_to_a_jpeg_of_quality_95_and_any_other_picture_to_a_png(tmp_path):
+    photo = tmp_path / "photo.jpg"
+    _disc((1024, 1024)).save(photo, quality=90)
+    drawing = tmp_path / "drawing.webp"
+    _disc((1024, 1024)).save(drawing, lossless=True)
+
+    cropped_photo = framefit.crop_file(photo, framefit.crop_box(1024, 1024, (26, 15)), tmp_path, "photo.jpg")
+    cropped_drawing = framefit.crop_file(drawing, framefit.crop_box(1024, 1024, (26, 15)), tmp_path, "drawing.webp")
+
+    assert (cropped_photo.name, cropped_drawing.name) == ("photo-crop-1024x590.jpg", "drawing-crop-1024x590.png")
+    with Image.open(cropped_photo) as image:
+        assert (image.format, image.size, image.mode) == ("JPEG", (1024, 590), "RGB")
+        assert [layer[1:3] for layer in image.layer] == [(1, 1), (1, 1), (1, 1)]
+    assert _disc_ratio(cropped_photo) == pytest.approx(1.0, abs=0.01)
+
+
+def test_a_photo_crop_stored_in_the_library_keeps_the_jpeg_format(core, pictures):
+    pictures.add("photo", (1024, 1024), suffix=".jpg")
+
+    found = asyncio.run(framefit.fit(core.users["user-1"], "uploads/photo.jpg", {"kind": "library", "item_id": "lib-photo"}, (26, 15), "photo.jpg"))
+
+    assert found.value == "uploads/stored-1-photo-crop-1024x590.jpg"
+
+
+def test_a_picture_with_more_pixels_than_the_ceiling_follows_the_failure_rule(core, pictures, monkeypatch):
+    pictures.add("huge", (1024, 1024))
+    ref = {"kind": "library", "item_id": "lib-huge"}
+    monkeypatch.setattr(framefit, "MAX_PIXELS", 1_000_000)
+
+    with pytest.raises(framefit.CropError) as raised:
+        asyncio.run(framefit.fit(core.users["user-1"], "uploads/huge.png", ref, (26, 15), "huge.png"))
+    monkeypatch.setattr(framefit, "ON_FAILURE", framefit.SEND)
+    sent = asyncio.run(framefit.fit(core.users["user-1"], "uploads/huge.png", ref, (26, 15), "huge.png"))
+
+    assert raised.value.cause == "too_many_pixels" and sent is None and pictures.stored == []
+
+
+def test_the_pixel_ceiling_lets_a_48_megapixel_phone_photo_through():
+    assert framefit.MAX_PIXELS == 64_000_000 == formats.load_table()["startImages"]["maxPixels"]
+    assert not framefit.too_large(8064, 6048) and not framefit.too_large(8160, 6144)
+    assert framefit.too_large(14000, 14000)
+
+
+def test_a_file_in_a_format_the_core_does_not_read_is_neither_measured_nor_cropped(core, pictures):
+    pictures.add("print", (1024, 1024))
+    path = pictures.files[_ref_key({"kind": "library", "item_id": "lib-print"})]
+    _disc((1024, 1024)).save(path, format="TIFF")
+
+    found = asyncio.run(framefit.fit(core.users["user-1"], "uploads/print.png", {"kind": "library", "item_id": "lib-print"}, (26, 15), "print.png"))
+
+    assert framefit.picture_size(path) is None
+    assert found is None and pictures.stored == []
+
+
+@pytest.mark.parametrize(
+    "name, cropped",
+    [
+        ("../../etc/passwd.png", "passwd-crop-640x360.png"),
+        ("..\\..\\evil.png", "evil-crop-640x360.png"),
+        ("a\x00b\x07c.png", "a-b-c-crop-640x360.png"),
+        ("..", "image-crop-640x360.png"),
+        ("", "image-crop-640x360.png"),
+        ("Carre", "Carre-crop-640x360.png"),
+        ("photo.final.jpg", "photo.final-crop-640x360.png"),
+        ("x" * 300 + ".png", "x" * 80 + "-crop-640x360.png"),
+    ],
+)
+def test_the_name_of_a_crop_is_a_plain_bounded_file_name(name, cropped):
+    assert framefit.cropped_name(name, (0, 0, 640, 360)) == cropped
+
+
+@pytest.mark.parametrize(
+    "code, cause, message",
+    [
+        ("storage_quota_exceeded", "storage_full", "The cropped start or end image cannot be stored: the storage of the project's owner is full."),
+        ("upload_file_size_exceeded", "upload_too_large", "The cropped start or end image is larger than the largest file the project's owner may upload."),
+        ("daily_generations_exceeded", "failed", "The start or end image could not be cropped to the frame of the take and stored."),
+    ],
+)
+def test_a_refused_crop_says_a_fixed_text_for_its_cause_and_nothing_of_the_core(core, pictures, code, cause, message):
+    pictures.add("square", (1024, 1024))
+    refusal = {"code": code, "message": "used 9.8 GB of /srv/storage", "kind": "storage", "label": "", "format": "", "used": 1, "limit": 1, "percent": 100, "resets_at": None}
+    pictures.error = core_bridge.LimitExceeded([refusal], "upload", None)
+
+    with pytest.raises(framefit.CropError) as raised:
+        asyncio.run(framefit.fit(core.users["user-1"], "uploads/square.png", {"kind": "library", "item_id": "lib-square"}, (26, 15), "square.png"))
+
+    assert (raised.value.cause, raised.value.message) == (cause, message)
+
+
+def test_a_work_folder_that_cannot_be_made_blocks_with_the_general_text_and_no_path(core, pictures, monkeypatch):
+    from backend import workdir
+
+    pictures.add("square", (1024, 1024))
+
+    def scratch(name, owner_id):
+        raise workdir.WorkdirError(Path("/secret/storage/video_producer/frames"), OSError(30, "Read-only file system"))
+
+    monkeypatch.setattr(workdir, "scratch", scratch)
+
+    with pytest.raises(framefit.CropError) as raised:
+        asyncio.run(framefit.fit(core.users["user-1"], "uploads/square.png", {"kind": "library", "item_id": "lib-square"}, (26, 15), "square.png"))
+
+    assert raised.value.cause == "failed" and "secret" not in raised.value.message
+
+
+def test_an_error_other_than_a_crop_error_becomes_the_general_block_of_the_shot(core, make_doc, make_project, pictures):
+    core.use_h3_12gb()
+    project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
+    pictures.error = RuntimeError("disk /secret/storage exploded")
+
+    with pytest.raises(generation.Blocked) as raised:
+        _start(core, project, presets.MINIMAX_H3_12GB)
+
+    assert raised.value.blocks == [
+        {"code": "frame_crop_failed", "message": "The start or end image could not be cropped to the frame of the take and stored.", "data": {"shot_id": "s1", "cause": "failed"}}
+    ]
+
+
+def test_a_crop_that_fails_is_sent_as_it_is_when_the_failure_rule_says_send(core, make_doc, make_project, pictures, monkeypatch):
+    core.use_h3_12gb()
+    monkeypatch.setattr(framefit, "ON_FAILURE", framefit.SEND)
+    project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
+    pictures.error = MediaRefError("upload_rejected", "The library is full.")
+
+    _start(core, project, presets.MINIMAX_H3_12GB)
+
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/square.png")]
+
+
+def test_a_task_cancelled_while_it_crops_leaves_no_work_folder(core, pictures, monkeypatch):
+    import threading
+
+    from backend import workdir
+
+    pictures.add("square", (1024, 1024))
+    started = threading.Event()
+    release = threading.Event()
+    crop_file = framefit.crop_file
+
+    def slow(source, box, folder, name):
+        started.set()
+        release.wait(5)
+        return crop_file(source, box, folder, name)
+
+    monkeypatch.setattr(framefit, "crop_file", slow)
+
+    async def run():
+        task = asyncio.create_task(framefit.fit(core.users["user-1"], "uploads/square.png", {"kind": "library", "item_id": "lib-square"}, (26, 15), "square.png"))
+        await asyncio.to_thread(started.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        release.set()
+
+    asyncio.run(run())
+
+    area = workdir.area(workdir.FRAMES, "user-1")
+    assert not area.exists() or list(area.iterdir()) == []
+    assert pictures.stored == []
+
+
+def test_the_first_crop_creates_the_table_when_it_is_missing(core, pictures):
+    from src.plugin_api import db
+
+    pictures.add("square", (1024, 1024))
+    with db.get_cursor() as cursor:
+        cursor.execute(f"DROP TABLE {framefit.CROPS}")
+
+    found = asyncio.run(framefit.fit(core.users["user-1"], "uploads/square.png", {"kind": "library", "item_id": "lib-square"}, (26, 15), "square.png"))
+
+    assert framefit.recorded("user-1", "uploads/square.png", (26, 15)).fitted == found
+
+
+def test_a_source_file_rewritten_under_the_same_name_is_cropped_again(core, pictures):
+    import os
+
+    pictures.add("square", (1024, 1024))
+    ref = {"kind": "library", "item_id": "lib-square"}
+    first = asyncio.run(framefit.fit(core.users["user-1"], "uploads/square.png", ref, (26, 15), "square.png"))
+    path = pictures.files[_ref_key(ref)]
+    _disc((1024, 1024), TEAL).save(path)
+    os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 5_000_000_000))
+
+    again = asyncio.run(framefit.fit(core.users["user-1"], "uploads/square.png", ref, (26, 15), "square.png"))
+
+    assert again.value != first.value and len(pictures.stored) == 2
+    assert _disc_ratio(pictures.stored_path(again.value), TEAL) == pytest.approx(1.0, abs=0.01)
+
+
+def test_the_orientation_a_photo_declares_is_ignored_unless_the_upright_rule_is_on(tmp_path, monkeypatch):
+    path = tmp_path / "turned.jpg"
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    _disc((400, 300)).save(path, exif=exif.tobytes())
+
+    raw = framefit.picture_size(path)
+    monkeypatch.setattr(framefit, "UPRIGHT", True)
+    upright = framefit.picture_size(path)
+    output = framefit.crop_file(path, framefit.crop_box(*upright, (9, 16)), tmp_path, "turned.jpg")
+
+    assert (raw, upright) == ((400, 300), (300, 400))
+    with Image.open(output) as image:
+        assert image.size == (224, 400)
+
+
+def test_a_phone_photo_in_several_pictures_is_read_and_cropped_like_a_jpeg(tmp_path):
+    path = tmp_path / "phone.jpg"
+    _disc((1024, 1024)).save(path, format="MPO", save_all=True, append_images=[_disc((1024, 1024), TEAL)])
+
+    output = framefit.crop_file(path, framefit.crop_box(*framefit.picture_size(path), (26, 15)), tmp_path, "phone.jpg")
+
+    with Image.open(output) as image:
+        assert (output.name, image.format, image.size) == ("phone-crop-1024x590.jpg", "JPEG", (1024, 590))
+    assert _disc_ratio(output) == pytest.approx(1.0, abs=0.01)

@@ -135,6 +135,8 @@ _COLUMNS = {
         item_id TEXT,
         width INTEGER NOT NULL,
         height INTEGER NOT NULL,
+        source_bytes INTEGER,
+        source_mtime INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     """,
 }
@@ -189,6 +191,13 @@ _INDEXES = (
     ("idx_video_producer_renditions_generation", "video_producer_renditions", "generation_id"),
     ("idx_video_producer_renditions_status", "video_producer_renditions", "status, created_at"),
 )
+
+
+def create_table(name: str) -> None:
+    from src.plugin_api import db
+
+    with db.get_cursor() as cursor:
+        cursor.execute(f"CREATE TABLE IF NOT EXISTS {name} ({_COLUMNS[name]})")
 
 
 def create_tables() -> None:

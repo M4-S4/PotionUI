@@ -128,3 +128,39 @@ def test_the_estimate_carries_the_warning_before_generate(core, make_doc, make_p
 
     assert [warning["code"] for warning in evaluation.payload["warnings"] if warning["code"].startswith("frame_")] == [LARGE]
     assert evaluation.payload["blocks"] == []
+
+
+def test_a_large_crop_of_an_end_image_asks_for_an_end_image(core, make_doc, pictures):
+    core.use_h3_12gb()
+    assets = [pictures.add("exact", (832, 480)), pictures.add("square", (1024, 1024))]
+    doc = _doc(make_doc, assets, [_frame("f1", "exact", "first"), _frame("f2", "square", "last", 4)])
+
+    (warning,) = _crops(_plans(core, doc, presets.MINIMAX_H3_12GB))
+
+    assert warning["data"]["roles"] == ["last"] and warning["message"].endswith("Make an end image in the frame of the film instead.")
+
+
+def test_a_file_here_that_cannot_be_read_is_sent_as_it_is_and_gets_no_crop_warning(core, make_doc, pictures):
+    core.use_h3_12gb()
+    asset = pictures.add("drawing", (1024, 1024))
+    pictures.files[(("item_id", "lib-drawing"), ("kind", "library"))].write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"/>', encoding="utf-8")
+    doc = _doc(make_doc, [asset], [_frame("f1", "drawing", "first")])
+
+    assert _crops(_plans(core, doc, presets.MINIMAX_H3_12GB)) == []
+
+
+def test_a_picture_too_small_to_crop_within_the_tolerance_gets_no_crop_warning(core, make_doc, pictures):
+    core.use_h3_12gb()
+    doc = _doc(make_doc, [pictures.add("tiny", (31, 31))], [_frame("f1", "tiny", "first")])
+
+    assert _crops(_plans(core, doc, presets.MINIMAX_H3_12GB)) == []
+
+
+def test_a_picture_past_the_pixel_ceiling_gets_no_crop_warning(core, make_doc, pictures, monkeypatch):
+    from backend import framefit
+
+    core.use_h3_12gb()
+    monkeypatch.setattr(framefit, "MAX_PIXELS", 1_000_000)
+    doc = _doc(make_doc, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
+
+    assert _crops(_plans(core, doc, presets.MINIMAX_H3_12GB)) == []

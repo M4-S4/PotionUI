@@ -28,7 +28,7 @@ _EXPECTED_COLUMNS = {
         "backend_id", "progress", "step", "error_code", "error_message", "created_at", "started_at", "finished_at",
         "factor", "source_rendition_id",
     ],
-    "video_producer_frame_crops": ["key", "user_id", "source", "ratio", "value", "item_id", "width", "height", "created_at"],
+    "video_producer_frame_crops": ["key", "user_id", "source", "ratio", "value", "item_id", "width", "height", "source_bytes", "source_mtime", "created_at"],
 }
 
 _EXPECTED_INDEXES = {

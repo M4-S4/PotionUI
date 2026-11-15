@@ -1,39 +1,81 @@
 import asyncio
 import copy
 import logging
+import re
 import shutil
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from PIL import Image
+from PIL import Image, ImageOps
 
-from . import core_bridge, formats, workdir
-from .core_bridge import MediaRefError, User
+from . import core_bridge, formats, tables, workdir
+from .core_bridge import LimitExceeded, MediaRefError, User
 
 logger = logging.getLogger(__name__)
 
 TOLERANCE = float(formats.TABLE["startImages"]["tolerance"])
 
+MAX_PIXELS = int(formats.TABLE["startImages"]["maxPixels"])
+
+UPRIGHT = False
+
+BLOCK = "block"
+
+SEND = "send"
+
+ON_FAILURE = BLOCK
+
 CROPS = "video_producer_frame_crops"
 
 ROLES = ("first", "last")
 
-SUFFIX = ".png"
+READABLE = ("PNG", "JPEG", "GIF", "WEBP", "BMP")
+
+PHOTOS = ("JPEG", "MPO")
+
+PHOTO_MODES = ("RGB", "L", "CMYK")
+
+PHOTO_QUALITY = 95
+
+NAME_LENGTH = 80
+
+UNSAFE = re.compile(r"[\x00-\x1f\x7f/\\:*?\"<>|]+")
+
+STORAGE_FULL = "storage_full"
+
+UPLOAD_TOO_LARGE = "upload_too_large"
+
+TOO_MANY_PIXELS = "too_many_pixels"
+
+FAILED = "failed"
+
+MESSAGES = {
+    STORAGE_FULL: "The cropped start or end image cannot be stored: the storage of the project's owner is full.",
+    UPLOAD_TOO_LARGE: "The cropped start or end image is larger than the largest file the project's owner may upload.",
+    TOO_MANY_PIXELS: f"The start or end image has more than {MAX_PIXELS // 1_000_000} million pixels: it cannot be cropped to the frame of the take.",
+    FAILED: "The start or end image could not be cropped to the frame of the take and stored.",
+}
+
+LIMIT_CAUSES = {"storage_quota_exceeded": STORAGE_FULL, "upload_file_size_exceeded": UPLOAD_TOO_LARGE}
 
 Ratio = Tuple[int, int]
 
 Box = Tuple[int, int, int, int]
 
+Stamp = Tuple[int, int]
+
 
 class CropError(Exception):
     code = "frame_crop_failed"
 
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
+    def __init__(self, cause: str = FAILED):
+        self.cause = cause if cause in MESSAGES else FAILED
+        self.message = MESSAGES[self.cause]
+        super().__init__(self.message)
 
 
 @dataclass(frozen=True)
@@ -95,19 +137,39 @@ def crop_box(width: int, height: int, ratio: Ratio) -> Optional[Box]:
     else:
         kept_width = width - width % 2
         kept_height = _even(kept_width / wanted, height)
-    if kept_width < 2 or kept_height < 2:
+    if kept_width < 2 or kept_height < 2 or lost(kept_width, kept_height, ratio) > TOLERANCE:
         return None
     return (width - kept_width) // 2, (height - kept_height) // 2, kept_width, kept_height
+
+
+def too_large(width: int, height: int) -> bool:
+    return width * height > MAX_PIXELS
+
+
+def _upright(image: Image.Image) -> Image.Image:
+    return ImageOps.exif_transpose(image) if UPRIGHT else image
 
 
 def picture_size(path: Optional[Path]) -> Optional[Tuple[int, int]]:
     if path is None:
         return None
     try:
-        with Image.open(path) as image:
+        with Image.open(path, formats=READABLE) as image:
+            if UPRIGHT and image.getexif().get(0x0112) in (5, 6, 7, 8):
+                return image.size[1], image.size[0]
             return image.size
     except Exception:
         return None
+
+
+def stamp(path: Optional[Path]) -> Optional[Stamp]:
+    if path is None:
+        return None
+    try:
+        found = path.stat()
+    except OSError:
+        return None
+    return found.st_size, found.st_mtime_ns
 
 
 def bound(request: Mapping[str, Any]) -> List[Dict[str, Any]]:
@@ -149,34 +211,59 @@ def _key(user_id: str, source: str, ratio: Ratio) -> str:
     return f"{user_id}|{ratio_text(ratio)}|{source}"
 
 
-def recorded(user_id: str, source: str, ratio: Ratio) -> Optional[Fitted]:
+def _table(work):
     from src.plugin_api import db
 
+    try:
+        with db.get_cursor() as cursor:
+            return work(cursor)
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc):
+            raise
+    tables.create_table(CROPS)
     with db.get_cursor() as cursor:
-        cursor.execute(f"SELECT value, item_id, width, height FROM {CROPS} WHERE key = ?", (_key(user_id, source, ratio),))
-        row = cursor.fetchone()
+        return work(cursor)
+
+
+@dataclass(frozen=True)
+class Row:
+    fitted: Fitted
+    stamp: Optional[Stamp]
+
+
+def recorded(user_id: str, source: str, ratio: Ratio) -> Optional[Row]:
+    def work(cursor):
+        cursor.execute(f"SELECT value, item_id, width, height, source_bytes, source_mtime FROM {CROPS} WHERE key = ?", (_key(user_id, source, ratio),))
+        return cursor.fetchone()
+
+    row = _table(work)
     if row is None:
         return None
-    return Fitted(source=source, value=row["value"], item_id=row["item_id"], width=int(row["width"]), height=int(row["height"]))
+    fitted = Fitted(source=source, value=row["value"], item_id=row["item_id"], width=int(row["width"]), height=int(row["height"]))
+    found = (int(row["source_bytes"]), int(row["source_mtime"])) if row["source_bytes"] is not None and row["source_mtime"] is not None else None
+    return Row(fitted=fitted, stamp=found)
 
 
-def record(user_id: str, ratio: Ratio, fitted: Fitted) -> None:
-    from src.plugin_api import db
-
+def record(user_id: str, ratio: Ratio, fitted: Fitted, source_stamp: Optional[Stamp]) -> None:
     now = datetime.now(timezone.utc).isoformat()
-    with db.get_cursor() as cursor:
+    size, changed = source_stamp if source_stamp is not None else (None, None)
+
+    def work(cursor):
         cursor.execute(
-            f"INSERT INTO {CROPS} (key, user_id, source, ratio, value, item_id, width, height, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, item_id = excluded.item_id, width = excluded.width, height = excluded.height, created_at = excluded.created_at",
-            (_key(user_id, fitted.source, ratio), user_id, fitted.source, ratio_text(ratio), fitted.value, fitted.item_id, fitted.width, fitted.height, now),
+            f"INSERT INTO {CROPS} (key, user_id, source, ratio, value, item_id, width, height, source_bytes, source_mtime, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, item_id = excluded.item_id, width = excluded.width, height = excluded.height, "
+            "source_bytes = excluded.source_bytes, source_mtime = excluded.source_mtime, created_at = excluded.created_at",
+            (_key(user_id, fitted.source, ratio), user_id, fitted.source, ratio_text(ratio), fitted.value, fitted.item_id, fitted.width, fitted.height, size, changed, now),
         )
+
+    _table(work)
 
 
 def forget(user_id: str, source: str, ratio: Ratio) -> None:
-    from src.plugin_api import db
-
-    with db.get_cursor() as cursor:
+    def work(cursor):
         cursor.execute(f"DELETE FROM {CROPS} WHERE key = ?", (_key(user_id, source, ratio),))
+
+    _table(work)
 
 
 def _still_there(owner: User, fitted: Fitted) -> bool:
@@ -189,94 +276,111 @@ def _still_there(owner: User, fitted: Fitted) -> bool:
     return str(resolved.get("value")) == fitted.value
 
 
-def _known(owner: User, source: str, ratio: Ratio) -> Optional[Fitted]:
+def _known(owner: User, source: str, ratio: Ratio, source_stamp: Optional[Stamp]) -> Optional[Fitted]:
     found = recorded(owner.id, source, ratio)
     if found is None:
         return None
-    if _still_there(owner, found):
-        return found
+    fresh = source_stamp is None or found.stamp is None or found.stamp == source_stamp
+    if fresh and _still_there(owner, found.fitted):
+        return found.fitted
     forget(owner.id, source, ratio)
     return None
 
 
-def _picture(owner: User, ref: Mapping[str, Any]) -> Tuple[Optional[Path], Optional[Path]]:
+def _local(owner: User, ref: Mapping[str, Any]) -> Optional[Path]:
     try:
         path = core_bridge.media_file_path(owner, ref)
     except Exception:
-        path = None
-    if path and Path(path).is_file():
-        return Path(path), None
+        return None
+    return Path(path) if path and Path(path).is_file() else None
+
+
+def _copied(owner: User, ref: Mapping[str, Any], folder: Path) -> Optional[Path]:
     try:
-        folder = workdir.scratch(workdir.FRAMES, owner.id)
-    except Exception:
-        logger.warning("[VIDEO-PRODUCER] No work folder to read the picture %s in", ref, exc_info=True)
-        return None, None
-    try:
-        copied = core_bridge.local_media_file(owner, ref, folder)
+        return core_bridge.local_media_file(owner, ref, folder)
     except Exception:
         logger.warning("[VIDEO-PRODUCER] Could not read the picture %s to crop it", ref, exc_info=True)
-        copied = None
-    if copied is None:
-        shutil.rmtree(folder, True)
-        return None, None
-    return copied, folder
+        return None
 
 
-def cropped_name(name: str, box: Box) -> str:
-    stem = Path(str(name or "")).stem or "image"
-    return f"{stem}-crop-{box[2]}x{box[3]}{SUFFIX}"
+def cropped_name(name: str, box: Box, suffix: str = ".png") -> str:
+    stem = re.split(r"[/\\]", str(name or ""))[-1]
+    stem = Path(stem).stem if "." in stem.strip(".") else stem
+    stem = UNSAFE.sub("-", stem).strip(" .-")[:NAME_LENGTH].strip(" .-") or "image"
+    return f"{stem}-crop-{box[2]}x{box[3]}{suffix}"
 
 
 def crop_file(source: Path, box: Box, folder: Path, name: str) -> Path:
     left, top, width, height = box
-    with Image.open(source) as image:
+    with Image.open(source, formats=READABLE) as opened:
+        photo = opened.format in PHOTOS
+        profile = opened.info.get("icc_profile")
+        image = _upright(opened)
         kept = image.crop((left, top, left + width, top + height))
+        if photo and kept.mode in PHOTO_MODES:
+            output = folder / cropped_name(name, box, ".jpg")
+            kept = kept if kept.mode in ("RGB", "L") else kept.convert("RGB")
+            kept.save(output, format="JPEG", quality=PHOTO_QUALITY, subsampling=0, icc_profile=profile)
+            return output
         if kept.mode not in ("1", "L", "LA", "I", "I;16", "P", "RGB", "RGBA"):
             kept = kept.convert("RGB")
         output = folder / cropped_name(name, box)
-        kept.save(output, format="PNG")
+        kept.save(output, format="PNG", icc_profile=profile)
     return output
 
 
-def _made(owner: User, source: str, picture: Path, ratio: Ratio, name: str) -> Optional[Tuple[Path, Path, Box]]:
-    size = picture_size(picture)
-    box = crop_box(size[0], size[1], ratio) if size is not None else None
-    if box is None:
-        return None
-    try:
-        folder = workdir.scratch(workdir.FRAMES, owner.id)
-    except workdir.WorkdirError as exc:
-        raise CropError(exc.message) from None
-    try:
-        return crop_file(picture, box, folder, name), folder, box
-    except Exception:
-        shutil.rmtree(folder, True)
-        logger.warning("[VIDEO-PRODUCER] Could not crop the picture %s", source, exc_info=True)
-        raise CropError("The start or end image could not be cropped to the frame of the take.") from None
+def _stored_cause(exc: Exception) -> str:
+    if isinstance(exc, LimitExceeded):
+        return LIMIT_CAUSES.get(str(exc.primary.get("code")), FAILED)
+    return FAILED
 
 
-async def fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, name: str) -> Optional[Fitted]:
-    known = await asyncio.to_thread(_known, owner, source, ratio)
+async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, name: str) -> Optional[Fitted]:
+    path = await asyncio.to_thread(_local, owner, ref)
+    source_stamp = await asyncio.to_thread(stamp, path)
+    known = await asyncio.to_thread(_known, owner, source, ratio, source_stamp)
     if known is not None:
         return known
-    picture, copied = await asyncio.to_thread(_picture, owner, ref)
-    if picture is None:
-        return None
-    folder: Optional[Path] = None
+    folders: List[Path] = []
     try:
-        made = await asyncio.to_thread(_made, owner, source, picture, ratio, name)
-        if made is None:
+        picture = path
+        if picture is None:
+            folders.append(workdir.scratch(workdir.FRAMES, owner.id))
+            picture = await asyncio.to_thread(_copied, owner, ref, folders[-1])
+            if picture is None:
+                return None
+        size = await asyncio.to_thread(picture_size, picture)
+        if size is None:
             return None
-        output, folder, box = made
+        box = crop_box(size[0], size[1], ratio)
+        if box is None:
+            return None
+        if too_large(*size):
+            raise CropError(TOO_MANY_PIXELS)
+        folders.append(workdir.scratch(workdir.FRAMES, owner.id))
+        output = await asyncio.to_thread(crop_file, picture, box, folders[-1], name)
         try:
             stored = await core_bridge.save_user_media(owner, output)
         except Exception as exc:
             logger.warning("[VIDEO-PRODUCER] Could not store the cropped picture of %s", source, exc_info=True)
-            raise CropError(str(exc) or "The cropped start or end image could not be stored.") from None
+            raise CropError(_stored_cause(exc)) from None
     finally:
-        for leftover in (folder, copied):
-            if leftover is not None:
-                await asyncio.to_thread(shutil.rmtree, leftover, True)
+        for folder in folders:
+            await asyncio.to_thread(shutil.rmtree, folder, True)
     fitted = Fitted(source=source, value=str(stored["value"]), item_id=(stored.get("ref") or {}).get("item_id"), width=box[2], height=box[3])
-    await asyncio.to_thread(record, owner.id, ratio, fitted)
+    await asyncio.to_thread(record, owner.id, ratio, fitted, source_stamp)
     return fitted
+
+
+async def fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, name: str) -> Optional[Fitted]:
+    try:
+        return await _fit(owner, source, ref, ratio, name)
+    except CropError as exc:
+        failure = exc
+    except Exception:
+        logger.warning("[VIDEO-PRODUCER] Could not crop the picture %s", source, exc_info=True)
+        failure = CropError(FAILED)
+    if ON_FAILURE == BLOCK:
+        raise failure
+    logger.warning("[VIDEO-PRODUCER] The picture %s is sent as it is: %s", source, failure.message)
+    return None
