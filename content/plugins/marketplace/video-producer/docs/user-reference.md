@@ -1046,7 +1046,7 @@ The exported files are kept in your PotionUI storage, in a `video_producer/expor
 Three files, built by the server from your saved project: **FCPXML** (`.fcpxml`), **OpenTimelineIO** (`.otio`) and **EDL CMX 3600** (`.edl`). Click a card, read its note and the beginning of the file, then click **Download** followed by the file name, which comes from the project name (for example "Download Lumis_potion.fcpxml"). The page says "<file> downloaded".
 
 - **FCPXML.** "V1 sequence with the chosen takes, shot names and in points." One video row, with a shot without media as a gap. No audio.
-- **OpenTimelineIO.** "Video and audio tracks by role; opens in Resolve, Premiere (plugin) and Nuke Studio." The same video row, and one audio track per track of the console, named **A1**, **A2**… as on the timeline, with the position, role and gain of each clip. The audio clips carry no file.
+- **OpenTimelineIO.** "Video and audio tracks by role; opens in editing software that reads OpenTimelineIO." The same video row, and one audio track per track of the console, named **A1**, **A2**… as on the timeline, with the position, role and gain of each clip. The audio clips carry no file.
 - **EDL.** "Universal edit list (V1 only), for grading or conforming." One event per shot, with its name and its media file; a shot without media is on a black reel (BL).
 
 These files carry the cut only: no fades, no color settings, no titles and no audio files. A cross-dissolve between two shots is the exception: the three files write it as a transition (chapter 12).
