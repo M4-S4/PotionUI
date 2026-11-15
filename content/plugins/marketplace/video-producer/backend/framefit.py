@@ -389,5 +389,5 @@ async def fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, na
     except Exception:
         logger.warning("[VIDEO-PRODUCER] Could not crop the picture %s", source, exc_info=True)
         failure = CropError(FAILED)
-    logger.warning("[VIDEO-PRODUCER] The picture %s is sent as it is: %s", source, failure.message)
+    logger.warning("[VIDEO-PRODUCER] The picture %s is not cropped (%s): the take gets it as it is", source, failure.cause)
     raise failure
