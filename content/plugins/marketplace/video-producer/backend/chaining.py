@@ -205,7 +205,7 @@ async def take_frame(take: Mapping[str, Any], fail: Fail) -> bool:
             value = fitted.value
     request = swap(copy.deepcopy(take.get("request") or {}), director.chain_value(wait["previous"]), value)
     taken = {**wait, "state": TAKEN, "source": frame["source"], "frame": media}
-    return takes.take_frame(take["id"], taken, request, notes)
+    return takes.take_frame(take["id"], taken, request, [*(take.get("frame_notes") or []), *notes] if notes else None)
 
 
 async def take_frames(fail: Fail) -> int:

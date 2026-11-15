@@ -1449,20 +1449,25 @@ def _declared(width: Any, height: Any) -> Optional[Tuple[int, int]]:
     return None
 
 
-def _source_size(user: User, source: Mapping[str, Any]) -> Optional[Tuple[int, int]]:
+def _declared_picture(width: Any, height: Any) -> Optional[framefit.Picture]:
+    size = _declared(width, height)
+    return None if size is None else framefit.Picture(size[0], size[1], False, framefit.too_large(*size))
+
+
+def _source_picture(user: User, source: Mapping[str, Any]) -> Optional[framefit.Picture]:
     try:
         path = core_bridge.media_file_path(user, source["ref"])
     except Exception:
         path = None
     if path and Path(path).is_file():
-        return framefit.picture_size(Path(path))
-    return _declared(source.get("width"), source.get("height"))
+        return framefit.picture(Path(path))
+    return _declared_picture(source.get("width"), source.get("height"))
 
 
-def _chained_size(doc: Mapping[str, Any], shot_id: str) -> Optional[Tuple[int, int]]:
+def _chained_picture(doc: Mapping[str, Any], shot_id: str) -> Optional[framefit.Picture]:
     clip = previous_clip(doc, shot_id)
     asset = _asset(doc, clip.get("assetId")) if clip is not None else None
-    return _declared(asset.get("width"), asset.get("height")) if asset is not None else None
+    return _declared_picture(asset.get("width"), asset.get("height")) if asset is not None else None
 
 
 def _image_name(roles: Sequence[str], chained: bool) -> str:
@@ -1482,14 +1487,18 @@ def crop_warnings(user: User, doc: Mapping[str, Any], shot_id: str, request: Map
     for value, bound_as in framefit.roles(request).items():
         chained = value.startswith(CHAIN_PREFIX)
         source = sources.get(value)
-        size = _chained_size(doc, shot_id) if chained else (_source_size(user, source) if source is not None else None)
-        if size is None:
+        found = _chained_picture(doc, shot_id) if chained else (_source_picture(user, source) if source is not None else None)
+        if found is None:
             continue
+        box, cause = framefit.decide(found, ratio)
+        if cause is not None:
+            _add(warnings, not_cropped(shot_id, cause, bound_as, chained))
+            continue
+        if box is None:
+            continue
+        size = (found.width, found.height)
         loss = framefit.lost(size[0], size[1], ratio)
-        if loss <= formats.EXACT_LOSS or framefit.crop_box(size[0], size[1], ratio) is None:
-            continue
-        if framefit.too_large(*size):
-            _add(warnings, not_cropped(shot_id, framefit.TOO_MANY_PIXELS, bound_as, chained))
+        if loss <= formats.EXACT_LOSS:
             continue
         lost = round(loss * 100)
         image = _image_name(bound_as, chained)

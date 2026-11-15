@@ -596,7 +596,7 @@ def test_a_refused_crop_says_a_fixed_text_for_its_cause_and_nothing_of_the_core(
     assert (raised.value.cause, raised.value.message) == (cause, message)
 
 
-def test_a_work_folder_that_cannot_be_made_blocks_with_the_general_text_and_no_path(core, pictures, monkeypatch):
+def test_a_work_folder_that_cannot_be_made_gives_the_general_cause_and_no_path(core, pictures, monkeypatch):
     from backend import workdir
 
     pictures.add("square", (1024, 1024))
@@ -801,3 +801,152 @@ def test_a_picture_not_on_this_server_is_sent_as_it_is_when_no_work_folder_can_b
     found = asyncio.run(framefit.fit(core.users["user-1"], "uploads/far.png", {"kind": "library", "item_id": "lib-far"}, (26, 15), "far.png"))
 
     assert found is None and pictures.stored == []
+
+
+class Loads:
+    def __init__(self, monkeypatch):
+        from PIL import ImageFile
+
+        self.formats = []
+        original = ImageFile.ImageFile.load
+
+        def counted(image):
+            self.formats.append(image.format)
+            return original(image)
+
+        monkeypatch.setattr(ImageFile.ImageFile, "load", counted)
+
+
+def _limit(cause):
+    return core_bridge.LimitExceeded([{"code": cause, "message": "x", "kind": "storage", "label": "", "format": "", "used": 1, "limit": 1, "percent": 100, "resets_at": None}], "upload", None)
+
+
+def test_a_png_past_the_pixel_ceiling_is_never_decoded_before_generate_nor_when_the_take_is_made(core, make_doc, make_project, pictures, monkeypatch):
+    core.use_h3_12gb()
+    monkeypatch.setattr(framefit, "MAX_PIXELS", 1_000_000)
+    project = _project(make_doc, make_project, [pictures.add("huge", (1024, 1024))], [_frame("f1", "huge", "first")])
+    loads = Loads(monkeypatch)
+    user = core.users["user-1"]
+
+    evaluation = asyncio.run(estimate.evaluate(user, user, project["doc"], Order(shots=["s1"], quality="draft", variants=1, preset_id=presets.MINIMAX_H3_12GB)))
+    decoded_before = list(loads.formats)
+    (take,) = asyncio.run(generation.start(user, project, evaluation))
+
+    assert [warning["data"]["cause"] for warning in evaluation.payload["warnings"] if warning["code"] == "frame_not_cropped"] == ["too_many_pixels"]
+    assert [note["data"]["cause"] for note in take["frame_notes"]] == ["too_many_pixels"]
+    assert decoded_before == [] and loads.formats == []
+
+
+def test_the_orientation_of_a_png_is_read_from_its_header_only(tmp_path, monkeypatch):
+    plain = tmp_path / "plain.png"
+    _disc((400, 300)).save(plain)
+    turned = tmp_path / "turned.png"
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    _disc((400, 300)).save(turned, exif=exif.tobytes())
+    loads = Loads(monkeypatch)
+
+    found = [framefit.picture(plain), framefit.picture(turned)]
+
+    assert [(item.width, item.height, item.turned) for item in found] == [(400, 300, False), (300, 400, True)]
+    assert loads.formats == []
+
+
+def test_a_picture_pillow_refuses_as_too_large_is_said_to_have_too_many_pixels_before_generate_and_on_the_take(core, make_doc, make_project, pictures, monkeypatch):
+    from PIL import Image as PillowImage
+
+    core.use_h3_12gb()
+    monkeypatch.setattr(PillowImage, "MAX_IMAGE_PIXELS", 200_000)
+    project = _project(make_doc, make_project, [pictures.add("bomb", (1024, 1024))], [_frame("f1", "bomb", "first")])
+    user = core.users["user-1"]
+
+    evaluation = asyncio.run(estimate.evaluate(user, user, project["doc"], Order(shots=["s1"], quality="draft", variants=1, preset_id=presets.MINIMAX_H3_12GB)))
+    (take,) = asyncio.run(generation.start(user, project, evaluation))
+
+    assert framefit.picture(pictures.files[_ref_key({"kind": "library", "item_id": "lib-bomb"})]) == framefit.Picture(0, 0, False, True)
+    assert [warning["data"]["cause"] for warning in evaluation.payload["warnings"] if warning["code"] == "frame_not_cropped"] == ["too_many_pixels"]
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/bomb.png")]
+    assert [note["data"]["cause"] for note in take["frame_notes"]] == ["too_many_pixels"]
+
+
+def test_a_turned_photo_past_the_ceiling_already_in_the_ratio_says_the_same_before_generate_and_on_the_take(core, make_doc, make_project, pictures, monkeypatch):
+    core.use_h3_12gb()
+    monkeypatch.setattr(framefit, "MAX_PIXELS", 100_000)
+    asset = pictures.add("phone", (480, 832), suffix=".jpg")
+    _turned(pictures.files[_ref_key({"kind": "library", "item_id": "lib-phone"})], (480, 832), 6)
+    project = _project(make_doc, make_project, [asset], [_frame("f1", "phone", "first")])
+    user = core.users["user-1"]
+
+    evaluation = asyncio.run(estimate.evaluate(user, user, project["doc"], Order(shots=["s1"], quality="draft", variants=1, preset_id=presets.MINIMAX_H3_12GB)))
+    (take,) = asyncio.run(generation.start(user, project, evaluation))
+
+    before = [warning for warning in evaluation.payload["warnings"] if warning["code"] == "frame_not_cropped"]
+    assert before == take["frame_notes"] and [note["data"]["cause"] for note in before] == ["too_many_pixels"]
+
+
+def test_a_cmyk_photo_cropped_to_rgb_drops_its_colour_profile_and_an_rgb_photo_keeps_its_own(tmp_path):
+    cmyk = tmp_path / "print.jpg"
+    _disc((600, 600)).convert("CMYK").save(cmyk, icc_profile=b"cmyk-profile")
+    rgb = tmp_path / "photo.jpg"
+    _disc((600, 600)).save(rgb, icc_profile=b"rgb-profile")
+
+    (tmp_path / "out").mkdir()
+    outputs = [framefit.crop_file(source, framefit.crop_box(600, 600, (16, 9)), tmp_path / "out", source.name) for source in (cmyk, rgb)]
+
+    with Image.open(outputs[0]) as image:
+        assert image.mode == "RGB" and image.info.get("icc_profile") is None
+    with Image.open(outputs[1]) as image:
+        assert image.info.get("icc_profile") == b"rgb-profile"
+
+
+def _three_squares(make_doc, make_project, pictures):
+    clips = [{"id": f"s{n}", "start": (n - 1) * 4, "dur": 4} for n in (1, 2, 3)]
+    prompts = [{"id": f"p{n}", "shotId": f"s{n}", "text": "A slow push-in."} for n in (1, 2, 3)]
+    assets = [pictures.add(f"square{n}", (1024, 1024)) for n in (1, 2, 3)]
+    frames = [_frame(f"f{n}", f"square{n}", "first", (n - 1) * 4, f"s{n}") for n in (1, 2, 3)]
+    return make_project(doc=make_doc(clips=clips, prompts=prompts, frames=frames, assets=assets))
+
+
+def test_after_a_full_storage_the_next_images_of_the_same_order_get_the_note_without_being_cropped(core, make_doc, make_project, pictures, monkeypatch):
+    core.use_h3_12gb()
+    project = _three_squares(make_doc, make_project, pictures)
+    pictures.error = _limit("storage_quota_exceeded")
+    crops = []
+    crop_file = framefit.crop_file
+    monkeypatch.setattr(framefit, "crop_file", lambda *args: crops.append(args[0]) or crop_file(*args))
+
+    made = _start(core, project, presets.MINIMAX_H3_12GB, shots=("s1", "s2", "s3"))
+
+    assert len(crops) == 1
+    assert [[note["data"]["cause"] for note in take["frame_notes"]] for take in made] == [["storage_full"]] * 3
+
+
+def test_a_crop_larger_than_the_largest_upload_does_not_stop_the_next_images_from_being_tried(core, make_doc, make_project, pictures, monkeypatch):
+    core.use_h3_12gb()
+    project = _three_squares(make_doc, make_project, pictures)
+    pictures.error = _limit("upload_file_size_exceeded")
+    crops = []
+    crop_file = framefit.crop_file
+    monkeypatch.setattr(framefit, "crop_file", lambda *args: crops.append(args[0]) or crop_file(*args))
+
+    made = _start(core, project, presets.MINIMAX_H3_12GB, shots=("s1", "s2", "s3"))
+
+    assert len(crops) == 3
+    assert [[note["data"]["cause"] for note in take["frame_notes"]] for take in made] == [["upload_too_large"]] * 3
+
+
+def test_a_chained_take_keeps_the_note_of_its_own_end_image_and_adds_the_one_of_the_chained_image(core, make_doc, make_project, pictures, monkeypatch, store):
+    store[("max_parallel_jobs", None)] = "4"
+    core.use_h3_12gb()
+    Frames(monkeypatch, pictures, (768, 1152))
+    end = pictures.add("end", (1024, 1024))
+    project = make_project(doc=make_doc(clips=SHOTS, prompts=PROMPTS, assets=[end], frames=[_frame("f2", "end", "last", 8, "s2")]))
+    pictures.error = MediaRefError("upload_rejected", "The library is full.")
+    first, second = _start(core, project, presets.MINIMAX_H3_12GB, shots=("s1", "s2"))
+    _tick()
+    core.complete(first["generation_id"])
+
+    _tick()
+
+    taken = takes.get_take(second["id"])
+    assert [(note["data"]["roles"], note["data"]["chained"]) for note in taken["frame_notes"]] == [(["last"], False), (["first"], True)]

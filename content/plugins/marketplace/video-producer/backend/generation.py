@@ -134,17 +134,20 @@ async def with_sound(owner: User, project: Mapping[str, Any], plans: List[ShotPl
         raise Blocked([note(exc.code, exc.message, shot_id=exc.shot_id)]) from None
 
 
-async def _fitted(owner: User, plan: ShotPlan, ratio: framefit.Ratio, value: str, ref: Mapping[str, Any], name: str, roles: List[str]) -> str:
+async def _fitted(owner: User, plan: ShotPlan, ratio: framefit.Ratio, value: str, ref: Mapping[str, Any], name: str, roles: List[str], refused: Dict[str, str]) -> str:
     try:
-        fitted = await framefit.fit(owner, value, ref, ratio, name)
+        fitted = await framefit.fit(owner, value, ref, ratio, name, refused.get("cause"))
     except framefit.CropError as exc:
         plan.frame_notes.append(director.not_cropped(plan.shot_id, exc.cause, roles, False))
+        if exc.cause == framefit.STORAGE_FULL:
+            refused["cause"] = exc.cause
         return value
     return value if fitted is None else fitted.value
 
 
 async def with_frames(owner: User, project: Mapping[str, Any], plans: List[ShotPlan]) -> None:
     doc = project["doc"]
+    refused: Dict[str, str] = {}
     for plan in plans:
         ratio = framefit.plan_ratio(plan)
         if ratio is None:
@@ -155,7 +158,7 @@ async def with_frames(owner: User, project: Mapping[str, Any], plans: List[ShotP
             source = sources.get(value)
             if source is None:
                 continue
-            fitted = await _fitted(owner, plan, ratio, value, source["ref"], source["name"], bound.get(value, []))
+            fitted = await _fitted(owner, plan, ratio, value, source["ref"], source["name"], bound.get(value, []), refused)
             if fitted != value:
                 plan.request = framefit.replace(plan.request, value, fitted)
 
@@ -709,6 +712,7 @@ def _first_frame_name(project: Mapping[str, Any], shot_id: str) -> str:
 
 async def with_first(owner: User, project: Mapping[str, Any], pairs: List[Tuple[Mapping[str, Any], ShotPlan]]) -> None:
     """Bind the first frame of the video of its take to each guided plan that has none yet, stored as the owner's upload; Blocked by the first that cannot be, in the order of the plans."""
+    refused: Dict[str, str] = {}
     for source, plan in pairs:
         if not director.is_guided(plan) or director.has_first(plan):
             continue
@@ -721,7 +725,7 @@ async def with_first(owner: User, project: Mapping[str, Any], pairs: List[Tuple[
         value = str(stored["value"])
         ratio = framefit.plan_ratio(plan)
         if ratio is not None and stored.get("ref"):
-            value = await _fitted(owner, plan, ratio, value, stored["ref"], _first_frame_name(project, plan.shot_id), ["first"])
+            value = await _fitted(owner, plan, ratio, value, stored["ref"], _first_frame_name(project, plan.shot_id), ["first"], refused)
         try:
             director.bind_first(owner, plan, {"value": value, "media_type": "image"})
         except DirectorError as exc:

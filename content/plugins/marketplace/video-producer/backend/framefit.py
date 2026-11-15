@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Tuple
 
 from PIL import Image, ImageOps
 
@@ -142,27 +142,49 @@ def too_large(width: int, height: int) -> bool:
     return width * height > MAX_PIXELS
 
 
-def turned(image: Image.Image) -> bool:
-    return image.getexif().get(ORIENTATION) in TURNED
+class Picture(NamedTuple):
+    width: int
+    height: int
+    turned: bool = False
+    oversize: bool = False
 
 
-def picture(path: Optional[Path]) -> Optional[Tuple[int, int, bool]]:
+def _orientation(image: Image.Image) -> Any:
+    if image.format == "PNG" and "exif" not in image.info:
+        return None
+    return image.getexif().get(ORIENTATION)
+
+
+def picture(path: Optional[Path]) -> Optional[Picture]:
     if path is None:
         return None
     try:
         with Image.open(path, formats=READABLE) as image:
             width, height = image.size
-            orientation = image.getexif().get(ORIENTATION)
+            orientation = _orientation(image)
+    except Image.DecompressionBombError:
+        return Picture(0, 0, False, True)
     except Exception:
         return None
     if orientation in (5, 6, 7, 8):
         width, height = height, width
-    return width, height, orientation in TURNED
+    return Picture(width, height, orientation in TURNED, too_large(width, height))
 
 
 def picture_size(path: Optional[Path]) -> Optional[Tuple[int, int]]:
     found = picture(path)
-    return None if found is None else (found[0], found[1])
+    return None if found is None or found.oversize and not found.width else (found.width, found.height)
+
+
+def decide(found: Picture, ratio: Ratio) -> Tuple[Optional[Box], Optional[str]]:
+    if found.oversize and not found.width:
+        return None, TOO_MANY_PIXELS
+    box = crop_box(found.width, found.height, ratio) or ((0, 0, found.width, found.height) if found.turned else None)
+    if box is None:
+        return None, None
+    if found.oversize:
+        return None, TOO_MANY_PIXELS
+    return box, None
 
 
 def stamp(path: Optional[Path]) -> Optional[Stamp]:
@@ -318,18 +340,19 @@ def crop_file(source: Path, box: Box, folder: Path, name: str) -> Path:
     with Image.open(source, formats=READABLE) as opened:
         photo = opened.format in PHOTOS
         profile = opened.info.get("icc_profile")
+        mode = opened.mode
         image = ImageOps.exif_transpose(opened)
         word = "upright" if (left, top, width, height) == (0, 0, *image.size) else "crop"
         kept = image.crop((left, top, left + width, top + height))
         if photo and kept.mode in PHOTO_MODES:
             output = folder / cropped_name(name, box, ".jpg", word)
             kept = kept if kept.mode in ("RGB", "L") else kept.convert("RGB")
-            kept.save(output, format="JPEG", quality=PHOTO_QUALITY, subsampling=0, icc_profile=profile)
+            kept.save(output, format="JPEG", quality=PHOTO_QUALITY, subsampling=0, icc_profile=profile if kept.mode == mode else None)
             return output
         if kept.mode not in ("1", "L", "LA", "I", "I;16", "P", "RGB", "RGBA"):
             kept = kept.convert("RGB")
         output = folder / cropped_name(name, box, ".png", word)
-        kept.save(output, format="PNG", icc_profile=profile)
+        kept.save(output, format="PNG", icc_profile=profile if kept.mode == mode else None)
     return output
 
 
@@ -339,7 +362,7 @@ def _stored_cause(exc: Exception) -> str:
     return FAILED
 
 
-async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, name: str) -> Optional[Fitted]:
+async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, name: str, refused: Optional[str]) -> Optional[Fitted]:
     path = await asyncio.to_thread(_local, owner, ref)
     source_stamp = await asyncio.to_thread(stamp, path)
     known = await asyncio.to_thread(_known, owner, source, ratio, source_stamp)
@@ -360,19 +383,21 @@ async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, n
         found = await asyncio.to_thread(picture, local_file)
         if found is None:
             return None
-        width, height, upside = found
-        box = crop_box(width, height, ratio) or ((0, 0, width, height) if upside else None)
+        box, cause = decide(found, ratio)
+        if cause is not None:
+            raise CropError(cause)
         if box is None:
             return None
-        if too_large(width, height):
-            raise CropError(TOO_MANY_PIXELS)
+        if refused is not None:
+            raise CropError(refused)
         folders.append(workdir.scratch(workdir.FRAMES, owner.id))
         output = await asyncio.to_thread(crop_file, local_file, box, folders[-1], name)
         try:
             stored = await core_bridge.save_user_media(owner, output)
         except Exception as exc:
-            logger.warning("[VIDEO-PRODUCER] Could not store the cropped picture of %s", source, exc_info=True)
-            raise CropError(_stored_cause(exc)) from None
+            cause = _stored_cause(exc)
+            logger.warning("[VIDEO-PRODUCER] Could not store the cropped picture of %s (%s)", source, cause, exc_info=cause == FAILED)
+            raise CropError(cause) from None
     finally:
         for folder in folders:
             await asyncio.to_thread(shutil.rmtree, folder, True)
@@ -381,9 +406,9 @@ async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, n
     return fitted
 
 
-async def fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, name: str) -> Optional[Fitted]:
+async def fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, name: str, refused: Optional[str] = None) -> Optional[Fitted]:
     try:
-        return await _fit(owner, source, ref, ratio, name)
+        return await _fit(owner, source, ref, ratio, name, refused)
     except CropError as exc:
         failure = exc
     except Exception:
