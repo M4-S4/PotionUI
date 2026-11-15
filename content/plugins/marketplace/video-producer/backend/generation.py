@@ -5,7 +5,7 @@ import threading
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
 
-from . import cadence, chaining, core_bridge, director, engine_options, estimate, limits, looks, models, notifications, projects, settings, soundtrack, takes, upscalers
+from . import cadence, chaining, core_bridge, director, engine_options, estimate, framefit, limits, looks, models, notifications, projects, settings, soundtrack, takes, upscalers
 from .core_bridge import AccountType, GenerationNotFoundException, IdempotencyKeyConflict, User
 from .director import DirectorError, ShotPlan, note
 from .estimate import Evaluation
@@ -134,6 +134,25 @@ async def with_sound(owner: User, project: Mapping[str, Any], plans: List[ShotPl
         raise Blocked([note(exc.code, exc.message, shot_id=exc.shot_id)]) from None
 
 
+async def with_frames(owner: User, project: Mapping[str, Any], plans: List[ShotPlan]) -> None:
+    doc = project["doc"]
+    for plan in plans:
+        ratio = framefit.plan_ratio(plan)
+        if ratio is None:
+            continue
+        sources = director.frame_sources(owner, doc, plan.shot_id)
+        for value in framefit.values(plan.request):
+            source = sources.get(value)
+            if source is None:
+                continue
+            try:
+                fitted = await framefit.fit(owner, value, source["ref"], ratio, source["name"])
+            except framefit.CropError as exc:
+                raise Blocked([note(exc.code, exc.message, shot_id=plan.shot_id)]) from None
+            if fitted is not None:
+                plan.request = framefit.replace(plan.request, value, fitted.value)
+
+
 def create(
     owner: User,
     project_id: str,
@@ -238,6 +257,7 @@ async def start(owner: User, project: Mapping[str, Any], evaluation: Evaluation)
         raise Blocked(evaluation.payload["blocks"])
     applies = bool(evaluation.payload["quota"]["applies"])
     await with_sound(owner, project, evaluation.plans.shots)
+    await with_frames(owner, project, evaluation.plans.shots)
     batch = core_bridge.generate_ulid()
     places = {clip.get("id"): index for index, clip in enumerate(project["doc"].get("clips") or [])}
     plans = sorted(evaluation.plans.shots, key=lambda plan: places.get(plan.shot_id, len(places)))
@@ -730,6 +750,7 @@ async def final(
     minutes = _checked(plan, preset_id, native, owner, source.get("backend_id"))
     await with_sound(owner, project, [plan])
     await with_first(owner, [(source, plan)])
+    await with_frames(owner, project, [plan])
     with reserving(owner, minutes) as reserve:
         take = create_final(owner, project, source, method, plan, preset_id, minutes if reserve else 0.0)
     if conform:
@@ -766,6 +787,7 @@ async def retry(owner: User, project: Mapping[str, Any], source: Mapping[str, An
     await with_sound(owner, project, [plan])
     if parent is not None:
         await with_first(owner, [(parent, plan)])
+    await with_frames(owner, project, [plan])
     with reserving(owner, minutes) as reserve:
         take = create(
             owner,

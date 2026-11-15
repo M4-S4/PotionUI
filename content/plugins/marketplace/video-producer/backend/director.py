@@ -1424,6 +1424,23 @@ def framing_warnings(doc: Mapping[str, Any], clip: Mapping[str, Any], director_m
         warnings.append(note("action_undone", "The action asks the subject to move, but the last frame brings it back where it starts: the engine may add a double. Describe an action in place, or give another last frame.", shot_id=shot_id))
 
 
+def frame_sources(user: User, doc: Mapping[str, Any], shot_id: str) -> Dict[str, Dict[str, Any]]:
+    found: Dict[str, Dict[str, Any]] = {}
+    for frame in shot_frames(doc, shot_id):
+        asset = _asset(doc, frame.get("assetId")) if frame is not None else None
+        ref = media_ref(asset.get("origin")) if asset is not None else None
+        resolved = _resolve(user, asset) if ref is not None else None
+        if resolved is None or resolved["media_type"] != "image":
+            continue
+        found[str(resolved["value"])] = {
+            "ref": ref,
+            "name": resolved.get("original_filename") or asset.get("name") or "",
+            "width": asset.get("width"),
+            "height": asset.get("height"),
+        }
+    return found
+
+
 def reference_media(
     user: User,
     doc: Mapping[str, Any],

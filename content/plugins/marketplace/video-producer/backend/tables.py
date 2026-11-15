@@ -126,6 +126,17 @@ _COLUMNS = {
         factor INTEGER,
         source_rendition_id TEXT
     """,
+    "video_producer_frame_crops": """
+        key TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        ratio TEXT NOT NULL,
+        value TEXT NOT NULL,
+        item_id TEXT,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    """,
 }
 
 TABLE_NAMES = tuple(_COLUMNS)

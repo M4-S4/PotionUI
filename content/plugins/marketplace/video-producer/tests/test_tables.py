@@ -28,6 +28,7 @@ _EXPECTED_COLUMNS = {
         "backend_id", "progress", "step", "error_code", "error_message", "created_at", "started_at", "finished_at",
         "factor", "source_rendition_id",
     ],
+    "video_producer_frame_crops": ["key", "user_id", "source", "ratio", "value", "item_id", "width", "height", "created_at"],
 }
 
 _EXPECTED_INDEXES = {
@@ -78,8 +79,8 @@ def _indexes(db):
     return found
 
 
-def test_table_names_are_the_eight_plugin_tables():
-    assert len(TABLE_NAMES) == 8
+def test_table_names_are_the_nine_plugin_tables():
+    assert len(TABLE_NAMES) == 9
     assert set(TABLE_NAMES) == set(_EXPECTED_COLUMNS)
     assert all(name.startswith("video_producer_") for name in TABLE_NAMES)
 
