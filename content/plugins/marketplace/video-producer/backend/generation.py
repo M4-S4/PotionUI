@@ -134,11 +134,12 @@ async def with_sound(owner: User, project: Mapping[str, Any], plans: List[ShotPl
         raise Blocked([note(exc.code, exc.message, shot_id=exc.shot_id)]) from None
 
 
-async def _fitted(owner: User, plan: ShotPlan, ratio: framefit.Ratio, value: str, ref: Mapping[str, Any], name: str) -> str:
+async def _fitted(owner: User, plan: ShotPlan, ratio: framefit.Ratio, value: str, ref: Mapping[str, Any], name: str, roles: List[str]) -> str:
     try:
         fitted = await framefit.fit(owner, value, ref, ratio, name)
     except framefit.CropError as exc:
-        raise Blocked([note(exc.code, exc.message, shot_id=plan.shot_id, cause=exc.cause)]) from None
+        plan.frame_notes.append(director.not_cropped(plan.shot_id, exc.cause, roles, False))
+        return value
     return value if fitted is None else fitted.value
 
 
@@ -149,11 +150,12 @@ async def with_frames(owner: User, project: Mapping[str, Any], plans: List[ShotP
         if ratio is None:
             continue
         sources = director.frame_sources(owner, doc, plan.shot_id)
+        bound = framefit.roles(plan.request)
         for value in framefit.values(plan.request):
             source = sources.get(value)
             if source is None:
                 continue
-            fitted = await _fitted(owner, plan, ratio, value, source["ref"], source["name"])
+            fitted = await _fitted(owner, plan, ratio, value, source["ref"], source["name"], bound.get(value, []))
             if fitted != value:
                 plan.request = framefit.replace(plan.request, value, fitted)
 
@@ -232,6 +234,7 @@ def _store(
             "chain_wait": bool(chain) and chain["state"] == chaining.WAITING,
             "frame_role": frame_role,
             "video_refs": plan.video_trace(),
+            "frame_notes": plan.frame_notes or None,
             "track_scale": plan.track_scale,
             "units_reserved": reserved,
         }
@@ -718,7 +721,7 @@ async def with_first(owner: User, project: Mapping[str, Any], pairs: List[Tuple[
         value = str(stored["value"])
         ratio = framefit.plan_ratio(plan)
         if ratio is not None and stored.get("ref"):
-            value = await _fitted(owner, plan, ratio, value, stored["ref"], _first_frame_name(project, plan.shot_id))
+            value = await _fitted(owner, plan, ratio, value, stored["ref"], _first_frame_name(project, plan.shot_id), ["first"])
         try:
             director.bind_first(owner, plan, {"value": value, "media_type": "image"})
         except DirectorError as exc:

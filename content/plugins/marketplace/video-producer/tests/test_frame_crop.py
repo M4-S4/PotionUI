@@ -148,8 +148,9 @@ def test_the_ratio_of_a_take_is_its_size_else_the_aspect_ratio_its_request_or_it
     assert framefit.request_ratio("720p", {"form_data": {}}) is None
 
 
-def test_the_tolerance_is_the_one_of_the_formats_table():
-    assert framefit.TOLERANCE == 0.01 == formats.load_table()["startImages"]["tolerance"]
+def test_the_tolerance_is_the_share_the_film_crops_without_a_word():
+    assert framefit.TOLERANCE == formats.EXACT_LOSS == formats.load_table()["framing"]["exact"] == 0.03
+    assert "tolerance" not in formats.load_table()["startImages"]
 
 
 @pytest.mark.parametrize(
@@ -157,7 +158,8 @@ def test_the_tolerance_is_the_one_of_the_formats_table():
     [
         ((1024, 1024), (26, 15), (0, 217, 1024, 590)),
         ((768, 1152), (26, 15), (0, 354, 768, 444)),
-        ((1280, 720), (26, 15), (16, 0, 1248, 720)),
+        ((1280, 720), (26, 15), None),
+        ((1024, 576), (26, 15), None),
         ((1280, 720), (9, 16), (438, 0, 404, 720)),
         ((1023, 767), (1, 1), (128, 0, 766, 766)),
         ((768, 1152), (1, 1), (0, 192, 768, 768)),
@@ -265,8 +267,8 @@ def test_a_crop_the_library_refuses_raises_a_crop_error(core, pictures):
     with pytest.raises(framefit.CropError) as raised:
         asyncio.run(framefit.fit(core.users["user-1"], "uploads/square.png", {"kind": "library", "item_id": "lib-square"}, (26, 15), "square.png"))
 
-    assert (raised.value.code, raised.value.cause) == ("frame_crop_failed", "failed")
-    assert raised.value.message == "The start or end image could not be cropped to the frame of the take and stored."
+    assert (raised.value.code, raised.value.cause) == ("frame_not_cropped", "failed")
+    assert raised.value.message == "is sent as it is: it could not be cropped to the frame of the take."
 
 
 def test_a_minimax_h3_take_starts_from_its_first_image_cropped_to_the_ratio_of_the_take(core, make_doc, make_project, pictures):
@@ -387,18 +389,20 @@ def test_a_retry_reuses_the_crop_its_first_take_stored(core, make_doc, make_proj
     assert len(pictures.stored) == 1
 
 
-def test_a_crop_that_cannot_be_stored_blocks_the_request_and_makes_no_take(core, make_doc, make_project, pictures):
+def _not_cropped(cause, message, roles=("first",), chained=False, image="start image of the shot"):
+    return {"code": "frame_not_cropped", "message": f"The {image} {message}", "data": {"shot_id": "s1", "cause": cause, "roles": list(roles), "chained": chained}}
+
+
+def test_a_crop_that_cannot_be_stored_sends_the_image_as_it_is_and_says_why_on_the_take(core, make_doc, make_project, pictures):
     core.use_h3_12gb()
     project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
     pictures.error = MediaRefError("upload_rejected", "The library is full.")
 
-    with pytest.raises(generation.Blocked) as raised:
-        _start(core, project, presets.MINIMAX_H3_12GB)
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
 
-    assert raised.value.blocks == [
-        {"code": "frame_crop_failed", "message": "The start or end image could not be cropped to the frame of the take and stored.", "data": {"shot_id": "s1", "cause": "failed"}}
-    ]
-    assert takes.list_takes(project["id"]) == [] and core.submitted == []
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/square.png")]
+    assert take["frame_notes"] == [_not_cropped("failed", "is sent as it is: it could not be cropped to the frame of the take.")]
+    assert takes.public(take)["frame_notes"] == take["frame_notes"]
 
 
 class Frames:
@@ -535,10 +539,8 @@ def test_a_picture_with_more_pixels_than_the_ceiling_follows_the_failure_rule(co
 
     with pytest.raises(framefit.CropError) as raised:
         asyncio.run(framefit.fit(core.users["user-1"], "uploads/huge.png", ref, (26, 15), "huge.png"))
-    monkeypatch.setattr(framefit, "ON_FAILURE", framefit.SEND)
-    sent = asyncio.run(framefit.fit(core.users["user-1"], "uploads/huge.png", ref, (26, 15), "huge.png"))
 
-    assert raised.value.cause == "too_many_pixels" and sent is None and pictures.stored == []
+    assert raised.value.cause == "too_many_pixels" and pictures.stored == []
 
 
 def test_the_pixel_ceiling_lets_a_48_megapixel_phone_photo_through():
@@ -578,9 +580,9 @@ def test_the_name_of_a_crop_is_a_plain_bounded_file_name(name, cropped):
 @pytest.mark.parametrize(
     "code, cause, message",
     [
-        ("storage_quota_exceeded", "storage_full", "The cropped start or end image cannot be stored: the storage of the project's owner is full."),
-        ("upload_file_size_exceeded", "upload_too_large", "The cropped start or end image is larger than the largest file the project's owner may upload."),
-        ("daily_generations_exceeded", "failed", "The start or end image could not be cropped to the frame of the take and stored."),
+        ("storage_quota_exceeded", "storage_full", "is sent as it is, not cropped to the frame of the take: the storage of the project's owner is full."),
+        ("upload_file_size_exceeded", "upload_too_large", "is sent as it is, not cropped to the frame of the take: its crop is larger than the largest file the project's owner may upload."),
+        ("daily_generations_exceeded", "failed", "is sent as it is: it could not be cropped to the frame of the take."),
     ],
 )
 def test_a_refused_crop_says_a_fixed_text_for_its_cause_and_nothing_of_the_core(core, pictures, code, cause, message):
@@ -610,28 +612,15 @@ def test_a_work_folder_that_cannot_be_made_blocks_with_the_general_text_and_no_p
     assert raised.value.cause == "failed" and "secret" not in raised.value.message
 
 
-def test_an_error_other_than_a_crop_error_becomes_the_general_block_of_the_shot(core, make_doc, make_project, pictures):
+def test_an_error_other_than_a_crop_error_becomes_the_general_note_of_the_take(core, make_doc, make_project, pictures):
     core.use_h3_12gb()
     project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
     pictures.error = RuntimeError("disk /secret/storage exploded")
 
-    with pytest.raises(generation.Blocked) as raised:
-        _start(core, project, presets.MINIMAX_H3_12GB)
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
 
-    assert raised.value.blocks == [
-        {"code": "frame_crop_failed", "message": "The start or end image could not be cropped to the frame of the take and stored.", "data": {"shot_id": "s1", "cause": "failed"}}
-    ]
-
-
-def test_a_crop_that_fails_is_sent_as_it_is_when_the_failure_rule_says_send(core, make_doc, make_project, pictures, monkeypatch):
-    core.use_h3_12gb()
-    monkeypatch.setattr(framefit, "ON_FAILURE", framefit.SEND)
-    project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
-    pictures.error = MediaRefError("upload_rejected", "The library is full.")
-
-    _start(core, project, presets.MINIMAX_H3_12GB)
-
-    assert _paths(core.submitted[0][1]) == [("first", "uploads/square.png")]
+    assert take["frame_notes"] == [_not_cropped("failed", "is sent as it is: it could not be cropped to the frame of the take.")]
+    assert "secret" not in str(take["frame_notes"])
 
 
 def test_a_task_cancelled_while_it_crops_leaves_no_work_folder(core, pictures, monkeypatch):
@@ -694,20 +683,97 @@ def test_a_source_file_rewritten_under_the_same_name_is_cropped_again(core, pict
     assert _disc_ratio(pictures.stored_path(again.value), TEAL) == pytest.approx(1.0, abs=0.01)
 
 
-def test_the_orientation_a_photo_declares_is_ignored_unless_the_upright_rule_is_on(tmp_path, monkeypatch):
-    path = tmp_path / "turned.jpg"
+def _turned(path, stored_size, orientation=6):
     exif = Image.Exif()
-    exif[0x0112] = 6
-    _disc((400, 300)).save(path, exif=exif.tobytes())
+    exif[0x0112] = orientation
+    _disc(stored_size).save(path, exif=exif.tobytes())
 
-    raw = framefit.picture_size(path)
-    monkeypatch.setattr(framefit, "UPRIGHT", True)
-    upright = framefit.picture_size(path)
-    output = framefit.crop_file(path, framefit.crop_box(*upright, (9, 16)), tmp_path, "turned.jpg")
 
-    assert (raw, upright) == ((400, 300), (300, 400))
+def test_a_photo_that_declares_an_orientation_is_measured_and_cropped_upright(tmp_path):
+    path = tmp_path / "turned.jpg"
+    _turned(path, (400, 300))
+
+    size = framefit.picture_size(path)
+    output = framefit.crop_file(path, framefit.crop_box(*size, (9, 16)), tmp_path, "turned.jpg")
+
+    assert size == (300, 400)
     with Image.open(output) as image:
-        assert image.size == (224, 400)
+        assert image.size == (224, 400) and image.getexif().get(0x0112) is None
+    assert _disc_ratio(output) == pytest.approx(1.0, abs=0.02)
+
+
+def test_a_turned_photo_already_in_the_ratio_of_the_take_is_sent_as_an_upright_copy(core, make_doc, make_project, pictures):
+    core.use_h3_12gb()
+    asset = pictures.add("phone", (480, 832), suffix=".jpg")
+    _turned(pictures.files[_ref_key({"kind": "library", "item_id": "lib-phone"})], (480, 832), 8)
+    project = _project(make_doc, make_project, [asset], [_frame("f1", "phone", "first")])
+
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
+
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/stored-1-phone-upright-832x480.jpg")]
+    with Image.open(pictures.stored_path("uploads/stored-1-phone-upright-832x480.jpg")) as image:
+        assert image.size == (832, 480) and image.getexif().get(0x0112) is None
+    assert take["frame_notes"] is None
+
+
+def test_a_turned_photo_whose_upright_copy_is_refused_is_sent_as_it_is_with_the_note(core, make_doc, make_project, pictures):
+    core.use_h3_12gb()
+    asset = pictures.add("phone", (480, 832), suffix=".jpg")
+    _turned(pictures.files[_ref_key({"kind": "library", "item_id": "lib-phone"})], (480, 832), 6)
+    project = _project(make_doc, make_project, [asset], [_frame("f1", "phone", "first")])
+    refusal = {"code": "storage_quota_exceeded", "message": "full", "kind": "storage", "label": "", "format": "", "used": 1, "limit": 1, "percent": 100, "resets_at": None}
+    pictures.error = core_bridge.LimitExceeded([refusal], "upload", None)
+
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
+
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/phone.jpg")]
+    assert take["frame_notes"] == [_not_cropped("storage_full", "is sent as it is, not cropped to the frame of the take: the storage of the project's owner is full.")]
+
+
+def test_a_16_9_photo_on_an_832x480_draft_is_sent_as_it_is_without_a_copy(core, make_doc, make_project, pictures):
+    core.use_h3_12gb()
+    project = _project(make_doc, make_project, [pictures.add("wide", (1280, 720))], [_frame("f1", "wide", "first")])
+
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
+
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/wide.png")]
+    assert pictures.stored == [] and take["frame_notes"] is None
+
+
+def test_a_picture_past_the_pixel_ceiling_is_sent_as_it_is_with_its_note(core, make_doc, make_project, pictures, monkeypatch):
+    core.use_h3_12gb()
+    monkeypatch.setattr(framefit, "MAX_PIXELS", 1_000_000)
+    project = _project(make_doc, make_project, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
+
+    (take,) = _start(core, project, presets.MINIMAX_H3_12GB)
+
+    assert _paths(core.submitted[0][1]) == [("first", "uploads/square.png")]
+    assert [note["data"]["cause"] for note in take["frame_notes"]] == ["too_many_pixels"]
+
+
+def test_the_last_image_of_a_previous_shot_that_cannot_be_cropped_starts_the_chained_take_as_it_is_with_the_note(core, make_doc, make_project, pictures, monkeypatch, store):
+    store[("max_parallel_jobs", None)] = "4"
+    core.use_wan()
+    frames = Frames(monkeypatch, pictures, (768, 1152))
+    project = make_project(doc=make_doc(clips=SHOTS, prompts=PROMPTS))
+    first, second = _start(core, project, presets.WAN, shots=("s1", "s2"))
+    _tick()
+    core.complete(first["generation_id"])
+    pictures.error = MediaRefError("upload_rejected", "The library is full.")
+
+    _tick()
+
+    taken = takes.get_take(second["id"])
+    (_, request) = core.submitted[1]
+    assert taken["status"] != "failed"
+    assert _paths(request) == [("first", f"uploads/gen-{first['id']}-frame-4s.png")]
+    assert taken["frame_notes"] == [
+        {
+            "code": "frame_not_cropped",
+            "message": "The last image of the previous shot is sent as it is: it could not be cropped to the frame of the take.",
+            "data": {"shot_id": "s2", "cause": "failed", "roles": ["first"], "chained": True},
+        }
+    ]
 
 
 def test_a_phone_photo_in_several_pictures_is_read_and_cropped_like_a_jpeg(tmp_path):

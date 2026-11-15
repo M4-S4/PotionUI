@@ -17,17 +17,13 @@ from .core_bridge import LimitExceeded, MediaRefError, User
 
 logger = logging.getLogger(__name__)
 
-TOLERANCE = float(formats.TABLE["startImages"]["tolerance"])
+TOLERANCE = formats.EXACT_LOSS
 
 MAX_PIXELS = int(formats.TABLE["startImages"]["maxPixels"])
 
-UPRIGHT = False
+TURNED = (2, 3, 4, 5, 6, 7, 8)
 
-BLOCK = "block"
-
-SEND = "send"
-
-ON_FAILURE = BLOCK
+ORIENTATION = 0x0112
 
 CROPS = "video_producer_frame_crops"
 
@@ -54,10 +50,10 @@ TOO_MANY_PIXELS = "too_many_pixels"
 FAILED = "failed"
 
 MESSAGES = {
-    STORAGE_FULL: "The cropped start or end image cannot be stored: the storage of the project's owner is full.",
-    UPLOAD_TOO_LARGE: "The cropped start or end image is larger than the largest file the project's owner may upload.",
-    TOO_MANY_PIXELS: f"The start or end image has more than {MAX_PIXELS // 1_000_000} million pixels: it cannot be cropped to the frame of the take.",
-    FAILED: "The start or end image could not be cropped to the frame of the take and stored.",
+    STORAGE_FULL: "is sent as it is, not cropped to the frame of the take: the storage of the project's owner is full.",
+    UPLOAD_TOO_LARGE: "is sent as it is, not cropped to the frame of the take: its crop is larger than the largest file the project's owner may upload.",
+    TOO_MANY_PIXELS: f"is sent as it is, not cropped to the frame of the take: it has more than {MAX_PIXELS // 1_000_000} million pixels.",
+    FAILED: "is sent as it is: it could not be cropped to the frame of the take.",
 }
 
 LIMIT_CAUSES = {"storage_quota_exceeded": STORAGE_FULL, "upload_file_size_exceeded": UPLOAD_TOO_LARGE}
@@ -70,7 +66,7 @@ Stamp = Tuple[int, int]
 
 
 class CropError(Exception):
-    code = "frame_crop_failed"
+    code = "frame_not_cropped"
 
     def __init__(self, cause: str = FAILED):
         self.cause = cause if cause in MESSAGES else FAILED
@@ -146,20 +142,27 @@ def too_large(width: int, height: int) -> bool:
     return width * height > MAX_PIXELS
 
 
-def _upright(image: Image.Image) -> Image.Image:
-    return ImageOps.exif_transpose(image) if UPRIGHT else image
+def turned(image: Image.Image) -> bool:
+    return image.getexif().get(ORIENTATION) in TURNED
 
 
-def picture_size(path: Optional[Path]) -> Optional[Tuple[int, int]]:
+def picture(path: Optional[Path]) -> Optional[Tuple[int, int, bool]]:
     if path is None:
         return None
     try:
         with Image.open(path, formats=READABLE) as image:
-            if UPRIGHT and image.getexif().get(0x0112) in (5, 6, 7, 8):
-                return image.size[1], image.size[0]
-            return image.size
+            width, height = image.size
+            orientation = image.getexif().get(ORIENTATION)
     except Exception:
         return None
+    if orientation in (5, 6, 7, 8):
+        width, height = height, width
+    return width, height, orientation in TURNED
+
+
+def picture_size(path: Optional[Path]) -> Optional[Tuple[int, int]]:
+    found = picture(path)
+    return None if found is None else (found[0], found[1])
 
 
 def stamp(path: Optional[Path]) -> Optional[Stamp]:
@@ -303,11 +306,11 @@ def _copied(owner: User, ref: Mapping[str, Any], folder: Path) -> Optional[Path]
         return None
 
 
-def cropped_name(name: str, box: Box, suffix: str = ".png") -> str:
+def cropped_name(name: str, box: Box, suffix: str = ".png", word: str = "crop") -> str:
     stem = re.split(r"[/\\]", str(name or ""))[-1]
     stem = Path(stem).stem if "." in stem.strip(".") else stem
     stem = UNSAFE.sub("-", stem).strip(" .-")[:NAME_LENGTH].strip(" .-") or "image"
-    return f"{stem}-crop-{box[2]}x{box[3]}{suffix}"
+    return f"{stem}-{word}-{box[2]}x{box[3]}{suffix}"
 
 
 def crop_file(source: Path, box: Box, folder: Path, name: str) -> Path:
@@ -315,16 +318,17 @@ def crop_file(source: Path, box: Box, folder: Path, name: str) -> Path:
     with Image.open(source, formats=READABLE) as opened:
         photo = opened.format in PHOTOS
         profile = opened.info.get("icc_profile")
-        image = _upright(opened)
+        image = ImageOps.exif_transpose(opened)
+        word = "upright" if (left, top, width, height) == (0, 0, *image.size) else "crop"
         kept = image.crop((left, top, left + width, top + height))
         if photo and kept.mode in PHOTO_MODES:
-            output = folder / cropped_name(name, box, ".jpg")
+            output = folder / cropped_name(name, box, ".jpg", word)
             kept = kept if kept.mode in ("RGB", "L") else kept.convert("RGB")
             kept.save(output, format="JPEG", quality=PHOTO_QUALITY, subsampling=0, icc_profile=profile)
             return output
         if kept.mode not in ("1", "L", "LA", "I", "I;16", "P", "RGB", "RGBA"):
             kept = kept.convert("RGB")
-        output = folder / cropped_name(name, box)
+        output = folder / cropped_name(name, box, ".png", word)
         kept.save(output, format="PNG", icc_profile=profile)
     return output
 
@@ -343,26 +347,27 @@ async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, n
         return known
     folders: List[Path] = []
     try:
-        picture = path
-        if picture is None:
+        local_file = path
+        if local_file is None:
             try:
                 folders.append(workdir.scratch(workdir.FRAMES, owner.id))
             except Exception:
                 logger.warning("[VIDEO-PRODUCER] No work folder to read the picture %s in", ref, exc_info=True)
                 return None
-            picture = await asyncio.to_thread(_copied, owner, ref, folders[-1])
-            if picture is None:
+            local_file = await asyncio.to_thread(_copied, owner, ref, folders[-1])
+            if local_file is None:
                 return None
-        size = await asyncio.to_thread(picture_size, picture)
-        if size is None:
+        found = await asyncio.to_thread(picture, local_file)
+        if found is None:
             return None
-        box = crop_box(size[0], size[1], ratio)
+        width, height, upside = found
+        box = crop_box(width, height, ratio) or ((0, 0, width, height) if upside else None)
         if box is None:
             return None
-        if too_large(*size):
+        if too_large(width, height):
             raise CropError(TOO_MANY_PIXELS)
         folders.append(workdir.scratch(workdir.FRAMES, owner.id))
-        output = await asyncio.to_thread(crop_file, picture, box, folders[-1], name)
+        output = await asyncio.to_thread(crop_file, local_file, box, folders[-1], name)
         try:
             stored = await core_bridge.save_user_media(owner, output)
         except Exception as exc:
@@ -384,7 +389,5 @@ async def fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, na
     except Exception:
         logger.warning("[VIDEO-PRODUCER] Could not crop the picture %s", source, exc_info=True)
         failure = CropError(FAILED)
-    if ON_FAILURE == BLOCK:
-        raise failure
     logger.warning("[VIDEO-PRODUCER] The picture %s is sent as it is: %s", source, failure.message)
-    return None
+    raise failure

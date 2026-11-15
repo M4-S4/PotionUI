@@ -193,17 +193,19 @@ async def take_frame(take: Mapping[str, Any], fail: Fail) -> bool:
     if media is None:
         return fail(take, "chain_frame_failed", "The last image of the previous shot was stored but its library item cannot be found.")
     value = frame["value"]
+    notes: List[Dict[str, Any]] = []
     ratio = framefit.request_ratio(take.get("resolution"), take.get("request"))
     if ratio is not None and frame.get("ref"):
         try:
             fitted = await framefit.fit(owner, value, frame["ref"], ratio, frame.get("filename") or "")
         except framefit.CropError as exc:
-            return fail(take, "chain_frame_failed", exc.message)
+            notes.append(director.not_cropped(take["shot_id"], exc.cause, ["first"], True))
+            fitted = None
         if fitted is not None:
             value = fitted.value
     request = swap(copy.deepcopy(take.get("request") or {}), director.chain_value(wait["previous"]), value)
     taken = {**wait, "state": TAKEN, "source": frame["source"], "frame": media}
-    return takes.take_frame(take["id"], taken, request)
+    return takes.take_frame(take["id"], taken, request, notes)
 
 
 async def take_frames(fail: Fail) -> int:

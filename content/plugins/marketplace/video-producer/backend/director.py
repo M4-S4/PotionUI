@@ -250,6 +250,7 @@ class ShotPlan:
     video_labels: Dict[int, str] = field(default_factory=dict)
     rows: Optional[sequence.Rows] = None
     sheet: Optional["SheetPlan"] = None
+    frame_notes: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def track_scale(self) -> float:
@@ -1464,6 +1465,16 @@ def _chained_size(doc: Mapping[str, Any], shot_id: str) -> Optional[Tuple[int, i
     return _declared(asset.get("width"), asset.get("height")) if asset is not None else None
 
 
+def _image_name(roles: Sequence[str], chained: bool) -> str:
+    return "last image of the previous shot" if chained else "start image of the shot" if "first" in roles else "end image of the shot"
+
+
+def not_cropped(shot_id: str, cause: str, roles: Sequence[str], chained: bool) -> Dict[str, Any]:
+    cause = cause if cause in framefit.MESSAGES else framefit.FAILED
+    message = f"The {_image_name(roles, chained)} {framefit.MESSAGES[cause]}"
+    return note("frame_not_cropped", message, shot_id=shot_id, cause=cause, roles=list(roles), chained=chained)
+
+
 def crop_warnings(user: User, doc: Mapping[str, Any], shot_id: str, request: Mapping[str, Any], ratio: Optional[framefit.Ratio], warnings: List[Dict[str, Any]]) -> None:
     if ratio is None:
         return
@@ -1475,10 +1486,13 @@ def crop_warnings(user: User, doc: Mapping[str, Any], shot_id: str, request: Map
         if size is None:
             continue
         loss = framefit.lost(size[0], size[1], ratio)
-        if loss <= formats.EXACT_LOSS or framefit.crop_box(size[0], size[1], ratio) is None or framefit.too_large(*size):
+        if loss <= formats.EXACT_LOSS or framefit.crop_box(size[0], size[1], ratio) is None:
+            continue
+        if framefit.too_large(*size):
+            _add(warnings, not_cropped(shot_id, framefit.TOO_MANY_PIXELS, bound_as, chained))
             continue
         lost = round(loss * 100)
-        image = "last image of the previous shot" if chained else "start image of the shot" if "first" in bound_as else "end image of the shot"
+        image = _image_name(bound_as, chained)
         frame = formats.ratio_text(ratio[0] / ratio[1])
         data = {"shot_id": shot_id, "roles": bound_as, "size": f"{size[0]}x{size[1]}", "aspect": frame, "loss": lost, "chained": chained}
         if loss > formats.CROP_LOSS:

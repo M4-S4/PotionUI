@@ -156,11 +156,20 @@ def test_a_picture_too_small_to_crop_within_the_tolerance_gets_no_crop_warning(c
     assert _crops(_plans(core, doc, presets.MINIMAX_H3_12GB)) == []
 
 
-def test_a_picture_past_the_pixel_ceiling_gets_no_crop_warning(core, make_doc, pictures, monkeypatch):
+def test_a_picture_past_the_pixel_ceiling_is_said_to_be_sent_as_it_is_before_generate(core, make_doc, pictures, monkeypatch):
     from backend import framefit
 
     core.use_h3_12gb()
     monkeypatch.setattr(framefit, "MAX_PIXELS", 1_000_000)
     doc = _doc(make_doc, [pictures.add("square", (1024, 1024))], [_frame("f1", "square", "first")])
 
-    assert _crops(_plans(core, doc, presets.MINIMAX_H3_12GB)) == []
+    plans = _plans(core, doc, presets.MINIMAX_H3_12GB)
+
+    assert _crops(plans) == []
+    assert [warning for warning in plans.warnings if warning["code"] == "frame_not_cropped"] == [
+        {
+            "code": "frame_not_cropped",
+            "message": "The start image of the shot is sent as it is, not cropped to the frame of the take: it has more than 64 million pixels.",
+            "data": {"shot_id": "s1", "cause": "too_many_pixels", "roles": ["first"], "chained": False},
+        }
+    ]
