@@ -94,6 +94,7 @@ test('the deck offers to make a start image for the first shot whose image a lar
 });
 
 const { renderComponent } = await import('./svelte-harness.js');
+const framing = await import('./framing.js');
 const { frameBox } = await import('./framing.js');
 const PICKER = new URL('../components/shots/MediaPicker.svelte', import.meta.url).href;
 
@@ -135,4 +136,29 @@ test('the key frame tiles of the shot quick edit have the ratio of the film, wid
 	const quick = source('../components/storyboard/ShotQuickEdit.svelte');
 	assert.match(quick, /style=\{frameTile\(doc\)\} data-quick-frame onclick=\{editor\}/);
 	assert.doesNotMatch(quick, /h-\[50px\] w-\[88px\]/);
+});
+
+test('a crop that cannot be made says its cause on the page, and an unknown cause the general text', () => {
+	scene();
+	const failed = (cause) => noteText({ code: 'frame_crop_failed', data: { shot_id: 's1', cause } });
+	assert.equal(failed('storage_full'), t('generation.block.frameCropFailedStorage', { shot: 'Opening' }));
+	assert.equal(failed('upload_too_large'), t('generation.block.frameCropFailedUpload', { shot: 'Opening' }));
+	assert.equal(failed('too_many_pixels'), t('generation.block.frameCropFailedPixels', { shot: 'Opening' }));
+	assert.equal(failed('failed'), t('generation.block.frameCropFailed', { shot: 'Opening' }));
+	assert.equal(failed(undefined), t('generation.block.frameCropFailed', { shot: 'Opening' }));
+	for (const locale of LOCALES) {
+		for (const key of ['frameCropFailedStorage', 'frameCropFailedUpload', 'frameCropFailedPixels']) assert.match(dictionaries[locale][`generation.block.${key}`], /\{shot\}/, `${locale} ${key}`);
+	}
+});
+
+test('the stills of the seam monitor and of the seam review have the ratio of the film', () => {
+	const { frameBox } = framing;
+	assert.equal(frameBox({ aspect: '9:16' }, '18rem'), `aspect-ratio: ${9 / 16}; height: 18rem; width: auto; max-width: 100%; margin: 0 auto`);
+	assert.equal(frameBox({ aspect: '16:9' }, '18rem'), `aspect-ratio: ${16 / 9}; width: 100%`);
+	const monitor = source('../components/storyboard/BandMonitor.svelte');
+	assert.match(monitor, /style=\{frameBox\(doc, '18rem'\)\} style:grid-area="still\{k\}" data-seam-still>/);
+	assert.doesNotMatch(monitor, /aspect-video w-full overflow-hidden rounded \{src/);
+	const review = source('../components/director/ReviewSeam.svelte');
+	assert.match(review, /<span class="block overflow-hidden rounded bg-surface-3" style=\{frameBox\(doc\)\} data-seam-still>/);
+	assert.doesNotMatch(review, /block aspect-video w-full overflow-hidden rounded bg-surface-3/);
 });

@@ -209,6 +209,14 @@ function missingText(chained, data) {
 	return chained ? t('generation.warn.chainModelsMissing', params) : t('generation.warn.frameModelsMissing', params);
 }
 
+function cropFailed(data) {
+	const params = { shot: shotName(data.shot_id) };
+	if (data.cause === 'storage_full') return t('generation.block.frameCropFailedStorage', params);
+	if (data.cause === 'upload_too_large') return t('generation.block.frameCropFailedUpload', params);
+	if (data.cause === 'too_many_pixels') return t('generation.block.frameCropFailedPixels', params);
+	return t('generation.block.frameCropFailed', params);
+}
+
 function cropText(large, data) {
 	const params = { shot: shotName(data.shot_id), size: String(data.size ?? '—').replace('x', '×'), aspect: data.aspect ?? doc.aspect, loss: data.loss ?? '—' };
 	if (data.chained) return large ? t('generation.warn.frameCroppedChainedLarge', params) : t('generation.warn.frameCroppedChained', params);
@@ -220,7 +228,7 @@ function baseNoteText(note) {
 	const data = note?.data ?? {};
 	const code = note?.code;
 	if (code === 'frame_cropped' || code === 'frame_cropped_large') return cropText(code === 'frame_cropped_large', data);
-	if (code === 'frame_crop_failed') return t('generation.block.frameCropFailed', { shot: shotName(data.shot_id) });
+	if (code === 'frame_crop_failed') return cropFailed(data);
 	if (code === 'no_shots') return t('generation.block.noShots');
 	if (code === 'no_preset') return t('generation.block.noPreset');
 	if (code === 'profile_unsupported') return t('generation.block.profileUnsupported', { profile: data.profile ?? doc.direction.mode, engine: data.preset_id ? engineOptionLabel(data.preset_id, null) : engineLabel() });
