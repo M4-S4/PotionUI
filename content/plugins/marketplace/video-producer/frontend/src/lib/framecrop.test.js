@@ -92,3 +92,36 @@ test('the deck offers to make a start image for the first shot whose image a lar
 	assert.match(deck, /onclick=\{\(\) => startImage\(cropClip\)\}/);
 	assert.match(deck, /t\('production\.deck\.startImage'\)/);
 });
+
+const { renderComponent } = await import('./svelte-harness.js');
+const { frameBox } = await import('./framing.js');
+const PICKER = new URL('../components/shots/MediaPicker.svelte', import.meta.url).href;
+
+test('a start image thumbnail has the ratio of the film, wide films across the width and tall ones on a fixed height', () => {
+	assert.equal(frameBox({ aspect: '16:9' }), `aspect-ratio: ${16 / 9}; width: 100%`);
+	assert.equal(frameBox({ aspect: '1:1' }), 'aspect-ratio: 1; width: 100%');
+	assert.equal(frameBox({ aspect: '9:16' }), `aspect-ratio: ${9 / 16}; height: 7rem; width: auto; max-width: 100%; margin: 0 auto`);
+	assert.equal(frameBox({ aspect: '2.39:1' }), `aspect-ratio: ${2.39}; width: 100%`);
+	assert.equal(frameBox({}), `aspect-ratio: ${16 / 9}; width: 100%`);
+});
+
+test('the picker of a start image shows the centre the take keeps, in the frame of the film, and other pickers stay 16:9', async () => {
+	doc.assets = [{ id: 'a1', kind: 'image', name: 'square.png', src: '/api/media/uploads/square.png', width: 1024, height: 1024 }];
+	const framed = await renderComponent(PICKER, { title: 'Start image', value: 'a1', onpick: () => {}, frame: frameBox({ aspect: '9:16' }) });
+	assert.match(framed, /<img src="\/api\/media\/uploads\/square\.png" alt="" class="object-cover" style="aspect-ratio: 0\.5625; height: 7rem; width: auto; max-width: 100%; margin: 0 auto" data-frame-thumb=""/);
+	const plain = await renderComponent(PICKER, { title: 'Reference', value: 'a1', onpick: () => {} });
+	assert.match(plain, /class="aspect-video w-full object-cover"/);
+	assert.doesNotMatch(plain, /data-frame-thumb/);
+	const empty = await renderComponent(PICKER, { title: 'Start image', value: null, onpick: () => {}, frame: frameBox({ aspect: '1:1' }) });
+	assert.match(empty, /style="aspect-ratio: 1; width: 100%"/);
+	doc.assets = [];
+});
+
+test('the inspector and the shot editor give the start and end image thumbnails the frame of the film', () => {
+	const inspector = source('../components/inspector/Inspector.svelte');
+	assert.match(inspector, /<img src=\{thumb\} alt="" class="object-cover" style=\{frameBox\(doc\)\} data-frame-thumb \/>/);
+	assert.match(inspector, /style=\{frameBox\(doc\)\}>\{t\('inspector\.frames\.none'\)\}<\/span>/);
+	const editor = source('../components/modals/ShotEditor.svelte');
+	assert.match(editor, /title=\{t\('inspector\.frames\.first'\)\} value=\{draft\.first\} frame=\{frameBox\(doc\)\}/);
+	assert.match(editor, /title=\{t\('inspector\.frames\.last'\)\} value=\{draft\.last\} frame=\{frameBox\(doc\)\}/);
+});

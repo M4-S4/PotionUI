@@ -34,6 +34,11 @@ export function framed(size, doc) {
 
 export const fitClass = (mode) => (mode === BARS ? 'object-contain' : 'object-cover');
 
+export function frameBox(doc) {
+	const ratio = filmRatio(doc);
+	return ratio >= 1 ? `aspect-ratio: ${ratio}; width: 100%` : `aspect-ratio: ${ratio}; height: 7rem; width: auto; max-width: 100%; margin: 0 auto`;
+}
+
 export const percent = (share) => Math.round(share * 100);
 
 export function glyph(ratio, max = 14, box = 24) {
