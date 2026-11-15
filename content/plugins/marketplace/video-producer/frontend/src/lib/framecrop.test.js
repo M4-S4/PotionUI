@@ -125,3 +125,14 @@ test('the inspector and the shot editor give the start and end image thumbnails 
 	assert.match(editor, /title=\{t\('inspector\.frames\.first'\)\} value=\{draft\.first\} frame=\{frameBox\(doc\)\}/);
 	assert.match(editor, /title=\{t\('inspector\.frames\.last'\)\} value=\{draft\.last\} frame=\{frameBox\(doc\)\}/);
 });
+
+test('the key frame tiles of the shot quick edit have the ratio of the film, wide ones 88 px across and tall ones 50 px high', async () => {
+	const { frameTile } = await import('./framing.js');
+	assert.equal(frameTile({ aspect: '16:9' }), `aspect-ratio: ${16 / 9}; width: 88px`);
+	assert.equal(frameTile({ aspect: '2.39:1' }), `aspect-ratio: ${2.39}; width: 88px`);
+	assert.equal(frameTile({ aspect: '1:1' }), 'aspect-ratio: 1; height: 50px');
+	assert.equal(frameTile({ aspect: '9:16' }), `aspect-ratio: ${9 / 16}; height: 50px`);
+	const quick = source('../components/storyboard/ShotQuickEdit.svelte');
+	assert.match(quick, /style=\{frameTile\(doc\)\} data-quick-frame onclick=\{editor\}/);
+	assert.doesNotMatch(quick, /h-\[50px\] w-\[88px\]/);
+});

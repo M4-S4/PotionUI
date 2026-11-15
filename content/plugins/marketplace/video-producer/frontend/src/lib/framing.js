@@ -39,6 +39,11 @@ export function frameBox(doc) {
 	return ratio >= 1 ? `aspect-ratio: ${ratio}; width: 100%` : `aspect-ratio: ${ratio}; height: 7rem; width: auto; max-width: 100%; margin: 0 auto`;
 }
 
+export function frameTile(doc, width = 88, height = 50) {
+	const ratio = filmRatio(doc);
+	return ratio >= width / height ? `aspect-ratio: ${ratio}; width: ${width}px` : `aspect-ratio: ${ratio}; height: ${height}px`;
+}
+
 export const percent = (share) => Math.round(share * 100);
 
 export function glyph(ratio, max = 14, box = 24) {
