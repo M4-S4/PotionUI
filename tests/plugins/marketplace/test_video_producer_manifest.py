@@ -1663,11 +1663,14 @@ def test_the_shipped_h3_presets_keep_the_director_and_prompt_help_of_the_core_pr
         assert preset.formulas["groups"] == {name: group for name, group in source.formulas["groups"].items() if name != "memory"}
 
 
-def _chain_document(shots):
+def _chain_document(shots, continuation=True):
+    settings = {"fps": 24, "seed": 1}
+    if continuation:
+        settings["continuation"] = {"source": "tail_frames", "overlap_frames": 17, "stitch": True}
     return {
         "schema_version": 1,
         "mode": "director",
-        "settings": {"fps": 24, "seed": 1, "continuation": {"source": "tail_frames", "overlap_frames": 17, "stitch": True}},
+        "settings": settings,
         "segments": [{"id": f"seg-{index}", "prompt": f"shot {index}", "frames": 124} for index in range(shots)],
         "media": [],
         "audio": [],
@@ -1683,11 +1686,13 @@ def test_a_12_gb_h3_preset_admits_12_chained_segments_in_its_video_mode_and_refu
         normalize_video_director(_chain_document(13), capabilities, str(tmp_path))
 
 
-def test_the_refs_mode_of_the_12_gb_h3_preset_refuses_a_seventh_chained_segment(shipped_presets, tmp_path):
+def test_the_refs_mode_of_the_12_gb_h3_preset_admits_6_chained_segments_and_refuses_a_seventh(shipped_presets, tmp_path):
     capabilities = apply_preset_mode_overlay(shipped_presets[H3_12GB].vars["video_director"], "refs")
 
-    with pytest.raises(VideoDirectorValidationError, match="at most 6 segments"):
-        normalize_video_director(_chain_document(7), capabilities, str(tmp_path))
+    assert len(normalize_video_director(_chain_document(6, continuation=False), capabilities, str(tmp_path))["segments"]) == 6
+    with pytest.raises(VideoDirectorValidationError) as refused:
+        normalize_video_director(_chain_document(7, continuation=False), capabilities, str(tmp_path))
+    assert refused.value.errors == ["segments: chain mode allows at most 6 segments, got 7"]
 
 
 def test_the_shipped_wan_presets_keep_the_prompt_help_of_the_core_preset_and_offer_only_the_modes_their_models_run(shipped_presets, core_presets):
