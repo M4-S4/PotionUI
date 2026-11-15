@@ -5,7 +5,7 @@ A page of PotionUI where your users make short films with AI video, from the syn
 https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/plugins.json
 ```
 
-Version 0.6.0. It needs PotionUI 0.2.0 or later. This page is for the administrator; users read **Video Producer: user guide**.
+Version 0.6.1. It needs PotionUI 0.2.0 or later. This page is for the administrator; users read **Video Producer: user guide**.
 
 1. In **Admin › Plugins**, click **Install from catalog**, paste the catalogue URL and click **Read catalog**.
 2. Click **Install** next to **Video Producer**, then **Install** in the window that asks to confirm. It arrives in the list, disabled.
@@ -54,6 +54,8 @@ Video Producer ships six presets for 8 GB and 12 GB cards, each with a recipe of
 
 Measured on an NVIDIA RTX 4070 Ti, limited to 8 GB for the 8 GB presets. A SeedVR2 upscale of such a take to 1080p takes about 2.5 hours. Set **Max generations in flight per user** and the GPU minutes of your plans accordingly. More under **Hardware** in the admin reference.
 
+On the **Generate** page of PotionUI, a Video Director chain of the two MiniMax-H3 (12 GB) presets holds up to 12 shots, and 6 in the mode **References to Video** of MiniMax-H3 (12 GB). A chain of 12 shots of about 5 s at 832×480, from text alone, took about 35 min on **MiniMax-H3-Fast (12 GB)** and about 74 min on **MiniMax-H3 (12 GB)**, with the same time per shot as a chain of 6 to within 3 %. Longer shots, keyframes and a sound track given to such a chain were not measured. Such a chain is not a Video Producer take: it counts neither in **Max generations in flight per user** nor in the **Video Producer GPU minutes** of a plan.
+
 Other video presets of PotionUI work too, more slowly when they are too large for the card.
 
 ## Getting started
@@ -91,6 +93,11 @@ Pages in **Admin › Documentation**: [setup notes](docs/setup.md), [admin refer
 ## Changes
 
 The full notes of each version are on the [releases page](https://github.com/M4-S4/potionui-plugins/releases).
+
+### What changed in 0.6.1
+
+- On the **Generate** page of PotionUI, a Video Director chain of **MiniMax-H3 (12 GB)** or **MiniMax-H3-Fast (12 GB)** holds up to 12 shots instead of 6, in the mode **Video Director** of the first and **Video** of the second; the mode **References to Video** of MiniMax-H3 (12 GB) stays at 6. Video Producer projects do not change: the plugin sends one shot per generation.
+- New page in **Admin › Documentation**, **Video Producer: setup notes**: how to install Wan 2.2 14B Lightning I2V (12 GB) with its own recipe, and how to install the plugin by hand.
 
 ### What changed in 0.6.0
 
