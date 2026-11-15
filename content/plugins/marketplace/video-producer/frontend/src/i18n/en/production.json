@@ -80,6 +80,8 @@
 	"deck.finalTip": "Every shot has a selected take: start the final render of the film",
 	"deck.retryTip": "Retry take {variant}",
 	"deck.details": "Details",
+	"deck.startImage": "Make a start image",
+	"deck.startImageTip": "Open the start images of “{shot}”",
 	"drawer.title": "Generation settings",
 	"drawer.subtitle": "· kept with the project",
 	"drawer.close": "Close the settings",

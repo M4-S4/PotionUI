@@ -4,9 +4,10 @@ import math
 import re
 import shutil
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, Collection, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
-from . import bible, catalog, core_bridge, dialogue, encoder, engine_options, formats, keepframing, models, presets, reception, sequence, settings, upscalers, workdir
+from . import bible, catalog, core_bridge, dialogue, encoder, engine_options, formats, framefit, keepframing, models, presets, reception, sequence, settings, upscalers, workdir
 from .catalog import FL2VA, PROFILES, REF2VA, REFS_MODE
 from .core_bridge import CLOUD_ENGINE, DirectorBindingError, MediaRefError, User
 
@@ -1441,6 +1442,49 @@ def frame_sources(user: User, doc: Mapping[str, Any], shot_id: str) -> Dict[str,
     return found
 
 
+def _declared(width: Any, height: Any) -> Optional[Tuple[int, int]]:
+    if all(isinstance(side, int) and not isinstance(side, bool) and side > 0 for side in (width, height)):
+        return int(width), int(height)
+    return None
+
+
+def _source_size(user: User, source: Mapping[str, Any]) -> Optional[Tuple[int, int]]:
+    try:
+        path = core_bridge.media_file_path(user, source["ref"])
+    except Exception:
+        path = None
+    return framefit.picture_size(Path(path) if path else None) or _declared(source.get("width"), source.get("height"))
+
+
+def _chained_size(doc: Mapping[str, Any], shot_id: str) -> Optional[Tuple[int, int]]:
+    clip = previous_clip(doc, shot_id)
+    asset = _asset(doc, clip.get("assetId")) if clip is not None else None
+    return _declared(asset.get("width"), asset.get("height")) if asset is not None else None
+
+
+def crop_warnings(user: User, doc: Mapping[str, Any], shot_id: str, request: Mapping[str, Any], ratio: Optional[framefit.Ratio], warnings: List[Dict[str, Any]]) -> None:
+    if ratio is None:
+        return
+    sources = frame_sources(user, doc, shot_id)
+    for value, bound_as in framefit.roles(request).items():
+        chained = value.startswith(CHAIN_PREFIX)
+        source = sources.get(value)
+        size = _chained_size(doc, shot_id) if chained else (_source_size(user, source) if source is not None else None)
+        if size is None:
+            continue
+        loss = framefit.lost(size[0], size[1], ratio)
+        if loss <= formats.EXACT_LOSS:
+            continue
+        lost = round(loss * 100)
+        image = "last image of the previous shot" if chained else "start image of the shot" if "first" in bound_as else "end image of the shot"
+        frame = formats.ratio_text(ratio[0] / ratio[1])
+        data = {"shot_id": shot_id, "roles": bound_as, "size": f"{size[0]}x{size[1]}", "aspect": frame, "loss": lost, "chained": chained}
+        if loss > formats.CROP_LOSS:
+            _add(warnings, note("frame_cropped_large", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre and loses {lost} % of the picture. Make a start image in the frame of the film instead.", **data))
+        else:
+            _add(warnings, note("frame_cropped", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre ({lost} % of the picture).", **data))
+
+
 def reference_media(
     user: User,
     doc: Mapping[str, Any],
@@ -2007,6 +2051,7 @@ def _native_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict
     if director_mode == "i2v" and _drops_last_frame(preset, doc, shot_id):
         warnings.append(note("last_frame_unsupported", "The preset starts the shot from its first frame only: the last frame of the shot is not used.", shot_id=shot_id))
     framing_warnings(doc, clip, director_mode, warnings)
+    crop_warnings(context.user, doc, shot_id, request, framefit.request_ratio(resolution, request), warnings)
     request["form_data"].update(resolved.values)
     chosen = project_options(context, fields, warnings)
     request["form_data"].update(chosen.values)
@@ -2366,6 +2411,7 @@ def _cloud_plan(context: _Context, clip: Mapping[str, Any], warnings: List[Dict[
     if director_mode == "t2v" and context.profile == FL2VA:
         warnings.append(note("fl2va_no_frame", "The shot has no first frame: it is generated from its text alone.", shot_id=shot_id))
     framing_warnings(doc, clip, director_mode, warnings)
+    crop_warnings(context.user, doc, shot_id, request, framefit.request_ratio(resolution, request, aspect), warnings)
     audio = _ignored_audio(doc, clip, seconds, warnings)
     params = {"duration_s": seconds, "resolution": resolution, "aspect_ratio": aspect}
     return ShotPlan(

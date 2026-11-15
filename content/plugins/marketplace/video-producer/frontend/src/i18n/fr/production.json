@@ -80,6 +80,8 @@
 	"deck.finalTip": "Chaque plan a une prise retenue : lancer le rendu final du film",
 	"deck.retryTip": "Relancer la prise {variant}",
 	"deck.details": "Détails",
+	"deck.startImage": "Faire une image de début",
+	"deck.startImageTip": "Ouvrir les images de début de « {shot} »",
 	"drawer.title": "Réglages de génération",
 	"drawer.subtitle": "· gardés avec le projet",
 	"drawer.close": "Fermer les réglages",

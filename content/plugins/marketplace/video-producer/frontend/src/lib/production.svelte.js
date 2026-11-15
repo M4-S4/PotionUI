@@ -209,9 +209,18 @@ function missingText(chained, data) {
 	return chained ? t('generation.warn.chainModelsMissing', params) : t('generation.warn.frameModelsMissing', params);
 }
 
+function cropText(large, data) {
+	const params = { shot: shotName(data.shot_id), size: String(data.size ?? '—').replace('x', '×'), aspect: data.aspect ?? doc.aspect, loss: data.loss ?? '—' };
+	if (data.chained) return large ? t('generation.warn.frameCroppedChainedLarge', params) : t('generation.warn.frameCroppedChained', params);
+	if (Array.isArray(data.roles) && !data.roles.includes('first')) return large ? t('generation.warn.frameCroppedLastLarge', params) : t('generation.warn.frameCroppedLast', params);
+	return large ? t('generation.warn.frameCroppedLarge', params) : t('generation.warn.frameCropped', params);
+}
+
 function baseNoteText(note) {
 	const data = note?.data ?? {};
 	const code = note?.code;
+	if (code === 'frame_cropped' || code === 'frame_cropped_large') return cropText(code === 'frame_cropped_large', data);
+	if (code === 'frame_crop_failed') return t('generation.block.frameCropFailed', { shot: shotName(data.shot_id) });
 	if (code === 'no_shots') return t('generation.block.noShots');
 	if (code === 'no_preset') return t('generation.block.noPreset');
 	if (code === 'profile_unsupported') return t('generation.block.profileUnsupported', { profile: data.profile ?? doc.direction.mode, engine: data.preset_id ? engineOptionLabel(data.preset_id, null) : engineLabel() });
@@ -456,6 +465,7 @@ export function readiness(opts = {}) {
 	const warnings = [];
 	const notes = [];
 	const gaps = [];
+	const crops = [];
 	const block = (code, text, shotId = null) => {
 		missing.push(text);
 		reasons.push({ code, shotId });
@@ -477,10 +487,11 @@ export function readiness(opts = {}) {
 		for (const warning of est.warnings) {
 			(INFO_WARNINGS.includes(warning.code) ? notes : warnings).push(noteText(warning));
 			if (warning.code === 'fl2va_no_frame' && warning.data?.shot_id) gaps.push(warning.data.shot_id);
+			if (warning.code === 'frame_cropped_large' && warning.data?.shot_id) crops.push(warning.data.shot_id);
 		}
 	}
 	const refused = refusal.key && request?.key === refusal.key ? { text: refusal.text, reason: { code: refusal.code, shotId: refusal.shotId } } : null;
-	return { range, items, missing, reasons, warnings, notes, gaps, est, noEngine, refused };
+	return { range, items, missing, reasons, warnings, notes, gaps, crops, est, noEngine, refused };
 }
 
 function blockedText(error) {
