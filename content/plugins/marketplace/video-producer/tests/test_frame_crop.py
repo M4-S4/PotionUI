@@ -719,3 +719,19 @@ def test_a_phone_photo_in_several_pictures_is_read_and_cropped_like_a_jpeg(tmp_p
     with Image.open(output) as image:
         assert (output.name, image.format, image.size) == ("phone-crop-1024x590.jpg", "JPEG", (1024, 590))
     assert _disc_ratio(output) == pytest.approx(1.0, abs=0.01)
+
+
+def test_a_picture_not_on_this_server_is_sent_as_it_is_when_no_work_folder_can_be_made_to_copy_it(core, pictures, monkeypatch):
+    from backend import workdir
+
+    pictures.add("far", (1024, 1024))
+    monkeypatch.setattr(core_bridge, "media_file_path", lambda user, ref: None)
+
+    def scratch(name, owner_id):
+        raise RuntimeError("no settings table")
+
+    monkeypatch.setattr(workdir, "scratch", scratch)
+
+    found = asyncio.run(framefit.fit(core.users["user-1"], "uploads/far.png", {"kind": "library", "item_id": "lib-far"}, (26, 15), "far.png"))
+
+    assert found is None and pictures.stored == []

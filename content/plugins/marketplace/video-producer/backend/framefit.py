@@ -345,7 +345,11 @@ async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, n
     try:
         picture = path
         if picture is None:
-            folders.append(workdir.scratch(workdir.FRAMES, owner.id))
+            try:
+                folders.append(workdir.scratch(workdir.FRAMES, owner.id))
+            except Exception:
+                logger.warning("[VIDEO-PRODUCER] No work folder to read the picture %s in", ref, exc_info=True)
+                return None
             picture = await asyncio.to_thread(_copied, owner, ref, folders[-1])
             if picture is None:
                 return None
