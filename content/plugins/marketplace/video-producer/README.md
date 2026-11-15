@@ -28,7 +28,7 @@ The plugin's **Overview** tab, in **Admin › Plugins**, checks six setup steps 
 | Install ffmpeg for video delivery | See ffmpeg. |
 | If a MiniMax-H3 preset is installed, install its model files | Four files, five with an Upscale mode; the 12 GB recipes download theirs. |
 
-A user sees only the presets assigned to them or their groups; you see them all. Also assign Video Tools or RTX Upscale, so that slow takes play without repeated frames. The steps do not check the PotionUI version, the card's model and memory, or the assistant.
+A user sees only the presets assigned to them or their groups; you see them all. Also assign Video Tools or RTX Upscale, so that takes with fewer frames per second than the film play without repeated frames. The steps do not check the PotionUI version, the card's model and memory, or the assistant.
 
 ## Choose the presets
 
@@ -42,7 +42,9 @@ A separate written authorization is required above US$20M of annual revenue, and
 
 More in the admin reference: **MiniMax-H3: read before enabling** and **LTX**.
 
-Video Producer ships six presets for 8 GB and 12 GB cards, each with a recipe of the same name in **Admin › Recipes**:
+Video Producer ships six presets for 8 GB and 12 GB cards, each with a recipe of the same name in **Admin › Recipes**.
+
+### What to expect on a 12 GB card
 
 | Card | Presets | System RAM | What the users get | A 5-second take at 832×480 |
 |---|---|---|---|---|
@@ -50,11 +52,9 @@ Video Producer ships six presets for 8 GB and 12 GB cards, each with a recipe of
 | 12 GB | **MiniMax-H3 (12 GB)**, **MiniMax-H3-Fast (12 GB)**: license above | 64 GB | Video with sound, up to 15 s; **MiniMax-H3 (12 GB)** also follows reference pictures (Ref2VA). | about 7.5 and 6 min |
 | 12 GB | **Wan 2.2 14B Lightning (12 GB)** and its companion **Wan 2.2 14B Lightning I2V (12 GB)** | 64 GB | Fast text to video; image to video for shots that start from an image. | about 3.5 min; 2 min 15 s to 2 min 45 s |
 
-Other video presets of PotionUI work too, more slowly when they are too large for the card.
-
-### What to expect on a 12 GB card
-
 Measured on an NVIDIA RTX 4070 Ti, limited to 8 GB for the 8 GB presets. A SeedVR2 upscale of such a take to 1080p takes about 2.5 hours. Set **Max generations in flight per user** and the GPU minutes of your plans accordingly. More under **Hardware** in the admin reference.
+
+Other video presets of PotionUI work too, more slowly when they are too large for the card.
 
 ## Getting started
 
@@ -63,7 +63,7 @@ A first film on a 12 GB card:
 1. In **Admin › Recipes**, run **Wan 2.2 14B Lightning (12 GB)** (about 38 GB to download), then **Wan 2.2 14B Lightning I2V (12 GB)** (31 GB more).
 2. A recipe assigns its preset to you only: assign both to your users or groups in **Admin › Presets**.
 3. In the **Overview** tab, every step but SeedVR2 should now be done.
-4. Open **Video Producer**: the starter project **Lumi’s potion** opens. Select shot 1 and click **Generate selection** (Ctrl+G).
+4. Open **Video Producer**: the starter project **Lumi’s potion** opens. Select shot 1 and click **Generate selection** (Ctrl+G): two drafts, about 7 minutes, more the first time the model loads.
 
 Chapter 2 of the user guide walks through a whole film.
 
@@ -77,11 +77,12 @@ Video Producer writes its exports and work files in `<file storage directory>/vi
 
 Video Producer needs `ffmpeg` and `ffprobe` on the `PATH` of the PotionUI process to export a video and to start a shot from the last image of the previous one. The official PotionUI Docker image ships both; elsewhere, install them and restart PotionUI.
 
-### Everything else
+### Limits worth knowing
 
-- **Wan presets**: install them with their own recipe, not with the **Install** button of a mode (see the setup notes).
+- **Wan 2.2 14B Lightning I2V (12 GB)**: install it with its own recipe, not with the **Install** button of a mode (see the setup notes).
+- **One export at a time** for the whole server; the others wait as Queued.
 - **The assistant** (chat mode **Video Producer assistant**) needs a language model that calls tools, assigned to your users.
-- Settings, quotas, engines, finals, the assistant and troubleshooting each have a section in the admin reference.
+- The admin reference has the rest: [Settings](docs/admin-reference.md#settings), [Quotas](docs/admin-reference.md#quotas), [Engines](docs/admin-reference.md#engines), [SeedVR2 for finals](docs/admin-reference.md#seedvr2-for-finals), [RTX Upscale for finals](docs/admin-reference.md#rtx-upscale-for-finals), [The assistant mode](docs/admin-reference.md#the-assistant-mode) and [Troubleshooting](docs/admin-reference.md#troubleshooting).
 
 Pages in **Admin › Documentation**: [setup notes](docs/setup.md), [admin reference](docs/admin-reference.md), [user guide](docs/user-guide.md) (users see it too), [complete reference](docs/user-reference.md), [technical reference](docs/technical-reference.md).
 
@@ -138,7 +139,7 @@ The full notes of each version are on the [releases page](https://github.com/M4-
 
 - First release in the catalogue, with **Lumi’s potion**, a starter project of four shots that opens for a new user.
 - Every prompt is in English, and the Prompt language setting is gone.
-- The page keeps its layout on the official PotionUI image.
+- The page keeps its layout when installed from the catalogue.
 
 ## Update
 
