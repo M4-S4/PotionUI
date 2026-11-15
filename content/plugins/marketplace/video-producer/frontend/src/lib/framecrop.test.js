@@ -60,7 +60,6 @@ test('the crop of an end image and of the last image of the previous shot name t
 	assert.equal(noteText(cropped('frame_cropped', { roles: ['first', 'last'] })), t('generation.warn.frameCropped', { shot: 'Opening', size: '1024×768', aspect: '16:9', loss: 23 }));
 	assert.equal(noteText(cropped('frame_cropped', { chained: true })), t('generation.warn.frameCroppedChained', { shot: 'Opening', size: '1024×768', aspect: '16:9', loss: 23 }));
 	assert.equal(noteText(cropped('frame_cropped_large', { chained: true })), t('generation.warn.frameCroppedChainedLarge', { shot: 'Opening', size: '1024×768', aspect: '16:9', loss: 23 }));
-	assert.equal(noteText({ code: 'frame_crop_failed', data: { shot_id: 's1' } }), t('generation.block.frameCropFailed', { shot: 'Opening' }));
 });
 
 test('the texts of the crop exist in every language the plugin ships, with the same parameters', () => {
@@ -78,7 +77,6 @@ test('the texts of the crop exist in every language the plugin ships, with the s
 	for (const locale of LOCALES) {
 		assert.ok(dictionaries[locale]['production.deck.startImage'], locale);
 		assert.match(dictionaries[locale]['production.deck.startImageTip'], /\{shot\}/, locale);
-		assert.match(dictionaries[locale]['generation.block.frameCropFailed'], /\{shot\}/, locale);
 	}
 	assert.equal(en('keyframes.note.aspect_mismatch', { size: '1024×1024', aspect: '16:9' }), 'The images will be 1024×1024, not 16:9: a take crops them at their centre. Put a picture in the frame of the project first, or choose a model with an output size.');
 	assert.equal(fr('keyframes.note.aspect_mismatch', { size: '1024×1024', aspect: '16:9' }), 'Les images seront en 1024×1024, pas en 16:9 : une prise les recadre au centre. Mettez d’abord une image au cadre du projet, ou choisissez un modèle qui a une taille de sortie.');
@@ -138,17 +136,32 @@ test('the key frame tiles of the shot quick edit have the ratio of the film, wid
 	assert.doesNotMatch(quick, /h-\[50px\] w-\[88px\]/);
 });
 
-test('a crop that cannot be made says its cause on the page, and an unknown cause the general text', () => {
+test('an image that could not be cropped is said to be sent as it is, with its cause and the image it is', () => {
 	scene();
-	const failed = (cause) => noteText({ code: 'frame_crop_failed', data: { shot_id: 's1', cause } });
-	assert.equal(failed('storage_full'), t('generation.block.frameCropFailedStorage', { shot: 'Opening' }));
-	assert.equal(failed('upload_too_large'), t('generation.block.frameCropFailedUpload', { shot: 'Opening' }));
-	assert.equal(failed('too_many_pixels'), t('generation.block.frameCropFailedPixels', { shot: 'Opening' }));
-	assert.equal(failed('failed'), t('generation.block.frameCropFailed', { shot: 'Opening' }));
-	assert.equal(failed(undefined), t('generation.block.frameCropFailed', { shot: 'Opening' }));
+	const said = (data) => noteText({ code: 'frame_not_cropped', data: { shot_id: 's1', roles: ['first'], chained: false, ...data } });
+	const first = t('generation.warn.notCroppedImageFirst', { shot: 'Opening' });
+	assert.equal(said({ cause: 'storage_full' }), t('generation.warn.frameNotCroppedStorage', { image: first }));
+	assert.equal(said({ cause: 'upload_too_large' }), t('generation.warn.frameNotCroppedUpload', { image: first }));
+	assert.equal(said({ cause: 'too_many_pixels' }), t('generation.warn.frameNotCroppedPixels', { image: first }));
+	assert.equal(said({ cause: 'failed' }), t('generation.warn.frameNotCropped', { image: first }));
+	assert.equal(said({ cause: 'storage_full', roles: ['last'] }), t('generation.warn.frameNotCroppedStorage', { image: t('generation.warn.notCroppedImageLast', { shot: 'Opening' }) }));
+	assert.equal(said({ cause: 'failed', chained: true }), t('generation.warn.frameNotCropped', { image: t('generation.warn.notCroppedImageChained', { shot: 'Opening' }) }));
+	assert.equal(said({ cause: 'storage_full' }), 'The start image of “Opening” is sent as it is, not cropped to the frame of the take: the storage is full.');
 	for (const locale of LOCALES) {
-		for (const key of ['frameCropFailedStorage', 'frameCropFailedUpload', 'frameCropFailedPixels']) assert.match(dictionaries[locale][`generation.block.${key}`], /\{shot\}/, `${locale} ${key}`);
+		for (const key of ['frameNotCropped', 'frameNotCroppedStorage', 'frameNotCroppedUpload', 'frameNotCroppedPixels']) assert.match(dictionaries[locale][`generation.warn.${key}`], /^\{image\} /, `${locale} ${key}`);
+		assert.ok(dictionaries[locale]['generation.card.notCropped'], locale);
+		assert.equal(dictionaries[locale]['generation.block.frameCropFailed'], undefined, locale);
 	}
+});
+
+test('a take keeps the notes of the images it was sent without their crop, and its card shows them', async () => {
+	const { normalizeTake } = await import('./api.js');
+	const note = { code: 'frame_not_cropped', message: 'x', data: { shot_id: 's2', cause: 'storage_full', roles: ['first'], chained: true } };
+	const take = normalizeTake({ id: 't1', shot_id: 's2', status: 'queued', frame_notes: [note, { code: 'other' }] });
+	assert.deepEqual(take.frameNotes, [{ shot_id: 's2', cause: 'storage_full', roles: ['first'], chained: true }]);
+	assert.deepEqual(normalizeTake({ id: 't2', shot_id: 's2', status: 'done' }).frameNotes, []);
+	const card = source('../components/takes/TakeCard.svelte');
+	assert.match(card, /\{#if take\.frameNotes\?\.length\}<span [^>]*title=\{take\.frameNotes\.map\(notCroppedText\)\.join\(' '\)\} data-take-not-cropped>\{t\('generation\.card\.notCropped'\)\}<\/span>\{\/if\}/);
 });
 
 test('the stills of the seam monitor and of the seam review have the ratio of the film', () => {

@@ -209,12 +209,19 @@ function missingText(chained, data) {
 	return chained ? t('generation.warn.chainModelsMissing', params) : t('generation.warn.frameModelsMissing', params);
 }
 
-function cropFailed(data) {
-	const params = { shot: shotName(data.shot_id) };
-	if (data.cause === 'storage_full') return t('generation.block.frameCropFailedStorage', params);
-	if (data.cause === 'upload_too_large') return t('generation.block.frameCropFailedUpload', params);
-	if (data.cause === 'too_many_pixels') return t('generation.block.frameCropFailedPixels', params);
-	return t('generation.block.frameCropFailed', params);
+function notCroppedImage(data) {
+	const shot = shotName(data.shot_id);
+	if (data.chained) return t('generation.warn.notCroppedImageChained', { shot });
+	if (Array.isArray(data.roles) && !data.roles.includes('first')) return t('generation.warn.notCroppedImageLast', { shot });
+	return t('generation.warn.notCroppedImageFirst', { shot });
+}
+
+export function notCroppedText(data = {}) {
+	const params = { image: notCroppedImage(data) };
+	if (data.cause === 'storage_full') return t('generation.warn.frameNotCroppedStorage', params);
+	if (data.cause === 'upload_too_large') return t('generation.warn.frameNotCroppedUpload', params);
+	if (data.cause === 'too_many_pixels') return t('generation.warn.frameNotCroppedPixels', params);
+	return t('generation.warn.frameNotCropped', params);
 }
 
 function cropText(large, data) {
@@ -228,7 +235,7 @@ function baseNoteText(note) {
 	const data = note?.data ?? {};
 	const code = note?.code;
 	if (code === 'frame_cropped' || code === 'frame_cropped_large') return cropText(code === 'frame_cropped_large', data);
-	if (code === 'frame_crop_failed') return cropFailed(data);
+	if (code === 'frame_not_cropped') return notCroppedText(data);
 	if (code === 'no_shots') return t('generation.block.noShots');
 	if (code === 'no_preset') return t('generation.block.noPreset');
 	if (code === 'profile_unsupported') return t('generation.block.profileUnsupported', { profile: data.profile ?? doc.direction.mode, engine: data.preset_id ? engineOptionLabel(data.preset_id, null) : engineLabel() });
