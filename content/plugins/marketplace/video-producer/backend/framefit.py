@@ -171,11 +171,6 @@ def picture(path: Optional[Path]) -> Optional[Picture]:
     return Picture(width, height, orientation in TURNED, too_large(width, height))
 
 
-def picture_size(path: Optional[Path]) -> Optional[Tuple[int, int]]:
-    found = picture(path)
-    return None if found is None or found.oversize and not found.width else (found.width, found.height)
-
-
 def decide(found: Picture, ratio: Ratio) -> Tuple[Optional[Box], Optional[str]]:
     if found.oversize and not found.width:
         return None, TOO_MANY_PIXELS
