@@ -278,6 +278,7 @@ class ShotPlan:
 
     def summary(self) -> Dict[str, Any]:
         """The shot as the estimate reports it."""
+        frame = framefit.plan_ratio(self)
         return {
             "shot_id": self.shot_id,
             "director_mode": self.director_mode,
@@ -297,6 +298,7 @@ class ShotPlan:
             "chain": self.chain,
             "chain_video": self.chain_video.trace() if self.chain_video is not None else None,
             "sheet": self.sheet.trace() if self.sheet is not None else None,
+            "frame": list(frame) if frame is not None else None,
         }
 
     def request_for(self, take_id: Optional[str] = None, seed: Optional[int] = None) -> Dict[str, Any]:
