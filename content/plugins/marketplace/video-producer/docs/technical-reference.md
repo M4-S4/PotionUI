@@ -1058,7 +1058,7 @@ There is nothing to configure for this: the page tests for `chat.prefill` itself
 
 ## Bench measures
 
-The measures below were taken on one machine and are not guarantees for another. The administration page sums them up in a table, "What to expect on a 12 GB card".
+The measures below were taken on one machine and are not guarantees for another. The administration page sums them up in a table, "What to expect on an 8 GB or 12 GB card".
 
 Generation runs on the machines you give it, so the figures below decide what your users can do. They were measured on one machine and are not guarantees for another: an NVIDIA RTX 4070 Ti with 12 GB of VRAM (12,282 MiB), a host with 128 GB of RAM of which 67 GB were given to Docker, and the native engine of PotionUI. Not measured: cloud models (no API key was available), a Studio server and cards with more than 12 GB. A dash means that no figure was recorded or that the step does not use the card. The first table comes from the first real takes; the measures of the hardware-tier presets, made with a RAM limit on the container and, for 8 GB, a capped card, are under Models and presets › Hardware tiers.
 
