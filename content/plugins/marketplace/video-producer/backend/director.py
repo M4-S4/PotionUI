@@ -1508,7 +1508,7 @@ def crop_warnings(user: User, doc: Mapping[str, Any], shot_id: str, request: Map
         data = {"shot_id": shot_id, "roles": bound_as, "size": f"{size[0]}x{size[1]}", "aspect": frame, "loss": lost, "chained": chained}
         if loss > formats.CROP_LOSS:
             wanted = "an end image" if bound_as == ["last"] and not chained else "a start image"
-            _add(warnings, note("frame_cropped_large", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre and loses {lost} % of the picture. Make {wanted} in the frame of the film instead.", **data))
+            _add(warnings, note("frame_cropped_large", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre and loses {lost} % of the picture. Make {wanted} in the frame of the take instead.", **data))
         else:
             _add(warnings, note("frame_cropped", f"The {image} is {size[0]}x{size[1]}, not {frame}: it is cropped at its centre ({lost} % of the picture).", **data))
 

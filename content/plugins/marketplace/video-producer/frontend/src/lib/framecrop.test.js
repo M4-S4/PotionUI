@@ -68,9 +68,13 @@ test('the texts of the crop exist in every language the plugin ships, with the s
 	const fr = translator('fr', missing);
 	const params = { shot: 'Opening', size: '1024×1024', aspect: '16:9', loss: 42 };
 	assert.equal(en('generation.warn.frameCropped', params), 'The start image of “Opening” is 1024×1024, not 16:9: it is cropped at its centre, 42 % of the picture left out.');
-	assert.equal(en('generation.warn.frameCroppedLarge', params), 'The start image of “Opening” is 1024×1024, not 16:9: cropped at its centre, it loses 42 % of the picture. Make a start image in the frame of the film.');
+	assert.equal(en('generation.warn.frameCroppedLarge', params), 'The start image of “Opening” is 1024×1024, not 16:9: cropped at its centre, it loses 42 % of the picture. Make a start image in the frame of the take.');
 	assert.equal(fr('generation.warn.frameCropped', params), 'L’image de début de « Opening » est en 1024×1024, pas en 16:9 : elle est recadrée au centre, 42 % de l’image en moins.');
-	assert.equal(fr('generation.warn.frameCroppedLarge', params), 'L’image de début de « Opening » est en 1024×1024, pas en 16:9 : recadrée au centre, elle perd 42 % de l’image. Faites une image de début au cadre du film.');
+	assert.equal(fr('generation.warn.frameCroppedLarge', params), 'L’image de début de « Opening » est en 1024×1024, pas en 16:9 : recadrée au centre, elle perd 42 % de l’image. Faites une image de début au cadre de la prise.');
+	assert.equal(en('generation.warn.frameCroppedLastLarge', params), 'The end image of “Opening” is 1024×1024, not 16:9: cropped at its centre, it loses 42 % of the picture. Make an end image in the frame of the take.');
+	assert.equal(fr('generation.warn.frameCroppedLastLarge', params), 'L’image de fin de « Opening » est en 1024×1024, pas en 16:9 : recadrée au centre, elle perd 42 % de l’image. Faites une image de fin au cadre de la prise.');
+	assert.equal(en('generation.warn.frameCroppedChainedLarge', params), 'The last image of the shot before “Opening” is 1024×1024, not 16:9: cropped at its centre, it loses 42 % of the picture. Make a start image in the frame of the take.');
+	assert.equal(fr('generation.warn.frameCroppedChainedLarge', params), 'La dernière image du plan avant « Opening » est en 1024×1024, pas en 16:9 : recadrée au centre, elle perd 42 % de l’image. Faites une image de début au cadre de la prise.');
 	for (const key of ['frameCropped', 'frameCroppedLast', 'frameCroppedChained', 'frameCroppedLarge', 'frameCroppedLastLarge', 'frameCroppedChainedLarge']) {
 		for (const locale of LOCALES) assert.match(dictionaries[locale][`generation.warn.${key}`], /\{shot\}.*\{size\}.*\{aspect\}.*\{loss\}/, `${locale} ${key}`);
 	}
