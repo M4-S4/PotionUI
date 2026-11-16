@@ -87,15 +87,37 @@ test('the texts of the crop exist in every language the plugin ships, with the s
 	assert.deepEqual(missing, []);
 });
 
-test('the deck offers to make a start image for the first shot whose image a large crop cuts', () => {
-	const deck = source('../components/production/ProductionDeck.svelte');
-	assert.match(deck, /const cropClip = \$derived\(blocked \? null : \(ready\.crops\.map\(/);
-	assert.match(deck, /\{#if !busy && cropClip\}/);
-	assert.match(deck, /onclick=\{\(\) => startImage\(cropClip\)\}/);
-	assert.match(deck, /t\('production\.deck\.startImage'\)/);
+const { renderComponent, hostUis, clean, textOf } = await import('./svelte-harness.js');
+const DECK = new URL('../components/production/ProductionDeck.svelte', import.meta.url).href;
+const cropButtons = (html) => [...clean(html).matchAll(/<button type="button" class="vp-deck-inline-action" data-crop-start-image="">(.*?)<\/button>/g)].map((match) => textOf(match[1]));
+const strong = (shot, roles = ['first']) => cropped('frame_cropped_large', { shot_id: shot, roles, size: '1024x1024', loss: 42 });
+const tips = (html) => hostUis(html, 'Tooltip').map((props) => props.text);
+const EMPTY = { shots: [], vram: null, time: { seconds: null, samples: 0 }, quota: null, cost: null, blocks: [], warnings: [] };
+
+test('the deck offers to make a start image for the first shot whose image a large crop cuts, while nothing blocks and nothing runs', async () => {
+	scene();
+	doc.clips.push({ id: 's2', start: 4, dur: 4, label: 'Second', stage: 'todo', take: null });
+	estimateState.data = { ...EMPTY, blocks: [], warnings: [strong('s2'), strong('s1')] };
+	const offered = await renderComponent(DECK);
+	assert.deepEqual(cropButtons(offered), [t('production.deck.startImage')]);
+	assert.ok(tips(offered).includes(t('production.deck.startImageTip', { shot: 'Second' })));
+	estimateState.data = { ...EMPTY, blocks: [{ code: 'missing_models', message: 'x', data: { models: ['a'] } }], warnings: [strong('s1')] };
+	assert.deepEqual(cropButtons(await renderComponent(DECK)), []);
+	estimateState.data = { ...EMPTY, blocks: [], warnings: [strong('s1')] };
+	ui.production.state = 'running';
+	assert.deepEqual(cropButtons(await renderComponent(DECK)), []);
+	ui.production.state = 'ready';
+	assert.deepEqual(cropButtons(await renderComponent(DECK)), [t('production.deck.startImage')]);
+	estimateState.data = { ...EMPTY, blocks: [], warnings: [cropped('frame_cropped')] };
+	assert.deepEqual(cropButtons(await renderComponent(DECK)), []);
+	estimateState.data = null;
+	assert.match(source('../components/production/ProductionDeck.svelte'), /onclick=\{\(\) => startImage\(cropClip\)\}/);
+	const { startImage } = await import('./references.js');
+	startImage(doc.clips[1]);
+	assert.deepEqual(ui.modal, { type: 'shot', id: 's2', focus: 'keyframes' });
+	ui.modal = null;
 });
 
-const { renderComponent } = await import('./svelte-harness.js');
 const framing = await import('./framing.js');
 const { frameBox } = await import('./framing.js');
 const PICKER = new URL('../components/shots/MediaPicker.svelte', import.meta.url).href;
@@ -162,8 +184,15 @@ test('a take keeps the notes of the images it was sent without their crop, and i
 	const take = normalizeTake({ id: 't1', shot_id: 's2', status: 'queued', frame_notes: [note, { code: 'other' }] });
 	assert.deepEqual(take.frameNotes, [{ shot_id: 's2', cause: 'storage_full', roles: ['first'], chained: true }]);
 	assert.deepEqual(normalizeTake({ id: 't2', shot_id: 's2', status: 'done' }).frameNotes, []);
-	const card = source('../components/takes/TakeCard.svelte');
-	assert.match(card, /\{#if take\.frameNotes\?\.length\}<span [^>]*title=\{take\.frameNotes\.map\(notCroppedText\)\.join\(' '\)\} data-take-not-cropped>\{t\('generation\.card\.notCropped'\)\}<\/span>\{\/if\}/);
+	scene();
+	const card = new URL('../components/takes/TakeCard.svelte', import.meta.url).href;
+	const own = { code: 'frame_not_cropped', message: 'x', data: { shot_id: 's1', cause: 'upload_too_large', roles: ['last'], chained: false } };
+	const badges = (html) => [...clean(html).matchAll(/<span [^>]*title="([^"]*)" data-take-not-cropped="">([^<]*)<\/span>/g)].map((match) => [match[1].replaceAll('&#39;', "'").replaceAll('&quot;', '"').replaceAll('&amp;', '&'), match[2]]);
+	const noted = normalizeTake({ id: 't3', shot_id: 's1', status: 'queued', variant: 'A', quality: 'draft', frame_notes: [own, { ...note, data: { ...note.data, shot_id: 's1', roles: ['first'], chained: false } }] });
+	assert.deepEqual(badges(await renderComponent(card, { take: noted, clip: doc.clips[0] })), [
+		[`${noteText(own)} ${noteText({ code: 'frame_not_cropped', data: { shot_id: 's1', cause: 'storage_full', roles: ['first'], chained: false } })}`, t('generation.card.notCropped')]
+	]);
+	assert.deepEqual(badges(await renderComponent(card, { take: normalizeTake({ id: 't4', shot_id: 's1', status: 'queued', variant: 'A', quality: 'draft' }), clip: doc.clips[0] })), []);
 });
 
 test('a seam still box has the ratio of the film when no take ratio is given, on a height of its own for a tall film', () => {
@@ -190,9 +219,12 @@ test('a strong warning that cuts only the end image of a shot offers to make an 
 	assert.deepEqual([readiness().crops, readiness().cropEnds], [['s1'], ['s1']]);
 	estimateState.data = { blocks: [], warnings: [strong(['first']), strong(['last'])] };
 	assert.deepEqual([readiness().crops, readiness().cropEnds], [['s1', 's1'], ['s1']]);
+	estimateState.data = { ...EMPTY, warnings: [strong(['last'])] };
+	const end = await renderComponent(DECK);
+	assert.deepEqual(cropButtons(end), [t('production.deck.endImage')]);
+	assert.ok(tips(end).includes(t('production.deck.endImageTip', { shot: 'Opening' })));
+	estimateState.data = { ...EMPTY, warnings: [strong(['last']), strong(['first'])] };
+	assert.deepEqual(cropButtons(await renderComponent(DECK)), [t('production.deck.startImage')]);
 	estimateState.data = null;
-	const deck = source('../components/production/ProductionDeck.svelte');
-	assert.match(deck, /\{cropEnd \? t\('production\.deck\.endImage'\) : t\('production\.deck\.startImage'\)\}/);
-	assert.match(deck, /cropEnd \? t\('production\.deck\.endImageTip', \{ shot: clipLabel\(cropClip\) \}\)/);
 	for (const locale of LOCALES) assert.match(dictionaries[locale]['production.deck.endImageTip'], /\{shot\}/, locale);
 });
