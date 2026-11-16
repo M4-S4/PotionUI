@@ -921,6 +921,26 @@ def test_after_a_full_storage_the_next_images_of_the_same_order_get_the_note_wit
     assert [[note["data"]["cause"] for note in take["frame_notes"]] for take in made] == [["storage_full"]] * 3
 
 
+def test_after_a_full_storage_a_crop_already_stored_for_a_next_image_of_the_same_order_is_still_sent(core, make_doc, make_project, pictures, monkeypatch):
+    core.use_h3_12gb()
+    project = _three_squares(make_doc, make_project, pictures)
+    known = asyncio.run(framefit.fit(core.users["user-1"], "uploads/square2.png", {"kind": "library", "item_id": "lib-square2"}, (26, 15), "square2.png"))
+    pictures.error = _limit("storage_quota_exceeded")
+    crops = []
+    crop_file = framefit.crop_file
+    monkeypatch.setattr(framefit, "crop_file", lambda *args: crops.append(args[0]) or crop_file(*args))
+
+    made = _start(core, project, presets.MINIMAX_H3_12GB, shots=("s1", "s2", "s3"))
+
+    assert len(crops) == 1
+    assert [[note["data"]["cause"] for note in take["frame_notes"] or []] for take in made] == [["storage_full"], [], ["storage_full"]]
+    assert [_paths(takes.get_take(take["id"])["request"]) for take in made] == [
+        [("first", "uploads/square1.png")],
+        [("first", known.value)],
+        [("first", "uploads/square3.png")],
+    ]
+
+
 def test_a_crop_larger_than_the_largest_upload_does_not_stop_the_next_images_from_being_tried(core, make_doc, make_project, pictures, monkeypatch):
     core.use_h3_12gb()
     project = _three_squares(make_doc, make_project, pictures)

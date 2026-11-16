@@ -155,6 +155,15 @@ test('an image that could not be cropped is said to be sent as it is, with its c
 	}
 });
 
+test('the French texts of a full storage and of a crop too large to upload name the limits of the project owner', () => {
+	const missing = [];
+	const fr = translator('fr', missing);
+	const image = fr('generation.warn.notCroppedImageFirst', { shot: 'Ouverture' });
+	assert.equal(fr('generation.warn.frameNotCroppedStorage', { image }), 'L’image de début de « Ouverture » est envoyée telle quelle, sans recadrage au cadre de la prise : le stockage du propriétaire du projet est plein.');
+	assert.equal(fr('generation.warn.frameNotCroppedUpload', { image }), 'L’image de début de « Ouverture » est envoyée telle quelle, sans recadrage au cadre de la prise : le recadrage dépasse le plus gros fichier que le propriétaire du projet peut envoyer.');
+	assert.deepEqual(missing, []);
+});
+
 test('a take keeps the notes of the images it was sent without their crop, and its card shows them', async () => {
 	const { normalizeTake } = await import('./api.js');
 	const note = { code: 'frame_not_cropped', message: 'x', data: { shot_id: 's2', cause: 'storage_full', roles: ['first'], chained: true } };
