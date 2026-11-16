@@ -4,6 +4,8 @@ import logging
 import re
 import shutil
 import sqlite3
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fractions import Fraction
@@ -192,6 +194,34 @@ def stamp(path: Optional[Path]) -> Optional[Stamp]:
     return found.st_size, found.st_mtime_ns
 
 
+SEEN_LIMIT = 512
+
+_SEEN: "OrderedDict[str, Tuple[Stamp, Optional[Picture]]]" = OrderedDict()
+
+_SEEN_LOCK = threading.Lock()
+
+
+def known_picture(path: Path) -> Optional[Picture]:
+    found = stamp(path)
+    if found is None:
+        return picture(path)
+    key = str(path)
+    with _SEEN_LOCK:
+        held = _SEEN.get(key)
+        if held is not None and held[0] == found:
+            _SEEN.move_to_end(key)
+            return held[1]
+    read = picture(path)
+    if read is None:
+        return None
+    with _SEEN_LOCK:
+        _SEEN[key] = (found, read)
+        _SEEN.move_to_end(key)
+        while len(_SEEN) > SEEN_LIMIT:
+            _SEEN.popitem(last=False)
+    return read
+
+
 def bound(request: Mapping[str, Any]) -> List[Dict[str, Any]]:
     document = ((request or {}).get("form_data") or {}).get("video_director")
     if not isinstance(document, Mapping):
@@ -375,7 +405,7 @@ async def _fit(owner: User, source: str, ref: Mapping[str, Any], ratio: Ratio, n
             local_file = await asyncio.to_thread(_copied, owner, ref, folders[-1])
             if local_file is None:
                 return None
-        found = await asyncio.to_thread(picture, local_file)
+        found = await asyncio.to_thread(known_picture if local_file == path else picture, local_file)
         if found is None:
             return None
         box, cause = decide(found, ratio)

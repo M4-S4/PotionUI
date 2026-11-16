@@ -1462,7 +1462,7 @@ def _source_picture(user: User, source: Mapping[str, Any]) -> Optional[framefit.
     except Exception:
         path = None
     if path and Path(path).is_file():
-        return framefit.picture(Path(path))
+        return framefit.known_picture(Path(path))
     return _declared_picture(source.get("width"), source.get("height"))
 
 
