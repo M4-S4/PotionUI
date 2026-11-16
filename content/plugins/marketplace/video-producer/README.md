@@ -44,7 +44,7 @@ More in the admin reference: **MiniMax-H3: read before enabling** and **LTX**.
 
 Video Producer ships six presets for 8 GB and 12 GB cards, each with a recipe of the same name in **Admin › Recipes**.
 
-### What to expect on a 12 GB card
+### What to expect on an 8 GB or 12 GB card
 
 | Card | Presets | System RAM | What the users get | A 5-second take at 832×480 |
 |---|---|---|---|---|
