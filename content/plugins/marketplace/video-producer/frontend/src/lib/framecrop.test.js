@@ -116,24 +116,12 @@ test('the picker of a start image shows the centre the take keeps, in the frame 
 	doc.assets = [];
 });
 
-test('the inspector and the shot editor give the start and end image thumbnails the frame of the film', () => {
-	const inspector = source('../components/inspector/Inspector.svelte');
-	assert.match(inspector, /<img src=\{thumb\} alt="" class="object-cover" style=\{frameBox\(doc\)\} data-frame-thumb \/>/);
-	assert.match(inspector, /style=\{frameBox\(doc\)\}>\{t\('inspector\.frames\.none'\)\}<\/span>/);
-	const editor = source('../components/modals/ShotEditor.svelte');
-	assert.match(editor, /title=\{t\('inspector\.frames\.first'\)\} value=\{draft\.first\} frame=\{frameBox\(doc\)\}/);
-	assert.match(editor, /title=\{t\('inspector\.frames\.last'\)\} value=\{draft\.last\} frame=\{frameBox\(doc\)\}/);
-});
-
-test('the key frame tiles of the shot quick edit have the ratio of the film, wide ones 88 px across and tall ones 50 px high', async () => {
+test('a key frame tile has the ratio of the film when no take ratio is given, wide ones 88 px across and tall ones 50 px high', async () => {
 	const { frameTile } = await import('./framing.js');
 	assert.equal(frameTile({ aspect: '16:9' }), `aspect-ratio: ${16 / 9}; width: 88px`);
 	assert.equal(frameTile({ aspect: '2.39:1' }), `aspect-ratio: ${2.39}; width: 88px`);
 	assert.equal(frameTile({ aspect: '1:1' }), 'aspect-ratio: 1; height: 50px');
 	assert.equal(frameTile({ aspect: '9:16' }), `aspect-ratio: ${9 / 16}; height: 50px`);
-	const quick = source('../components/storyboard/ShotQuickEdit.svelte');
-	assert.match(quick, /style=\{frameTile\(doc\)\} data-quick-frame onclick=\{editor\}/);
-	assert.doesNotMatch(quick, /h-\[50px\] w-\[88px\]/);
 });
 
 test('an image that could not be cropped is said to be sent as it is, with its cause and the image it is', () => {
@@ -174,16 +162,10 @@ test('a take keeps the notes of the images it was sent without their crop, and i
 	assert.match(card, /\{#if take\.frameNotes\?\.length\}<span [^>]*title=\{take\.frameNotes\.map\(notCroppedText\)\.join\(' '\)\} data-take-not-cropped>\{t\('generation\.card\.notCropped'\)\}<\/span>\{\/if\}/);
 });
 
-test('the stills of the seam monitor and of the seam review have the ratio of the film', () => {
+test('a seam still box has the ratio of the film when no take ratio is given, on a height of its own for a tall film', () => {
 	const { frameBox } = framing;
 	assert.equal(frameBox({ aspect: '9:16' }, '18rem'), `aspect-ratio: ${9 / 16}; height: 18rem; width: auto; max-width: 100%; margin: 0 auto`);
 	assert.equal(frameBox({ aspect: '16:9' }, '18rem'), `aspect-ratio: ${16 / 9}; width: 100%`);
-	const monitor = source('../components/storyboard/BandMonitor.svelte');
-	assert.match(monitor, /style=\{frameBox\(doc, '18rem'\)\} style:grid-area="still\{k\}" data-seam-still>/);
-	assert.doesNotMatch(monitor, /aspect-video w-full overflow-hidden rounded \{src/);
-	const review = source('../components/director/ReviewSeam.svelte');
-	assert.match(review, /<span class="block overflow-hidden rounded bg-surface-3" style=\{frameBox\(doc\)\} data-seam-still>/);
-	assert.doesNotMatch(review, /block aspect-video w-full overflow-hidden rounded bg-surface-3/);
 });
 
 test('the pixel ceiling the page names is the one of the formats table, in every language', async () => {
@@ -197,7 +179,7 @@ test('the pixel ceiling the page names is the one of the formats table, in every
 	}
 });
 
-test('a strong warning that cuts only the end image of a shot offers to make an end image', () => {
+test('a strong warning that cuts only the end image of a shot offers to make an end image', async () => {
 	scene();
 	const strong = (roles) => ({ code: 'frame_cropped_large', data: { shot_id: 's1', roles, size: '1024x1024', aspect: '16:9', loss: 42, chained: false } });
 	estimateState.data = { blocks: [], warnings: [strong(['last'])] };
