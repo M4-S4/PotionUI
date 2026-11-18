@@ -101,7 +101,7 @@ The full notes of each version are on the [releases page](https://github.com/M4-
 - A new take of a shot with such an image is therefore not the take 0.6.1 made, even with the same seed.
 - Each crop or upright copy is stored in the library of the project's owner, as `<picture>-crop-<width>x<height>` or `<picture>-upright-<width>x<height>`; it counts in that owner's storage and stays when the project or the picture is deleted.
 - Before a take starts, the deck says how much of such an image is cut; past 30 % it asks for an image in the frame of the film and, when nothing blocks the generation, offers **Make a start image** or **Make an end image**.
-- When the crop cannot be made or stored, for example because the storage of the project's owner is full, the take goes with the original picture, which MiniMax-H3 may stretch, and its card says **Not cropped**, with the reason in its tooltip.
+- When the crop cannot be made or stored, for example because the storage of the project's owner is full, the take goes with the original picture, which may come out stretched in the take, depending on the engine and the version of PotionUI, and its card says **Not cropped**, with the reason in its tooltip.
 - The start and end image thumbnails and the seam frames show the picture in the frame of the film.
 - The descriptions of **MiniMax-H3 (12 GB)** and **MiniMax-H3-Fast (12 GB)** use the labels PotionUI shows, and the note of the OpenTimelineIO export no longer names products.
 - For admins: a new table, `video_producer_frame_crops`, and a new column, `frame_notes`, on `video_producer_takes`, both made at boot or when the plugin is enabled.
