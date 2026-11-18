@@ -67,7 +67,7 @@ A first film on a 12 GB card:
 3. In the **Overview** tab, every step but SeedVR2 should now be done.
 4. Open **Video Producer**: the starter project **Lumi’s potion** opens. Select shot 1 and click **Generate selection** (Ctrl+G): two drafts, about 7 minutes, more the first time the model loads.
 
-Chapter 2 of the user guide walks through a whole film.
+The user guide walks through a whole film, from the starter project to the export.
 
 ![Takes tab of the Inspector, dark theme](https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/video-producer/docs/screenshots/starter-inspector-takes-dark.webp)
 
