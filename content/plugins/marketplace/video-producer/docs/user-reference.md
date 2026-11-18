@@ -3,6 +3,27 @@
 **Video Producer: user guide** walks through the same features in the order of a film; this page describes every part of the Video Producer page, control by control. Start with the guide; come here when you want to know exactly what a button, a panel or a message does. Interface labels are written in **bold**.
 
 
+## Contents
+
+- [1. What Video Producer is](user-reference.md#1-what-video-producer-is)
+- [2. The path in eight steps](user-reference.md#2-the-path-in-eight-steps)
+- [3. The screen](user-reference.md#3-the-screen)
+- [4. Workspaces](user-reference.md#4-workspaces)
+- [5. Projects](user-reference.md#5-projects)
+- [6. Media](user-reference.md#6-media)
+- [7. Inspector](user-reference.md#7-inspector)
+- [8. The production deck and generation](user-reference.md#8-the-production-deck-and-generation)
+- [9. Takes and final render](user-reference.md#9-takes-and-final-render)
+- [10. Assistant](user-reference.md#10-assistant)
+- [11. Prompts: library and composer](user-reference.md#11-prompts-library-and-composer)
+- [12. Color and continuity](user-reference.md#12-color-and-continuity)
+- [13. Audio and subtitles](user-reference.md#13-audio-and-subtitles)
+- [14. Exports](user-reference.md#14-exports)
+- [15. Language](user-reference.md#15-language)
+- [16. Keyboard shortcuts](user-reference.md#16-keyboard-shortcuts)
+- [17. Troubleshooting](user-reference.md#17-troubleshooting)
+- [18. Glossary](user-reference.md#18-glossary)
+
 ## 1. What Video Producer is
 
 Video Producer is a PotionUI plugin for audiovisual editing, AI sequence generation, art direction and sound creation, all in one page. You write a synopsis, split it into shots, generate quick draft takes, choose the best one, render it in final quality, then cut, match colors, mix sound and deliver. It opens from the **Video Producer** entry in the sidebar.

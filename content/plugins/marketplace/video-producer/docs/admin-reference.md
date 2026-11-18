@@ -4,6 +4,41 @@ This page holds the details behind the administration page of Video Producer: th
 
 A "see" that names a section missing from this page points to **Video Producer: technical reference**, which holds the bench measures, the routes, the tables, the document of a project and how each part works.
 
+## Contents
+
+- [Requirements](admin-reference.md#requirements)
+- [Hardware](admin-reference.md#hardware)
+- [Install and activate](admin-reference.md#install-and-activate)
+- [Setup checks](admin-reference.md#setup-checks)
+- [Settings](admin-reference.md#settings)
+- [Quotas](admin-reference.md#quotas)
+- [Engines](admin-reference.md#engines)
+- [Models and presets](admin-reference.md#models-and-presets)
+- [Models and presets › Wan](admin-reference.md#wan)
+- [Models and presets › LTX](admin-reference.md#ltx)
+- [Models and presets › MiniMax-H3: read before enabling](admin-reference.md#minimax-h3-read-before-enabling)
+- [Models and presets › Hardware tiers](admin-reference.md#hardware-tiers)
+- [Models and presets › SeedVR2 for finals](admin-reference.md#seedvr2-for-finals)
+- [Models and presets › RTX Upscale for finals](admin-reference.md#rtx-upscale-for-finals)
+- [Models and presets › Cloud presets](admin-reference.md#cloud-presets)
+- [Generation](admin-reference.md#generation)
+- [Generation › Required models](admin-reference.md#required-models)
+- [Generation › Time calibration](admin-reference.md#time-calibration)
+- [Generation › GPU memory](admin-reference.md#gpu-memory)
+- [Generation › Cloud cost](admin-reference.md#cloud-cost)
+- [ffmpeg](admin-reference.md#ffmpeg)
+- [Storage and exports](admin-reference.md#storage-and-exports)
+- [Projects and media](admin-reference.md#projects-and-media)
+- [Projects and media › Versions and the versions_kept setting](admin-reference.md#versions-and-the-versions_kept-setting)
+- [Projects and media › The starter project](admin-reference.md#the-starter-project)
+- [Projects and media › Access](admin-reference.md#access)
+- [Notifications](admin-reference.md#notifications)
+- [The assistant mode](admin-reference.md#the-assistant-mode)
+- [The assistant mode › Requirements](admin-reference.md#requirements-1)
+- [The assistant mode › Which language model](admin-reference.md#which-language-model)
+- [Troubleshooting](admin-reference.md#troubleshooting)
+- [Licenses](admin-reference.md#licenses)
+
 ## Requirements
 
 - PotionUI from the official repository, at a `master` that holds the plugin API for image vectors and faces (`detect_faces`, `embed_faces`: PotionUI/PotionUI#58) or later, with plugins enabled, and an admin account to enable this one.
