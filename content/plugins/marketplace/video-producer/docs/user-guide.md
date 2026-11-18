@@ -286,7 +286,7 @@ The shortcuts you use most, for Windows and Linux (on a Mac, read ⌘ for Ctrl a
 | Ctrl+Alt+G | Generation queue |
 | Ctrl+E | Export video… |
 | Ctrl+J | PotionUI assistant |
-| Alt+1 to Alt+4 | The views of Director AI |
+| Alt+1, Alt+2, Alt+3, Alt+4 | The views of Director AI |
 | Space | Play / pause |
 | D, E | Synopsis and breakdown, Shot editor |
 | Esc | Close what is open, then clear the selection |
