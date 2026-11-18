@@ -256,7 +256,7 @@ The video holds the shots with their color and fades, and the sound as the conso
 The assistant is the PotionUI chat in its **Video Producer assistant** mode. It reads your project and can write and fix shot prompts, cut your synopsis into shots, add, change, order and delete shots, check the continuity, generate takes, label them, assemble the edit and export the video.
 
 - **What costs or cannot be taken back waits for you**: rewriting a prompt, deleting shots, generating takes and proposing a breakdown show a card, and nothing happens until you click **Approve**.
-- **The rest is done at once.** Ctrl+Z takes back what it changes in the project, but not a label or an export.
+- **The rest is done at once.** Ctrl+Z takes back what it changes in the project, a take put on its shot included, but not an export or a label that puts no take on a shot.
 
 Open it with **Assistant** in the project bar, **Window › PotionUI assistant**, or Ctrl+J, and keep the page open on your project while you chat. A conversation started elsewhere in PotionUI keeps its own mode: click **start a new chat** from this page. Write in your own language, and select a shot first or name it:
 
