@@ -94,6 +94,17 @@ Pages in **Admin › Documentation**: [setup notes](docs/setup.md), [admin refer
 
 The full notes of each version are on the [releases page](https://github.com/M4-S4/potionui-plugins/releases).
 
+### What changed in 0.7.1
+
+- When the engine makes the takes of a shot in another ratio than the film, for example 832×480 drafts of a 2.39:1 film, the start and end image thumbnails show the part that take keeps, in its ratio, instead of the frame of the film: in the Inspector, the shot editor and the shot quick edit, where an empty box takes that ratio too, and in the seam monitor and review. A picture already in the ratio of the take, within 3 %, is shown whole.
+- The thumbnails follow the take the production deck would make now, Draft or Final, and show the frame of the film until the deck has estimated such a take.
+- In the review of a take, the seams no longer have a fixed 16:9 box: a take shows in the frame of the film, and a start or end image like the thumbnails above.
+- Past 30 %, the crop warning asks for a start or end image in the frame of the take instead of the film.
+- The user guide is rewritten as one chapter per step of the work, at about half its length, with nine dark screenshots.
+- The admin, complete and technical references open with a table of contents and repeat themselves less.
+- In **Admin › Documentation**, the headings and lists of the guide and of the three references show as such, and the nine screenshots of the guide show as links, not as pictures.
+- Nothing changes in the crop, the takes, the projects or the tables: with the same seed, a new take is the one 0.7.0 makes.
+
 ### What changed in 0.7.0
 
 - A start or end image, the last image of the previous shot a take starts from or the first frame a guided final takes from its draft, when it is in another ratio than the take, is cropped at its centre before it goes to the engine, cloud engines included, so MiniMax-H3 no longer stretches it. An image a crop would cut by 3 % or less is sent as before.
