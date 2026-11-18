@@ -5,7 +5,7 @@ A page of PotionUI where your users make short films with AI video, from the syn
 https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/plugins.json
 ```
 
-Version 0.7.0. It needs PotionUI 0.2.0 or later. This page is for the administrator; users read **Video Producer: user guide**.
+Version 0.7.1. It needs PotionUI 0.2.0 or later. This page is for the administrator; users read **Video Producer: user guide**.
 
 1. In **Admin › Plugins**, click **Install from catalog**, paste the catalogue URL and click **Read catalog**.
 2. Click **Install** next to **Video Producer**, then **Install** in the window that asks to confirm. It arrives in the list, disabled.
