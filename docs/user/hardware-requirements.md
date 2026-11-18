@@ -56,7 +56,7 @@ Peak-VRAM figures below marked **(32 GB-card ceiling)** are measured GPU runs on
 
 ## Video presets by hardware tier
 
-The Video Producer plugin ships five video presets, each set up for one size of card and one size of system RAM (`requires.min_vram_gb` and `requires.min_ram_gb`, shown as badges in the preset picker), and a recipe for each that downloads its files. One more recipe, `vp-wan22-14b-i2v`, completes the core Wan 2.1 / 2.2 preset with the 14B image-to-video experts, and the core LTX-2.5 preset has its own recipe, `ltx25-starter`; the table below also carries their 12 GB runs. Their numbers are measured, not estimated: one machine with an RTX 4070 Ti (12 GB of VRAM), one clip per run (5 seconds unless the row says otherwise), cold start included unless the row says otherwise. They are not guarantees for another machine.
+The Video Producer plugin ships six video presets, each set up for one size of card and one size of system RAM (`requires.min_vram_gb` and `requires.min_ram_gb`, shown as badges in the preset picker), and a recipe for each that downloads its files. One more recipe, `vp-wan22-14b-i2v`, completes the core Wan 2.1 / 2.2 preset with the 14B image-to-video experts, and the core LTX-2.5 preset has its own recipe, `ltx25-starter`; the table below also carries their 12 GB runs. Their numbers are measured, not estimated: one machine with an RTX 4070 Ti (12 GB of VRAM), one clip per run (5 seconds unless the row says otherwise), cold start included unless the row says otherwise. They are not guarantees for another machine.
 
 | Preset | Card / system RAM | Result by container RAM limit | Time | Engine VRAM peak | Process RAM peak |
 |---|---|---|---|---|---|
