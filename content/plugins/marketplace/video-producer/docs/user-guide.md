@@ -26,7 +26,7 @@ Video Producer is a page of PotionUI for making short films with AI video. You w
 
 Your PotionUI administrator prepares what the page runs on. Ask them if something below is missing:
 
-- **An engine and a video preset assigned to you.** The engine is the machine or the cloud service that makes the videos; a preset is a ready-made setup of a model for it. If the engine chip of the production deck reads "No engine", nothing is set up for you yet.
+- **An engine and a video preset assigned to you.** The engine is what makes the videos: a video preset on your administrator's machines, or a cloud model; a preset is a ready-made setup of a model, which your administrator installs and assigns to you. If the engine chip of the production deck reads "No engine", nothing is set up for you yet.
 - **The right preset for the card.** A preset whose name ends with a card size, such as **(12 GB)**, is made for a graphics card of that size: **Wan 2.1 T2V 1.3B (8 GB)** or **Wan 2.2 TI2V 5B (8 GB)** on 8 GB; **MiniMax H3 (12 GB)**, **MiniMax H3 Fast (12 GB)** or **Wan 2.2 14B Lightning (12 GB)** on 12 GB.
 - **ffmpeg on the server**, to export a video and to start a shot from the last image of the previous one.
 - **An upscaler** (SeedVR2 or RTX Upscale) for final renders by upscale, and **an interpolator** (Video Tools or RTX Upscale) so that slow takes play smoothly.
@@ -56,7 +56,7 @@ From top to bottom:
 - **The menu bar**: ten menus. **Search commands…** (Ctrl+K) finds any command by name and runs it.
 - **The project bar**: the side panel button, the project name and its save state, the five workspaces (**Media**, **Storyboard**, **Director AI**, **Mix**, **Play**), then **Import**, **Export**, **Assistant**, the command search and the Inspector button.
 - **The work area**: a left panel that changes with the workspace, the center, and the **Inspector**, which shows the settings of what you selected.
-- **The timeline**: **Titles**, **Prompts**, **Frames**, the video track **V1**, the reference video tracks and the audio tracks (**A1**, **A2**…). Drag a shot to move it, its edges to trim it, and the white handles at the top of a clip to set its fades. In the Storyboard, the band shown above takes the place of the timeline.
+- **The timeline**: **Titles**, **Prompts**, **Frames**, the video track **V1**, the reference video tracks and the audio tracks (**A1**, **A2**…). Drag a shot to move it, its edges to trim it, and the white handles at the top of a clip to set its fades. In the band view of the Storyboard, shown above, the band takes the place of the timeline; Director AI has none.
 - **The production deck**, in **Storyboard** and **Director AI**: it says what the next generation will make and holds the one main button of the page, **Generate selection** (chapter 8).
 - **The status bar**: the language, the shots and the length of the film, the selection, the takes in the queue and, if your administrator set a limit, your **GPU quota**.
 
@@ -116,9 +116,9 @@ The **Storyboard** has two views, chosen in its header:
 
 ![Screenshot: the Synopsis and breakdown window under the band, Breakdown tab, dark theme](https://raw.githubusercontent.com/M4-S4/potionui-plugins/main/video-producer/docs/screenshots/guide-breakdown-dark.webp)
 
-**Synopsis and breakdown**, in the header of the Storyboard (or D), opens a window under the band, or the left panel in the grid:
+**Synopsis and breakdown** (D, or its button in the header of the band) opens a window under the band, or the left panel in the grid:
 
-- **Breakdown**: write your synopsis, pick a method, then click **Propose a breakdown**. **By sentence** makes one shot per sentence, **On the song** follows the parts of a song on a Music track, **Assistant** asks the PotionUI assistant. Keep, rename, split, merge, move or remove the proposed shots, then click **Add N shots**.
+- **Breakdown**: write your synopsis, pick a method, then click **Propose a breakdown** (**Ask the assistant** with the Assistant method). **By sentence** makes one shot per sentence, **On the song** follows the parts of a song on a Music track, **Assistant** asks the PotionUI assistant. Keep, rename, split, merge, move or remove the proposed shots, then click **Add N shots**.
 - **To produce**: the drafts left to make and the shots to render in final, with **Generate their drafts**.
 - **To check**: the seams to fix, the failed takes, the shots whose prompt changed after their takes and the shots without a prompt.
 
@@ -164,7 +164,7 @@ The production deck has, from left to right:
 **Generate.**
 
 1. Keep the quality on **Draft**: quick takes at a small size, to judge the motion and the framing. **Final** makes takes at the largest size of the engine; to improve a draft you like, **Final render…** is usually better (chapter 9).
-2. Choose the target: select a shot, draw a range on the timeline, choose **Sequence** for the whole film, or pick several shots with Ctrl+click. A shot whose link chip is on starts from the end of the previous shot's take and waits for it: generate the two in order, or together with **Sequence** (chapter 10).
+2. Choose the target: select a shot, draw a range on the timeline, choose **Sequence** for the whole film, or pick several shots with Ctrl+click. A shot whose link chip is on starts from the end of the previous shot's take and waits for it: generate the two in order, or together (**Sequence**, a range, or both shots picked) (chapter 10).
 3. Press **Generate selection** or Ctrl+G.
 
 Each shot gets as many takes as its number of drafts, each with its own seed. Press Ctrl+G again while takes run, and the new takes join the queue. The deck, the Storyboard card and the block of the shot show the progress; when a batch ends, a message offers **View**, and PotionUI sends a notification for each take that is ready or failed. The list button of the deck (Ctrl+Alt+G) opens the generation queue, which all your projects share. Your administrator limits how many of your takes run at once: the others wait as **Queued**.
@@ -179,7 +179,7 @@ Each shot gets as many takes as its number of drafts, each with its own seed. Pr
 
 LTX-2.5 is published under the LTX-2.x Community License of Lightricks, which asks that a video it generates be said to be generated by AI where the law requires it.
 
-**Reference video tracks** give MiniMax H3 a video to follow in Ref2VA: see [Reference video tracks](user-reference.md#reference-video-tracks) in the reference.
+**Reference video tracks** give MiniMax H3 a video to follow in Ref2VA: see chapter 8 of the reference, [Reference video tracks](user-reference.md#reference-video-tracks).
 
 ## 9. Choose the takes and render them in final
 
@@ -199,7 +199,7 @@ A take is **Selected** when it is the one its shot plays, and of **Final** quali
 
 Without an upscaler assigned to you, the window shows **Upscaler not available** and offers the re-render, and the guided render when it is installed. Once every shot has a selected take, **Production › Final render of the film…** renders all of them at once.
 
-**Frame rate and slow motion.** A take keeps the frame rate of its engine (16 fps for Wan 2.1 and Wan 2.2 14B, 24 fps for Wan 2.2 TI2V 5B (8 GB) and MiniMax H3, 25 fps for LTX); a take much slower than the film stutters in the export. **Conform**, offered by the **Export** window, **Final render of the film** and **Final render…**, makes a version at the frame rate of the film; it needs **Video Tools** or **RTX Upscale** assigned to you. **Speed**, in the Inspector and the shot editor, slows a take down: see [Slow motion](user-reference.md#slow-motion) in the reference.
+**Frame rate and slow motion.** A take keeps the frame rate of its engine (16 fps for Wan 2.1 and Wan 2.2 14B, 24 fps for Wan 2.2 TI2V 5B (8 GB) and MiniMax H3, 25 fps for LTX); a take much slower than the film stutters in the export. **Conform**, offered by the **Export** window, **Final render of the film** and **Final render…**, makes a version at the frame rate of the film; it needs **Video Tools** or **RTX Upscale** assigned to you. **Speed**, in the Inspector and the shot editor, slows a take down: see chapter 9 of the reference, [Slow motion](user-reference.md#slow-motion).
 
 ## 10. Continuity and color
 
@@ -219,7 +219,7 @@ Video Producer measures every seam, the cut from one shot to the next, and warns
 
 **Extract a frame at the playhead**, on a finished take, makes the image under the playhead the **First frame** of the shot, or its **Last frame** in the second half of the shot.
 
-**Cross-dissolve.** Select the shot that starts and choose its **Transition** in the Inspector: **Cut**, or a **Cross-dissolve**. No frame is generated for it: the shot that starts moves earlier, so the film gets shorter by the length of the dissolve, and the page says by how much. Its lengths and limits are in [Cross-dissolve between two shots](user-reference.md#cross-dissolve-between-two-shots) in the reference.
+**Cross-dissolve.** Select the shot that starts and choose its **Transition** in the Inspector: **Cut**, or a **Cross-dissolve**. No frame is generated for it: the shot that starts moves earlier, so the film gets shorter by the length of the dissolve, and the page says by how much. Its lengths and limits are in chapter 12 of the reference, [Cross-dissolve between two shots](user-reference.md#cross-dissolve-between-two-shots).
 
 ## 11. Sound and mix
 

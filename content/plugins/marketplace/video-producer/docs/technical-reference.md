@@ -1200,7 +1200,7 @@ The two MiniMax-H3 presets therefore declare 64 GB: the base one finished with 3
 
 **MiniMax-H3 (12 GB) and MiniMax-H3-Fast (12 GB)**
 
-**The text encoder lives in system RAM.** Their measures are in the table above: 32 GB of RAM leaves no margin to the first and is not enough for the second.
+**The text encoder lives in system RAM**: see Hardware tiers in **Video Producer: admin reference**.
 
 **Wan 2.1 T2V 1.3B (8 GB)**
 

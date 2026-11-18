@@ -360,7 +360,7 @@ llama-server -m Qwen3-4B-Q4_K_M.gguf -a qwen3-4b -c 16384 -ctk q8_0 -ctv q8_0 -n
 llama-server --models-preset models.ini --models-max 1 --host 127.0.0.1 --port 9931 --api-key-file llm-keys.txt
 ```
 
-llama-server, router mode, with a preset file of this form:
+In router mode, llama-server reads a preset file of this form:
 
 ```ini
 [qwen3-4b]
@@ -374,13 +374,13 @@ parallel = 1
 Before a video generation, `POST /models/unload` with the body `{"model": "qwen3-4b"}` unloads the model (measured: 1.0 s, VRAM back to its base level); the next chat request loads it again by itself (2 to 3 s). PotionUI has no action for this call yet: send it, with the header `Authorization: Bearer <key>`, from your own script or scheduler.
 
 - The default port of llama-server is 9931 since llama.cpp v0.7.0 (8080 in its Docker images).
-- In PotionUI, Admin → LLM / Assistant → **Add configuration**:
-- llama-server, type **OpenAI**;
-- llama-server, **Base URL** `http://127.0.0.1:9931/v1`, or `http://host.docker.internal:9931/v1` from the PotionUI Docker image under Docker Desktop. Under Docker on Linux, start the container with `--add-host=host.docker.internal:host-gateway` and make llama-server listen beyond 127.0.0.1 (`--host 0.0.0.0`), hence the API key;
-- llama-server, **API Key**: a key of the file;
-- llama-server, **Model**: the name given by `-a`, or the section name of the preset file (`qwen3-4b`); the model discovery of the form lists them;
-- llama-server, under **OpenAI Options**, **Reasoning Effort** **None**. Otherwise Qwen3 thinks before every call: a turn takes about 14 s instead of 1 to 2 s, and the thinking can use up **Max Tokens** without calling a tool;
-- llama-server, under **OpenAI Options**, **Context window** = the value of `-c` (16384), so that the chat budgets the conversation to what the server accepts.
+- In PotionUI, Admin → LLM / Assistant → **Add configuration**, with these fields for llama-server:
+- type **OpenAI**;
+- **Base URL** `http://127.0.0.1:9931/v1`, or `http://host.docker.internal:9931/v1` from the PotionUI Docker image under Docker Desktop. Under Docker on Linux, start the container with `--add-host=host.docker.internal:host-gateway` and make llama-server listen beyond 127.0.0.1 (`--host 0.0.0.0`), hence the API key;
+- **API Key**: a key of the file;
+- **Model**: the name given by `-a`, or the section name of the preset file (`qwen3-4b`); the model discovery of the form lists them;
+- under **OpenAI Options**, **Reasoning Effort** **None**. Otherwise Qwen3 thinks before every call: a turn takes about 14 s instead of 1 to 2 s, and the thinking can use up **Max Tokens** without calling a tool;
+- under **OpenAI Options**, **Context window** = the value of `-c` (16384), so that the chat budgets the conversation to what the server accepts.
 - **Ollama works once three settings are made under Ollama Options.** Without them the assistant does not work.
 - Ollama, **Context Size** 16384 or more. Left empty, Ollama opens its default context, 4,096 tokens on a card under 24 GB, and every turn of the assistant is refused with "Ollama returned status 400: request (… tokens) exceeds the available context size (4096 tokens)": the first turn already takes about 4,800 tokens.
 - Ollama, **Keep Alive** between 5m and 30m. The PotionUI default is 0: the model is unloaded after every answer and loaded again at every turn, which adds 4.5 to 6 s.
