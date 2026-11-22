@@ -440,7 +440,7 @@
 	"retouch.pickTake": "Ouvrez une prise terminée, ou sélectionnez un plan qui en utilise une, pour en retoucher une plage.",
 	"retouch.loading": "Lecture des moteurs…",
 	"retouch.engineMissing": "Aucun preset MiniMax-H3 12 Go de Video Producer ne vous propose cette tâche.",
-	"retouch.detectorMissing": "Affiner les visages demande ses modèles de détection, qui ne sont pas installés : {files}. Demandez à un administrateur de les installer.",
+	"retouch.detectorMissing": "Affiner les visages demande ses modèles de détection, que PotionUI ne liste pas : {files}. Demandez à un administrateur de lancer un scan des modèles (Admin › Models), puis de les installer s'ils manquent encore.",
 	"retouch.nothingToRefine": "Choisissez les visages, les mains ou les deux.",
 	"retouch.promptRequired": "Écrivez le changement que Remix doit faire.",
 	"retouch.tooShort": "Cette tâche travaille sur au moins {seconds} s : marquez une plage plus longue.",

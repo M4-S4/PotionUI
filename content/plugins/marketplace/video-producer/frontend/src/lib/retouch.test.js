@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { REFINE, REMIX, blockReason, canRetouch, initialRange, moveEdge, overLimit, rangeProblem, retouchBody, retouchPair, shareOf, snap, touchesEnd } from './retouch.js';
 import { normalizeRetouch, normalizeRetouchOffers, normalizeTake } from './api.js';
@@ -101,4 +102,12 @@ test('the offers keep their engines, limits and missing files', () => {
 		[{ task: 'refine_faces', engines: [{ presetId: 'p', name: 'H3' }], minS: 0.5, maxS: null, ready: false, reason: 'detector_missing', missing: ['face_landmarker.task'] }]
 	);
 	assert.deepEqual(normalizeRetouchOffers(null), []);
+});
+
+test('the missing detection models ask for a scan of the models first, in both languages', () => {
+	const en = JSON.parse(readFileSync(new URL('../i18n/en/generation.json', import.meta.url), 'utf-8'))['retouch.detectorMissing'];
+	const fr = JSON.parse(readFileSync(new URL('../i18n/fr/generation.json', import.meta.url), 'utf-8'))['retouch.detectorMissing'];
+	assert.match(en, /scan the models \(Admin › Models\), then to install them/);
+	assert.match(fr, /lancer un scan des modèles \(Admin › Models\), puis de les installer/);
+	assert.ok(en.includes('{files}') && fr.includes('{files}'));
 });

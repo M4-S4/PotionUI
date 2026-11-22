@@ -440,7 +440,7 @@
 	"retouch.pickTake": "Open a finished take, or select a shot that uses one, to retouch a range of it.",
 	"retouch.loading": "Reading the engines…",
 	"retouch.engineMissing": "No 12 GB MiniMax-H3 preset of Video Producer offers this task to you.",
-	"retouch.detectorMissing": "Refine faces needs its detection models, which are not installed: {files}. Ask an administrator to install them.",
+	"retouch.detectorMissing": "Refine faces needs its detection models, which PotionUI does not list: {files}. Ask an administrator to scan the models (Admin › Models), then to install them if they are still missing.",
 	"retouch.nothingToRefine": "Choose faces, hands or both.",
 	"retouch.promptRequired": "Write the change Remix should make.",
 	"retouch.tooShort": "This task works on at least {seconds} s: mark a longer range.",

@@ -194,6 +194,7 @@ def test_refine_faces_is_refused_while_its_detection_model_is_missing(client, co
     assert response.status_code == 409
     assert response.json()["detail"]["error"] == "detector_missing"
     assert "face_landmarker.task" in response.json()["detail"]["message"]
+    assert "scan the models (Admin > Models)" in response.json()["detail"]["message"]
     assert core.submitted == [] and media.ran == [] and len(takes.list_takes(project["id"])) == 1
 
 

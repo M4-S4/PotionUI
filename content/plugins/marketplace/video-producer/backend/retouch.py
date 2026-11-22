@@ -193,7 +193,7 @@ def _form(task: str, body: Mapping[str, Any], fields: models.Fields, source: Map
     if missing:
         raise _refused(
             "detector_missing",
-            f"Refine faces needs its detection models, which are not installed: {', '.join(missing)}. Ask an administrator to install them.",
+            f"Refine faces needs its detection models, which PotionUI does not list: {', '.join(missing)}. Ask an administrator to scan the models (Admin > Models), then to install them if they are still missing.",
             409,
         )
     form["enhancement_strength"] = strength
